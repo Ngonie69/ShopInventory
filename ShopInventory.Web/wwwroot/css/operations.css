@@ -30,9 +30,9 @@
 
    Where the design differs from its five siblings is that it does **not** wrap
    the list in `.ops-panel`. The filter row and the table sit on the page ground
-   with a fading rule between them, which is why /desktop-sales calls
-   `.ops-rule-fade` and none of the others do. Nothing was overridden to get
-   there; the page simply does not use the panel classes.
+   with a fading rule between them, which is why /desktop-sales reaches for
+   `.ops-rule-fade` where its siblings reach for `.ops-panel`. Nothing was
+   overridden to get there; the page simply does not use the panel classes.
 
    **One scope, six vocabularies**, the way customer-portal.css is built
    rather than the way merchandiser.css is. `.ops` carries the token block, the
@@ -273,10 +273,11 @@
 /* ── Rules ─────────────────────────────────────────────────────────────── */
 /* A freestanding rule fades out at both ends rather than stopping cleanly —
    the Nocturne signature, 48px of ramp an end from the same divider token.
-   Only the pages that put sections straight on the ground need it; the five
-   that wrap their list in `.ops-panel` are divided by the panel's own edge.
-   Today that is /desktop-sales alone, which is why this is a single class and
-   not a `<hr>` treatment. */
+   It is the divider for a section sitting straight on the page ground, which
+   is why it is a class on an empty div and not an `<hr>` treatment: the pages
+   that wrap their list in `.ops-panel` are already divided by the panel's own
+   edge. /desktop-sales uses it between its filter row and its table;
+   /desktop-transactions uses it under the hero. */
 
 .ops-rule-fade {
     height: 1px;
@@ -345,6 +346,15 @@
     color: var(--ops-ink);
     border-color: var(--ops-field-edge-hi);
     background: var(--ops-hover);
+}
+
+/* A ghost button that toggles something open stays lit while it is —
+   otherwise the only sign the filter row belongs to it is proximity. */
+.ops .ops-btn-ghost.is-on,
+.ops-overlay .ops-btn-ghost.is-on {
+    color: var(--ops-accent-text);
+    border-color: rgba(var(--ops-accent-rgb), .5);
+    background: rgba(var(--ops-accent-rgb), .1);
 }
 
 .ops .ops-btn-warn,
@@ -1041,6 +1051,26 @@
     min-width: 0;
 }
 
+/* A notice that ends in buttons is one line tall and centres on them; the
+   stacked variant above still starts its icon at the first line of text. */
+.ops-msg-row {
+    align-items: center;
+}
+
+.ops-msg-actions {
+    flex: none;
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+}
+
+/* The banner's own sentence stays page ink — the family is spent on the
+   ground and the mark, not on making a whole line of prose coloured. */
+.ops-msg-said {
+    color: var(--ops-ink-2);
+}
+
 .ops .ops-msg-x {
     flex: none;
     margin: -3px -4px 0 auto;
@@ -1485,7 +1515,21 @@
    /desktop-transactions — `.ops-dt`
    ═════════════════════════════════════════════════════════════════════════ */
 
-/* Two queue panels side by side, each a strip of counters. */
+/* Built from `Desktop Transactions.dc.html`. The five MudDataGrids and the
+   MudTabs are gone, and with them the whole `.ops.ops-dt .mud-…` skinning
+   block that existed only to make them look like the rest of the sheet: the
+   design replaces the grid-with-expanding-child-row with one fixed-layout
+   table whose selected row opens a detail panel beside it, and the row
+   actions move into that panel. So the shared `.ops-table`, `.ops-tabs` and
+   `.ops-panel` do the work now, and what is left here is only this page's
+   own: the two queue cards, the tab row's tool strip, and the detail panel.
+
+   What that trade costs, stated plainly: MudDataGrid's per-column sort and
+   filter menus go with it. The design answers them with the search box (which
+   matches reference, counterparty, type and site) and a status filter, on a
+   list the footer states is newest-first. */
+
+/* ── The two queue cards ───────────────────────────────────────────────── */
 
 .ops-dt .ops-dt-queues {
     display: grid;
@@ -1494,14 +1538,17 @@
 }
 
 .ops-dt .ops-dt-queue {
-    padding-bottom: var(--ops-s4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s6);
+    padding-bottom: var(--ops-s6);
 }
 
 .ops-dt .ops-dt-queue-head {
     display: flex;
     align-items: center;
     gap: var(--ops-s3);
-    padding: var(--ops-s4) var(--ops-s6) var(--ops-s3);
+    padding: var(--ops-s4) var(--ops-s6) 0;
     font-size: 10.5px;
     letter-spacing: .13em;
     text-transform: uppercase;
@@ -1511,244 +1558,373 @@
 .ops-dt .ops-dt-queue-head i {
     font-size: 14px;
     line-height: 1;
+    color: var(--ops-accent-text);
+}
+
+/* The queue's own size, set against its label rather than under it. */
+.ops-dt .ops-dt-queue-total {
+    margin-left: auto;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.ops-dt .ops-dt-queue-total b {
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-ink);
+}
+
+.ops-dt .ops-dt-queue-total span {
+    font-size: 11px;
     color: var(--ops-mute-3);
 }
 
-/* The queue counters. Five states across one strip, each a filter — so they
-   are buttons that carry a family, not decoration. */
+/* Every state the queue has, across one strip. These read rather than filter
+   — the pills they replace navigated to a tab, but three of the five statuses
+   they counted are lifetime totals that the pending-queue endpoint does not
+   return, so those buttons opened an empty table. The alert banner's "Review
+   failures" is the one that goes somewhere, and it goes somewhere real.
 
-.ops-dt .ops-dt-pills {
+   The number and the dot both read `--ops-fam`, so a state cannot be one
+   colour above and another below. */
+
+.ops-dt .ops-dt-lane {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ops-s4) var(--ops-s8);
+    padding: 0 var(--ops-s6);
+}
+
+.ops-dt .ops-dt-lane-fig {
+    min-width: 0;
+}
+
+.ops-dt .ops-dt-lane-n {
+    font-size: 19px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-fam, var(--ops-ink-2));
+}
+
+.ops-dt .ops-dt-lane-k {
     display: flex;
     align-items: center;
-    gap: var(--ops-s3);
+    gap: 6px;
+    margin-top: 3px;
+    font-size: 11px;
+    color: var(--ops-mute-3);
+}
+
+.ops-dt .ops-dt-lane-k .ops-dot {
+    width: 6px;
+    height: 6px;
+}
+
+/* The same four counts again as one bar, so the shape of the queue reads
+   without arithmetic. */
+.ops-dt .ops-dt-bar {
+    display: flex;
+    height: 4px;
+    margin: 0 var(--ops-s6);
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--ops-press);
+}
+
+.ops-dt .ops-dt-bar>span {
+    display: block;
+    height: 100%;
+    background: var(--ops-fam, var(--ops-mute-3));
+}
+
+/* ── The tab row ───────────────────────────────────────────────────────── */
+/* The strip and its tools share one rule. The strip is stretched to the row's
+   height rather than centred in it, because `.ops-tab.is-on::after` hangs 1px
+   below the *button* — if the tools column is the taller of the two and the
+   strip only wraps its own content, the active underline floats above the
+   rule instead of sitting on it. */
+
+.ops-dt .ops-dt-tabrow {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--ops-s6);
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--ops-divider);
+}
+
+.ops-dt .ops-dt-tabrow .ops-tabs {
+    flex: 1 1 auto;
+    min-width: 0;
+    align-self: stretch;
+    align-items: flex-end;
+    border-bottom: 0;
+    /* Stretched, the strip is taller than its buttons — and an `overflow-x`
+       of `auto` computes `overflow-y` to `auto` as well, so that slack draws a
+       vertical scrollbar beside the last tab. Only the horizontal one is
+       wanted here. */
+    overflow-y: hidden;
+}
+
+.ops-dt .ops-dt-tabtools {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding-bottom: 7px;
+}
+
+.ops-dt .ops-dt-tabtools .ops-search {
+    width: 270px;
+    max-width: 100%;
+}
+
+.ops-dt .ops-dt-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--ops-s4);
     flex-wrap: wrap;
 }
 
-.ops-dt .ops-dt-pill {
+.ops-dt .ops-dt-filters .ops-field {
+    width: 200px;
+}
+
+/* ── Table and detail, side by side ────────────────────────────────────── */
+
+.ops-dt .ops-dt-split {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ops-s6);
+    flex-wrap: wrap;
+}
+
+.ops-dt .ops-dt-main {
+    flex: 1 1 620px;
+    min-width: 0;
+}
+
+/* Fixed layout so the seven columns hold their widths whatever a counterparty
+   name does; the min-width keeps them legible and hands the overflow to
+   `.ops-scroll` rather than crushing the value column. Six of the seven are
+   sized in the markup's `<colgroup>` and sum to 682px, so the figure below
+   leaves the counterparty column — the only one that has to give — a little
+   over 160px before anything scrolls. */
+.ops-dt .ops-dt-table {
+    table-layout: fixed;
+    min-width: 850px;
+}
+
+.ops-dt .ops-table tbody tr {
+    cursor: pointer;
+}
+
+.ops-dt .ops-dt-cut {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The selected row is marked at its edge, the same way `.ops-row-bad` is —
+   three classes deep so it beats the shared `tr:hover` at (0,2,3). */
+.ops-dt .ops-table tbody tr.is-on {
+    background: rgba(var(--ops-accent-rgb), .07);
+}
+
+.ops-dt .ops-table tbody tr.is-on:hover {
+    background: rgba(var(--ops-accent-rgb), .12);
+}
+
+.ops-dt .ops-table tbody tr.is-on td:first-child {
+    box-shadow: inset 3px 0 0 var(--ops-accent);
+}
+
+/* A status told as a mark and a word — the row already carries a reference,
+   a value and a document number, and a filled badge among them shouts. */
+.ops-dt .ops-dt-state {
     display: inline-flex;
     align-items: center;
-    gap: var(--ops-s3);
-    padding: 5px 12px;
-    border: 1px solid rgba(var(--ops-fam-rgb, 94, 100, 131), .38);
-    border-radius: 999px;
-    background: transparent;
-    font: inherit;
-    font-size: 12px;
-    color: var(--ops-fam, var(--ops-mute-2));
-    cursor: pointer;
+    gap: 7px;
+    font-size: 11.5px;
     white-space: nowrap;
-    transition: background-color .14s, border-color .14s;
+    color: var(--ops-fam, var(--ops-mute-2));
 }
 
-.ops-dt .ops-dt-pill:hover {
-    background: rgba(var(--ops-fam-rgb, 94, 100, 131), .12);
+.ops-dt .ops-dt-state .ops-dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
 }
 
-.ops-dt .ops-dt-pill.is-on {
-    background: rgba(var(--ops-fam-rgb, 94, 100, 131), .16);
-    border-color: var(--ops-fam, var(--ops-field-edge-hi));
+/* ── The detail panel ──────────────────────────────────────────────────── */
+/* Beside the table rather than over it: this is a page you read down a list
+   with, and a drawer that covers the list defeats that. It sticks below the
+   app bar so the panel stays put while the list scrolls under it. */
+
+.ops-dt .ops-dt-detail {
+    position: sticky;
+    top: calc(var(--kf-topbar-h, 74px) + var(--ops-s4));
+    /* Held at its width rather than allowed to grow: `1 1 344px` beside a
+       table that also grows splits the slack between them, and the panel ends
+       up half as wide again as the design draws it while the table it is
+       reporting on scrolls. Below the wrap point it takes the full row. */
+    width: 344px;
+    flex: 0 0 344px;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s6);
+    padding: var(--ops-s6);
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-lg);
+    background: var(--ops-surface);
 }
 
-.ops-dt .ops-dt-pill-count {
-    font-variant-numeric: tabular-nums;
+.ops-dt .ops-dt-detail-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ops-s4);
+}
+
+.ops-dt .ops-dt-detail-kind {
+    margin-bottom: 5px;
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ops-accent-text);
+}
+
+.ops-dt .ops-dt-detail-ref {
+    font-size: 19px;
     font-weight: 500;
+    letter-spacing: -.01em;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-ink);
+    overflow-wrap: anywhere;
 }
 
-/* The row a queue entry expands into. It belongs to the row above it, so it
-   takes the accent rail rather than a border of its own. */
-.ops-dt .ops-dt-expand {
-    padding: var(--ops-s6) var(--ops-s8);
-    box-shadow: inset 3px 0 0 var(--ops-accent);
-    background: var(--ops-hover);
+.ops-dt .ops-dt-detail-x {
+    margin-left: auto;
 }
 
-.ops-dt .ops-dt-expand-title {
-    margin-bottom: var(--ops-s4);
-    font-size: 10.5px;
-    letter-spacing: .1em;
-    text-transform: uppercase;
-    color: var(--ops-mute-3);
-}
-
-.ops-dt .ops-dt-mini {
+.ops-dt .ops-dt-facts {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: var(--ops-s4) var(--ops-s6);
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 9px var(--ops-s6);
+    font-size: 12.5px;
 }
 
-.ops-dt .ops-dt-mini-k {
-    font-size: 10.5px;
-    letter-spacing: .1em;
-    text-transform: uppercase;
+.ops-dt .ops-dt-fact-k {
     color: var(--ops-mute-3);
 }
 
-.ops-dt .ops-dt-mini-v {
-    margin-top: 2px;
-    font-size: 12.5px;
+.ops-dt .ops-dt-fact-v {
+    text-align: right;
     color: var(--ops-ink-2);
     overflow-wrap: anywhere;
 }
 
-/* A read-only field in the detail panel — the same idea one size up. */
-.ops-dt .ops-dt-detail {
-    padding: var(--ops-s4);
-    border-radius: var(--ops-r-md);
-    background: var(--ops-field-bg);
+.ops-dt .ops-dt-rule {
+    height: 1px;
+    background: var(--ops-rule);
 }
 
-/* ── The MudBlazor surfaces ────────────────────────────────────────────── */
-/* This page keeps its five MudDataGrids and its MudTabs, so those have to be
-   skinned rather than replaced. MudBlazor.min.css is the last stylesheet
-   App.razor loads, so **later source order does not help** — every selector
-   here is three classes deep (`.ops.ops-dt .mud-…`, 0-3-0) to beat it on
-   specificity instead. See wwwroot/css/customer-portal.css for the same move
-   on the portal's Mud controls.
-
-   Only the surfaces are taken: the grid's own layout, sorting affordances and
-   column sizing are left exactly as MudBlazor draws them. */
-
-.ops.ops-dt .mud-paper {
-    border: 1px solid var(--ops-divider);
-    border-radius: var(--ops-r-lg);
-    background: linear-gradient(to bottom, var(--ops-wash), transparent 240px);
-    box-shadow: none;
-    color: var(--ops-ink);
-}
-
-/* Tabs — underlined, like every other tab strip in the system. */
-.ops.ops-dt .ops-dt-tabhead {
-    background: transparent;
-    border-bottom: 1px solid var(--ops-divider);
-}
-
-.ops.ops-dt .mud-tab {
-    font-family: 'Inter', system-ui, sans-serif;
-    font-size: 13px;
-    font-weight: 400;
-    letter-spacing: 0;
-    text-transform: none;
-    min-width: auto;
-    padding: 10px 16px;
-    color: var(--ops-mute-2);
-}
-
-.ops.ops-dt .mud-tab:hover,
-.ops.ops-dt .mud-tab.mud-tab-active {
-    color: var(--ops-ink);
-}
-
-.ops.ops-dt .mud-tab-slider {
-    background: var(--ops-accent);
-}
-
-/* The grid. Header, cells and rows only — the same ink and rules the
-   hand-written `.ops-table` uses, so the two read as one page. */
-.ops.ops-dt .mud-table-root {
-    background: transparent;
-    color: var(--ops-ink);
-}
-
-.ops.ops-dt .mud-table-head .mud-table-cell {
-    padding: var(--ops-s4);
-    border-bottom: 1px solid var(--ops-divider);
-    background: transparent;
-    font-family: 'Inter', system-ui, sans-serif;
+.ops-dt .ops-dt-log-title {
+    margin-bottom: var(--ops-s4);
     font-size: 10.5px;
-    font-weight: 500;
-    letter-spacing: .1em;
+    letter-spacing: .12em;
     text-transform: uppercase;
     color: var(--ops-mute-3);
 }
 
-.ops.ops-dt .mud-table-body .mud-table-cell {
-    padding: 9px var(--ops-s4);
-    border-bottom: 1px solid var(--ops-rule);
-    font-size: 12.5px;
-    color: var(--ops-ink-2);
+.ops-dt .ops-dt-log {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s3);
 }
 
-.ops.ops-dt .mud-table-body .mud-table-row:hover>.mud-table-cell {
-    background: var(--ops-hover);
+.ops-dt .ops-dt-log-row {
+    display: flex;
+    gap: var(--ops-s4);
+    font-size: 11.5px;
+    line-height: 1.5;
 }
 
-/* A row that opens a detail panel says so with the cursor. */
-.ops.ops-dt .mud-table-body .mud-table-row {
-    cursor: pointer;
+.ops-dt .ops-dt-log-t {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-mute-3);
 }
 
-/* MudDataGrid's own filter and sort affordances sit in the header cell; they
-   inherit the header's muted ink rather than Mud's primary. */
-.ops.ops-dt .mud-table-head .mud-button-root,
-.ops.ops-dt .mud-table-head .mud-icon-root {
-    color: inherit;
+.ops-dt .ops-dt-log-msg {
+    min-width: 0;
+    color: var(--ops-fam, var(--ops-mute-2));
+    overflow-wrap: anywhere;
 }
 
-/* Chips and alerts — routed to the families so a success chip here is the same
-   green as a good badge two panels up. */
-.ops.ops-dt .mud-chip {
-    height: auto;
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-family: 'Inter', system-ui, sans-serif;
-    font-size: 10.5px;
-    letter-spacing: .04em;
-    background: rgba(var(--ops-fam-good-rgb), .14);
-    border: 0;
-    color: var(--ops-fam-good);
-}
-
-.ops.ops-dt .mud-alert {
+/* SAP's own words, verbatim. The one place on this page that gets a filled
+   ground, because it is the one thing a person has to act on. */
+.ops-dt .ops-dt-err {
+    padding: 11px 13px;
     border-radius: var(--ops-r-md);
-    box-shadow: none;
-    font-size: 12.5px;
-}
-
-.ops.ops-dt .mud-alert-filled-info,
-.ops.ops-dt .mud-alert-outlined-info {
-    background: rgba(var(--ops-fam-info-rgb), .1);
-    box-shadow: inset 0 0 0 1px rgba(var(--ops-fam-info-rgb), .3);
-    color: var(--ops-fam-info);
-}
-
-.ops.ops-dt .mud-alert-filled-warning,
-.ops.ops-dt .mud-alert-outlined-warning {
-    background: rgba(var(--ops-fam-warn-rgb), .1);
-    box-shadow: inset 0 0 0 1px rgba(var(--ops-fam-warn-rgb), .3);
-    color: var(--ops-fam-warn);
-}
-
-.ops.ops-dt .mud-alert-filled-error,
-.ops.ops-dt .mud-alert-outlined-error {
     background: rgba(var(--ops-fam-bad-rgb), .1);
     box-shadow: inset 0 0 0 1px rgba(var(--ops-fam-bad-rgb), .3);
+    font-size: 11.5px;
+    line-height: 1.55;
     color: var(--ops-fam-bad);
+    overflow-wrap: anywhere;
 }
 
-.ops.ops-dt .mud-alert-filled-success,
-.ops.ops-dt .mud-alert-outlined-success {
-    background: rgba(var(--ops-fam-good-rgb), .1);
-    box-shadow: inset 0 0 0 1px rgba(var(--ops-fam-good-rgb), .3);
-    color: var(--ops-fam-good);
+.ops-dt .ops-dt-detail-acts {
+    display: flex;
+    gap: var(--ops-s3);
 }
 
-/* The row-level icon buttons: quiet until hovered, like `.ops-icon-btn`. */
-.ops.ops-dt .mud-table-body .mud-icon-button {
-    color: var(--ops-mute-2);
+.ops-dt .ops-dt-detail-acts .ops-btn {
+    flex: 1;
 }
 
-.ops.ops-dt .mud-table-body .mud-icon-button:hover {
-    background: var(--ops-press);
-    color: var(--ops-ink);
+/* ── Hero meta ─────────────────────────────────────────────────────────── */
+
+.ops-dt .ops-dt-sync {
+    text-align: right;
+    line-height: 1.35;
+    white-space: nowrap;
 }
 
-.ops.ops-dt .mud-progress-linear {
-    border-radius: 999px;
-    background: var(--ops-press);
+.ops-dt .ops-dt-sync-now {
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-mute);
 }
 
-.ops.ops-dt .mud-progress-linear-bar {
-    background: var(--ops-accent);
+.ops-dt .ops-dt-sync-note {
+    font-size: 10.5px;
+    color: var(--ops-mute-3);
+}
+
+/* The wrap point: `.ops-dt-main` has a 620px basis and the panel is 344px, so
+   below roughly this width the two are already on separate rows — at which
+   point the panel should hold the row rather than a third of it. */
+@media (max-width: 1040px) {
+    .ops-dt .ops-dt-detail {
+        position: static;
+        width: 100%;
+        flex: 1 1 100%;
+    }
+}
+
+@media (max-width: 900px) {
+    .ops-dt .ops-dt-sync {
+        text-align: left;
+    }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

@@ -2,24 +2,37 @@
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin")]
+@implements IAsyncDisposable
 @inject IDesktopIntegrationService DesktopService
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @rendermode InteractiveServer
 <PageTitle>Desktop Transactions - Shop Inventory</PageTitle>
-@* Styles live in wwwroot/css/operations.css (linked from App.razor), shared
-   with the other four operational pages — see that file's header. `ops` is the
-   scope; `ops-dt` is this page's own half of it.
-   The five MudDataGrids stay. They carry this page's sorting, filtering and
-   cell templates, and lifting that out to hand-written tables would be a large
-   behavioural change made for a visual reason — so the page's own chrome moved
-   to the Nocturne vocabulary and the Mud surfaces are skinned from `.ops-dt`
-   instead. The 155-line inline <style> block is gone.
-   The file was also double-spaced: 2,964 of its 4,358 lines were blank, which
-   is the only reason it read as the largest page in the app. *@
+@* Built from `Desktop Transactions.dc.html`. Styles live in
+   wwwroot/css/operations.css (linked from App.razor), shared with the other
+   four operational pages — `ops` is the scope, `ops-dt` this page's own half.
+
+   The design replaces five MudDataGrids and a MudTabs with one fixed-layout
+   table and a detail panel beside it: every lane has the same seven columns,
+   so every lane is the same table, and selecting a row opens the panel that
+   used to be an expanding child row. Row actions moved into that panel. The
+   Mud surfaces are gone, and so is the `.ops.ops-dt .mud-…` block that
+   existed only to skin them.
+
+   What the trade costs is worth stating: MudDataGrid's per-column sort and
+   filter menus. The design answers them with the search box — which matches
+   reference, counterparty, type and site at once — and a status filter, over
+   a list the footer states is newest-first.
+
+   The rows are projected into one `QueueRow` shape rather than rendered from
+   three DTOs, which is what lets the five lanes share a table. Nothing the
+   old expanding rows showed was dropped: it moved into `Facts`, which is a
+   per-lane list rather than a fixed set, because an invoice's fiscal receipt
+   and a reservation's expiry are not the same six fields. *@
 
 <div class="ops ops-dt">
-        <div class="ops-hero">
+
+    <div class="ops-hero">
         <div class="ops-hero-text">
             <div class="ops-kicker">Desktop sync</div>
             <h1>Desktop Transactions</h1>
@@ -29,11 +42,15 @@
             </p>
         </div>
         <div class="ops-hero-actions">
+            <div class="ops-dt-sync">
+                <div class="ops-dt-sync-now">Last sync @_lastSync.ToString("HH:mm:ss")</div>
+                <div class="ops-dt-sync-note">Polling SAP every @PollSeconds seconds</div>
+            </div>
             <button type="button" class="ops-btn ops-btn-primary" @onclick="RefreshAll" disabled="@_isLoading">
                 @if (_isLoading)
                 {
                     <span class="ops-spin"></span>
-                    <span>Refreshing&hellip;</span>
+                    <span>Refreshing…</span>
                 }
                 else
                 {
@@ -43,1054 +60,401 @@
             </button>
         </div>
     </div>
-    @* ─── Dashboard Banner: compact pill-style stats ─── *@
+
+    <div class="ops-rule-fade"></div>
+
+    @* ─── The two queues, each as a total, five states and their proportions ─── *@
     <div class="ops-dt-queues">
-        @if (_stats != null)
+        @if (_stats is not null)
         {
-            <div class="ops-panel ops-dt-queue">
-                <div class="ops-dt-queue-head">
-                    <i class="ph ph-receipt" aria-hidden="true"></i>
-                    Invoice Queue
-                </div>
-                <div class="ops-dt-pills">
-                    <button type="button" class="ops-dt-pill ops-fam-warn" @onclick="@(() => NavigateToTab(0))" title="View pending invoices">
-                        <span class="ops-dt-pill-count">@_stats.Pending</span> Pending
-                    </button>
-                    <button type="button" class="ops-dt-pill ops-fam-info" @onclick="@(() => NavigateToTab(0))" title="View processing invoices">
-                        <span class="ops-dt-pill-count">@_stats.Processing</span> Processing
-                    </button>
-                    <button type="button" class="ops-dt-pill ops-fam-good" @onclick="@(() => NavigateToTab(0))" title="View completed invoices">
-                        <span class="ops-dt-pill-count">@_stats.Completed</span> Completed
-                    </button>
-                    <button type="button" class="ops-dt-pill ops-fam-bad" @onclick="@(() => NavigateToTab(0))" title="View failed invoices">
-                        <span class="ops-dt-pill-count">@_stats.Failed</span> Failed
-                    </button>
-                    @if (_stats.RequiresReview > 0)
-                    {
-                        <button type="button" class="ops-dt-pill ops-fam-accent" @onclick="@(() => NavigateToTab(1))" title="View invoices needing review">
-                            <span class="ops-dt-pill-count">@_stats.RequiresReview</span> Review
-                        </button>
-                    }
-                    <button type="button" class="ops-dt-pill ops-fam-neutral" @onclick="@(() => NavigateToTab(0))" title="View all invoices">
-                        <span class="ops-dt-pill-count">@_stats.TotalQueued</span> Total
-                    </button>
-                </div>
-            </div>
+            @RenderQueueCard("ph-receipt", "Invoice queue", "documents", _stats.TotalQueued,
+                     _stats.Pending, _stats.Processing, _stats.Completed + _stats.Fiscalized,
+                     _stats.Failed + _stats.RequiresReview, _stats.Cancelled)
         }
-        @if (_transferStats != null)
+        @if (_transferStats is not null)
         {
-            <div class="ops-panel ops-dt-queue">
-                <div class="ops-dt-queue-head">
-                    <i class="ph ph-arrows-left-right" aria-hidden="true"></i>
-                    Transfer Queue
-                </div>
-                <div class="ops-dt-pills">
-                    <button type="button" class="ops-dt-pill ops-fam-warn" @onclick="@(() => NavigateToTab(2))" title="View pending transfers">
-                        <span class="ops-dt-pill-count">@_transferStats.Pending</span> Pending
-                    </button>
-                    <button type="button" class="ops-dt-pill ops-fam-info" @onclick="@(() => NavigateToTab(2))" title="View processing transfers">
-                        <span class="ops-dt-pill-count">@_transferStats.Processing</span> Processing
-                    </button>
-                    <button type="button" class="ops-dt-pill ops-fam-good" @onclick="@(() => NavigateToTab(2))" title="View completed transfers">
-                        <span class="ops-dt-pill-count">@_transferStats.Completed</span> Completed
-                    </button>
-                    <button type="button" class="ops-dt-pill ops-fam-bad" @onclick="@(() => NavigateToTab(2))" title="View failed transfers">
-                        <span class="ops-dt-pill-count">@_transferStats.Failed</span> Failed
-                    </button>
-                    @if (_transferStats.RequiresReview > 0)
-                    {
-                        <button type="button" class="ops-dt-pill ops-fam-accent" @onclick="@(() => NavigateToTab(3))" title="View transfers needing review">
-                            <span class="ops-dt-pill-count">@_transferStats.RequiresReview</span> Review
-                        </button>
-                    }
-                    <button type="button" class="ops-dt-pill ops-fam-neutral" @onclick="@(() => NavigateToTab(2))" title="View all transfers">
-                        <span class="ops-dt-pill-count">@_transferStats.TotalQueued</span> Total
-                    </button>
-                </div>
-            </div>
+            @RenderQueueCard("ph-arrows-left-right", "Transfer queue", "movements", _transferStats.TotalQueued,
+                     _transferStats.Pending, _transferStats.Processing, _transferStats.Completed,
+                     _transferStats.Failed + _transferStats.RequiresReview, _transferStats.Cancelled)
         }
     </div>
-    @* ─── Tabs ─── *@
-    <MudPaper Elevation="0" Class="mt-2" Style="border: 1px solid rgba(0,0,0,0.08); border-radius: 12px; overflow: hidden;">
-        <MudTabs Elevation="0" Rounded="false" ApplyEffectsToContainer="true" TabPanelsClass="pa-4"
-            @bind-ActivePanelIndex="_activeTab" Color="Color.Transparent" SliderColor="Color.Primary"
-            TabHeaderClass="ops-dt-tabhead">
-            @* ═══ Invoice Queue Tab ═══ *@
-            <MudTabPanel Text="Invoice Queue" Icon="@Icons.Material.Outlined.Queue" BadgeData="@_queuedInvoices?.Count"
-                BadgeColor="Color.Primary">
-                @if (_isLoading)
+
+    @if (RejectedCount > 0)
+    {
+        <div class="ops-msg ops-msg-row ops-fam-accent">
+            <span class="ops-dot ops-fam-bad"></span>
+            <div class="ops-msg-body ops-msg-said">
+                @RejectedCount @(RejectedCount == 1 ? "document was" : "documents were") rejected by SAP and
+                @(RejectedCount == 1 ? "is" : "are") waiting on a person@(OldestRejected is null
+                    ? "." : $" — the oldest has been open since {OldestRejected.Value.ToLocalTime():HH:mm on d MMM}.")
+            </div>
+            <div class="ops-msg-actions">
+                <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" @onclick="GoToReview">Review failures</button>
+                <button type="button" class="ops-btn ops-btn-primary ops-btn-sm" @onclick="RetryAll" disabled="@_isLoading">Retry all</button>
+            </div>
+        </div>
+    }
+
+    @* ─── Lanes, search and filters ─── *@
+    <div class="ops-dt-tabrow">
+        <div class="ops-tabs" role="tablist">
+            @foreach (var lane in Lanes)
+            {
+                <button type="button" role="tab" class="@($"ops-tab{(lane == _lane ? " is-on" : string.Empty)}")"
+                        aria-selected="@(lane == _lane)" @onclick="() => SelectLane(lane)">
+                    <span>@LaneLabel(lane)</span>
+                    <span class="ops-tab-count">@RowsFor(lane).Count</span>
+                </button>
+            }
+        </div>
+        <div class="ops-dt-tabtools">
+            <div class="ops-search">
+                <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                <input type="search" class="ops-input" value="@_query" @oninput="OnQueryInput"
+                       placeholder="Search reference, party, type" aria-label="Search this queue" />
+            </div>
+            <button type="button" class="@($"ops-btn ops-btn-ghost{(_filtersOpen ? " is-on" : string.Empty)}")"
+                    aria-expanded="@_filtersOpen" @onclick="() => _filtersOpen = !_filtersOpen">
+                <i class="ph ph-funnel" aria-hidden="true"></i>
+                <span>Filters</span>
+            </button>
+        </div>
+    </div>
+
+    @if (_filtersOpen)
+    {
+        <div class="ops-dt-filters">
+            <div class="ops-field">
+                <label class="ops-label" for="ops-dt-status">SAP status</label>
+                <select id="ops-dt-status" class="ops-input" value="@_statusFilter"
+                        @onchange="OnStatusFilterChanged">
+                    <option value="">All statuses</option>
+                    @foreach (var status in StatusOptions)
+                    {
+                        <option value="@status">@ReadStatus(status).Label</option>
+                    }
+                </select>
+            </div>
+            @if (!string.IsNullOrEmpty(_statusFilter) || !string.IsNullOrWhiteSpace(_query))
+            {
+                <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearFilters">Clear</button>
+            }
+        </div>
+    }
+
+    @* ─── The lane, and the selected row beside it ─── *@
+    <div class="ops-dt-split">
+        <div class="ops-dt-main">
+            <div class="ops-panel">
+                @if (_isLoading && _rowsLoaded is false)
                 {
-                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-2" Style="border-radius: 4px;" />
+                    <div class="ops-loading">
+                        <span class="ops-spin ops-spin-lg"></span>
+                        <p>Reading the desktop queues…</p>
+                    </div>
                 }
-                else if (_queuedInvoices == null || !_queuedInvoices.Any())
+                else if (VisibleRows.Count == 0)
                 {
                     <div class="ops-empty">
-    <i class="ph ph-tray" aria-hidden="true"></i>
-    <h3>No queued invoices</h3>
-    <p>Desktop invoice submissions will appear here</p>
-</div>
+                        <i class="ph @(IsFiltered ? "ph-magnifying-glass" : "ph-tray")" aria-hidden="true"></i>
+                        <h3>@EmptyTitle</h3>
+                        <p>@EmptyBody</p>
+                        @if (IsFiltered)
+                        {
+                            <div class="ops-empty-actions">
+                                <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearFilters">Clear the filters</button>
+                            </div>
+                        }
+                    </div>
                 }
                 else
                 {
-                    <MudDataGrid T="InvoiceQueueStatusDto" Items="@_queuedInvoices" SortMode="SortMode.Multiple"
-                        Filterable="true" Hover="true" Dense="true" Bordered="false"
-                        RowStyle="font-size: 0.875rem;" HeaderClass="dt-grid-header"
-                        RowClick="@((DataGridRowClickEventArgs<InvoiceQueueStatusDto> args) => ToggleInvoiceExpand(args.Item))">
-                        <Columns>
-                            <TemplateColumn Title="" Sortable="false" Filterable="false" CellStyle="width: 40px; padding: 4px 8px;">
-                                <CellTemplate>
-                                    <MudIconButton Icon="@(_expandedInvoiceId == context.Item.QueueId ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
-                                        Size="Size.Small"
-                                        OnClick="@(() => ToggleInvoiceExpand(context.Item))" />
-                                </CellTemplate>
-                            </TemplateColumn>
-                            <PropertyColumn Property="x => x.ExternalReference" Title="Reference">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ExternalReference</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CustomerCode" Title="Customer" />
-                            <PropertyColumn Property="x => x.Status" Title="Status">
-                                <CellTemplate>
-                                    <span class="ops-badge @GetStatusFamily(context.Item.Status)">@context.Item.Status</span>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.TotalAmount" Title="Amount" Format="N2">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-variant-numeric: tabular-nums;">
-                                        @context.Item.Currency @context.Item.TotalAmount.ToString("N2")
-                                    </MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.SapDocNum" Title="SAP Doc#">
-                                <CellTemplate>
-                                    @if (context.Item.SapDocNum.HasValue)
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined"
-                                            Style="font-size: 0.75rem;">@context.Item.SapDocNum</MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">&mdash;</MudText>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CreatedAt" Title="Created" Format="g">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CreatedAt.ToLocalTime().ToString("g")</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <TemplateColumn Title="Actions" Sortable="false">
-                                <CellTemplate>
-                                    <MudStack Row="true" Spacing="0">
-                                        @if (context.Item.CanRetry)
-                                        {
-                                            <MudTooltip Text="Retry">
-                                                <MudIconButton Icon="@Icons.Material.Outlined.Replay" Size="Size.Small"
-                                                    Color="Color.Primary" OnClick="@(() => RetryInvoice(context.Item))" />
-                                            </MudTooltip>
-                                        }
-                                        @if (context.Item.CanCancel)
-                                        {
-                                            <MudTooltip Text="Cancel">
-                                                <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small"
-                                                    Color="Color.Error" OnClick="@(() => CancelQueuedInvoice(context.Item))" />
-                                            </MudTooltip>
-                                        }
-                                    </MudStack>
-                                </CellTemplate>
-                            </TemplateColumn>
-                        </Columns>
-                        <ChildRowContent>
-                            @if (_expandedInvoiceId == context.Item.QueueId)
+                    <div class="ops-scroll">
+                        <table class="ops-table ops-dt-table">
+                            @* Six fixed columns totalling 682px; the
+                               counterparty takes whatever is left. See
+                               `.ops-dt-table` in operations.css. *@
+                            <colgroup>
+                                <col style="width: 112px" />
+                                <col style="width: 132px" />
+                                <col />
+                                <col style="width: 88px" />
+                                <col style="width: 118px" />
+                                <col style="width: 116px" />
+                                <col style="width: 116px" />
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th>Reference</th>
+                                    <th>@TypeHeader</th>
+                                    <th>@PartyHeader</th>
+                                    <th>Submitted</th>
+                                    <th class="ops-num">@ValueHeader</th>
+                                    <th>SAP status</th>
+                                    <th>SAP document</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in VisibleRows)
+                                {
+                                    <tr class="@(row.Key == _selectedKey ? "is-on" : null)" @key="row.Key"
+                                        @onclick="() => SelectRow(row.Key)">
+                                        <td class="ops-dt-cut" title="@row.Reference">@row.Reference</td>
+                                        <td class="ops-dt-cut" title="@row.Kind">@row.Kind</td>
+                                        <td class="ops-dt-cut" title="@row.PartyLine">
+                                            <span class="ops-name">@row.Party</span>
+                                            @if (!string.IsNullOrWhiteSpace(row.Site))
+                                            {
+                                                <span class="ops-sub"> · @row.Site</span>
+                                            }
+                                        </td>
+                                        <td class="ops-dt-cut">@row.Submitted.ToString("HH:mm")</td>
+                                        <td class="ops-num">@row.Value</td>
+                                        <td>
+                                            <span class="@($"ops-dt-state {ReadStatus(row.Status).Family}")">
+                                                <span class="ops-dot"></span>@ReadStatus(row.Status).Label
+                                            </span>
+                                        </td>
+                                        <td class="ops-dt-cut">@row.Document</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="ops-foot">
+                        <span class="ops-foot-info">
+                            Showing @VisibleRows.Count of @RowsFor(_lane).Count · newest first ·
+                            refreshed at @_lastSync.ToString("HH:mm:ss")
+                        </span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (Selected is { } sel)
+        {
+            <aside class="ops-dt-detail" aria-label="Transaction detail">
+                <div class="ops-dt-detail-head">
+                    <div>
+                        <div class="ops-dt-detail-kind">@sel.Kind</div>
+                        <div class="ops-dt-detail-ref">@sel.Reference</div>
+                    </div>
+                    <button type="button" class="ops-icon-btn ops-dt-detail-x" title="Close" aria-label="Close detail"
+                            @onclick="() => _selectedKey = null">
+                        <i class="ph ph-x" aria-hidden="true"></i>
+                    </button>
+                </div>
+
+                <div class="ops-dt-facts">
+                    @foreach (var fact in sel.Facts)
+                    {
+                        <div class="ops-dt-fact-k">@fact.Key</div>
+                        <div class="ops-dt-fact-v">@fact.Value</div>
+                    }
+                </div>
+
+                @if (sel.Log.Count > 0)
+                {
+                    <div class="ops-dt-rule"></div>
+                    <div>
+                        <div class="ops-dt-log-title">Sync log</div>
+                        <div class="ops-dt-log">
+                            @foreach (var entry in sel.Log)
                             {
-                                <td colspan="100">
-                                    <div class="ops-dt-expand">
-                                        <div class="ops-dt-expand-title">Invoice Details</div>
-                                        <div class="ops-dt-mini">
-                                            <div>
-                                                <div class="ops-dt-mini-k">External Reference</div>
-                                                <div class="ops-dt-mini-v">@context.Item.ExternalReference</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Reservation ID</div>
-                                                <div class="ops-dt-mini-v">@(string.IsNullOrEmpty(context.Item.ReservationId) ? "—" : context.Item.ReservationId)</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Customer</div>
-                                                <div class="ops-dt-mini-v">@context.Item.CustomerCode</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Amount</div>
-                                                <div class="ops-dt-mini-v">@context.Item.Currency @context.Item.TotalAmount.ToString("N2")</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Warehouse</div>
-                                                <div class="ops-dt-mini-v">@(context.Item.WarehouseCode ?? "—")</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">SAP Document</div>
-                                                <div class="ops-dt-mini-v">@(context.Item.SapDocNum?.ToString() ?? "Not yet posted")</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">SAP Doc Entry</div>
-                                                <div class="ops-dt-mini-v">@(context.Item.SapDocEntry ?? "—")</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Source System</div>
-                                                <div class="ops-dt-mini-v">@context.Item.SourceSystem</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Status</div>
-                                                <div class="ops-dt-mini-v"><span class="ops-badge @GetStatusFamily(context.Item.Status)">@context.Item.Status</span></div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Retry Count</div>
-                                                <div class="ops-dt-mini-v">@context.Item.RetryCount / @context.Item.MaxRetries</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Created</div>
-                                                <div class="ops-dt-mini-v">@context.Item.CreatedAt.ToLocalTime().ToString("F")</div>
-                                            </div>
-                                            @if (context.Item.ProcessingStartedAt.HasValue)
-                                            {
-                                                <div>
-                                                    <div class="ops-dt-mini-k">Processing Started</div>
-                                                    <div class="ops-dt-mini-v">@context.Item.ProcessingStartedAt.Value.ToLocalTime().ToString("F")</div>
-                                                </div>
-                                            }
-                                            @if (context.Item.ProcessedAt.HasValue)
-                                            {
-                                                <div>
-                                                    <div class="ops-dt-mini-k">Processed At</div>
-                                                    <div class="ops-dt-mini-v">@context.Item.ProcessedAt.Value.ToLocalTime().ToString("F")</div>
-                                                </div>
-                                            }
-                                            @if (context.Item.NextRetryAt.HasValue)
-                                            {
-                                                <div>
-                                                    <div class="ops-dt-mini-k">Next Retry</div>
-                                                    <div class="ops-dt-mini-v">@context.Item.NextRetryAt.Value.ToLocalTime().ToString("g")</div>
-                                                </div>
-                                            }
-                                            @if (!string.IsNullOrEmpty(context.Item.FiscalDeviceNumber))
-                                            {
-                                                <div>
-                                                    <div class="ops-dt-mini-k">Fiscal Device</div>
-                                                    <div class="ops-dt-mini-v">@context.Item.FiscalDeviceNumber</div>
-                                                </div>
-                                            }
-                                            @if (!string.IsNullOrEmpty(context.Item.FiscalReceiptNumber))
-                                            {
-                                                <div>
-                                                    <div class="ops-dt-mini-k">Fiscal Receipt</div>
-                                                    <div class="ops-dt-mini-v">@context.Item.FiscalReceiptNumber</div>
-                                                </div>
-                                            }
-                                            @if (context.Item.WaitTimeSeconds > 0)
-                                            {
-                                                <div>
-                                                    <div class="ops-dt-mini-k">Wait Time</div>
-                                                    <div class="ops-dt-mini-v">@FormatWaitTime(context.Item.WaitTimeSeconds)</div>
-                                                </div>
-                                            }
-                                        </div>
-                                        @if (!string.IsNullOrEmpty(context.Item.LastError))
-                                        {
-                                            <MudAlert Severity="Severity.Error" Dense="true" Variant="Variant.Outlined" Class="mt-3"
-                                                Style="border-radius: 8px; font-size: 0.8125rem;">
-                                                <strong>Last Error:</strong> @context.Item.LastError
-                                            </MudAlert>
-                                        }
-                                        <MudStack Row="true" Spacing="2" Class="mt-3">
-                                            @if (context.Item.CanRetry)
-                                            {
-                                                <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary"
-                                                    StartIcon="@Icons.Material.Outlined.Replay"
-                                                    OnClick="@(() => RetryInvoice(context.Item))"
-                                                    Style="border-radius: 6px; text-transform: none; font-weight: 600;">
-                                                    Retry
-                                                </MudButton>
-                                            }
-                                            @if (context.Item.CanCancel)
-                                            {
-                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error"
-                                                    StartIcon="@Icons.Material.Outlined.Close"
-                                                    OnClick="@(() => CancelQueuedInvoice(context.Item))"
-                                                    Style="border-radius: 6px; text-transform: none; font-weight: 600;">
-                                                    Cancel
-                                                </MudButton>
-                                            }
-                                        </MudStack>
-                                    </div>
-                                </td>
+                                <div class="ops-dt-log-row">
+                                    <span class="ops-dt-log-t">@(entry.At?.ToString("HH:mm:ss") ?? "—")</span>
+                                    <span class="@($"ops-dt-log-msg {entry.Family}")">@entry.Message</span>
+                                </div>
                             }
-                        </ChildRowContent>
-                    </MudDataGrid>
+                        </div>
+                    </div>
                 }
-            </MudTabPanel>
-            @* ═══ Needs Review Tab ═══ *@
-            <MudTabPanel Text="Needs Review" Icon="@Icons.Material.Outlined.ErrorOutline" BadgeData="@_reviewInvoices?.Count"
-                BadgeColor="Color.Error">
-                @if (_isLoading)
+
+                @if (!string.IsNullOrWhiteSpace(sel.Error))
                 {
-                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-2" Style="border-radius: 4px;" />
+                    <div class="ops-dt-err">@sel.Error</div>
                 }
-                else if (_reviewInvoices == null || !_reviewInvoices.Any())
+
+                @if (sel.CanRetry || sel.CanCancel)
                 {
-                    <div class="ops-empty">
-    <i class="ph ph-check-circle" aria-hidden="true"></i>
-    <h3>All clear</h3>
-    <p>No invoices require manual review</p>
+                    <div class="ops-dt-detail-acts">
+                        @if (sel.CanRetry)
+                        {
+                            <button type="button" class="ops-btn ops-btn-primary" @onclick="() => RetrySelected(sel)">Retry sync</button>
+                        }
+                        @if (sel.CanCancel)
+                        {
+                            <button type="button" class="ops-btn ops-btn-danger" @onclick="() => CancelSelected(sel)">Cancel</button>
+                        }
+                    </div>
+                }
+            </aside>
+        }
+    </div>
 </div>
-                }
-                else
-                {
-                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-4"
-                        Style="border-radius: 8px;">
-                        These invoices have failed multiple times and require manual intervention.
-                    </MudAlert>
-                    <MudDataGrid T="InvoiceQueueStatusDto" Items="@_reviewInvoices" SortMode="SortMode.Multiple" Hover="true"
-                        Dense="true" Bordered="false"
-                        RowClick="@((DataGridRowClickEventArgs<InvoiceQueueStatusDto> args) => ToggleInvoiceExpand(args.Item))">
-                        <Columns>
-                            <TemplateColumn Title="" Sortable="false" Filterable="false" CellStyle="width: 40px; padding: 4px 8px;">
-                                <CellTemplate>
-                                    <MudIconButton Icon="@(_expandedInvoiceId == context.Item.QueueId ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
-                                        Size="Size.Small"
-                                        OnClick="@(() => ToggleInvoiceExpand(context.Item))" />
-                                </CellTemplate>
-                            </TemplateColumn>
-                            <PropertyColumn Property="x => x.ExternalReference" Title="Reference">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ExternalReference</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CustomerCode" Title="Customer" />
-                            <PropertyColumn Property="x => x.TotalAmount" Title="Amount">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-variant-numeric: tabular-nums;">
-                                        @context.Item.Currency @context.Item.TotalAmount.ToString("N2")
-                                    </MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.LastError" Title="Last Error">
-                                <CellTemplate>
-                                    <MudTooltip Text="@context.Item.LastError">
-                                        <MudText Typo="Typo.caption"
-                                            Style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ef4444;">
-                                            @(context.Item.LastError?.Length > 60 ? context.Item.LastError.Substring(0, 60) + "..." : context.Item.LastError)
-                                        </MudText>
-                                    </MudTooltip>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CreatedAt" Title="Created">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CreatedAt.ToLocalTime().ToString("g")</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <TemplateColumn Title="Actions" Sortable="false">
-                                <CellTemplate>
-                                    <MudStack Row="true" Spacing="1">
-                                        <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary"
-                                            StartIcon="@Icons.Material.Outlined.Replay"
-                                            OnClick="@(() => RetryInvoice(context.Item))"
-                                            Style="border-radius: 6px; text-transform: none; font-weight: 600; font-size: 0.75rem;">
-                                            Retry
-                                        </MudButton>
-                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error"
-                                            StartIcon="@Icons.Material.Outlined.Close"
-                                            OnClick="@(() => CancelQueuedInvoice(context.Item))"
-                                            Style="border-radius: 6px; text-transform: none; font-weight: 600; font-size: 0.75rem;">
-                                            Cancel
-                                        </MudButton>
-                                    </MudStack>
-                                </CellTemplate>
-                            </TemplateColumn>
-                        </Columns>
-                        <ChildRowContent>
-                            @if (_expandedInvoiceId == context.Item.QueueId)
-                            {
-                                <td colspan="100">
-                                    <div class="ops-dt-expand">
-                                        <div class="ops-dt-expand-title">Full Details</div>
-                                        <div class="ops-dt-mini">
-                                            <div>
-                                                <div class="ops-dt-mini-k">External Reference</div>
-                                                <div class="ops-dt-mini-v">@context.Item.ExternalReference</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Reservation ID</div>
-                                                <div class="ops-dt-mini-v">@(string.IsNullOrEmpty(context.Item.ReservationId) ? "—" : context.Item.ReservationId)</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Customer</div>
-                                                <div class="ops-dt-mini-v">@context.Item.CustomerCode</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Amount</div>
-                                                <div class="ops-dt-mini-v">@context.Item.Currency @context.Item.TotalAmount.ToString("N2")</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Warehouse</div>
-                                                <div class="ops-dt-mini-v">@(context.Item.WarehouseCode ?? "—")</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">SAP Document</div>
-                                                <div class="ops-dt-mini-v">@(context.Item.SapDocNum?.ToString() ?? "Not yet posted")</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Source System</div>
-                                                <div class="ops-dt-mini-v">@context.Item.SourceSystem</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Retry Count</div>
-                                                <div class="ops-dt-mini-v">@context.Item.RetryCount / @context.Item.MaxRetries</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Created</div>
-                                                <div class="ops-dt-mini-v">@context.Item.CreatedAt.ToLocalTime().ToString("F")</div>
-                                            </div>
-                                            @if (context.Item.NextRetryAt.HasValue)
-                                            {
-                                                <div>
-                                                    <div class="ops-dt-mini-k">Next Retry</div>
-                                                    <div class="ops-dt-mini-v">@context.Item.NextRetryAt.Value.ToLocalTime().ToString("g")</div>
-                                                </div>
-                                            }
-                                        </div>
-                                        @if (!string.IsNullOrEmpty(context.Item.LastError))
-                                        {
-                                            <MudAlert Severity="Severity.Error" Dense="true" Variant="Variant.Outlined" Class="mt-3"
-                                                Style="border-radius: 8px; font-size: 0.8125rem;">
-                                                <strong>Last Error:</strong> @context.Item.LastError
-                                            </MudAlert>
-                                        }
-                                    </div>
-                                </td>
-                            }
-                        </ChildRowContent>
-                    </MudDataGrid>
-                }
-            </MudTabPanel>
-            @* ═══ Transfer Queue Tab ═══ *@
-            <MudTabPanel Text="Transfer Queue" Icon="@Icons.Material.Outlined.SwapHoriz" BadgeData="@_queuedTransfers?.Count"
-                BadgeColor="Color.Info">
-                @if (_isLoading)
-                {
-                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-2" Style="border-radius: 4px;" />
-                }
-                else if (_queuedTransfers == null || !_queuedTransfers.Any())
-                {
-                    <div class="ops-empty">
-    <i class="ph ph-tray" aria-hidden="true"></i>
-    <h3>No queued transfers</h3>
-    <p>Desktop inventory transfers will appear here</p>
-</div>
-                }
-                else
-                {
-                    <MudDataGrid T="InventoryTransferQueueStatusDto" Items="@_queuedTransfers" SortMode="SortMode.Multiple"
-                        Filterable="true" Hover="true" Dense="true" Bordered="false"
-                        RowClick="@((DataGridRowClickEventArgs<InventoryTransferQueueStatusDto> args) => ToggleTransferExpand(args.Item))">
-                        <Columns>
-                            <TemplateColumn Title="" Sortable="false" Filterable="false" CellStyle="width: 40px; padding: 4px 8px;">
-                                <CellTemplate>
-                                    <MudIconButton Icon="@(_expandedTransferId == context.Item.QueueId ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
-                                        Size="Size.Small"
-                                        OnClick="@(() => ToggleTransferExpand(context.Item))" />
-                                </CellTemplate>
-                            </TemplateColumn>
-                            <PropertyColumn Property="x => x.ExternalReference" Title="Reference">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ExternalReference</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.FromWarehouse" Title="From" />
-                            <PropertyColumn Property="x => x.ToWarehouse" Title="To" />
-                            <PropertyColumn Property="x => x.Status" Title="Status">
-                                <CellTemplate>
-                                    <span class="ops-badge @GetStatusFamily(context.Item.Status)">@context.Item.Status</span>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.TotalQuantity" Title="Qty" Format="N2" />
-                            <PropertyColumn Property="x => x.LineCount" Title="Lines" />
-                            <PropertyColumn Property="x => x.SapDocNum" Title="SAP Doc#">
-                                <CellTemplate>
-                                    @if (context.Item.SapDocNum.HasValue)
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined"
-                                            Style="font-size: 0.75rem;">@context.Item.SapDocNum</MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">&mdash;</MudText>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CreatedAt" Title="Created" Format="g">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CreatedAt.ToLocalTime().ToString("g")</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <TemplateColumn Title="Actions" Sortable="false">
-                                <CellTemplate>
-                                    <MudStack Row="true" Spacing="0">
-                                        @if (context.Item.CanRetry)
-                                        {
-                                            <MudTooltip Text="Retry">
-                                                <MudIconButton Icon="@Icons.Material.Outlined.Replay" Size="Size.Small"
-                                                    Color="Color.Primary" OnClick="@(() => RetryTransfer(context.Item))" />
-                                            </MudTooltip>
-                                        }
-                                        @if (context.Item.CanCancel)
-                                        {
-                                            <MudTooltip Text="Cancel">
-                                                <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small"
-                                                    Color="Color.Error" OnClick="@(() => CancelQueuedTransfer(context.Item))" />
-                                            </MudTooltip>
-                                        }
-                                    </MudStack>
-                                </CellTemplate>
-                            </TemplateColumn>
-                        </Columns>
-                        <ChildRowContent>
-                            @if (_expandedTransferId == context.Item.QueueId)
-                            {
-                                <td colspan="100">
-                                    <div class="ops-dt-expand">
-                                        <div class="ops-dt-expand-title">Transfer Details</div>
-                                        <div class="ops-dt-mini">
-                                            <div>
-                                                <div class="ops-dt-mini-k">External Reference</div>
-                                                <div class="ops-dt-mini-v">@context.Item.ExternalReference</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">From Warehouse</div>
-                                                <div class="ops-dt-mini-v">@context.Item.FromWarehouse</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">To Warehouse</div>
-                                                <div class="ops-dt-mini-v">@context.Item.ToWarehouse</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Total Quantity</div>
-                                                <div class="ops-dt-mini-v">@QuantityDisplay.Format(context.Item.TotalQuantity)</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Line Count</div>
-                                                <div class="ops-dt-mini-v">@context.Item.LineCount</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Type</div>
-                                                <div class="ops-dt-mini-v">@(context.Item.IsTransferRequest ? "Transfer Request" : "Direct Transfer")</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">SAP Document</div>
-                                                <div class="ops-dt-mini-v">@(context.Item.SapDocNum?.ToString() ?? "Not yet posted")</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">SAP Doc Entry</div>
-                                                <div class="ops-dt-mini-v">@(context.Item.SapDocEntry ?? "—")</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Source System</div>
-                                                <div class="ops-dt-mini-v">@context.Item.SourceSystem</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Status</div>
-                                                <div class="ops-dt-mini-v"><span class="ops-badge @GetStatusFamily(context.Item.Status)">@context.Item.Status</span></div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Retry Count</div>
-                                                <div class="ops-dt-mini-v">@context.Item.RetryCount / @context.Item.MaxRetries</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Created</div>
-                                                <div class="ops-dt-mini-v">@context.Item.CreatedAt.ToLocalTime().ToString("F")</div>
-                                            </div>
-                                            @if (context.Item.ProcessingStartedAt.HasValue)
-                                            {
-                                                <div>
-                                                    <div class="ops-dt-mini-k">Processing Started</div>
-                                                    <div class="ops-dt-mini-v">@context.Item.ProcessingStartedAt.Value.ToLocalTime().ToString("F")</div>
-                                                </div>
-                                            }
-                                            @if (context.Item.ProcessedAt.HasValue)
-                                            {
-                                                <div>
-                                                    <div class="ops-dt-mini-k">Processed At</div>
-                                                    <div class="ops-dt-mini-v">@context.Item.ProcessedAt.Value.ToLocalTime().ToString("F")</div>
-                                                </div>
-                                            }
-                                            @if (context.Item.NextRetryAt.HasValue)
-                                            {
-                                                <div>
-                                                    <div class="ops-dt-mini-k">Next Retry</div>
-                                                    <div class="ops-dt-mini-v">@context.Item.NextRetryAt.Value.ToLocalTime().ToString("g")</div>
-                                                </div>
-                                            }
-                                            @if (context.Item.WaitTimeSeconds > 0)
-                                            {
-                                                <div>
-                                                    <div class="ops-dt-mini-k">Wait Time</div>
-                                                    <div class="ops-dt-mini-v">@FormatWaitTime(context.Item.WaitTimeSeconds)</div>
-                                                </div>
-                                            }
-                                        </div>
-                                        @if (!string.IsNullOrEmpty(context.Item.LastError))
-                                        {
-                                            <MudAlert Severity="Severity.Error" Dense="true" Variant="Variant.Outlined" Class="mt-3"
-                                                Style="border-radius: 8px; font-size: 0.8125rem;">
-                                                <strong>Last Error:</strong> @context.Item.LastError
-                                            </MudAlert>
-                                        }
-                                        <MudStack Row="true" Spacing="2" Class="mt-3">
-                                            @if (context.Item.CanRetry)
-                                            {
-                                                <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary"
-                                                    StartIcon="@Icons.Material.Outlined.Replay"
-                                                    OnClick="@(() => RetryTransfer(context.Item))"
-                                                    Style="border-radius: 6px; text-transform: none; font-weight: 600;">
-                                                    Retry
-                                                </MudButton>
-                                            }
-                                            @if (context.Item.CanCancel)
-                                            {
-                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error"
-                                                    StartIcon="@Icons.Material.Outlined.Close"
-                                                    OnClick="@(() => CancelQueuedTransfer(context.Item))"
-                                                    Style="border-radius: 6px; text-transform: none; font-weight: 600;">
-                                                    Cancel
-                                                </MudButton>
-                                            }
-                                        </MudStack>
-                                    </div>
-                                </td>
-                            }
-                        </ChildRowContent>
-                    </MudDataGrid>
-                }
-            </MudTabPanel>
-            @* ═══ Transfers Need Review Tab ═══ *@
-            <MudTabPanel Text="Transfers Need Review" Icon="@Icons.Material.Outlined.Warning"
-                BadgeData="@_reviewTransfers?.Count" BadgeColor="Color.Warning">
-                @if (_isLoading)
-                {
-                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-2" Style="border-radius: 4px;" />
-                }
-                else if (_reviewTransfers == null || !_reviewTransfers.Any())
-                {
-                    <div class="ops-empty">
-    <i class="ph ph-check-circle" aria-hidden="true"></i>
-    <h3>All clear</h3>
-    <p>No transfers require manual review</p>
-</div>
-                }
-                else
-                {
-                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-4"
-                        Style="border-radius: 8px;">
-                        These transfers have failed multiple times and require manual intervention.
-                    </MudAlert>
-                    <MudDataGrid T="InventoryTransferQueueStatusDto" Items="@_reviewTransfers" SortMode="SortMode.Multiple"
-                        Hover="true" Dense="true" Bordered="false"
-                        RowClick="@((DataGridRowClickEventArgs<InventoryTransferQueueStatusDto> args) => ToggleTransferExpand(args.Item))">
-                        <Columns>
-                            <TemplateColumn Title="" Sortable="false" Filterable="false" CellStyle="width: 40px; padding: 4px 8px;">
-                                <CellTemplate>
-                                    <MudIconButton Icon="@(_expandedTransferId == context.Item.QueueId ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
-                                        Size="Size.Small"
-                                        OnClick="@(() => ToggleTransferExpand(context.Item))" />
-                                </CellTemplate>
-                            </TemplateColumn>
-                            <PropertyColumn Property="x => x.ExternalReference" Title="Reference">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ExternalReference</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.FromWarehouse" Title="From" />
-                            <PropertyColumn Property="x => x.ToWarehouse" Title="To" />
-                            <PropertyColumn Property="x => x.TotalQuantity" Title="Qty" Format="N2" />
-                            <PropertyColumn Property="x => x.LastError" Title="Last Error">
-                                <CellTemplate>
-                                    <MudTooltip Text="@context.Item.LastError">
-                                        <MudText Typo="Typo.caption"
-                                            Style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ef4444;">
-                                            @(context.Item.LastError?.Length > 60 ? context.Item.LastError.Substring(0, 60) + "..." : context.Item.LastError)
-                                        </MudText>
-                                    </MudTooltip>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CreatedAt" Title="Created">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CreatedAt.ToLocalTime().ToString("g")</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <TemplateColumn Title="Actions" Sortable="false">
-                                <CellTemplate>
-                                    <MudStack Row="true" Spacing="1">
-                                        <MudButton Variant="Variant.Filled" Size="Size.Small" Color="Color.Primary"
-                                            StartIcon="@Icons.Material.Outlined.Replay"
-                                            OnClick="@(() => RetryTransfer(context.Item))"
-                                            Style="border-radius: 6px; text-transform: none; font-weight: 600; font-size: 0.75rem;">
-                                            Retry
-                                        </MudButton>
-                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error"
-                                            StartIcon="@Icons.Material.Outlined.Close"
-                                            OnClick="@(() => CancelQueuedTransfer(context.Item))"
-                                            Style="border-radius: 6px; text-transform: none; font-weight: 600; font-size: 0.75rem;">
-                                            Cancel
-                                        </MudButton>
-                                    </MudStack>
-                                </CellTemplate>
-                            </TemplateColumn>
-                        </Columns>
-                        <ChildRowContent>
-                            @if (_expandedTransferId == context.Item.QueueId)
-                            {
-                                <td colspan="100">
-                                    <div class="ops-dt-expand">
-                                        <div class="ops-dt-expand-title">Full Details</div>
-                                        <div class="ops-dt-mini">
-                                            <div>
-                                                <div class="ops-dt-mini-k">External Reference</div>
-                                                <div class="ops-dt-mini-v">@context.Item.ExternalReference</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">From Warehouse</div>
-                                                <div class="ops-dt-mini-v">@context.Item.FromWarehouse</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">To Warehouse</div>
-                                                <div class="ops-dt-mini-v">@context.Item.ToWarehouse</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Total Quantity</div>
-                                                <div class="ops-dt-mini-v">@QuantityDisplay.Format(context.Item.TotalQuantity)</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Line Count</div>
-                                                <div class="ops-dt-mini-v">@context.Item.LineCount</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Type</div>
-                                                <div class="ops-dt-mini-v">@(context.Item.IsTransferRequest ? "Transfer Request" : "Direct Transfer")</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">SAP Document</div>
-                                                <div class="ops-dt-mini-v">@(context.Item.SapDocNum?.ToString() ?? "Not yet posted")</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Source System</div>
-                                                <div class="ops-dt-mini-v">@context.Item.SourceSystem</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Retry Count</div>
-                                                <div class="ops-dt-mini-v">@context.Item.RetryCount / @context.Item.MaxRetries</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Created</div>
-                                                <div class="ops-dt-mini-v">@context.Item.CreatedAt.ToLocalTime().ToString("F")</div>
-                                            </div>
-                                            @if (context.Item.NextRetryAt.HasValue)
-                                            {
-                                                <div>
-                                                    <div class="ops-dt-mini-k">Next Retry</div>
-                                                    <div class="ops-dt-mini-v">@context.Item.NextRetryAt.Value.ToLocalTime().ToString("g")</div>
-                                                </div>
-                                            }
-                                        </div>
-                                        @if (!string.IsNullOrEmpty(context.Item.LastError))
-                                        {
-                                            <MudAlert Severity="Severity.Error" Dense="true" Variant="Variant.Outlined" Class="mt-3"
-                                                Style="border-radius: 8px; font-size: 0.8125rem;">
-                                                <strong>Last Error:</strong> @context.Item.LastError
-                                            </MudAlert>
-                                        }
-                                    </div>
-                                </td>
-                            }
-                        </ChildRowContent>
-                    </MudDataGrid>
-                }
-            </MudTabPanel>
-            @* ═══ Stock Reservations Tab ═══ *@
-            <MudTabPanel Text="Stock Reservations" Icon="@Icons.Material.Outlined.Inventory2" BadgeData="@_reservations?.Count"
-                BadgeColor="Color.Secondary">
-                <MudStack Row="true" AlignItems="AlignItems.End" Spacing="2" Class="mb-4">
-                    <MudSelect T="string" Label="Status" @bind-Value="_reservationStatusFilter" Variant="Variant.Outlined"
-                        Dense="true" Style="max-width: 200px;" Margin="Margin.Dense">
-                        <MudSelectItem Value="@("")">All Statuses</MudSelectItem>
-                        <MudSelectItem Value="@("Pending")">Pending</MudSelectItem>
-                        <MudSelectItem Value="@("Confirmed")">Confirmed</MudSelectItem>
-                        <MudSelectItem Value="@("Cancelled")">Cancelled</MudSelectItem>
-                        <MudSelectItem Value="@("Expired")">Expired</MudSelectItem>
-                    </MudSelect>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadReservations"
-                        StartIcon="@Icons.Material.Outlined.FilterList"
-                        Style="border-radius: 8px; text-transform: none; font-weight: 600;">
-                        Apply Filter
-                    </MudButton>
-                </MudStack>
-                @if (_isLoading)
-                {
-                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="my-2" Style="border-radius: 4px;" />
-                }
-                else if (_reservations == null || !_reservations.Any())
-                {
-                    <div class="ops-empty">
-    <i class="ph ph-tray" aria-hidden="true"></i>
-    <h3>No reservations found</h3>
-    <p>Stock reservations from desktop apps will appear here</p>
-</div>
-                }
-                else
-                {
-                    <MudDataGrid T="StockReservationDto" Items="@_reservations" SortMode="SortMode.Multiple" Filterable="true"
-                        Hover="true" Dense="true" Bordered="false"
-                        RowClick="@((DataGridRowClickEventArgs<StockReservationDto> args) => ToggleReservationExpand(args.Item))">
-                        <Columns>
-                            <TemplateColumn Title="" Sortable="false" Filterable="false" CellStyle="width: 40px; padding: 4px 8px;">
-                                <CellTemplate>
-                                    <MudIconButton Icon="@(_expandedReservationId == context.Item.ReservationId ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
-                                        Size="Size.Small"
-                                        OnClick="@(() => ToggleReservationExpand(context.Item))" />
-                                </CellTemplate>
-                            </TemplateColumn>
-                            <PropertyColumn Property="x => x.ExternalReferenceId" Title="Reference">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-weight: 600;">@context.Item.ExternalReferenceId</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CardCode" Title="Customer">
-                                <CellTemplate>
-                                    <div>
-                                        <MudText Typo="Typo.body2">@context.Item.CardCode</MudText>
-                                        @if (!string.IsNullOrEmpty(context.Item.CardName))
-                                        {
-                                            <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CardName</MudText>
-                                        }
-                                    </div>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.Status" Title="Status">
-                                <CellTemplate>
-                                    <span class="ops-badge @GetStatusFamily(context.Item.Status)">@context.Item.Status</span>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.DocumentType" Title="Doc Type" />
-                            <PropertyColumn Property="x => x.Lines.Count" Title="Lines">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.body2" Style="font-variant-numeric: tabular-nums;">@context.Item.Lines.Count</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.SAPDocNum" Title="SAP Doc#">
-                                <CellTemplate>
-                                    @if (context.Item.SAPDocNum.HasValue)
-                                    {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined"
-                                            Style="font-size: 0.75rem;">@context.Item.SAPDocNum</MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">&mdash;</MudText>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.CreatedAt" Title="Created">
-                                <CellTemplate>
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Item.CreatedAt.ToLocalTime().ToString("g")</MudText>
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <PropertyColumn Property="x => x.ExpiresAt" Title="Expires">
-                                <CellTemplate>
-                                    @if (context.Item.Status == "Pending")
-                                    {
-                                        var remaining = context.Item.ExpiresAt - DateTime.UtcNow;
-                                        var isExpiring = remaining.TotalMinutes < 10;
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
-                                            Color="@(isExpiring ? Color.Warning : Color.Default)"
-                                            Style="font-size: 0.75rem;">
-                                            @(remaining.TotalMinutes > 0 ? $"{(int)remaining.TotalMinutes}m remaining" : "Expired")
-                                        </MudChip>
-                                    }
-                                    else
-                                    {
-                                        <MudText Typo="Typo.caption" Color="Color.Secondary">&mdash;</MudText>
-                                    }
-                                </CellTemplate>
-                            </PropertyColumn>
-                            <TemplateColumn Title="Actions" Sortable="false">
-                                <CellTemplate>
-                                    <MudStack Row="true" Spacing="0">
-                                        @if (context.Item.Status == "Pending")
-                                        {
-                                            <MudTooltip Text="Cancel Reservation">
-                                                <MudIconButton Icon="@Icons.Material.Outlined.Close" Size="Size.Small"
-                                                    Color="Color.Error" OnClick="@(() => CancelReservation(context.Item))" />
-                                            </MudTooltip>
-                                        }
-                                    </MudStack>
-                                </CellTemplate>
-                            </TemplateColumn>
-                        </Columns>
-                        <ChildRowContent>
-                            @if (_expandedReservationId == context.Item.ReservationId)
-                            {
-                                <td colspan="100">
-                                    <div class="ops-dt-expand">
-                                        <div class="ops-dt-expand-title">Reservation Details</div>
-                                        <div class="ops-dt-mini">
-                                            <div>
-                                                <div class="ops-dt-mini-k">Reservation ID</div>
-                                                <div class="ops-dt-mini-v" style="font-family: monospace; font-size: 0.75rem;">@context.Item.ReservationId</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Customer</div>
-                                                <div class="ops-dt-mini-v">@context.Item.CardCode — @context.Item.CardName</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Status</div>
-                                                <div class="ops-dt-mini-v"><span class="ops-badge @GetStatusFamily(context.Item.Status)">@context.Item.Status</span></div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Document Type</div>
-                                                <div class="ops-dt-mini-v">@context.Item.DocumentType</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Source System</div>
-                                                <div class="ops-dt-mini-v">@context.Item.SourceSystem</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">SAP Document</div>
-                                                <div class="ops-dt-mini-v">@(context.Item.SAPDocNum?.ToString() ?? "Not posted")</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Created</div>
-                                                <div class="ops-dt-mini-v">@context.Item.CreatedAt.ToLocalTime().ToString("F")</div>
-                                            </div>
-                                            <div>
-                                                <div class="ops-dt-mini-k">Expires</div>
-                                                <div class="ops-dt-mini-v">@context.Item.ExpiresAt.ToLocalTime().ToString("F")</div>
-                                            </div>
-                                            @if (context.Item.ConfirmedAt.HasValue)
-                                            {
-                                                <div>
-                                                    <div class="ops-dt-mini-k">Confirmed At</div>
-                                                    <div class="ops-dt-mini-v">@context.Item.ConfirmedAt.Value.ToLocalTime().ToString("F")</div>
-                                                </div>
-                                            }
-                                            @if (context.Item.CancelledAt.HasValue)
-                                            {
-                                                <div>
-                                                    <div class="ops-dt-mini-k">Cancelled At</div>
-                                                    <div class="ops-dt-mini-v">@context.Item.CancelledAt.Value.ToLocalTime().ToString("F")</div>
-                                                </div>
-                                            }
-                                            @if (!string.IsNullOrEmpty(context.Item.CreatedBy))
-                                            {
-                                                <div>
-                                                    <div class="ops-dt-mini-k">Created By</div>
-                                                    <div class="ops-dt-mini-v">@context.Item.CreatedBy</div>
-                                                </div>
-                                            }
-                                        </div>
-                                        @if (context.Item.Lines.Any())
-                                        {
-                                            <div class="dt-expanded-row__section-title mt-4">Reserved Items (@context.Item.Lines.Count)</div>
-                                            <MudSimpleTable Dense="true" Hover="true" Style="border-radius: 8px; overflow: hidden;">
-                                                <thead>
-                                                    <tr style="background: var(--mud-palette-surface);">
-                                                        <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Item Code</th>
-                                                        <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Description</th>
-                                                        <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Qty</th>
-                                                        <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Warehouse</th>
-                                                        <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Unit Price</th>
-                                                        <th style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">Total</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    @foreach (var line in context.Item.Lines)
-                                                    {
-                                                        <tr>
-                                                            <td style="font-weight: 500;">@line.ItemCode</td>
-                                                            <td>@line.ItemDescription</td>
-                                                            <td style="font-variant-numeric: tabular-nums;">@QuantityDisplay.Format(line.Quantity)</td>
-                                                            <td>@line.WarehouseCode</td>
-                                                            <td style="font-variant-numeric: tabular-nums;">@line.UnitPrice.ToString("N2")</td>
-                                                            <td style="font-variant-numeric: tabular-nums; font-weight: 500;">@line.LineTotal.ToString("N2")</td>
-                                                        </tr>
-                                                    }
-                                                </tbody>
-                                            </MudSimpleTable>
-                                        }
-                                        @if (context.Item.Status == "Pending")
-                                        {
-                                            <MudStack Row="true" Spacing="2" Class="mt-3">
-                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Error"
-                                                    StartIcon="@Icons.Material.Outlined.Close"
-                                                    OnClick="@(() => CancelReservation(context.Item))"
-                                                    Style="border-radius: 6px; text-transform: none; font-weight: 600;">
-                                                    Cancel Reservation
-                                                </MudButton>
-                                            </MudStack>
-                                        }
-                                    </div>
-                                </td>
-                            }
-                        </ChildRowContent>
-                    </MudDataGrid>
-                }
-            </MudTabPanel>
-        </MudTabs>
-    </MudPaper>
-</div>
+
 @code {
+    private const int PollSeconds = 60;
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(PollSeconds);
+
     private bool _isLoading = true;
-    private int _activeTab = 0;
-    private string _reservationStatusFilter = "";
-    // Expand/collapse state
-    private int? _expandedInvoiceId;
-    private int? _expandedTransferId;
-    private string? _expandedReservationId;
+    private bool _rowsLoaded;
+    private Lane _lane = Lane.Invoices;
+    private string? _selectedKey;
+    private string _query = string.Empty;
+    private string _statusFilter = string.Empty;
+    private bool _filtersOpen;
+    private DateTime _lastSync = DateTime.Now;
+
+    private PeriodicTimer? _pollTimer;
+    private CancellationTokenSource? _pollCancellation;
+    private Task? _pollTask;
+
     private InvoiceQueueStatsDto? _stats;
     private InventoryTransferQueueStatsDto? _transferStats;
-    private List<InvoiceQueueStatusDto>? _queuedInvoices;
-    private List<InvoiceQueueStatusDto>? _reviewInvoices;
-    private List<InventoryTransferQueueStatusDto>? _queuedTransfers;
-    private List<InventoryTransferQueueStatusDto>? _reviewTransfers;
-    private List<StockReservationDto>? _reservations;
+
+    private List<QueueRow> _invoices = [];
+    private List<QueueRow> _invoiceReview = [];
+    private List<QueueRow> _transfers = [];
+    private List<QueueRow> _transferReview = [];
+    private List<QueueRow> _reservations = [];
+
+    private enum Lane { Invoices, Review, Transfers, TransferReview, Reservations }
+
+    private static readonly Lane[] Lanes =
+        [Lane.Invoices, Lane.Review, Lane.Transfers, Lane.TransferReview, Lane.Reservations];
+
+    // ─── One shape for every lane ─────────────────────────────────────────
+    // `Source` is the DTO the row came from; retry and cancel dispatch on it
+    // rather than each row carrying its own closures.
+    private sealed class QueueRow
+    {
+        public required string Key { get; init; }
+        public required string Reference { get; init; }
+        public required string Kind { get; init; }
+        public required string Party { get; init; }
+        public string? Site { get; init; }
+        public DateTime Submitted { get; init; }
+        public required string Value { get; init; }
+        public required string Status { get; init; }
+        public required string Document { get; init; }
+        public string? Error { get; init; }
+        public List<KeyValuePair<string, string>> Facts { get; init; } = [];
+        public List<LogEntry> Log { get; init; } = [];
+        public bool CanRetry { get; init; }
+        public bool CanCancel { get; init; }
+        public required object Source { get; init; }
+
+        public string PartyLine => string.IsNullOrWhiteSpace(Site) ? Party : $"{Party} · {Site}";
+    }
+
+    private sealed record LogEntry(DateTime? At, string Message, string Family);
+
+    // ─── Lifecycle ────────────────────────────────────────────────────────
+
     protected override async Task OnInitializedAsync()
     {
         await RefreshAll();
+        StartPolling();
     }
-    private async Task RefreshAll()
+
+    private void StartPolling()
+    {
+        _pollCancellation = new CancellationTokenSource();
+        _pollTimer = new PeriodicTimer(PollInterval);
+        _pollTask = PollAsync(_pollCancellation.Token);
+    }
+
+    // The hero says the page polls SAP every 60 seconds, so it does. A tick
+    // that lands while a refresh is already running is skipped rather than
+    // queued — the seven calls below are not cheap, and doubling them up only
+    // makes the next tick later.
+    private async Task PollAsync(CancellationToken cancellationToken)
+    {
+        if (_pollTimer is null)
+        {
+            return;
+        }
+
+        try
+        {
+            while (await _pollTimer.WaitForNextTickAsync(cancellationToken))
+            {
+                if (_isLoading)
+                {
+                    continue;
+                }
+
+                await InvokeAsync(() => RefreshAll(quiet: true));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _pollCancellation?.Cancel();
+        _pollTimer?.Dispose();
+
+        if (_pollTask is not null)
+        {
+            try
+            {
+                await _pollTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        _pollCancellation?.Dispose();
+    }
+
+    // ─── Loading ──────────────────────────────────────────────────────────
+
+    private Task RefreshAll() => RefreshAll(quiet: false);
+
+    private async Task RefreshAll(bool quiet)
     {
         _isLoading = true;
         StateHasChanged();
+
         try
         {
             var statsTask = DesktopService.GetQueueStatsAsync();
             var queueTask = DesktopService.GetPendingQueueAsync();
             var reviewTask = DesktopService.GetInvoicesRequiringReviewAsync();
-            var reservationsTask = DesktopService.GetReservationsAsync();
+            var reservationsTask = DesktopService.GetReservationsAsync(
+                status: string.IsNullOrEmpty(_statusFilter) ? null : _statusFilter);
             var transferStatsTask = DesktopService.GetTransferQueueStatsAsync();
             var transferQueueTask = DesktopService.GetPendingTransferQueueAsync();
             var transferReviewTask = DesktopService.GetTransfersRequiringReviewAsync();
+
             await Task.WhenAll(statsTask, queueTask, reviewTask, reservationsTask,
                 transferStatsTask, transferQueueTask, transferReviewTask);
+
             _stats = await statsTask;
-            _queuedInvoices = await queueTask;
-            _reviewInvoices = await reviewTask;
-            _reservations = await reservationsTask;
             _transferStats = await transferStatsTask;
-            _queuedTransfers = await transferQueueTask;
-            _reviewTransfers = await transferReviewTask;
+            _invoices = Project(await queueTask);
+            _invoiceReview = Project(await reviewTask);
+            _transfers = Project(await transferQueueTask);
+            _transferReview = Project(await transferReviewTask);
+            _reservations = Project(await reservationsTask);
+
+            _rowsLoaded = true;
+            _lastSync = DateTime.Now;
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error loading data: {ex.Message}", Severity.Error);
+            // A background tick that fails is not worth a toast on top of
+            // whatever the person is reading; the "last sync" clock not moving
+            // is the signal.
+            if (!quiet)
+            {
+                Snackbar.Add($"Error loading data: {ex.Message}", Severity.Error);
+            }
         }
         finally
         {
@@ -1098,14 +462,367 @@
             StateHasChanged();
         }
     }
-    private async Task LoadReservations()
+
+    // ─── Projection ───────────────────────────────────────────────────────
+
+    private static List<QueueRow> Project(List<InvoiceQueueStatusDto>? source) =>
+        (source ?? []).Select(ToRow).OrderByDescending(row => row.Submitted).ToList();
+
+    private static List<QueueRow> Project(List<InventoryTransferQueueStatusDto>? source) =>
+        (source ?? []).Select(ToRow).OrderByDescending(row => row.Submitted).ToList();
+
+    private static List<QueueRow> Project(List<StockReservationDto>? source) =>
+        (source ?? []).Select(ToRow).OrderByDescending(row => row.Submitted).ToList();
+
+    private static QueueRow ToRow(InvoiceQueueStatusDto item)
+    {
+        var facts = new List<KeyValuePair<string, string>>
+        {
+            new("Customer", Dash(item.CustomerCode)),
+            new("Warehouse", Dash(item.WarehouseCode)),
+            new("Source system", Dash(item.SourceSystem)),
+            new("Submitted at", item.CreatedAt.ToLocalTime().ToString("d MMM yyyy, HH:mm")),
+            new("Value", $"{item.Currency} {item.TotalAmount:N2}"),
+            new("SAP document", item.SapDocNum?.ToString() ?? "Not assigned"),
+            new("SAP doc entry", Dash(item.SapDocEntry)),
+            new("Reservation", Dash(item.ReservationId)),
+            new("Retries", $"{item.RetryCount} of {item.MaxRetries}")
+        };
+
+        if (!string.IsNullOrWhiteSpace(item.FiscalDeviceNumber))
+        {
+            facts.Add(new("Fiscal device", item.FiscalDeviceNumber));
+        }
+
+        if (!string.IsNullOrWhiteSpace(item.FiscalReceiptNumber))
+        {
+            facts.Add(new("Fiscal receipt", item.FiscalReceiptNumber));
+        }
+
+        if (item.WaitTimeSeconds > 0)
+        {
+            facts.Add(new("Wait time", FormatWaitTime(item.WaitTimeSeconds)));
+        }
+
+        if (item.NextRetryAt.HasValue)
+        {
+            facts.Add(new("Next retry", item.NextRetryAt.Value.ToLocalTime().ToString("d MMM, HH:mm")));
+        }
+
+        return new QueueRow
+        {
+            Key = $"inv-{item.QueueId}",
+            Reference = Dash(item.ExternalReference),
+            Kind = Dash(item.SourceSystem),
+            Party = Dash(item.CustomerCode),
+            Site = item.WarehouseCode,
+            Submitted = item.CreatedAt.ToLocalTime(),
+            Value = $"{item.Currency} {item.TotalAmount:N2}",
+            Status = item.Status,
+            Document = item.SapDocNum?.ToString() ?? "—",
+            Error = item.LastError,
+            Facts = facts,
+            Log = BuildLog(item.CreatedAt, item.ProcessingStartedAt, item.ProcessedAt, item.NextRetryAt,
+                item.SourceSystem, item.SapDocNum, item.Status, item.RetryCount, item.MaxRetries),
+            CanRetry = item.CanRetry,
+            CanCancel = item.CanCancel,
+            Source = item
+        };
+    }
+
+    private static QueueRow ToRow(InventoryTransferQueueStatusDto item)
+    {
+        var facts = new List<KeyValuePair<string, string>>
+        {
+            new("From warehouse", Dash(item.FromWarehouse)),
+            new("To warehouse", Dash(item.ToWarehouse)),
+            new("Quantity", QuantityDisplay.Format(item.TotalQuantity)),
+            new("Lines", item.LineCount.ToString()),
+            new("Source system", Dash(item.SourceSystem)),
+            new("Submitted at", item.CreatedAt.ToLocalTime().ToString("d MMM yyyy, HH:mm")),
+            new("SAP document", item.SapDocNum?.ToString() ?? "Not assigned"),
+            new("SAP doc entry", Dash(item.SapDocEntry)),
+            new("Retries", $"{item.RetryCount} of {item.MaxRetries}")
+        };
+
+        if (item.WaitTimeSeconds > 0)
+        {
+            facts.Add(new("Wait time", FormatWaitTime(item.WaitTimeSeconds)));
+        }
+
+        if (item.NextRetryAt.HasValue)
+        {
+            facts.Add(new("Next retry", item.NextRetryAt.Value.ToLocalTime().ToString("d MMM, HH:mm")));
+        }
+
+        return new QueueRow
+        {
+            Key = $"trf-{item.QueueId}",
+            Reference = Dash(item.ExternalReference),
+            Kind = item.IsTransferRequest ? "Transfer request" : "Direct transfer",
+            Party = $"{Dash(item.FromWarehouse)} → {Dash(item.ToWarehouse)}",
+            Site = item.LineCount == 1 ? "1 line" : $"{item.LineCount} lines",
+            Submitted = item.CreatedAt.ToLocalTime(),
+            Value = QuantityDisplay.Format(item.TotalQuantity),
+            Status = item.Status,
+            Document = item.SapDocNum?.ToString() ?? "—",
+            Error = item.LastError,
+            Facts = facts,
+            Log = BuildLog(item.CreatedAt, item.ProcessingStartedAt, item.ProcessedAt, item.NextRetryAt,
+                item.SourceSystem, item.SapDocNum, item.Status, item.RetryCount, item.MaxRetries),
+            CanRetry = item.CanRetry,
+            CanCancel = item.CanCancel,
+            Source = item
+        };
+    }
+
+    private static QueueRow ToRow(StockReservationDto item)
+    {
+        var facts = new List<KeyValuePair<string, string>>
+        {
+            new("Customer", Dash(item.CardCode)),
+            new("Name", Dash(item.CardName)),
+            new("Document type", Dash(item.DocumentType)),
+            new("Source system", Dash(item.SourceSystem)),
+            new("Created by", Dash(item.CreatedBy)),
+            new("Created", item.CreatedAt.ToLocalTime().ToString("d MMM yyyy, HH:mm")),
+            new("Expires", item.ExpiresAt.ToLocalTime().ToString("d MMM yyyy, HH:mm")),
+            new("SAP document", item.SAPDocNum?.ToString() ?? "Not assigned"),
+            new("Reserved value", item.Lines.Sum(line => line.LineTotal).ToString("N2"))
+        };
+
+        var log = new List<LogEntry>
+        {
+            new(item.CreatedAt.ToLocalTime(), $"Reserved from {Dash(item.SourceSystem)}", "ops-fam-neutral")
+        };
+
+        if (item.ConfirmedAt.HasValue)
+        {
+            log.Add(new(item.ConfirmedAt.Value.ToLocalTime(),
+                item.SAPDocNum.HasValue ? $"Confirmed as {item.SAPDocNum}" : "Confirmed", "ops-fam-good"));
+        }
+
+        if (item.CancelledAt.HasValue)
+        {
+            log.Add(new(item.CancelledAt.Value.ToLocalTime(), "Cancelled — stock released", "ops-fam-neutral"));
+        }
+
+        if (!item.ConfirmedAt.HasValue && !item.CancelledAt.HasValue)
+        {
+            log.Add(new(item.ExpiresAt.ToLocalTime(),
+                item.ExpiresAt <= DateTime.UtcNow ? "Expired — stock released" : "Holds stock until", "ops-fam-warn"));
+        }
+
+        return new QueueRow
+        {
+            Key = $"res-{item.ReservationId}",
+            Reference = Dash(item.ExternalReferenceId),
+            Kind = Dash(item.DocumentType),
+            Party = Dash(item.CardName ?? item.CardCode),
+            Site = item.Lines.Count == 1 ? "1 item" : $"{item.Lines.Count} items",
+            Submitted = item.CreatedAt.ToLocalTime(),
+            Value = item.Lines.Sum(line => line.LineTotal).ToString("N2"),
+            Status = item.Status,
+            Document = item.SAPDocNum?.ToString() ?? "—",
+            Facts = facts,
+            Log = log,
+            CanCancel = string.Equals(item.Status, "Pending", StringComparison.OrdinalIgnoreCase),
+            Source = item
+        };
+    }
+
+    // The queues carry no event stream, so the log is read off the timestamps
+    // the row already has. Every line below is a stored value, not a guess.
+    private static List<LogEntry> BuildLog(
+        DateTime createdAt, DateTime? processingStartedAt, DateTime? processedAt, DateTime? nextRetryAt,
+        string sourceSystem, int? sapDocNum, string status, int retryCount, int maxRetries)
+    {
+        var failed = status is "Failed" or "RequiresReview";
+
+        var log = new List<LogEntry>
+        {
+            new(createdAt.ToLocalTime(), $"Submitted from {Dash(sourceSystem)}", "ops-fam-neutral")
+        };
+
+        if (processingStartedAt.HasValue)
+        {
+            log.Add(new(processingStartedAt.Value.ToLocalTime(), "Posting to SAP started", "ops-fam-info"));
+        }
+
+        if (processedAt.HasValue)
+        {
+            log.Add(sapDocNum.HasValue
+                ? new(processedAt.Value.ToLocalTime(), $"Posted as {sapDocNum}", "ops-fam-good")
+                : new(processedAt.Value.ToLocalTime(), "Rejected by SAP", "ops-fam-bad"));
+        }
+
+        if (retryCount > 0)
+        {
+            log.Add(new(null, $"Retry {retryCount} of {maxRetries} {(failed ? "failed" : "sent")}",
+                failed ? "ops-fam-bad" : "ops-fam-info"));
+        }
+
+        if (nextRetryAt.HasValue)
+        {
+            log.Add(new(nextRetryAt.Value.ToLocalTime(), "Next retry scheduled", "ops-fam-warn"));
+        }
+
+        return log;
+    }
+
+    // ─── The lane on screen ───────────────────────────────────────────────
+
+    private List<QueueRow> RowsFor(Lane lane) => lane switch
+    {
+        Lane.Invoices => _invoices,
+        Lane.Review => _invoiceReview,
+        Lane.Transfers => _transfers,
+        Lane.TransferReview => _transferReview,
+        _ => _reservations
+    };
+
+    private static string LaneLabel(Lane lane) => lane switch
+    {
+        Lane.Invoices => "Invoice queue",
+        Lane.Review => "Needs review",
+        Lane.Transfers => "Transfer queue",
+        Lane.TransferReview => "Transfers need review",
+        _ => "Stock reservations"
+    };
+
+    private string TypeHeader => _lane switch
+    {
+        Lane.Transfers or Lane.TransferReview => "Type",
+        Lane.Reservations => "Document",
+        _ => "Source"
+    };
+
+    private string PartyHeader => _lane switch
+    {
+        Lane.Transfers or Lane.TransferReview => "Route",
+        _ => "Customer"
+    };
+
+    private string ValueHeader => _lane switch
+    {
+        Lane.Transfers or Lane.TransferReview => "Quantity",
+        _ => "Value"
+    };
+
+    private bool IsFiltered => !string.IsNullOrWhiteSpace(_query) || !string.IsNullOrEmpty(_statusFilter);
+
+    private List<QueueRow> VisibleRows
+    {
+        get
+        {
+            IEnumerable<QueueRow> rows = RowsFor(_lane);
+
+            if (!string.IsNullOrEmpty(_statusFilter))
+            {
+                rows = rows.Where(row => string.Equals(row.Status, _statusFilter, StringComparison.OrdinalIgnoreCase));
+            }
+
+            var query = _query.Trim();
+            if (query.Length > 0)
+            {
+                rows = rows.Where(row =>
+                    row.Reference.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || row.Kind.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || row.Party.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || (row.Site ?? string.Empty).Contains(query, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return rows.ToList();
+        }
+    }
+
+    // Only the statuses this lane can actually show, so the filter never
+    // offers a choice that empties the table for no visible reason.
+    private List<string> StatusOptions => RowsFor(_lane)
+        .Select(row => row.Status)
+        .Where(status => !string.IsNullOrWhiteSpace(status))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(status => status, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    private QueueRow? Selected => _selectedKey is null
+        ? null
+        : VisibleRows.FirstOrDefault(row => row.Key == _selectedKey);
+
+    private string EmptyTitle => IsFiltered
+        ? "Nothing matches those filters"
+        : _lane switch
+        {
+            Lane.Review or Lane.TransferReview => "All clear",
+            Lane.Transfers => "No transfers queued",
+            Lane.Reservations => "No reservations found",
+            _ => "No invoices queued"
+        };
+
+    private string EmptyBody => IsFiltered
+        ? "Clear the search and the status filter to see the whole queue for this tab."
+        : _lane switch
+        {
+            Lane.Review => "No invoices have failed often enough to need a person.",
+            Lane.TransferReview => "No transfers have failed often enough to need a person.",
+            Lane.Reservations => "Stock reservations taken by the desktop applications appear here until they are confirmed or expire.",
+            _ => "Documents submitted from the desktop applications land here within a few seconds of being sent."
+        };
+
+    // ─── Interaction ──────────────────────────────────────────────────────
+
+    private void SelectLane(Lane lane)
+    {
+        if (_lane == lane)
+        {
+            return;
+        }
+
+        _lane = lane;
+        _selectedKey = null;
+        // A status that exists in one lane rarely exists in the next, and a
+        // filter that silently empties the tab you just opened reads as a bug.
+        _statusFilter = string.Empty;
+    }
+
+    private void SelectRow(string key) => _selectedKey = _selectedKey == key ? null : key;
+
+    private void OnQueryInput(ChangeEventArgs args)
+    {
+        _query = args.Value?.ToString() ?? string.Empty;
+        _selectedKey = null;
+    }
+
+    private async Task OnStatusFilterChanged(ChangeEventArgs args)
+    {
+        _statusFilter = args.Value?.ToString() ?? string.Empty;
+        _selectedKey = null;
+
+        // Reservations are filtered by the API, not in the browser: the list
+        // is paged server-side, so filtering only what arrived would hide rows
+        // that match.
+        if (_lane == Lane.Reservations)
+        {
+            await ReloadReservations();
+        }
+    }
+
+    private void ClearFilters()
+    {
+        _query = string.Empty;
+        _statusFilter = string.Empty;
+        _selectedKey = null;
+    }
+
+    private async Task ReloadReservations()
     {
         _isLoading = true;
         StateHasChanged();
+
         try
         {
-            _reservations = await DesktopService.GetReservationsAsync(
-                status: string.IsNullOrEmpty(_reservationStatusFilter) ? null : _reservationStatusFilter);
+            _reservations = Project(await DesktopService.GetReservationsAsync(
+                status: string.IsNullOrEmpty(_statusFilter) ? null : _statusFilter));
         }
         catch (Exception ex)
         {
@@ -1117,138 +834,206 @@
             StateHasChanged();
         }
     }
-    // ─── Navigation ───
-    private void NavigateToTab(int tabIndex)
+
+    private void GoToReview() =>
+        SelectLane(_invoiceReview.Count == 0 && _transferReview.Count > 0 ? Lane.TransferReview : Lane.Review);
+
+    // ─── Actions ──────────────────────────────────────────────────────────
+
+    private async Task RetrySelected(QueueRow row)
     {
-        _activeTab = tabIndex;
-        StateHasChanged();
-    }
-    // ─── Expand/Collapse ───
-    private void ToggleInvoiceExpand(InvoiceQueueStatusDto item)
-    {
-        _expandedInvoiceId = _expandedInvoiceId == item.QueueId ? null : item.QueueId;
-    }
-    private void ToggleTransferExpand(InventoryTransferQueueStatusDto item)
-    {
-        _expandedTransferId = _expandedTransferId == item.QueueId ? null : item.QueueId;
-    }
-    private void ToggleReservationExpand(StockReservationDto item)
-    {
-        _expandedReservationId = _expandedReservationId == item.ReservationId ? null : item.ReservationId;
-    }
-    // ─── Actions ───
-    private async Task RetryInvoice(InvoiceQueueStatusDto item)
-    {
-        var result = await DesktopService.RetryQueuedInvoiceAsync(item.ExternalReference);
-        if (result)
+        var ok = row.Source switch
         {
-            Snackbar.Add($"Invoice {item.ExternalReference} queued for retry", Severity.Success);
-            await RefreshAll();
-        }
-        else
-        {
-            Snackbar.Add($"Failed to retry invoice {item.ExternalReference}", Severity.Error);
-        }
-    }
-    private async Task CancelQueuedInvoice(InvoiceQueueStatusDto item)
-    {
-        var confirmed = await DialogService.ShowMessageBoxAsync(
-            "Cancel Invoice",
-            $"Are you sure you want to cancel the queued invoice '{item.ExternalReference}'? This will also release the reserved stock.",
-            yesText: "Cancel Invoice",
-            cancelText: "Keep");
-        if (confirmed == true)
-        {
-            var result = await DesktopService.CancelQueuedInvoiceAsync(item.ExternalReference);
-            if (result)
-            {
-                Snackbar.Add($"Invoice {item.ExternalReference} cancelled", Severity.Success);
-                await RefreshAll();
-            }
-            else
-            {
-                Snackbar.Add($"Failed to cancel invoice {item.ExternalReference}", Severity.Error);
-            }
-        }
-    }
-    private async Task CancelReservation(StockReservationDto item)
-    {
-        var confirmed = await DialogService.ShowMessageBoxAsync(
-            "Cancel Reservation",
-            $"Are you sure you want to cancel the reservation '{item.ExternalReferenceId}'? This will release the reserved stock.",
-            yesText: "Cancel Reservation",
-            cancelText: "Keep");
-        if (confirmed == true)
-        {
-            var result = await DesktopService.CancelReservationAsync(item.ReservationId, "Cancelled from web admin");
-            if (result)
-            {
-                Snackbar.Add($"Reservation {item.ExternalReferenceId} cancelled", Severity.Success);
-                await RefreshAll();
-            }
-            else
-            {
-                Snackbar.Add($"Failed to cancel reservation {item.ExternalReferenceId}", Severity.Error);
-            }
-        }
-    }
-    #region Inventory Transfer Methods
-    private async Task RetryTransfer(InventoryTransferQueueStatusDto item)
-    {
-        var result = await DesktopService.RetryQueuedTransferAsync(item.ExternalReference);
-        if (result)
-        {
-            Snackbar.Add($"Transfer {item.ExternalReference} queued for retry", Severity.Success);
-            await RefreshAll();
-        }
-        else
-        {
-            Snackbar.Add($"Failed to retry transfer {item.ExternalReference}", Severity.Error);
-        }
-    }
-    private async Task CancelQueuedTransfer(InventoryTransferQueueStatusDto item)
-    {
-        var confirmed = await DialogService.ShowMessageBoxAsync(
-            "Cancel Transfer",
-            $"Are you sure you want to cancel the queued transfer '{item.ExternalReference}'?",
-            yesText: "Cancel Transfer",
-            cancelText: "Keep");
-        if (confirmed == true)
-        {
-            var result = await DesktopService.CancelQueuedTransferAsync(item.ExternalReference);
-            if (result)
-            {
-                Snackbar.Add($"Transfer {item.ExternalReference} cancelled", Severity.Success);
-                await RefreshAll();
-            }
-            else
-            {
-                Snackbar.Add($"Failed to cancel transfer {item.ExternalReference}", Severity.Error);
-            }
-        }
-    }
-    #endregion
-    // ─── Helpers ───
-    // The eight queue states, mapped onto the system's six families rather than
-    // onto eight hard-coded fill-and-ink pairs. Confirmed reads as completed and
-    // expired reads as cancelled, because in each case that is what they mean.
-    private static string GetStatusFamily(string status)
-    {
-        return status?.ToLower() switch
-        {
-            "pending" => "ops-fam-warn",
-            "processing" => "ops-fam-info",
-            "completed" or "confirmed" => "ops-fam-good",
-            "failed" => "ops-fam-bad",
-            "requiresreview" => "ops-fam-accent",
-            "cancelled" or "expired" => "ops-fam-neutral",
-            _ => "ops-fam-neutral"
+            InvoiceQueueStatusDto invoice => await DesktopService.RetryQueuedInvoiceAsync(invoice.ExternalReference),
+            InventoryTransferQueueStatusDto transfer => await DesktopService.RetryQueuedTransferAsync(transfer.ExternalReference),
+            _ => false
         };
+
+        Snackbar.Add(ok ? $"{row.Reference} queued for retry" : $"Failed to retry {row.Reference}",
+            ok ? Severity.Success : Severity.Error);
+
+        if (ok)
+        {
+            await RefreshAll();
+        }
     }
+
+    private async Task CancelSelected(QueueRow row)
+    {
+        var (title, body) = row.Source switch
+        {
+            InvoiceQueueStatusDto => ("Cancel invoice",
+                $"Cancel the queued invoice '{row.Reference}'? This also releases the reserved stock."),
+            InventoryTransferQueueStatusDto => ("Cancel transfer",
+                $"Cancel the queued transfer '{row.Reference}'?"),
+            _ => ("Cancel reservation",
+                $"Cancel the reservation '{row.Reference}'? This releases the reserved stock.")
+        };
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(title, body, yesText: "Cancel it", cancelText: "Keep");
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        var ok = row.Source switch
+        {
+            InvoiceQueueStatusDto invoice => await DesktopService.CancelQueuedInvoiceAsync(invoice.ExternalReference),
+            InventoryTransferQueueStatusDto transfer => await DesktopService.CancelQueuedTransferAsync(transfer.ExternalReference),
+            StockReservationDto reservation => await DesktopService.CancelReservationAsync(
+                reservation.ReservationId, "Cancelled from web admin"),
+            _ => false
+        };
+
+        Snackbar.Add(ok ? $"{row.Reference} cancelled" : $"Failed to cancel {row.Reference}",
+            ok ? Severity.Success : Severity.Error);
+
+        if (ok)
+        {
+            _selectedKey = null;
+            await RefreshAll();
+        }
+    }
+
+    // Every rejected document, resubmitted in one go. Confirmed first: this
+    // posts N documents to SAP, and the banner is a single click away from
+    // anywhere on the page.
+    private async Task RetryAll()
+    {
+        var pending = _invoiceReview.Concat(_transferReview)
+            .Concat(_invoices.Where(row => row.Status is "Failed" or "RequiresReview"))
+            .Concat(_transfers.Where(row => row.Status is "Failed" or "RequiresReview"))
+            .Where(row => row.CanRetry)
+            .GroupBy(row => row.Key)
+            .Select(group => group.First())
+            .ToList();
+
+        if (pending.Count == 0)
+        {
+            Snackbar.Add("Nothing here can be retried — those documents are out of attempts.", Severity.Info);
+            return;
+        }
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Retry all",
+            $"Resubmit {pending.Count} rejected {(pending.Count == 1 ? "document" : "documents")} to SAP?",
+            yesText: "Retry all",
+            cancelText: "Not now");
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        var done = 0;
+        foreach (var row in pending)
+        {
+            var ok = row.Source switch
+            {
+                InvoiceQueueStatusDto invoice => await DesktopService.RetryQueuedInvoiceAsync(invoice.ExternalReference),
+                InventoryTransferQueueStatusDto transfer => await DesktopService.RetryQueuedTransferAsync(transfer.ExternalReference),
+                _ => false
+            };
+
+            if (ok)
+            {
+                done++;
+            }
+        }
+
+        Snackbar.Add(
+            done == pending.Count
+                ? $"{done} {(done == 1 ? "document" : "documents")} queued for retry"
+                : $"{done} of {pending.Count} queued for retry — the rest were rejected outright",
+            done == pending.Count ? Severity.Success : Severity.Warning);
+
+        await RefreshAll();
+    }
+
+    // ─── The banner ───────────────────────────────────────────────────────
+
+    private int RejectedCount =>
+        (_stats?.Failed ?? 0) + (_stats?.RequiresReview ?? 0)
+        + (_transferStats?.Failed ?? 0) + (_transferStats?.RequiresReview ?? 0);
+
+    private DateTime? OldestRejected => _invoiceReview
+        .Concat(_transferReview)
+        .Concat(_invoices.Where(row => row.Status is "Failed" or "RequiresReview"))
+        .Concat(_transfers.Where(row => row.Status is "Failed" or "RequiresReview"))
+        .Select(row => (DateTime?)row.Submitted)
+        .Min();
+
+    // ─── Helpers ──────────────────────────────────────────────────────────
+
+    // The eight queue states, read down onto the five the design draws.
+    // Confirmed and Fiscalized both mean SAP has the document; Expired and
+    // Cancelled both mean it never will.
+    private static (string Label, string Family) ReadStatus(string? status) => status?.ToLowerInvariant() switch
+    {
+        "pending" => ("Queued", "ops-fam-neutral"),
+        "processing" => ("Posting", "ops-fam-info"),
+        "completed" or "confirmed" => ("Posted", "ops-fam-good"),
+        "fiscalized" => ("Fiscalized", "ops-fam-good"),
+        "failed" => ("Failed", "ops-fam-bad"),
+        "requiresreview" => ("Needs review", "ops-fam-bad"),
+        "cancelled" => ("Cancelled", "ops-fam-neutral"),
+        "expired" => ("Expired", "ops-fam-neutral"),
+        _ => (string.IsNullOrWhiteSpace(status) ? "Unknown" : status, "ops-fam-neutral")
+    };
+
+    private static string Dash(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
+
     private static string FormatWaitTime(int seconds)
     {
         if (seconds < 60) return $"{seconds}s";
         if (seconds < 3600) return $"{seconds / 60}m {seconds % 60}s";
-        return $"{seconds / 3600}h {(seconds % 3600) / 60}m";
+        return $"{seconds / 3600}h {seconds % 3600 / 60}m";
     }
+
+    private static string Share(int part, int total) =>
+        total <= 0 ? "0%" : ((double)part / total * 100).ToString("0.#") + "%";
+
+    private RenderFragment RenderQueueCard(
+        string icon, string label, string noun, int total,
+        int queued, int posting, int posted, int failed, int cancelled) => @<div class="ops-panel ops-dt-queue">
+        <div class="ops-dt-queue-head">
+            <i class="ph @icon" aria-hidden="true"></i>
+            <span>@label</span>
+            <div class="ops-dt-queue-total">
+                <b>@total.ToString("N0")</b>
+                <span>@noun</span>
+            </div>
+        </div>
+        <div class="ops-dt-lane">
+            <div class="ops-dt-lane-fig ops-fam-neutral">
+                <div class="ops-dt-lane-n">@queued.ToString("N0")</div>
+                <div class="ops-dt-lane-k"><span class="ops-dot"></span>Queued</div>
+            </div>
+            <div class="ops-dt-lane-fig ops-fam-info">
+                <div class="ops-dt-lane-n">@posting.ToString("N0")</div>
+                <div class="ops-dt-lane-k"><span class="ops-dot"></span>Posting</div>
+            </div>
+            <div class="ops-dt-lane-fig ops-fam-good">
+                <div class="ops-dt-lane-n">@posted.ToString("N0")</div>
+                <div class="ops-dt-lane-k"><span class="ops-dot"></span>Posted</div>
+            </div>
+            <div class="ops-dt-lane-fig ops-fam-bad">
+                <div class="ops-dt-lane-n">@failed.ToString("N0")</div>
+                <div class="ops-dt-lane-k"><span class="ops-dot"></span>Failed</div>
+            </div>
+            <div class="ops-dt-lane-fig ops-fam-neutral">
+                <div class="ops-dt-lane-n">@cancelled.ToString("N0")</div>
+                <div class="ops-dt-lane-k"><span class="ops-dot"></span>Cancelled</div>
+            </div>
+        </div>
+        @* Five segments, not four: the five figures above are every status the
+           queue has, so the bar and the total agree. *@
+        <div class="ops-dt-bar" aria-hidden="true">
+            <span class="ops-fam-good" style="width: @Share(posted, total)"></span>
+            <span class="ops-fam-info" style="width: @Share(posting, total)"></span>
+            <span class="ops-fam-neutral" style="width: @Share(queued, total)"></span>
+            <span class="ops-fam-bad" style="width: @Share(failed, total)"></span>
+            <span class="ops-fam-neutral" style="width: @Share(cancelled, total); opacity: .45"></span>
+        </div>
+    </div>;
 }
