@@ -68,6 +68,14 @@
     <link rel="stylesheet" href="@Assets["css/sales-orders.css"]" />
     <link rel="stylesheet" href="@Assets["css/invoices.css"]" />
     <link rel="stylesheet" href="@Assets["css/payments.css"]" />
+    @* One sheet, four purchase registers — quotations, requests, A/P invoices
+       and goods receipt POs. Derived from audit-trail.css; see its header for
+       why the four share a sheet and why /purchase-orders does not. *@
+    <link rel="stylesheet" href="@Assets["css/purchase-documents.css"]" />
+    @* The five purchase forms, straight after the registers they are entered
+       from and whose palette they take. Replaces app.css's `.pdoc-create-*`
+       block and two inline style blocks. *@
+    <link rel="stylesheet" href="@Assets["css/purchase-forms.css"]" />
     <link rel="stylesheet" href="@Assets["css/pods.css"]" />
     <link rel="stylesheet" href="@Assets["css/order-fulfillment.css"]" />
     @* Sibling of business-partners.css, sharing its palette: the audit trail is

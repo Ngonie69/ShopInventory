@@ -4,350 +4,386 @@
 
 <PageTitle>A/P Invoices</PageTitle>
 
-<style>
-    .apinv-page { max-width: 1500px; margin: 0 auto; padding: 1.5rem; }
-    .apinv-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
-    .apinv-title h1 { margin: 0; font-size: 1.7rem; font-weight: 800; color: #172033; }
-    .apinv-title p { margin: .4rem 0 0; color: #5f6b7a; max-width: 700px; }
-    .apinv-header-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
+@* Nocturne. wwwroot/css/purchase-documents.css (linked from App.razor) carries
+   the design and its light counterpart, and follows the app's theme toggle like
+   every other page. The sheet is shared with the other three purchase registers
+   — see its header for why one sheet rather than four, and PurchaseQuotations
+   for the notes on the grid and the drawer, which this page repeats. *@
 
-    .apinv-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
-    .apinv-stat { background: linear-gradient(180deg, #fffdf7 0%, #fff 100%); border: 1px solid #f1e2be; border-radius: 16px; padding: 1rem 1.1rem; box-shadow: 0 12px 30px rgba(23, 32, 51, .05); }
-    .apinv-stat-label { color: #8a6f2f; font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
-    .apinv-stat-value { margin-top: .35rem; font-size: 1.55rem; font-weight: 800; color: #172033; }
+<div class="pdx is-invoice">
 
-    .apinv-filters { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; padding: 1rem; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.25rem; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); }
-    .apinv-field { position: relative; }
-    .apinv-field label { display: block; font-size: .78rem; font-weight: 700; color: #5f6b7a; margin-bottom: .35rem; text-transform: uppercase; letter-spacing: .05em; }
-    /* (0,1,1), so the date field's own `.ndf .ndf-input` at (0,2,0) beats it
-       and it needs no guard. The dark override further down is (0,2,1) and
-       does — see the note there. */
-    .apinv-field input { width: 100%; border: 1px solid #d7dee7; border-radius: 12px; padding: .75rem .85rem; background: #fbfcfe; }
-
-    /* The date fields take their metrics from the row they sit in; their
-       calendar is the shared one. See wwwroot/css/nocturne-date-field.css. */
-    .apinv-field .ndf { --ndf-pad-y: .75rem; --ndf-pad-x: .85rem; --ndf-fs: 1rem; --ndf-radius: 12px; --ndf-fill: #fbfcfe; --ndf-edge: #d7dee7; }
-    .dark-theme .apinv-field .ndf { --ndf-fill: #101823; --ndf-edge: #2a3645; }
-    .apinv-filter-hint { margin-top: .4rem; font-size: .78rem; color: #7c8798; }
-    .apinv-search-results { position: absolute; z-index: 15; left: 0; right: 0; top: calc(100% + .35rem); background: #fff; border: 1px solid #d7dee7; border-radius: 14px; overflow: hidden; box-shadow: 0 16px 30px rgba(23, 32, 51, .12); max-height: 260px; overflow-y: auto; }
-    .apinv-search-option { width: 100%; border: none; background: transparent; text-align: left; padding: .8rem .9rem; border-bottom: 1px solid #eef2f6; color: #172033; }
-    .apinv-search-option:last-child { border-bottom: none; }
-    .apinv-search-option:hover { background: #fff8e8; }
-    .apinv-search-meta { display: block; margin-top: .15rem; font-size: .78rem; color: #6b7280; }
-    .apinv-chip { display: inline-flex; align-items: center; gap: .55rem; margin-top: .55rem; padding: .45rem .75rem; border-radius: 999px; background: #fff4d3; color: #7a611c; font-size: .82rem; font-weight: 700; }
-    .apinv-chip button { border: none; background: transparent; color: inherit; text-decoration: underline; padding: 0; }
-    .apinv-filter-actions { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; }
-
-    .apinv-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr); gap: 1rem; }
-    .apinv-panel { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); overflow: hidden; }
-    .apinv-panel-header { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-bottom: 1px solid #eef2f6; }
-    .apinv-panel-header h2 { margin: 0; font-size: 1rem; font-weight: 700; color: #172033; }
-    .apinv-panel-header span { color: #5f6b7a; font-size: .85rem; }
-
-    .apinv-table-wrap { overflow-x: auto; }
-    .apinv-table { width: 100%; border-collapse: collapse; }
-    .apinv-table th { text-align: left; padding: .9rem 1rem; font-size: .76rem; color: #6b7280; text-transform: uppercase; letter-spacing: .06em; background: #fbfcfe; border-bottom: 1px solid #eef2f6; }
-    .apinv-table td { padding: .95rem 1rem; border-bottom: 1px solid #f3f5f8; color: #172033; vertical-align: top; }
-    .apinv-row { cursor: pointer; transition: background-color .15s ease, transform .15s ease; }
-    .apinv-row:hover { background: #fff8e8; }
-    .apinv-row.is-selected { background: #fff4d3; }
-    .apinv-doc { font-weight: 700; }
-    .apinv-subtext { display: block; margin-top: .2rem; font-size: .8rem; color: #6b7280; }
-    .apinv-amount { font-weight: 700; white-space: nowrap; }
-    .apinv-status { display: inline-flex; align-items: center; border-radius: 999px; padding: .3rem .65rem; font-size: .75rem; font-weight: 700; }
-    .apinv-status.open { background: #e8f7ec; color: #1f7a38; }
-    .apinv-status.closed { background: #e8eef9; color: #2952a3; }
-    .apinv-status.cancelled { background: #fdecec; color: #a12828; }
-
-    .apinv-detail { padding: 1rem 1.1rem 1.2rem; }
-    .apinv-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; margin-bottom: 1rem; }
-    .apinv-detail-card { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fbfcfe; }
-    .apinv-detail-card label { display: block; font-size: .72rem; font-weight: 700; color: #8a94a4; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .25rem; }
-    .apinv-detail-card div { color: #172033; font-weight: 600; }
-    .apinv-line-list { display: grid; gap: .75rem; }
-    .apinv-line { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fffdf8; }
-    .apinv-line-top { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: .45rem; }
-    .apinv-line-code { font-weight: 700; color: #172033; }
-    .apinv-line-desc { color: #5f6b7a; font-size: .88rem; }
-    .apinv-empty { padding: 2.2rem 1.3rem; text-align: center; color: #6b7280; }
-    .apinv-empty strong { display: block; color: #172033; margin-bottom: .4rem; }
-    .apinv-alert { border-radius: 14px; padding: .85rem 1rem; margin-bottom: 1rem; border: 1px solid transparent; }
-    .apinv-alert.error { background: #fff1f1; border-color: #f3c4c4; color: #8f2727; }
-    .apinv-loading { padding: 2.5rem 1rem; text-align: center; color: #6b7280; }
-    .apinv-pager { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-top: 1px solid #eef2f6; }
-    .apinv-pager span { color: #5f6b7a; font-size: .9rem; }
-
-    .dark-theme .apinv-title h1,
-    .dark-theme .apinv-panel-header h2,
-    .dark-theme .apinv-table td,
-    .dark-theme .apinv-detail-card div,
-    .dark-theme .apinv-line-code,
-    .dark-theme .apinv-empty strong,
-    .dark-theme .apinv-stat-value { color: #edf2f7; }
-    .dark-theme .apinv-title p,
-    .dark-theme .apinv-panel-header span,
-    .dark-theme .apinv-subtext,
-    .dark-theme .apinv-empty,
-    .dark-theme .apinv-loading,
-    .dark-theme .apinv-pager span,
-    .dark-theme .apinv-detail-card label,
-    .dark-theme .apinv-line-desc,
-    .dark-theme .apinv-stat-label { color: #a9b4c2; }
-    .dark-theme .apinv-stat,
-    .dark-theme .apinv-filters,
-    .dark-theme .apinv-panel { background: #16202c; border-color: #2a3645; box-shadow: none; }
-    .dark-theme .apinv-stat { background: linear-gradient(180deg, #16202c 0%, #111926 100%); }
-    /* `:not(.ndf-input)` so this stops short of the date fields: it is (0,2,1)
-       against the component's own (0,2,0) and would otherwise repaint them in
-       dark and not in light. */
-    .dark-theme .apinv-field input:not(.ndf-input),
-    .dark-theme .apinv-detail-card,
-    .dark-theme .apinv-line { background: #101823; border-color: #2a3645; color: #edf2f7; }
-    .dark-theme .apinv-filter-hint,
-    .dark-theme .apinv-search-meta { color: #a9b4c2; }
-    .dark-theme .apinv-search-results { background: #16202c; border-color: #2a3645; box-shadow: none; }
-    .dark-theme .apinv-search-option { color: #edf2f7; border-color: #2a3645; }
-    .dark-theme .apinv-search-option:hover { background: #263647; }
-    .dark-theme .apinv-chip { background: #263647; color: #f7d37d; }
-    .dark-theme .apinv-table th { background: #101823; border-color: #2a3645; color: #a9b4c2; }
-    .dark-theme .apinv-table td,
-    .dark-theme .apinv-panel-header,
-    .dark-theme .apinv-pager { border-color: #2a3645; }
-    .dark-theme .apinv-row:hover { background: #1f2c3b; }
-    .dark-theme .apinv-row.is-selected { background: #263647; }
-
-    @@media (max-width: 1100px) {
-        .apinv-layout { grid-template-columns: 1fr; }
-        .apinv-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    }
-
-    @@media (max-width: 720px) {
-        .apinv-page { padding: 1rem; }
-        .apinv-filters { grid-template-columns: 1fr; }
-        .apinv-detail-grid { grid-template-columns: 1fr; }
-        .apinv-pager { flex-direction: column; align-items: stretch; }
-    }
-</style>
-
-<div class="apinv-page">
-    <div class="apinv-header">
-        <div class="apinv-title">
-            <h1>A/P Invoices</h1>
-            <p>View supplier invoices pulled from SAP and inspect the posted document lines before creating the next document.</p>
-        </div>
-        <div class="apinv-header-actions">
-            <button class="btn btn-outline-secondary" @onclick="ReloadAsync">Refresh</button>
-            <button class="btn btn-warning" @onclick="NavigateToCreate">Create A/P Invoice</button>
-        </div>
-    </div>
-
-    @if (!string.IsNullOrWhiteSpace(errorMessage))
-    {
-        <div class="apinv-alert error">@errorMessage</div>
-    }
-
-    <div class="apinv-stats">
-        <div class="apinv-stat">
-            <div class="apinv-stat-label">Total Documents</div>
-            <div class="apinv-stat-value">@invoiceResponse?.TotalCount</div>
-        </div>
-        <div class="apinv-stat">
-            <div class="apinv-stat-label">Current Page</div>
-            <div class="apinv-stat-value">@CurrentPageCount</div>
-        </div>
-        <div class="apinv-stat">
-            <div class="apinv-stat-label">Open Documents</div>
-            <div class="apinv-stat-value">@OpenInvoiceCount</div>
-        </div>
-        <div class="apinv-stat">
-            <div class="apinv-stat-label">Page Total</div>
-            <div class="apinv-stat-value">@CurrentPageTotal.ToString("N2")</div>
-        </div>
-    </div>
-
-    <div class="apinv-filters">
-        <div class="apinv-field">
-            <label>Supplier</label>
-            <input type="text"
-                   @bind="supplierSearchTerm"
-                   @bind:event="oninput"
-                   @onfocus="ShowSupplierResults"
-                   @onblur="HandleSupplierBlur"
-                   placeholder="Search supplier code or name" />
-            @if (showSupplierResults && FilteredSuppliers.Any())
-            {
-                <div class="apinv-search-results">
-                    @foreach (var supplier in FilteredSuppliers)
+    <header class="pdx-head">
+        <div class="pdx-head-inner">
+            <div class="pdx-head-doc">
+                <span class="pdx-head-kind">A/P invoices</span>
+                <span class="pdx-range">@DateRangeLabel</span>
+            </div>
+            <div class="pdx-head-meta">
+                <button type="button" class="pdx-btn pdx-btn-ghost" disabled="@isLoading" @onclick="ReloadAsync">
+                    @if (isLoading)
                     {
-                        <button type="button" class="apinv-search-option" @onmousedown="() => SelectSupplier(supplier)">
-                            <strong>@supplier.CardCode - @supplier.CardName</strong>
-                            <span class="apinv-search-meta">@supplier.Currency</span>
-                        </button>
+                        <span class="pdx-spin" aria-hidden="true"></span>
+                        <span>Loading&#8230;</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 11a8 8 0 0 0-13.7-5.3L4 8"></path>
+                            <path d="M4 4v4h4"></path>
+                            <path d="M4 13a8 8 0 0 0 13.7 5.3L20 16"></path>
+                            <path d="M20 20v-4h-4"></path>
+                        </svg>
+                        <span>Refresh</span>
+                    }
+                </button>
+                <button type="button" class="pdx-btn pdx-btn-primary" @onclick="NavigateToCreate">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                        <path d="M12 5v14M5 12h14"></path>
+                    </svg>
+                    <span>New invoice</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="pdx-body">
+
+        <section class="pdx-hero">
+            <div>
+                <div class="pdx-kicker">Purchasing</div>
+                <h1>A/P invoices</h1>
+                <p>
+                    Supplier invoices posted in SAP &#8212; what was billed, by whom, and when it falls
+                    due, with the invoiced lines behind each row.
+                </p>
+            </div>
+        </section>
+
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="pdx-msg" role="alert">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                     stroke-linecap="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                </svg>
+                <span>@errorMessage</span>
+                <button type="button" class="pdx-msg-x" aria-label="Dismiss" @onclick="() => errorMessage = null">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
+                </button>
+            </div>
+        }
+
+        <section class="pdx-stats">
+            <div class="pdx-stat pdx-stat-lead">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>Total documents</div>
+                <div class="pdx-stat-num">
+                    @if (invoiceResponse is null)
+                    {
+                        <text>&#8212;</text>
+                    }
+                    else
+                    {
+                        @invoiceResponse.TotalCount.ToString("N0")
                     }
                 </div>
-            }
-            @if (selectedSupplier is not null)
-            {
-                <div class="apinv-chip">
-                    @selectedSupplier.DisplayName
-                    <button type="button" @onclick="ClearSupplier">Change</button>
-                </div>
-            }
-            <div class="apinv-filter-hint">Type a supplier code or name, then pick a suggestion to filter by name.</div>
-        </div>
-        <div class="apinv-field">
-            <label for="apinv-f-from">From Date</label>
-            <NocturneDateField Id="apinv-f-from" @bind-Date="fromDate" />
-        </div>
-        <div class="apinv-field">
-            <label for="apinv-f-to">To Date</label>
-            <NocturneDateField Id="apinv-f-to" @bind-Date="toDate" />
-        </div>
-        <div class="apinv-filter-actions">
-            <button class="btn btn-dark" @onclick="SearchAsync" disabled="@isLoading">Apply Filters</button>
-            <button class="btn btn-outline-secondary" @onclick="ClearFiltersAsync" disabled="@isLoading">Clear</button>
-        </div>
-    </div>
+                <div class="pdx-stat-sub">Matching the filters</div>
+            </div>
+            <div class="pdx-stat">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>This page</div>
+                <div class="pdx-stat-num">@CurrentPageCount.ToString("N0")</div>
+                <div class="pdx-stat-sub">Rows below</div>
+            </div>
+            <div class="pdx-stat">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>Open documents</div>
+                <div class="pdx-stat-num">@OpenInvoiceCount.ToString("N0")</div>
+                <div class="pdx-stat-sub">On this page</div>
+            </div>
+            @* The total is of the rows on screen, not of the filter — the query
+               is paged, so say which it is rather than let it read as a total. *@
+            <div class="pdx-stat">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>Page total</div>
+                <div class="pdx-stat-num pdx-stat-num-money">@CurrentPageTotal.ToString("N2")</div>
+                <div class="pdx-stat-sub">Billed value on this page</div>
+            </div>
+        </section>
 
-    @if (isLoading)
-    {
-        <div class="apinv-panel">
-            <div class="apinv-loading">Loading purchase invoices from SAP...</div>
-        </div>
-    }
-    else
-    {
-        <div class="apinv-layout">
-            <section class="apinv-panel">
-                <div class="apinv-panel-header">
-                    <h2>Invoice Register</h2>
-                    <span>Page @currentPage of @(invoiceResponse?.TotalPages == 0 ? 1 : invoiceResponse?.TotalPages)</span>
-                </div>
+        <section class="pdx-panel">
+            <div class="pdx-panel-head">
+                <h2>Invoice register</h2>
+                <span class="pdx-count">@RegisterCountText</span>
+            </div>
 
-                @if (Invoices.Count == 0)
-                {
-                    <div class="apinv-empty">
-                        <strong>No A/P invoices matched the current filters.</strong>
-                        Adjust the supplier code or date range and try again.
-                    </div>
-                }
-                else
-                {
-                    <div class="apinv-table-wrap">
-                        <table class="apinv-table">
-                            <thead>
-                                <tr>
-                                    <th>Document</th>
-                                    <th>Supplier</th>
-                                    <th>Date</th>
-                                    <th>Status</th>
-                                    <th>Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var invoice in Invoices)
+            <div class="pdx-filters">
+                @* Not a <label>: the field carries a popup and a chip, which a
+                   label would swallow the clicks of. *@
+                <div class="pdx-field pdx-field-wide">
+                    <span class="pdx-label" id="apinv-f-supplier-label">Supplier</span>
+                    <div class="pdx-typeahead">
+                        <input class="pdx-input" type="text" autocomplete="off"
+                               aria-labelledby="apinv-f-supplier-label"
+                               placeholder="Code or name&#8230;"
+                               @bind="supplierSearchTerm" @bind:event="oninput"
+                               @onfocus="ShowSupplierResults" @onblur="HandleSupplierBlur" />
+                        @if (showSupplierResults && FilteredSuppliers.Any())
+                        {
+                            <div class="pdx-suggest" role="listbox" aria-label="Matching suppliers">
+                                @foreach (var supplier in FilteredSuppliers)
                                 {
-                                    <tr class="apinv-row @(selectedInvoice?.DocEntry == invoice.DocEntry ? "is-selected" : string.Empty)" @onclick="() => SelectInvoice(invoice)">
-                                        <td>
-                                            <span class="apinv-doc">#@invoice.DocNum</span>
-                                            <span class="apinv-subtext">DocEntry @invoice.DocEntry</span>
-                                            @if (!string.IsNullOrWhiteSpace(invoice.NumAtCard))
-                                            {
-                                                <span class="apinv-subtext">Supplier Ref: @invoice.NumAtCard</span>
-                                            }
-                                        </td>
-                                        <td>
-                                            <span class="apinv-doc">@invoice.CardCode</span>
-                                            <span class="apinv-subtext">@invoice.CardName</span>
-                                        </td>
-                                        <td>
-                                            <span>@invoice.DocDate.ToString("dd MMM yyyy")</span>
-                                            @if (invoice.DocDueDate.HasValue)
-                                            {
-                                                <span class="apinv-subtext">Due @invoice.DocDueDate.Value.ToString("dd MMM yyyy")</span>
-                                            }
-                                        </td>
-                                        <td>
-                                            <span class="apinv-status @GetStatusCssClass(invoice.DocStatus)">@invoice.DocStatus</span>
-                                        </td>
-                                        <td>
-                                            <span class="apinv-amount">@invoice.DocCurrency @invoice.DocTotal.ToString("N2")</span>
-                                        </td>
-                                    </tr>
+                                    @* @onmousedown rather than @onclick: the blur that
+                                       closes the popup fires first and would take the
+                                       click with it. *@
+                                    <button type="button" class="pdx-suggest-opt" role="option"
+                                            @onmousedown="() => SelectSupplier(supplier)">
+                                        <span class="pdx-suggest-name">@supplier.CardCode &#183; @supplier.CardName</span>
+                                        <span class="pdx-suggest-meta">@supplier.Currency</span>
+                                    </button>
                                 }
-                            </tbody>
-                        </table>
+                            </div>
+                        }
+                        @if (selectedSupplier is not null)
+                        {
+                            <span class="pdx-chip">
+                                <span class="pdx-chip-name">@selectedSupplier.DisplayName</span>
+                                <button type="button" class="pdx-chip-x" aria-label="Clear the supplier filter"
+                                        @onclick="ClearSupplier">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+                                        <path d="M6 6l12 12M18 6L6 18"></path>
+                                    </svg>
+                                </button>
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="pdx-hint">Pick a suggestion to filter by supplier.</span>
+                        }
                     </div>
-                }
+                </div>
 
-                <div class="apinv-pager">
-                    <button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)">Previous</button>
-                    <span>Showing @CurrentPageCount of @invoiceResponse?.TotalCount invoices</span>
-                    <button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(isLoading || !(invoiceResponse?.HasMore ?? false))">Next</button>
+                <div class="pdx-field">
+                    <span class="pdx-label">Posted from</span>
+                    <NocturneDateField Id="apinv-f-from" @bind-Date="fromDate" AriaLabel="Posted from" />
+                </div>
+
+                <div class="pdx-field">
+                    <span class="pdx-label">Posted to</span>
+                    <NocturneDateField Id="apinv-f-to" @bind-Date="toDate" AriaLabel="Posted to" />
+                </div>
+
+                @* These go back to SAP, so they are applied on the button rather
+                   than on change. *@
+                <div class="pdx-filter-actions">
+                    <button type="button" class="pdx-btn pdx-btn-primary" disabled="@isLoading" @onclick="SearchAsync">
+                        Apply
+                    </button>
+                    <button type="button" class="pdx-btn pdx-btn-quiet" disabled="@isLoading" @onclick="ClearFiltersAsync">
+                        Clear
+                    </button>
+                </div>
+            </div>
+
+            @if (isLoading)
+            {
+                <div class="pdx-loading">
+                    <span class="pdx-spin" aria-hidden="true"></span>
+                    <span>Loading A/P invoices from SAP&#8230;</span>
+                </div>
+            }
+            else if (Invoices.Count == 0)
+            {
+                <div class="pdx-empty">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M6 3h9l3 3v15H6z"></path>
+                        <path d="M9 10h6M9 14h4"></path>
+                    </svg>
+                    <span>No A/P invoice matched these filters.</span>
+                    <div class="pdx-empty-actions">
+                        <button type="button" class="pdx-btn pdx-btn-quiet" @onclick="ClearFiltersAsync">
+                            Reset to the last thirty days
+                        </button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="pdx-scroll">
+                    <div class="pdx-grid" role="table" aria-label="A/P invoices">
+                        <div class="pdx-thead" role="row">
+                            <span role="columnheader">Document</span>
+                            <span role="columnheader">Supplier</span>
+                            <span role="columnheader">Posted</span>
+                            <span role="columnheader">Status</span>
+                            <span role="columnheader" class="pdx-thead-end">Total</span>
+                        </div>
+
+                        @foreach (var invoice in Invoices)
+                        {
+                            <div class="pdx-row @(selectedInvoice?.DocEntry == invoice.DocEntry ? "pdx-row-on" : "")"
+                                 role="row" @key="invoice.DocEntry" @onclick="() => SelectInvoice(invoice)">
+                                <span class="pdx-doc" role="cell">
+                                    <span class="pdx-docnum">#@invoice.DocNum</span>
+                                    <span class="pdx-docsub">
+                                        @if (!string.IsNullOrWhiteSpace(invoice.NumAtCard))
+                                        {
+                                            @($"Ref {invoice.NumAtCard}")
+                                        }
+                                        else
+                                        {
+                                            @($"Entry {invoice.DocEntry}")
+                                        }
+                                    </span>
+                                </span>
+                                <span class="pdx-party" role="cell">
+                                    <span class="pdx-party-name">@invoice.CardName</span>
+                                    <span class="pdx-party-code">@invoice.CardCode</span>
+                                </span>
+                                <span class="pdx-date pdx-cell-date" role="cell">
+                                    <span class="pdx-date-main">
+                                        <span class="pdx-rl">Posted</span>@invoice.DocDate.ToString("dd MMM yyyy")
+                                    </span>
+                                    @if (invoice.DocDueDate.HasValue)
+                                    {
+                                        <span class="pdx-date-sub">Due @invoice.DocDueDate.Value.ToString("dd MMM yyyy")</span>
+                                    }
+                                </span>
+                                <span class="pdx-cell-status" role="cell">
+                                    <span class="pdx-badge @GetStatusCssClass(invoice.DocStatus)">@invoice.DocStatus</span>
+                                </span>
+                                <span class="pdx-money pdx-cell-total" role="cell">
+                                    <span class="pdx-money-cur">@invoice.DocCurrency</span>
+                                    <span class="pdx-money-num">@invoice.DocTotal.ToString("N2")</span>
+                                </span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="pdx-foot">
+                    <span class="pdx-foot-info">@PageRangeText</span>
+                    <div class="pdx-pages">
+                        <button type="button" class="pdx-step" disabled="@(isLoading || currentPage <= 1)"
+                                @onclick="PreviousPageAsync">
+                            Previous
+                        </button>
+                        <span class="pdx-page-now">Page @currentPage</span>
+                        <button type="button" class="pdx-step"
+                                disabled="@(isLoading || !(invoiceResponse?.HasMore ?? false))"
+                                @onclick="NextPageAsync">
+                            Next
+                        </button>
+                    </div>
+                </div>
+            }
+        </section>
+    </div>
+</div>
+
+@* The scrim and the drawer carry `.pdx` themselves: they sit outside the page
+   element so it cannot clip them, and the class is what puts the tokens in
+   reach. *@
+@if (selectedInvoice is not null)
+{
+    var detail = selectedInvoice;
+
+    <div class="pdx pdx-scrim" @onclick="CloseDetail"></div>
+    <aside class="pdx pdx-drawer" role="dialog" aria-modal="true" aria-label="Invoice details">
+        <div class="pdx-drawer-head">
+            <div>
+                <h2>A/P invoice #@detail.DocNum</h2>
+                <div class="pdx-drawer-sub">
+                    <span class="pdx-badge @GetStatusCssClass(detail.DocStatus)">@detail.DocStatus</span>
+                    <span>@detail.CardName</span>
+                    <span>@detail.DocCurrency @detail.DocTotal.ToString("N2")</span>
+                </div>
+            </div>
+            <button type="button" class="pdx-icon-btn pdx-drawer-x" aria-label="Close" @onclick="CloseDetail">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6L6 18"></path>
+                </svg>
+            </button>
+        </div>
+
+        <div class="pdx-drawer-body">
+            <section class="pdx-section">
+                <h3>Document</h3>
+                <div class="pdx-dl">
+                    <div>
+                        <div class="pdx-dt">Supplier</div>
+                        <div class="pdx-dd">@detail.CardCode &#183; @detail.CardName</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Supplier reference</div>
+                        <div class="pdx-dd">@(string.IsNullOrWhiteSpace(detail.NumAtCard) ? "None" : detail.NumAtCard)</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Posted</div>
+                        <div class="pdx-dd pdx-dd-num">@detail.DocDate.ToString("dd MMM yyyy")</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Due</div>
+                        <div class="pdx-dd pdx-dd-num">@(detail.DocDueDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Discount</div>
+                        <div class="pdx-dd pdx-dd-num">@detail.DiscountPercent.ToString("N2")%</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Document total</div>
+                        <div class="pdx-dd pdx-dd-num">@detail.DocCurrency @detail.DocTotal.ToString("N2")</div>
+                    </div>
                 </div>
             </section>
 
-            <aside class="apinv-panel">
-                <div class="apinv-panel-header">
-                    <h2>Selected Invoice</h2>
-                    <span>@(selectedInvoice is null ? "No selection" : $"{selectedInvoice.DocCurrency} {selectedInvoice.DocTotal:N2}")</span>
-                </div>
+            @if (!string.IsNullOrWhiteSpace(detail.Comments))
+            {
+                <section class="pdx-section">
+                    <h3>Comments</h3>
+                    <p class="pdx-pre">@detail.Comments</p>
+                </section>
+            }
 
-                @if (selectedInvoice is null)
+            <section class="pdx-section">
+                <h3>Invoiced lines</h3>
+                @if (detail.Lines.Count == 0)
                 {
-                    <div class="apinv-empty">
-                        <strong>Select an invoice.</strong>
-                        The document summary and lines will appear here.
-                    </div>
+                    <div class="pdx-lines-empty">This invoice has no lines.</div>
                 }
                 else
                 {
-                    <div class="apinv-detail">
-                        <div class="apinv-detail-grid">
-                            <div class="apinv-detail-card">
-                                <label>Supplier</label>
-                                <div>@selectedInvoice.CardCode - @selectedInvoice.CardName</div>
-                            </div>
-                            <div class="apinv-detail-card">
-                                <label>Posting Date</label>
-                                <div>@selectedInvoice.DocDate.ToString("dd MMM yyyy")</div>
-                            </div>
-                            <div class="apinv-detail-card">
-                                <label>Due Date</label>
-                                <div>@(selectedInvoice.DocDueDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
-                            </div>
-                            <div class="apinv-detail-card">
-                                <label>Discount %</label>
-                                <div>@selectedInvoice.DiscountPercent.ToString("N2")</div>
-                            </div>
-                        </div>
-
-                        @if (!string.IsNullOrWhiteSpace(selectedInvoice.Comments))
+                    <div class="pdx-lines">
+                        @foreach (var line in detail.Lines)
                         {
-                            <div class="apinv-detail-card" style="margin-bottom: 1rem;">
-                                <label>Comments</label>
-                                <div>@selectedInvoice.Comments</div>
+                            <div class="pdx-line">
+                                <div class="pdx-line-top">
+                                    <div class="pdx-line-item">
+                                        <div class="pdx-line-code">@line.ItemCode</div>
+                                        <div class="pdx-line-desc">@line.ItemDescription</div>
+                                    </div>
+                                    <div class="pdx-money">
+                                        <span class="pdx-money-cur">@detail.DocCurrency</span>
+                                        <span class="pdx-money-num">@line.LineTotal.ToString("N2")</span>
+                                    </div>
+                                </div>
+                                <div class="pdx-line-meta">
+                                    <span>@line.Quantity.ToString("N2") &#215; @line.UnitPrice.ToString("N2")</span>
+                                    @if (!string.IsNullOrWhiteSpace(line.WarehouseCode))
+                                    {
+                                        <span class="pdx-tag">@line.WarehouseCode</span>
+                                    }
+                                </div>
                             </div>
                         }
-
-                        <div class="apinv-line-list">
-                            @foreach (var line in selectedInvoice.Lines)
-                            {
-                                <div class="apinv-line">
-                                    <div class="apinv-line-top">
-                                        <div>
-                                            <div class="apinv-line-code">@line.ItemCode</div>
-                                            <div class="apinv-line-desc">@line.ItemDescription</div>
-                                        </div>
-                                        <div class="apinv-amount">@selectedInvoice.DocCurrency @line.LineTotal.ToString("N2")</div>
-                                    </div>
-                                    <div class="apinv-subtext">Qty @line.Quantity.ToString("N2") at @line.UnitPrice.ToString("N2") @(string.IsNullOrWhiteSpace(line.WarehouseCode) ? string.Empty : $" | {line.WarehouseCode}")</div>
-                                </div>
-                            }
-                        </div>
                     </div>
                 }
-            </aside>
+            </section>
         </div>
-    }
-</div>
+    </aside>
+}

@@ -7,1430 +7,681 @@
 @inject IAuditService AuditService
 @rendermode InteractiveServer
 
-<PageTitle>Purchase Orders - Shop Inventory</PageTitle>
-
-<style>
-    /* ── Page ────────────────────────────────────────── */
-    .po-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
-
-    /* ── Header ──────────────────────────────────────── */
-    .po-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .po-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
-
-    .po-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #059669, #0d9488);
-        box-shadow: 0 4px 14px rgba(5, 150, 105, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
-
-    .po-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-        letter-spacing: -.3px;
-    }
-
-    .po-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    .btn-po-gradient {
-        background: linear-gradient(135deg, #059669, #0d9488);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        text-decoration: none;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        box-shadow: 0 2px 8px rgba(5, 150, 105, .25);
-        cursor: pointer;
-    }
-
-    .btn-po-gradient:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(5, 150, 105, .4);
-        color: #fff;
-    }
-
-    /* ── Stat Cards ───────────────────────────────────── */
-    .stat-row {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .stat-card {
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        padding: 1rem 1.15rem;
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-        transition: transform .15s, box-shadow .15s;
-    }
-
-    .stat-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, .06);
-    }
-
-    .stat-icon {
-        width: 42px;
-        height: 42px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.15rem;
-        flex-shrink: 0;
-    }
-
-    .stat-icon.total {
-        background: #d1fae5;
-        color: #059669;
-    }
-
-    .stat-icon.draft {
-        background: #f3f4f6;
-        color: #6b7280;
-    }
-
-    .stat-icon.pending {
-        background: #fef3c7;
-        color: #d97706;
-    }
-
-    .stat-icon.approved {
-        background: #dbeafe;
-        color: #2563eb;
-    }
-
-    .stat-icon.received {
-        background: #ede9fe;
-        color: #7c3aed;
-    }
-
-    .stat-info .stat-value {
-        font-size: 1.35rem;
-        font-weight: 700;
-        color: #1a1a2e;
-        line-height: 1.1;
-    }
-
-    .stat-info .stat-label {
-        font-size: .72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #9ca3af;
-    }
-
-    /* ── Filter Bar ──────────────────────────────────── */
-    .filter-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .75rem;
-        align-items: flex-end;
-        padding: 1rem 1.25rem;
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        margin-bottom: 1.25rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .source-toggle {
-        display: flex;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        overflow: hidden;
-    }
-
-    .source-btn {
-        display: flex;
-        align-items: center;
-        gap: .35rem;
-        padding: .45rem .85rem;
-        border: none;
-        background: #fff;
-        font-size: .82rem;
-        font-weight: 600;
-        color: #6b7280;
-        cursor: pointer;
-        transition: all .15s;
-    }
-
-    .source-btn:first-child {
-        border-right: 1px solid #d1d5db;
-    }
-
-    .source-btn.active {
-        background: linear-gradient(135deg, #059669, #0d9488);
-        color: #fff;
-    }
-
-    .source-btn:not(.active):hover {
-        background: #f3f4f6;
-    }
-
-    .filter-bar .filter-field {
-        flex: 1;
-        min-width: 140px;
-    }
-
-    .filter-bar .filter-field label {
-        display: block;
-        font-size: .72rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        margin-bottom: .3rem;
-    }
-
-    .filter-bar .filter-field input,
-    .filter-bar .filter-field select {
-        width: 100%;
-        padding: .5rem .75rem;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .88rem;
-        color: #374151;
-        background: #fff;
-        transition: all .15s;
-    }
-
-    .filter-bar .filter-field input:focus,
-    .filter-bar .filter-field select:focus {
-        outline: none;
-        border-color: #059669;
-        box-shadow: 0 0 0 3px rgba(5, 150, 105, .15);
-    }
-
-    /* The date fields are NocturneDateField rather than MudDatePicker, which
-       drew its calendar in MudBlazor's palette. Only the closed field is
-       fitted to this row; see wwwroot/css/nocturne-date-field.css. */
-    .filter-bar .filter-field .ndf {
-        --ndf-pad-y: .5rem;
-        --ndf-pad-x: .75rem;
-        --ndf-fs: .88rem;
-        --ndf-radius: 8px;
-        --ndf-fill: #fff;
-        --ndf-edge: #d1d5db;
-    }
-
-    .dark-theme .filter-bar .filter-field .ndf {
-        --ndf-fill: #1e293b;
-        --ndf-edge: var(--border-color);
-    }
-
-    .filter-actions-row {
-        display: flex;
-        gap: .5rem;
-        align-items: flex-end;
-    }
-
-    .btn-search {
-        background: linear-gradient(135deg, #059669, #0d9488);
-        color: #fff;
-        border: none;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-search:hover {
-        opacity: .92;
-        transform: translateY(-1px);
-    }
-
-    .btn-clear {
-        background: #fff;
-        color: #6b7280;
-        border: 1px solid #d1d5db;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .15s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-clear:hover {
-        background: #f3f4f6;
-    }
-
-    /* ── Table ───────────────────────────────────────── */
-    .po-table-wrap {
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .po-table-header {
-        padding: .85rem 1.25rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 1px solid #e5e7eb;
-        background: #f8fafc;
-    }
-
-    .po-table-header h6 {
-        margin: 0;
-        font-weight: 600;
-        color: #1a1a2e;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-        font-size: .92rem;
-    }
-
-    .po-count-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .25rem;
-        padding: .2rem .6rem;
-        border-radius: 6px;
-        font-size: .75rem;
-        font-weight: 600;
-        background: #f3f4f6;
-        color: #374151;
-    }
-
-    /* ── Status Badges ───────────────────────────────── */
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-        padding: .2rem .6rem;
-        border-radius: 6px;
-        font-size: .73rem;
-        font-weight: 600;
-        white-space: nowrap;
-    }
-
-    .status-badge.draft {
-        background: #f3f4f6;
-        color: #6b7280;
-    }
-
-    .status-badge.pending {
-        background: #fef3c7;
-        color: #92400e;
-    }
-
-    .status-badge.approved {
-        background: #d1fae5;
-        color: #065f46;
-    }
-
-    .status-badge.partial {
-        background: #e0e7ff;
-        color: #3730a3;
-    }
-
-    .status-badge.received {
-        background: #dbeafe;
-        color: #1e40af;
-    }
-
-    .status-badge.cancelled {
-        background: #fee2e2;
-        color: #991b1b;
-    }
-
-    .status-badge.on-hold {
-        background: #374151;
-        color: #fff;
-    }
-
-    /* ── Cell Styles ─────────────────────────────────── */
-    .doc-number {
-        font-weight: 700;
-        color: #059669;
-        font-size: .88rem;
-    }
-
-    .supplier-info .name {
-        font-weight: 600;
-        font-size: .85rem;
-        color: #1a1a2e;
-        display: block;
-    }
-
-    .supplier-info .code {
-        font-size: .75rem;
-        color: #9ca3af;
-        display: block;
-    }
-
-    .amount-cell {
-        font-weight: 700;
-        color: #1a1a2e;
-        font-size: .88rem;
-    }
-
-    /* ── Action Buttons ──────────────────────────────── */
-    .action-btn {
-        width: 30px;
-        height: 30px;
-        border-radius: 8px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        color: #6b7280;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all .15s;
-        font-size: .85rem;
-    }
-
-    .action-btn:hover {
-        background: #f3f4f6;
-        color: #374151;
-        border-color: #d1d5db;
-    }
-
-    .action-btn.view:hover {
-        background: #d1fae5;
-        color: #059669;
-        border-color: #6ee7b7;
-    }
-
-    .action-btn.edit:hover {
-        background: #fef3c7;
-        color: #d97706;
-        border-color: #fbbf24;
-    }
-
-    .action-btn.submit:hover {
-        background: #dbeafe;
-        color: #2563eb;
-        border-color: #93c5fd;
-    }
-
-    .action-btn.approve:hover {
-        background: #d1fae5;
-        color: #059669;
-        border-color: #6ee7b7;
-    }
-
-    .action-btn.receive:hover {
-        background: #ede9fe;
-        color: #7c3aed;
-        border-color: #c4b5fd;
-    }
-
-    .action-btn.delete:hover {
-        background: #fee2e2;
-        color: #dc2626;
-        border-color: #fca5a5;
-    }
-
-    /* ── Drawer ──────────────────────────────────────── */
-    /* Offset below the app bar: the page container is a stacking context, so a drawer
-       cannot paint over the topbar however high its z-index. */
-    .modal-backdrop-custom {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(0, 0, 0, .45);
-        z-index: 9998;
-        animation: fadeIn .2s ease;
-    }
-
-    .detail-drawer {
-        position: fixed;
-        top: var(--kf-topbar-h, 74px);
-        right: 0;
-        width: min(640px, 95vw);
-        height: calc(100vh - var(--kf-topbar-h, 74px));
-        background: #fff;
-        z-index: 9999;
-        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
-        display: flex;
-        flex-direction: column;
-        animation: slideInRight .25s ease;
-    }
-
-    .drawer-header {
-        padding: 1.15rem 1.5rem;
-        background: linear-gradient(135deg, #059669, #0d9488);
-        color: #fff;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-shrink: 0;
-    }
-
-    .drawer-header h5 {
-        margin: 0;
-        font-weight: 600;
-        font-size: 1.05rem;
-    }
-
-    .drawer-header .btn-close-drawer {
-        background: rgba(255, 255, 255, .15);
-        border: none;
-        color: #fff;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: background .15s;
-        font-size: 1rem;
-    }
-
-    .drawer-header .btn-close-drawer:hover {
-        background: rgba(255, 255, 255, .25);
-    }
-
-    .drawer-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1.5rem;
-    }
-
-    .drawer-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid #e5e7eb;
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-        flex-shrink: 0;
-    }
-
-    .detail-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: .85rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .detail-item .detail-label {
-        font-size: .72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #9ca3af;
-        margin-bottom: .15rem;
-    }
-
-    .detail-item .detail-value {
-        font-size: .92rem;
-        font-weight: 600;
-        color: #1a1a2e;
-    }
-
-    .detail-section-title {
-        font-weight: 600;
-        color: #1a1a2e;
-        font-size: .9rem;
-        margin-bottom: .75rem;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    /* ── Lines Table ─────────────────────────────────── */
-    .lines-table {
-        width: 100%;
-        font-size: .85rem;
-        border-collapse: separate;
-        border-spacing: 0;
-    }
-
-    .lines-table th {
-        background: #f8fafc;
-        font-size: .72rem;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #6b7280;
-        font-weight: 600;
-        padding: .6rem .75rem;
-        border-bottom: 2px solid #e5e7eb;
-    }
-
-    .lines-table td {
-        padding: .55rem .75rem;
-        border-bottom: 1px solid #f3f4f6;
-        color: #374151;
-    }
-
-    .lines-table tr:last-child td {
-        border-bottom: none;
-    }
-
-    .lines-table tfoot td {
-        border-top: 2px solid #e5e7eb;
-        background: #f8fafc;
-    }
-
-    .total-banner {
-        background: linear-gradient(135deg, #059669, #0d9488);
-        color: #fff;
-        border-radius: 10px;
-        padding: 1rem 1.25rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-top: 1.25rem;
-    }
-
-    .total-banner .total-label {
-        font-size: .9rem;
-        font-weight: 500;
-    }
-
-    .total-banner .total-value {
-        font-size: 1.4rem;
-        font-weight: 700;
-    }
-
-    /* ── Receive Modal ───────────────────────────────── */
-    /* Centres below the app bar, not the viewport: the page container is a stacking
-       context, so the bar paints over anything centred against the full viewport. */
-    .receive-modal-overlay {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(0, 0, 0, .5);
-        z-index: 10000;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        animation: fadeIn .2s ease;
-        padding: 1rem;
-    }
-
-    .receive-modal {
-        background: #fff;
-        border-radius: 14px;
-        width: min(750px, 95vw);
-        max-height: calc(90vh - var(--kf-topbar-h, 74px));
-        display: flex;
-        flex-direction: column;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
-        animation: scaleIn .25s ease;
-    }
-
-    .receive-modal-header {
-        padding: 1.15rem 1.5rem;
-        border-bottom: 1px solid #e5e7eb;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        background: linear-gradient(135deg, #059669, #0d9488);
-        border-radius: 14px 14px 0 0;
-        color: #fff;
-    }
-
-    .receive-modal-header h5 {
-        margin: 0;
-        font-weight: 600;
-        font-size: 1rem;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .receive-modal-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1.5rem;
-    }
-
-    .receive-modal-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid #e5e7eb;
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-    }
-
-    /* ── Empty / Loading ─────────────────────────────── */
-    .empty-state {
-        text-align: center;
-        padding: 3rem 1.5rem;
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-    }
-
-    .empty-icon {
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        background: #d1fae5;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 1rem;
-        font-size: 1.8rem;
-        color: #059669;
-    }
-
-    .empty-state h6 {
-        font-weight: 600;
-        color: #374151;
-        margin-bottom: .35rem;
-    }
-
-    .empty-state p {
-        color: #9ca3af;
-        font-size: .88rem;
-    }
-
-    .loading-state {
-        text-align: center;
-        padding: 3rem;
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-    }
-
-    /* ── Alert ───────────────────────────────────────── */
-    .alert-banner {
-        border-radius: 10px;
-        padding: .75rem 1rem;
-        display: flex;
-        align-items: flex-start;
-        gap: .6rem;
-        margin-bottom: 1rem;
-        font-size: .88rem;
-        animation: slideDown .3s ease;
-    }
-
-    .alert-banner.error-alert {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #991b1b;
-    }
-
-    .alert-banner.success-alert {
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        color: #166534;
-    }
-
-    .btn-secondary-action {
-        background: #fff;
-        color: #374151;
-        border: 1px solid #d1d5db;
-        padding: .55rem 1.35rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .15s;
-    }
-
-    .btn-secondary-action:hover {
-        background: #f9fafb;
-    }
-
-    .btn-action {
-        background: linear-gradient(135deg, #059669, #0d9488);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .btn-action:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(5, 150, 105, .3);
-    }
-
-    .btn-action:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    /* ── Animations ──────────────────────────────────── */
-    @@keyframes fadeIn {
-        from {
-            opacity: 0;
-        }
-
-        to {
-            opacity: 1;
-        }
-    }
-
-    @@keyframes slideInRight {
-        from {
-            transform: translateX(100%);
-        }
-
-        to {
-            transform: translateX(0);
-        }
-    }
-
-    @@keyframes slideDown {
-        from {
-            opacity: 0;
-            transform: translateY(-6px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    @@keyframes scaleIn {
-        from {
-            opacity: 0;
-            transform: scale(.95);
-        }
-
-        to {
-            opacity: 1;
-            transform: scale(1);
-        }
-    }
-
-    @@media (max-width:768px) {
-        .po-header {
-            flex-direction: column;
-            align-items: stretch;
-            gap: .85rem;
-        }
-
-        .btn-po-gradient {
-            width: 100%;
-            justify-content: center;
-        }
-
-        .filter-bar {
-            flex-direction: column;
-            padding: .85rem;
-        }
-
-        .source-toggle {
-            width: 100%;
-        }
-
-        .source-btn {
-            flex: 1 1 0;
-            justify-content: center;
-        }
-
-        .filter-bar .filter-field {
-            min-width: 100%;
-            flex: 1 1 100%;
-        }
-
-        .filter-actions-row {
-            width: 100%;
-            flex-direction: column;
-            align-items: stretch;
-        }
-
-        .filter-actions-row>* {
-            width: 100%;
-            justify-content: center;
-        }
-
-        .stat-row {
-            grid-template-columns: 1fr 1fr;
-        }
-
-        .po-table-header {
-            flex-direction: column;
-            align-items: stretch;
-            gap: .75rem;
-        }
-
-        .detail-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .detail-drawer,
-        .receive-modal {
-            width: 100vw;
-            max-width: 100vw;
-        }
-
-        .receive-modal {
-            height: calc(100vh - var(--kf-topbar-h, 74px));
-            max-height: calc(100vh - var(--kf-topbar-h, 74px));
-            border-radius: 0;
-        }
-
-        .drawer-footer,
-        .receive-modal-footer {
-            flex-direction: column-reverse;
-            align-items: stretch;
-        }
-
-        .drawer-footer>*,
-        .receive-modal-footer>* {
-            width: 100%;
-            justify-content: center;
-        }
-    }
-
-    @@media (max-width:640px) {
-        .stat-row {
-            grid-template-columns: 1fr;
-        }
-    }
-</style>
-
-<div class="po-page">
-    <div class="container-fluid">
-
-        <!-- ━━━ Header ━━━ -->
-        <div class="po-header">
-            <div class="po-header-left">
-                <div class="po-header-icon"><i class="bi bi-bag-check"></i></div>
-                <div>
-                    <h2>Purchase Orders</h2>
-                    <p>Manage supplier orders and goods receipt</p>
-                </div>
+<PageTitle>Purchase Orders</PageTitle>
+
+@* Nocturne. wwwroot/css/purchase-documents.css (linked from App.razor) carries
+   the design and its light counterpart, and follows the app's theme toggle like
+   every other page. This is the fifth register on that sheet, `.is-order`; see
+   its header for what the five share and its last section for what only this
+   page needs.
+
+   No MudBlazor. MudTable rendered the register, MudPagination its foot and
+   MudButton every action, all in MudBlazor's own palette — which loads after
+   every sheet here and cannot be reached from one. The register is now the same
+   CSS grid the other four use, which is also what lets a row re-lay as a
+   labelled card below 1040px; a table element cannot.
+
+   Paging is done here rather than by the query, unlike the four SAP-paged
+   registers: this page asks for the whole result (`pageSize` 10,000) so that the
+   status filter and the five figures describe everything that matched, not the
+   twenty rows on screen. `viewPage` and `_pageSize` slice it for display. *@
+
+<div class="pdx is-order">
+
+    <header class="pdx-head">
+        <div class="pdx-head-inner">
+            <div class="pdx-head-doc">
+                <span class="pdx-head-kind">Purchase orders</span>
+                <span class="pdx-range">@DateRangeLabel</span>
             </div>
-            <a class="btn-po-gradient" href="/purchase-orders/create">
-                <i class="bi bi-plus-lg"></i> New Purchase Order
-            </a>
+            <div class="pdx-head-meta">
+                <button type="button" class="pdx-btn pdx-btn-ghost" disabled="@isLoading" @onclick="LoadOrders">
+                    @if (isLoading)
+                    {
+                        <span class="pdx-spin" aria-hidden="true"></span>
+                        <span>Loading&#8230;</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 11a8 8 0 0 0-13.7-5.3L4 8"></path>
+                            <path d="M4 4v4h4"></path>
+                            <path d="M4 13a8 8 0 0 0 13.7 5.3L20 16"></path>
+                            <path d="M20 20v-4h-4"></path>
+                        </svg>
+                        <span>Refresh</span>
+                    }
+                </button>
+                <a class="pdx-btn pdx-btn-primary" href="/purchase-orders/create">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                        <path d="M12 5v14M5 12h14"></path>
+                    </svg>
+                    <span>New order</span>
+                </a>
+            </div>
         </div>
+    </header>
 
-        <!-- ━━━ Alerts ━━━ -->
+    <div class="pdx-body">
+
+        <section class="pdx-hero">
+            <div>
+                <div class="pdx-kicker">Purchasing</div>
+                <h1>Purchase orders</h1>
+                <p>
+                    What has been ordered from suppliers and where each order has got to &#8212;
+                    raised, approved, and received against.
+                </p>
+            </div>
+        </section>
+
         @if (!string.IsNullOrEmpty(errorMessage))
         {
-            <div class="alert-banner error-alert">
-                <i class="bi bi-exclamation-octagon-fill"></i>
-                <div style="flex:1;">@errorMessage</div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => errorMessage = null"
-                               Style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;" />
+            <div class="pdx-msg" role="alert">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                     stroke-linecap="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                </svg>
+                <span>@errorMessage</span>
+                <button type="button" class="pdx-msg-x" aria-label="Dismiss" @onclick="() => errorMessage = null">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
+                </button>
             </div>
         }
+
         @if (!string.IsNullOrEmpty(successMessage))
         {
-            <div class="alert-banner success-alert">
-                <i class="bi bi-check-circle-fill"></i>
-                <div style="flex:1;">@successMessage</div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => successMessage = null"
-                               Style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;" />
+            <div class="pdx-hint-note" role="status">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M5 12.5l4.5 4.5L19 7"></path>
+                </svg>
+                <span>@successMessage</span>
             </div>
         }
 
-        <!-- ━━━ Stat Cards ━━━ -->
-        @if (orders?.Any() == true)
-        {
-            <div class="stat-row">
-                <div class="stat-card">
-                    <div class="stat-icon total"><i class="bi bi-bag-check"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@totalCount</div>
-                        <div class="stat-label">Total Orders</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon draft"><i class="bi bi-pencil-square"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@orders.Count(o => o.Status == PurchaseOrderStatus.Draft)</div>
-                        <div class="stat-label">Drafts</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon pending"><i class="bi bi-clock-history"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@orders.Count(o => o.Status == PurchaseOrderStatus.Pending)</div>
-                        <div class="stat-label">Pending Approval</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon approved"><i class="bi bi-check-circle"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@orders.Count(o => o.Status == PurchaseOrderStatus.Approved || o.Status ==
-                                                                                                                                                                                                                                                                                    PurchaseOrderStatus.PartiallyReceived)</div>
-                            <div class="stat-label">Approved</div>
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon received"><i class="bi bi-box-seam"></i></div>
-                        <div class="stat-info">
-                            <div class="stat-value">@orders.Count(o => o.Status == PurchaseOrderStatus.Received)</div>
-                            <div class="stat-label">Received</div>
-                        </div>
-                    </div>
-                </div>
-            }
+        <section class="pdx-stats">
+            <div class="pdx-stat pdx-stat-lead">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>Total orders</div>
+                <div class="pdx-stat-num">@totalCount.ToString("N0")</div>
+                <div class="pdx-stat-sub">Matching the filters</div>
+            </div>
+            <div class="pdx-stat">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>Drafts</div>
+                <div class="pdx-stat-num">@CountOf(PurchaseOrderStatus.Draft).ToString("N0")</div>
+                <div class="pdx-stat-sub">Not yet submitted</div>
+            </div>
+            <div class="pdx-stat">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>Pending</div>
+                <div class="pdx-stat-num">@CountOf(PurchaseOrderStatus.Pending).ToString("N0")</div>
+                <div class="pdx-stat-sub">Waiting on approval</div>
+            </div>
+            <div class="pdx-stat">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>Approved</div>
+                <div class="pdx-stat-num">@ApprovedCount.ToString("N0")</div>
+                <div class="pdx-stat-sub">Approved or part received</div>
+            </div>
+            <div class="pdx-stat">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>Received</div>
+                <div class="pdx-stat-num">@CountOf(PurchaseOrderStatus.Received).ToString("N0")</div>
+                <div class="pdx-stat-sub">Fully booked in</div>
+            </div>
+        </section>
 
-            <!-- ━━━ Filter Bar ━━━ -->
-            <div class="filter-bar">
-                <div class="filter-field">
-                    <label>Data Source</label>
-                    <div class="source-toggle">
-                        <button class="source-btn @(dataSource == "sap" ? "active" : "")"
+        <section class="pdx-panel">
+            <div class="pdx-panel-head">
+                <h2>Order register</h2>
+                <span class="pdx-count">@RegisterCountText</span>
+            </div>
+
+            <div class="pdx-filters">
+                <div class="pdx-field">
+                    <span class="pdx-label" id="po-f-source-label">Data source</span>
+                    @* Which store the register is reading. It changes what every
+                       figure above means, so it is stated rather than closed in a
+                       select. *@
+                    <div class="pdx-seg" role="group" aria-labelledby="po-f-source-label">
+                        <button type="button" class="pdx-seg-opt @(dataSource == "sap" ? "is-on" : "")"
+                                aria-pressed="@(dataSource == "sap")" disabled="@isLoading"
                                 @onclick='() => SwitchDataSource("sap")'>
-                            <i class="bi bi-cloud-download"></i> SAP
+                            SAP
                         </button>
-                        <button class="source-btn @(dataSource == "local" ? "active" : "")"
+                        <button type="button" class="pdx-seg-opt @(dataSource == "local" ? "is-on" : "")"
+                                aria-pressed="@(dataSource == "local")" disabled="@isLoading"
                                 @onclick='() => SwitchDataSource("local")'>
-                            <i class="bi bi-database"></i> Local
+                            Local
                         </button>
                     </div>
                 </div>
-                <div class="filter-field">
-                    <label>Supplier Code</label>
-                    <input type="text" @bind="supplierFilter" placeholder="e.g., V001" />
+
+                <label class="pdx-field">
+                    <span class="pdx-label">Supplier code</span>
+                    <input class="pdx-input" type="text" placeholder="V001" @bind="supplierFilter" />
+                </label>
+
+                <label class="pdx-field">
+                    <span class="pdx-label">Status</span>
+                    <span class="pdx-select">
+                        <select class="pdx-input" @bind="statusFilter">
+                            <option value="">All statuses</option>
+                            @foreach (PurchaseOrderStatus status in Enum.GetValues<PurchaseOrderStatus>())
+                            {
+                                <option value="@(((int)status).ToString())">@status</option>
+                            }
+                        </select>
+                        <span class="pdx-caret" aria-hidden="true"></span>
+                    </span>
+                </label>
+
+                <div class="pdx-field">
+                    <span class="pdx-label">Ordered from</span>
+                    <NocturneDateField Id="po-f-from" @bind-Date="fromDate" AriaLabel="Ordered from" />
                 </div>
-                <div class="filter-field">
-                    <label>Status</label>
-                    <select @bind="statusFilter">
-                        <option value="">All Statuses</option>
-                        @foreach (PurchaseOrderStatus status in Enum.GetValues(typeof(PurchaseOrderStatus)))
-                        {
-                            <option value="@(((int)status).ToString())">@status</option>
-                        }
-                    </select>
+
+                <div class="pdx-field">
+                    <span class="pdx-label">Ordered to</span>
+                    <NocturneDateField Id="po-f-to" @bind-Date="toDate" AriaLabel="Ordered to" />
                 </div>
-                <div class="filter-field">
-                    <label for="po-f-from">From Date</label>
-                    <NocturneDateField Id="po-f-from" @bind-Date="fromDate" />
-                </div>
-                <div class="filter-field">
-                    <label for="po-f-to">To Date</label>
-                    <NocturneDateField Id="po-f-to" @bind-Date="toDate" />
-                </div>
-                <div class="filter-actions-row">
-                    <MudButton Class="btn-search" OnClick="ApplyFilter">
-                        <i class="bi bi-search"></i> Search
-                    </MudButton>
-                    <MudButton Class="btn-clear" OnClick="ClearFilter">
-                        <i class="bi bi-x-circle"></i> Clear
-                    </MudButton>
+
+                <div class="pdx-filter-actions">
+                    <button type="button" class="pdx-btn pdx-btn-primary" disabled="@isLoading" @onclick="ApplyFilter">
+                        Apply
+                    </button>
+                    <button type="button" class="pdx-btn pdx-btn-quiet" disabled="@isLoading" @onclick="ClearFilter">
+                        Clear
+                    </button>
                 </div>
             </div>
 
-            <!-- ━━━ Content ━━━ -->
             @if (isLoading)
             {
-                <div class="loading-state">
-                    <div class="spinner-border" style="color:#059669;width:2.5rem;height:2.5rem;" role="status"></div>
-                    <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading purchase orders...</p>
+                <div class="pdx-loading">
+                    <span class="pdx-spin" aria-hidden="true"></span>
+                    <span>Loading purchase orders&#8230;</span>
                 </div>
             }
-            else if (orders?.Any() == true)
+            else if (orders is null || orders.Count == 0)
             {
-                <div class="po-table-wrap">
-                    <div class="po-table-header">
-                        <h6><i class="bi bi-table"></i> Purchase Orders <span
-                            style="font-size:.75rem;font-weight:500;color:#6b7280;margin-left:.5rem;">(@(dataSource == "sap" ? "SAP" : "Local"))</span></h6>
-                            <span class="po-count-badge">@totalCount total</span>
+                <div class="pdx-empty">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M6 8h12l-1 12H7z"></path>
+                        <path d="M9 8V6a3 3 0 0 1 6 0v2"></path>
+                    </svg>
+                    <span>No purchase order matched these filters.</span>
+                    <div class="pdx-empty-actions">
+                        <button type="button" class="pdx-btn pdx-btn-quiet" @onclick="ClearFilter">Clear the filters</button>
+                        <a class="pdx-btn pdx-btn-primary" href="/purchase-orders/create">New order</a>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="pdx-scroll">
+                    <div class="pdx-grid" role="table" aria-label="Purchase orders">
+                        <div class="pdx-thead" role="row">
+                            <span role="columnheader">Order</span>
+                            <span role="columnheader">Supplier</span>
+                            <span role="columnheader">Ordered</span>
+                            <span role="columnheader">Delivery</span>
+                            <span role="columnheader">Status</span>
+                            <span role="columnheader" class="pdx-thead-end">Total</span>
+                            <span role="columnheader">Actions</span>
                         </div>
-                        <MudTable @ref="@_table" Items="@orders" RowsPerPage="@_pageSize" Hover="true" Striped="true" Dense="true"
-                                  Breakpoint="Breakpoint.Md" Loading="@isLoading" LoadingProgressColor="Color.Primary"
-                                  T="PurchaseOrderDto" Elevation="0" Style="background:transparent;">
-                            <HeaderContent>
-                                <MudTh>Order #</MudTh>
-                                <MudTh>Supplier</MudTh>
-                                <MudTh>Order Date</MudTh>
-                                <MudTh>Delivery Date</MudTh>
-                                <MudTh>Status</MudTh>
-                                <MudTh>Currency</MudTh>
-                                <MudTh Style="text-align:right">Total</MudTh>
-                                <MudTh Style="width:140px">Actions</MudTh>
-                            </HeaderContent>
-                            <RowTemplate>
-                                <MudTd DataLabel="Order #"><span class="doc-number">@context.OrderNumber</span></MudTd>
-                                <MudTd DataLabel="Supplier">
-                                    <div class="supplier-info">
-                                        <span class="name">@(context.CardName ?? context.CardCode)</span>
-                                        <span class="code">@context.CardCode</span>
-                                    </div>
-                                </MudTd>
-                                <MudTd DataLabel="Order Date">
-                                    <span style="font-size:.85rem;color:#374151;">@context.OrderDate.ToString("dd MMM yyyy")</span>
-                                </MudTd>
-                                <MudTd DataLabel="Delivery Date">
-                                    <span style="font-size:.85rem;color:#374151;">@(context.DeliveryDate?.ToString("dd MMM yyyy") ??
-                                                                                                                                                                                                                                                                                                                                                                                                    "—")</span>
-                                    </MudTd>
-                                    <MudTd DataLabel="Status">
-                                        <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
-                                    </MudTd>
-                                    <MudTd DataLabel="Currency">
-                                        <span style="font-size:.85rem;color:#6b7280;">@context.Currency</span>
-                                    </MudTd>
-                                    <MudTd DataLabel="Total" Style="text-align:right">
-                                        <span class="amount-cell">@context.DocTotal.ToString("N2")</span>
-                                    </MudTd>
-                                    <MudTd DataLabel="Actions">
-                                        <div style="display:flex;gap:.3rem;">
-                                            <MudButton Class="action-btn view" OnClick="() => ViewOrder(context)" title="View Details">
-                                                <i class="bi bi-eye"></i>
-                                            </MudButton>
-                                            @if (context.Status == PurchaseOrderStatus.Draft)
-                                            {
-                                                <MudButton Class="action-btn edit" OnClick="() => EditOrder(context)" title="Edit">
-                                                    <i class="bi bi-pencil"></i>
-                                                </MudButton>
-                                                <MudButton Class="action-btn submit" OnClick="() => SubmitForApproval(context.Id)"
-                                                           title="Submit for Approval">
-                                                    <i class="bi bi-send"></i>
-                                                </MudButton>
-                                            }
-                                            @if (context.Status == PurchaseOrderStatus.Pending)
-                                            {
-                                                <MudButton Class="action-btn approve" OnClick="() => ApproveOrder(context.Id)"
-                                                           title="Approve">
-                                                    <i class="bi bi-check-lg"></i>
-                                                </MudButton>
-                                            }
-                                            @if (context.Status == PurchaseOrderStatus.Approved || context.Status ==
-                                                                                                                                                                                                                                                                                                                                                                                                                                        PurchaseOrderStatus.PartiallyReceived)
-                                            {
-                                                @if (string.Equals(context.Source, "SAP", StringComparison.OrdinalIgnoreCase))
-                                                {
-                                                    <MudButton Class="action-btn receive"
-                                                               OnClick="() => CreateGoodsReceiptFromSAPOrder(context)" title="Create GRPO">
-                                                        <i class="bi bi-box-arrow-in-down"></i>
-                                                    </MudButton>
-                                                }
-                                                else
-                                                {
-                                                    <MudButton Class="action-btn receive" OnClick="() => ShowReceiveModal(context)"
-                                                               title="Receive Goods">
-                                                        <i class="bi bi-box-seam"></i>
-                                                    </MudButton>
-                                                }
-                                            }
-                                            @if (context.Status == PurchaseOrderStatus.Draft || context.Status ==
-                                                                                                                                                                                                                                                                                                                                                                                                                                        PurchaseOrderStatus.Cancelled)
-                                            {
-                                                <MudButton Class="action-btn delete" OnClick="() => DeleteOrder(context.Id)" title="Delete">
-                                                    <i class="bi bi-trash3"></i>
-                                                </MudButton>
-                                            }
-                                        </div>
-                                    </MudTd>
-                                </RowTemplate>
-                                <PagerContent>
-                                    <div class="pager-row">
-                                        <div class="page-size-wrap">
-                                            <span>Show</span>
-                                            <select @bind="_pageSize">
-                                                <option value="10">10</option>
-                                                <option value="25">25</option>
-                                                <option value="50">50</option>
-                                                <option value="100">100</option>
-                                                <option value="200">200</option>
-                                            </select>
-                                            <span>per page</span>
-                                        </div>
-                                        <MudPagination SelectedChanged="PageChanged"
-                                                       Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
-                                                       Class="pa-4" />
-                                    </div>
-                                </PagerContent>
-                            </MudTable>
-                        </div>
-                    }
-        else
+
+                        @foreach (var order in PagedOrders)
+                        {
+                            <div class="pdx-row @(selectedOrder?.Id == order.Id ? "pdx-row-on" : "")" role="row"
+                                 @key="order.Id" @onclick="() => ViewOrder(order)">
+                                <span class="pdx-doc" role="cell">
+                                    <span class="pdx-docnum">@order.OrderNumber</span>
+                                    @if (!string.IsNullOrWhiteSpace(order.SupplierRefNo))
+                                    {
+                                        <span class="pdx-docsub">Ref @order.SupplierRefNo</span>
+                                    }
+                                </span>
+                                <span class="pdx-party" role="cell">
+                                    <span class="pdx-party-name">@(order.CardName ?? order.CardCode)</span>
+                                    <span class="pdx-party-code">@order.CardCode</span>
+                                </span>
+                                <span class="pdx-date pdx-cell-date" role="cell">
+                                    <span class="pdx-date-main">
+                                        <span class="pdx-rl">Ordered</span>@order.OrderDate.ToString("dd MMM yyyy")
+                                    </span>
+                                </span>
+                                <span class="pdx-date pdx-cell-date2" role="cell">
+                                    <span class="pdx-date-main">
+                                        <span class="pdx-rl">Delivery</span>
+                                        @if (order.DeliveryDate.HasValue)
+                                        {
+                                            @order.DeliveryDate.Value.ToString("dd MMM yyyy")
+                                        }
+                                        else
+                                        {
+                                            <span class="pdx-none">Not set</span>
+                                        }
+                                    </span>
+                                </span>
+                                <span class="pdx-cell-status" role="cell">
+                                    <span class="pdx-badge @GetStatusCssClass(order.Status)">@order.StatusName</span>
+                                </span>
+                                <span class="pdx-money pdx-cell-total" role="cell">
+                                    <span class="pdx-money-cur">@order.Currency</span>
+                                    <span class="pdx-money-num">@order.DocTotal.ToString("N2")</span>
+                                </span>
+
+                                @* The row opens the drawer, so every control in this cell has to
+                                   stop the click reaching it — otherwise approving an order also
+                                   opens it. *@
+                                <span class="pdx-rowacts" role="cell" @onclick:stopPropagation>
+                                    <button type="button" class="pdx-act" title="View details"
+                                            aria-label="View details" @onclick="() => ViewOrder(order)">
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                                             aria-hidden="true">
+                                            <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"></path>
+                                            <circle cx="12" cy="12" r="2.6"></circle>
+                                        </svg>
+                                    </button>
+
+                                    @if (order.Status == PurchaseOrderStatus.Draft)
+                                    {
+                                        <button type="button" class="pdx-act" title="Edit" aria-label="Edit"
+                                                @onclick="() => EditOrder(order)">
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                                 stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+                                                 stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M4 20h4L20 8l-4-4L4 16z"></path>
+                                            </svg>
+                                        </button>
+                                        <button type="button" class="pdx-act pdx-act-go" title="Submit for approval"
+                                                aria-label="Submit for approval"
+                                                @onclick="() => SubmitForApproval(order.Id)">
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                                 stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+                                                 stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M21 3L10.5 13.5"></path>
+                                                <path d="M21 3l-6.5 18-4-8-8-4z"></path>
+                                            </svg>
+                                        </button>
+                                    }
+
+                                    @if (order.Status == PurchaseOrderStatus.Pending)
+                                    {
+                                        <button type="button" class="pdx-act pdx-act-ok" title="Approve"
+                                                aria-label="Approve" @onclick="() => ApproveOrder(order.Id)">
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                                 stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+                                                 stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M5 12.5l4.5 4.5L19 7"></path>
+                                            </svg>
+                                        </button>
+                                    }
+
+                                    @if (order.Status == PurchaseOrderStatus.Approved
+                                        || order.Status == PurchaseOrderStatus.PartiallyReceived)
+                                    {
+                                        @* An order SAP owns is received by raising a GRPO against it;
+                                           a local one is received here. *@
+                                        @if (string.Equals(order.Source, "SAP", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <button type="button" class="pdx-act pdx-act-go" title="Create a goods receipt"
+                                                    aria-label="Create a goods receipt"
+                                                    @onclick="() => CreateGoodsReceiptFromSAPOrder(order)">
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                                     stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+                                                     stroke-linejoin="round" aria-hidden="true">
+                                                    <path d="M12 3v11"></path>
+                                                    <path d="M7.5 9.5L12 14l4.5-4.5"></path>
+                                                    <path d="M4 19h16"></path>
+                                                </svg>
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" class="pdx-act pdx-act-go" title="Receive goods"
+                                                    aria-label="Receive goods" @onclick="() => ShowReceiveModal(order)">
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                                     stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+                                                     stroke-linejoin="round" aria-hidden="true">
+                                                    <path d="M3 8l9-5 9 5v8l-9 5-9-5z"></path>
+                                                    <path d="M3 8l9 5 9-5M12 13v8"></path>
+                                                </svg>
+                                            </button>
+                                        }
+                                    }
+
+                                    @if (order.Status == PurchaseOrderStatus.Draft
+                                        || order.Status == PurchaseOrderStatus.Cancelled)
+                                    {
+                                        <button type="button" class="pdx-act pdx-act-bad" title="Delete"
+                                                aria-label="Delete" @onclick="() => DeleteOrder(order.Id)">
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                                 stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+                                                 stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M5 7h14M10 7V5h4v2M6.5 7l1 13h9l1-13"></path>
+                                            </svg>
+                                        </button>
+                                    }
+                                </span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="pdx-foot">
+                    <span class="pdx-foot-info">@PageRangeText</span>
+                    <label class="pdx-foot-size">
+                        <span>Rows</span>
+                        <span class="pdx-select">
+                            <select class="pdx-input" @bind="_pageSize" @bind:after="OnPageSizeChanged">
+                                <option value="10">10</option>
+                                <option value="25">25</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                                <option value="200">200</option>
+                            </select>
+                            <span class="pdx-caret" aria-hidden="true"></span>
+                        </span>
+                    </label>
+                    <div class="pdx-pages">
+                        <button type="button" class="pdx-step" disabled="@(ClampedViewPage <= 1)"
+                                @onclick="() => GoToViewPage(ClampedViewPage - 1)">
+                            Previous
+                        </button>
+                        <span class="pdx-page-now">Page @ClampedViewPage of @ViewPageCount</span>
+                        <button type="button" class="pdx-step" disabled="@(ClampedViewPage >= ViewPageCount)"
+                                @onclick="() => GoToViewPage(ClampedViewPage + 1)">
+                            Next
+                        </button>
+                    </div>
+                </div>
+            }
+        </section>
+    </div>
+</div>
+
+@* The scrim and the drawer carry `.pdx` themselves: they sit outside the page
+   element so it cannot clip them, and the class is what puts the tokens in
+   reach. *@
+@if (selectedOrder is not null)
+{
+    var detail = selectedOrder;
+
+    <div class="pdx pdx-scrim" @onclick="() => selectedOrder = null"></div>
+    <aside class="pdx pdx-drawer" role="dialog" aria-modal="true" aria-label="Purchase order details">
+        <div class="pdx-drawer-head">
+            <div>
+                <h2>@detail.OrderNumber</h2>
+                <div class="pdx-drawer-sub">
+                    <span class="pdx-badge @GetStatusCssClass(detail.Status)">@detail.StatusName</span>
+                    <span>@(detail.CardName ?? detail.CardCode)</span>
+                    <span>@detail.Currency @detail.DocTotal.ToString("N2")</span>
+                </div>
+            </div>
+            <button type="button" class="pdx-icon-btn pdx-drawer-x" aria-label="Close"
+                    @onclick="() => selectedOrder = null">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6L6 18"></path>
+                </svg>
+            </button>
+        </div>
+
+        <div class="pdx-drawer-body">
+            <section class="pdx-section">
+                <h3>Order</h3>
+                <div class="pdx-dl">
+                    <div>
+                        <div class="pdx-dt">Supplier</div>
+                        <div class="pdx-dd">@detail.CardCode &#183; @(detail.CardName ?? "Not named")</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Supplier reference</div>
+                        <div class="pdx-dd">@(string.IsNullOrWhiteSpace(detail.SupplierRefNo) ? "None" : detail.SupplierRefNo)</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Ordered</div>
+                        <div class="pdx-dd pdx-dd-num">@detail.OrderDate.ToString("dd MMM yyyy")</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Delivery</div>
+                        <div class="pdx-dd pdx-dd-num">@(detail.DeliveryDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Warehouse</div>
+                        <div class="pdx-dd">@(string.IsNullOrWhiteSpace(detail.WarehouseCode) ? "Not set" : detail.WarehouseCode)</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Raised by</div>
+                        <div class="pdx-dd">@(detail.CreatedByUserName ?? "System")</div>
+                    </div>
+                    @if (detail.ApprovedByUserName is not null)
                     {
-                        <div class="empty-state">
-                            <div class="empty-icon"><i class="bi bi-bag-x"></i></div>
-                            <h6>No purchase orders found</h6>
-                            <p>Create a new purchase order or adjust your filters to find existing ones.</p>
-                            <a class="btn-po-gradient" href="/purchase-orders/create" style="margin-top:1rem;display:inline-flex;">
-                                <i class="bi bi-plus-lg"></i> Create Purchase Order
-                            </a>
+                        <div>
+                            <div class="pdx-dt">Approved by</div>
+                            <div class="pdx-dd">
+                                @detail.ApprovedByUserName
+                                @if (detail.ApprovedDate.HasValue)
+                                {
+                                    <span class="pdx-docsub">@detail.ApprovedDate.Value.ToString("dd MMM yyyy")</span>
+                                }
+                            </div>
                         </div>
                     }
                 </div>
+            </section>
+
+            @if (detail.Lines?.Any() == true)
+            {
+                <section class="pdx-section">
+                    <h3>Order lines</h3>
+                    <div class="pdx-scroll">
+                        <table class="pdx-ltable">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Description</th>
+                                    <th class="pdx-r">Ordered</th>
+                                    <th class="pdx-r">Received</th>
+                                    <th class="pdx-r">Outstanding</th>
+                                    <th class="pdx-r">Unit price</th>
+                                    <th class="pdx-r">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in detail.Lines)
+                                {
+                                    <tr>
+                                        <td class="pdx-ltable-code">@line.ItemCode</td>
+                                        <td>@line.ItemDescription</td>
+                                        <td class="pdx-r">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
+                                        <td class="pdx-r">@QuantityDisplay.Format(line.QuantityReceived, line.UoMCode)</td>
+                                        <td class="pdx-r">
+                                            @if (line.QuantityRemaining > 0)
+                                            {
+                                                <span class="pdx-out">
+                                                    @QuantityDisplay.Format(line.QuantityRemaining, line.UoMCode)
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span>0</span>
+                                            }
+                                        </td>
+                                        <td class="pdx-r">@line.UnitPrice.ToString("N2")</td>
+                                        <td class="pdx-r">@line.LineTotal.ToString("N2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="6" class="pdx-r">Subtotal</td>
+                                    <td class="pdx-r">@detail.SubTotal.ToString("N2")</td>
+                                </tr>
+                                <tr>
+                                    <td colspan="6" class="pdx-r">Tax</td>
+                                    <td class="pdx-r">@detail.TaxAmount.ToString("N2")</td>
+                                </tr>
+                                @if (detail.DiscountAmount > 0)
+                                {
+                                    <tr>
+                                        <td colspan="6" class="pdx-r">Discount</td>
+                                        <td class="pdx-r">&#8722;@detail.DiscountAmount.ToString("N2")</td>
+                                    </tr>
+                                }
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <div class="pdx-total-strip">
+                        <span class="pdx-total-k">Total</span>
+                        <span class="pdx-total-v">@detail.Currency @detail.DocTotal.ToString("N2")</span>
+                    </div>
+                </section>
+            }
+
+            @if (!string.IsNullOrEmpty(detail.Comments))
+            {
+                <section class="pdx-section">
+                    <h3>Comments</h3>
+                    <p class="pdx-pre">@detail.Comments</p>
+                </section>
+            }
+        </div>
+    </aside>
+}
+
+@if (showReceiveModal && receiveOrder is not null)
+{
+    <div class="pdx pdx-modal" role="dialog" aria-modal="true" aria-label="Receive goods">
+        <div class="pdx-dialog">
+            <div class="pdx-dialog-head">
+                <div>
+                    <h2>Receive goods</h2>
+                    <div class="pdx-drawer-sub">
+                        <span>@receiveOrder.OrderNumber</span>
+                        <span>@(receiveOrder.CardName ?? receiveOrder.CardCode)</span>
+                    </div>
+                </div>
+                <button type="button" class="pdx-icon-btn pdx-drawer-x" aria-label="Close"
+                        @onclick="CloseReceiveModal">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
+                </button>
             </div>
 
-            <!-- ━━━ Detail Drawer ━━━ -->
-            @if (selectedOrder != null)
-            {
-                <div class="modal-backdrop-custom" @onclick="() => selectedOrder = null"></div>
-                <div class="detail-drawer">
-                    <div class="drawer-header">
-                        <h5><i class="bi bi-bag-check me-2"></i>PO: @selectedOrder.OrderNumber</h5>
-                        <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer"
-                                       OnClick="() => selectedOrder = null" />
+            <div class="pdx-dialog-body">
+                <div class="pdx-hint-note">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                         stroke-linecap="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9"></circle>
+                        <path d="M12 11v5M12 7.8v.1"></path>
+                    </svg>
+                    <span>
+                        Enter what actually arrived on each line. A line left at zero is not
+                        received, and one that is short stays open for the rest.
+                    </span>
+                </div>
+
+                @if (!string.IsNullOrEmpty(receiveError))
+                {
+                    <div class="pdx-msg" role="alert">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                        </svg>
+                        <span>@receiveError</span>
                     </div>
-                    <div class="drawer-body">
-                        <div class="detail-grid">
-                            <div class="detail-item">
-                                <div class="detail-label">Supplier Code</div>
-                                <div class="detail-value">@selectedOrder.CardCode</div>
-                            </div>
-                            <div class="detail-item">
-                                <div class="detail-label">Supplier Name</div>
-                                <div class="detail-value">@(selectedOrder.CardName ?? "—")</div>
-                            </div>
-                            <div class="detail-item">
-                                <div class="detail-label">Order Date</div>
-                                <div class="detail-value">@selectedOrder.OrderDate.ToString("dd MMM yyyy")</div>
-                            </div>
-                            <div class="detail-item">
-                                <div class="detail-label">Delivery Date</div>
-                                <div class="detail-value">@(selectedOrder.DeliveryDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
-                            </div>
-                            <div class="detail-item">
-                                <div class="detail-label">Status</div>
-                                <div class="detail-value">
-                                    <span class="status-badge @GetStatusCssClass(selectedOrder.Status)">@selectedOrder.StatusName</span>
-                                </div>
-                            </div>
-                            <div class="detail-item">
-                                <div class="detail-label">Currency</div>
-                                <div class="detail-value">@selectedOrder.Currency</div>
-                            </div>
-                            <div class="detail-item">
-                                <div class="detail-label">Supplier Ref</div>
-                                <div class="detail-value">@(selectedOrder.SupplierRefNo ?? "—")</div>
-                            </div>
-                            <div class="detail-item">
-                                <div class="detail-label">Warehouse</div>
-                                <div class="detail-value">@(selectedOrder.WarehouseCode ?? "—")</div>
-                            </div>
-                            <div class="detail-item">
-                                <div class="detail-label">Created By</div>
-                                <div class="detail-value">@(selectedOrder.CreatedByUserName ?? "System")</div>
-                            </div>
-                            @if (selectedOrder.ApprovedByUserName != null)
+                }
+
+                <div class="pdx-scroll">
+                    <table class="pdx-ltable">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Description</th>
+                                <th class="pdx-r">Ordered</th>
+                                <th class="pdx-r">Received</th>
+                                <th class="pdx-r">Outstanding</th>
+                                <th class="pdx-r">Receiving</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (var i = 0; i < receiveOrder.Lines.Count; i++)
                             {
-                                <div class="detail-item">
-                                    <div class="detail-label">Approved By</div>
-                                    <div class="detail-value">@selectedOrder.ApprovedByUserName <small
-                                        style="color:#9ca3af;">(@(selectedOrder.ApprovedDate?.ToString("dd MMM yyyy") ?? ""))</small>
-                                    </div>
-                                </div>
-                            }
-                        </div>
+                                var line = receiveOrder.Lines[i];
+                                var remaining = line.Quantity - line.QuantityReceived;
+                                var idx = i;
 
-                        @if (selectedOrder.Lines?.Any() == true)
-                        {
-                            <div class="detail-section-title"><i class="bi bi-list-ul"></i> Order Lines</div>
-                            <div style="overflow-x:auto;">
-                                <table class="lines-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Item</th>
-                                            <th>Description</th>
-                                            <th style="text-align:right">Ordered</th>
-                                            <th style="text-align:right">Received</th>
-                                            <th style="text-align:right">Remaining</th>
-                                            <th style="text-align:right">Unit Price</th>
-                                            <th style="text-align:right">Total</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var line in selectedOrder.Lines)
+                                <tr>
+                                    <td class="pdx-ltable-code">@line.ItemCode</td>
+                                    <td>@line.ItemDescription</td>
+                                    <td class="pdx-r">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
+                                    <td class="pdx-r">@line.QuantityReceived</td>
+                                    <td class="pdx-r">
+                                        @if (remaining > 0)
                                         {
-                                            <tr>
-                                                <td><strong>@line.ItemCode</strong></td>
-                                                <td>@line.ItemDescription</td>
-                                                <td style="text-align:right">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
-                                                <td style="text-align:right">@QuantityDisplay.Format(line.QuantityReceived, line.UoMCode)</td>
-                                                <td style="text-align:right">
-                                                    @if (line.QuantityRemaining > 0)
-                                                    {
-                                                        <span style="color:#d97706;font-weight:600;">@QuantityDisplay.Format(line.QuantityRemaining,
-                                                                                                                                                                                                                                                                                                                        line.UoMCode)</span>
-                                                        }
-                                                else
-                                                        {
-                                                            <span style="color:#059669;font-weight:600;">0</span>
-                                                        }
-                                                    </td>
-                                                    <td style="text-align:right">@line.UnitPrice.ToString("N2")</td>
-                                                    <td style="text-align:right;font-weight:600;">@line.LineTotal.ToString("N2")</td>
-                                                </tr>
-                                            }
-                                        </tbody>
-                                        <tfoot>
-                                            <tr>
-                                                <td colspan="6" style="text-align:right;font-weight:600;">Subtotal:</td>
-                                                <td style="text-align:right;font-weight:600;">@selectedOrder.SubTotal.ToString("N2")</td>
-                                            </tr>
-                                            <tr>
-                                                <td colspan="6" style="text-align:right;font-weight:600;">Tax:</td>
-                                                <td style="text-align:right;font-weight:600;">@selectedOrder.TaxAmount.ToString("N2")</td>
-                                            </tr>
-                                            @if (selectedOrder.DiscountAmount > 0)
-                                            {
-                                                <tr>
-                                                    <td colspan="6" style="text-align:right;font-weight:600;">Discount:</td>
-                                                    <td style="text-align:right;font-weight:600;color:#dc2626;">
-                                                        -@selectedOrder.DiscountAmount.ToString("N2")</td>
-                                                    </tr>
-                                                }
-                                            </tfoot>
-                                        </table>
-                                    </div>
-
-                                    <div class="total-banner">
-                                        <span class="total-label">Total Amount</span>
-                                        <span class="total-value">@selectedOrder.Currency @selectedOrder.DocTotal.ToString("N2")</span>
-                                    </div>
-                                }
-
-                                @if (!string.IsNullOrEmpty(selectedOrder.Comments))
-                                {
-                                    <div class="detail-section-title mt-3"><i class="bi bi-chat-left-text"></i> Comments</div>
-                                    <pre
-                                    style="white-space:pre-wrap;font-size:.85rem;background:#f8fafc;padding:.75rem;border-radius:8px;border:1px solid #e5e7eb;color:#374151;">@selectedOrder.Comments</pre>
-                                }
-                            </div>
-                            <div class="drawer-footer">
-                                <MudButton Class="btn-secondary-action" OnClick="() => selectedOrder = null">Close</MudButton>
-                            </div>
-                        </div>
-                    }
-
-                    <!-- ━━━ Receive Goods Modal ━━━ -->
-                    @if (showReceiveModal && receiveOrder != null)
-                    {
-                        <div class="receive-modal-overlay">
-                            <div class="receive-modal">
-                                <div class="receive-modal-header">
-                                    <h5><i class="bi bi-truck"></i> Receive Goods — @receiveOrder.OrderNumber</h5>
-                                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer" OnClick="CloseReceiveModal" />
-                                </div>
-                                <div class="receive-modal-body">
-                                    <div class="alert-banner"
-                                         style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;margin-bottom:1rem;">
-                                        <i class="bi bi-info-circle-fill"></i>
-                                        <span>Enter the quantity received for each line item. Leave at 0 for items not yet received.</span>
-                                    </div>
-
-                                    @if (!string.IsNullOrEmpty(receiveError))
-                                    {
-                                        <div class="alert-banner error-alert">
-                                            <i class="bi bi-exclamation-octagon-fill"></i>
-                                            <span>@receiveError</span>
-                                        </div>
-                                    }
-
-                                    <div style="overflow-x:auto;">
-                                        <table class="lines-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>Item</th>
-                                                    <th>Description</th>
-                                                    <th style="text-align:right">Ordered</th>
-                                                    <th style="text-align:right">Already Received</th>
-                                                    <th style="text-align:right">Remaining</th>
-                                                    <th style="width:120px;">Receive Qty</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                @for (int i = 0; i < receiveOrder.Lines.Count; i++)
-                                                {
-                                                    var line = receiveOrder.Lines[i];
-                                                    var remaining = line.Quantity - line.QuantityReceived;
-                                                    var idx = i;
-                                                    <tr>
-                                                        <td><strong>@line.ItemCode</strong></td>
-                                                        <td>@line.ItemDescription</td>
-                                                        <td style="text-align:right">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
-                                                        <td style="text-align:right">@line.QuantityReceived</td>
-                                                        <td style="text-align:right">@remaining</td>
-                                                        <td>
-                                                            @if (remaining > 0)
-                                                            {
-                                                                <input type="number" class="form-control form-control-sm" min="0" max="@remaining"
-                                                                       step="any" @bind="receiveQuantities[idx]"
-                                                                       style="border-radius:8px;border:1px solid #d1d5db;" />
-                                                            }
-                                                            else
-                                                            {
-                                                                <span style="color:#059669;font-weight:600;font-size:.85rem;">Complete</span>
-                                                            }
-                                                        </td>
-                                                    </tr>
-                                                }
-                                            </tbody>
-                                        </table>
-                                    </div>
-
-                                    <div style="margin-top:1rem;">
-                                        <label
-                                        style="font-size:.75rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:.25rem;">Comments</label>
-                                        <textarea class="form-control" @bind="receiveComments" rows="2"
-                                                  placeholder="Optional receiving notes..."
-                                                  style="border-radius:8px;border:1px solid #d1d5db;font-size:.88rem;"></textarea>
-                                    </div>
-                                </div>
-                                <div class="receive-modal-footer">
-                                    <MudButton Class="btn-secondary-action" OnClick="CloseReceiveModal">Cancel</MudButton>
-                                    <MudButton Class="btn-action" OnClick="ReceiveGoods" Disabled="@isReceiving">
-                                        @if (isReceiving)
-                                        {
-                                            <span class="spinner-border spinner-border-sm"></span>
+                                            <span class="pdx-out">@remaining</span>
                                         }
-                                        <i class="bi bi-box-seam"></i> Confirm Receipt
-                                    </MudButton>
-                                </div>
-                            </div>
-                        </div>
+                                        else
+                                        {
+                                            <span>0</span>
+                                        }
+                                    </td>
+                                    <td class="pdx-r">
+                                        @if (remaining > 0)
+                                        {
+                                            <input class="pdx-input pdx-qty" type="number" min="0" max="@remaining"
+                                                   step="any" aria-label="@($"Quantity received for {line.ItemCode}")"
+                                                   @bind="receiveQuantities[idx]" />
+                                        }
+                                        else
+                                        {
+                                            <span class="pdx-done">Complete</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <label class="pdx-field">
+                    <span class="pdx-label">Comments</span>
+                    <textarea class="pdx-area" rows="2" placeholder="Optional receiving notes"
+                              @bind="receiveComments"></textarea>
+                </label>
+            </div>
+
+            <div class="pdx-dialog-foot">
+                <button type="button" class="pdx-btn pdx-btn-quiet" @onclick="CloseReceiveModal">Cancel</button>
+                <button type="button" class="pdx-btn pdx-btn-primary" disabled="@isReceiving" @onclick="ReceiveGoods">
+                    @if (isReceiving)
+                    {
+                        <span class="pdx-spin" aria-hidden="true"></span>
+                        <span>Receiving&#8230;</span>
                     }
+                    else
+                    {
+                        <span>Confirm receipt</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
-    private MudTable<PurchaseOrderDto> _table = null!;
     private int _pageSize = 10;
     private List<PurchaseOrderDto>? orders;
     private PurchaseOrderDto? selectedOrder;
@@ -1461,9 +712,55 @@
     private string? receiveError;
     private bool isReceiving = false;
 
-    private void PageChanged(int i)
+    // Which slice of the loaded result is on screen. The query fetches the whole
+    // set (see `pageSize` above) so that the figures and the status filter
+    // describe everything that matched; this pages what is drawn.
+    private int viewPage = 1;
+
+    private List<PurchaseOrderDto> AllOrders => orders ?? new List<PurchaseOrderDto>();
+
+    private int ViewPageCount =>
+        Math.Max(1, (AllOrders.Count + _pageSize - 1) / _pageSize);
+
+    private IEnumerable<PurchaseOrderDto> PagedOrders =>
+        AllOrders.Skip((ClampedViewPage - 1) * _pageSize).Take(_pageSize);
+
+    // Clamped rather than reset: a filter that shortens the result while the
+    // operator is on page 6 should show the last page, not an empty one.
+    private int ClampedViewPage => Math.Clamp(viewPage, 1, ViewPageCount);
+
+    private void GoToViewPage(int page) => viewPage = Math.Clamp(page, 1, ViewPageCount);
+
+    private void OnPageSizeChanged() => viewPage = 1;
+
+    private int CountOf(PurchaseOrderStatus status) => AllOrders.Count(o => o.Status == status);
+
+    // Approved and partially received are one figure: both mean the order is
+    // through approval and stock is expected against it.
+    private int ApprovedCount => AllOrders.Count(o =>
+        o.Status == PurchaseOrderStatus.Approved || o.Status == PurchaseOrderStatus.PartiallyReceived);
+
+    // The window the page is showing, stated in the sticky bar; unset until the
+    // operator picks one, because this register opens on everything.
+    private string DateRangeLabel =>
+        fromDate is null && toDate is null
+            ? "All dates"
+            : $"{fromDate?.ToString("dd MMM yyyy") ?? "Any"} – {toDate?.ToString("dd MMM yyyy") ?? "Any"}";
+
+    private string RegisterCountText =>
+        $"{AllOrders.Count:N0} of {totalCount:N0} · {(dataSource == "sap" ? "SAP" : "Local")}";
+
+    private string PageRangeText
     {
-        _table?.NavigateTo(i - 1);
+        get
+        {
+            if (AllOrders.Count == 0)
+                return "No orders";
+
+            var start = ((ClampedViewPage - 1) * _pageSize) + 1;
+            var end = Math.Min(start + _pageSize - 1, AllOrders.Count);
+            return $"Showing {start:N0}–{end:N0} of {AllOrders.Count:N0}";
+        }
     }
 
     protected override async Task OnInitializedAsync()
@@ -1484,6 +781,10 @@
     {
         isLoading = true;
         errorMessage = null;
+        // A fresh result starts at its first page: after a filter or a source
+        // switch, whatever page the operator was on is about to mean something
+        // else.
+        viewPage = 1;
 
         try
         {
@@ -1713,15 +1014,19 @@
         }
     }
 
+    // The badge takes its hue from a family token in purchase-documents.css, so
+    // what this returns is the family class rather than a status name. Pending
+    // and on-hold share the warning family deliberately: both mean the order has
+    // stopped somewhere, and the badge carries its own word to tell them apart.
     private string GetStatusCssClass(PurchaseOrderStatus status) => status switch
     {
-        PurchaseOrderStatus.Draft => "draft",
-        PurchaseOrderStatus.Pending => "pending",
-        PurchaseOrderStatus.Approved => "approved",
-        PurchaseOrderStatus.PartiallyReceived => "partial",
-        PurchaseOrderStatus.Received => "received",
-        PurchaseOrderStatus.Cancelled => "cancelled",
-        PurchaseOrderStatus.OnHold => "on-hold",
-        _ => "draft"
+        PurchaseOrderStatus.Draft => "pdx-fam-neutral",
+        PurchaseOrderStatus.Pending => "pdx-fam-warn",
+        PurchaseOrderStatus.Approved => "pdx-fam-info",
+        PurchaseOrderStatus.PartiallyReceived => "pdx-fam-accent",
+        PurchaseOrderStatus.Received => "pdx-fam-good",
+        PurchaseOrderStatus.Cancelled => "pdx-fam-bad",
+        PurchaseOrderStatus.OnHold => "pdx-fam-warn",
+        _ => "pdx-fam-neutral"
     };
 }

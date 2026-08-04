@@ -44,6 +44,30 @@ public partial class PurchaseInvoices
     private int OpenInvoiceCount => Invoices.Count(invoice => string.Equals(invoice.DocStatus, "Open", StringComparison.OrdinalIgnoreCase));
     private decimal CurrentPageTotal => Invoices.Sum(invoice => invoice.DocTotal);
 
+    // The window the page opened on, stated in the sticky bar: the figures below
+    // are all "in this window", and once the hero has scrolled away nothing else
+    // says which window that is.
+    private string DateRangeLabel =>
+        $"{fromDate?.ToString("dd MMM yyyy") ?? "Any"} – {toDate?.ToString("dd MMM yyyy") ?? "Any"}";
+
+    private string RegisterCountText => invoiceResponse is null
+        ? "Not loaded"
+        : $"{CurrentPageCount:N0} of {invoiceResponse.TotalCount:N0}";
+
+    // SAP is asked for one page at a time, so the foot counts the rows on screen
+    // against the whole result rather than numbering pages it has not seen.
+    private string PageRangeText
+    {
+        get
+        {
+            if (CurrentPageCount == 0)
+                return "No documents";
+
+            var start = ((currentPage - 1) * PageSize) + 1;
+            return $"Showing {start:N0}–{start + CurrentPageCount - 1:N0} of {invoiceResponse?.TotalCount ?? CurrentPageCount:N0}";
+        }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender || hasInitialized)
@@ -85,7 +109,10 @@ public partial class PurchaseInvoices
                 value =>
                 {
                     invoiceResponse = value;
-                    selectedInvoice = value.Invoices.FirstOrDefault();
+                    // Cleared rather than set to the first row: the detail is a
+                    // drawer now, and pre-selecting would open it over the
+                    // register on every load and every page turn.
+                    selectedInvoice = null;
                 },
                 error =>
                 {
@@ -109,6 +136,8 @@ public partial class PurchaseInvoices
             isLoading = false;
         }
     }
+
+    private void CloseDetail() => selectedInvoice = null;
 
     private void SelectInvoice(PurchaseInvoiceDto invoice)
     {
@@ -260,10 +289,13 @@ public partial class PurchaseInvoices
         return true;
     }
 
+    // The badge takes its hue from a family token in purchase-documents.css, so
+    // what this returns is the family class rather than a status name: open is
+    // the good family, closed the neutral one, cancelled the bad one.
     private static string GetStatusCssClass(string? status) => status?.ToLowerInvariant() switch
     {
-        "closed" => "closed",
-        "cancelled" => "cancelled",
-        _ => "open"
+        "closed" => "pdx-fam-neutral",
+        "cancelled" => "pdx-fam-bad",
+        _ => "pdx-fam-good"
     };
 }

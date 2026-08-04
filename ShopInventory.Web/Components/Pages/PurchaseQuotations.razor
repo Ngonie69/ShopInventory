@@ -4,203 +4,396 @@
 
 <PageTitle>Purchase Quotations</PageTitle>
 
-<style>
-    .pqt-page { max-width: 1500px; margin: 0 auto; padding: 1.5rem; }
-    .pqt-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
-    .pqt-title h1 { margin: 0; font-size: 1.7rem; font-weight: 800; color: #172033; }
-    .pqt-title p { margin: .4rem 0 0; color: #5f6b7a; max-width: 700px; }
-    .pqt-header-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
-    .pqt-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
-    .pqt-stat { background: linear-gradient(180deg, #fffdf7 0%, #fff 100%); border: 1px solid #f1e2be; border-radius: 16px; padding: 1rem 1.1rem; box-shadow: 0 12px 30px rgba(23, 32, 51, .05); }
-    .pqt-stat-label { color: #8a6f2f; font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
-    .pqt-stat-value { margin-top: .35rem; font-size: 1.55rem; font-weight: 800; color: #172033; }
-    .pqt-filters { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; padding: 1rem; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.25rem; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); }
-    .pqt-field { position: relative; }
-    .pqt-field label { display: block; font-size: .78rem; font-weight: 700; color: #5f6b7a; margin-bottom: .35rem; text-transform: uppercase; letter-spacing: .05em; }
-    /* (0,1,1), so the date field's own `.ndf .ndf-input` at (0,2,0) beats it
-       and it needs no guard. The dark override further down is (0,2,1) and
-       does — see the note there. */
-    .pqt-field input { width: 100%; border: 1px solid #d7dee7; border-radius: 12px; padding: .75rem .85rem; background: #fbfcfe; }
+@* Nocturne. wwwroot/css/purchase-documents.css (linked from App.razor) carries
+   the design and its light counterpart, and follows the app's theme toggle like
+   every other page. The sheet is shared with the other three purchase registers
+   — see its header for why one sheet rather than four.
 
-    /* The date fields take their metrics from the row they sit in; their
-       calendar is the shared one. See wwwroot/css/nocturne-date-field.css. */
-    .pqt-field .ndf { --ndf-pad-y: .75rem; --ndf-pad-x: .85rem; --ndf-fs: 1rem; --ndf-radius: 12px; --ndf-fill: #fbfcfe; --ndf-edge: #d7dee7; }
-    .dark-theme .pqt-field .ndf { --ndf-fill: #101823; --ndf-edge: #2a3645; }
-    .pqt-filter-hint { margin-top: .4rem; font-size: .78rem; color: #7c8798; }
-    .pqt-search-results { position: absolute; z-index: 15; left: 0; right: 0; top: calc(100% + .35rem); background: #fff; border: 1px solid #d7dee7; border-radius: 14px; overflow: hidden; box-shadow: 0 16px 30px rgba(23, 32, 51, .12); max-height: 260px; overflow-y: auto; }
-    .pqt-search-option { width: 100%; border: none; background: transparent; text-align: left; padding: .8rem .9rem; border-bottom: 1px solid #eef2f6; color: #172033; }
-    .pqt-search-option:last-child { border-bottom: none; }
-    .pqt-search-option:hover { background: #fff8e8; }
-    .pqt-search-meta { display: block; margin-top: .15rem; font-size: .78rem; color: #6b7280; }
-    .pqt-chip { display: inline-flex; align-items: center; gap: .55rem; margin-top: .55rem; padding: .45rem .75rem; border-radius: 999px; background: #fff4d3; color: #7a611c; font-size: .82rem; font-weight: 700; }
-    .pqt-chip button { border: none; background: transparent; color: inherit; text-decoration: underline; padding: 0; }
-    .pqt-filter-actions { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; }
-    .pqt-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr); gap: 1rem; }
-    .pqt-panel { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); overflow: hidden; }
-    .pqt-panel-header { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-bottom: 1px solid #eef2f6; }
-    .pqt-panel-header h2 { margin: 0; font-size: 1rem; font-weight: 700; color: #172033; }
-    .pqt-panel-header span { color: #5f6b7a; font-size: .85rem; }
-    .pqt-table-wrap { overflow-x: auto; }
-    .pqt-table { width: 100%; border-collapse: collapse; }
-    .pqt-table th { text-align: left; padding: .9rem 1rem; font-size: .76rem; color: #6b7280; text-transform: uppercase; letter-spacing: .06em; background: #fbfcfe; border-bottom: 1px solid #eef2f6; }
-    .pqt-table td { padding: .95rem 1rem; border-bottom: 1px solid #f3f5f8; color: #172033; vertical-align: top; }
-    .pqt-row { cursor: pointer; transition: background-color .15s ease, transform .15s ease; }
-    .pqt-row:hover { background: #fff8e8; }
-    .pqt-row.is-selected { background: #fff4d3; }
-    .pqt-doc { font-weight: 700; }
-    .pqt-subtext { display: block; margin-top: .2rem; font-size: .8rem; color: #6b7280; }
-    .pqt-amount { font-weight: 700; white-space: nowrap; }
-    .pqt-status { display: inline-flex; align-items: center; border-radius: 999px; padding: .3rem .65rem; font-size: .75rem; font-weight: 700; }
-    .pqt-status.open { background: #e8f7ec; color: #1f7a38; }
-    .pqt-status.closed { background: #e8eef9; color: #2952a3; }
-    .pqt-status.cancelled { background: #fdecec; color: #a12828; }
-    .pqt-detail { padding: 1rem 1.1rem 1.2rem; }
-    .pqt-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; margin-bottom: 1rem; }
-    .pqt-detail-card { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fbfcfe; }
-    .pqt-detail-card label { display: block; font-size: .72rem; font-weight: 700; color: #8a94a4; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .25rem; }
-    .pqt-detail-card div { color: #172033; font-weight: 600; }
-    .pqt-line-list { display: grid; gap: .75rem; }
-    .pqt-line { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fffdf8; }
-    .pqt-line-top { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: .45rem; }
-    .pqt-line-code { font-weight: 700; color: #172033; }
-    .pqt-line-desc { color: #5f6b7a; font-size: .88rem; }
-    .pqt-empty { padding: 2.2rem 1.3rem; text-align: center; color: #6b7280; }
-    .pqt-empty strong { display: block; color: #172033; margin-bottom: .4rem; }
-    .pqt-alert { border-radius: 14px; padding: .85rem 1rem; margin-bottom: 1rem; border: 1px solid transparent; }
-    .pqt-alert.error { background: #fff1f1; border-color: #f3c4c4; color: #8f2727; }
-    .pqt-loading { padding: 2.5rem 1rem; text-align: center; color: #6b7280; }
-    .pqt-pager { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-top: 1px solid #eef2f6; }
-    .pqt-pager span { color: #5f6b7a; font-size: .9rem; }
-    .dark-theme .pqt-title h1, .dark-theme .pqt-panel-header h2, .dark-theme .pqt-table td, .dark-theme .pqt-detail-card div, .dark-theme .pqt-line-code, .dark-theme .pqt-empty strong, .dark-theme .pqt-stat-value { color: #edf2f7; }
-    .dark-theme .pqt-title p, .dark-theme .pqt-panel-header span, .dark-theme .pqt-subtext, .dark-theme .pqt-empty, .dark-theme .pqt-loading, .dark-theme .pqt-pager span, .dark-theme .pqt-detail-card label, .dark-theme .pqt-line-desc, .dark-theme .pqt-stat-label, .dark-theme .pqt-filter-hint, .dark-theme .pqt-search-meta { color: #a9b4c2; }
-    .dark-theme .pqt-stat, .dark-theme .pqt-filters, .dark-theme .pqt-panel { background: #16202c; border-color: #2a3645; box-shadow: none; }
-    /* `:not(.ndf-input)` so this stops short of the date fields: it is (0,2,1)
-       against the component's own (0,2,0) and would otherwise repaint them in
-       dark and not in light. */
-    .dark-theme .pqt-field input:not(.ndf-input), .dark-theme .pqt-detail-card, .dark-theme .pqt-line { background: #101823; border-color: #2a3645; color: #edf2f7; }
-    .dark-theme .pqt-search-results { background: #16202c; border-color: #2a3645; box-shadow: none; }
-    .dark-theme .pqt-search-option { color: #edf2f7; border-color: #2a3645; }
-    .dark-theme .pqt-search-option:hover { background: #263647; }
-    .dark-theme .pqt-chip { background: #263647; color: #f7d37d; }
-    .dark-theme .pqt-table th { background: #101823; border-color: #2a3645; color: #a9b4c2; }
-    .dark-theme .pqt-table td, .dark-theme .pqt-panel-header, .dark-theme .pqt-pager { border-color: #2a3645; }
-    .dark-theme .pqt-row:hover { background: #1f2c3b; }
-    .dark-theme .pqt-row.is-selected { background: #263647; }
-    @@media (max-width: 1100px) { .pqt-layout { grid-template-columns: 1fr; } .pqt-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    @@media (max-width: 720px) { .pqt-page { padding: 1rem; } .pqt-filters { grid-template-columns: 1fr; } .pqt-detail-grid { grid-template-columns: 1fr; } .pqt-pager { flex-direction: column; align-items: stretch; } }
-</style>
+   The rules live in that sheet rather than in a <style> block here for the
+   reason its header gives: app.css's global `.dark-theme input` rule would
+   otherwise repaint every field in this page's filters.
 
-<div class="pqt-page">
-    <div class="pqt-header">
-        <div class="pqt-title">
-            <h1>Purchase Quotations</h1>
-            <p>Review supplier quotations pulled from SAP and inspect quoted line details before raising or comparing orders.</p>
-        </div>
-        <div class="pqt-header-actions">
-            <button class="btn btn-outline-secondary" @onclick="ReloadAsync">Refresh</button>
-            <button class="btn btn-warning" @onclick="NavigateToCreate">Create Purchase Quotation</button>
-        </div>
-    </div>
+   The register is a CSS grid rather than a <table>: below 1040px the same
+   markup re-lays as a labelled card, which a table element cannot do.
 
-    @if (!string.IsNullOrWhiteSpace(errorMessage))
-    {
-        <div class="pqt-alert error">@errorMessage</div>
-    }
+   The selected document opens in a drawer rather than a panel beside the list,
+   which is the pattern the other Nocturne registers use — it gives the list the
+   full width and the document the room its lines need. *@
 
-    <div class="pqt-stats">
-        <div class="pqt-stat"><div class="pqt-stat-label">Total Documents</div><div class="pqt-stat-value">@quotationResponse?.TotalCount</div></div>
-        <div class="pqt-stat"><div class="pqt-stat-label">Current Page</div><div class="pqt-stat-value">@CurrentPageCount</div></div>
-        <div class="pqt-stat"><div class="pqt-stat-label">Open Quotations</div><div class="pqt-stat-value">@OpenQuotationCount</div></div>
-        <div class="pqt-stat"><div class="pqt-stat-label">Page Total</div><div class="pqt-stat-value">@CurrentPageTotal.ToString("N2")</div></div>
-    </div>
+<div class="pdx is-quotation">
 
-    <div class="pqt-filters">
-        <div class="pqt-field">
-            <label>Supplier</label>
-            <input type="text" @bind="supplierSearchTerm" @bind:event="oninput" @onfocus="ShowSupplierResults" @onblur="HandleSupplierBlur" placeholder="Search supplier code or name" />
-            @if (showSupplierResults && FilteredSuppliers.Any())
-            {
-                <div class="pqt-search-results">
-                    @foreach (var supplier in FilteredSuppliers)
+    <header class="pdx-head">
+        <div class="pdx-head-inner">
+            <div class="pdx-head-doc">
+                <span class="pdx-head-kind">Purchase quotations</span>
+                <span class="pdx-range">@DateRangeLabel</span>
+            </div>
+            <div class="pdx-head-meta">
+                <button type="button" class="pdx-btn pdx-btn-ghost" disabled="@isLoading" @onclick="ReloadAsync">
+                    @if (isLoading)
                     {
-                        <button type="button" class="pqt-search-option" @onmousedown="() => SelectSupplier(supplier)"><strong>@supplier.CardCode - @supplier.CardName</strong><span class="pqt-search-meta">@supplier.Currency</span></button>
+                        <span class="pdx-spin" aria-hidden="true"></span>
+                        <span>Loading&#8230;</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 11a8 8 0 0 0-13.7-5.3L4 8"></path>
+                            <path d="M4 4v4h4"></path>
+                            <path d="M4 13a8 8 0 0 0 13.7 5.3L20 16"></path>
+                            <path d="M20 20v-4h-4"></path>
+                        </svg>
+                        <span>Refresh</span>
+                    }
+                </button>
+                <button type="button" class="pdx-btn pdx-btn-primary" @onclick="NavigateToCreate">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                        <path d="M12 5v14M5 12h14"></path>
+                    </svg>
+                    <span>New quotation</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="pdx-body">
+
+        <section class="pdx-hero">
+            <div>
+                <div class="pdx-kicker">Purchasing</div>
+                <h1>Purchase quotations</h1>
+                <p>
+                    Supplier quotations pulled from SAP &#8212; what was quoted, by whom, and on what
+                    terms, with the quoted lines behind each row.
+                </p>
+            </div>
+        </section>
+
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="pdx-msg" role="alert">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                     stroke-linecap="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                </svg>
+                <span>@errorMessage</span>
+                <button type="button" class="pdx-msg-x" aria-label="Dismiss" @onclick="() => errorMessage = null">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
+                </button>
+            </div>
+        }
+
+        <section class="pdx-stats">
+            <div class="pdx-stat pdx-stat-lead">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>Total documents</div>
+                <div class="pdx-stat-num">
+                    @if (quotationResponse is null)
+                    {
+                        <text>&#8212;</text>
+                    }
+                    else
+                    {
+                        @quotationResponse.TotalCount.ToString("N0")
                     }
                 </div>
-            }
-            @if (selectedSupplier is not null)
-            {
-                <div class="pqt-chip">@selectedSupplier.DisplayName<button type="button" @onclick="ClearSupplier">Change</button></div>
-            }
-            <div class="pqt-filter-hint">Type a supplier code or name, then pick a suggestion to filter by name.</div>
-        </div>
-        <div class="pqt-field"><label for="pqt-f-from">From Date</label><NocturneDateField Id="pqt-f-from" @bind-Date="fromDate" /></div>
-        <div class="pqt-field"><label for="pqt-f-to">To Date</label><NocturneDateField Id="pqt-f-to" @bind-Date="toDate" /></div>
-        <div class="pqt-filter-actions"><button class="btn btn-dark" @onclick="SearchAsync" disabled="@isLoading">Apply Filters</button><button class="btn btn-outline-secondary" @onclick="ClearFiltersAsync" disabled="@isLoading">Clear</button></div>
-    </div>
+                <div class="pdx-stat-sub">Matching the filters</div>
+            </div>
+            <div class="pdx-stat">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>This page</div>
+                <div class="pdx-stat-num">@CurrentPageCount.ToString("N0")</div>
+                <div class="pdx-stat-sub">Rows below</div>
+            </div>
+            <div class="pdx-stat">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>Open quotations</div>
+                <div class="pdx-stat-num">@OpenQuotationCount.ToString("N0")</div>
+                <div class="pdx-stat-sub">On this page</div>
+            </div>
+            @* The total is of the rows on screen, not of the filter — the query
+               is paged, so say which it is rather than let it read as a total. *@
+            <div class="pdx-stat">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>Page total</div>
+                <div class="pdx-stat-num pdx-stat-num-money">@CurrentPageTotal.ToString("N2")</div>
+                <div class="pdx-stat-sub">Quoted value on this page</div>
+            </div>
+        </section>
 
-    @if (isLoading)
-    {
-        <div class="pqt-panel"><div class="pqt-loading">Loading purchase quotations from SAP...</div></div>
-    }
-    else
-    {
-        <div class="pqt-layout">
-            <section class="pqt-panel">
-                <div class="pqt-panel-header"><h2>Quotation Register</h2><span>Page @currentPage of @(quotationResponse?.TotalPages == 0 ? 1 : quotationResponse?.TotalPages)</span></div>
-                @if (Quotations.Count == 0)
-                {
-                    <div class="pqt-empty"><strong>No purchase quotations matched the current filters.</strong>Adjust the supplier code or date range and try again.</div>
-                }
-                else
-                {
-                    <div class="pqt-table-wrap">
-                        <table class="pqt-table">
-                            <thead><tr><th>Document</th><th>Supplier</th><th>Date</th><th>Status</th><th>Total</th></tr></thead>
-                            <tbody>
-                                @foreach (var quotation in Quotations)
-                                {
-                                    <tr class="pqt-row @(selectedQuotation?.DocEntry == quotation.DocEntry ? "is-selected" : string.Empty)" @onclick="() => SelectQuotation(quotation)">
-                                        <td><span class="pqt-doc">#@quotation.DocNum</span><span class="pqt-subtext">DocEntry @quotation.DocEntry</span>@if (!string.IsNullOrWhiteSpace(quotation.NumAtCard)) { <span class="pqt-subtext">Supplier Ref: @quotation.NumAtCard</span> }</td>
-                                        <td><span class="pqt-doc">@quotation.CardCode</span><span class="pqt-subtext">@quotation.CardName</span></td>
-                                        <td><span>@(quotation.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</span>@if (quotation.DocDueDate.HasValue) { <span class="pqt-subtext">Due @quotation.DocDueDate.Value.ToString("dd MMM yyyy")</span> }</td>
-                                        <td><span class="pqt-status @GetStatusCssClass(quotation.DocStatus)">@quotation.DocStatus</span></td>
-                                        <td><span class="pqt-amount">@quotation.DocCurrency @quotation.DocTotal.ToString("N2")</span></td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-                <div class="pqt-pager"><button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)">Previous</button><span>Showing @CurrentPageCount of @quotationResponse?.TotalCount quotations</span><button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(isLoading || !(quotationResponse?.HasMore ?? false))">Next</button></div>
-            </section>
-            <aside class="pqt-panel">
-                <div class="pqt-panel-header"><h2>Selected Quotation</h2><span>@(selectedQuotation is null ? "No selection" : $"{selectedQuotation.DocCurrency} {selectedQuotation.DocTotal:N2}")</span></div>
-                @if (selectedQuotation is null)
-                {
-                    <div class="pqt-empty"><strong>Select a quotation.</strong>The document summary and lines will appear here.</div>
-                }
-                else
-                {
-                    <div class="pqt-detail">
-                        <div class="pqt-detail-grid">
-                            <div class="pqt-detail-card"><label>Supplier</label><div>@selectedQuotation.CardCode - @selectedQuotation.CardName</div></div>
-                            <div class="pqt-detail-card"><label>Posting Date</label><div>@(selectedQuotation.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
-                            <div class="pqt-detail-card"><label>Due Date</label><div>@(selectedQuotation.DocDueDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
-                            <div class="pqt-detail-card"><label>Discount %</label><div>@selectedQuotation.DiscountPercent.ToString("N2")</div></div>
-                        </div>
-                        @if (!string.IsNullOrWhiteSpace(selectedQuotation.Comments))
+        <section class="pdx-panel">
+            <div class="pdx-panel-head">
+                <h2>Quotation register</h2>
+                <span class="pdx-count">@RegisterCountText</span>
+            </div>
+
+            <div class="pdx-filters">
+                @* Not a <label>: the field carries a popup and a chip, which a
+                   label would swallow the clicks of. *@
+                <div class="pdx-field pdx-field-wide">
+                    <span class="pdx-label" id="pqt-f-supplier-label">Supplier</span>
+                    <div class="pdx-typeahead">
+                        <input class="pdx-input" type="text" autocomplete="off"
+                               aria-labelledby="pqt-f-supplier-label"
+                               placeholder="Code or name&#8230;"
+                               @bind="supplierSearchTerm" @bind:event="oninput"
+                               @onfocus="ShowSupplierResults" @onblur="HandleSupplierBlur" />
+                        @if (showSupplierResults && FilteredSuppliers.Any())
                         {
-                            <div class="pqt-detail-card" style="margin-bottom: 1rem;"><label>Comments</label><div>@selectedQuotation.Comments</div></div>
+                            <div class="pdx-suggest" role="listbox" aria-label="Matching suppliers">
+                                @foreach (var supplier in FilteredSuppliers)
+                                {
+                                    @* @onmousedown rather than @onclick: the blur that
+                                       closes the popup fires first and would take the
+                                       click with it. *@
+                                    <button type="button" class="pdx-suggest-opt" role="option"
+                                            @onmousedown="() => SelectSupplier(supplier)">
+                                        <span class="pdx-suggest-name">@supplier.CardCode &#183; @supplier.CardName</span>
+                                        <span class="pdx-suggest-meta">@supplier.Currency</span>
+                                    </button>
+                                }
+                            </div>
                         }
-                        <div class="pqt-line-list">
-                            @foreach (var line in selectedQuotation.Lines)
-                            {
-                                <div class="pqt-line"><div class="pqt-line-top"><div><div class="pqt-line-code">@line.ItemCode</div><div class="pqt-line-desc">@line.ItemDescription</div></div><div class="pqt-amount">@selectedQuotation.DocCurrency @line.LineTotal.ToString("N2")</div></div><div class="pqt-subtext">Qty @line.Quantity.ToString("N2") at @line.UnitPrice.ToString("N2") @(string.IsNullOrWhiteSpace(line.WarehouseCode) ? string.Empty : $" | {line.WarehouseCode}")</div></div>
-                            }
+                        @if (selectedSupplier is not null)
+                        {
+                            <span class="pdx-chip">
+                                <span class="pdx-chip-name">@selectedSupplier.DisplayName</span>
+                                <button type="button" class="pdx-chip-x" aria-label="Clear the supplier filter"
+                                        @onclick="ClearSupplier">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+                                        <path d="M6 6l12 12M18 6L6 18"></path>
+                                    </svg>
+                                </button>
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="pdx-hint">Pick a suggestion to filter by supplier.</span>
+                        }
+                    </div>
+                </div>
+
+                <div class="pdx-field">
+                    <span class="pdx-label" id="pqt-f-from-label">Quoted from</span>
+                    <NocturneDateField Id="pqt-f-from" @bind-Date="fromDate" AriaLabel="Quoted from" />
+                </div>
+
+                <div class="pdx-field">
+                    <span class="pdx-label" id="pqt-f-to-label">Quoted to</span>
+                    <NocturneDateField Id="pqt-f-to" @bind-Date="toDate" AriaLabel="Quoted to" />
+                </div>
+
+                @* These go back to SAP, so they are applied on the button rather
+                   than on change. *@
+                <div class="pdx-filter-actions">
+                    <button type="button" class="pdx-btn pdx-btn-primary" disabled="@isLoading" @onclick="SearchAsync">
+                        Apply
+                    </button>
+                    <button type="button" class="pdx-btn pdx-btn-quiet" disabled="@isLoading" @onclick="ClearFiltersAsync">
+                        Clear
+                    </button>
+                </div>
+            </div>
+
+            @if (isLoading)
+            {
+                <div class="pdx-loading">
+                    <span class="pdx-spin" aria-hidden="true"></span>
+                    <span>Loading purchase quotations from SAP&#8230;</span>
+                </div>
+            }
+            else if (Quotations.Count == 0)
+            {
+                <div class="pdx-empty">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M6 3h9l3 3v15H6z"></path>
+                        <path d="M9 10h6M9 14h4"></path>
+                    </svg>
+                    <span>No purchase quotation matched these filters.</span>
+                    <div class="pdx-empty-actions">
+                        <button type="button" class="pdx-btn pdx-btn-quiet" @onclick="ClearFiltersAsync">
+                            Reset to the last thirty days
+                        </button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="pdx-scroll">
+                    <div class="pdx-grid" role="table" aria-label="Purchase quotations">
+                        <div class="pdx-thead" role="row">
+                            <span role="columnheader">Document</span>
+                            <span role="columnheader">Supplier</span>
+                            <span role="columnheader">Quoted</span>
+                            <span role="columnheader">Status</span>
+                            <span role="columnheader" class="pdx-thead-end">Total</span>
                         </div>
+
+                        @foreach (var quotation in Quotations)
+                        {
+                            <div class="pdx-row @(selectedQuotation?.DocEntry == quotation.DocEntry ? "pdx-row-on" : "")"
+                                 role="row" @key="quotation.DocEntry" @onclick="() => SelectQuotation(quotation)">
+                                <span class="pdx-doc" role="cell">
+                                    <span class="pdx-docnum">#@quotation.DocNum</span>
+                                    <span class="pdx-docsub">
+                                        @if (!string.IsNullOrWhiteSpace(quotation.NumAtCard))
+                                        {
+                                            @($"Ref {quotation.NumAtCard}")
+                                        }
+                                        else
+                                        {
+                                            @($"Entry {quotation.DocEntry}")
+                                        }
+                                    </span>
+                                </span>
+                                <span class="pdx-party" role="cell">
+                                    <span class="pdx-party-name">@quotation.CardName</span>
+                                    <span class="pdx-party-code">@quotation.CardCode</span>
+                                </span>
+                                <span class="pdx-date pdx-cell-date" role="cell">
+                                    <span class="pdx-date-main">
+                                        <span class="pdx-rl">Quoted</span>@(quotation.DocDate?.ToString("dd MMM yyyy") ?? "Not set")
+                                    </span>
+                                    @if (quotation.DocDueDate.HasValue)
+                                    {
+                                        <span class="pdx-date-sub">Due @quotation.DocDueDate.Value.ToString("dd MMM yyyy")</span>
+                                    }
+                                </span>
+                                <span class="pdx-cell-status" role="cell">
+                                    <span class="pdx-badge @GetStatusCssClass(quotation.DocStatus)">@quotation.DocStatus</span>
+                                </span>
+                                <span class="pdx-money pdx-cell-total" role="cell">
+                                    <span class="pdx-money-cur">@quotation.DocCurrency</span>
+                                    <span class="pdx-money-num">@quotation.DocTotal.ToString("N2")</span>
+                                </span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="pdx-foot">
+                    <span class="pdx-foot-info">@PageRangeText</span>
+                    <div class="pdx-pages">
+                        <button type="button" class="pdx-step" disabled="@(isLoading || currentPage <= 1)"
+                                @onclick="PreviousPageAsync">
+                            Previous
+                        </button>
+                        <span class="pdx-page-now">Page @currentPage</span>
+                        <button type="button" class="pdx-step"
+                                disabled="@(isLoading || !(quotationResponse?.HasMore ?? false))"
+                                @onclick="NextPageAsync">
+                            Next
+                        </button>
+                    </div>
+                </div>
+            }
+        </section>
+    </div>
+</div>
+
+@* The scrim and the drawer carry `.pdx` themselves: they sit outside the page
+   element so it cannot clip them, and the class is what puts the tokens in
+   reach. *@
+@if (selectedQuotation is not null)
+{
+    var detail = selectedQuotation;
+
+    <div class="pdx pdx-scrim" @onclick="CloseDetail"></div>
+    <aside class="pdx pdx-drawer" role="dialog" aria-modal="true" aria-label="Quotation details">
+        <div class="pdx-drawer-head">
+            <div>
+                <h2>Quotation #@detail.DocNum</h2>
+                <div class="pdx-drawer-sub">
+                    <span class="pdx-badge @GetStatusCssClass(detail.DocStatus)">@detail.DocStatus</span>
+                    <span>@detail.CardName</span>
+                    <span>@detail.DocCurrency @detail.DocTotal.ToString("N2")</span>
+                </div>
+            </div>
+            <button type="button" class="pdx-icon-btn pdx-drawer-x" aria-label="Close" @onclick="CloseDetail">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6L6 18"></path>
+                </svg>
+            </button>
+        </div>
+
+        <div class="pdx-drawer-body">
+            <section class="pdx-section">
+                <h3>Document</h3>
+                <div class="pdx-dl">
+                    <div>
+                        <div class="pdx-dt">Supplier</div>
+                        <div class="pdx-dd">@detail.CardCode &#183; @detail.CardName</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Supplier reference</div>
+                        <div class="pdx-dd">@(string.IsNullOrWhiteSpace(detail.NumAtCard) ? "None" : detail.NumAtCard)</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Quoted</div>
+                        <div class="pdx-dd pdx-dd-num">@(detail.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Valid until</div>
+                        <div class="pdx-dd pdx-dd-num">@(detail.DocDueDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Discount</div>
+                        <div class="pdx-dd pdx-dd-num">@detail.DiscountPercent.ToString("N2")%</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Document total</div>
+                        <div class="pdx-dd pdx-dd-num">@detail.DocCurrency @detail.DocTotal.ToString("N2")</div>
+                    </div>
+                </div>
+            </section>
+
+            @if (!string.IsNullOrWhiteSpace(detail.Comments))
+            {
+                <section class="pdx-section">
+                    <h3>Comments</h3>
+                    <p class="pdx-pre">@detail.Comments</p>
+                </section>
+            }
+
+            <section class="pdx-section">
+                <h3>Quoted lines</h3>
+                @if (detail.Lines.Count == 0)
+                {
+                    <div class="pdx-lines-empty">This quotation has no lines.</div>
+                }
+                else
+                {
+                    <div class="pdx-lines">
+                        @foreach (var line in detail.Lines)
+                        {
+                            <div class="pdx-line">
+                                <div class="pdx-line-top">
+                                    <div class="pdx-line-item">
+                                        <div class="pdx-line-code">@line.ItemCode</div>
+                                        <div class="pdx-line-desc">@line.ItemDescription</div>
+                                    </div>
+                                    <div class="pdx-money">
+                                        <span class="pdx-money-cur">@detail.DocCurrency</span>
+                                        <span class="pdx-money-num">@line.LineTotal.ToString("N2")</span>
+                                    </div>
+                                </div>
+                                <div class="pdx-line-meta">
+                                    <span>@line.Quantity.ToString("N2") &#215; @line.UnitPrice.ToString("N2")</span>
+                                    @if (!string.IsNullOrWhiteSpace(line.WarehouseCode))
+                                    {
+                                        <span class="pdx-tag">@line.WarehouseCode</span>
+                                    }
+                                </div>
+                            </div>
+                        }
                     </div>
                 }
-            </aside>
+            </section>
         </div>
-    }
-</div>
+    </aside>
+}

@@ -1,0 +1,1868 @@
+/* ==========================================================================
+   Purchase documents — Nocturne
+
+   One sheet, four pages: /purchase-quotations, /purchase-requests,
+   /purchase-invoices and /goods-receipt-pos. They are not four designs — the
+   four Razor files were clones of one another before this (their inline style
+   blocks measured 75–91% identical line-for-line), so a sheet each would have
+   been the same duplication written out four more times. What differs between
+   them is markup and wording, plus one column template, which `.is-request`
+   carries below.
+
+   /purchase-orders joined them afterwards as `.is-order`. It was left out at
+   first — it is a different animal, with approvals, per-row actions and a
+   receive-goods dialog — but the page underneath is the same register, and the
+   furniture only it needs is confined to one section at the foot of this sheet
+   rather than spread through the rules the five share.
+
+   There is no Purchase Orders.dc.html or Purchase Invoices.dc.html in any of
+   the design projects (all four were listed before this was written), so this
+   is a derivation rather than an import — the documented fallback, taken the
+   same way audit-trail.css was taken from business-partners.css.
+
+   The source is audit-trail.css, picked by page shape rather than by subject:
+   both are one long filtered list over a window the page chose for you — a
+   sticky bar carrying the actions, a stated hero, a row of four figures, a
+   panel whose rows wash into the ground rather than sitting in a filled card,
+   a pagination foot and a row-click detail drawer. The palette and the spacing
+   scale are aliased from nocturne-tokens.css rather than restated, so a colour
+   is corrected in one place for the whole system.
+
+   What the source had no need of, and these pages do:
+
+   - A supplier typeahead. Three of the four filter by supplier, and the
+     control is a text field that drops a list of matches and then states the
+     chosen one as a chip. It is drawn here rather than borrowed because
+     nothing else in the system has one.
+   - A money column. Amounts take the figure face with tabular numerals and are
+     right-aligned, so a column of totals can be read down rather than across.
+   - Document lines in the drawer. A purchase document is its lines; the drawer
+     lists them as their own rows below the summary.
+
+   Document status is drawn as one badge whose hue comes from a family token,
+   the same mechanism the audit log uses for roles and actions: `open` takes
+   the good family, `closed` the neutral one and `cancelled` the bad one. The
+   pages' own GetStatusCssClass returns the family class directly.
+
+   Light is the base and `.dark-theme` the override — both stated once, in
+   nocturne-tokens.css, in the order App.razor's pre-paint script stamps the
+   class in, so neither scheme flashes.
+
+   Rules live here rather than in an inline Razor <style> block for the reason
+   the sibling sheets give: app.css carries global `.dark-theme input/select`
+   rules at (0,1,1) that would otherwise repaint every field #1e293b, so each
+   control carries a class and each control selector is two classes deep,
+   winning regardless of load order. Headings are pinned to Nocturne's 500
+   because Bootstrap's global `h1-h6 { font-weight: 600 }` would bolden them
+   past the weight this system allows.
+
+   The five-column grid is one `grid-template-columns` declaration shared by
+   the header strip and every row, so the two cannot drift. Below 1040px the
+   row stops being a grid row and becomes a labelled card.
+   ========================================================================== */
+
+.pdx {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --pdx-bg: var(--noct-bg);
+    --pdx-surface: var(--noct-surface);
+    --pdx-wash: var(--noct-wash);
+    --pdx-ink: var(--noct-ink);
+    --pdx-ink-2: var(--noct-ink-2);
+    --pdx-mute: var(--noct-mute);
+    --pdx-mute-2: var(--noct-mute-2);
+    --pdx-mute-3: var(--noct-mute-3);
+    --pdx-faint: var(--noct-faint);
+    --pdx-placeholder: var(--noct-placeholder);
+    --pdx-divider: var(--noct-divider);
+    --pdx-rule: var(--noct-rule);
+    --pdx-hover: var(--noct-hover);
+    --pdx-press: var(--noct-press);
+    --pdx-field-bg: var(--noct-field-bg);
+    --pdx-field-edge: var(--noct-field-edge);
+    --pdx-field-edge-hi: var(--noct-field-edge-hi);
+    --pdx-accent: var(--noct-accent);
+    --pdx-accent-rgb: var(--noct-accent-rgb);
+    --pdx-accent-text: var(--noct-accent-text);
+    --pdx-thumb: var(--noct-thumb);
+    --pdx-scrim: var(--noct-scrim);
+    --pdx-warn-bg: var(--noct-warn-bg);
+    --pdx-warn-edge: var(--noct-warn-edge);
+    --pdx-warn-ink: var(--noct-warn-ink);
+    --pdx-shadow-lg: var(--noct-shadow-lg);
+    --pdx-shadow-pop: var(--noct-shadow-pop);
+    --pdx-caret: var(--noct-caret);
+    --pdx-clear: var(--noct-clear);
+    --pdx-scheme: var(--noct-scheme);
+
+    /* Families — the status badge tints from one. */
+    --pdx-fam-neutral: var(--noct-fam-neutral);
+    --pdx-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --pdx-fam-accent: var(--noct-fam-accent);
+    --pdx-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --pdx-fam-info: var(--noct-fam-info);
+    --pdx-fam-info-rgb: var(--noct-fam-info-rgb);
+    --pdx-fam-good: var(--noct-fam-good);
+    --pdx-fam-good-rgb: var(--noct-fam-good-rgb);
+    --pdx-fam-warn: var(--noct-fam-warn);
+    --pdx-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --pdx-fam-bad: var(--noct-fam-bad);
+    --pdx-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --pdx-s1: var(--noct-s1);
+    --pdx-s2: var(--noct-s2);
+    --pdx-s3: var(--noct-s3);
+    --pdx-s4: var(--noct-s4);
+    --pdx-s6: var(--noct-s6);
+    --pdx-s8: var(--noct-s8);
+    --pdx-r-sm: var(--noct-r-sm);
+    --pdx-r-md: var(--noct-r-md);
+    --pdx-r-lg: var(--noct-r-lg);
+
+    /* The register's five columns — this sheet's own, not the system's. The
+       document cell is fixed because a DocNum and its DocEntry are both short
+       and known; supplier takes the slack because a supplier name is the one
+       field that runs long. */
+    --pdx-cols: 168px minmax(0, 1.6fr) 150px 118px 152px;
+
+    color-scheme: var(--pdx-scheme);
+}
+
+/* A purchase request has no supplier and no money: it is dated twice instead —
+   posted and required — and named by its requester. Same five slots, different
+   weights. */
+.pdx.is-request {
+    --pdx-cols: 168px 150px 150px minmax(0, 1.4fr) 118px;
+}
+
+/* An order carries what can be done to it, so it has a seventh column the other
+   four don't: the actions that move it through approval and receipt. */
+.pdx.is-order {
+    --pdx-cols: 150px minmax(0, 1.5fr) 124px 124px 132px 140px 152px;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.pdx {
+    min-height: 100vh;
+    background: var(--pdx-bg);
+    color: var(--pdx-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.pdx * {
+    box-sizing: border-box;
+}
+
+/* The spacing scale above is carried whole, including the steps these pages
+   have no call for, because a scale with a hole in it stops being a scale.
+   Palette entries are not: --*-accent-ink, the ink on a filled accent, is
+   absent because Nocturne outlines its primary action rather than filling it,
+   so no surface on these pages ever needs it. */
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside these pages that would flatten the family hues the badges
+   carry on WebKit, so hand the fill back to `color`. */
+.pdx,
+.pdx * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.pdx :focus-visible {
+    outline: 2px solid var(--pdx-accent);
+    outline-offset: 2px;
+}
+
+.pdx ::selection {
+    background: rgba(var(--pdx-accent-rgb), .3);
+}
+
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. */
+.pdx h1,
+.pdx h2,
+.pdx h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, so the range, the
+   refresh and the create action stay reachable while a register scrolls past.
+
+   Opaque, not frosted — the frosted bar's missing 12% lets the page title read
+   straight through it wherever the compositor skips the blur. --pdx-bg is the
+   page ground, so the at-rest look is unchanged. */
+
+.pdx-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--pdx-bg);
+    border-bottom: 1px solid var(--pdx-divider);
+}
+
+.pdx-head-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--pdx-s6);
+}
+
+.pdx-head-doc {
+    display: flex;
+    align-items: baseline;
+    gap: var(--pdx-s3);
+    min-width: 0;
+}
+
+/* The document kind, stated in the bar so a scrolled page still says which
+   register is on screen. */
+.pdx-head-kind {
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.pdx-head-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--pdx-s4);
+}
+
+.pdx-range {
+    font-size: 12px;
+    color: var(--pdx-mute-3);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.pdx .pdx-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--pdx-s2) calc(var(--pdx-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--pdx-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--pdx-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.pdx .pdx-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.pdx .pdx-btn svg {
+    display: block;
+    flex: none;
+}
+
+.pdx .pdx-btn-primary {
+    color: var(--pdx-accent);
+    border-color: var(--pdx-accent);
+    letter-spacing: .02em;
+}
+
+.pdx .pdx-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--pdx-accent-rgb), .12);
+}
+
+.pdx .pdx-btn-primary:active:not(:disabled) {
+    background: rgba(var(--pdx-accent-rgb), .22);
+}
+
+.pdx .pdx-btn-ghost {
+    color: var(--pdx-accent);
+}
+
+.pdx .pdx-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--pdx-accent-rgb), .1);
+}
+
+.pdx .pdx-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--pdx-accent-rgb), .18);
+}
+
+.pdx .pdx-btn-quiet {
+    color: var(--pdx-mute-2);
+    border-color: var(--pdx-divider);
+}
+
+.pdx .pdx-btn-quiet:hover:not(:disabled) {
+    color: var(--pdx-ink);
+    border-color: var(--pdx-field-edge-hi);
+    background: var(--pdx-hover);
+}
+
+.pdx .pdx-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 27px;
+    height: 27px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--pdx-r-sm);
+    background: transparent;
+    color: var(--pdx-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.pdx .pdx-icon-btn:hover {
+    background: var(--pdx-press);
+    color: var(--pdx-ink);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.pdx-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--pdx-s8);
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.pdx-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.pdx-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--pdx-accent-text);
+    margin-bottom: 9px;
+}
+
+.pdx-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.pdx-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--pdx-mute-2);
+    max-width: 56ch;
+    text-wrap: pretty;
+}
+
+/* ── The four figures ──────────────────────────────────────────────────── */
+
+.pdx-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--pdx-s4);
+}
+
+.pdx-stat {
+    padding: var(--pdx-s6) 18px;
+    border: 1px solid var(--pdx-divider);
+    border-radius: var(--pdx-r-lg);
+    background: var(--pdx-surface);
+    min-width: 0;
+}
+
+/* Only the first card carries the accent — the design's way of saying which
+   figure the page is actually about. */
+.pdx-stat-lead {
+    background:
+        linear-gradient(155deg, rgba(var(--pdx-accent-rgb), .12), transparent 62%),
+        var(--pdx-surface);
+}
+
+.pdx-stat-head {
+    display: flex;
+    align-items: center;
+    gap: var(--pdx-s3);
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--pdx-mute-2);
+}
+
+.pdx-stat-lead .pdx-stat-head {
+    color: var(--pdx-accent-text);
+}
+
+.pdx-stat-rule {
+    width: 12px;
+    height: 1px;
+    flex: none;
+    background: var(--pdx-mute-3);
+}
+
+.pdx-stat-lead .pdx-stat-rule {
+    background: var(--pdx-accent);
+}
+
+.pdx-stat-num {
+    margin-top: var(--pdx-s4);
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+/* A page total is a longer number than a count, and it is the one figure that
+   would otherwise wrap on a narrow card. */
+.pdx-stat-num-money {
+    font-size: 26px;
+}
+
+.pdx-stat-cur {
+    margin-right: 4px;
+    font-size: 15px;
+    color: var(--pdx-mute-3);
+}
+
+.pdx-stat-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--pdx-mute-2);
+}
+
+/* ── The register ──────────────────────────────────────────────────────── */
+/* A wash that falls away into the ground over its first 240px rather than a
+   filled card — the design's one gradient. */
+
+/* Not clipped: the date fields in the filter row drop a calendar, and an
+   `overflow` other than `visible` on any ancestor cuts it off at the panel
+   edge. The same goes for the supplier typeahead's popup. Nothing is lost —
+   the only painted thing that reaches a corner is the panel's own background,
+   and a background is clipped to the border radius anyway. */
+.pdx-panel {
+    border: 1px solid var(--pdx-divider);
+    border-radius: var(--pdx-r-lg);
+    background: linear-gradient(to bottom, var(--pdx-wash), transparent 240px);
+}
+
+.pdx-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--pdx-s4);
+    padding: var(--pdx-s4) var(--pdx-s8);
+    flex-wrap: wrap;
+}
+
+.pdx-panel-head h2 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.pdx-count {
+    font-size: 12.5px;
+    color: var(--pdx-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.pdx-panel-tools {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+/* Always shown rather than disclosed: these pages open on a date window they
+   chose for you (the last thirty days), so the controls that set that window
+   have to be visible for the figures above to mean anything. */
+
+.pdx-filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--pdx-s4);
+    padding: 0 var(--pdx-s8) var(--pdx-s4);
+    align-items: start;
+}
+
+.pdx-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+/* The supplier field is the one that needs room: it holds a popup, a chip and
+   a line of help below the control. */
+.pdx-field-wide {
+    grid-column: span 2;
+}
+
+.pdx-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--pdx-mute-3);
+}
+
+.pdx-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--pdx-s3);
+    /* Bottom-aligned against fields that may have grown a chip, so the two
+       buttons stay level with the controls rather than with the tallest one. */
+    margin-top: 19px;
+}
+
+.pdx-hint {
+    font-size: 11.5px;
+    color: var(--pdx-faint);
+    text-wrap: pretty;
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+.pdx .pdx-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--pdx-ink);
+    caret-color: var(--pdx-accent);
+    background: var(--pdx-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--pdx-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.pdx .pdx-input:hover {
+    border-color: var(--pdx-field-edge);
+}
+
+.pdx .pdx-input:focus-visible {
+    border-color: rgba(var(--pdx-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.pdx .pdx-input::placeholder {
+    color: var(--pdx-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--pdx-placeholder);
+}
+
+.pdx .pdx-input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    margin-left: var(--pdx-s2);
+    background: var(--pdx-clear) no-repeat center / contain;
+    opacity: .7;
+    cursor: pointer;
+}
+
+.pdx .pdx-input[type="search"]::-webkit-search-cancel-button:hover {
+    opacity: 1;
+}
+
+.pdx-select {
+    position: relative;
+    display: flex;
+}
+
+.pdx .pdx-select select.pdx-input {
+    padding: 8px 28px 8px 11px;
+    cursor: pointer;
+}
+
+.pdx-select .pdx-caret {
+    position: absolute;
+    right: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--pdx-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+/* ── Supplier typeahead ────────────────────────────────────────────────── */
+/* The field states its own result rather than leaving the raw text standing:
+   what the query filters by is the supplier that was picked, and the chip is
+   the only thing that says which that was. */
+
+.pdx-typeahead {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.pdx-suggest {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 40;
+    max-height: 264px;
+    overflow-y: auto;
+    padding: var(--pdx-s1);
+    border: 1px solid var(--pdx-divider);
+    border-radius: var(--pdx-r-md);
+    background: var(--pdx-surface);
+    box-shadow: var(--pdx-shadow-pop);
+}
+
+.pdx .pdx-suggest-opt {
+    display: block;
+    width: 100%;
+    padding: var(--pdx-s3) var(--pdx-s4);
+    border: 0;
+    border-radius: var(--pdx-r-sm);
+    background: transparent;
+    font: inherit;
+    color: var(--pdx-ink);
+    text-align: left;
+    cursor: pointer;
+    transition: background-color .12s;
+}
+
+.pdx .pdx-suggest-opt:hover {
+    background: var(--pdx-hover);
+}
+
+.pdx-suggest-name {
+    display: block;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pdx-suggest-meta {
+    display: block;
+    margin-top: 1px;
+    font-size: 11.5px;
+    color: var(--pdx-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.pdx-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--pdx-s3);
+    align-self: flex-start;
+    max-width: 100%;
+    padding: 3px 5px 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--pdx-accent-text);
+    background: rgba(var(--pdx-accent-rgb), .14);
+}
+
+.pdx-chip-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pdx .pdx-chip-x {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    transition: background-color .12s;
+}
+
+.pdx .pdx-chip-x:hover {
+    background: rgba(var(--pdx-accent-rgb), .22);
+}
+
+/* ── The grid ──────────────────────────────────────────────────────────── */
+
+.pdx-scroll {
+    overflow-x: auto;
+}
+
+.pdx-grid {
+    min-width: 900px;
+}
+
+.pdx-thead,
+.pdx-row {
+    display: grid;
+    grid-template-columns: var(--pdx-cols);
+    align-items: center;
+    gap: var(--pdx-s6);
+}
+
+.pdx-thead {
+    padding: 0 var(--pdx-s8) var(--pdx-s4);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--pdx-mute-3);
+}
+
+.pdx-row {
+    width: 100%;
+    padding: 12px var(--pdx-s8);
+    border: 0;
+    border-top: 1px solid var(--pdx-rule);
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color .12s ease;
+}
+
+.pdx-row:hover {
+    background: var(--pdx-hover);
+}
+
+/* The row whose document is open in the drawer, marked at its edge so the
+   list still says where you are once the drawer covers the right of it. */
+.pdx-row-on {
+    box-shadow: inset 3px 0 0 var(--pdx-accent);
+    background: rgba(var(--pdx-accent-rgb), .07);
+}
+
+.pdx-row-on:hover {
+    background: rgba(var(--pdx-accent-rgb), .11);
+}
+
+/* Document cell: the number leads and everything that identifies it — the
+   DocEntry, the supplier's own reference — recedes under it. */
+.pdx-doc {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.35;
+    min-width: 0;
+}
+
+.pdx-docnum {
+    font-size: 13.5px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.pdx-docsub {
+    font-size: 11.5px;
+    color: var(--pdx-mute-3);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pdx-party {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.35;
+    min-width: 0;
+}
+
+.pdx-party-code {
+    font-size: 12px;
+    color: var(--pdx-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.pdx-party-name {
+    font-size: 13.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pdx-date {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.35;
+}
+
+.pdx-date-main {
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--pdx-ink-2);
+}
+
+.pdx-date-sub {
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--pdx-mute-3);
+}
+
+/* Money: right-aligned so a column of totals reads down, and the currency set
+   away from the figure so the figures themselves line up. */
+.pdx-money {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 5px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.pdx-money-cur {
+    font-size: 11px;
+    color: var(--pdx-mute-3);
+}
+
+.pdx-money-num {
+    font-size: 13.5px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+}
+
+.pdx-cell-total {
+    justify-self: end;
+}
+
+.pdx-thead-end {
+    text-align: right;
+}
+
+.pdx-none {
+    font-size: 12.5px;
+    color: var(--pdx-faint);
+}
+
+/* Row labels, carried for the card layout below 1040px and hidden above it. */
+.pdx-rl {
+    display: none;
+}
+
+/* ── Badges ────────────────────────────────────────────────────────────── */
+/* One badge, one family token. Each family class sets the hue and its channel;
+   the badge mixes both its ink and its wash from them, so adding a family is
+   two declarations and never a fill-and-ink pair that can drift apart. */
+
+/* inline-block rather than inline-flex: in a flex container the label becomes
+   an anonymous flex item, `text-overflow` does not apply to it, and a long
+   status is cut mid-letter with nothing to say it was cut. */
+.pdx-badge {
+    display: inline-block;
+    max-width: 100%;
+    padding: 2.5px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: .04em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    color: var(--pdx-fam, var(--pdx-mute));
+    background: rgba(var(--pdx-fam-rgb, 94, 100, 131), .14);
+}
+
+.pdx-fam-neutral {
+    --pdx-fam: var(--pdx-fam-neutral);
+    --pdx-fam-rgb: var(--pdx-fam-neutral-rgb);
+}
+
+.pdx-fam-accent {
+    --pdx-fam: var(--pdx-fam-accent);
+    --pdx-fam-rgb: var(--pdx-fam-accent-rgb);
+}
+
+.pdx-fam-info {
+    --pdx-fam: var(--pdx-fam-info);
+    --pdx-fam-rgb: var(--pdx-fam-info-rgb);
+}
+
+.pdx-fam-good {
+    --pdx-fam: var(--pdx-fam-good);
+    --pdx-fam-rgb: var(--pdx-fam-good-rgb);
+}
+
+.pdx-fam-warn {
+    --pdx-fam: var(--pdx-fam-warn);
+    --pdx-fam-rgb: var(--pdx-fam-warn-rgb);
+}
+
+.pdx-fam-bad {
+    --pdx-fam: var(--pdx-fam-bad);
+    --pdx-fam-rgb: var(--pdx-fam-bad-rgb);
+}
+
+/* ── Pagination ────────────────────────────────────────────────────────── */
+/* These registers are paged by the query, not by the page: SAP is asked for
+   twenty at a time and answers whether more exist, so the foot steps rather
+   than numbers — there is no total to number against until the last page. */
+
+.pdx-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--pdx-s6);
+    padding: var(--pdx-s4) var(--pdx-s8);
+    border-top: 1px solid var(--pdx-divider);
+    font-size: 12.5px;
+    color: var(--pdx-mute-3);
+    flex-wrap: wrap;
+}
+
+.pdx-foot-info {
+    font-variant-numeric: tabular-nums;
+}
+
+.pdx-pages {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.pdx .pdx-step {
+    padding: 5px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--pdx-mute-2);
+    background: transparent;
+    border: 1px solid var(--pdx-divider);
+    border-radius: var(--pdx-r-md);
+    cursor: pointer;
+    transition: color .14s, border-color .14s;
+}
+
+.pdx .pdx-step:hover:not(:disabled) {
+    color: var(--pdx-ink);
+    border-color: var(--pdx-field-edge-hi);
+}
+
+.pdx .pdx-step:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.pdx-page-now {
+    padding: 5px 9px;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--pdx-accent-text);
+    background: rgba(var(--pdx-accent-rgb), .16);
+    border-radius: var(--pdx-r-md);
+}
+
+/* ── Detail drawer ─────────────────────────────────────────────────────── */
+/* Offset below the app bar: the page is a stacking context, so a drawer cannot
+   paint over the topbar however high its z-index.
+
+   The scrim and the drawer sit outside the page element and carry `.pdx`
+   themselves, which is what puts the tokens in reach — every rule above that
+   reads two classes deep therefore still applies inside them. */
+
+.pdx-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    /* Same reason as the drawer's: `.pdx`'s own min-height would stretch the
+       scrim 74px past the bottom of what it is meant to cover. */
+    min-height: 0;
+    background: var(--pdx-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    animation: pdx-fade .18s ease;
+}
+
+.pdx-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 74px);
+    right: 0;
+    z-index: 9999;
+    width: min(640px, 100vw);
+    height: calc(100vh - var(--kf-topbar-h, 74px));
+    /* Carrying `.pdx` also carries its `min-height: 100vh`, which would beat
+       the height just set and hang the last 74px of the drawer — and its
+       scrolling body — below the fold. */
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--pdx-bg);
+    box-shadow: var(--pdx-shadow-lg);
+    animation: pdx-slide .22s ease;
+}
+
+@keyframes pdx-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes pdx-slide {
+    from {
+        transform: translateX(24px);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .pdx-scrim,
+    .pdx-drawer {
+        animation: none;
+    }
+}
+
+.pdx-drawer-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--pdx-s4);
+    padding: var(--pdx-s6) var(--pdx-s8);
+    border-bottom: 1px solid var(--pdx-divider);
+    flex: none;
+}
+
+.pdx-drawer-head h2 {
+    font-size: 18px;
+    letter-spacing: -.01em;
+    text-wrap: pretty;
+}
+
+.pdx-drawer-sub {
+    margin-top: 3px;
+    display: flex;
+    align-items: center;
+    gap: var(--pdx-s3);
+    flex-wrap: wrap;
+    font-size: 12.5px;
+    color: var(--pdx-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.pdx-drawer-x {
+    margin-left: auto;
+}
+
+.pdx-drawer-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--pdx-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--pdx-s8);
+}
+
+.pdx-section h3 {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--pdx-mute-3);
+    margin-bottom: var(--pdx-s4);
+}
+
+.pdx-dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--pdx-s6) var(--pdx-s8);
+}
+
+.pdx-dt {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--pdx-faint);
+    margin-bottom: 2px;
+}
+
+.pdx-dd {
+    font-size: 13.5px;
+    color: var(--pdx-ink);
+    overflow-wrap: anywhere;
+}
+
+.pdx-dd-num {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+}
+
+/* Free text the buyer wrote: given its own recessed ground so a multi-line
+   comment reads as a quotation rather than as more of the page's own prose. */
+.pdx-pre {
+    margin: 0;
+    padding: var(--pdx-s4) var(--pdx-s6);
+    border: 1px solid var(--pdx-divider);
+    border-radius: var(--pdx-r-md);
+    background: var(--pdx-field-bg);
+    font-family: inherit;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--pdx-ink-2);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* ── Document lines ────────────────────────────────────────────────────── */
+/* A line is its item and its money on one row, with the quantities and the
+   warehouse stated below in the recessed face — the same relationship the
+   register's own rows have between the number and what qualifies it. */
+
+.pdx-lines {
+    display: flex;
+    flex-direction: column;
+    gap: var(--pdx-s2);
+}
+
+.pdx-line {
+    padding: var(--pdx-s4) var(--pdx-s6);
+    border: 1px solid var(--pdx-divider);
+    border-radius: var(--pdx-r-md);
+    background: var(--pdx-surface);
+}
+
+.pdx-line-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--pdx-s4);
+}
+
+.pdx-line-item {
+    min-width: 0;
+}
+
+.pdx-line-code {
+    font-size: 13px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.pdx-line-desc {
+    font-size: 12.5px;
+    color: var(--pdx-mute-2);
+    text-wrap: pretty;
+}
+
+.pdx-line-meta {
+    margin-top: var(--pdx-s2);
+    display: flex;
+    align-items: center;
+    gap: var(--pdx-s2) var(--pdx-s4);
+    flex-wrap: wrap;
+    font-size: 11.5px;
+    color: var(--pdx-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Warehouse codes and base-document references are data, not prose — they take
+   a tag so they read as the identifiers they are. */
+.pdx-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 1.5px 7px;
+    border-radius: var(--pdx-r-sm);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--pdx-mute);
+    background: var(--pdx-press);
+    white-space: nowrap;
+}
+
+.pdx-lines-empty {
+    padding: var(--pdx-s6);
+    border: 1px dashed var(--pdx-divider);
+    border-radius: var(--pdx-r-md);
+    font-size: 12.5px;
+    color: var(--pdx-mute-3);
+    text-align: center;
+}
+
+/* ── Notices, empty and loading ────────────────────────────────────────── */
+
+.pdx-msg {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--pdx-s4);
+    padding: var(--pdx-s4) var(--pdx-s6);
+    border: 1px solid var(--pdx-warn-edge);
+    border-radius: var(--pdx-r-md);
+    background: var(--pdx-warn-bg);
+    color: var(--pdx-warn-ink);
+    font-size: 13px;
+    text-wrap: pretty;
+}
+
+.pdx-msg svg {
+    flex: none;
+    margin-top: 2px;
+}
+
+.pdx .pdx-msg-x {
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    opacity: .6;
+    cursor: pointer;
+    transition: opacity .13s, background-color .13s;
+}
+
+.pdx .pdx-msg-x:hover {
+    opacity: 1;
+    background: rgba(27, 28, 38, .08);
+}
+
+.dark-theme .pdx .pdx-msg-x:hover {
+    background: rgba(243, 245, 254, .12);
+}
+
+.pdx-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--pdx-s3);
+    padding: 56px var(--pdx-s6);
+    font-size: 13px;
+    color: var(--pdx-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+}
+
+.pdx-empty svg {
+    color: var(--pdx-accent);
+    opacity: .7;
+}
+
+.pdx-empty-actions {
+    margin-top: var(--pdx-s3);
+    display: flex;
+    gap: var(--pdx-s3);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.pdx-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--pdx-s4);
+    padding: 72px var(--pdx-s6);
+    font-size: 13px;
+    color: var(--pdx-mute-2);
+}
+
+.pdx-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: pdx-spin .7s linear infinite;
+}
+
+@keyframes pdx-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pdx-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.pdx-scroll::-webkit-scrollbar,
+.pdx-suggest::-webkit-scrollbar,
+.pdx-drawer-body::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.pdx-scroll::-webkit-scrollbar-thumb,
+.pdx-suggest::-webkit-scrollbar-thumb,
+.pdx-drawer-body::-webkit-scrollbar-thumb {
+    background: var(--pdx-thumb);
+    border-radius: 8px;
+}
+
+.pdx-scroll::-webkit-scrollbar-track,
+.pdx-suggest::-webkit-scrollbar-track,
+.pdx-drawer-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ==========================================================================
+   Only /purchase-orders (`.is-order`)
+   Everything above is shared by all five registers. What follows is the
+   order's own: it is the one document here that is worked on rather than only
+   read — submitted, approved, received against — so it carries per-row
+   actions, a source switch, and a dialog for booking stock in.
+   ========================================================================== */
+
+/* ── The data source switch ────────────────────────────────────────────── */
+/* SAP or the local database. A segmented control rather than a select: there
+   are two, and which one is showing changes what every figure on the page
+   means, so it is stated rather than hidden in a closed list. */
+
+.pdx-seg {
+    display: inline-flex;
+    padding: 2px;
+    border: 1px solid var(--pdx-field-edge);
+    border-radius: 999px;
+    background: var(--pdx-field-bg);
+}
+
+.pdx .pdx-seg-opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--pdx-mute-2);
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .14s, color .14s;
+}
+
+.pdx .pdx-seg-opt:hover:not(:disabled) {
+    color: var(--pdx-ink);
+}
+
+.pdx .pdx-seg-opt.is-on {
+    background: rgba(var(--pdx-accent-rgb), .16);
+    color: var(--pdx-accent-text);
+}
+
+.pdx .pdx-seg-opt:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+/* ── Row actions ───────────────────────────────────────────────────────── */
+/* Icon-only, because seven columns leave no room for words and the same four
+   verbs repeat down the page. Each carries its name as a title and an
+   aria-label; the glyph is drawn inline so a font that failed to arrive cannot
+   turn the row into a run of blank squares. */
+
+/* The order counts five states rather than four figures, so its row of cards
+   is five wide until the first breakpoint takes them all to two. */
+.pdx.is-order .pdx-stats {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.pdx-rowacts {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.pdx .pdx-act {
+    display: grid;
+    place-items: center;
+    width: 27px;
+    height: 27px;
+    flex: none;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--pdx-r-sm);
+    background: transparent;
+    color: var(--pdx-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s, border-color .13s;
+}
+
+.pdx .pdx-act svg {
+    display: block;
+}
+
+.pdx .pdx-act:hover {
+    background: var(--pdx-press);
+    color: var(--pdx-ink);
+}
+
+/* The three that change the document take their family's hue on hover — the
+   colour is the second channel, never the only one, so each keeps its label. */
+.pdx .pdx-act-go:hover {
+    color: var(--pdx-fam-info);
+}
+
+.pdx .pdx-act-ok:hover {
+    color: var(--pdx-fam-good);
+}
+
+.pdx .pdx-act-bad:hover {
+    color: var(--pdx-fam-bad);
+}
+
+/* ── The page-size control ─────────────────────────────────────────────── */
+/* This register loads the whole result and pages in the browser, unlike its
+   four siblings, so the foot carries how many rows a page holds. */
+
+.pdx-foot-size {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--pdx-s3);
+    font-size: 12.5px;
+    color: var(--pdx-mute-3);
+}
+
+.pdx .pdx-foot-size select.pdx-input {
+    width: auto;
+    min-height: 28px;
+    padding: 3px 26px 3px 9px;
+}
+
+/* ── The drawer's line table ───────────────────────────────────────────── */
+/* An order's lines are read across rather than down — ordered against received
+   against remaining — so they stay a table here, where the register's own rows
+   are a grid. */
+
+.pdx-ltable {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+}
+
+.pdx-ltable th {
+    padding: 0 var(--pdx-s3) var(--pdx-s3);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--pdx-mute-3);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.pdx-ltable td {
+    padding: var(--pdx-s3);
+    border-top: 1px solid var(--pdx-rule);
+    font-size: 12.5px;
+    color: var(--pdx-ink-2);
+}
+
+.pdx-ltable .pdx-r,
+.pdx-ltable th.pdx-r {
+    text-align: right;
+}
+
+.pdx-ltable-code {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--pdx-ink);
+    white-space: nowrap;
+}
+
+.pdx-ltable tfoot td {
+    border-top: 1px solid var(--pdx-divider);
+    color: var(--pdx-mute-2);
+}
+
+.pdx-ltable tfoot tr:first-child td {
+    border-top: 1px solid var(--pdx-divider);
+}
+
+/* Outstanding quantity: the one number on the line worth acting on, so it is
+   the one that carries a hue. Nothing outstanding reads as plain ink rather
+   than as a second colour saying "good" — the zero says that already. */
+.pdx-out {
+    color: var(--pdx-fam-warn);
+    font-weight: 500;
+}
+
+.pdx-total-strip {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--pdx-s4);
+    margin-top: var(--pdx-s4);
+    padding: var(--pdx-s4) var(--pdx-s6);
+    border: 1px solid rgba(var(--pdx-accent-rgb), .35);
+    border-radius: var(--pdx-r-md);
+    background: rgba(var(--pdx-accent-rgb), .08);
+}
+
+.pdx-total-k {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--pdx-accent-text);
+}
+
+.pdx-total-v {
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--pdx-accent-text);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Receive goods ─────────────────────────────────────────────────────── */
+/* A dialog rather than a second drawer: booking stock in is a decision taken
+   about one order, and it has to be finished or abandoned before anything else
+   on the page makes sense. */
+
+.pdx-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    /* Carrying `.pdx` also carries its min-height; here that would push the
+       dialog's centring box past the bottom of the viewport. */
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: var(--pdx-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    animation: pdx-fade .18s ease;
+}
+
+.pdx-dialog {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 760px;
+    max-height: calc(100vh - 48px);
+    border-radius: var(--pdx-r-lg);
+    background: var(--pdx-bg);
+    box-shadow: var(--pdx-shadow-pop);
+}
+
+.pdx-dialog-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--pdx-s4);
+    padding: var(--pdx-s6) var(--pdx-s8);
+    border-bottom: 1px solid var(--pdx-divider);
+    flex: none;
+}
+
+.pdx-dialog-head h2 {
+    font-size: 16px;
+    letter-spacing: -.01em;
+}
+
+.pdx-dialog-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--pdx-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--pdx-s6);
+}
+
+.pdx-dialog-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--pdx-s3);
+    padding: var(--pdx-s4) var(--pdx-s8);
+    border-top: 1px solid var(--pdx-divider);
+    flex: none;
+}
+
+.pdx-dialog-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+.pdx-dialog-body::-webkit-scrollbar-thumb {
+    background: var(--pdx-thumb);
+    border-radius: 8px;
+}
+
+/* The quantity being booked in. Narrow, right-aligned and the only editable
+   thing in the table, so it reads as the column that is asking a question. */
+.pdx .pdx-qty {
+    width: 100%;
+    max-width: 108px;
+    min-height: 30px;
+    margin-left: auto;
+    padding: 5px 8px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.pdx-done {
+    font-size: 12px;
+    color: var(--pdx-fam-good);
+}
+
+/* A note the page states rather than one the operator dismisses: it explains
+   the table below it, so it takes the informational family and no close. */
+.pdx-hint-note {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--pdx-s4);
+    padding: var(--pdx-s4) var(--pdx-s6);
+    border: 1px solid rgba(var(--pdx-fam-info-rgb), .35);
+    border-radius: var(--pdx-r-md);
+    background: rgba(var(--pdx-fam-info-rgb), .08);
+    color: var(--pdx-ink-2);
+    font-size: 12.5px;
+    text-wrap: pretty;
+}
+
+.pdx-hint-note svg {
+    flex: none;
+    margin-top: 2px;
+    color: var(--pdx-fam-info);
+}
+
+.pdx .pdx-area {
+    width: 100%;
+    min-height: 64px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--pdx-ink);
+    caret-color: var(--pdx-accent);
+    background: var(--pdx-field-bg);
+    border: 1px solid transparent;
+    border-radius: var(--pdx-r-md);
+    resize: vertical;
+    transition: border-color .15s;
+}
+
+.pdx .pdx-area:hover {
+    border-color: var(--pdx-field-edge);
+}
+
+.pdx .pdx-area:focus-visible {
+    border-color: rgba(var(--pdx-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.pdx .pdx-area::placeholder {
+    color: var(--pdx-placeholder);
+    -webkit-text-fill-color: var(--pdx-placeholder);
+    opacity: 1;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+
+    /* `.pdx.is-order .pdx-stats` above is (0,3,0), so the narrow overrides have
+       to carry the same scope or the order's five columns survive the
+       breakpoint that is meant to fold them. */
+    .pdx-stats,
+    .pdx.is-order .pdx-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* Below the grid's own minimum the row stops being a row: each becomes a
+   labelled card, so nothing has to be read out of a horizontal scroll. */
+@media (max-width: 1040px) {
+    .pdx-scroll {
+        overflow-x: visible;
+    }
+
+    .pdx-grid {
+        min-width: 0;
+    }
+
+    .pdx-thead {
+        display: none;
+    }
+
+    /* The document number and the status head the card, the supplier takes the
+       line below, and the dates and the total wrap together as one labelled
+       run rather than stacking into three lines of their own. */
+    .pdx-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--pdx-s2) var(--pdx-s4);
+        padding: var(--pdx-s4) var(--pdx-s6);
+    }
+
+    .pdx-rl {
+        display: inline;
+        margin-right: 4px;
+        font-size: 10.5px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--pdx-faint);
+    }
+
+    .pdx-row > .pdx-doc {
+        order: 1;
+    }
+
+    .pdx-row > .pdx-cell-status {
+        order: 2;
+        margin-left: auto;
+    }
+
+    .pdx-row > .pdx-party {
+        order: 3;
+        flex: 1 0 100%;
+    }
+
+    .pdx-row > .pdx-cell-date {
+        order: 4;
+    }
+
+    .pdx-row > .pdx-cell-date2 {
+        order: 5;
+    }
+
+    .pdx-row > .pdx-cell-total {
+        order: 6;
+        margin-left: auto;
+        justify-self: auto;
+    }
+
+    /* The actions close the card, on their own line, so a mis-tap on a narrow
+       screen cannot land on Delete while reaching for the total. */
+    .pdx-row > .pdx-rowacts {
+        order: 8;
+        flex: 1 0 100%;
+        padding-top: var(--pdx-s2);
+        border-top: 1px solid var(--pdx-rule);
+    }
+
+    .pdx-row > .pdx-cell-date,
+    .pdx-row > .pdx-cell-date2 {
+        flex-direction: row;
+        align-items: baseline;
+        gap: var(--pdx-s2);
+    }
+
+    .pdx-row > .pdx-party .pdx-party-name,
+    .pdx-row > .pdx-doc .pdx-docsub {
+        max-width: 100%;
+        white-space: normal;
+        overflow: visible;
+        overflow-wrap: anywhere;
+    }
+}
+
+@media (max-width: 760px) {
+    .pdx-head-inner {
+        padding: var(--pdx-s3) 18px;
+        flex-wrap: wrap;
+        gap: var(--pdx-s3);
+    }
+
+    .pdx-head-doc {
+        flex: 1 1 100%;
+    }
+
+    .pdx-head-meta {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .pdx-head-meta .pdx-btn {
+        flex: 1;
+    }
+
+    .pdx-body {
+        padding: var(--pdx-s8) 18px 56px;
+    }
+
+    .pdx-hero h1 {
+        font-size: 24px;
+    }
+
+    .pdx-stats,
+    .pdx.is-order .pdx-stats {
+        grid-template-columns: 1fr;
+    }
+
+    .pdx-panel-head,
+    .pdx-filters,
+    .pdx-foot {
+        padding-inline: var(--pdx-s6);
+    }
+
+    .pdx-panel-tools {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .pdx-filters {
+        grid-template-columns: 1fr;
+    }
+
+    .pdx-field-wide {
+        grid-column: auto;
+    }
+
+    .pdx-filter-actions {
+        margin-top: 0;
+    }
+
+    .pdx-filter-actions .pdx-btn {
+        flex: 1;
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .pdx .pdx-input {
+        font-size: 16px;
+    }
+
+    .pdx-foot {
+        justify-content: center;
+    }
+
+    .pdx-dl {
+        grid-template-columns: 1fr;
+    }
+
+    .pdx-drawer-head,
+    .pdx-drawer-body {
+        padding-inline: var(--pdx-s6);
+    }
+}

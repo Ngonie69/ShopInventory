@@ -4,189 +4,328 @@
 
 <PageTitle>Purchase Requests</PageTitle>
 
-<style>
-    .preq-page { max-width: 1450px; margin: 0 auto; padding: 1.5rem; }
-    .preq-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
-    .preq-title h1 { margin: 0; font-size: 1.7rem; font-weight: 800; color: #172033; }
-    .preq-title p { margin: .4rem 0 0; color: #5f6b7a; max-width: 720px; }
-    .preq-header-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
-    .preq-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
-    .preq-stat { background: linear-gradient(180deg, #f9fffb 0%, #fff 100%); border: 1px solid #caead4; border-radius: 16px; padding: 1rem 1.1rem; box-shadow: 0 12px 30px rgba(23, 32, 51, .05); }
-    .preq-stat-label { color: #2f7d45; font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
-    .preq-stat-value { margin-top: .35rem; font-size: 1.55rem; font-weight: 800; color: #172033; }
-    .preq-filters { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; padding: 1rem; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.25rem; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); }
-    .preq-field label { display: block; font-size: .78rem; font-weight: 700; color: #5f6b7a; margin-bottom: .35rem; text-transform: uppercase; letter-spacing: .05em; }
-    /* (0,1,1), so the date field's own `.ndf .ndf-input` at (0,2,0) beats it
-       and it needs no guard. The dark override further down is (0,2,1) and
-       does — see the note there. */
-    .preq-field input { width: 100%; border: 1px solid #d7dee7; border-radius: 12px; padding: .75rem .85rem; background: #fbfcfe; }
+@* Nocturne. wwwroot/css/purchase-documents.css (linked from App.razor) carries
+   the design and its light counterpart, and follows the app's theme toggle like
+   every other page. The sheet is shared with the other three purchase registers
+   — see its header for why one sheet rather than four, and PurchaseQuotations
+   for the notes on the grid and the drawer, which this page repeats.
 
-    /* The date fields take their metrics from the row they sit in; their
-       calendar is the shared one. See wwwroot/css/nocturne-date-field.css. */
-    .preq-field .ndf { --ndf-pad-y: .75rem; --ndf-pad-x: .85rem; --ndf-fs: 1rem; --ndf-radius: 12px; --ndf-fill: #fbfcfe; --ndf-edge: #d7dee7; }
-    .dark-theme .preq-field .ndf { --ndf-fill: #101823; --ndf-edge: #2a3645; }
-    .preq-filter-actions { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; }
-    .preq-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, .95fr); gap: 1rem; }
-    .preq-panel { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); overflow: hidden; }
-    .preq-panel-header { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-bottom: 1px solid #eef2f6; }
-    .preq-panel-header h2 { margin: 0; font-size: 1rem; font-weight: 700; color: #172033; }
-    .preq-panel-header span { color: #5f6b7a; font-size: .85rem; }
-    .preq-table-wrap { overflow-x: auto; }
-    .preq-table { width: 100%; border-collapse: collapse; }
-    .preq-table th { text-align: left; padding: .9rem 1rem; font-size: .76rem; color: #6b7280; text-transform: uppercase; letter-spacing: .06em; background: #fbfcfe; border-bottom: 1px solid #eef2f6; }
-    .preq-table td { padding: .95rem 1rem; border-bottom: 1px solid #f3f5f8; color: #172033; vertical-align: top; }
-    .preq-row { cursor: pointer; transition: background-color .15s ease; }
-    .preq-row:hover { background: #f3fff5; }
-    .preq-row.is-selected { background: #e8f8ec; }
-    .preq-doc { font-weight: 700; }
-    .preq-subtext { display: block; margin-top: .2rem; font-size: .8rem; color: #6b7280; }
-    .preq-status { display: inline-flex; align-items: center; border-radius: 999px; padding: .3rem .65rem; font-size: .75rem; font-weight: 700; }
-    .preq-status.open { background: #e8f7ec; color: #1f7a38; }
-    .preq-status.closed { background: #e8eef9; color: #2952a3; }
-    .preq-status.cancelled { background: #fdecec; color: #a12828; }
-    .preq-detail { padding: 1rem 1.1rem 1.2rem; }
-    .preq-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; margin-bottom: 1rem; }
-    .preq-detail-card { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fbfcfe; }
-    .preq-detail-card label { display: block; font-size: .72rem; font-weight: 700; color: #8a94a4; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .25rem; }
-    .preq-detail-card div { color: #172033; font-weight: 600; }
-    .preq-line-list { display: grid; gap: .75rem; }
-    .preq-line { border: 1px solid #edf1f5; border-radius: 14px; padding: .85rem .95rem; background: #fffdf8; }
-    .preq-line-top { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: .45rem; }
-    .preq-line-code { font-weight: 700; color: #172033; }
-    .preq-line-desc { color: #5f6b7a; font-size: .88rem; }
-    .preq-empty { padding: 2.2rem 1.3rem; text-align: center; color: #6b7280; }
-    .preq-empty strong { display: block; color: #172033; margin-bottom: .4rem; }
-    .preq-alert { border-radius: 14px; padding: .85rem 1rem; margin-bottom: 1rem; border: 1px solid transparent; }
-    .preq-alert.error { background: #fff1f1; border-color: #f3c4c4; color: #8f2727; }
-    .preq-loading { padding: 2.5rem 1rem; text-align: center; color: #6b7280; }
-    .preq-pager { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-top: 1px solid #eef2f6; }
-    .preq-pager span { color: #5f6b7a; font-size: .9rem; }
-    .dark-theme .preq-title h1, .dark-theme .preq-panel-header h2, .dark-theme .preq-table td, .dark-theme .preq-detail-card div, .dark-theme .preq-line-code, .dark-theme .preq-empty strong, .dark-theme .preq-stat-value { color: #edf2f7; }
-    .dark-theme .preq-title p, .dark-theme .preq-panel-header span, .dark-theme .preq-subtext, .dark-theme .preq-empty, .dark-theme .preq-loading, .dark-theme .preq-pager span, .dark-theme .preq-detail-card label, .dark-theme .preq-line-desc, .dark-theme .preq-stat-label, .dark-theme .preq-field label { color: #a9b4c2; }
-    .dark-theme .preq-stat, .dark-theme .preq-filters, .dark-theme .preq-panel { background: #16202c; border-color: #2a3645; box-shadow: none; }
-    /* `:not(.ndf-input)` so this stops short of the date fields: it is (0,2,1)
-       against the component's own (0,2,0) and would otherwise repaint them in
-       dark and not in light. */
-    .dark-theme .preq-field input:not(.ndf-input), .dark-theme .preq-detail-card, .dark-theme .preq-line { background: #101823; border-color: #2a3645; color: #edf2f7; }
-    .dark-theme .preq-table th { background: #101823; border-color: #2a3645; color: #a9b4c2; }
-    .dark-theme .preq-table td, .dark-theme .preq-panel-header, .dark-theme .preq-pager { border-color: #2a3645; }
-    .dark-theme .preq-row:hover { background: #1f2c3b; }
-    .dark-theme .preq-row.is-selected { background: #263647; }
-    @@media (max-width: 1100px) { .preq-layout { grid-template-columns: 1fr; } .preq-filters { grid-template-columns: 1fr; } }
-    @@media (max-width: 720px) { .preq-page { padding: 1rem; } .preq-detail-grid { grid-template-columns: 1fr; } .preq-pager { flex-direction: column; align-items: stretch; } }
-</style>
+   `.is-request` is the one thing this page needs of its own: a request has no
+   supplier and no money, so its five columns are weighted differently — it is
+   dated twice, posted and required, and named by its requester. *@
 
-<div class="preq-page">
-    <div class="preq-header">
-        <div class="preq-title">
-            <h1>Purchase Requests</h1>
-            <p>Review internal procurement requests created in SAP and inspect requested lines before sourcing suppliers.</p>
+<div class="pdx is-request">
+
+    <header class="pdx-head">
+        <div class="pdx-head-inner">
+            <div class="pdx-head-doc">
+                <span class="pdx-head-kind">Purchase requests</span>
+                <span class="pdx-range">@DateRangeLabel</span>
+            </div>
+            <div class="pdx-head-meta">
+                <button type="button" class="pdx-btn pdx-btn-ghost" disabled="@isLoading" @onclick="ReloadAsync">
+                    @if (isLoading)
+                    {
+                        <span class="pdx-spin" aria-hidden="true"></span>
+                        <span>Loading&#8230;</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 11a8 8 0 0 0-13.7-5.3L4 8"></path>
+                            <path d="M4 4v4h4"></path>
+                            <path d="M4 13a8 8 0 0 0 13.7 5.3L20 16"></path>
+                            <path d="M20 20v-4h-4"></path>
+                        </svg>
+                        <span>Refresh</span>
+                    }
+                </button>
+                <button type="button" class="pdx-btn pdx-btn-primary" @onclick="NavigateToCreate">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                        <path d="M12 5v14M5 12h14"></path>
+                    </svg>
+                    <span>New request</span>
+                </button>
+            </div>
         </div>
-        <div class="preq-header-actions">
-            <button class="btn btn-outline-secondary" @onclick="ReloadAsync">Refresh</button>
-            <button class="btn btn-success" @onclick="NavigateToCreate">Create Purchase Request</button>
-        </div>
-    </div>
+    </header>
 
-    @if (!string.IsNullOrWhiteSpace(errorMessage))
-    {
-        <div class="preq-alert error">@errorMessage</div>
-    }
+    <div class="pdx-body">
 
-    <div class="preq-stats">
-        <div class="preq-stat"><div class="preq-stat-label">Total Requests</div><div class="preq-stat-value">@requestResponse?.TotalCount</div></div>
-        <div class="preq-stat"><div class="preq-stat-label">Current Page</div><div class="preq-stat-value">@CurrentPageCount</div></div>
-        <div class="preq-stat"><div class="preq-stat-label">Open Requests</div><div class="preq-stat-value">@OpenRequestCount</div></div>
-        <div class="preq-stat"><div class="preq-stat-label">Requested Lines</div><div class="preq-stat-value">@CurrentPageLineCount</div></div>
-    </div>
+        <section class="pdx-hero">
+            <div>
+                <div class="pdx-kicker">Purchasing</div>
+                <h1>Purchase requests</h1>
+                <p>
+                    Internal procurement requests raised in SAP &#8212; who asked, for what, and by
+                    when, with the requested lines behind each row.
+                </p>
+            </div>
+        </section>
 
-    <div class="preq-filters">
-        <div class="preq-field">
-            <label for="preq-f-from">From Date</label>
-            <NocturneDateField Id="preq-f-from" @bind-Date="fromDate" />
-        </div>
-        <div class="preq-field">
-            <label for="preq-f-to">To Date</label>
-            <NocturneDateField Id="preq-f-to" @bind-Date="toDate" />
-        </div>
-        <div class="preq-filter-actions">
-            <button class="btn btn-dark" @onclick="SearchAsync" disabled="@isLoading">Apply Filters</button>
-            <button class="btn btn-outline-secondary" @onclick="ClearFiltersAsync" disabled="@isLoading">Clear</button>
-        </div>
-    </div>
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="pdx-msg" role="alert">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                     stroke-linecap="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                </svg>
+                <span>@errorMessage</span>
+                <button type="button" class="pdx-msg-x" aria-label="Dismiss" @onclick="() => errorMessage = null">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
+                </button>
+            </div>
+        }
 
-    @if (isLoading)
-    {
-        <div class="preq-panel"><div class="preq-loading">Loading purchase requests from SAP...</div></div>
-    }
-    else
-    {
-        <div class="preq-layout">
-            <section class="preq-panel">
-                <div class="preq-panel-header"><h2>Request Register</h2><span>Page @currentPage of @(requestResponse?.TotalPages == 0 ? 1 : requestResponse?.TotalPages)</span></div>
-                @if (Requests.Count == 0)
-                {
-                    <div class="preq-empty"><strong>No purchase requests matched the current filters.</strong>Adjust the date range and try again.</div>
-                }
-                else
-                {
-                    <div class="preq-table-wrap">
-                        <table class="preq-table">
-                            <thead><tr><th>Document</th><th>Posting Date</th><th>Required Date</th><th>Requester</th><th>Status</th></tr></thead>
-                            <tbody>
-                                @foreach (var request in Requests)
-                                {
-                                    <tr class="preq-row @(selectedRequest?.DocEntry == request.DocEntry ? "is-selected" : string.Empty)" @onclick="() => SelectRequest(request)">
-                                        <td><span class="preq-doc">#@request.DocNum</span><span class="preq-subtext">DocEntry @request.DocEntry</span><span class="preq-subtext">@request.Lines.Count line(s)</span></td>
-                                        <td><span>@(request.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</span></td>
-                                        <td><span>@(request.RequriedDate?.ToString("dd MMM yyyy") ?? "Not set")</span></td>
-                                        <td><span class="preq-doc">@(string.IsNullOrWhiteSpace(request.RequesterName) ? (request.Requester?.ToString() ?? "Not set") : request.RequesterName)</span></td>
-                                        <td><span class="preq-status @GetStatusCssClass(request.DocStatus)">@request.DocStatus</span></td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
+        <section class="pdx-stats">
+            <div class="pdx-stat pdx-stat-lead">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>Total requests</div>
+                <div class="pdx-stat-num">
+                    @if (requestResponse is null)
+                    {
+                        <text>&#8212;</text>
+                    }
+                    else
+                    {
+                        @requestResponse.TotalCount.ToString("N0")
+                    }
+                </div>
+                <div class="pdx-stat-sub">Matching the filters</div>
+            </div>
+            <div class="pdx-stat">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>This page</div>
+                <div class="pdx-stat-num">@CurrentPageCount.ToString("N0")</div>
+                <div class="pdx-stat-sub">Rows below</div>
+            </div>
+            <div class="pdx-stat">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>Open requests</div>
+                <div class="pdx-stat-num">@OpenRequestCount.ToString("N0")</div>
+                <div class="pdx-stat-sub">On this page</div>
+            </div>
+            @* A request is counted in lines rather than in money: nothing on it
+               is priced until a supplier is sourced. *@
+            <div class="pdx-stat">
+                <div class="pdx-stat-head"><span class="pdx-stat-rule" aria-hidden="true"></span>Requested lines</div>
+                <div class="pdx-stat-num">@CurrentPageLineCount.ToString("N0")</div>
+                <div class="pdx-stat-sub">Across this page</div>
+            </div>
+        </section>
+
+        <section class="pdx-panel">
+            <div class="pdx-panel-head">
+                <h2>Request register</h2>
+                <span class="pdx-count">@RegisterCountText</span>
+            </div>
+
+            <div class="pdx-filters">
+                <div class="pdx-field">
+                    <span class="pdx-label">Raised from</span>
+                    <NocturneDateField Id="preq-f-from" @bind-Date="fromDate" AriaLabel="Raised from" />
+                </div>
+
+                <div class="pdx-field">
+                    <span class="pdx-label">Raised to</span>
+                    <NocturneDateField Id="preq-f-to" @bind-Date="toDate" AriaLabel="Raised to" />
+                </div>
+
+                @* These go back to SAP, so they are applied on the button rather
+                   than on change. *@
+                <div class="pdx-filter-actions">
+                    <button type="button" class="pdx-btn pdx-btn-primary" disabled="@isLoading" @onclick="SearchAsync">
+                        Apply
+                    </button>
+                    <button type="button" class="pdx-btn pdx-btn-quiet" disabled="@isLoading" @onclick="ClearFiltersAsync">
+                        Clear
+                    </button>
+                </div>
+            </div>
+
+            @if (isLoading)
+            {
+                <div class="pdx-loading">
+                    <span class="pdx-spin" aria-hidden="true"></span>
+                    <span>Loading purchase requests from SAP&#8230;</span>
+                </div>
+            }
+            else if (Requests.Count == 0)
+            {
+                <div class="pdx-empty">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M6 3h9l3 3v15H6z"></path>
+                        <path d="M9 10h6M9 14h4"></path>
+                    </svg>
+                    <span>No purchase request matched these filters.</span>
+                    <div class="pdx-empty-actions">
+                        <button type="button" class="pdx-btn pdx-btn-quiet" @onclick="ClearFiltersAsync">
+                            Reset to the last thirty days
+                        </button>
                     </div>
-                }
+                </div>
+            }
+            else
+            {
+                <div class="pdx-scroll">
+                    <div class="pdx-grid" role="table" aria-label="Purchase requests">
+                        <div class="pdx-thead" role="row">
+                            <span role="columnheader">Document</span>
+                            <span role="columnheader">Raised</span>
+                            <span role="columnheader">Required</span>
+                            <span role="columnheader">Requester</span>
+                            <span role="columnheader">Status</span>
+                        </div>
 
-                <div class="preq-pager">
-                    <button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)">Previous</button>
-                    <span>Showing @CurrentPageCount of @requestResponse?.TotalCount requests</span>
-                    <button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(isLoading || !(requestResponse?.HasMore ?? false))">Next</button>
+                        @foreach (var request in Requests)
+                        {
+                            <div class="pdx-row @(selectedRequest?.DocEntry == request.DocEntry ? "pdx-row-on" : "")"
+                                 role="row" @key="request.DocEntry" @onclick="() => SelectRequest(request)">
+                                <span class="pdx-doc" role="cell">
+                                    <span class="pdx-docnum">#@request.DocNum</span>
+                                    <span class="pdx-docsub">@request.Lines.Count line(s)</span>
+                                </span>
+                                <span class="pdx-date pdx-cell-date" role="cell">
+                                    <span class="pdx-date-main">
+                                        <span class="pdx-rl">Raised</span>@(request.DocDate?.ToString("dd MMM yyyy") ?? "Not set")
+                                    </span>
+                                </span>
+                                <span class="pdx-date pdx-cell-date2" role="cell">
+                                    <span class="pdx-date-main">
+                                        <span class="pdx-rl">Required</span>@(request.RequriedDate?.ToString("dd MMM yyyy") ?? "Not set")
+                                    </span>
+                                </span>
+                                <span class="pdx-party" role="cell">
+                                    <span class="pdx-party-name">@RequesterOf(request)</span>
+                                </span>
+                                <span class="pdx-cell-status" role="cell">
+                                    <span class="pdx-badge @GetStatusCssClass(request.DocStatus)">@request.DocStatus</span>
+                                </span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="pdx-foot">
+                    <span class="pdx-foot-info">@PageRangeText</span>
+                    <div class="pdx-pages">
+                        <button type="button" class="pdx-step" disabled="@(isLoading || currentPage <= 1)"
+                                @onclick="PreviousPageAsync">
+                            Previous
+                        </button>
+                        <span class="pdx-page-now">Page @currentPage</span>
+                        <button type="button" class="pdx-step"
+                                disabled="@(isLoading || !(requestResponse?.HasMore ?? false))"
+                                @onclick="NextPageAsync">
+                            Next
+                        </button>
+                    </div>
+                </div>
+            }
+        </section>
+    </div>
+</div>
+
+@* The scrim and the drawer carry `.pdx` themselves: they sit outside the page
+   element so it cannot clip them, and the class is what puts the tokens in
+   reach. *@
+@if (selectedRequest is not null)
+{
+    var detail = selectedRequest;
+
+    <div class="pdx pdx-scrim" @onclick="CloseDetail"></div>
+    <aside class="pdx pdx-drawer" role="dialog" aria-modal="true" aria-label="Request details">
+        <div class="pdx-drawer-head">
+            <div>
+                <h2>Request #@detail.DocNum</h2>
+                <div class="pdx-drawer-sub">
+                    <span class="pdx-badge @GetStatusCssClass(detail.DocStatus)">@detail.DocStatus</span>
+                    <span>@RequesterOf(detail)</span>
+                    <span>@detail.Lines.Count line(s)</span>
+                </div>
+            </div>
+            <button type="button" class="pdx-icon-btn pdx-drawer-x" aria-label="Close" @onclick="CloseDetail">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6L6 18"></path>
+                </svg>
+            </button>
+        </div>
+
+        <div class="pdx-drawer-body">
+            <section class="pdx-section">
+                <h3>Document</h3>
+                <div class="pdx-dl">
+                    <div>
+                        <div class="pdx-dt">Requester</div>
+                        <div class="pdx-dd">@RequesterOf(detail)</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Status</div>
+                        <div class="pdx-dd">@detail.DocStatus</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Raised</div>
+                        <div class="pdx-dd pdx-dd-num">@(detail.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
+                    </div>
+                    <div>
+                        <div class="pdx-dt">Required</div>
+                        <div class="pdx-dd pdx-dd-num">@(detail.RequriedDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
+                    </div>
                 </div>
             </section>
 
-            <aside class="preq-panel">
-                <div class="preq-panel-header"><h2>Selected Request</h2><span>@(selectedRequest is null ? "No selection" : $"{selectedRequest.Lines.Count} line(s)")</span></div>
-                @if (selectedRequest is null)
+            @if (!string.IsNullOrWhiteSpace(detail.Comments))
+            {
+                <section class="pdx-section">
+                    <h3>Comments</h3>
+                    <p class="pdx-pre">@detail.Comments</p>
+                </section>
+            }
+
+            <section class="pdx-section">
+                <h3>Requested lines</h3>
+                @if (detail.Lines.Count == 0)
                 {
-                    <div class="preq-empty"><strong>Select a request.</strong>The document summary and requested lines will appear here.</div>
+                    <div class="pdx-lines-empty">This request has no lines.</div>
                 }
                 else
                 {
-                    <div class="preq-detail">
-                        <div class="preq-detail-grid">
-                            <div class="preq-detail-card"><label>Requester</label><div>@(string.IsNullOrWhiteSpace(selectedRequest.RequesterName) ? (selectedRequest.Requester?.ToString() ?? "Not set") : selectedRequest.RequesterName)</div></div>
-                            <div class="preq-detail-card"><label>Posting Date</label><div>@(selectedRequest.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
-                            <div class="preq-detail-card"><label>Required Date</label><div>@(selectedRequest.RequriedDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
-                            <div class="preq-detail-card"><label>Status</label><div>@selectedRequest.DocStatus</div></div>
-                        </div>
-                        @if (!string.IsNullOrWhiteSpace(selectedRequest.Comments))
+                    <div class="pdx-lines">
+                        @foreach (var line in detail.Lines)
                         {
-                            <div class="preq-detail-card" style="margin-bottom: 1rem;"><label>Comments</label><div>@selectedRequest.Comments</div></div>
-                        }
-                        <div class="preq-line-list">
-                            @foreach (var line in selectedRequest.Lines)
-                            {
-                                <div class="preq-line">
-                                    <div class="preq-line-top"><div><div class="preq-line-code">@line.ItemCode</div><div class="preq-line-desc">@line.ItemDescription</div></div><div class="preq-doc">Qty @line.Quantity.ToString("N2")</div></div>
-                                    <div class="preq-subtext">Open @line.OpenQuantity.ToString("N2")@(string.IsNullOrWhiteSpace(line.WarehouseCode) ? string.Empty : $" | {line.WarehouseCode}")@(string.IsNullOrWhiteSpace(line.LineVendor) ? string.Empty : $" | Vendor {line.LineVendor}")</div>
+                            <div class="pdx-line">
+                                <div class="pdx-line-top">
+                                    <div class="pdx-line-item">
+                                        <div class="pdx-line-code">@line.ItemCode</div>
+                                        <div class="pdx-line-desc">@line.ItemDescription</div>
+                                    </div>
+                                    @* Quantity stands where the money would on a priced
+                                       document: it is what a request is measured in. *@
+                                    <div class="pdx-money">
+                                        <span class="pdx-money-num">@line.Quantity.ToString("N2")</span>
+                                    </div>
                                 </div>
-                            }
-                        </div>
+                                <div class="pdx-line-meta">
+                                    <span>Open @line.OpenQuantity.ToString("N2")</span>
+                                    @if (!string.IsNullOrWhiteSpace(line.WarehouseCode))
+                                    {
+                                        <span class="pdx-tag">@line.WarehouseCode</span>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(line.LineVendor))
+                                    {
+                                        <span class="pdx-tag">Vendor @line.LineVendor</span>
+                                    }
+                                </div>
+                            </div>
+                        }
                     </div>
                 }
-            </aside>
+            </section>
         </div>
-    }
-</div>
+    </aside>
+}

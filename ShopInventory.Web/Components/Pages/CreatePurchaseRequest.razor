@@ -4,6 +4,15 @@
 
 <PageTitle>Create Purchase Request</PageTitle>
 
+@* Nocturne. wwwroot/css/purchase-forms.css (linked from App.razor) carries the
+   design and its light counterpart, and follows the app's theme toggle like
+   every other page. See CreatePurchaseQuotation for the notes on the line grid
+   and the inline icons, which this page repeats.
+
+   `.is-request` is the mood that breaks the pattern: nothing on a request is
+   priced until a supplier is sourced, so it has no supplier card, no totals
+   panel and no money column — the aside states quantities instead. *@
+
 <datalist id="purchase-request-products">
     @foreach (var product in products)
     {
@@ -18,173 +27,256 @@
     }
 </datalist>
 
-<div class="pdoc-create-page is-request">
-    <div class="container-fluid pdoc-create-container">
-        <div class="pdoc-create-breadcrumb">
-            <a href="/purchase-requests">Purchase Requests</a>
-            <span class="sep">/</span>
-            <span>Create New</span>
-        </div>
+<div class="pfm is-request">
+    <div class="pfm-shell">
 
-        <div class="pdoc-create-header">
-            <div class="pdoc-create-header-left">
-                <div class="pdoc-create-header-icon"><i class="bi bi-journal-plus"></i></div>
-                <div>
-                    <h2>Create Purchase Request</h2>
-                    <p>Raise a new internal purchase request in SAP and capture the requested items, destination warehouses, and expected need dates.</p>
+        <nav class="pfm-crumbs" aria-label="Breadcrumb">
+            <a href="/purchase-requests">Purchase requests</a>
+            <span class="pfm-crumb-sep" aria-hidden="true">/</span>
+            <span class="pfm-crumb-now">New</span>
+        </nav>
+
+        <header class="pfm-head">
+            <div class="pfm-head-main">
+                <div class="pfm-kicker">Purchasing</div>
+                <h1>New purchase request</h1>
+                <p>
+                    Ask for what the business needs before a supplier is chosen &#8212; the items,
+                    where they are wanted, and when they are needed by.
+                </p>
+            </div>
+            <div class="pfm-stats">
+                <div class="pfm-stat">
+                    <div class="pfm-stat-k">Lines</div>
+                    <div class="pfm-stat-v">@purchaseRequest.Lines.Count</div>
+                </div>
+                <div class="pfm-stat">
+                    <div class="pfm-stat-k">Total quantity</div>
+                    <div class="pfm-stat-v is-total">@TotalQuantity.ToString("N2")</div>
                 </div>
             </div>
-            <div class="pdoc-create-header-actions">
-                <button type="button" class="btn-doc-back" @onclick="GoBack" disabled="@isSubmitting">
-                    <i class="bi bi-arrow-left"></i>
-                    <span>Back</span>
-                </button>
-            </div>
-        </div>
+        </header>
 
         @if (!string.IsNullOrWhiteSpace(errorMessage))
         {
-            <div class="pdoc-create-alert error">@errorMessage</div>
+            <div class="pfm-alert is-err" role="alert">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                     stroke-linecap="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                </svg>
+                <div class="pfm-alert-bd">@errorMessage</div>
+                <button type="button" class="pfm-alert-x" aria-label="Dismiss" @onclick="() => errorMessage = null">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
+                </button>
+            </div>
         }
 
         @if (!string.IsNullOrWhiteSpace(successMessage))
         {
-            <div class="pdoc-create-alert success">@successMessage</div>
+            <div class="pfm-alert is-ok" role="status">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M5 12.5l4.5 4.5L19 7"></path>
+                </svg>
+                <div class="pfm-alert-bd">@successMessage</div>
+            </div>
         }
 
-        <div class="pdoc-create-card">
-            <div class="pdoc-create-card-title"><i class="bi bi-info-circle"></i> Request Details</div>
-            @if (isLoadingLookups)
-            {
-                <div class="pdoc-create-loading">
-                    <span class="spinner-border spinner-border-sm"></span>
-                    <span>Loading products and warehouses...</span>
-                </div>
-            }
-            <div class="pdoc-create-form-grid three-cols">
-                <div class="pdoc-create-field">
-                    <label for="preq-c-doc-date">Posting Date</label>
-                    <NocturneDateField Id="preq-c-doc-date" @bind-Date="purchaseRequest.DocDate" />
-                </div>
-                <div class="pdoc-create-field">
-                    <label for="preq-c-required">Required Date</label>
-                    <NocturneDateField Id="preq-c-required" @bind-Date="purchaseRequest.RequriedDate" />
-                </div>
-                <div class="pdoc-create-field">
-                    <label>Requester ID</label>
-                    <input type="number" @bind-value="purchaseRequest.Requester" />
-                </div>
-                <div class="pdoc-create-field full">
-                    <label>Comments</label>
-                    <textarea rows="3" @bind="purchaseRequest.Comments" placeholder="Optional request notes or sourcing context"></textarea>
-                </div>
-            </div>
-        </div>
+        <div class="pfm-grid">
+            <div class="pfm-main">
 
-        <div class="pdoc-create-card">
-            <div class="pdoc-create-section-header">
-                <div class="pdoc-create-section-title"><i class="bi bi-list-ul"></i> Requested Lines</div>
-                <button type="button" class="btn-doc-add" @onclick="AddLine">
-                    <i class="bi bi-plus-lg"></i>
-                    <span>Add Line</span>
-                </button>
-            </div>
-
-            @if (HasError("Lines"))
-            {
-                <div class="pdoc-create-inline-error" style="margin-bottom:.75rem;">@GetError("Lines")</div>
-            }
-
-            <div class="pdoc-create-table-wrap">
-                <table class="pdoc-create-table">
-                    <thead>
-                        <tr>
-                            <th>Item Code</th>
-                            <th>Description</th>
-                            <th class="cell-compact">Quantity</th>
-                            <th>Warehouse</th>
-                            <th class="cell-compact">Required Date</th>
-                            <th>Vendor</th>
-                            <th class="cell-actions"></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @for (var index = 0; index < purchaseRequest.Lines.Count; index++)
+                <section class="pfm-card">
+                    <div class="pfm-card-hd">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="M12 11v5M12 7.8v.1"></path>
+                        </svg>
+                        <h2>Request details</h2>
+                    </div>
+                    <div class="pfm-card-bd">
+                        @if (isLoadingLookups)
                         {
-                            var lineIndex = index;
-                            var line = purchaseRequest.Lines[lineIndex];
-                            <tr>
-                                <td>
-                                    <input class="@(HasError($"Lines[{lineIndex}].ItemCode") ? "has-error" : string.Empty)"
-                                           list="purchase-request-products"
-                                           @bind="line.ItemCode"
-                                           @onblur="() => SyncProduct(lineIndex)"
-                                           placeholder="Item code" />
-                                    @if (HasError($"Lines[{lineIndex}].ItemCode"))
-                                    {
-                                        <div class="pdoc-create-inline-error">@GetError($"Lines[{lineIndex}].ItemCode")</div>
-                                    }
-                                </td>
-                                <td>
-                                    <input @bind="line.ItemDescription" placeholder="Description" />
-                                </td>
-                                <td class="cell-compact">
-                                    <input class="@(HasError($"Lines[{lineIndex}].Quantity") ? "has-error" : string.Empty)"
-                                           type="number"
-                                           step="0.01"
-                                           @bind-value="line.Quantity" />
-                                    @if (HasError($"Lines[{lineIndex}].Quantity"))
-                                    {
-                                        <div class="pdoc-create-inline-error">@GetError($"Lines[{lineIndex}].Quantity")</div>
-                                    }
-                                </td>
-                                <td>
-                                    <input list="purchase-request-warehouses" @bind="line.WarehouseCode" placeholder="Warehouse" />
-                                </td>
-                                <td class="cell-compact">
-                                    <NocturneDateField @bind-Date="line.RequiredDate" AriaLabel="Required date for this line" />
-                                </td>
-                                <td>
-                                    <input @bind="line.LineVendor" placeholder="Preferred vendor" />
-                                </td>
-                                <td class="cell-actions">
-                                    <button type="button"
-                                            class="btn-doc-remove"
-                                            @onclick="() => RemoveLine(lineIndex)"
-                                            disabled="@(purchaseRequest.Lines.Count == 1)">
-                                        <i class="bi bi-x"></i>
-                                    </button>
-                                </td>
-                            </tr>
+                            <div class="pfm-loading">
+                                <span class="pfm-spin" aria-hidden="true"></span>
+                                <span>Loading products and warehouses&#8230;</span>
+                            </div>
                         }
-                    </tbody>
-                </table>
+                        <div class="pfm-fields">
+                            <div class="pfm-lab">
+                                <span class="pfm-lab-t">Posting date</span>
+                                <NocturneDateField Id="preq-c-doc-date" @bind-Date="purchaseRequest.DocDate"
+                                                   AriaLabel="Posting date" />
+                            </div>
+                            <div class="pfm-lab">
+                                <span class="pfm-lab-t">Required date</span>
+                                <NocturneDateField Id="preq-c-required" @bind-Date="purchaseRequest.RequriedDate"
+                                                   AriaLabel="Required date" />
+                            </div>
+                            <label class="pfm-lab">
+                                <span class="pfm-lab-t">Requester ID</span>
+                                <input class="pfm-input" type="number" @bind-value="purchaseRequest.Requester" />
+                            </label>
+                            <label class="pfm-lab pfm-span3">
+                                <span class="pfm-lab-t">Comments</span>
+                                <textarea class="pfm-area" rows="3"
+                                          placeholder="Why this is needed, or where it should be sourced"
+                                          @bind="purchaseRequest.Comments"></textarea>
+                            </label>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="pfm-card">
+                    <div class="pfm-card-hd">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                            <path d="M8 6h12M8 12h12M8 18h12M4 6v.01M4 12v.01M4 18v.01"></path>
+                        </svg>
+                        <h2>Requested lines</h2>
+                        <span class="pfm-count">@purchaseRequest.Lines.Count</span>
+                        <span class="pfm-spacer"></span>
+                        <button type="button" class="pfm-btn pfm-btn-accent" @onclick="AddLine">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                 stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                                <path d="M12 5v14M5 12h14"></path>
+                            </svg>
+                            <span>Add line</span>
+                        </button>
+                    </div>
+
+                    @if (HasError("Lines"))
+                    {
+                        <div class="pfm-card-bd" style="padding-bottom:0">
+                            <div class="pfm-err-panel">
+                                <div class="pfm-err-panel-t">@GetError("Lines")</div>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="pfm-lines">
+                        <div class="pfm-lines-inner">
+                            <div class="pfm-row is-head">
+                                <span>#</span>
+                                <span>Item</span>
+                                <span>Description</span>
+                                <span class="pfm-r">Qty</span>
+                                <span>Warehouse</span>
+                                <span>Needed by</span>
+                                <span>Preferred vendor</span>
+                                <span></span>
+                            </div>
+
+                            @for (var index = 0; index < purchaseRequest.Lines.Count; index++)
+                            {
+                                var lineIndex = index;
+                                var line = purchaseRequest.Lines[lineIndex];
+
+                                <div class="pfm-row">
+                                    <span class="pfm-n">@(lineIndex + 1)</span>
+                                    <input class="pfm-input pfm-cell @(HasError($"Lines[{lineIndex}].ItemCode") ? "is-bad" : "")"
+                                           list="purchase-request-products" placeholder="Item code"
+                                           @bind="line.ItemCode" @onblur="() => SyncProduct(lineIndex)" />
+                                    <input class="pfm-input pfm-desc" placeholder="Description"
+                                           @bind="line.ItemDescription" />
+                                    <input class="pfm-input pfm-num @(HasError($"Lines[{lineIndex}].Quantity") ? "is-bad" : "")"
+                                           type="number" step="0.01" @bind-value="line.Quantity" />
+                                    <input class="pfm-input pfm-cell" list="purchase-request-warehouses"
+                                           placeholder="Warehouse" @bind="line.WarehouseCode" />
+                                    <NocturneDateField @bind-Date="line.RequiredDate"
+                                                       AriaLabel="Required date for this line" />
+                                    <input class="pfm-input pfm-cell" placeholder="Vendor" @bind="line.LineVendor" />
+                                    <button type="button" class="pfm-btn-x" aria-label="Remove this line"
+                                            disabled="@(purchaseRequest.Lines.Count == 1)"
+                                            @onclick="() => RemoveLine(lineIndex)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                                             stroke-linecap="round" aria-hidden="true">
+                                            <path d="M6 6l12 12M18 6L6 18"></path>
+                                        </svg>
+                                    </button>
+
+                                    @if (HasError($"Lines[{lineIndex}].ItemCode") || HasError($"Lines[{lineIndex}].Quantity"))
+                                    {
+                                        <span class="pfm-row-err">
+                                            @(HasError($"Lines[{lineIndex}].ItemCode")
+                                                ? GetError($"Lines[{lineIndex}].ItemCode")
+                                                : GetError($"Lines[{lineIndex}].Quantity"))
+                                        </span>
+                                    }
+                                </div>
+                            }
+
+                            <button type="button" class="pfm-addline" @onclick="AddLine">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                                    <path d="M12 5v14M5 12h14"></path>
+                                </svg>
+                                <span>Add another line</span>
+                            </button>
+                        </div>
+                    </div>
+                </section>
             </div>
 
-            <div class="pdoc-create-total-banner">
-                <div class="pdoc-create-total-item">
-                    <span>Line Count</span>
-                    <strong>@purchaseRequest.Lines.Count</strong>
-                </div>
-                <div class="pdoc-create-total-item">
-                    <span>Total Quantity</span>
-                    <strong>@TotalQuantity.ToString("N2")</strong>
-                </div>
-            </div>
-            <p class="pdoc-create-summary-note" style="margin: .85rem 0 0;">
-                Each line can carry its own required date and preferred vendor, but blank required dates will inherit the header date when you add a new line.
-            </p>
-        </div>
+            <aside class="pfm-aside">
+                <section class="pfm-card pfm-total-card">
+                    <div class="pfm-total-hd">
+                        <span class="pfm-total-k">Total quantity</span>
+                        <span class="pfm-total-cur">units</span>
+                    </div>
+                    @* Quantity stands where the money would on a priced document: it is
+                       what a request is measured in. *@
+                    <div class="pfm-total-v">@TotalQuantity.ToString("N2")</div>
 
-        <div class="pdoc-create-footer">
-            <button type="button" class="btn-doc-secondary" @onclick="GoBack">Cancel</button>
-            <button type="button" class="btn-doc-submit" @onclick="SubmitAsync" disabled="@(isSubmitting || isLoadingLookups)">
-                @if (isSubmitting)
-                {
-                    <span class="spinner-border spinner-border-sm"></span>
-                }
-                <span>Create Purchase Request</span>
-            </button>
+                    <div class="pfm-gap-md">
+                        <div class="pfm-sum">
+                            <span>Lines</span>
+                            <span class="pfm-sum-v">@purchaseRequest.Lines.Count</span>
+                        </div>
+                        <div class="pfm-sum">
+                            <span>Needed by</span>
+                            <span class="pfm-sum-v">
+                                @(purchaseRequest.RequriedDate?.ToString("dd MMM yyyy") ?? "Not set")
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="pfm-gap-md">
+                        <button type="button" class="pfm-btn-solid" @onclick="SubmitAsync"
+                                disabled="@(isSubmitting || isLoadingLookups)">
+                            @if (isSubmitting)
+                            {
+                                <span class="pfm-spin on-solid" aria-hidden="true"></span>
+                                <span>Creating&#8230;</span>
+                            }
+                            else
+                            {
+                                <span>Create request</span>
+                            }
+                        </button>
+                        <button type="button" class="pfm-btn pfm-btn-wide" style="margin-top:8px"
+                                disabled="@isSubmitting" @onclick="GoBack">
+                            Cancel
+                        </button>
+                    </div>
+                </section>
+
+                <div class="pfm-info-note">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                         stroke-linecap="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9"></circle>
+                        <path d="M12 11v5M12 7.8v.1"></path>
+                    </svg>
+                    <span>
+                        A line can carry its own needed-by date and preferred vendor. Leave the date
+                        blank and a new line inherits the header's.
+                    </span>
+                </div>
+            </aside>
         </div>
     </div>
 </div>
