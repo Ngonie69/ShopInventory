@@ -1,7 +1,10 @@
 @page "/reports/order-fulfillment"
-@attribute [Authorize(Roles = UserRoles.InsightsRoles)]
+@attribute [Authorize(Roles = UserRoles.OrderFulfillmentReportRoles)]
 @inject IReportService ReportService
 @inject IReportExportService ExportService
+@inject IMasterDataCacheService CacheService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILogger<OrderFulfillment> Logger
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -9,6 +12,9 @@
     var filteredOrders = GetFilteredOrders().ToList();
     var displayedOrders = filteredOrders.Take(MaxDisplayedOrders).ToList();
     var filteredTotals = CalculateLineTotals(GetFilteredLines().ToList());
+    // Filtered once per render rather than once per read: the partner cache runs to thousands of
+    // rows and the list needs its count, its head and its emptiness.
+    var matchingCustomers = showCustomerList ? MatchingCustomers.ToList() : [];
 }
 
 <PageTitle>Sales Order vs Invoice - Shop Inventory</PageTitle>
@@ -20,7 +26,12 @@
 
    The disclosure twist draws its glyph inline rather than from the Phosphor
    font: it is the control's whole label, so a font that fails to load would
-   leave every order looking like a dead row. *@
+   leave every order looking like a dead row.
+
+   The customer combo is a text input over a filtered list rather than a
+   NocturneSelect: the cache holds thousands of partners, so this is a search
+   rather than a choice. It is the control the create-order form already uses,
+   so a rep meets one interaction in both places. *@
 
 <div class="ofx">
 
@@ -32,12 +43,19 @@
                     <i class="ph ph-scales" aria-hidden="true"></i>
                     <h1 class="ofx-title">Sales order vs invoice</h1>
                 </div>
-                <p class="ofx-sub">Ordered, invoiced and pending quantities with line values for the selected period.</p>
+                <p class="ofx-sub">@Standfirst</p>
             </div>
             <div class="ofx-head-actions">
                 @if (report is not null)
                 {
-                    <span class="ofx-count">@report.TotalOrders.ToString("N0") orders</span>
+                    <span class="ofx-count">
+                        @if (reportCustomer is not null)
+                        {
+                            <span class="ofx-count-who">@reportCustomer.CardName</span>
+                            <span aria-hidden="true"> &middot; </span>
+                        }
+                        @report.TotalOrders.ToString("N0") orders
+                    </span>
                 }
                 <button type="button" class="ofx-btn ofx-btn-secondary" @onclick="ExportToExcelAsync"
                         disabled="@(isLoading || isExporting || report is null)">
@@ -59,15 +77,80 @@
         }
 
         <section class="ofx-filters">
+            @* Not a <label>: the field carries a clear button and a result list, and a label
+               would forward stray clicks on either back to the input. *@
+            <div class="ofx-field ofx-field-customer">
+                <span class="ofx-field-label">
+                    Customer
+                    @if (requiresCustomer)
+                    {
+                        <span class="ofx-req" aria-hidden="true">*</span>
+                    }
+                    else
+                    {
+                        <span class="ofx-field-hint">optional</span>
+                    }
+                </span>
+                <div class="ofx-combo">
+                    <input class="ofx-input @(customerError ? "is-bad" : null)" type="search" autocomplete="off"
+                           placeholder="@(isLoadingCustomers ? "Loading customers…" : "Search by code or name…")"
+                           @bind="customerSearch" @bind:event="oninput" @bind:after="OnCustomerSearchChanged"
+                           @onfocus="() => showCustomerList = true" @onblur="OnCustomerBlurAsync"
+                           disabled="@(isLoading || isLoadingCustomers)" aria-label="Customer" />
+                    @if (selectedCustomer is not null)
+                    {
+                        <button type="button" class="ofx-combo-clear" @onclick="ClearCustomer"
+                                title="Clear customer" aria-label="Clear customer" disabled="@isLoading">
+                            <i class="ph ph-x" aria-hidden="true"></i>
+                        </button>
+                    }
+                    @if (showCustomerList)
+                    {
+                        <div class="ofx-drop">
+                            @if (matchingCustomers.Count == 0)
+                            {
+                                <div class="ofx-drop-empty">No customers match that search.</div>
+                            }
+                            else
+                            {
+                                @foreach (var partner in matchingCustomers.Take(MaxListedCustomers))
+                                {
+                                    <button type="button" class="ofx-drop-i"
+                                            @onmousedown:preventDefault="true"
+                                            @onmousedown="() => SelectCustomer(partner)">
+                                        <span class="ofx-drop-text">
+                                            <span class="ofx-drop-name">@partner.CardName</span>
+                                            <span class="ofx-drop-code">@partner.CardCode</span>
+                                        </span>
+                                        @if (!string.IsNullOrWhiteSpace(partner.Currency))
+                                        {
+                                            <span class="ofx-drop-note">@partner.Currency</span>
+                                        }
+                                    </button>
+                                }
+                                @if (matchingCustomers.Count > MaxListedCustomers)
+                                {
+                                    <div class="ofx-drop-empty">
+                                        @matchingCustomers.Count.ToString("N0") match &mdash; type more to narrow.
+                                    </div>
+                                }
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+            @* The labels stay siblings rather than wrappers: NocturneDateField carries a calendar
+               button and a popup, and a label around them would swallow their clicks. The Id lands
+               on the field's text input, so `for` still focuses it. *@
             <div class="ofx-field" style="width:150px">
                 <label for="ofx-f-from">From</label>
-                <InputDate id="ofx-f-from" class="ofx-input ofx-input-num" @bind-Value="fromDate"
-                           @bind-Value:after="OnDateRangeChanged" disabled="@isLoading" />
+                <NocturneDateField Id="ofx-f-from" @bind-Date="fromDate" @bind-Date:after="OnDateRangeChanged"
+                                   AriaLabel="From date" Disabled="isLoading" />
             </div>
             <div class="ofx-field" style="width:150px">
                 <label for="ofx-f-to">To</label>
-                <InputDate id="ofx-f-to" class="ofx-input ofx-input-num" @bind-Value="toDate"
-                           @bind-Value:after="OnDateRangeChanged" disabled="@isLoading" />
+                <NocturneDateField Id="ofx-f-to" @bind-Date="toDate" @bind-Date:after="OnDateRangeChanged"
+                                   AriaLabel="To date" Disabled="isLoading" />
             </div>
             <div class="ofx-field" style="width:170px">
                 <label for="ofx-f-range">Quick range</label>
@@ -92,7 +175,7 @@
                     Reset
                 </button>
                 <button type="button" class="ofx-btn ofx-btn-primary" @onclick="LoadReportAsync"
-                        disabled="@(isLoading || !HasSelectedRange)">
+                        disabled="@(isLoading || !CanLoad)">
                     <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>@(isLoading ? "Loading…" : PrimaryActionLabel)
                 </button>
             </div>
@@ -112,9 +195,18 @@
         {
             <section class="ofx-card">
                 <div class="ofx-empty">
-                    <i class="ph ph-calendar-blank" aria-hidden="true"></i>
-                    <strong>Ready to load</strong>
-                    <span class="ofx-empty-sub">Choose a date range and load the report.</span>
+                    @if (requiresCustomer && selectedCustomer is null)
+                    {
+                        <i class="ph ph-user-focus" aria-hidden="true"></i>
+                        <strong>Choose a customer</strong>
+                        <span class="ofx-empty-sub">Search for the customer you are reporting on, pick a date range, and load the report.</span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-calendar-blank" aria-hidden="true"></i>
+                        <strong>Ready to load</strong>
+                        <span class="ofx-empty-sub">Choose a date range and load the report.</span>
+                    }
                 </div>
             </section>
         }
@@ -123,7 +215,7 @@
             <section class="ofx-card">
                 <div class="ofx-empty">
                     <i class="ph ph-tray" aria-hidden="true"></i>
-                    <strong>No orders in this period</strong>
+                    <strong>@(reportCustomer is null ? "No orders in this period" : $"No orders for {reportCustomer.CardName} in this period")</strong>
                     <span class="ofx-empty-sub">Try a wider date range or clear the filters.</span>
                 </div>
             </section>
@@ -372,6 +464,9 @@
 @code {
     private const int MaxDisplayedOrders = 200;
 
+    /// <summary>Enough of a search's matches to choose from without scrolling past the field.</summary>
+    private const int MaxListedCustomers = 12;
+
     private readonly HashSet<int> expandedOrders = new();
 
     private DateTime? fromDate;
@@ -385,12 +480,121 @@
     private bool hasLoaded;
     private OrderFulfillmentReport? report;
 
+    private List<BusinessPartnerDto> customers = new();
+    private BusinessPartnerDto? selectedCustomer;
+    private string? customerSearch;
+    private bool showCustomerList;
+    private bool isLoadingCustomers = true;
+    private bool customerError;
+
+    /// <summary>
+    /// True for a sales rep: their report is always one business partner's. The insights roles
+    /// leave it unset to report across every customer, which is what this page has always done.
+    /// </summary>
+    private bool requiresCustomer;
+
+    /// <summary>The partner the loaded report was actually run for, which the filters can move off.</summary>
+    private BusinessPartnerDto? reportCustomer;
+
     private bool HasSelectedRange => fromDate.HasValue && toDate.HasValue;
+
+    private bool CanLoad => HasSelectedRange && (!requiresCustomer || selectedCustomer is not null);
 
     private string PrimaryActionLabel => hasLoaded ? "Refresh report" : "Load report";
 
+    private string Standfirst => requiresCustomer
+        ? "Ordered, invoiced and pending quantities for one customer's orders over the selected period."
+        : "Ordered, invoiced and pending quantities with line values for the selected period.";
+
+    private IEnumerable<BusinessPartnerDto> MatchingCustomers
+    {
+        get
+        {
+            // Everything on an empty search, not the first page of it: the list shows a head and
+            // the count of what it is a head of, so an untyped field says how much is behind it.
+            if (string.IsNullOrWhiteSpace(customerSearch))
+                return customers;
+
+            return customers.Where(partner =>
+                Matches(partner.CardCode, customerSearch)
+                || Matches(partner.CardName, customerSearch));
+        }
+    }
+
+    private string SelectedCustomerLabel =>
+        selectedCustomer is null ? string.Empty : $"{selectedCustomer.CardCode} — {selectedCustomer.CardName}";
+
+    /// <summary>
+    /// Typing over a chosen customer un-chooses them. Without this the field could read as one
+    /// search while the report ran on the partner picked before it.
+    /// </summary>
+    private void OnCustomerSearchChanged()
+    {
+        showCustomerList = true;
+
+        if (selectedCustomer is not null && customerSearch != SelectedCustomerLabel)
+        {
+            selectedCustomer = null;
+            ClearLoadedReport();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        requiresCustomer = !UserRoles.CanReadReportsAcrossCustomers(authState.User);
+
+        try
+        {
+            customers = await CacheService.GetBusinessPartnersAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading customers for the sales order vs invoice report");
+            errorMessage = "Could not load the customer list. Reload the page to try again.";
+        }
+        finally
+        {
+            isLoadingCustomers = false;
+        }
+    }
+
+    private void SelectCustomer(BusinessPartnerDto partner)
+    {
+        selectedCustomer = partner;
+        customerSearch = SelectedCustomerLabel;
+        showCustomerList = false;
+        customerError = false;
+        ClearLoadedReport();
+    }
+
+    private void ClearCustomer()
+    {
+        selectedCustomer = null;
+        customerSearch = null;
+        showCustomerList = false;
+        customerError = false;
+        ClearLoadedReport();
+    }
+
+    // Mirrors the create-order form: picking is a mousedown with the default prevented, so the
+    // list survives long enough to be clicked; this only catches a blur that lands elsewhere.
+    private async Task OnCustomerBlurAsync()
+    {
+        await Task.Delay(200);
+        showCustomerList = false;
+        StateHasChanged();
+    }
+
     private async Task LoadReportAsync()
     {
+        if (requiresCustomer && selectedCustomer is null)
+        {
+            customerError = true;
+            errorMessage = "Choose the customer to report on.";
+            return;
+        }
+
         if (!fromDate.HasValue || !toDate.HasValue)
         {
             errorMessage = "Select both From and To dates.";
@@ -405,13 +609,18 @@
 
         isLoading = true;
         errorMessage = null;
+        customerError = false;
         report = null;
         hasLoaded = false;
         expandedOrders.Clear();
 
+        var customer = selectedCustomer;
+
         try
         {
-            report = await ReportService.GetOrderFulfillmentAsync(fromDate.Value.Date, toDate.Value.Date);
+            report = await ReportService.GetOrderFulfillmentAsync(
+                fromDate.Value.Date, toDate.Value.Date, customer?.CardCode);
+            reportCustomer = customer;
             hasLoaded = true;
         }
         catch (Exception ex)
@@ -466,6 +675,9 @@
         fromDate = null;
         searchText = string.Empty;
         lineStatusFilter = "All";
+        selectedCustomer = null;
+        customerSearch = null;
+        customerError = false;
         ClearLoadedReport();
         return Task.CompletedTask;
     }
@@ -479,6 +691,7 @@
     private void ClearLoadedReport()
     {
         report = null;
+        reportCustomer = null;
         hasLoaded = false;
         errorMessage = null;
         expandedOrders.Clear();
@@ -495,9 +708,10 @@
         try
         {
             var bytes = ExportService.ExportOrderFulfillmentToExcel(report);
+            var scope = reportCustomer is null ? string.Empty : $"{SanitiseForFileName(reportCustomer.CardCode)}_";
             await JS.InvokeVoidAsync(
                 "downloadFile",
-                $"Sales_Order_vs_Invoice_{DateTime.UtcNow:yyyyMMdd_HHmm}.xlsx",
+                $"Sales_Order_vs_Invoice_{scope}{DateTime.UtcNow:yyyyMMdd_HHmm}.xlsx",
                 Convert.ToBase64String(bytes));
         }
         catch (Exception ex)
@@ -599,6 +813,12 @@
         || Matches(row.Line.ItemCode, search)
         || Matches(row.Line.ItemDescription, search)
         || Matches(row.Line.WarehouseCode, search);
+
+    /// <summary>Keeps a card code like <c>C/2001</c> from splitting the download's path.</summary>
+    private static string SanitiseForFileName(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : string.Concat(value.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '-' : c));
 
     private static bool Matches(string? value, string search) =>
         !string.IsNullOrWhiteSpace(value)

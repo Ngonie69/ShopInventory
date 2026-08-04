@@ -1,3 +1,5 @@
+using System.Security.Claims;
+
 namespace ShopInventory.Web.Data;
 
 /// <summary>
@@ -73,6 +75,12 @@ public static class UserRoles
     public const string SalesOrderRoles = "Admin,Cashier,Merchandiser,SalesRep";
     public const string PurchasingRoles = "Admin,Manager";
 
+    /// <summary>
+    /// Sales order vs invoice. The insights roles read it across every customer; a sales rep reads
+    /// the same report one business partner at a time — see <c>CanReadReportsAcrossCustomers</c>.
+    /// </summary>
+    public const string OrderFulfillmentReportRoles = "Admin,Cashier,StockController,Manager,SalesRep";
+
     public const string PodRoles = "Admin,Cashier,PodOperator,Driver,SalesRep";
     public const string UserManagementRoles = "Admin,PodOperator,SalesRep";
     public const string MerchandiserAccountManagementRoles = "Admin,SalesRep";
@@ -81,6 +89,17 @@ public static class UserRoles
     /// Get all available roles
     /// </summary>
     public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager, PodOperator, Driver, Merchandiser, SalesRep, MerchandiserPurchaseOrderViewer, Lab };
+
+    /// <summary>
+    /// Whether <paramref name="user"/> may read a report across every customer.
+    /// </summary>
+    /// <remarks>
+    /// A sales rep may not. They reach the sales order vs invoice report through the same page as
+    /// everyone else, but always for one business partner they have named — so the statement SAP
+    /// runs for them carries that partner, and no other customer's orders are fetched at all.
+    /// </remarks>
+    public static bool CanReadReportsAcrossCustomers(ClaimsPrincipal user) =>
+        InsightsRoles.Split(',').Any(user.IsInRole);
 
     /// <summary>
     /// Check if a role has admin privileges

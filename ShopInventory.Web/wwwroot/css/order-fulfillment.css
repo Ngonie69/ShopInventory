@@ -430,11 +430,12 @@
     color: var(--ofx-mute);
 }
 
-/* The dropdowns on this page are NocturneSelect, not native <select>s — a
-   native popup takes its background from the field and is drawn outside the
-   page, where no stylesheet can reach it. Only the closed trigger is fitted to
-   this sheet; the menu is the shared one. See nocturne-select.css for why these
-   are set from here rather than there. */
+/* The dropdowns and date fields on this page are NocturneSelect and
+   NocturneDateField, not native <select>s and <input type="date">s — a native
+   popup and a native calendar are both drawn outside the page, where no
+   stylesheet can reach them. Only the closed controls are fitted to this sheet;
+   the menu and the calendar are the shared ones. See nocturne-select.css and
+   nocturne-date-field.css for why these are set from here rather than there. */
 .ofx {
     --nsel-h: 32px;
     --nsel-pad-y: 5px;
@@ -444,6 +445,17 @@
     --nsel-edge: var(--ofx-field-edge);
     --nsel-edge-hi: var(--ofx-field-edge-hi);
     --nsel-radius: var(--ofx-r-md);
+
+    /* Same box as .ofx-input, so the two dates sit level with the search beside
+       them rather than a pixel or two out. */
+    --ndf-h: 32px;
+    --ndf-pad-y: 5px;
+    --ndf-pad-x: 10px;
+    --ndf-fs: 14px;
+    --ndf-fill: var(--ofx-field);
+    --ndf-edge: var(--ofx-field-edge);
+    --ndf-edge-hi: var(--ofx-field-edge-hi);
+    --ndf-radius: var(--ofx-r-md);
 }
 
 .ofx .ofx-input {
@@ -483,21 +495,6 @@
     cursor: not-allowed;
 }
 
-.ofx .ofx-input-num {
-    font-variant-numeric: tabular-nums;
-}
-
-/* The date input's own indicator is the control's only affordance, so it is
-   tinted to the ink rather than left as the browser's black-on-dark default. */
-.ofx .ofx-input[type="date"]::-webkit-calendar-picker-indicator {
-    cursor: pointer;
-    opacity: .6;
-}
-
-.dark-theme .ofx .ofx-input[type="date"]::-webkit-calendar-picker-indicator {
-    filter: invert(1);
-}
-
 .ofx-select {
     position: relative;
 }
@@ -523,6 +520,170 @@
     align-items: center;
     gap: var(--ofx-s2);
     margin-left: auto;
+}
+
+/* ── Customer combo ────────────────────────────────────────────────────── */
+/* A search, not a choice: the partner cache runs to thousands of rows, which is
+   past what a listbox can be read from. So the field is a text input over its
+   own filtered list — the control the create-order form already uses, drawn on
+   this page's tokens.
+
+   The wrapper carries a plain <span> rather than a <label>: the field holds a
+   clear button and the result list, and a label would forward stray clicks on
+   either of those back to the input. */
+
+.ofx-field-customer {
+    flex: 1 1 320px;
+    max-width: 420px;
+}
+
+.ofx-field > .ofx-field-label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+    color: var(--ofx-mute);
+}
+
+.ofx-req {
+    color: var(--ofx-accent-text);
+    margin-left: 2px;
+}
+
+.ofx-field-hint {
+    margin-left: 5px;
+    font-size: 11px;
+    color: var(--ofx-mute-3);
+}
+
+.ofx-combo {
+    position: relative;
+}
+
+/* Room for the clear button, and none of the browser's own search furniture —
+   a WebKit cancel button would sit under ours. */
+.ofx .ofx-combo .ofx-input {
+    padding-right: 28px;
+}
+
+.ofx .ofx-combo .ofx-input::-webkit-search-cancel-button {
+    display: none;
+}
+
+.ofx .ofx-input.is-bad {
+    border-color: var(--ofx-bad);
+}
+
+.ofx .ofx-combo-clear {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    font-size: 12px;
+    color: var(--ofx-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--ofx-r-sm);
+    cursor: pointer;
+}
+
+.ofx .ofx-combo-clear:hover:not(:disabled) {
+    background: var(--ofx-hover);
+    color: var(--ofx-ink);
+}
+
+.ofx .ofx-combo-clear:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.ofx-drop {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 302px;
+    overflow-y: auto;
+    padding: var(--ofx-s1);
+    /* Opaque, like every other menu here: a translucent sheet over the report
+       leaves two sets of numbers reading through each other. */
+    background: var(--ofx-surface);
+    border: 1px solid var(--ofx-divider);
+    border-radius: var(--ofx-r-md);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, .18);
+}
+
+.ofx .ofx-drop-i {
+    display: flex;
+    align-items: center;
+    gap: var(--ofx-s3);
+    width: 100%;
+    padding: var(--ofx-s2) var(--ofx-s3);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    text-align: left;
+    color: var(--ofx-ink);
+    background: transparent;
+    border: 0;
+    border-radius: var(--ofx-r-sm);
+    cursor: pointer;
+}
+
+.ofx .ofx-drop-i:hover,
+.ofx .ofx-drop-i:focus-visible {
+    background: var(--ofx-hover);
+}
+
+.ofx-drop-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    margin-right: auto;
+}
+
+.ofx-drop-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ofx-drop-code {
+    font-size: 11.5px;
+    color: var(--ofx-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.ofx-drop-note {
+    font-size: 11.5px;
+    color: var(--ofx-mute-3);
+    white-space: nowrap;
+}
+
+.ofx-drop-empty {
+    padding: var(--ofx-s3);
+    font-size: 12.5px;
+    color: var(--ofx-mute-2);
+}
+
+.ofx-count-who {
+    color: var(--ofx-ink-2);
+}
+
+.ofx-drop::-webkit-scrollbar {
+    width: 10px;
+}
+
+.ofx-drop::-webkit-scrollbar-thumb {
+    background: var(--ofx-track);
+    border: 3px solid var(--ofx-surface);
+    border-radius: 999px;
 }
 
 /* ── Card ──────────────────────────────────────────────────────────────── */
@@ -1038,6 +1199,13 @@
 
     .ofx-field {
         flex: 1 1 150px;
+    }
+
+    /* The customer search takes the whole row once the filters wrap: it is the
+       widest thing to read back and the first thing chosen. */
+    .ofx-field-customer {
+        flex: 1 1 100%;
+        max-width: none;
     }
 
     .ofx-filter-actions {
