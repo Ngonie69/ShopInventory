@@ -275,22 +275,16 @@
         </div>
         <div class="mpor-field">
             <label>Merchandiser</label>
-            <select @bind="selectedMerchandiserValue">
-                <option value="">All merchandisers</option>
-                @foreach (var merchandiser in reportResult.Merchandisers)
-                {
-                    <option value="@merchandiser.MerchandiserUserId">@merchandiser.FullName (@merchandiser.Username)</option>
-                }
-            </select>
+            <NocturneSelect Class="nsel-block" Options="MerchandiserFilterOptions"
+                            @bind-Value="selectedMerchandiserValue" Caption="Filter by merchandiser"
+                            AriaLabel="Filter by merchandiser" Placeholder="All merchandisers" />
             <small>Use the report summary to narrow down to one merchandiser.</small>
         </div>
         <div class="mpor-field">
             <label>Attachment Status</label>
-            <select @bind="attachmentFilter">
-                <option value="all">All orders</option>
-                <option value="with">Only orders with uploaded POs</option>
-                <option value="without">Only orders without uploaded POs</option>
-            </select>
+            <NocturneSelect TValue="string" Class="nsel-block" Options="AttachmentFilterOptions"
+                            @bind-Value="attachmentFilter" Caption="Filter by attachment status"
+                            AriaLabel="Filter by attachment status" />
         </div>
         <div class="mpor-field">
             <label for="mpor-f-from">From Date</label>

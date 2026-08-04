@@ -210,42 +210,20 @@
             <div class="uac-filters">
                 <div class="uac-field">
                     <label class="uac-label" for="uacUser">User</label>
-                    <div class="uac-select">
-                        <select id="uacUser" class="uac-input" @bind="userFilter">
-                            <option value="">All users</option>
-                            @foreach (var user in uniqueUsers)
-                            {
-                                <option value="@user">@user</option>
-                            }
-                        </select>
-                        <span class="uac-caret" aria-hidden="true"></span>
-                    </div>
+                    <NocturneSelect Id="uacUser" Class="nsel-block" Options="UserFilterOptions"
+                                    @bind-Value="userFilter" Caption="Filter by user"
+                                    AriaLabel="Filter by user" Placeholder="All users" />
                 </div>
                 <div class="uac-field">
                     <label class="uac-label" for="uacAction">Action</label>
-                    <div class="uac-select">
-                        <select id="uacAction" class="uac-input" @bind="actionFilter">
-                            <option value="">All actions</option>
-                            @foreach (var action in uniqueActions)
-                            {
-                                <option value="@action">@action</option>
-                            }
-                        </select>
-                        <span class="uac-caret" aria-hidden="true"></span>
-                    </div>
+                    <NocturneSelect Id="uacAction" Class="nsel-block" Options="ActionFilterOptions"
+                                    @bind-Value="actionFilter" Caption="Filter by action"
+                                    AriaLabel="Filter by action" Placeholder="All actions" />
                 </div>
                 <div class="uac-field">
                     <label class="uac-label" for="uacPageSize">Per page</label>
-                    <div class="uac-select">
-                        <select id="uacPageSize" class="uac-input" @bind="pageSize">
-                            <option value="10">10</option>
-                            <option value="25">25</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                            <option value="200">200</option>
-                        </select>
-                        <span class="uac-caret" aria-hidden="true"></span>
-                    </div>
+                    <NocturneSelect Id="uacPageSize" Class="nsel-block" Options="PageSizeSelectOptions"
+                                    @bind-Value="pageSize" AriaLabel="Rows per page" />
                 </div>
                 <div class="uac-filter-actions">
                     <button type="button" class="uac-btn uac-btn-primary" @onclick="ApplyFilters">Search</button>
@@ -476,6 +454,21 @@
     private string actionFilter = string.Empty;
     private List<string> uniqueUsers = new();
     private List<string> uniqueActions = new();
+
+    // Both lists are whatever the loaded activity actually contains, so they are
+    // computed rather than static.
+    private IEnumerable<NocturneSelectOption<string>> UserFilterOptions =>
+        uniqueUsers
+            .Select(user => new NocturneSelectOption<string>(user, user, "info"))
+            .Prepend(NocturneSelectOption.All("All users"));
+
+    private IEnumerable<NocturneSelectOption<string>> ActionFilterOptions =>
+        uniqueActions
+            .Select(action => new NocturneSelectOption<string>(action, action, "accent"))
+            .Prepend(NocturneSelectOption.All("All actions"));
+
+    private static readonly NocturneSelectOption<int>[] PageSizeSelectOptions =
+        [new(10, "10"), new(25, "25"), new(50, "50"), new(100, "100"), new(200, "200")];
 
     // Pagination
     private int currentPage = 1;

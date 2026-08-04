@@ -71,13 +71,9 @@
                            @bind="productSearchTerm" @bind:event="oninput" />
                 </div>
 
-                <select class="mch-select mch-select-auto" aria-label="Filter by category" @bind="categoryFilter">
-                    <option value="">All categories</option>
-                    @foreach (var cat in AvailableCategories)
-                    {
-                        <option value="@cat">@cat</option>
-                    }
-                </select>
+                <NocturneSelect Class="nsel-auto" Options="CategoryFilterOptions"
+                                @bind-Value="categoryFilter" Caption="Filter by category"
+                                AriaLabel="Filter by category" Placeholder="All categories" />
 
                 @* One choice, so one control: the three states are segments of a
                    single filter rather than three independent buttons. *@

@@ -566,6 +566,23 @@
     color: var(--mox-mute);
 }
 
+/* The dropdowns on this page are NocturneSelect, not native <select>s — a
+   native popup takes its background from the field and is drawn outside the
+   page, where no stylesheet can reach it. Only the closed trigger is fitted to
+   this sheet; the menu is the shared one. See nocturne-select.css for why these
+   are set from here rather than there. */
+.mox,
+.mox-overlay {
+    --nsel-h: 32px;
+    --nsel-pad-y: 5px;
+    --nsel-pad-x: 10px;
+    --nsel-fs: 13px;
+    --nsel-fill: var(--mox-field);
+    --nsel-edge: var(--mox-field-edge);
+    --nsel-edge-hi: var(--mox-field-edge-hi);
+    --nsel-radius: var(--mox-r-md);
+}
+
 .mox .mox-input,
 .mox-overlay .mox-input {
     width: 100%;

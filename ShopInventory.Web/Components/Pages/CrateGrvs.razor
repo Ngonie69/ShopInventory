@@ -29,23 +29,19 @@
                     <div class="row g-3">
                         <div class="col-12">
                             <label class="crt-label"><i class="ph ph-arrows-down-up" aria-hidden="true"></i>Variance Transaction</label>
-                            <select class="crt-form-select" @bind="selectedGrvTransactionId">
-                                <option value="">Select a variance transaction</option>
-                                @foreach (var transaction in GrvEligibleTransactions)
-                                {
-                                    <option value="@transaction.Id">@GetTransactionLabel(transaction)</option>
-                                }
-                            </select>
+                            <NocturneSelect TValue="int" Class="nsel-bs" Options="GrvTransactionSelectOptions"
+                                            Value="@(selectedGrvTransactionId ?? 0)"
+                                            ValueChanged="@(id => selectedGrvTransactionId = id > 0 ? id : null)"
+                                            Caption="Variance transaction" AriaLabel="Variance transaction"
+                                            Placeholder="Select a variance transaction" />
                         </div>
                         <div class="col-12">
                             <label class="crt-label"><i class="ph ph-list-checks" aria-hidden="true"></i>Possible Reasons</label>
-                            <select class="crt-form-select" value="@selectedGrvReasonOption" @onchange="ApplyGrvReasonOption">
-                                <option value="">Select a suggested reason</option>
-                                @foreach (var reasonOption in grvReasonOptions)
-                                {
-                                    <option value="@reasonOption">@reasonOption</option>
-                                }
-                            </select>
+                            <NocturneSelect TValue="string" Class="nsel-bs" Options="GrvReasonSelectOptions"
+                                            Value="@selectedGrvReasonOption"
+                                            ValueChanged="@(reason => ApplyGrvReasonOption(reason))"
+                                            Caption="Suggested reason" AriaLabel="Suggested reason"
+                                            Placeholder="Select a suggested reason" />
                             <div class="crt-muted mt-2">Selecting a reason fills the text box below. You can still edit it.</div>
                         </div>
                         <div class="col-12">

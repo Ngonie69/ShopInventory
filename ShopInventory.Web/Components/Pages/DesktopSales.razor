@@ -214,13 +214,10 @@
     <div class="ops-ds-filters">
         <div class="ops-field">
             <label class="ops-label" for="ds-warehouse">Warehouse</label>
-            <select id="ds-warehouse" class="ops-input" @bind="filterWarehouse" @bind:after="ApplyFilters">
-                <option value="">All warehouses</option>
-                @foreach (var warehouse in warehouses)
-                {
-                    <option value="@warehouse.WarehouseCode">@warehouse.WarehouseCode</option>
-                }
-            </select>
+            <NocturneSelect Id="ds-warehouse" Class="nsel-block" Options="WarehouseFilterOptions"
+                            @bind-Value="filterWarehouse" OnChanged="ApplyFilters"
+                            Caption="Filter by warehouse" AriaLabel="Filter by warehouse"
+                            Placeholder="All warehouses" />
         </div>
 
         <div class="ops-field ops-field-wide">
@@ -233,13 +230,10 @@
 
         <div class="ops-field">
             <label class="ops-label" for="ds-status">Consolidation</label>
-            <select id="ds-status" class="ops-input" @bind="filterStatus" @bind:after="ApplyFilters">
-                <option value="">Any status</option>
-                <option value="Pending">Awaiting close</option>
-                <option value="Consolidated">Consolidated</option>
-                <option value="Failed">Failed</option>
-                <option value="Excluded">Excluded</option>
-            </select>
+            <NocturneSelect Id="ds-status" Class="nsel-block" TValue="string"
+                            Options="ConsolidationFilterOptions" @bind-Value="filterStatus"
+                            OnChanged="ApplyFilters" Caption="Filter by consolidation"
+                            AriaLabel="Filter by consolidation" Placeholder="Any status" />
         </div>
 
         @* Not a <label>: the segment is three buttons, and a label would
@@ -582,6 +576,20 @@
 
     private List<DesktopSaleDto> sales = new();
     private List<WarehouseDto> warehouses = new();
+
+    private IEnumerable<NocturneSelectOption<string>> WarehouseFilterOptions =>
+        warehouses
+            .Select(w => new NocturneSelectOption<string>(w.WarehouseCode, w.WarehouseCode, "info"))
+            .Prepend(NocturneSelectOption.All("All warehouses"));
+
+    private static readonly NocturneSelectOption<string>[] ConsolidationFilterOptions =
+    [
+        new(string.Empty, "Any status", "neutral") { IsUnset = true, RuleAfter = true },
+        new("Pending", "Awaiting close", "warn"),
+        new("Consolidated", "Consolidated", "good"),
+        new("Failed", "Failed", "bad"),
+        new("Excluded", "Excluded", "neutral")
+    ];
     private DesktopSaleDto? selectedSale;
     private EndOfDayReportDto? report;
 

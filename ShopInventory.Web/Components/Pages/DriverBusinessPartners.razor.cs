@@ -48,6 +48,43 @@ public partial class DriverBusinessPartners : ComponentBase
             .OrderBy(c => c.CardCode)
             .ToList();
 
+    // "all" rather than an empty string is this page's no-filter sentinel, so
+    // those rows carry IsUnset and the trigger stays in its resting state.
+    private static readonly NocturneSelectOption<string>[] StatusFilterOptions =
+    [
+        new(StatusFilterAll, "All", "neutral") { IsUnset = true, RuleAfter = true },
+        new(StatusFilterActive, "Active", "good"),
+        new(StatusFilterInactive, "Inactive", "neutral")
+    ];
+
+    private IEnumerable<NocturneSelectOption<string>> ChannelFilterOptions
+    {
+        get
+        {
+            var options = new List<NocturneSelectOption<string>>
+            {
+                new(ChannelFilterAll, "All channels", "neutral")
+                {
+                    IsUnset = true,
+                    RuleAfter = !HasCustomersWithoutChannel
+                }
+            };
+
+            if (HasCustomersWithoutChannel)
+            {
+                options.Add(new NocturneSelectOption<string>(ChannelFilterNone, "No channel", "neutral")
+                {
+                    RuleAfter = true
+                });
+            }
+
+            options.AddRange(AvailableChannels.Select(channel =>
+                new NocturneSelectOption<string>(channel, channel, "info")));
+
+            return options;
+        }
+    }
+
     private List<string> AvailableChannels =>
         customers
             .Select(customer => customer.Channel?.Trim())

@@ -294,9 +294,47 @@ public abstract class CratePodsPageBase : CrateTrackingPageBase
         ClearStatus();
     }
 
-    protected void OnSelectedPodTransactionChanged(ChangeEventArgs e)
+    // The dropdowns on these pages are NocturneSelect, so the option lists are
+    // built here rather than as <option>s. "all" rather than an empty string is
+    // the no-filter sentinel, so those rows carry IsUnset and their triggers
+    // stay in the resting state until a filter is actually chosen.
+    protected static readonly NocturneSelectOption<int>[] CratePageSizeSelectOptions =
+        CratePageSizeOptions.Select(size => new NocturneSelectOption<int>(size, size.ToString())).ToArray();
+
+    protected static readonly NocturneSelectOption<string>[] PodRoleSelectOptions =
+        [new("Driver", "Driver", "info"), new("Merchandiser", "Merchandiser", "accent")];
+
+    protected static readonly NocturneSelectOption<string>[] TransactionStatusFilterOptions =
+    [
+        new("all", "All statuses", "neutral") { IsUnset = true, RuleAfter = true },
+        new("PendingDriverPod", "Pending Driver POD", "warn"),
+        new("PendingMerchandiserPod", "Pending Merch POD", "warn"),
+        new("Matched", "Matched", "good"),
+        new("VariancePendingGrv", "Variance Pending GRV", "bad"),
+        new("GrvRaised", "GRV Raised", "info")
+    ];
+
+    protected static readonly NocturneSelectOption<string>[] PodHistoryRoleFilterOptions =
+    [
+        new("all", "All roles", "neutral") { IsUnset = true, RuleAfter = true },
+        new("Driver", "Driver", "info"),
+        new("Merchandiser", "Merchandiser", "accent")
+    ];
+
+    // GetTransactionLabel is the same helper the results table labels a row
+    // with. 0 stands for "nothing chosen" because the bound field is an int?.
+    protected IEnumerable<NocturneSelectOption<int>> PodTransactionSelectOptions =>
+        PodEligibleTransactions
+            .Select(t => new NocturneSelectOption<int>(t.Id, GetTransactionLabel(t)))
+            .Prepend(new NocturneSelectOption<int>(0, "Select a crate transaction", "neutral")
+            {
+                IsUnset = true,
+                RuleAfter = true
+            });
+
+    protected void OnSelectedPodTransactionChanged(int transactionId)
     {
-        if (int.TryParse(e.Value?.ToString(), out var transactionId))
+        if (transactionId > 0)
         {
             SelectPodTransaction(transactionId);
             return;
@@ -307,9 +345,9 @@ public abstract class CratePodsPageBase : CrateTrackingPageBase
         ClearStatus();
     }
 
-    protected void OnSelectedPodRoleChanged(ChangeEventArgs e)
+    protected void OnSelectedPodRoleChanged(string? role)
     {
-        selectedPodRole = string.Equals(e.Value?.ToString(), "Merchandiser", StringComparison.OrdinalIgnoreCase)
+        selectedPodRole = string.Equals(role, "Merchandiser", StringComparison.OrdinalIgnoreCase)
             ? "Merchandiser"
             : "Driver";
 

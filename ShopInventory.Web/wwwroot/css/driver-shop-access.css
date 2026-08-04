@@ -468,6 +468,22 @@
     color: var(--dsa-mute-3);
 }
 
+/* The dropdowns on this page are NocturneSelect, not native <select>s — a
+   native popup takes its background from the field and is drawn outside the
+   page, where no stylesheet can reach it. Only the closed trigger is fitted to
+   this sheet; the menu is the shared one. See nocturne-select.css for why these
+   are set from here rather than there. */
+.dsa {
+    --nsel-h: 34px;
+    --nsel-pad-y: 9px;
+    --nsel-pad-x: 12px;
+    --nsel-fs: 13px;
+    --nsel-fill: var(--dsa-field-bg);
+    --nsel-edge: transparent;
+    --nsel-edge-hi: var(--dsa-field-edge);
+    --nsel-radius: var(--dsa-r-md);
+}
+
 .dsa .dsa-input {
     width: 100%;
     min-height: 34px;

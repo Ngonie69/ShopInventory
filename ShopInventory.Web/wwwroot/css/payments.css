@@ -407,6 +407,23 @@
     color: var(--pyx-mute);
 }
 
+/* The dropdowns on this page are NocturneSelect, not native <select>s — a
+   native popup takes its background from the field and is drawn outside the
+   page, where no stylesheet can reach it. Only the closed trigger is fitted to
+   this sheet; the menu is the shared one. See nocturne-select.css for why these
+   are set from here rather than there. */
+.pyx,
+.pyx-overlay {
+    --nsel-h: 32px;
+    --nsel-pad-y: 5px;
+    --nsel-pad-x: 10px;
+    --nsel-fs: 14px;
+    --nsel-fill: var(--pyx-field);
+    --nsel-edge: var(--pyx-field-edge);
+    --nsel-edge-hi: var(--pyx-field-edge-hi);
+    --nsel-radius: var(--pyx-r-md);
+}
+
 .pyx .pyx-input,
 .pyx-overlay .pyx-input {
     width: 100%;

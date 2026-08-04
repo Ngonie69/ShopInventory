@@ -156,41 +156,21 @@
                 </div>
                 <label class="aud-field">
                     <span class="aud-label">User</span>
-                    <span class="aud-select">
-                        <select class="aud-input" @bind="selectedUser">
-                            <option value="">All users</option>
-                            @foreach (var user in distinctUsers)
-                            {
-                                <option value="@user">@user</option>
-                            }
-                        </select>
-                        <span class="aud-caret" aria-hidden="true"></span>
-                    </span>
+                    <NocturneSelect Class="nsel-block" Options="UserFilterOptions"
+                                    @bind-Value="selectedUser" Caption="Filter by user"
+                                    AriaLabel="Filter by user" Placeholder="All users" />
                 </label>
                 <label class="aud-field">
                     <span class="aud-label">Action</span>
-                    <span class="aud-select">
-                        <select class="aud-input" @bind="selectedAction">
-                            <option value="">All actions</option>
-                            @foreach (var action in distinctActions)
-                            {
-                                <option value="@action">@FormatAction(action)</option>
-                            }
-                        </select>
-                        <span class="aud-caret" aria-hidden="true"></span>
-                    </span>
+                    <NocturneSelect Class="nsel-block" Options="ActionFilterOptions"
+                                    @bind-Value="selectedAction" Caption="Filter by action"
+                                    AriaLabel="Filter by action" Placeholder="All actions" />
                 </label>
                 <label class="aud-field">
                     <span class="aud-label">Per page</span>
-                    <span class="aud-select">
-                        <select class="aud-input" @bind="pageSize" @bind:after="OnPageSizeChanged">
-                            <option value="25">25</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                            <option value="200">200</option>
-                        </select>
-                        <span class="aud-caret" aria-hidden="true"></span>
-                    </span>
+                    <NocturneSelect Class="nsel-block" Options="PageSizeSelectOptions"
+                                    @bind-Value="pageSize" OnChanged="OnPageSizeChanged"
+                                    AriaLabel="Rows per page" />
                 </label>
                 @* These four go back to the database, so they are applied on the
                    button rather than on change. *@
@@ -599,6 +579,21 @@
     private List<AuditLog> logs = new();
     private List<string> distinctUsers = new();
     private List<string> distinctActions = new();
+
+    // Both lists come from the service, so they are computed rather than static.
+    // FormatAction is the same helper the results table labels a row with.
+    private IEnumerable<NocturneSelectOption<string>> UserFilterOptions =>
+        distinctUsers
+            .Select(user => new NocturneSelectOption<string>(user, user, "info"))
+            .Prepend(NocturneSelectOption.All("All users"));
+
+    private IEnumerable<NocturneSelectOption<string>> ActionFilterOptions =>
+        distinctActions
+            .Select(action => new NocturneSelectOption<string>(action, FormatAction(action), "accent"))
+            .Prepend(NocturneSelectOption.All("All actions"));
+
+    private static readonly NocturneSelectOption<int>[] PageSizeSelectOptions =
+        [new(25, "25"), new(50, "50"), new(100, "100"), new(200, "200")];
     private bool isLoading = true;
     private string? errorMessage;
     private string _searchString = string.Empty;

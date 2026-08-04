@@ -99,6 +99,42 @@ public partial class Customers : ComponentBase
             .OrderBy(currency => currency, _textComparer)
             .ToList();
 
+    private static readonly NocturneSelectOption<int>[] PageSizeSelectOptions =
+        PageSizes.Select(size => new NocturneSelectOption<int>(size, size.ToString())).ToArray();
+
+    // IsUnset on the "All" rows because this page's no-filter sentinel is the
+    // word "all", not an empty string — without it the trigger would sit in its
+    // accent "a filter is set" state from the moment the page loaded.
+    private IEnumerable<NocturneSelectOption<string>> ChannelFilterOptions
+    {
+        get
+        {
+            var options = new List<NocturneSelectOption<string>>
+            {
+                new(FilterAll, "All channels", "neutral") { IsUnset = true, RuleAfter = !HasPartnersWithoutChannel }
+            };
+
+            if (HasPartnersWithoutChannel)
+            {
+                options.Add(new NocturneSelectOption<string>(FilterNone, "No channel", "neutral") { RuleAfter = true });
+            }
+
+            options.AddRange(AvailableChannels.Select(channel =>
+                new NocturneSelectOption<string>(channel, channel, "info")));
+
+            return options;
+        }
+    }
+
+    private IEnumerable<NocturneSelectOption<string>> CurrencyFilterOptions =>
+        AvailableCurrencies
+            .Select(currency => new NocturneSelectOption<string>(currency, currency, "accent"))
+            .Prepend(new NocturneSelectOption<string>(FilterAll, "All currencies", "neutral")
+            {
+                IsUnset = true,
+                RuleAfter = true
+            });
+
     protected override async Task OnInitializedAsync()
     {
         pageSize = PageSizes.Contains(AppSettings.PageSize) ? AppSettings.PageSize : 25;

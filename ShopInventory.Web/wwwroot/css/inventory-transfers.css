@@ -319,6 +319,23 @@
     color: var(--itx-ink-2);
 }
 
+/* The dropdowns on this page are NocturneSelect, not native <select>s — a
+   native popup takes its background from the field and is drawn outside the
+   page, where no stylesheet can reach it. Only the closed trigger is fitted to
+   this sheet; the menu is the shared one. See nocturne-select.css for why these
+   are set from here rather than there. */
+.itx,
+.itx-drawer {
+    --nsel-h: 2.25rem;
+    --nsel-pad-y: .35rem;
+    --nsel-pad-x: .6rem;
+    --nsel-fs: .875rem;
+    --nsel-fill: var(--itx-field);
+    --nsel-edge: var(--itx-field-edge);
+    --nsel-edge-hi: var(--itx-field-edge-hi);
+    --nsel-radius: var(--itx-r-md);
+}
+
 .itx .itx-input,
 .itx-drawer .itx-input {
     width: 100%;

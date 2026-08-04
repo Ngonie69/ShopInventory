@@ -490,6 +490,22 @@
 
 /* ── Controls ──────────────────────────────────────────────────────────── */
 
+/* The dropdowns on this page are NocturneSelect, not native <select>s — a
+   native popup takes its background from the field and is drawn outside the
+   page, where no stylesheet can reach it. Only the closed trigger is fitted to
+   this sheet; the menu is the shared one. See nocturne-select.css for why these
+   are set from here rather than there. */
+.ntf {
+    --nsel-h: 32px;
+    --nsel-pad-y: 6px;
+    --nsel-pad-x: 12px;
+    --nsel-fs: 12.5px;
+    --nsel-fill: var(--ntf-field-bg);
+    --nsel-edge: transparent;
+    --nsel-edge-hi: var(--ntf-field-edge);
+    --nsel-radius: var(--ntf-r-md);
+}
+
 .ntf .ntf-input {
     width: 100%;
     min-height: 32px;

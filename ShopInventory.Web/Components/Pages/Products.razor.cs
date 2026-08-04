@@ -20,6 +20,12 @@ public partial class Products : IDisposable
         ? StandardPageSizes
         : StandardPageSizes.Append(pageSize).Order();
 
+    private IEnumerable<NocturneSelectOption<int>> PageSizeSelectOptions =>
+        PageSizes.Select(size => new NocturneSelectOption<int>(size, size.ToString()));
+
+    private IEnumerable<NocturneSelectOption<string>> WarehouseSelectOptions =>
+        warehouses.Select(w => new NocturneSelectOption<string>(w.WarehouseCode, w.DisplayName));
+
     // Long enough that typing an item code does not fire a query per keystroke,
     // short enough that the list still feels like it is following the field.
     private static readonly TimeSpan FilterDebounce = TimeSpan.FromMilliseconds(300);
@@ -139,9 +145,8 @@ public partial class Products : IDisposable
 
     // ── Warehouse selection ─────────────────────────────────────────────────
 
-    private async Task OnWarehouseChanged(ChangeEventArgs args)
+    private async Task OnWarehouseChanged(string? code)
     {
-        var code = args.Value?.ToString();
         selectedWarehouse = warehouses.FirstOrDefault(w => w.WarehouseCode == code);
 
         // The results on screen belong to the warehouse that was selected a moment
@@ -458,9 +463,9 @@ public partial class Products : IDisposable
         await LoadPageAsync();
     }
 
-    private async Task OnPageSizeChanged(ChangeEventArgs args)
+    private async Task OnPageSizeChanged(int size)
     {
-        if (int.TryParse(args.Value?.ToString(), out var size) && size > 0)
+        if (size > 0)
             pageSize = size;
 
         currentPage = 1;

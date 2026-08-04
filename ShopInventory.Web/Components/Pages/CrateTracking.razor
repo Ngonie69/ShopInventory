@@ -154,14 +154,11 @@
                             <div class="d-flex gap-2 flex-wrap">
                                 <input class="crt-form-control" style="width: 250px;" @bind="transactionSearch"
                                        placeholder="Search by invoice, shop, or card code" />
-                                <select class="crt-form-select" style="width: 220px;" @bind="transactionStatusFilter">
-                                    <option value="">All statuses</option>
-                                    <option value="PendingDriverPod">Pending Driver POD</option>
-                                    <option value="PendingMerchandiserPod">Pending Merchandiser POD</option>
-                                    <option value="VariancePendingGrv">Variance Pending GRV</option>
-                                    <option value="GrvRaised">GRV Raised</option>
-                                    <option value="Matched">Matched</option>
-                                </select>
+                                <NocturneSelect TValue="string" Class="nsel-bs" style="width: 220px;"
+                                                Options="TransactionStatusSelectOptions"
+                                                @bind-Value="transactionStatusFilter"
+                                                Caption="Filter by status" AriaLabel="Filter by status"
+                                                Placeholder="All statuses" />
                                 <button type="button" class="crt-btn crt-btn-secondary"
                                         @onclick="RefreshAllAsync">Apply</button>
                             </div>

@@ -70,6 +70,11 @@ public partial class MerchandiserProducts
         }
     }
 
+    private IEnumerable<NocturneSelectOption<string>> CategoryFilterOptions =>
+        AvailableCategories
+            .Select(category => new NocturneSelectOption<string>(category, category, "info"))
+            .Prepend(NocturneSelectOption.All("All categories"));
+
     private IEnumerable<string> AvailableCategories
     {
         get

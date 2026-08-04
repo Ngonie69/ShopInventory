@@ -126,14 +126,11 @@
         <div class="ops-dt-filters">
             <div class="ops-field">
                 <label class="ops-label" for="ops-dt-status">SAP status</label>
-                <select id="ops-dt-status" class="ops-input" value="@_statusFilter"
-                        @onchange="OnStatusFilterChanged">
-                    <option value="">All statuses</option>
-                    @foreach (var status in StatusOptions)
-                    {
-                        <option value="@status">@ReadStatus(status).Label</option>
-                    }
-                </select>
+                <NocturneSelect TValue="string" Id="ops-dt-status" Class="nsel-block"
+                                Options="StatusFilterOptions" Value="@_statusFilter"
+                                ValueChanged="@(status => OnStatusFilterChanged(status))"
+                                Caption="Filter by SAP status" AriaLabel="Filter by SAP status"
+                                Placeholder="All statuses" />
             </div>
             @if (!string.IsNullOrEmpty(_statusFilter) || !string.IsNullOrWhiteSpace(_query))
             {
@@ -793,9 +790,16 @@
         _selectedKey = null;
     }
 
-    private async Task OnStatusFilterChanged(ChangeEventArgs args)
+    // ReadStatus is the same helper the results table labels a row with, so the
+    // menu and the rows can never disagree about what a raw status is called.
+    private IEnumerable<NocturneSelectOption<string>> StatusFilterOptions =>
+        StatusOptions
+            .Select(status => new NocturneSelectOption<string>(status, ReadStatus(status).Label, "info"))
+            .Prepend(NocturneSelectOption.All("All statuses"));
+
+    private async Task OnStatusFilterChanged(string? status)
     {
-        _statusFilter = args.Value?.ToString() ?? string.Empty;
+        _statusFilter = status ?? string.Empty;
         _selectedKey = null;
 
         // Reservations are filtered by the API, not in the browser: the list

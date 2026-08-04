@@ -1,0 +1,278 @@
+@typeparam TValue
+
+@* A dropdown for the Nocturne pages.
+
+   It exists for the same reason NocturneDateField does: the native element
+   draws part of itself outside the page, where no stylesheet reaches. A
+   `<select>`'s popup takes its background from the field, and a Nocturne field
+   is a 5%-white wash — which the browser composites onto white and then, having
+   done so, refuses to treat as dark. The options inherit the field's pale ink,
+   so in dark theme the list renders near-white on near-white: present,
+   focusable and invisible. Nothing on the page can reach it, `color-scheme`
+   included, and it never reproduces in light theme.
+
+   Styling the `option`s to an opaque fill fixes the readability, but it cannot
+   fix the shape: a native popup is a platform window, so it arrives in the OS's
+   metrics next to twenty controls drawn in the design's. This component draws
+   the list itself, which is also what lets a row carry a swatch, a hint and a
+   tick — the things that make a status list readable at a glance.
+
+   Styles live in wwwroot/css/nocturne-select.css under the `nsel-` prefix, on
+   the same palette as the page sheets, so it reads as part of whichever page
+   hosts it. Per-page fit is through the `--nsel-*` fallbacks; see that file.
+
+   Outside clicks are caught by a fixed veil behind the menu rather than a
+   document listener, which keeps the component free of JS interop — the same
+   trade NocturneDateField makes. *@
+
+<div class="nsel @Class @(_open ? "nsel-open" : "")" @onkeydown="OnKeyDown" @attributes="Extra">
+    <button type="button" id="@Id"
+            class="nsel-btn @(HasValue ? "nsel-set" : "") @FamilyClass(_current?.Family)"
+            disabled="@Disabled" @onclick="Toggle"
+            aria-haspopup="listbox" aria-expanded="@_open" aria-label="@AriaLabel">
+        @if (!string.IsNullOrEmpty(Icon))
+        {
+            <i class="@Icon nsel-icon" aria-hidden="true"></i>
+        }
+        else if (_current?.Family is not null)
+        {
+            <span class="nsel-dot" aria-hidden="true"></span>
+        }
+        <span class="nsel-value">@(_current?.Label ?? Placeholder)</span>
+        <svg class="nsel-caret" width="10" height="7" viewBox="0 0 10 7" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M1 1.5l4 4 4-4"></path>
+        </svg>
+    </button>
+
+    @if (_open)
+    {
+        <div class="nsel-veil" @onclick="Close"></div>
+        <div class="nsel-menu" role="listbox" aria-label="@(Caption ?? AriaLabel)">
+            @if (!string.IsNullOrEmpty(Caption))
+            {
+                <div class="nsel-caption">@Caption</div>
+            }
+            @if (!_items.Any())
+            {
+                <div class="nsel-empty">@EmptyText</div>
+            }
+            @for (var i = 0; i < _items.Count; i++)
+            {
+                @* Copied out of the loop: without it every lambda closes over
+                   the same variable and each row selects the last option. *@
+                var index = i;
+                var option = _items[index];
+                var chosen = Matches(option.Value);
+                <button type="button" @key="index" @ref="_itemRefs[index]"
+                        class="nsel-item @FamilyClass(option.Family) @(chosen ? "nsel-on" : "")"
+                        role="option" aria-selected="@chosen" disabled="@option.Disabled"
+                        @onclick="@(() => Pick(option))">
+                    @if (option.Family is not null)
+                    {
+                        <span class="nsel-dot" aria-hidden="true"></span>
+                    }
+                    <span class="nsel-label">@option.Label</span>
+                    @if (!string.IsNullOrEmpty(option.Hint))
+                    {
+                        <span class="nsel-hint">@option.Hint</span>
+                    }
+                    <svg class="nsel-tick" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
+                         stroke-linejoin="round" aria-hidden="true">
+                        <path d="M4.5 12.5l5 5 10-11"></path>
+                    </svg>
+                </button>
+                @if (option.RuleAfter && index < _items.Count - 1)
+                {
+                    <div class="nsel-rule"></div>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IEnumerable<NocturneSelectOption<TValue>> Options { get; set; } = [];
+
+    [Parameter] public TValue? Value { get; set; }
+    [Parameter] public EventCallback<TValue?> ValueChanged { get; set; }
+
+    /// <summary>Runs after the value has been committed — the hook for reloads and paging resets.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    /// <summary>A leading glyph, e.g. <c>bi bi-funnel</c>. Replaces the chosen row's swatch on the trigger.</summary>
+    [Parameter] public string? Icon { get; set; }
+
+    /// <summary>The menu's heading — "Filter by status". It orients, and gives the menu a top edge.</summary>
+    [Parameter] public string? Caption { get; set; }
+
+    /// <summary>What the trigger reads when the bound value matches no option.</summary>
+    [Parameter] public string Placeholder { get; set; } = "Select…";
+
+    /// <summary>What the menu reads when there is nothing to choose from.</summary>
+    [Parameter] public string EmptyText { get; set; } = "Nothing to choose";
+
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>
+    /// Extra classes on the wrapper. The ones the sheet defines are
+    /// <c>nsel-sm</c> and <c>nsel-lg</c> for height, <c>nsel-end</c> to
+    /// right-anchor the menu, <c>nsel-auto</c> to drop the minimum width, and
+    /// <c>nsel-bs</c> to fit a Bootstrap <c>.form-select</c> row.
+    /// </summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>
+    /// Anything else written on the tag — a <c>style</c> width, a <c>title</c> —
+    /// lands on the wrapper. The wrapper rather than the trigger because what a
+    /// page sets here is nearly always the control's footprint in a filter row.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? Extra { get; set; }
+
+    private List<NocturneSelectOption<TValue>> _items = [];
+    private ElementReference[] _itemRefs = [];
+    private bool _open;
+    private int _active = -1;
+    private bool _focusPending;
+
+    private NocturneSelectOption<TValue>? _current;
+
+    private bool HasValue => _current is not null && !_current.IsUnset && !IsEmpty(_current.Value);
+
+    protected override void OnParametersSet()
+    {
+        _items = Options as List<NocturneSelectOption<TValue>> ?? Options.ToList();
+        if (_itemRefs.Length != _items.Count)
+        {
+            _itemRefs = new ElementReference[_items.Count];
+        }
+
+        _current = _items.FirstOrDefault(o => Matches(o.Value));
+    }
+
+    // The unset filter and the empty filter are the same filter. Pages disagree
+    // about which one "no filter" is — a `<select>`'s "All" row bound an empty
+    // string, while Clear set the field back to null — and without this the
+    // trigger would fall back to the placeholder after a Clear.
+    private bool Matches(TValue? value)
+    {
+        if (value is string a && Value is null)
+        {
+            return a.Length == 0;
+        }
+
+        if (Value is string b && value is null)
+        {
+            return b.Length == 0;
+        }
+
+        return EqualityComparer<TValue?>.Default.Equals(value, Value);
+    }
+
+    private static bool IsEmpty(TValue? value) => value is null || (value is string s && s.Length == 0);
+
+    private static string FamilyClass(string? family) =>
+        string.IsNullOrEmpty(family) ? string.Empty : $"nsel-fam-{family}";
+
+    private void Toggle()
+    {
+        _open = !_open;
+        if (_open)
+        {
+            // Open on the current choice so the arrow keys start where the eye does.
+            _active = _items.FindIndex(o => Matches(o.Value));
+        }
+    }
+
+    private void Close() => _open = false;
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "Escape":
+                _open = false;
+                break;
+
+            case "ArrowDown":
+            case "ArrowUp":
+                if (!_open)
+                {
+                    Toggle();
+                    _focusPending = _active >= 0;
+                    break;
+                }
+
+                Step(e.Key == "ArrowDown" ? 1 : -1);
+                break;
+
+            case "Home" when _open:
+                _active = NextSelectable(-1, 1);
+                _focusPending = _active >= 0;
+                break;
+
+            case "End" when _open:
+                _active = NextSelectable(_items.Count, -1);
+                _focusPending = _active >= 0;
+                break;
+        }
+    }
+
+    private void Step(int direction)
+    {
+        var from = _active < 0 ? (direction > 0 ? -1 : _items.Count) : _active;
+        var next = NextSelectable(from, direction);
+        if (next < 0)
+        {
+            return;
+        }
+
+        _active = next;
+        _focusPending = true;
+    }
+
+    private int NextSelectable(int from, int direction)
+    {
+        for (var i = from + direction; i >= 0 && i < _items.Count; i += direction)
+        {
+            if (!_items[i].Disabled)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusPending)
+        {
+            return;
+        }
+
+        _focusPending = false;
+        if (_open && _active >= 0 && _active < _itemRefs.Length)
+        {
+            await _itemRefs[_active].FocusAsync();
+        }
+    }
+
+    private async Task Pick(NocturneSelectOption<TValue> option)
+    {
+        _open = false;
+        if (Matches(option.Value))
+        {
+            return;
+        }
+
+        Value = option.Value;
+        _current = option;
+        await ValueChanged.InvokeAsync(option.Value);
+        await OnChanged.InvokeAsync();
+    }
+}

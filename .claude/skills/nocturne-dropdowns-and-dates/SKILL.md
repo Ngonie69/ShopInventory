@@ -31,14 +31,18 @@ This skill is the decision rule and the two recipes.
 | What you're building | Use |
 |---|---|
 | Any date or month input | `<NocturneDateField>` — never `<input type="date">` |
-| A dropdown that is a visible page control (filter bar, toolbar, table header) | A `um-dd`-style listbox in markup |
-| A dropdown whose items carry meaning beyond their text — status, role, a colour, an icon, a count | A `um-dd`-style listbox in markup |
+| A dropdown that is a visible page control (filter bar, toolbar, table header) | `<NocturneSelect>` |
+| A dropdown whose items carry meaning beyond their text — status, role, a colour, an icon, a count | `<NocturneSelect>` |
 | A plain dropdown buried in a modal form, few options, text only | Native `<select>` is fine — **but style its `option`s** |
 
-The native `<select>` row is not a grudging exception. 137 of them are in use
-across the pages and rewriting them all would be churn for its own sake. The
+The native `<select>` row is not a grudging exception. 58 of them are still in
+use in modal forms, and rewriting those would be churn for its own sake. The
 line is whether the control is something the user *looks at* while scanning the
 page, or something they only meet while filling in a form.
+
+Every page control on the right side of that line has been converted — the sweep
+of 2026-08-04 replaced 82 of them across 39 pages — so a native `<select>` in a
+filter bar or a toolbar today is a regression, not a leftover.
 
 ## The bug that drives all of this
 
@@ -89,14 +93,59 @@ others, say so rather than silently widening the change.
 
 ## Building the listbox
 
-Full markup, CSS and Blazor in `references/dropdown.md`. Read it when you're
-about to write one — it is a working implementation to adapt, not a sketch.
-The reference implementation lives in
-`ShopInventory.Web/Components/Pages/UserManagement.razor` (the role and status
-filters) with its styles under `── Filter dropdowns ──` in
-`ShopInventory.Web/wwwroot/css/user-management.css`.
+Don't. Use `<NocturneSelect>` — `ShopInventory.Web/Components/NocturneSelect.razor`,
+styled in `wwwroot/css/nocturne-select.css` under the `nsel-` prefix. It is the
+same shape `references/dropdown.md` describes, written once instead of per page,
+and it is what all 82 converted controls use.
 
-The four things that matter more than the markup:
+```razor
+<NocturneSelect Class="nsel-block" TValue="string"
+                Options="StatusFilterOptions" @bind-Value="statusFilter"
+                OnChanged="ApplyFilters" Caption="Filter by status"
+                AriaLabel="Filter by status" Placeholder="All statuses" />
+```
+
+```csharp
+private static readonly NocturneSelectOption<string>[] StatusFilterOptions =
+[
+    new(string.Empty, "All statuses", "neutral") { RuleAfter = true, IsUnset = true },
+    new("1", "Pending",  "warn"),
+    new("2", "Approved", "good"),
+    new("7", "Rejected", "bad")
+];
+```
+
+The five things to get right at the call site:
+
+- **`Family`** is one of `neutral | accent | info | good | warn | bad`. Feed it
+  from the page's *existing* status→tone helper so the swatch in the menu and the
+  dot in the results row cannot drift apart. Leave it null where the items carry
+  no meaning beyond their text — a warehouse, a currency, a page size.
+- **`IsUnset`** on the "All …" row wherever the page's no-filter sentinel is a
+  word rather than an empty string — `"all"`, `"All"`, `0`. Without it the
+  trigger sits in its accent "a filter is set" state from first paint. Empty
+  string and null are handled for you, and are treated as the same value.
+- **`OnChanged`** is the reload/paging-reset hook — the `@bind:after` equivalent.
+  Use it rather than doing the work inside a `ValueChanged` lambda.
+- **`Class`**: `nsel-block` to fill a filter cell, `nsel-sm` for a rows-per-page
+  control, `nsel-end` to right-anchor the menu on a trailing control, `nsel-auto`
+  to shrink to content, `nsel-bs` on the pages still built out of Bootstrap rows.
+- **Passing a method group to `ValueChanged` does not compile.** TValue inference
+  fails and the error names the non-generic `EventCallback`, which points nowhere
+  near the cause. State `TValue` explicitly and wrap the handler in a lambda:
+  `TValue="int" ValueChanged="@(days => OnRangeChanged(days))"`.
+
+Fitting it to a page is a `--nsel-*` block on the page root, next to the sheet's
+existing `--ndf-*` one; the sheets on audit-trail's palette need no block at all.
+See the header of `nocturne-select.css`.
+
+`references/dropdown.md` is now background — the anatomy, and why the component
+is built the way it is. Read it if you are changing `NocturneSelect` itself, not
+to write a new control.
+
+The four principles below are why the component looks the way it does. They are
+now settled inside it — you get all four for free — so read them to understand a
+change to `NocturneSelect`, not to reimplement them.
 
 **Close it with a veil, not a document listener.** A `position: fixed; inset: 0`
 transparent div rendered behind the menu catches the outside click. It costs one
@@ -105,22 +154,22 @@ render and unregister on dispose. `NocturneDateField` uses `.ndf-veil` for the
 same reason; the pattern is already established here.
 
 **Let the items carry the page's own semantics.** This is the payoff for leaving
-the native control behind, and skipping it wastes the whole exercise. If the
-page already has `um-badge-admin` / `um-badge-active` classes that set
-`--um-fam` and `--um-fam-rgb`, put that same class on the dropdown item and let
-one rule read `var(--um-fam)` for the swatch. The dot in the list and the badge
-in the results are then the same hue *by construction* — adding a role later
-can't drift them apart, because there is no second place to update.
+the native control behind, and skipping it wastes the whole exercise. The six
+families are named once in `nocturne-select.css` and every swatch, tick and
+chosen-row wash reads `var(--nsel-fam)`, so the only way they drift is if a call
+site invents its own mapping instead of feeding `Family` from the helper the
+results table already uses.
 
 **Give "open" and "chosen" separate looks.** Open is transient (an accent ring);
 chosen persists after the menu shuts (accent ink in the trigger). A user
 scanning the filter bar needs to see which filters are set without opening any
 of them.
 
-**Reuse the sheet's existing infrastructure.** Every page sheet already has a
-popup animation, a `::-webkit-scrollbar` rule, and a `prefers-reduced-motion`
-block. Add your menu to those selector lists rather than writing new ones —
-otherwise the menu animates when everything else on the page has agreed not to.
+**Carry the infrastructure with the control.** The popup animation, the
+`::-webkit-scrollbar` rules, the narrow-screen anchoring and the
+`prefers-reduced-motion` block all live in `nocturne-select.css`, so a page that
+adopts the component cannot forget one of them — which is what used to leave a
+new menu animating after everything else on the page had agreed not to.
 
 ## Date fields
 

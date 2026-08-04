@@ -60,9 +60,6 @@
     --sox-shadow-sm: 0 0 0 1px #e3e4ee, 0 1px 2px rgba(27, 28, 38, .05);
     --sox-shadow-lg: 0 0 0 1px #d9dbe8, 0 16px 40px rgba(27, 28, 38, .16);
     --sox-scrim: rgba(41, 43, 49, .34);
-    /* The select caret, whole: a var() inside the data URL's quoted string
-       would not be substituted, so each theme carries the finished image. */
-    --sox-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     --sox-scheme: light;
 
     /* Nocturne's compact scale — density 0.70x. */
@@ -113,7 +110,6 @@
     --sox-shadow-sm: 0 0 0 1px #3f424d;
     --sox-shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0, 0, 0, .65);
     --sox-scrim: rgba(10, 11, 18, .62);
-    --sox-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%2387878f' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     --sox-scheme: dark;
 }
 
@@ -479,12 +475,14 @@
     font-variant-numeric: tabular-nums;
 }
 
-/* The date fields in the filter row are NocturneDateField, not native date
-   inputs — the native control draws the browser's own calendar, which no
-   stylesheet can reach. Only the closed field is fitted to this sheet; the
-   calendar itself is the shared one. See nocturne-date-field.css for why
+/* The date and dropdown controls in the filter row are NocturneDateField and
+   NocturneSelect, not native elements — both natives draw part of themselves
+   outside the page (a calendar, a popup) where no stylesheet can reach. Only
+   the closed field is fitted to this sheet; the calendar and the menu are the
+   shared ones. See nocturne-date-field.css and nocturne-select.css for why
    these are set from here rather than there. */
-.sox {
+.sox,
+.sox-overlay {
     --ndf-h: 32px;
     --ndf-pad-y: 5px;
     --ndf-pad-x: 10px;
@@ -493,27 +491,15 @@
     --ndf-edge: var(--sox-field-edge);
     --ndf-edge-hi: var(--sox-field-edge-hi);
     --ndf-radius: var(--sox-r-md);
-}
 
-.sox-select {
-    position: relative;
-}
-
-.sox .sox-select select.sox-input,
-.sox-overlay .sox-select select.sox-input {
-    padding-right: 26px;
-    cursor: pointer;
-}
-
-.sox-select .sox-caret {
-    position: absolute;
-    right: 9px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 10px;
-    height: 7px;
-    background: var(--sox-caret) no-repeat center / contain;
-    pointer-events: none;
+    --nsel-h: 32px;
+    --nsel-pad-y: 5px;
+    --nsel-pad-x: 10px;
+    --nsel-fs: 14px;
+    --nsel-fill: var(--sox-field);
+    --nsel-edge: var(--sox-field-edge);
+    --nsel-edge-hi: var(--sox-field-edge-hi);
+    --nsel-radius: var(--sox-r-md);
 }
 
 .sox-filter-actions {
@@ -878,10 +864,9 @@
     color: var(--sox-mute-3);
 }
 
-.sox .sox-pagesize select.sox-input {
-    width: auto;
+.sox .sox-pagesize .nsel-btn {
     min-height: 28px;
-    padding: 2px 24px 2px 8px;
+    padding: 2px 8px;
     font-size: 12.5px;
 }
 

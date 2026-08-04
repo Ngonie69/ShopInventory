@@ -59,12 +59,9 @@
             </label>
             <label>
                 <span><i class="ph ph-seal-check" aria-hidden="true"></i>Status</span>
-                <select @bind="selectedStatus">
-                    <option value="All">All</option>
-                    <option value="Success">Success</option>
-                    <option value="Fiscalised">Fiscalised</option>
-                    <option value="Failed">Failed</option>
-                </select>
+                <NocturneSelect TValue="string" Class="nsel-bs" Options="StatusFilterOptions"
+                                @bind-Value="selectedStatus" Caption="Filter by status"
+                                AriaLabel="Filter by status" />
             </label>
             <label>
                 <span><i class="ph ph-calendar-blank" aria-hidden="true"></i>From</span>

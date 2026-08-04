@@ -125,16 +125,10 @@
                 }
                 else
                 {
-                    <select id="stk-warehouse" class="ops-input" @bind="selectedWarehouseCode"
-                            disabled="@isWarehouseLocked">
-                        <option value="">Select a warehouse</option>
-                        @foreach (var warehouse in warehouses)
-                        {
-                            <option value="@warehouse.WarehouseCode">
-                                @warehouse.WarehouseCode — @warehouse.WarehouseName
-                            </option>
-                        }
-                    </select>
+                    <NocturneSelect Id="stk-warehouse" Class="nsel-block" Options="WarehouseSelectOptions"
+                                    @bind-Value="selectedWarehouseCode" Disabled="isWarehouseLocked"
+                                    Caption="Warehouse" AriaLabel="Warehouse"
+                                    Placeholder="Select a warehouse" />
                     @if (isWarehouseLocked)
                     {
                         <small>Fixed to the warehouse on your account.</small>
@@ -143,12 +137,9 @@
             </div>
             <div class="ops-field">
                 <label class="ops-label" for="stk-status">Stock status</label>
-                <select id="stk-status" class="ops-input" @bind="stockFilter">
-                    <option value="all">All items</option>
-                    <option value="instock">Healthy</option>
-                    <option value="lowstock">Low stock</option>
-                    <option value="outofstock">Out of stock</option>
-                </select>
+                <NocturneSelect Id="stk-status" Class="nsel-block" Options="StockFilterOptions"
+                                @bind-Value="stockFilter" Caption="Filter by stock status"
+                                AriaLabel="Filter by stock status" />
             </div>
             <div class="ops-field">
                 <label class="ops-label" for="stk-threshold">Low threshold</label>
@@ -344,6 +335,20 @@
 }
 
 @code {
+    // "all" rather than an empty string is this page's no-filter sentinel, so
+    // that row carries IsUnset and the trigger stays in its resting state.
+    private static readonly NocturneSelectOption<string>[] StockFilterOptions =
+    [
+        new("all", "All items", "neutral") { IsUnset = true, RuleAfter = true },
+        new("instock", "Healthy", "good"),
+        new("lowstock", "Low stock", "warn"),
+        new("outofstock", "Out of stock", "bad")
+    ];
+
+    private IEnumerable<NocturneSelectOption<string>> WarehouseSelectOptions =>
+        warehouses.Select(w => new NocturneSelectOption<string>(
+            w.WarehouseCode, w.WarehouseName ?? w.WarehouseCode) { Hint = w.WarehouseCode });
+
     private List<WarehouseDto> warehouses = new();
     private List<StockQuantityDto> stockItems = new();
     private WarehouseDto? selectedWarehouse;

@@ -103,22 +103,17 @@
             </div>
             <div class="ops-field">
                 <label class="ops-label" for="gl-type">Account type</label>
-                <select id="gl-type" class="ops-input" @bind="selectedAccountType" @bind:after="ApplyFilters">
-                    <option value="">All types</option>
-                    <option value="at_Revenues">Revenue</option>
-                    <option value="at_Expenses">Expenses</option>
-                    <option value="at_Other">Other</option>
-                </select>
+                <NocturneSelect Id="gl-type" Class="nsel-block" TValue="string"
+                                Options="AccountTypeFilterOptions" @bind-Value="selectedAccountType"
+                                OnChanged="ApplyFilters" Caption="Filter by account type"
+                                AriaLabel="Filter by account type" Placeholder="All types" />
             </div>
             <div class="ops-field">
                 <label class="ops-label" for="gl-currency">Currency</label>
-                <select id="gl-currency" class="ops-input" @bind="selectedCurrency" @bind:after="ApplyFilters">
-                    <option value="">All currencies</option>
-                    @foreach (var currency in availableCurrencies)
-                    {
-                        <option value="@currency">@currency</option>
-                    }
-                </select>
+                <NocturneSelect Id="gl-currency" Class="nsel-block" Options="CurrencyFilterOptions"
+                                @bind-Value="selectedCurrency" OnChanged="ApplyFilters"
+                                Caption="Filter by currency" AriaLabel="Filter by currency"
+                                Placeholder="All currencies" />
             </div>
             <div class="ops-filter-actions">
                 <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearFilters">
@@ -252,6 +247,19 @@
     private string selectedAccountType = "";
     private string selectedCurrency = "";
     private List<string> availableCurrencies = new();
+
+    private static readonly NocturneSelectOption<string>[] AccountTypeFilterOptions =
+    [
+        new(string.Empty, "All types", "neutral") { IsUnset = true, RuleAfter = true },
+        new("at_Revenues", "Revenue", "good"),
+        new("at_Expenses", "Expenses", "warn"),
+        new("at_Other", "Other", "neutral")
+    ];
+
+    private IEnumerable<NocturneSelectOption<string>> CurrencyFilterOptions =>
+        availableCurrencies
+            .Select(currency => new NocturneSelectOption<string>(currency, currency, "accent"))
+            .Prepend(NocturneSelectOption.All("All currencies"));
 
     // Sorting
     private string sortColumn = nameof(GLAccountDto.Code);

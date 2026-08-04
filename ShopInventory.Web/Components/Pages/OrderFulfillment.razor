@@ -71,18 +71,9 @@
             </div>
             <div class="ofx-field" style="width:170px">
                 <label for="ofx-f-range">Quick range</label>
-                <div class="ofx-select">
-                    <select id="ofx-f-range" class="ofx-input" value="@quickRangeDays"
-                            @onchange="OnQuickRangeChanged" disabled="@isLoading">
-                        <option value="0">Select range</option>
-                        <option value="7">Last 7 days</option>
-                        <option value="30">Last 30 days</option>
-                        <option value="90">Last 90 days</option>
-                        <option value="180">Last 6 months</option>
-                        <option value="365">Last year</option>
-                    </select>
-                    <span class="ofx-caret" aria-hidden="true"></span>
-                </div>
+                <NocturneSelect TValue="int" Id="ofx-f-range" Class="nsel-block" Options="QuickRangeOptions"
+                                Value="quickRangeDays" ValueChanged="@(days => OnQuickRangeChanged(days))"
+                                Disabled="isLoading" Caption="Quick range" AriaLabel="Quick range" />
             </div>
             <div class="ofx-field" style="width:260px">
                 <label for="ofx-f-search">Search</label>
@@ -91,15 +82,10 @@
             </div>
             <div class="ofx-field" style="width:150px">
                 <label for="ofx-f-status">Line status</label>
-                <div class="ofx-select">
-                    <select id="ofx-f-status" class="ofx-input" @bind="lineStatusFilter" disabled="@isLoading">
-                        <option value="All">All lines</option>
-                        <option value="Pending">Pending</option>
-                        <option value="Partial">Partial</option>
-                        <option value="Invoiced">Invoiced</option>
-                    </select>
-                    <span class="ofx-caret" aria-hidden="true"></span>
-                </div>
+                <NocturneSelect Id="ofx-f-status" Class="nsel-block" TValue="string"
+                                Options="LineStatusFilterOptions" @bind-Value="lineStatusFilter"
+                                Disabled="isLoading" Caption="Filter by line status"
+                                AriaLabel="Filter by line status" />
             </div>
             <div class="ofx-filter-actions">
                 <button type="button" class="ofx-btn ofx-btn-ghost" @onclick="ResetFiltersAsync" disabled="@isLoading">
@@ -438,11 +424,27 @@
         }
     }
 
-    private void OnQuickRangeChanged(ChangeEventArgs args)
-    {
-        if (!int.TryParse(args.Value?.ToString(), out var days))
-            return;
+    private static readonly NocturneSelectOption<int>[] QuickRangeOptions =
+    [
+        new(0, "Select range", "neutral") { IsUnset = true, RuleAfter = true },
+        new(7, "Last 7 days"),
+        new(30, "Last 30 days"),
+        new(90, "Last 90 days"),
+        new(180, "Last 6 months"),
+        new(365, "Last year")
+    ];
 
+    // "All" rather than an empty string is this page's no-filter sentinel.
+    private static readonly NocturneSelectOption<string>[] LineStatusFilterOptions =
+    [
+        new("All", "All lines", "neutral") { IsUnset = true, RuleAfter = true },
+        new("Pending", "Pending", "warn"),
+        new("Partial", "Partial", "info"),
+        new("Invoiced", "Invoiced", "good")
+    ];
+
+    private void OnQuickRangeChanged(int days)
+    {
         quickRangeDays = days;
         if (quickRangeDays <= 0)
         {

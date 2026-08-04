@@ -91,6 +91,28 @@ public partial class ExceptionCenter : IDisposable
                 .OrderBy(family => family, StringComparer.OrdinalIgnoreCase))
             .ToList();
 
+    // The dropdowns are NocturneSelect. "All" rather than an empty string is
+    // this page's no-filter sentinel, so those rows carry IsUnset — otherwise
+    // the trigger would claim a filter was set from the moment it loaded.
+    private IEnumerable<NocturneSelectOption<string>> SourceFilterOptions =>
+        SourceOptions.Select(option => option == "All"
+            ? new NocturneSelectOption<string>(option, "All pipelines", "neutral") { IsUnset = true, RuleAfter = true }
+            : new NocturneSelectOption<string>(option, DescribeSource(option), "info"));
+
+    private IEnumerable<NocturneSelectOption<string>> FamilyFilterOptions =>
+        FamilyOptions.Select(option => option == "All"
+            ? new NocturneSelectOption<string>(option, "All cause types", "neutral") { IsUnset = true, RuleAfter = true }
+            : new NocturneSelectOption<string>(option, option, "warn"));
+
+    // Sorting is not a filter, so no row here is "unset" — one of the three is
+    // always in force and the trigger should say which.
+    private static readonly NocturneSelectOption<string>[] SortSelectOptions =
+    [
+        new(SortOldest, "Oldest first"),
+        new(SortNewest, "Newest first"),
+        new(SortValue, "Highest value first")
+    ];
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender || hasInitialized)

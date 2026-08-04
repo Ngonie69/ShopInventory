@@ -129,16 +129,10 @@
 
             <div class="qtn-field" style="width:158px">
                 <label class="qtn-label" for="qtn-f-status">Status</label>
-                <span class="qtn-select">
-                    <select id="qtn-f-status" class="qtn-input" @bind="statusFilter" @bind:after="ApplyStatusFilter">
-                        <option value="">All statuses</option>
-                        @foreach (QuotationStatus status in Enum.GetValues<QuotationStatus>())
-                        {
-                            <option value="@(((int)status).ToString())">@status</option>
-                        }
-                    </select>
-                    <span class="qtn-caret" aria-hidden="true"></span>
-                </span>
+                <NocturneSelect Id="qtn-f-status" Class="nsel-block" TValue="string"
+                                Options="StatusFilterOptions" @bind-Value="statusFilter"
+                                OnChanged="ApplyStatusFilter" Caption="Filter by status"
+                                AriaLabel="Filter by status" Placeholder="All statuses" />
             </div>
 
             <div class="qtn-field" style="width:150px">
@@ -360,16 +354,9 @@
                 <div class="qtn-foot">
                     <label class="qtn-per">
                         <span>Rows</span>
-                        <span class="qtn-select">
-                            <select class="qtn-input" @bind="pageSize" @bind:after="ResetPage"
-                                    aria-label="Rows per page">
-                                @foreach (var size in PageSizes)
-                                {
-                                    <option value="@size">@size</option>
-                                }
-                            </select>
-                            <span class="qtn-caret" aria-hidden="true"></span>
-                        </span>
+                        <NocturneSelect Class="nsel-sm" Options="PageSizeSelectOptions"
+                                        @bind-Value="pageSize" OnChanged="ResetPage"
+                                        AriaLabel="Rows per page" />
                     </label>
                     <div class="qtn-pages">
                         <button type="button" class="qtn-step" title="Previous page" aria-label="Previous page"
@@ -932,6 +919,25 @@
     private const int ExpiryWindowDays = 7;
 
     private static readonly int[] PageSizes = [10, 25, 50, 100, 200];
+
+    private static readonly NocturneSelectOption<int>[] PageSizeSelectOptions =
+        PageSizes.Select(s => new NocturneSelectOption<int>(s, s.ToString())).ToArray();
+
+    // Written out rather than walked off the enum so the order is the quotation's
+    // lifecycle and the families match the dots the results table draws.
+    private static readonly NocturneSelectOption<string>[] StatusFilterOptions =
+    [
+        new(string.Empty, "All statuses", "neutral") { RuleAfter = true },
+        new(((int)QuotationStatus.Draft).ToString(), "Draft", "neutral"),
+        new(((int)QuotationStatus.Pending).ToString(), "Pending", "warn"),
+        new(((int)QuotationStatus.Approved).ToString(), "Approved", "good"),
+        new(((int)QuotationStatus.Sent).ToString(), "Sent", "info"),
+        new(((int)QuotationStatus.Accepted).ToString(), "Accepted", "good"),
+        new(((int)QuotationStatus.Converted).ToString(), "Converted", "accent"),
+        new(((int)QuotationStatus.Expired).ToString(), "Expired", "warn"),
+        new(((int)QuotationStatus.Rejected).ToString(), "Rejected", "bad"),
+        new(((int)QuotationStatus.Cancelled).ToString(), "Cancelled", "neutral")
+    ];
 
     private List<QuotationDto>? quotations;
     private QuotationDto? selectedQuotation;

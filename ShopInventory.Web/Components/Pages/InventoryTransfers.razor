@@ -128,16 +128,9 @@
                     }
                     else
                     {
-                        <div class="itx-select">
-                            <select id="itx-warehouse" class="itx-input" @bind="selectedWarehouseCode">
-                                <option value="">Pick a warehouse…</option>
-                                @foreach (var warehouse in cachedWarehouses.Where(w => !string.IsNullOrWhiteSpace(w.WarehouseCode)))
-                                {
-                                    <option value="@warehouse.WarehouseCode">@warehouse.WarehouseCode — @warehouse.WarehouseName</option>
-                                }
-                            </select>
-                            <span class="itx-caret" aria-hidden="true"></span>
-                        </div>
+                        <NocturneSelect Id="itx-warehouse" Class="nsel-block" Options="WarehouseSelectOptions"
+                                        @bind-Value="selectedWarehouseCode" Caption="Warehouse"
+                                        AriaLabel="Warehouse" Placeholder="Pick a warehouse…" />
                     }
                 </div>
 
@@ -281,15 +274,9 @@
                     <span class="itx-foot-actions">
                         <span class="itx-page-size">
                             <label for="itx-page-size-t">Show</label>
-                            <span class="itx-select">
-                                <select id="itx-page-size-t" class="itx-input" @bind="_pageSize" @bind:after="ResetPaging">
-                                    @foreach (var size in PageSizeOptions)
-                                    {
-                                        <option value="@size">@size</option>
-                                    }
-                                </select>
-                                <span class="itx-caret" aria-hidden="true"></span>
-                            </span>
+                            <NocturneSelect Id="itx-page-size-t" Class="nsel-sm" Options="PageSizeSelectOptions"
+                                            @bind-Value="_pageSize" OnChanged="ResetPaging"
+                                            AriaLabel="Rows per page" />
                             <span>per page</span>
                         </span>
                         <span class="itx-pager">
@@ -351,29 +338,17 @@
                 <div class="itx-field">
                     @* Asks SAP for this slice, unlike the approval filter which sifts what is loaded. *@
                     <label for="itx-req-docs">Documents</label>
-                    <div class="itx-select">
-                        <select id="itx-req-docs" class="itx-input" disabled="@isLoadingRequests"
-                                value="@requestDocumentStatus"
-                                @onchange="e => ChangeRequestDocumentStatus(e.Value?.ToString())">
-                            <option value="@OpenRequestsFilter">Open in SAP</option>
-                            <option value="@ClosedRequestsFilter">Closed in SAP</option>
-                            <option value="@AllRequestsFilter">All</option>
-                        </select>
-                        <span class="itx-caret" aria-hidden="true"></span>
-                    </div>
+                    <NocturneSelect TValue="string" Id="itx-req-docs" Class="nsel-block"
+                                    Options="RequestDocumentOptions" Value="@requestDocumentStatus"
+                                    ValueChanged="@(value => ChangeRequestDocumentStatus(value))"
+                                    Disabled="isLoadingRequests" Caption="Documents" AriaLabel="Documents" />
                 </div>
                 <div class="itx-field">
                     <label for="itx-req-approval">Approval</label>
-                    <div class="itx-select">
-                        <select id="itx-req-approval" class="itx-input" @bind="_requestStatusFilter" @bind:after="ResetPaging">
-                            <option value="">Any approval state</option>
-                            @foreach (var status in RequestStatusOptions)
-                            {
-                                <option value="@status">@status</option>
-                            }
-                        </select>
-                        <span class="itx-caret" aria-hidden="true"></span>
-                    </div>
+                    <NocturneSelect Id="itx-req-approval" Class="nsel-block" Options="RequestApprovalOptions"
+                                    @bind-Value="_requestStatusFilter" OnChanged="ResetPaging"
+                                    Caption="Filter by approval state" AriaLabel="Filter by approval state"
+                                    Placeholder="Any approval state" />
                 </div>
 
                 <div class="itx-toolbar-actions">
@@ -398,29 +373,17 @@
                 <div class="itx-filters">
                     <div class="itx-field">
                         <label for="itx-req-from-wh">From warehouse</label>
-                        <div class="itx-select">
-                            <select id="itx-req-from-wh" class="itx-input" @bind="_requestFromWarehouseFilter" @bind:after="ResetPaging">
-                                <option value="">Any source</option>
-                                @foreach (var warehouse in RequestFromWarehouseOptions)
-                                {
-                                    <option value="@warehouse">@warehouse</option>
-                                }
-                            </select>
-                            <span class="itx-caret" aria-hidden="true"></span>
-                        </div>
+                        <NocturneSelect Id="itx-req-from-wh" Class="nsel-block" Options="RequestFromWarehouseSelectOptions"
+                                        @bind-Value="_requestFromWarehouseFilter" OnChanged="ResetPaging"
+                                        Caption="Filter by source" AriaLabel="Filter by source warehouse"
+                                        Placeholder="Any source" />
                     </div>
                     <div class="itx-field">
                         <label for="itx-req-to-wh">To warehouse</label>
-                        <div class="itx-select">
-                            <select id="itx-req-to-wh" class="itx-input" @bind="_requestToWarehouseFilter" @bind:after="ResetPaging">
-                                <option value="">Any destination</option>
-                                @foreach (var warehouse in RequestToWarehouseOptions)
-                                {
-                                    <option value="@warehouse">@warehouse</option>
-                                }
-                            </select>
-                            <span class="itx-caret" aria-hidden="true"></span>
-                        </div>
+                        <NocturneSelect Id="itx-req-to-wh" Class="nsel-block" Options="RequestToWarehouseSelectOptions"
+                                        @bind-Value="_requestToWarehouseFilter" OnChanged="ResetPaging"
+                                        Caption="Filter by destination" AriaLabel="Filter by destination warehouse"
+                                        Placeholder="Any destination" />
                     </div>
                     <div class="itx-field">
                         <label for="itx-req-requester">Requester</label>
@@ -586,15 +549,9 @@
                     <span class="itx-foot-actions">
                         <span class="itx-page-size">
                             <label for="itx-page-size-r">Show</label>
-                            <span class="itx-select">
-                                <select id="itx-page-size-r" class="itx-input" @bind="_pageSize" @bind:after="ResetPaging">
-                                    @foreach (var size in PageSizeOptions)
-                                    {
-                                        <option value="@size">@size</option>
-                                    }
-                                </select>
-                                <span class="itx-caret" aria-hidden="true"></span>
-                            </span>
+                            <NocturneSelect Id="itx-page-size-r" Class="nsel-sm" Options="PageSizeSelectOptions"
+                                            @bind-Value="_pageSize" OnChanged="ResetPaging"
+                                            AriaLabel="Rows per page" />
                             <span>per page</span>
                         </span>
                         <span class="itx-pager">
@@ -653,20 +610,11 @@
             <div class="itx-toolbar">
                 <div class="itx-grow itx-field">
                     <label for="itx-pending-status">Status</label>
-                    <div class="itx-select">
-                        <select id="itx-pending-status" class="itx-input" disabled="@isLoadingPending"
-                                value="@pendingStatusFilter"
-                                @onchange="e => ChangePendingStatusFilter(e.Value?.ToString())">
-                            <option value="@PendingTransferStatuses.AwaitingApproval">Awaiting approval</option>
-                            <option value="@PendingTransferStatuses.Approved">Approved — not posted</option>
-                            <option value="@PendingTransferStatuses.Posted">Posted to SAP</option>
-                            <option value="@PendingTransferStatuses.PostFailed">Failed to post</option>
-                            <option value="@PendingTransferStatuses.Rejected">Rejected</option>
-                            <option value="@PendingTransferStatuses.Cancelled">Withdrawn</option>
-                            <option value="@AllStatusFilter">All</option>
-                        </select>
-                        <span class="itx-caret" aria-hidden="true"></span>
-                    </div>
+                    <NocturneSelect TValue="string" Id="itx-pending-status" Class="nsel-block"
+                                    Options="PendingStatusOptions" Value="@pendingStatusFilter"
+                                    ValueChanged="@(value => ChangePendingStatusFilter(value))"
+                                    Disabled="isLoadingPending" Caption="Filter by status"
+                                    AriaLabel="Filter by status" />
                 </div>
                 <div class="itx-toolbar-actions">
                     <button type="button" class="itx-btn" @onclick="LoadPendingTransfersAsync" disabled="@isLoadingPending">
@@ -1969,6 +1917,53 @@
         (string.IsNullOrWhiteSpace(_requestRequesterFilter) ? 0 : 1) +
         (requestFromDate.HasValue ? 1 : 0) +
         (requestToDate.HasValue ? 1 : 0);
+
+    // ── Dropdown option lists ───────────────────────────
+    // The controls are NocturneSelect, so each list is built here rather than
+    // as <option>s. The three that read off the loaded requests are computed;
+    // the two fixed lists are static. "open"/"all" are sentinels, not empty
+    // strings, so those rows carry IsUnset where they mean "no filter".
+    private static readonly NocturneSelectOption<int>[] PageSizeSelectOptions =
+        PageSizeOptions.Select(size => new NocturneSelectOption<int>(size, size.ToString())).ToArray();
+
+    private static readonly NocturneSelectOption<string>[] RequestDocumentOptions =
+    [
+        new(OpenRequestsFilter, "Open in SAP", "good"),
+        new(ClosedRequestsFilter, "Closed in SAP", "neutral"),
+        new(AllRequestsFilter, "All", "info")
+    ];
+
+    private static readonly NocturneSelectOption<string>[] PendingStatusOptions =
+    [
+        new(PendingTransferStatuses.AwaitingApproval, "Awaiting approval", "warn"),
+        new(PendingTransferStatuses.Approved, "Approved — not posted", "info"),
+        new(PendingTransferStatuses.Posted, "Posted to SAP", "good"),
+        new(PendingTransferStatuses.PostFailed, "Failed to post", "bad"),
+        new(PendingTransferStatuses.Rejected, "Rejected", "bad"),
+        new(PendingTransferStatuses.Cancelled, "Withdrawn", "neutral") { RuleAfter = true },
+        new(AllStatusFilter, "All", "neutral") { IsUnset = true }
+    ];
+
+    private IEnumerable<NocturneSelectOption<string>> WarehouseSelectOptions =>
+        cachedWarehouses
+            .Where(w => !string.IsNullOrWhiteSpace(w.WarehouseCode))
+            .Select(w => new NocturneSelectOption<string>(
+                w.WarehouseCode, w.WarehouseName ?? w.WarehouseCode) { Hint = w.WarehouseCode });
+
+    private IEnumerable<NocturneSelectOption<string>> RequestApprovalOptions =>
+        RequestStatusOptions
+            .Select(status => new NocturneSelectOption<string>(status, status, "info"))
+            .Prepend(NocturneSelectOption.All("Any approval state"));
+
+    private IEnumerable<NocturneSelectOption<string>> RequestFromWarehouseSelectOptions =>
+        RequestFromWarehouseOptions
+            .Select(warehouse => new NocturneSelectOption<string>(warehouse, warehouse, "accent"))
+            .Prepend(NocturneSelectOption.All("Any source"));
+
+    private IEnumerable<NocturneSelectOption<string>> RequestToWarehouseSelectOptions =>
+        RequestToWarehouseOptions
+            .Select(warehouse => new NocturneSelectOption<string>(warehouse, warehouse, "accent"))
+            .Prepend(NocturneSelectOption.All("Any destination"));
 
     private IEnumerable<string> RequestFromWarehouseOptions =>
         transferRequests?

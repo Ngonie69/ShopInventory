@@ -189,16 +189,10 @@
                     </div>
                     <div class="mox-field" style="width:118px">
                         <label for="mox-f-currency">Currency</label>
-                        <div class="mox-select">
-                            <select id="mox-f-currency" class="mox-input" @bind="currencyFilter" @bind:after="ResetToFirstPage">
-                                <option value="">All</option>
-                                @foreach (var currencyOption in GetCurrencyFilterOptions())
-                                {
-                                    <option value="@currencyOption">@currencyOption</option>
-                                }
-                            </select>
-                            <span class="mox-caret" aria-hidden="true"></span>
-                        </div>
+                        <NocturneSelect Id="mox-f-currency" Class="nsel-block" TValue="string"
+                                        Options="CurrencyFilterSelectOptions" @bind-Value="currencyFilter"
+                                        OnChanged="ResetToFirstPage" Caption="Filter by currency"
+                                        AriaLabel="Filter by currency" Placeholder="All" />
                     </div>
                     <div class="mox-field" style="width:130px">
                         <label for="mox-f-total">Total</label>
@@ -465,15 +459,9 @@
                 <span class="mox-foot-range">@GetRangeLabel(filteredCount)</span>
                 <div class="mox-pagesize">
                     <span>Rows</span>
-                    <div class="mox-select">
-                        <select class="mox-input" aria-label="Rows per page" @bind="_pageSize" @bind:after="ResetToFirstPage">
-                            @foreach (var size in GetPageSizeOptions())
-                            {
-                                <option value="@size">@size</option>
-                            }
-                        </select>
-                        <span class="mox-caret" aria-hidden="true"></span>
-                    </div>
+                    <NocturneSelect Class="nsel-sm nsel-end" Options="PageSizeSelectOptions"
+                                    @bind-Value="_pageSize" OnChanged="ResetToFirstPage"
+                                    AriaLabel="Rows per page" />
                 </div>
                 <div class="mox-pager">
                     <button type="button" class="mox-btn mox-btn-secondary mox-btn-sm"
@@ -919,6 +907,17 @@
     {
         _page = Math.Clamp(page, 1, GetVisiblePageCount());
     }
+
+    // Both lists are computed rather than static: the page size can be a value
+    // Settings carries that is not one of the five, and the currencies are
+    // whichever ones the loaded orders actually use.
+    private IEnumerable<NocturneSelectOption<int>> PageSizeSelectOptions =>
+        GetPageSizeOptions().Select(size => new NocturneSelectOption<int>(size, size.ToString()));
+
+    private IEnumerable<NocturneSelectOption<string>> CurrencyFilterSelectOptions =>
+        GetCurrencyFilterOptions()
+            .Select(currency => new NocturneSelectOption<string>(currency, currency))
+            .Prepend(new NocturneSelectOption<string>(string.Empty, "All", "neutral") { RuleAfter = true });
 
     private IEnumerable<int> GetPageSizeOptions()
     {
