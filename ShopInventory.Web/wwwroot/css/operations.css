@@ -1,28 +1,46 @@
 /* ==========================================================================
    Operations — Nocturne
 
-   The five operational pages, on one sheet:
+   The six operational pages, on one sheet:
 
      /gl-accounts           `.ops.ops-gl`   chart of accounts, synced from SAP
      /prices                `.ops.ops-prc`  a price list's items
      /stock                 `.ops.ops-stk`  stock levels for one warehouse
      /route-customers       `.ops.ops-rc`   locally captured customers by route
      /desktop-transactions  `.ops.ops-dt`   the desktop sync queues
+     /desktop-sales         `.ops.ops-ds`   invoices fiscalized on the desktops
 
-   A derivation, not an import: no design exists for any of them, so this
-   follows the documented fallback and takes its vocabulary from
-   audit-trail.css — the sibling picked by page *shape*. Four of these five are
+   The first five are a derivation, not an import: no design existed for any of
+   them, so they follow the documented fallback and take their vocabulary from
+   audit-trail.css — the sibling picked by page *shape*. Four of the five are
    the same page: a stated hero, a row of figures, a filter row, one long
    sortable table, a pager, and a detail overlay. That is what the audit trail
-   is, so almost nothing here is new.
+   is, so almost nothing here was new.
 
-   **One scope, five vocabularies**, the way customer-portal.css is built
+   /desktop-sales is the exception and arrived later: it *is* an import, built
+   from `Desktop Sales.dc.html` in the "Nocturne Dark Ops Redesign" design
+   project. It joined this sheet rather than taking one of its own because the
+   design turned out to be this vocabulary already — the hero, the buttons, the
+   controls, the table, the empty state, the notice, the drawer and the dialog
+   are all parts that were sitting here, and it sits directly beside
+   /desktop-transactions in the nav, so the two agreeing is worth something. The
+   `.ops-ds` block at the foot is only what the design genuinely added: a
+   right-hand hero meta column, the two day-summary cards with their lane strip,
+   a segmented period picker, and a dot-and-word status.
+
+   Where the design differs from its five siblings is that it does **not** wrap
+   the list in `.ops-panel`. The filter row and the table sit on the page ground
+   with a fading rule between them, which is why /desktop-sales calls
+   `.ops-rule-fade` and none of the others do. Nothing was overridden to get
+   there; the page simply does not use the panel classes.
+
+   **One scope, six vocabularies**, the way customer-portal.css is built
    rather than the way merchandiser.css is. `.ops` carries the token block, the
    type context and every shared part — buttons, controls, panel, table,
    badges, pager, states. A page adds `.ops-<page>` for what is genuinely its
    own: the health meter on /stock, the route grouping on /route-customers, the
-   queue pills on /desktop-transactions. Five parallel root classes would have
-   meant writing the table five times, which is the thing that drifts.
+   queue pills on /desktop-transactions. Six parallel root classes would have
+   meant writing the table six times, which is the thing that drifts.
 
    Palette and spacing come from nocturne-tokens.css — the block below aliases
    them rather than restating them, so a colour is corrected in one place for
@@ -250,6 +268,22 @@
     align-items: center;
     gap: var(--ops-s3);
     flex-wrap: wrap;
+}
+
+/* ── Rules ─────────────────────────────────────────────────────────────── */
+/* A freestanding rule fades out at both ends rather than stopping cleanly —
+   the Nocturne signature, 48px of ramp an end from the same divider token.
+   Only the pages that put sections straight on the ground need it; the five
+   that wrap their list in `.ops-panel` are divided by the panel's own edge.
+   Today that is /desktop-sales alone, which is why this is a single class and
+   not a `<hr>` treatment. */
+
+.ops-rule-fade {
+    height: 1px;
+    flex: none;
+    background: linear-gradient(to right,
+            transparent, var(--ops-divider) 48px,
+            var(--ops-divider) calc(100% - 48px), transparent);
 }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
@@ -735,14 +769,21 @@
     overflow-x: auto;
 }
 
-.ops .ops-table {
+/* The core four are stated for `.ops-overlay` as well: a drawer is a *sibling*
+   of the page element, so a `.ops`-only rule never reaches a table inside one
+   and /desktop-sales lists a sale's lines in its detail drawer. The list-only
+   parts below — the sticky head, the sortable head, the warn/bad row rails —
+   stay on `.ops`, because none of them means anything in a drawer. */
+.ops .ops-table,
+.ops-overlay .ops-table {
     width: 100%;
     margin: 0;
     border-collapse: collapse;
     font-size: 12.5px;
 }
 
-.ops .ops-table thead th {
+.ops .ops-table thead th,
+.ops-overlay .ops-table thead th {
     padding: var(--ops-s4);
     border: 0;
     border-bottom: 1px solid var(--ops-divider);
@@ -797,7 +838,8 @@
     color: var(--ops-accent);
 }
 
-.ops .ops-table tbody td {
+.ops .ops-table tbody td,
+.ops-overlay .ops-table tbody td {
     padding: 11px var(--ops-s4);
     border: 0;
     border-top: 1px solid var(--ops-rule);
@@ -821,7 +863,8 @@
     background: var(--ops-hover);
 }
 
-.ops .ops-table tbody tr:first-child td {
+.ops .ops-table tbody tr:first-child td,
+.ops-overlay .ops-table tbody tr:first-child td {
     border-top: 0;
 }
 
@@ -871,11 +914,13 @@
    `text-align: left` at (0,2,2), which beats a bare `.ops-num` at (0,1,0) — so
    without these the numbers right-align and their heading does not, and the
    column reads as two columns. Same for the centred ones. */
-.ops .ops-table thead th.ops-num {
+.ops .ops-table thead th.ops-num,
+.ops-overlay .ops-table thead th.ops-num {
     text-align: right;
 }
 
-.ops .ops-table thead th.ops-mid {
+.ops .ops-table thead th.ops-mid,
+.ops-overlay .ops-table thead th.ops-mid {
     text-align: center;
 }
 
@@ -1706,6 +1751,465 @@
     background: var(--ops-accent);
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   /desktop-sales — `.ops-ds`
+
+   The one imported page on this sheet (`Desktop Sales.dc.html`). Everything it
+   shares with its siblings is above; this is the rest.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* ── The hero's right-hand column ──────────────────────────────────────── */
+/* This page is a poll of a device that is still selling, so when it last
+   answered is a fact about the page and belongs beside its actions rather than
+   buried in the table foot. */
+
+.ops-ds .ops-ds-hero-side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--ops-s4);
+    margin-left: auto;
+}
+
+.ops-ds .ops-ds-poll {
+    text-align: right;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.ops-ds .ops-ds-poll-now {
+    font-size: 12.5px;
+    color: var(--ops-mute);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-ds .ops-ds-poll-then {
+    font-size: 11px;
+    color: var(--ops-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* The live mark rides in the kicker line, after a short accent rule. It is the
+   one thing on the page that animates, and it stops when the hub drops — a
+   still dot is the disconnected state, not a decoration that failed. */
+
+.ops-ds .ops-ds-kicker-row {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    margin-bottom: 9px;
+}
+
+.ops-ds .ops-ds-kicker-row .ops-kicker {
+    margin-bottom: 0;
+}
+
+.ops-ds .ops-ds-kicker-rule {
+    width: 22px;
+    height: 1px;
+    flex: none;
+    background: rgba(var(--ops-accent-rgb), .45);
+}
+
+.ops-ds .ops-ds-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ops-mute-3);
+}
+
+.ops-ds .ops-ds-live-dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--ops-accent);
+    animation: ops-ds-pulse 2.4s ease-in-out infinite;
+}
+
+.ops-ds .ops-ds-live-dot.is-off {
+    background: var(--ops-faint);
+    animation: none;
+}
+
+@keyframes ops-ds-pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: .25;
+    }
+}
+
+/* ── The day summary ───────────────────────────────────────────────────── */
+/* Two cards rather than the four `.ops-figure` tiles the siblings use: neither
+   half is a single number. The left one is a whole divided into four lanes,
+   the right one a total divided by customer, and a tile can say neither. */
+
+/* `align-items: start` so each card is its own height. Stretched, the left one
+   is a head and four lanes against a customer list that grows with the day, and
+   the difference comes out as a void inside the shorter card — which reads as
+   something failing to render rather than as breathing room. */
+.ops-ds .ops-ds-summary {
+    display: grid;
+    grid-template-columns: 1.35fr 1fr;
+    gap: var(--ops-s4);
+    align-items: start;
+}
+
+.ops-ds .ops-ds-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s6);
+    min-width: 0;
+    padding: 18px 20px 20px;
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-lg);
+    background: var(--ops-surface);
+}
+
+.ops-ds .ops-ds-card-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+}
+
+.ops-ds .ops-ds-card-head i {
+    font-size: 15px;
+    line-height: 1;
+    color: var(--ops-accent-text);
+}
+
+.ops-ds .ops-ds-card-label {
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ops-mute-2);
+}
+
+.ops-ds .ops-ds-card-tally {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.ops-ds .ops-ds-card-tally b {
+    font-weight: 500;
+    font-size: 22px;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-ds .ops-ds-card-tally span {
+    font-size: 11px;
+    color: var(--ops-mute-3);
+}
+
+/* The four lanes. Each reads a family, and so does the strip below them, so a
+   lane and its share of the bar cannot end up different colours. */
+
+.ops-ds .ops-ds-lanes {
+    display: flex;
+    gap: 30px;
+    flex-wrap: wrap;
+}
+
+.ops-ds .ops-ds-lane-num {
+    font-weight: 500;
+    font-size: 19px;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-fam, var(--ops-ink-2));
+}
+
+.ops-ds .ops-ds-lane-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--ops-mute-3);
+}
+
+.ops-ds .ops-ds-lane-name .ops-dot {
+    width: 6px;
+    height: 6px;
+}
+
+.ops-ds .ops-ds-strip {
+    display: flex;
+    height: 4px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--ops-press);
+}
+
+.ops-ds .ops-ds-strip-seg {
+    height: 100%;
+    background: var(--ops-fam, var(--ops-fam-neutral));
+    transition: width .3s ease;
+}
+
+/* The right card: one figure, then the same total split by customer. */
+
+.ops-ds .ops-ds-value {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.ops-ds .ops-ds-value b {
+    font-weight: 500;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-ds .ops-ds-value span {
+    font-size: 12px;
+    color: var(--ops-mute-3);
+}
+
+.ops-ds .ops-ds-aside {
+    display: flex;
+    gap: var(--ops-s6);
+    flex-wrap: wrap;
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-ds .ops-ds-split {
+    height: 1px;
+    background: var(--ops-rule);
+}
+
+.ops-ds .ops-ds-breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s3);
+    font-size: 12px;
+}
+
+.ops-ds .ops-ds-break-row {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s4);
+}
+
+.ops-ds .ops-ds-break-name {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ops-mute-2);
+}
+
+.ops-ds .ops-ds-break-track {
+    flex: 0 1 92px;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--ops-press);
+    overflow: hidden;
+}
+
+/* `display: block` is load-bearing: the fill is a `<span>` inside the track
+   rather than a flex item of it, and an inline box ignores both width and
+   height — the bar renders as nothing at all without this. */
+.ops-ds .ops-ds-break-fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: rgba(var(--ops-accent-rgb), .75);
+}
+
+.ops-ds .ops-ds-break-val {
+    flex: none;
+    min-width: 88px;
+    text-align: right;
+    color: var(--ops-mute);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── The filter row ────────────────────────────────────────────────────── */
+/* A row on the ground rather than `.ops-filters` in a panel: the fields are
+   different widths on purpose, and an auto-fit grid would even them out. */
+
+.ops-ds .ops-ds-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--ops-s6) var(--ops-s8);
+    flex-wrap: wrap;
+}
+
+.ops-ds .ops-ds-filters .ops-field {
+    flex: 0 1 172px;
+}
+
+.ops-ds .ops-ds-filters .ops-field-wide {
+    flex-basis: 200px;
+}
+
+/* The pair only appears under the "Range" segment. `.ndf` is width:100%, so
+   the size is stated on the field that wraps it. */
+.ops-ds .ops-ds-dates {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--ops-s4);
+}
+
+.ops-ds .ops-ds-dates .ops-field {
+    flex: 0 1 150px;
+}
+
+/* The period picker. Three fixed answers where a pair of date fields would ask
+   the question twice; the third opens the pair when it is really needed. */
+
+/* Its own width — the three labels decide it, not the field track. */
+.ops-ds .ops-ds-filters>.ops-ds-seg-field {
+    flex: none;
+}
+
+.ops-ds .ops-ds-seg {
+    display: inline-flex;
+    height: 34px;
+    overflow: hidden;
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-md);
+}
+
+.ops-ds .ops-ds-seg-opt {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 12px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--ops-mute-2);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .14s, color .14s;
+}
+
+.ops-ds .ops-ds-seg-opt+.ops-ds-seg-opt {
+    border-left: 1px solid var(--ops-divider);
+}
+
+.ops-ds .ops-ds-seg-opt:hover:not(.is-on) {
+    background: var(--ops-hover);
+    color: var(--ops-ink);
+}
+
+.ops-ds .ops-ds-seg-opt.is-on {
+    background: rgba(var(--ops-accent-rgb), .16);
+    color: var(--ops-accent-text);
+}
+
+/* ── The list ──────────────────────────────────────────────────────────── */
+
+/* A status told as a mark and a word. The pill `.ops-badge` draws is right for
+   a value in a dense grid; here two status columns sit side by side and eight
+   filled pills a row would be the loudest thing on the page.
+
+   Scoped under `.ops-overlay` too — the detail drawer states the same two
+   statuses, and it is a sibling of the page element rather than a child. */
+.ops-ds .ops-ds-state,
+.ops-overlay .ops-ds-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    white-space: nowrap;
+    color: var(--ops-fam, var(--ops-mute-2));
+}
+
+.ops-ds .ops-ds-state .ops-dot,
+.ops-overlay .ops-ds-state .ops-dot {
+    width: 6px;
+    height: 6px;
+}
+
+/* A time, or a date and a time once the row is not from today. */
+.ops-ds .ops-ds-when {
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-mute-2);
+    white-space: nowrap;
+}
+
+/* Every row opens the drawer. */
+.ops-ds .ops-table tbody tr {
+    cursor: pointer;
+}
+
+.ops-ds .ops-table thead th:first-child,
+.ops-ds .ops-table tbody td:first-child {
+    padding-left: 0;
+}
+
+.ops-ds .ops-table thead th:last-child,
+.ops-ds .ops-table tbody td:last-child {
+    padding-right: 0;
+}
+
+/* The foot of an unpanelled list: no top border, because the last row rule is
+   already there and two lines 11px apart read as a mistake. */
+.ops-ds .ops-ds-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ops-s4);
+    flex-wrap: wrap;
+    padding: var(--ops-s6) 0 0;
+    font-size: 12px;
+    color: var(--ops-mute-3);
+}
+
+.ops-ds .ops-ds-foot-info {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── The consolidation dialog ──────────────────────────────────────────── */
+
+.ops-overlay .ops-ds-facts {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 9px var(--ops-s6);
+    font-size: 13px;
+}
+
+.ops-overlay .ops-ds-facts dt {
+    margin: 0;
+    font-weight: 400;
+    color: var(--ops-mute-3);
+}
+
+.ops-overlay .ops-ds-facts dd {
+    margin: 0;
+    text-align: right;
+    color: var(--ops-ink-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-overlay .ops-ds-lede {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--ops-mute-2);
+    text-wrap: pretty;
+}
+
 /* ── Tabs ──────────────────────────────────────────────────────────────── */
 /* Underlined rather than filled — a tab strip is navigation, and Nocturne
    spends fills on nothing that only says where you are. */
@@ -1846,5 +2350,51 @@
 
     .ops-overlay-center {
         padding: var(--ops-s3);
+    }
+
+    /* /desktop-sales sits on the ground rather than in a panel, so its rows
+       are already flush with the page padding and the sibling override above
+       would pull them past it. The two cards stack, and the hero's right-hand
+       column returns to the left edge with everything else. */
+    .ops-ds .ops-table thead th:first-child,
+    .ops-ds .ops-table tbody td:first-child {
+        padding-left: 0;
+    }
+
+    .ops-ds .ops-table thead th:last-child,
+    .ops-ds .ops-table tbody td:last-child {
+        padding-right: 0;
+    }
+
+    .ops-ds .ops-ds-summary {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .ops-ds .ops-ds-hero-side {
+        align-items: flex-start;
+        margin-left: 0;
+    }
+
+    .ops-ds .ops-ds-poll {
+        text-align: left;
+    }
+
+    .ops-ds .ops-ds-filters>.ops-field,
+    .ops-ds .ops-ds-filters>.ops-ds-dates,
+    .ops-ds .ops-ds-filters>.ops-ds-seg-field {
+        flex: 1 1 100%;
+    }
+
+    .ops-ds .ops-ds-dates .ops-field {
+        flex: 1 1 0;
+    }
+
+    /* The segment is a flex item of its field, so `stretch` gives it the whole
+       row whatever `inline-flex` says. Rather than pin it back to its content
+       width, let the three answers share the row — they are the same three
+       taps, laid out for a thumb. */
+    .ops-ds .ops-ds-seg-opt {
+        flex: 1 1 0;
+        justify-content: center;
     }
 }
