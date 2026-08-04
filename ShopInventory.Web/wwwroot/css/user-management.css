@@ -556,6 +556,31 @@
     border-color: rgba(var(--um-fam-bad-rgb), .55);
 }
 
+/* app.css also turns Blazor's two validation classes into a 2px outline
+   (`.invalid` and `.valid.modified:not([type=checkbox])`, both weak enough that
+   the border above sits under the ring rather than replacing it). In light
+   theme it resolves --danger-color and --success-color to the same #333333, so
+   a rejected field and one the user has merely typed in wear identical
+   near-black rings and neither reads as a validation state; in dark it swaps in
+   a green/red pair from outside this page's family. The border is the state
+   channel here, so the ring is dropped — but the outline is also this page's
+   focus ring (`.um-page :focus-visible`, which these out-specify), so it goes
+   back on explicitly at the offset the fields already use. */
+.um-page .um-input.invalid,
+.um-overlay .um-input.invalid,
+.um-page .um-input.valid.modified,
+.um-overlay .um-input.valid.modified {
+    outline: none;
+}
+
+.um-page .um-input.invalid:focus-visible,
+.um-overlay .um-input.invalid:focus-visible,
+.um-page .um-input.valid.modified:focus-visible,
+.um-overlay .um-input.valid.modified:focus-visible {
+    outline: 2px solid var(--um-accent);
+    outline-offset: 0;
+}
+
 /* ── Filter dropdowns ──────────────────────────────────────────────────── */
 /* The role and status filters are listboxes in markup rather than <select>s.
    A native popup is a platform window: it can't be themed past the option
