@@ -30,12 +30,15 @@ public interface IMasterDataCacheService
     DateTime? GetLastRefreshTime(string cacheKey);
     bool IsCacheReady { get; }
     Task PreloadCacheAsync();
-    Task<int> SyncProductsFromApiAsync();
-    Task<int> SyncPricesFromApiAsync();
-    Task<int> SyncBusinessPartnersFromApiAsync();
-    Task<int> SyncWarehousesFromApiAsync();
+    // Each sync optionally reports the phase it is on, for callers that show a
+    // progress bar. See SyncProgress for what the numbers mean; passing null
+    // (the default) costs nothing.
+    Task<int> SyncProductsFromApiAsync(IProgress<SyncProgress>? progress = null);
+    Task<int> SyncPricesFromApiAsync(IProgress<SyncProgress>? progress = null);
+    Task<int> SyncBusinessPartnersFromApiAsync(IProgress<SyncProgress>? progress = null);
+    Task<int> SyncWarehousesFromApiAsync(IProgress<SyncProgress>? progress = null);
     Task<int> SyncGLAccountsFromApiAsync();
-    Task<int> SyncCostCentresFromApiAsync();
+    Task<int> SyncCostCentresFromApiAsync(IProgress<SyncProgress>? progress = null);
 }
 
 public class MasterDataCacheService : IMasterDataCacheService
@@ -183,9 +186,10 @@ public class MasterDataCacheService : IMasterDataCacheService
     /// <summary>
     /// Sync products from API to local database
     /// </summary>
-    public async Task<int> SyncProductsFromApiAsync()
+    public async Task<int> SyncProductsFromApiAsync(IProgress<SyncProgress>? progress = null)
     {
         var loadLock = GetLoadLock(ProductsCacheKey);
+        var phases = new SyncPhaseReporter(progress, 4);
         await loadLock.WaitAsync();
 
         try
@@ -194,6 +198,7 @@ public class MasterDataCacheService : IMasterDataCacheService
 
             // Ensure auth header is set before API call
             // Fetch products from API
+            phases.Next("Fetching from the API");
             var response = await GetAuthenticatedJsonAsync<ProductsResponse>("api/product");
             var apiProducts = response?.Products ?? new List<ProductDto>();
 
@@ -204,6 +209,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             }
 
             // Fetch prices to include in products (from cached endpoint - synced from SAP every 5 mins)
+            phases.Next("Fetching prices");
             Dictionary<string, decimal> priceDict = new();
             try
             {
@@ -224,6 +230,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             }
 
             // Save to database
+            phases.Next("Reading the cache");
             await using var db = await _dbContextFactory.CreateDbContextAsync();
 
             var syncTime = DateTime.UtcNow;
@@ -291,11 +298,13 @@ public class MasterDataCacheService : IMasterDataCacheService
                 }
             }
 
+            phases.Next($"Saving {processedCodes.Count:N0} records");
             await db.SaveChangesAsync();
 
             // Update sync info
             await UpdateSyncInfoAsync(db, ProductsCacheKey, apiProducts.Count, true, null);
             _lastRefreshTimes[ProductsCacheKey] = DateTime.Now;
+            phases.Complete();
 
             _logger.LogInformation(
                 "Products sync completed: {Inserted} inserted, {Updated} updated, {Deactivated} deactivated",
@@ -538,15 +547,20 @@ public class MasterDataCacheService : IMasterDataCacheService
     /// <summary>
     /// Sync prices from API to local database
     /// </summary>
-    public async Task<int> SyncPricesFromApiAsync()
+    public async Task<int> SyncPricesFromApiAsync(IProgress<SyncProgress>? progress = null)
     {
         var loadLock = GetLoadLock(ItemPricesCacheKey);
+        // Four phases here rather than the internal method's three: this path
+        // pulls SAP into the API's catalog first, which is usually the slowest
+        // part of the whole sync.
+        var phases = new SyncPhaseReporter(progress, 4);
         await loadLock.WaitAsync();
 
         try
         {
+            phases.Next("Syncing the SAP catalogue");
             await TriggerPriceCatalogSyncAsync();
-            return await SyncPricesFromApiInternalAsync();
+            return await SyncPricesFromApiInternalAsync(phases);
         }
         finally
         {
@@ -557,12 +571,19 @@ public class MasterDataCacheService : IMasterDataCacheService
     /// <summary>
     /// Internal sync method that doesn't acquire the lock (caller must hold the lock)
     /// </summary>
-    private async Task<int> SyncPricesFromApiInternalAsync()
+    /// <param name="phases">
+    /// Carried in from the public entry point so its catalog-sync phase is counted
+    /// too. The background refresh paths pass nothing and report to nobody.
+    /// </param>
+    private async Task<int> SyncPricesFromApiInternalAsync(SyncPhaseReporter? phases = null)
     {
+        phases ??= new SyncPhaseReporter(null, 3);
+
         _logger.LogInformation("Syncing prices from API cache to local database...");
 
         // Ensure auth header is set before API call
         // Use cached endpoint - prices are synced from SAP every 5 minutes by the API
+        phases.Next("Fetching from the API");
         using var httpResponse = await SendAuthenticatedAsync(() => _httpClient.GetAsync("api/price/cached"));
         _logger.LogDebug("API response status: {Status}", httpResponse.StatusCode);
 
@@ -600,8 +621,10 @@ public class MasterDataCacheService : IMasterDataCacheService
             apiPrices.Count, uniquePrices.Count);
 
         // Clear existing prices and insert new ones (simpler than upsert for prices)
+        phases.Next("Clearing the cache");
         await db.CachedPrices.ExecuteDeleteAsync();
 
+        phases.Next($"Saving {uniquePrices.Count:N0} records");
         foreach (var apiPrice in uniquePrices)
         {
             db.CachedPrices.Add(new CachedPrice
@@ -617,6 +640,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         await db.SaveChangesAsync();
         await UpdateSyncInfoAsync(db, ItemPricesCacheKey, uniquePrices.Count, true, null);
         _lastRefreshTimes[ItemPricesCacheKey] = DateTime.Now;
+        phases.Complete();
 
         _logger.LogInformation("Prices sync completed: {Count} prices saved", uniquePrices.Count);
         return uniquePrices.Count;
@@ -790,14 +814,14 @@ public class MasterDataCacheService : IMasterDataCacheService
     /// <summary>
     /// Sync business partners from API to local database
     /// </summary>
-    public async Task<int> SyncBusinessPartnersFromApiAsync()
+    public async Task<int> SyncBusinessPartnersFromApiAsync(IProgress<SyncProgress>? progress = null)
     {
         var loadLock = GetLoadLock(BusinessPartnersCacheKey);
         await loadLock.WaitAsync();
 
         try
         {
-            return await ExecuteBusinessPartnerSyncAsync();
+            return await ExecuteBusinessPartnerSyncAsync(new SyncPhaseReporter(progress, 3));
         }
         finally
         {
@@ -805,11 +829,11 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
     }
 
-    private async Task<int> ExecuteBusinessPartnerSyncAsync()
+    private async Task<int> ExecuteBusinessPartnerSyncAsync(SyncPhaseReporter? phases = null)
     {
         try
         {
-            return await SyncBusinessPartnersFromApiCoreAsync();
+            return await SyncBusinessPartnersFromApiCoreAsync(phases);
         }
         catch (Exception ex)
         {
@@ -819,11 +843,14 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
     }
 
-    private async Task<int> SyncBusinessPartnersFromApiCoreAsync()
+    private async Task<int> SyncBusinessPartnersFromApiCoreAsync(SyncPhaseReporter? phases = null)
     {
+        phases ??= new SyncPhaseReporter(null, 3);
+
         _logger.LogInformation("Syncing business partners from API to database...");
 
         // Ensure auth header is set before API call
+        phases.Next("Fetching from the API");
         var response = await GetAuthenticatedJsonAsync<BusinessPartnerListResponse>("api/businesspartner");
         var apiPartners = response?.BusinessPartners ?? new List<BusinessPartnerDto>();
 
@@ -833,6 +860,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             return 0;
         }
 
+        phases.Next("Reading the cache");
         await using var db = await _dbContextFactory.CreateDbContextAsync();
 
         var syncTime = DateTime.UtcNow;
@@ -894,8 +922,10 @@ public class MasterDataCacheService : IMasterDataCacheService
             }
         }
 
+        phases.Next($"Saving {processedCodes.Count:N0} records");
         await db.SaveChangesAsync();
         await UpdateSyncInfoAsync(db, BusinessPartnersCacheKey, apiPartners.Count, true, null);
+        phases.Complete();
         _lastRefreshTimes[BusinessPartnersCacheKey] = DateTime.UtcNow;
         _cachedBusinessPartners = null;
         _cachedAllBusinessPartners = null;
@@ -1111,9 +1141,10 @@ public class MasterDataCacheService : IMasterDataCacheService
     /// <summary>
     /// Sync warehouses from API to local database
     /// </summary>
-    public async Task<int> SyncWarehousesFromApiAsync()
+    public async Task<int> SyncWarehousesFromApiAsync(IProgress<SyncProgress>? progress = null)
     {
         var loadLock = GetLoadLock(WarehousesCacheKey);
+        var phases = new SyncPhaseReporter(progress, 3);
         await loadLock.WaitAsync();
 
         try
@@ -1121,6 +1152,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             _logger.LogInformation("Syncing warehouses from API to database...");
 
             // Ensure auth header is set before API call
+            phases.Next("Fetching from the API");
             var response = await GetAuthenticatedJsonAsync<WarehouseListResponse>("api/stock/warehouses");
             var apiWarehouses = response?.Warehouses ?? new List<WarehouseDto>();
 
@@ -1130,6 +1162,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                 return 0;
             }
 
+            phases.Next("Reading the cache");
             await using var db = await _dbContextFactory.CreateDbContextAsync();
 
             var syncTime = DateTime.UtcNow;
@@ -1175,9 +1208,11 @@ public class MasterDataCacheService : IMasterDataCacheService
                 }
             }
 
+            phases.Next($"Saving {processedCodes.Count:N0} records");
             await db.SaveChangesAsync();
             await UpdateSyncInfoAsync(db, WarehousesCacheKey, apiWarehouses.Count, true, null);
             _lastRefreshTimes[WarehousesCacheKey] = DateTime.Now;
+            phases.Complete();
 
             _logger.LogInformation(
                 "Warehouses sync completed: {Inserted} inserted, {Updated} updated",
@@ -1533,14 +1568,14 @@ public class MasterDataCacheService : IMasterDataCacheService
     /// Sync cost centres from API to local database.
     /// Cost centres rarely change, so this is primarily done on initial load.
     /// </summary>
-    public async Task<int> SyncCostCentresFromApiAsync()
+    public async Task<int> SyncCostCentresFromApiAsync(IProgress<SyncProgress>? progress = null)
     {
         var loadLock = GetLoadLock(CostCentresCacheKey);
         await loadLock.WaitAsync();
 
         try
         {
-            return await SyncCostCentresFromApiCoreAsync();
+            return await SyncCostCentresFromApiCoreAsync(new SyncPhaseReporter(progress, 3));
         }
         finally
         {
@@ -1551,8 +1586,10 @@ public class MasterDataCacheService : IMasterDataCacheService
     /// <summary>
     /// Internal sync method that doesn't acquire lock (caller must hold lock).
     /// </summary>
-    private async Task<int> SyncCostCentresFromApiCoreAsync()
+    private async Task<int> SyncCostCentresFromApiCoreAsync(SyncPhaseReporter? phases = null)
     {
+        phases ??= new SyncPhaseReporter(null, 3);
+
         try
         {
             _logger.LogInformation("Syncing cost centres from API to database...");
@@ -1560,6 +1597,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             _logger.LogInformation("Calling API: api/costcentre with BaseAddress: {BaseAddress}", _httpClient.BaseAddress);
 
             // Use GetAsync to get more detailed error information
+            phases.Next("Fetching from the API");
             using var httpResponse = await SendAuthenticatedAsync(() => _httpClient.GetAsync("api/costcentre"));
 
             if (!httpResponse.IsSuccessStatusCode)
@@ -1591,6 +1629,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                 return 0;
             }
 
+            phases.Next("Reading the cache");
             await using var db = await _dbContextFactory.CreateDbContextAsync();
 
             var syncTime = DateTime.UtcNow;
@@ -1642,9 +1681,11 @@ public class MasterDataCacheService : IMasterDataCacheService
                 }
             }
 
+            phases.Next($"Saving {processedCodes.Count:N0} records");
             await db.SaveChangesAsync();
             await UpdateSyncInfoAsync(db, CostCentresCacheKey, apiCostCentres.Count, true, null);
             _lastRefreshTimes[CostCentresCacheKey] = DateTime.Now;
+            phases.Complete();
 
             _logger.LogInformation(
                 "Cost centres sync completed: {Inserted} inserted, {Updated} updated",

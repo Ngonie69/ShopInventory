@@ -1313,6 +1313,16 @@
     gap: 5px;
 }
 
+/* The phase read-out stands in for the last-synced caption while a tile syncs.
+   It must not wrap: a second line makes the tile taller than the rest of its
+   row, and the labels vary in length as the counts come in. */
+.stg-sync-body .stg-sync-phase {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* A rail pinned to the bottom edge of a tile while it is syncing. A single
    entity is one opaque call to the API, so its rail is indeterminate; "Sync
    everything" knows how many of its steps have finished, so its rail fills. */
