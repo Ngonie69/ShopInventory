@@ -27,6 +27,8 @@ public static class DbInitializer
             await context.Database.EnsureCreatedAsync();
         }
 
+        await SeedItemVolumeConversionsAsync(context, logger);
+
         // Check if we already have users
         if (await context.Users.AnyAsync())
         {
@@ -90,5 +92,37 @@ public static class DbInitializer
         await context.SaveChangesAsync();
 
         logger.LogInformation("Database seeded with {Count} users", users.Count);
+    }
+
+    /// <summary>
+    /// Loads the supplied volume conversion factors for any item code that does not have one yet.
+    /// </summary>
+    /// <remarks>
+    /// Insert-only on purpose. Administrators maintain these factors through the app, so rewriting a
+    /// row on every start would quietly undo their corrections; and because it only fills gaps, a
+    /// code added to the seed list later arrives on the next start without a migration.
+    /// </remarks>
+    private static async Task SeedItemVolumeConversionsAsync(ApplicationDbContext context, ILogger logger)
+    {
+        var existingCodes = await context.ItemVolumeConversions
+            .AsNoTracking()
+            .Select(conversion => conversion.ItemCode)
+            .ToListAsync();
+
+        var existingCodeSet = existingCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var missing = ItemVolumeConversionSeedData
+            .BuildEntities(DateTime.UtcNow)
+            .Where(conversion => !existingCodeSet.Contains(conversion.ItemCode))
+            .ToList();
+
+        if (missing.Count == 0)
+        {
+            return;
+        }
+
+        await context.ItemVolumeConversions.AddRangeAsync(missing);
+        await context.SaveChangesAsync();
+
+        logger.LogInformation("Seeded {Count} item volume conversion factor(s)", missing.Count);
     }
 }

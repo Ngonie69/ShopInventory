@@ -13893,6 +13893,55 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             cancellationToken);
     }
 
+    public async Task<List<SAPCreditNote>> GetCreditNotesByCustomersAsync(
+        IEnumerable<string> cardCodes,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default)
+    {
+        var codes = cardCodes
+            .Where(cardCode => !string.IsNullOrWhiteSpace(cardCode))
+            .Select(cardCode => cardCode.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(cardCode => cardCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (codes.Count == 0)
+        {
+            return [];
+        }
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var fromDateStr = fromDate.ToString("yyyy-MM-dd");
+        var toDateStr = toDate.ToString("yyyy-MM-dd");
+        var creditNotes = new List<SAPCreditNote>();
+
+        foreach (var chunk in codes.Chunk(CustomerFilterChunkSize))
+        {
+            var customerFilter = string.Join(
+                " or ",
+                chunk.Select(cardCode => $"CardCode eq '{SanitizeODataValue(cardCode)}'"));
+
+            creditNotes.AddRange(await ReadDocumentPagesAsync<SAPCreditNote>(
+                "CreditNotes",
+                $"({customerFilter}) and DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'",
+                CreditNoteSelect,
+                $"get credit notes for {chunk.Length} customer(s) between {fromDateStr} and {toDateStr}",
+                cancellationToken,
+                NoDocumentListCeiling));
+        }
+
+        _logger.LogInformation(
+            "Read {CreditNoteCount} credit note(s) for {CustomerCount} customer(s) between {From} and {To}",
+            creditNotes.Count,
+            codes.Count,
+            fromDateStr,
+            toDateStr);
+
+        return creditNotes;
+    }
+
     public async Task<List<SAPCreditNote>> GetCreditNotesUpdatedSinceAsync(
         DateTime fromUpdateDate,
         DateTime toUpdateDate,

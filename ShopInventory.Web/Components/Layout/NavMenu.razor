@@ -398,6 +398,41 @@
                 </Authorized>
             </AuthorizeView>
 
+            @* The item volume pair and the factors behind it. Sales reps see these
+               two reports and nothing else under Insights, so the section label is
+               repeated for them the way the merch PO report does it above. *@
+            <AuthorizeView Roles="Admin,SalesRep" Context="itemVolumeCtx">
+                <Authorized>
+                    <AuthorizeView Roles="SalesRep" Context="itemVolumeLabelCtx">
+                        <Authorized>
+                            <div class="nav-section-label">Insights</div>
+                        </Authorized>
+                    </AuthorizeView>
+                    <NavLink class="snav-link sub-link" href="/reports/item-volume" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <i class="ph ph-drop" aria-hidden="true"></i>
+                        </span>
+                        <span class="snav-text">Item Volume</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/reports/customer-revenue" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <i class="ph ph-currency-dollar" aria-hidden="true"></i>
+                        </span>
+                        <span class="snav-text">Customer Revenue</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
+            <AuthorizeView Roles="Admin" Context="volumeConversionsCtx">
+                <Authorized>
+                    <NavLink class="snav-link sub-link" href="/reports/volume-conversions" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>
+                        </span>
+                        <span class="snav-text">Volume Factors</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
+
             <AuthorizeView Roles="Admin,Manager,Merchandiser" Context="timesheetsAdminCtx">
                 <Authorized>
                     <NavLink class="snav-link" href="/timesheets" Match="NavLinkMatch.Prefix">

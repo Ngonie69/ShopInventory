@@ -1,0 +1,1470 @@
+/* ==========================================================================
+   Item volume & customer revenue — Nocturne
+
+   Three pages share this sheet, because they are one workflow: pick accounts,
+   items and a window at /reports/item-volume, read the same window as money at
+   /reports/customer-revenue, and maintain the factors that make the first of
+   those possible at /reports/volume-conversions.
+
+   The palette, density scale and component vocabulary are order-fulfillment
+   css's, unchanged, so a reader moving between the report pages stays inside
+   one system.
+
+   Two things are specific to these pages.
+
+   The first is that a quantity here is not a number you can add up. A 100ml
+   yoghurt and a 20L ice-cream tub are both "1", so the report's whole reason
+   for existing is the converted litre figure — and an item with no conversion
+   factor cannot contribute one. Unconverted quantity is therefore given the
+   warn treatment rather than being rounded to zero and forgotten: the totals
+   are honest about being a floor, and the page says how to fix it.
+
+   The second is the account and item pickers. Both are multi-selects over
+   several hundred options, so both are listboxes in markup rather than native
+   <select multiple>s — a native popup takes its background from the field, and
+   these fields are the Nocturne wash, which the browser composites onto white
+   and then refuses to darken. See .claude/skills/nocturne-dropdowns-and-dates.
+
+   Light is the base and `.dark-theme` the override, matching the order
+   App.razor's pre-paint script stamps the class in, so neither scheme flashes.
+
+   Rules live here rather than in an inline Razor <style> block because app.css
+   carries global `.dark-theme input/select/button` rules that have to be
+   out-specified — so every control carries a class and every control selector
+   is two classes deep, winning regardless of load order.
+   ========================================================================== */
+
+.ivx {
+    --ivx-bg: #f4f4f8;
+    --ivx-surface: #ffffff;
+    --ivx-field: #ffffff;
+    --ivx-ink: #1b1c26;
+    --ivx-ink-2: #35374a;
+    --ivx-mute: #4e5164;
+    --ivx-mute-2: #656879;
+    --ivx-mute-3: #7b7e8e;
+    --ivx-faint: #a0a2ae;
+    --ivx-placeholder: #9498a8;
+    --ivx-divider: rgba(27, 28, 38, .14);
+    --ivx-rowline: rgba(27, 28, 38, .09);
+    --ivx-hover: rgba(27, 28, 38, .04);
+    --ivx-press: rgba(27, 28, 38, .09);
+    --ivx-field-edge: #d4d6e2;
+    --ivx-field-edge-hi: #a9adc0;
+    --ivx-accent: #5f52c4;
+    --ivx-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses a
+       pale lavender; on paper the same role has to be the deep end of the
+       ramp instead. */
+    --ivx-accent-text: #473d99;
+    --ivx-tag-bg: #e4e7f5;
+    --ivx-tag-ink: #3f424d;
+    --ivx-dot: #9397ab;
+    --ivx-dot-quiet: #b2b6ca;
+    --ivx-bad: #b3273c;
+    --ivx-bad-bg: #fdf0f2;
+    --ivx-bad-edge: #f0ccd3;
+    --ivx-warn: #8a5a05;
+    --ivx-warn-bg: #fdf6e8;
+    --ivx-warn-edge: #eeddb8;
+    --ivx-ok: #0b6b4f;
+    --ivx-ok-bg: #edf7f2;
+    --ivx-ok-edge: #c6e4d6;
+    --ivx-info-bg: #eef0fb;
+    --ivx-info-edge: #d3d7f0;
+    --ivx-track: rgba(27, 28, 38, .1);
+    --ivx-shadow-sm: 0 0 0 1px #e3e4ee, 0 1px 2px rgba(27, 28, 38, .05);
+    --ivx-shadow-pop: 0 12px 32px rgba(27, 28, 38, .16);
+    --ivx-scheme: light;
+    /* The select caret, whole: a var() inside the data URL's quoted string
+       would not be substituted, so each theme carries the finished image. */
+    --ivx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+    /* Nocturne's compact scale — density 0.70x. */
+    --ivx-s1: 2.8px;
+    --ivx-s2: 5.6px;
+    --ivx-s3: 8.4px;
+    --ivx-s4: 11.2px;
+    --ivx-s6: 16.8px;
+    --ivx-s8: 22.4px;
+    --ivx-r-sm: 4px;
+    --ivx-r-md: 8px;
+    --ivx-r-lg: 14px;
+
+    /* NocturneDateField's own fallbacks, set from the page root so its closed
+       field lines up with the inputs beside it. The calendar stays the shared
+       one; see wwwroot/css/nocturne-date-field.css. */
+    --ndf-h: 32px;
+    --ndf-fs: 14px;
+
+    color-scheme: var(--ivx-scheme);
+}
+
+.dark-theme .ivx {
+    --ivx-bg: #161826;
+    --ivx-surface: #232532;
+    --ivx-field: #232532;
+    --ivx-ink: #e9e9ed;
+    --ivx-ink-2: #aeaeb5;
+    --ivx-mute: #9999a1;
+    --ivx-mute-2: #87878f;
+    --ivx-mute-3: #72727d;
+    --ivx-faint: #5a5a66;
+    --ivx-placeholder: #6b6b77;
+    --ivx-divider: rgba(233, 233, 237, .16);
+    --ivx-rowline: rgba(233, 233, 237, .08);
+    --ivx-hover: rgba(233, 233, 237, .04);
+    --ivx-press: rgba(233, 233, 237, .1);
+    --ivx-field-edge: rgba(233, 233, 237, .16);
+    --ivx-field-edge-hi: rgba(233, 233, 237, .45);
+    --ivx-accent: #9184d9;
+    --ivx-accent-rgb: 145, 132, 217;
+    --ivx-accent-text: #d2cefd;
+    --ivx-tag-bg: #3f424d;
+    --ivx-tag-ink: #f3f5fe;
+    --ivx-dot: #b2b6ca;
+    --ivx-dot-quiet: #75798c;
+    --ivx-bad: #e8697d;
+    --ivx-bad-bg: #2f2028;
+    --ivx-bad-edge: #4a2c35;
+    --ivx-warn: #e0b062;
+    --ivx-warn-bg: #2c2418;
+    --ivx-warn-edge: #4a3c22;
+    --ivx-ok: #7fd8b4;
+    --ivx-ok-bg: #1b2c26;
+    --ivx-ok-edge: #2c4a3d;
+    --ivx-info-bg: #232538;
+    --ivx-info-edge: #383b57;
+    --ivx-track: rgba(233, 233, 237, .12);
+    --ivx-shadow-sm: 0 0 0 1px #3f424d;
+    --ivx-shadow-pop: 0 12px 32px rgba(0, 0, 0, .5);
+    --ivx-scheme: dark;
+    --ivx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%2387878f' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.ivx {
+    min-height: 100vh;
+    background: var(--ivx-bg);
+    color: var(--ivx-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.ivx * {
+    box-sizing: border-box;
+}
+
+.ivx :focus-visible {
+    outline: 2px solid var(--ivx-accent);
+    outline-offset: 2px;
+}
+
+.ivx ::selection {
+    background: rgba(var(--ivx-accent-rgb), .3);
+}
+
+/* Nocturne's signature: freestanding rules fade to transparent over 48px at
+   each end. Box outlines and in-control separators stay solid. */
+.ivx-rule {
+    height: 1px;
+    background: linear-gradient(to right,
+            transparent, var(--ivx-divider) 48px,
+            var(--ivx-divider) calc(100% - 48px), transparent);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, so the export action
+   stays reachable while the report scrolls past. Opaque rather than frosted:
+   a translucent bar only hides what passes beneath it while the compositor
+   honours the blur, and software rendering or a reduced-transparency setting
+   drops it. --ivx-bg is the page's own ground, so this is indistinguishable
+   from the design at rest. */
+
+.ivx-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--ivx-bg);
+}
+
+.ivx-shell {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--ivx-s6) 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--ivx-s8);
+}
+
+.ivx-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-right: auto;
+    min-width: 0;
+}
+
+.ivx-titles-row {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s3);
+}
+
+.ivx-titles-row i {
+    font-size: 17px;
+    color: var(--ivx-accent);
+}
+
+.ivx-kicker {
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ivx-mute-3);
+}
+
+.ivx-title {
+    margin: 0;
+    font-size: 21px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    line-height: 1.2;
+}
+
+.ivx-sub {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--ivx-mute-2);
+    max-width: 78ch;
+}
+
+.ivx-head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s3);
+    flex: none;
+}
+
+.ivx-count {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ivx-mute-2);
+    white-space: nowrap;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.ivx-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--ivx-s8) 32px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--ivx-s6);
+}
+
+/* ── Tabs ──────────────────────────────────────────────────────────────── */
+/* The two reports read the same window, so each carries a link to the other
+   rather than making the reader go back through the nav. */
+
+.ivx-tabs {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s2);
+    flex-wrap: wrap;
+}
+
+.ivx .ivx-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 var(--ivx-s4);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--ivx-mute-2);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    text-decoration: none;
+    transition: background-color .15s, color .15s, border-color .15s;
+}
+
+.ivx .ivx-tab:hover {
+    background: var(--ivx-hover);
+    color: var(--ivx-ink);
+}
+
+.ivx .ivx-tab.is-current {
+    color: var(--ivx-accent-text);
+    background: rgba(var(--ivx-accent-rgb), .12);
+    border-color: rgba(var(--ivx-accent-rgb), .35);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.ivx .ivx-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: var(--ivx-s2) calc(var(--ivx-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--ivx-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--ivx-r-md);
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.ivx .ivx-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.ivx .ivx-btn-primary {
+    color: var(--ivx-accent);
+    border-color: var(--ivx-accent);
+    letter-spacing: .02em;
+}
+
+.ivx .ivx-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--ivx-accent-rgb), .12);
+}
+
+.ivx .ivx-btn-primary:active:not(:disabled) {
+    background: rgba(var(--ivx-accent-rgb), .22);
+}
+
+.ivx .ivx-btn-secondary {
+    border-color: var(--ivx-divider);
+}
+
+.ivx .ivx-btn-secondary:hover:not(:disabled) {
+    background: var(--ivx-hover);
+}
+
+.ivx .ivx-btn-secondary:active:not(:disabled) {
+    background: var(--ivx-press);
+}
+
+.ivx .ivx-btn-ghost {
+    color: var(--ivx-accent);
+    padding-inline: var(--ivx-s1);
+}
+
+.ivx .ivx-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--ivx-accent-rgb), .1);
+}
+
+.ivx .ivx-btn-danger {
+    color: var(--ivx-bad);
+    border-color: var(--ivx-bad-edge);
+}
+
+.ivx .ivx-btn-danger:hover:not(:disabled) {
+    background: var(--ivx-bad-bg);
+}
+
+.ivx .ivx-btn-sm {
+    height: 28px;
+    font-size: 12.5px;
+    padding-inline: var(--ivx-s3);
+}
+
+/* ── Figures ───────────────────────────────────────────────────────────── */
+
+.ivx-figures {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--ivx-s4);
+}
+
+.ivx-figure {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s4);
+    padding: var(--ivx-s4) var(--ivx-s6);
+    background: var(--ivx-surface);
+    border-radius: var(--ivx-r-md);
+    box-shadow: var(--ivx-shadow-sm);
+    min-width: 0;
+}
+
+.ivx-figure-mark {
+    width: 34px;
+    height: 34px;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--ivx-r-md);
+    background: rgba(var(--ivx-accent-rgb), .1);
+    color: var(--ivx-accent);
+    font-size: 16px;
+}
+
+.ivx-figure-mark.is-quiet {
+    background: var(--ivx-hover);
+    color: var(--ivx-mute);
+}
+
+.ivx-figure-mark.is-warn {
+    background: var(--ivx-warn-bg);
+    color: var(--ivx-warn);
+}
+
+.ivx-figure-mark.is-ok {
+    background: var(--ivx-ok-bg);
+    color: var(--ivx-ok);
+}
+
+.ivx-figure-text {
+    min-width: 0;
+}
+
+.ivx-figure-value {
+    font-size: 19px;
+    font-weight: 500;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+}
+
+/* A money pair is roughly twice the glyph count of a count, so it steps down
+   rather than wrapping under its own label. */
+.ivx-figure-value.is-money {
+    font-size: 15px;
+    line-height: 1.3;
+}
+
+.ivx-figure-value.is-warn {
+    color: var(--ivx-warn);
+}
+
+.ivx-figure-unit {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--ivx-mute-3);
+    margin-left: 3px;
+}
+
+.ivx-figure-label {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ivx-mute-3);
+}
+
+.ivx-figure-note {
+    font-size: 11.5px;
+    color: var(--ivx-mute-2);
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+.ivx-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--ivx-s4);
+    flex-wrap: wrap;
+}
+
+.ivx-field {
+    min-width: 0;
+}
+
+.ivx-field > label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+    color: var(--ivx-mute);
+}
+
+.ivx-field-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--ivx-mute-3);
+}
+
+.ivx .ivx-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.3;
+    color: var(--ivx-ink);
+    caret-color: var(--ivx-accent);
+    background: var(--ivx-field);
+    background-image: none;
+    border: 1px solid var(--ivx-field-edge);
+    border-radius: var(--ivx-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.ivx .ivx-input:hover {
+    border-color: var(--ivx-field-edge-hi);
+}
+
+.ivx .ivx-input:focus-visible {
+    border-color: var(--ivx-accent);
+    outline-offset: 0;
+}
+
+.ivx .ivx-input::placeholder {
+    color: var(--ivx-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--ivx-placeholder);
+}
+
+.ivx .ivx-input:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.ivx .ivx-input-num {
+    font-variant-numeric: tabular-nums;
+}
+
+.ivx textarea.ivx-input {
+    min-height: 62px;
+    resize: vertical;
+}
+
+.ivx-select {
+    position: relative;
+}
+
+.ivx .ivx-select select.ivx-input {
+    padding-right: 26px;
+    cursor: pointer;
+}
+
+/* The popup of a native select takes its fill from the field, and a field the
+   browser has composited onto white will not honour color-scheme afterwards.
+   --ivx-surface rather than --ivx-field because the popup needs a fill that is
+   opaque in both themes. */
+.ivx .ivx-select select.ivx-input option,
+.ivx .ivx-select select.ivx-input optgroup {
+    color: var(--ivx-ink);
+    background-color: var(--ivx-surface);
+}
+
+.ivx-select .ivx-caret {
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--ivx-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+.ivx-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s2);
+    margin-left: auto;
+}
+
+/* ── Multi-select listbox ──────────────────────────────────────────────── */
+/* A listbox in markup, not a <select multiple>: see the sheet header. The
+   search row matters more than it looks — the item picker is several hundred
+   options and scrolling to YOG143 is not a selection method. */
+
+.ivx-ms {
+    position: relative;
+    display: block;
+}
+
+.ivx .ivx-ms-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ivx-s2);
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.3;
+    color: var(--ivx-mute);
+    background: var(--ivx-field);
+    border: 1px solid var(--ivx-field-edge);
+    border-radius: var(--ivx-r-md);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color .15s, background-color .15s, color .15s;
+}
+
+.ivx .ivx-ms-btn:hover:not(:disabled) {
+    border-color: var(--ivx-field-edge-hi);
+    color: var(--ivx-ink);
+}
+
+.ivx .ivx-ms-btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+/* Open and chosen are different states and read differently: open is the
+   accent ring, chosen is the accent ink that persists after the menu shuts. */
+.ivx-ms.is-open .ivx-ms-btn {
+    color: var(--ivx-ink);
+    border-color: var(--ivx-accent);
+}
+
+.ivx .ivx-ms-btn.is-set {
+    color: var(--ivx-accent-text);
+}
+
+.ivx-ms-icon {
+    flex: none;
+    font-size: 13px;
+    color: var(--ivx-mute-3);
+    transition: color .15s;
+}
+
+.ivx .ivx-ms-btn.is-set .ivx-ms-icon,
+.ivx-ms.is-open .ivx-ms-icon {
+    color: var(--ivx-accent);
+}
+
+.ivx-ms-value {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.ivx-ms-caret {
+    flex: none;
+    font-size: 9px;
+    color: var(--ivx-mute-3);
+    transition: transform .18s ease, color .15s;
+}
+
+.ivx-ms.is-open .ivx-ms-caret {
+    transform: rotate(180deg);
+    color: var(--ivx-accent);
+}
+
+/* Outside-click target. A transparent sheet under the menu keeps the close
+   entirely in Blazor — no document listener to register per render. */
+.ivx-ms-catch {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+}
+
+.ivx-ms-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 61;
+    min-width: 100%;
+    width: max-content;
+    max-width: 360px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--ivx-divider);
+    border-radius: var(--ivx-r-lg);
+    background: var(--ivx-surface);
+    box-shadow: var(--ivx-shadow-pop);
+    animation: ivx-rise .14s ease-out;
+    overflow: hidden;
+}
+
+@keyframes ivx-rise {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+}
+
+.ivx-ms-search {
+    padding: var(--ivx-s2);
+    border-bottom: 1px solid var(--ivx-rowline);
+}
+
+.ivx-ms-list {
+    max-height: 288px;
+    overflow-y: auto;
+    padding: var(--ivx-s2);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.ivx .ivx-ms-item {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s3);
+    width: 100%;
+    padding: 6px 8px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--ivx-mute);
+    background: transparent;
+    border: 0;
+    border-radius: var(--ivx-r-sm);
+    cursor: pointer;
+    text-align: left;
+    transition: background-color .12s, color .12s;
+}
+
+.ivx .ivx-ms-item:hover {
+    background: var(--ivx-hover);
+    color: var(--ivx-ink);
+}
+
+.ivx .ivx-ms-item.is-selected {
+    color: var(--ivx-ink);
+    background: rgba(var(--ivx-accent-rgb), .12);
+}
+
+.ivx-ms-box {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--ivx-field-edge-hi);
+    border-radius: 3px;
+    font-size: 9px;
+    color: transparent;
+    transition: background-color .12s, border-color .12s, color .12s;
+}
+
+.ivx .ivx-ms-item.is-selected .ivx-ms-box {
+    background: var(--ivx-accent);
+    border-color: var(--ivx-accent);
+    color: #ffffff;
+}
+
+.ivx-ms-labels {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.ivx-ms-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ivx-ms-sub {
+    font-size: 11px;
+    color: var(--ivx-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ivx-ms-flag {
+    flex: none;
+    font-size: 10px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--ivx-warn);
+}
+
+.ivx-ms-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s2);
+    padding: var(--ivx-s2) var(--ivx-s3);
+    border-top: 1px solid var(--ivx-rowline);
+}
+
+.ivx-ms-count {
+    margin-left: auto;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ivx-mute-3);
+}
+
+.ivx-ms-empty {
+    padding: var(--ivx-s4);
+    font-size: 12.5px;
+    color: var(--ivx-mute-3);
+    text-align: center;
+}
+
+/* ── Chips ─────────────────────────────────────────────────────────────── */
+
+.ivx-chips {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s2);
+    flex-wrap: wrap;
+}
+
+.ivx-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ivx-tag-ink);
+    background: var(--ivx-tag-bg);
+    border-radius: 999px;
+}
+
+.ivx .ivx-chip-x {
+    display: inline-flex;
+    padding: 0;
+    font-size: 10px;
+    line-height: 1;
+    color: var(--ivx-mute-2);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
+
+.ivx .ivx-chip-x:hover {
+    color: var(--ivx-bad);
+}
+
+.ivx-chip.is-warn {
+    color: var(--ivx-warn);
+    background: var(--ivx-warn-bg);
+}
+
+/* ── Card ──────────────────────────────────────────────────────────────── */
+
+.ivx-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--ivx-surface);
+    border-radius: var(--ivx-r-md);
+    box-shadow: var(--ivx-shadow-sm);
+    overflow: hidden;
+}
+
+.ivx-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s4);
+    padding: var(--ivx-s4) var(--ivx-s6);
+    min-height: 54px;
+    flex-wrap: wrap;
+}
+
+.ivx-toolbar-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-right: auto;
+    min-width: 0;
+}
+
+.ivx-toolbar-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.ivx-toolbar-sub {
+    margin: 0;
+    font-size: 11.5px;
+    color: var(--ivx-mute-2);
+}
+
+.ivx-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s2);
+}
+
+/* ── Disclosure list ───────────────────────────────────────────────────── */
+
+.ivx-groups {
+    display: flex;
+    flex-direction: column;
+}
+
+.ivx-group {
+    border-top: 1px solid var(--ivx-rowline);
+}
+
+.ivx-group:first-child {
+    border-top: 0;
+}
+
+.ivx-group.is-open {
+    box-shadow: inset 2px 0 0 var(--ivx-accent);
+    background: var(--ivx-hover);
+}
+
+.ivx .ivx-grouphead {
+    display: grid;
+    grid-template-columns: 18px minmax(150px, 1.2fr) minmax(0, 2fr);
+    align-items: center;
+    gap: var(--ivx-s4);
+    width: 100%;
+    padding: var(--ivx-s3) var(--ivx-s6);
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    text-align: left;
+}
+
+.ivx .ivx-grouphead:hover {
+    background: var(--ivx-hover);
+}
+
+.ivx-twist {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    color: var(--ivx-mute-3);
+    transition: transform .16s ease, color .16s;
+}
+
+.ivx-group.is-open .ivx-twist {
+    transform: rotate(90deg);
+    color: var(--ivx-accent);
+}
+
+.ivx-group-id {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.ivx-group-name {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ivx-group-code {
+    font-size: 11px;
+    letter-spacing: .02em;
+    color: var(--ivx-mute-3);
+}
+
+.ivx-group-figs {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s6);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.ivx-kv {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-width: 0;
+}
+
+.ivx-kv-label {
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ivx-mute-3);
+    white-space: nowrap;
+}
+
+.ivx-kv-value {
+    font-size: 13px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.ivx-kv-value.is-warn {
+    color: var(--ivx-warn);
+}
+
+.ivx-kv-value.is-bad {
+    color: var(--ivx-bad);
+}
+
+.ivx-kv-value.is-quiet {
+    font-weight: 400;
+    color: var(--ivx-mute-2);
+}
+
+.ivx-group-body {
+    padding: 0 var(--ivx-s6) var(--ivx-s4) calc(var(--ivx-s6) + 18px + var(--ivx-s4));
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────── */
+
+.ivx-tablewrap {
+    overflow-x: auto;
+}
+
+.ivx-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.ivx-table.is-wide {
+    min-width: 1080px;
+}
+
+.ivx-table th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ivx-mute);
+    padding: var(--ivx-s2);
+    white-space: nowrap;
+}
+
+.ivx-table td {
+    padding: var(--ivx-s2);
+    vertical-align: middle;
+}
+
+.ivx-table th:first-child,
+.ivx-table td:first-child {
+    padding-left: 0;
+}
+
+/* Row rules are painted as row-level strips so the end-fade spans the row
+   rather than restarting in every cell. */
+.ivx-table thead tr {
+    background: linear-gradient(to right,
+            var(--ivx-divider), var(--ivx-divider) calc(100% - 24px),
+            transparent) no-repeat bottom / 100% 1px;
+}
+
+.ivx-table tbody tr {
+    background: linear-gradient(to right,
+            var(--ivx-rowline), var(--ivx-rowline) calc(100% - 24px),
+            transparent) no-repeat bottom / 100% 1px;
+}
+
+.ivx-table tbody tr:last-child {
+    background: none;
+}
+
+.ivx-table.is-padded th:first-child,
+.ivx-table.is-padded td:first-child {
+    padding-left: var(--ivx-s6);
+}
+
+.ivx-table.is-padded th:last-child,
+.ivx-table.is-padded td:last-child {
+    padding-right: var(--ivx-s6);
+}
+
+.ivx-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.ivx-item {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 170px;
+}
+
+.ivx-item-name {
+    font-weight: 500;
+}
+
+.ivx-item-code {
+    font-size: 11px;
+    letter-spacing: .02em;
+    color: var(--ivx-mute-3);
+}
+
+.ivx-money {
+    font-variant-numeric: tabular-nums;
+}
+
+.ivx-money.is-strong {
+    font-weight: 500;
+}
+
+.ivx-money.is-credit {
+    color: var(--ivx-bad);
+}
+
+.ivx-volume {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+}
+
+.ivx-volume.is-missing {
+    font-weight: 400;
+    color: var(--ivx-warn);
+}
+
+.ivx-none {
+    color: var(--ivx-faint);
+}
+
+.ivx-doctype {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    white-space: nowrap;
+}
+
+.ivx-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ivx-dot);
+    flex: none;
+}
+
+.ivx-dot.is-credit {
+    background: var(--ivx-bad);
+}
+
+.ivx-dot.is-invoice {
+    background: var(--ivx-accent);
+}
+
+.ivx-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    font-size: 10.5px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.ivx-flag.is-warn {
+    color: var(--ivx-warn);
+    background: var(--ivx-warn-bg);
+    border: 1px solid var(--ivx-warn-edge);
+}
+
+.ivx-flag.is-ok {
+    color: var(--ivx-ok);
+    background: var(--ivx-ok-bg);
+    border: 1px solid var(--ivx-ok-edge);
+}
+
+.ivx-flag.is-off {
+    color: var(--ivx-mute-2);
+    background: var(--ivx-hover);
+    border: 1px solid var(--ivx-divider);
+}
+
+/* ── Empty / loading ───────────────────────────────────────────────────── */
+
+.ivx-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--ivx-s3);
+    padding: 56px var(--ivx-s6);
+    font-size: 13.5px;
+    text-align: center;
+}
+
+.ivx-empty i {
+    font-size: 22px;
+    color: var(--ivx-accent);
+    opacity: .8;
+}
+
+.ivx-empty-sub {
+    font-size: 12.5px;
+    color: var(--ivx-mute-2);
+    max-width: 46ch;
+}
+
+.ivx-spinner {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid var(--ivx-track);
+    border-top-color: var(--ivx-accent);
+    animation: ivx-spin .8s linear infinite;
+}
+
+@keyframes ivx-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Alerts ────────────────────────────────────────────────────────────── */
+
+.ivx-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ivx-s3);
+    padding: var(--ivx-s3) var(--ivx-s4);
+    border-radius: var(--ivx-r-md);
+    background: var(--ivx-bad-bg);
+    border: 1px solid var(--ivx-bad-edge);
+    color: var(--ivx-bad);
+    font-size: 13px;
+}
+
+.ivx-alert-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.ivx-alert-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s2);
+    flex: none;
+}
+
+.ivx-alert.is-info {
+    background: var(--ivx-info-bg);
+    border-color: var(--ivx-info-edge);
+    color: var(--ivx-mute);
+}
+
+.ivx-alert.is-info i {
+    color: var(--ivx-accent);
+}
+
+.ivx-alert.is-warn {
+    background: var(--ivx-warn-bg);
+    border-color: var(--ivx-warn-edge);
+    color: var(--ivx-warn);
+}
+
+.ivx-alert.is-ok {
+    background: var(--ivx-ok-bg);
+    border-color: var(--ivx-ok-edge);
+    color: var(--ivx-ok);
+}
+
+/* ── Modal ─────────────────────────────────────────────────────────────── */
+/* The conversion editor. The scrim repeats no page-root class, so it inherits
+   nothing it has to undo — the tokens come from .ivx on the wrapper instead. */
+
+.ivx-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--ivx-s6);
+    background: rgba(12, 13, 20, .55);
+    animation: ivx-fade .12s ease-out;
+}
+
+@keyframes ivx-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+.ivx-modal {
+    width: 100%;
+    max-width: 460px;
+    max-height: min(88vh, 720px);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--ivx-surface);
+    color: var(--ivx-ink);
+    border-radius: var(--ivx-r-lg);
+    box-shadow: var(--ivx-shadow-pop);
+    overflow: hidden;
+    animation: ivx-rise .16s ease-out;
+}
+
+/* EditForm renders a <form> between the modal and its body, so the column has
+   to be re-established on it or the footer drops below the fold. */
+.ivx-modal-form {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+}
+
+.ivx-modal-head {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s3);
+    padding: var(--ivx-s4) var(--ivx-s6);
+    border-bottom: 1px solid var(--ivx-rowline);
+    flex: none;
+}
+
+.ivx-modal-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 500;
+    margin-right: auto;
+}
+
+.ivx-modal-body {
+    padding: var(--ivx-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--ivx-s4);
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.ivx-modal-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--ivx-s2);
+    padding: var(--ivx-s3) var(--ivx-s6);
+    border-top: 1px solid var(--ivx-rowline);
+    flex: none;
+}
+
+.ivx-validation {
+    font-size: 12px;
+    color: var(--ivx-bad);
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.ivx-ms-list::-webkit-scrollbar,
+.ivx-modal-body::-webkit-scrollbar,
+.ivx-tablewrap::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.ivx-ms-list::-webkit-scrollbar-track,
+.ivx-modal-body::-webkit-scrollbar-track,
+.ivx-tablewrap::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.ivx-ms-list::-webkit-scrollbar-thumb,
+.ivx-modal-body::-webkit-scrollbar-thumb,
+.ivx-tablewrap::-webkit-scrollbar-thumb {
+    background: var(--ivx-track);
+    border-radius: 999px;
+}
+
+/* ── Reduced motion ────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+
+    .ivx-spinner,
+    .ivx-ms-menu,
+    .ivx-modal,
+    .ivx-scrim {
+        animation: none;
+    }
+
+    .ivx-ms.is-open .ivx-ms-caret,
+    .ivx-group.is-open .ivx-twist {
+        transition: none;
+    }
+}
+
+/* ── Narrow screens ───────────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+    .ivx-figures {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .ivx .ivx-grouphead {
+        grid-template-columns: 18px minmax(0, 1fr);
+    }
+
+    .ivx-group-figs {
+        grid-column: 2 / -1;
+        justify-content: flex-start;
+        margin-top: var(--ivx-s2);
+        gap: var(--ivx-s4);
+    }
+}
+
+@media (max-width: 860px) {
+
+    .ivx-shell,
+    .ivx-body {
+        padding-left: var(--ivx-s6);
+        padding-right: var(--ivx-s6);
+    }
+
+    .ivx-shell {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--ivx-s4);
+    }
+
+    .ivx-head-actions {
+        justify-content: space-between;
+    }
+
+    .ivx-field {
+        flex: 1 1 160px;
+    }
+
+    .ivx-filter-actions {
+        margin-left: 0;
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .ivx-group-body {
+        padding-left: var(--ivx-s6);
+    }
+}
+
+@media (max-width: 700px) {
+
+    /* Right-anchor the trailing picker so its menu cannot run off the edge. */
+    .ivx-filters .ivx-field:last-of-type .ivx-ms-menu {
+        left: auto;
+        right: 0;
+    }
+
+    /* 16px is the smallest size iOS renders a focused field at without zooming. */
+    .ivx .ivx-input,
+    .ivx .ivx-ms-btn {
+        font-size: 16px;
+    }
+}
+
+@media (max-width: 600px) {
+    .ivx-figures {
+        grid-template-columns: 1fr;
+    }
+}

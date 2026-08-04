@@ -9,6 +9,9 @@ public static partial class Errors
         public static Error LoadAccountSalesPaymentsFailed(string message) =>
             Error.Failure("Report.LoadAccountSalesPaymentsFailed", message);
 
+        public static Error LoadItemVolumeSalesFailed(string message) =>
+            Error.Failure("Report.LoadItemVolumeSalesFailed", message);
+
         public static Error LoadMerchandiserPurchaseOrdersFailed(string message) =>
             Error.Failure("Report.LoadMerchandiserPurchaseOrdersFailed", message);
 
