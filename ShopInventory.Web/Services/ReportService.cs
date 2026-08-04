@@ -16,7 +16,7 @@ public interface IReportService
     Task<LowStockAlertReport?> GetLowStockAlertsAsync(string? warehouseCode = null, decimal? threshold = null, CancellationToken cancellationToken = default);
     Task<PaymentSummaryReport?> GetPaymentSummaryAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default);
     Task<TopCustomersReport?> GetTopCustomersAsync(DateTime? fromDate, DateTime? toDate, int topCount = 10, CancellationToken cancellationToken = default);
-    Task<OrderFulfillmentReport?> GetOrderFulfillmentAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default);
+    Task<OrderFulfillmentReport?> GetOrderFulfillmentAsync(DateTime? fromDate, DateTime? toDate, string? cardCode = null, CancellationToken cancellationToken = default);
     Task<CreditNoteSummaryReport?> GetCreditNoteSummaryAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default);
     Task<PurchaseOrderSummaryReport?> GetPurchaseOrderSummaryAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default);
     Task<ReceivablesAgingReport?> GetReceivablesAgingAsync(CancellationToken cancellationToken = default);
@@ -174,15 +174,22 @@ public class ReportService : IReportService
         }
     }
 
-    public async Task<OrderFulfillmentReport?> GetOrderFulfillmentAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default)
+    public async Task<OrderFulfillmentReport?> GetOrderFulfillmentAsync(DateTime? fromDate, DateTime? toDate, string? cardCode = null, CancellationToken cancellationToken = default)
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
-        var cacheKey = $"report:fulfillment:{from}:{to}";
+        var customer = string.IsNullOrWhiteSpace(cardCode) ? null : cardCode.Trim();
+        // The customer belongs in the key: without it a rep's single-partner report and the
+        // company-wide one would answer each other for ten minutes.
+        var cacheKey = $"report:fulfillment:{from}:{to}:{customer ?? "*"}";
         if (_cache.TryGetValue(cacheKey, out OrderFulfillmentReport? cached)) return cached;
         try
         {
-            var response = await _httpClient.GetAsync($"api/report/order-fulfillment?fromDate={from}&toDate={to}", cancellationToken);
+            var url = $"api/report/order-fulfillment?fromDate={from}&toDate={to}";
+            if (customer is not null)
+                url += $"&cardCode={Uri.EscapeDataString(customer)}";
+
+            var response = await _httpClient.GetAsync(url, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 var reason = await ReadProblemDetailAsync(response, cancellationToken);

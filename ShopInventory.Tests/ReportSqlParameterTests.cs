@@ -84,6 +84,51 @@ public class ReportSqlParameterTests
     }
 
     /// <summary>
+    /// A sales rep's copy of the same report names one business partner. That partner binds like the
+    /// date range does, under four codes of its own — so the scoping costs four SAP query objects in
+    /// total rather than four per customer ever reported on.
+    /// </summary>
+    [Fact]
+    public async Task Order_fulfillment_for_one_partner_binds_the_card_code_under_its_own_codes()
+    {
+        var calls = await RunReportAsync(reports => reports.GetOrderFulfillmentAsync(From, To, "C0042"));
+
+        Assert.Equal(
+            [
+                ReportService.OrderFulfillmentCustomerByPartnerQueryCode,
+                ReportService.OrderFulfillmentDailyByPartnerQueryCode,
+                ReportService.OrderFulfillmentLineByPartnerQueryCode,
+                ReportService.OrderDirectInvoiceByPartnerQueryCode
+            ],
+            calls.Select(call => call.QueryCode));
+
+        foreach (var call in calls)
+        {
+            Assert.Equal("C0042", call.Parameters["cardCode"]);
+            Assert.DoesNotContain("C0042", call.SqlText, StringComparison.Ordinal);
+            Assert.Contains(":cardCode", call.SqlText, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// One statement per shape, not per partner: two different customers run the same four
+    /// statements under the same four codes, and neither shares a code with the company-wide report.
+    /// </summary>
+    [Fact]
+    public async Task Order_fulfillment_sql_is_identical_across_partners()
+    {
+        var first = await RunReportAsync(reports => reports.GetOrderFulfillmentAsync(From, To, "C0042"));
+        var second = await RunReportAsync(reports => reports.GetOrderFulfillmentAsync(From, To, "C9001"));
+        var everyone = await RunReportAsync(reports => reports.GetOrderFulfillmentAsync(From, To));
+
+        Assert.Equal(
+            first.Select(call => (call.QueryCode, call.SqlText)),
+            second.Select(call => (call.QueryCode, call.SqlText)));
+
+        Assert.Empty(everyone.Select(call => call.QueryCode).Intersect(first.Select(call => call.QueryCode)));
+    }
+
+    /// <summary>
     /// SAP's SQLQueries validator rejects COALESCE at create with 701, which took the whole sales
     /// order vs invoice report down before a row was read. The row readers already map a missing or
     /// null cell to 0, so nothing needs it.
@@ -156,6 +201,7 @@ public class ReportSqlParameterTests
             await reports.GetSlowMovingProductsAsync(fromDate, toDate);
             await reports.GetTopCustomersAsync(fromDate, toDate);
             await reports.GetOrderFulfillmentAsync(fromDate, toDate);
+            await reports.GetOrderFulfillmentAsync(fromDate, toDate, "C0042");
         });
 
     private static async Task<List<SqlCall>> RunReportAsync(Func<IReportService, Task> run)

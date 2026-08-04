@@ -163,9 +163,10 @@ public class ReportController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> GetOrderFulfillment(
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
+        [FromQuery] string? cardCode = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetOrderFulfillmentQuery(fromDate, toDate), cancellationToken);
+        var result = await mediator.Send(new GetOrderFulfillmentQuery(fromDate, toDate, cardCode), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
