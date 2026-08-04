@@ -1,4 +1,5 @@
 @page "/desktop-sales"
+@using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin,Cashier")]
@@ -8,890 +9,611 @@
 @inject INotificationHubService HubService
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
-@inject IDialogService DialogService
 @inject IAuditService AuditService
 @implements IDisposable
 @rendermode InteractiveServer
 
 <PageTitle>Desktop Sales - Shop Inventory</PageTitle>
 
-<style>
-    /* ── Page ────────────────────────────────────────── */
-    .ds-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
-
-    .dark-theme .ds-page { background: #1a1a2e; }
-
-    /* ── Header ──────────────────────────────────────── */
-    .ds-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .ds-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
-
-    .ds-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #10b981, #059669);
-        box-shadow: 0 4px 14px rgba(16, 185, 129, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
-
-    .ds-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-        letter-spacing: -.3px;
-    }
-
-    .dark-theme .ds-header h2 { color: #e2e8f0; }
-
-    .ds-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    .ds-header-actions {
-        display: flex;
-        gap: .5rem;
-        flex-wrap: wrap;
-    }
-
-    .btn-ds-gradient {
-        background: linear-gradient(135deg, #10b981, #059669);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        box-shadow: 0 2px 8px rgba(16, 185, 129, .25);
-        cursor: pointer;
-    }
-
-    .btn-ds-gradient:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(16, 185, 129, .35); }
-
-    .btn-ds-outline {
-        background: transparent;
-        border: 1.5px solid #d1d5db;
-        color: #374151;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .dark-theme .btn-ds-outline { border-color: #4b5563; color: #d1d5db; }
-
-    /* ── Stat Cards ──────────────────────────────────── */
-    .stat-row {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .stat-card {
-        background: #fff;
-        border-radius: 12px;
-        padding: 1.1rem 1.25rem;
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-        border: 1px solid #e5e7eb;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .dark-theme .stat-card { background: #1e293b; border-color: #334155; }
-
-    .stat-icon {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.2rem;
-    }
-
-    .stat-icon.green { background: #d1fae5; color: #059669; }
-    .stat-icon.blue { background: #dbeafe; color: #2563eb; }
-    .stat-icon.amber { background: #fef3c7; color: #d97706; }
-    .stat-icon.red { background: #fee2e2; color: #dc2626; }
-    .stat-icon.purple { background: #ede9fe; color: #7c3aed; }
-
-    .stat-value { font-size: 1.35rem; font-weight: 700; color: #1a1a2e; }
-    .dark-theme .stat-value { color: #e2e8f0; }
-    .stat-label { font-size: .75rem; color: #6b7280; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
-
-    /* ── Filter Bar ──────────────────────────────────── */
-    .filter-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .75rem;
-        align-items: flex-end;
-        padding: 1rem 1.25rem;
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        margin-bottom: 1.25rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .dark-theme .filter-bar { background: #1e293b; border-color: #334155; }
-
-    .filter-field { display: flex; flex-direction: column; gap: .25rem; }
-    .filter-field label { font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; }
-    /* This pair is (0,1,1) and the date field's own `.ndf .ndf-input` is
-       (0,2,0), so it loses to it and needs no guard. The dark rule below is
-       (0,2,1) and does — see the note there. */
-    .filter-field select,
-    .filter-field input {
-        padding: .45rem .65rem;
-        border: 1.5px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .85rem;
-        background: #fff;
-        color: #374151;
-        min-width: 140px;
-    }
-
-    /* `:not(.ndf-input)` so this stops short of the date fields. It is (0,2,1)
-       against the component's own (0,2,0), so without the exclusion it would
-       repaint them in dark and not in light. */
-    .dark-theme .filter-field select,
-    .dark-theme .filter-field input:not(.ndf-input) { background: #0f172a; border-color: #475569; color: #e2e8f0; }
-
-    /* The date fields take their metrics from the row they sit in; their
-       calendar is the shared one. See wwwroot/css/nocturne-date-field.css. */
-    .filter-field .ndf {
-        min-width: 140px;
-        --ndf-pad-y: .45rem;
-        --ndf-pad-x: .65rem;
-        --ndf-fs: .85rem;
-        --ndf-radius: 8px;
-        --ndf-fill: #fff;
-        --ndf-edge: #d1d5db;
-    }
-
-    .dark-theme .filter-field .ndf {
-        --ndf-fill: #0f172a;
-        --ndf-edge: #475569;
-    }
-
-    .filter-actions-row { display: flex; gap: .5rem; align-items: flex-end; }
-
-    .btn-search {
-        background: linear-gradient(135deg, #10b981, #059669);
-        color: #fff;
-        border: none;
-        padding: .45rem 1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-    }
-
-    .btn-clear {
-        background: transparent;
-        border: 1.5px solid #d1d5db;
-        padding: .45rem 1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        color: #6b7280;
-    }
-
-    /* ── Table ───────────────────────────────────────── */
-    .ds-table-wrap {
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .dark-theme .ds-table-wrap { background: #1e293b; border-color: #334155; }
-
-    .ds-table-header {
-        padding: .75rem 1rem;
-        border-bottom: 1px solid #e5e7eb;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .dark-theme .ds-table-header { border-color: #334155; }
-
-    .ds-table-header h6 { margin: 0; font-size: .85rem; font-weight: 600; color: #374151; }
-    .dark-theme .ds-table-header h6 { color: #d1d5db; }
-
-    .ds-count-badge {
-        background: #10b981;
-        color: #fff;
-        padding: .15rem .5rem;
-        border-radius: 20px;
-        font-size: .7rem;
-        font-weight: 700;
-        margin-left: .35rem;
-    }
-
-    .ds-table {
-        width: 100%;
-        font-size: .85rem;
-        border-collapse: separate;
-        border-spacing: 0;
-    }
-
-    .ds-table th {
-        background: #f8fafc;
-        font-size: .72rem;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #6b7280;
-        font-weight: 600;
-        padding: .6rem .75rem;
-        border-bottom: 2px solid #e5e7eb;
-        white-space: nowrap;
-    }
-
-    .dark-theme .ds-table th { background: #0f172a; color: #94a3b8; border-color: #334155; }
-
-    .ds-table td {
-        padding: .55rem .75rem;
-        border-bottom: 1px solid #f3f4f6;
-        color: #374151;
-        vertical-align: middle;
-    }
-
-    .dark-theme .ds-table td { color: #cbd5e1; border-color: #1e293b; }
-
-    .ds-table tbody tr { cursor: pointer; transition: background .15s; }
-    .ds-table tbody tr:hover { background: rgba(16, 185, 129, .04); }
-    .dark-theme .ds-table tbody tr:hover { background: rgba(16, 185, 129, .08); }
-
-    .item-code { font-weight: 700; color: #10b981; font-size: .88rem; font-family: 'Space Grotesk', monospace; }
-    .amount-cell { font-family: 'Space Grotesk', monospace; font-weight: 600; }
-
-    /* ── Status Badges ───────────────────────────────── */
-    .status-badge {
-        padding: 3px 10px;
-        border-radius: 6px;
-        font-size: .7rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .03em;
-        display: inline-block;
-        white-space: nowrap;
-    }
-
-    .status-success { background: #d1fae5; color: #065f46; }
-    .status-pending { background: #fef3c7; color: #92400e; }
-    .status-failed { background: #fee2e2; color: #991b1b; }
-    .status-skipped { background: #f3f4f6; color: #4b5563; }
-    .status-consolidated { background: #dbeafe; color: #1e40af; }
-    .status-excluded { background: #fce7f3; color: #9d174d; }
-
-    /* ── Detail Drawer ───────────────────────────────── */
-    /* Offset below the app bar: the page container is a stacking context, so a drawer
-       cannot paint over the topbar however high its z-index. */
-    .modal-backdrop-custom {
-        position: fixed;
-        top: var(--kf-topbar-h, 74px); left: 0; right: 0; bottom: 0;
-        background: rgba(0, 0, 0, .4);
-        z-index: 1000;
-    }
-
-    .detail-drawer {
-        position: fixed;
-        top: var(--kf-topbar-h, 74px); right: 0; bottom: 0;
-        width: 520px;
-        max-width: 95vw;
-        background: #fff;
-        z-index: 1001;
-        box-shadow: -4px 0 24px rgba(0, 0, 0, .15);
-        display: flex;
-        flex-direction: column;
-        animation: slideIn .2s ease;
-    }
-
-    .dark-theme .detail-drawer { background: #1e293b; }
-
-    @@keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
-
-    .drawer-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1.25rem 1.5rem;
-        border-bottom: 1px solid #e5e7eb;
-    }
-
-    .dark-theme .drawer-header { border-color: #334155; }
-    .drawer-header h5 { margin: 0; font-size: 1rem; font-weight: 700; }
-
-    .btn-close-drawer {
-        background: none;
-        border: none;
-        font-size: 1.2rem;
-        color: #6b7280;
-        cursor: pointer;
-        padding: .25rem;
-        border-radius: 6px;
-    }
-
-    .btn-close-drawer:hover { background: #f3f4f6; }
-
-    .drawer-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1.25rem 1.5rem;
-    }
-
-    .detail-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: .75rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .detail-item {
-        padding: .75rem;
-        border-radius: 8px;
-        background: #f8fafc;
-    }
-
-    .dark-theme .detail-item { background: #0f172a; }
-
-    .detail-label {
-        font-size: .68rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .05em;
-        color: #6b7280;
-        margin-bottom: .2rem;
-    }
-
-    .detail-value { font-size: .9rem; font-weight: 500; color: #1a1a2e; }
-    .dark-theme .detail-value { color: #e2e8f0; }
-
-    .lines-table {
-        width: 100%;
-        font-size: .8rem;
-        border-collapse: collapse;
-        margin-top: .75rem;
-    }
-
-    .lines-table th {
-        text-align: left;
-        padding: .5rem;
-        font-size: .68rem;
-        text-transform: uppercase;
-        color: #6b7280;
-        border-bottom: 2px solid #e5e7eb;
-    }
-
-    .lines-table td {
-        padding: .5rem;
-        border-bottom: 1px solid #f3f4f6;
-    }
-
-    .drawer-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid #e5e7eb;
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-    }
-
-    .dark-theme .drawer-footer { border-color: #334155; }
-
-    /* ── Pagination ───────────────────────────────────── */
-    .ds-pagination {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 1rem;
-        padding: 1rem;
-    }
-
-    .ds-pagination button {
-        padding: .4rem 1rem;
-        border: 1.5px solid #d1d5db;
-        border-radius: 8px;
-        background: #fff;
-        font-size: .85rem;
-        font-weight: 600;
-        cursor: pointer;
-        color: #374151;
-    }
-
-    .ds-pagination button:disabled { opacity: .5; cursor: not-allowed; }
-
-    .page-indicator { font-size: .85rem; color: #6b7280; font-weight: 600; }
-
-    /* ── Loading / Empty ─────────────────────────────── */
-    .loading-state { text-align: center; padding: 3rem; color: #6b7280; font-size: .9rem; }
-    .empty-state { text-align: center; padding: 3rem; }
-    .empty-icon { font-size: 3rem; margin-bottom: .75rem; }
-    .empty-state h6 { color: #374151; font-weight: 600; }
-    .empty-state p { color: #6b7280; font-size: .85rem; }
-    .alert-banner { padding: .75rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: .85rem; }
-    .error-alert { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
-
-    /* ── Live Indicator ──────────────────────────────── */
-    .live-badge { display: inline-flex; align-items: center; gap: .35rem; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #059669; }
-    .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #059669; animation: ds-pulse 1.5s infinite; }
-    @@keyframes ds-pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
-
-    /* ── Mobile Responsive ───────────────────────────── */
-    @@media (max-width: 768px) {
-        .ds-page { padding: .75rem; }
-        .ds-header { flex-direction: column; }
-        .ds-header-actions { width: 100%; justify-content: stretch; }
-        .ds-header-actions button { flex: 1; }
-        .stat-row { grid-template-columns: repeat(2, 1fr); }
-        .filter-bar { flex-direction: column; }
-        .filter-field { width: 100%; }
-        .filter-field select,
-        .filter-field input,
-        .filter-field .ndf { width: 100%; min-width: unset; }
-        .filter-actions-row { width: 100%; }
-        .filter-actions-row button { flex: 1; }
-        .ds-table-header {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: .5rem;
-        }
-        .ds-table { font-size: .78rem; }
-        .ds-table thead,
-        .lines-table thead { display: none; }
-        .ds-table,
-        .ds-table tbody,
-        .ds-table tr,
-        .ds-table td,
-        .lines-table,
-        .lines-table tbody,
-        .lines-table tr,
-        .lines-table td { display: block; width: 100%; }
-        .ds-table-wrap { overflow: visible; }
-        .ds-table tbody,
-        .lines-table tbody { display: grid; gap: .85rem; }
-        .ds-table tbody { padding: .85rem; }
-        .ds-table tbody tr,
-        .lines-table tbody tr {
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            overflow: hidden;
-            background: #fff;
-        }
-        .dark-theme .ds-table tbody tr,
-        .dark-theme .lines-table tbody tr {
-            background: #0f172a;
-            border-color: #334155;
-        }
-        .ds-table td,
-        .lines-table td {
-            display: grid;
-            grid-template-columns: minmax(96px, 112px) minmax(0, 1fr);
-            gap: .65rem;
-            padding: .65rem .85rem;
-            border-bottom: 1px solid #f3f4f6;
-        }
-        .dark-theme .ds-table td,
-        .dark-theme .lines-table td {
-            border-color: #1e293b;
-        }
-        .ds-table td:last-child,
-        .lines-table td:last-child { border-bottom: none; }
-        .ds-table td::before,
-        .lines-table td::before {
-            content: attr(data-label);
-            font-size: .68rem;
-            font-weight: 700;
-            color: #6b7280;
-            text-transform: uppercase;
-            letter-spacing: .08em;
-            padding-top: .15rem;
-        }
-        .detail-grid { grid-template-columns: 1fr; }
-        .detail-drawer { width: 100%; max-width: 100%; }
-    }
-
-    @@media (max-width: 480px) {
-        .stat-row { grid-template-columns: 1fr; }
-        .ds-header-icon { width: 40px; height: 40px; font-size: 1.1rem; }
-        .ds-header h2 { font-size: 1.3rem; }
-        .ds-table tbody { padding: .65rem; }
-        .ds-table td,
-        .lines-table td {
-            grid-template-columns: 1fr;
-            gap: .35rem;
-            padding: .65rem .75rem;
-        }
-    }
-</style>
-
-<div class="ds-page">
-    <div class="container-fluid">
-        <!-- ━━━ Header ━━━ -->
-        <div class="ds-header">
-            <div class="ds-header-left">
-                <div class="ds-header-icon"><i class="bi bi-receipt-cutoff"></i></div>
-                <div>
-                    <h2>Desktop Sales</h2>
-                    <p>View offline invoices from desktop apps — fiscalized locally, consolidated at end of day</p>
+@* Built from `Desktop Sales.dc.html` in the "Nocturne Dark Ops Redesign" design
+   project. Styles live in wwwroot/css/operations.css (linked from App.razor),
+   shared with the other five operational pages — see that file's header for why
+   an imported design joined the derived sheet rather than taking one of its
+   own. `ops` is the scope; `ops-ds` is this page's own half of it. The 542-line
+   inline <style> block is gone.
+
+   **The design's row selection is not built, deliberately.** It draws a
+   checkbox per row and a "Consolidate 4" button, i.e. consolidating a chosen
+   subset. `IDesktopIntegrationService.TriggerConsolidationAsync()` takes no
+   arguments — the run is end-of-day and server-side, and there is no endpoint
+   that accepts a set of sales. Checkboxes that did not decide what gets
+   consolidated would be a lie about what the button does, so the column is
+   left out and the dialog confirms the run the API actually performs. If a
+   selective endpoint appears, the column and the `Consolidate N` label are the
+   only markup this page is missing.
+
+   Two other places where the design assumed data this page does not have:
+   its status lane strip is drawn from the end-of-day report's consolidation
+   counts rather than from an invented per-device lifecycle, and its per-site
+   value bars became per-customer, because `BusinessPartnerSummaries` is the
+   breakdown the report returns. *@
+
+<div class="ops ops-ds">
+
+    <div class="ops-hero">
+        <div class="ops-hero-text">
+            <div class="ops-ds-kicker-row">
+                <span class="ops-kicker">Offline fiscalization</span>
+                <span class="ops-ds-kicker-rule"></span>
+                @* The dot animates only while the hub is up. A still dot is the
+                   disconnected state, not an animation that failed to start. *@
+                <span class="ops-ds-live">
+                    <span class="ops-ds-live-dot @(HubService.IsConnected ? "" : "is-off")"></span>
+                    @(HubService.IsConnected ? "Live" : "Offline")
+                </span>
+            </div>
+            <h1>Desktop Sales</h1>
+            <p>
+                Invoices raised in the desktop apps and fiscalized on the local device.
+                They stay here until the day is consolidated into the back office.
+            </p>
+        </div>
+
+        <div class="ops-ds-hero-side">
+            <div class="ops-ds-poll">
+                <div class="ops-ds-poll-now">
+                    @(lastPolledAt.HasValue ? $"Polled {lastPolledAt:HH:mm:ss}" : "Not polled yet")
+                </div>
+                <div class="ops-ds-poll-then">
+                    @(report != null ? $"Report generated {report.GeneratedAt.AddHours(2):dd MMM, HH:mm}" : "No report yet")
                 </div>
             </div>
-            <div class="ds-header-actions">
-                <button class="btn-ds-gradient" @onclick="TriggerConsolidation" disabled="@isConsolidating">
+            <div class="ops-hero-actions">
+                <button type="button" class="ops-btn ops-btn-primary" @onclick="OpenConsolidate"
+                        disabled="@(isConsolidating || isLoading)">
                     @if (isConsolidating)
                     {
-                        <span class="spinner-border spinner-border-sm"></span>
+                        <span class="ops-spin"></span>
+                        <span>Consolidating&hellip;</span>
                     }
                     else
                     {
-                        <i class="bi bi-send-check"></i>
+                        <i class="ph ph-paper-plane-tilt" aria-hidden="true"></i>
+                        <span>Consolidate</span>
                     }
-                    Consolidate
                 </button>
-                <button class="btn-ds-outline" @onclick="ExportToExcel" disabled="@(isExporting || !sales.Any())">
+                <button type="button" class="ops-btn ops-btn-ghost" @onclick="ExportToExcel"
+                        disabled="@(isExporting || sales.Count == 0)">
                     @if (isExporting)
                     {
-                        <span class="spinner-border spinner-border-sm"></span>
+                        <span class="ops-spin"></span>
+                        <span>Exporting&hellip;</span>
                     }
                     else
                     {
-                        <i class="bi bi-file-earmark-excel"></i>
+                        <i class="ph ph-file-xls" aria-hidden="true"></i>
+                        <span>Export</span>
                     }
-                    Export
                 </button>
-                <button class="btn-ds-outline" @onclick="RefreshData" disabled="@isLoading">
+                <button type="button" class="ops-icon-btn" title="Refresh" aria-label="Refresh"
+                        @onclick="RefreshData" disabled="@isLoading">
                     @if (isLoading)
                     {
-                        <span class="spinner-border spinner-border-sm"></span>
+                        <span class="ops-spin"></span>
                     }
                     else
                     {
-                        <i class="bi bi-arrow-clockwise"></i>
+                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
                     }
-                    Refresh
                 </button>
-                @if (HubService.IsConnected)
+            </div>
+        </div>
+    </div>
+
+    <div class="ops-rule-fade"></div>
+
+    @if (report != null)
+    {
+        <div class="ops-ds-summary">
+            @* The day, divided. The lanes and the strip beneath them read the
+               same family per lane, so a lane cannot be one colour and its
+               share of the bar another. *@
+            <div class="ops-ds-card">
+                <div class="ops-ds-card-head">
+                    <i class="ph ph-storefront" aria-hidden="true"></i>
+                    <span class="ops-ds-card-label">@dayLabel</span>
+                    <span class="ops-ds-card-tally">
+                        <b>@report.TotalSalesCount</b>
+                        <span>fiscalized</span>
+                    </span>
+                </div>
+
+                <div class="ops-ds-lanes">
+                    @foreach (var lane in lanes)
+                    {
+                        <div class="@lane.Family">
+                            <div class="ops-ds-lane-num">@lane.Count</div>
+                            <div class="ops-ds-lane-name">
+                                <span class="ops-dot"></span>@lane.Name
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                @if (laneTotal > 0)
                 {
-                    <span class="live-badge"><span class="live-dot"></span> LIVE</span>
+                    <div class="ops-ds-strip">
+                        @foreach (var lane in lanes.Where(l => l.Count > 0))
+                        {
+                            <div class="ops-ds-strip-seg @lane.Family"
+                                 style="width:@Percent(lane.Count, laneTotal)"></div>
+                        }
+                    </div>
+                }
+
+                <div class="ops-ds-aside">
+                    <span>Value @Money(report.TotalSalesAmount)</span>
+                    <span>VAT @Money(report.TotalVatAmount)</span>
+                    <span>Paid @Money(report.TotalAmountPaid)</span>
+                </div>
+            </div>
+
+            @* The headline is what has *not* reached the back office yet, not
+               the day's total — that number is the one the Consolidate button
+               acts on, and the day's total is stated beside the lanes. *@
+            <div class="ops-ds-card">
+                <div class="ops-ds-card-head">
+                    <i class="ph ph-coins" aria-hidden="true"></i>
+                    <span class="ops-ds-card-label">Value on the device</span>
+                </div>
+
+                <div class="ops-ds-value">
+                    <b>@Money(awaitingValue)</b>
+                    <span>not yet in the back office</span>
+                </div>
+                <div class="ops-ds-aside">
+                    <span>@report.UnpostedInvoiceCount awaiting close</span>
+                    <span>@report.PostedInvoiceCount consolidated</span>
+                </div>
+
+                @if (topPartners.Count > 0)
+                {
+                    <div class="ops-ds-split"></div>
+                    <div class="ops-ds-breakdown">
+                        <div class="ops-ds-card-label">Largest customers</div>
+                        @foreach (var partner in topPartners)
+                        {
+                            <div class="ops-ds-break-row">
+                                <span class="ops-ds-break-name" title="@(partner.CardName ?? partner.CardCode)">
+                                    @(partner.CardName ?? partner.CardCode)
+                                </span>
+                                <span class="ops-ds-break-track">
+                                    <span class="ops-ds-break-fill"
+                                          style="width:@Percent(partner.TotalAmount, topPartnerMax)"></span>
+                                </span>
+                                <span class="ops-ds-break-val">@Money(partner.TotalAmount)</span>
+                            </div>
+                        }
+                    </div>
                 }
             </div>
         </div>
+    }
 
-        <!-- ━━━ Stat Cards ━━━ -->
-        @if (report != null)
-        {
-            <div class="stat-row">
-                <div class="stat-card">
-                    <div class="stat-icon green">📄</div>
-                    <div class="stat-info">
-                        <div class="stat-value">@report.TotalSalesCount</div>
-                        <div class="stat-label">Total Sales</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon blue">💰</div>
-                    <div class="stat-info">
-                        <div class="stat-value">@report.TotalSalesAmount.ToString("N2")</div>
-                        <div class="stat-label">Total Amount</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon purple">🧾</div>
-                    <div class="stat-info">
-                        <div class="stat-value">@report.TotalVatAmount.ToString("N2")</div>
-                        <div class="stat-label">Total VAT</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon green">✓</div>
-                    <div class="stat-info">
-                        <div class="stat-value">@report.PostedInvoiceCount</div>
-                        <div class="stat-label">Posted to SAP</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon amber">⏳</div>
-                    <div class="stat-info">
-                        <div class="stat-value">@report.UnpostedInvoiceCount</div>
-                        <div class="stat-label">Unposted</div>
-                    </div>
-                </div>
-            </div>
-        }
+    @if (notice != null)
+    {
+        <div class="ops-msg @noticeFamily" role="alert">
+            <i class="ph @noticeIcon" aria-hidden="true"></i>
+            <div class="ops-msg-body">@notice</div>
+            <button type="button" class="ops-msg-x" aria-label="Dismiss" @onclick="() => notice = null">
+                <i class="ph ph-x" aria-hidden="true"></i>
+            </button>
+        </div>
+    }
 
-        <!-- ━━━ Filter Bar ━━━ -->
-        <div class="filter-bar">
-            <div class="filter-field">
-                <label>Warehouse</label>
-                <select @bind="filterWarehouse">
-                    <option value="">-- All --</option>
-                    @foreach (var wh in warehouses)
-                    {
-                        <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                    }
-                </select>
-            </div>
-            <div class="filter-field">
-                <label>Customer Code</label>
-                <input type="text" placeholder="Card Code" @bind="filterCardCode" />
-            </div>
-            <div class="filter-field">
-                <label>Status</label>
-                <select @bind="filterStatus">
-                    <option value="">-- All --</option>
-                    <option value="Pending">Pending</option>
-                    <option value="Consolidated">Consolidated</option>
-                    <option value="Failed">Failed</option>
-                    <option value="Excluded">Excluded</option>
-                </select>
-            </div>
-            <div class="filter-field">
-                <label for="ds-f-from">From Date</label>
-                <NocturneDateField Id="ds-f-from" @bind-Date="filterFromDate" />
-            </div>
-            <div class="filter-field">
-                <label for="ds-f-to">To Date</label>
-                <NocturneDateField Id="ds-f-to" @bind-Date="filterToDate" />
-            </div>
-            <div class="filter-actions-row">
-                <button class="btn-search" @onclick="ApplyFilter" disabled="@isLoading">Search</button>
-                <button class="btn-clear" @onclick="ClearFilter">Clear</button>
+    <div class="ops-ds-filters">
+        <div class="ops-field">
+            <label class="ops-label" for="ds-warehouse">Warehouse</label>
+            <select id="ds-warehouse" class="ops-input" @bind="filterWarehouse" @bind:after="ApplyFilters">
+                <option value="">All warehouses</option>
+                @foreach (var warehouse in warehouses)
+                {
+                    <option value="@warehouse.WarehouseCode">@warehouse.WarehouseCode</option>
+                }
+            </select>
+        </div>
+
+        <div class="ops-field ops-field-wide">
+            <label class="ops-label" for="ds-customer">Customer</label>
+            @* The API filters on card code alone, so the placeholder says so
+               rather than promising a name search that would return nothing. *@
+            <input id="ds-customer" type="search" class="ops-input" placeholder="Card code"
+                   @bind="filterCardCode" @bind:after="ApplyFilters" />
+        </div>
+
+        <div class="ops-field">
+            <label class="ops-label" for="ds-status">Consolidation</label>
+            <select id="ds-status" class="ops-input" @bind="filterStatus" @bind:after="ApplyFilters">
+                <option value="">Any status</option>
+                <option value="Pending">Awaiting close</option>
+                <option value="Consolidated">Consolidated</option>
+                <option value="Failed">Failed</option>
+                <option value="Excluded">Excluded</option>
+            </select>
+        </div>
+
+        @* Not a <label>: the segment is three buttons, and a label would
+           hand every click to the first of them. *@
+        <div class="ops-field ops-ds-seg-field">
+            <span class="ops-label" id="ds-period-label">Period</span>
+            <div class="ops-ds-seg" role="group" aria-labelledby="ds-period-label">
+                <button type="button" class="ops-ds-seg-opt @(period == PeriodToday ? "is-on" : "")"
+                        aria-pressed="@(period == PeriodToday)" @onclick="() => SetPeriod(PeriodToday)">Today</button>
+                <button type="button" class="ops-ds-seg-opt @(period == PeriodWeek ? "is-on" : "")"
+                        aria-pressed="@(period == PeriodWeek)" @onclick="() => SetPeriod(PeriodWeek)">Last 7 days</button>
+                <button type="button" class="ops-ds-seg-opt @(period == PeriodCustom ? "is-on" : "")"
+                        aria-pressed="@(period == PeriodCustom)" @onclick="() => SetPeriod(PeriodCustom)">Range</button>
             </div>
         </div>
 
-        <!-- ━━━ Data Table ━━━ -->
-        @if (errorMessage != null)
+        @if (period == PeriodCustom)
         {
-            <div class="alert-banner error-alert">@errorMessage</div>
+            @* Not <label>s either: NocturneDateField carries a button and a
+               popup, which a label would swallow the clicks of. *@
+            <div class="ops-ds-dates">
+                <div class="ops-field">
+                    <span class="ops-label">From</span>
+                    <NocturneDateField Id="ds-f-from" Date="filterFromDate" DateChanged="OnFromDateChanged"
+                                       AriaLabel="From date" />
+                </div>
+                <div class="ops-field">
+                    <span class="ops-label">To</span>
+                    <NocturneDateField Id="ds-f-to" Date="filterToDate" DateChanged="OnToDateChanged"
+                                       AriaLabel="To date" />
+                </div>
+            </div>
         }
 
-        @if (isLoading)
+        @if (hasFilters)
         {
-            <div class="loading-state">Loading desktop sales...</div>
+            <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearFilters">
+                <i class="ph ph-x-circle" aria-hidden="true"></i>Clear filters
+            </button>
         }
-        else if (sales.Any())
-        {
-            <div class="ds-table-wrap">
-                <div class="ds-table-header">
-                    <h6>Sales <span class="ds-count-badge">@totalCount</span></h6>
-                </div>
-                <table class="ds-table">
+    </div>
+
+    <div class="ops-rule-fade"></div>
+
+    @if (isLoading)
+    {
+        <div class="ops-loading">
+            <span class="ops-spin ops-spin-lg"></span>
+            <p>Loading desktop sales&hellip;</p>
+        </div>
+    }
+    else if (sales.Count > 0)
+    {
+        <div>
+            <div class="ops-scroll">
+                <table class="ops-table mobile-card-table">
                     <thead>
                         <tr>
-                            <th>Ref</th>
+                            <th>Fiscal number</th>
                             <th>Customer</th>
                             <th>Warehouse</th>
-                            <th>Amount</th>
-                            <th>Paid</th>
+                            <th>Fiscalized</th>
+                            <th class="ops-num">Total</th>
+                            <th class="ops-num">Paid</th>
                             <th>Fiscal</th>
                             <th>Consolidation</th>
-                            <th>Date</th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var sale in sales)
                         {
                             <tr @onclick="() => SelectSale(sale)">
-                                <td data-label="Ref"><span class="item-code">@sale.ExternalReferenceId</span></td>
-                                <td data-label="Customer">
-                                    <div>@(sale.CardName ?? sale.CardCode)</div>
+                                <td data-label="Fiscal number">
+                                    <span class="ops-code">@sale.ExternalReferenceId</span>
+                                </td>
+                                <td data-label="Customer" class="ops-name">
+                                    @(sale.CardName ?? sale.CardCode)
                                     @if (sale.CardName != null)
                                     {
-                                        <div style="font-size:.72rem;color:#6b7280">@sale.CardCode</div>
+                                        <span class="ops-sub"> · @sale.CardCode</span>
                                     }
                                 </td>
                                 <td data-label="Warehouse">@sale.WarehouseCode</td>
-                                <td data-label="Amount"><span class="amount-cell">@sale.Currency @sale.TotalAmount.ToString("N2")</span></td>
-                                <td data-label="Paid"><span class="amount-cell">@sale.AmountPaid.ToString("N2")</span></td>
-                                <td data-label="Fiscal"><span class="status-badge @GetFiscalStatusClass(sale.FiscalizationStatus)">@sale.FiscalizationStatus</span></td>
-                                <td data-label="Consolidation"><span class="status-badge @GetConsolidationStatusClass(sale.ConsolidationStatus)">@sale.ConsolidationStatus</span></td>
-                                <td data-label="Date">@sale.CreatedAt.AddHours(2).ToString("dd MMM HH:mm")</td>
+                                <td data-label="Fiscalized" class="ops-ds-when">@Stamp(sale.CreatedAt)</td>
+                                <td data-label="Total" class="ops-num">@Money(sale.TotalAmount, sale.Currency)</td>
+                                <td data-label="Paid" class="ops-num">@Money(sale.AmountPaid, sale.Currency)</td>
+                                <td data-label="Fiscal">
+                                    <span class="ops-ds-state @FiscalFamily(sale.FiscalizationStatus)">
+                                        <span class="ops-dot"></span>@Blank(sale.FiscalizationStatus)
+                                    </span>
+                                </td>
+                                <td data-label="Consolidation">
+                                    <span class="ops-ds-state @ConsolidationFamily(sale.ConsolidationStatus)">
+                                        <span class="ops-dot"></span>@ConsolidationLabel(sale.ConsolidationStatus)
+                                    </span>
+                                    @if (sale.ConsolidationId.HasValue)
+                                    {
+                                        <div class="ops-sub">Run #@sale.ConsolidationId</div>
+                                    }
+                                </td>
                             </tr>
                         }
                     </tbody>
                 </table>
             </div>
 
-            <div class="ds-pagination">
-                <button @onclick="PreviousPage" disabled="@(currentPage == 1)">← Previous</button>
-                <span class="page-indicator">Page @currentPage of @totalPages</span>
-                <button @onclick="NextPage" disabled="@(!hasMore)">Next →</button>
-            </div>
-        }
-        else
-        {
-            <div class="empty-state">
-                <div class="empty-icon">📋</div>
-                <h6>No Desktop Sales Found</h6>
-                <p>Desktop sales created during the day will appear here</p>
-            </div>
-        }
-    </div>
-
-    <!-- ━━━ Detail Drawer ━━━ -->
-    @if (selectedSale != null)
-    {
-        <div class="modal-backdrop-custom" @onclick="CloseDrawer"></div>
-        <div class="detail-drawer">
-            <div class="drawer-header">
-                <h5>Sale #@selectedSale.Id — @selectedSale.ExternalReferenceId</h5>
-                <button class="btn-close-drawer" @onclick="CloseDrawer">✕</button>
-            </div>
-            <div class="drawer-body">
-                <div class="detail-grid">
-                    <div class="detail-item">
-                        <div class="detail-label">Customer</div>
-                        <div class="detail-value">@(selectedSale.CardName ?? selectedSale.CardCode)</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Warehouse</div>
-                        <div class="detail-value">@selectedSale.WarehouseCode</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Total Amount</div>
-                        <div class="detail-value">@selectedSale.Currency @selectedSale.TotalAmount.ToString("N2")</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">VAT</div>
-                        <div class="detail-value">@selectedSale.VatAmount.ToString("N2")</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Amount Paid</div>
-                        <div class="detail-value">@selectedSale.AmountPaid.ToString("N2")</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Payment Method</div>
-                        <div class="detail-value">@(selectedSale.PaymentMethod ?? "—")</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Fiscal Status</div>
-                        <div class="detail-value"><span class="status-badge @GetFiscalStatusClass(selectedSale.FiscalizationStatus)">@selectedSale.FiscalizationStatus</span></div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Consolidation</div>
-                        <div class="detail-value"><span class="status-badge @GetConsolidationStatusClass(selectedSale.ConsolidationStatus)">@selectedSale.ConsolidationStatus</span></div>
-                    </div>
-                    @if (!string.IsNullOrEmpty(selectedSale.FiscalReceiptNumber))
-                    {
-                        <div class="detail-item">
-                            <div class="detail-label">Fiscal Receipt #</div>
-                            <div class="detail-value">@selectedSale.FiscalReceiptNumber</div>
-                        </div>
-                    }
-                    @if (!string.IsNullOrEmpty(selectedSale.PaymentReference))
-                    {
-                        <div class="detail-item">
-                            <div class="detail-label">Payment Ref</div>
-                            <div class="detail-value">@selectedSale.PaymentReference</div>
-                        </div>
-                    }
-                    <div class="detail-item">
-                        <div class="detail-label">Created By</div>
-                        <div class="detail-value">@(selectedSale.CreatedBy ?? "—")</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Created At</div>
-                        <div class="detail-value">@selectedSale.CreatedAt.AddHours(2).ToString("dd MMM yyyy HH:mm")</div>
-                    </div>
-                </div>
-
-                @if (selectedSale.Lines.Any())
+            <div class="ops-ds-foot">
+                <span class="ops-ds-foot-info">@footerText</span>
+                @if (totalPages > 1)
                 {
-                    <h6 style="font-size:.8rem;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:.5rem">Line Items</h6>
-                    <table class="lines-table">
-                        <thead>
-                            <tr>
-                                <th>Item</th>
-                                <th>Qty</th>
-                                <th>Unit Price</th>
-                                <th>Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var line in selectedSale.Lines)
-                            {
-                                <tr>
-                                    <td data-label="Item">
-                                        <div style="font-weight:600;color:#10b981">@line.ItemCode</div>
-                                        @if (!string.IsNullOrEmpty(line.ItemDescription))
-                                        {
-                                            <div style="font-size:.72rem;color:#6b7280">@line.ItemDescription</div>
-                                        }
-                                    </td>
-                                    <td data-label="Qty">@QuantityDisplay.Format(line.Quantity)</td>
-                                    <td data-label="Unit Price">@line.UnitPrice.ToString("N2")</td>
-                                    <td data-label="Total" style="font-weight:600">@line.LineTotal.ToString("N2")</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
+                    <div class="ops-pages">
+                        <button type="button" class="ops-step" disabled="@(currentPage == 1)" @onclick="PreviousPage">
+                            <i class="ph ph-caret-left" aria-hidden="true"></i>Previous
+                        </button>
+                        <span class="ops-page-now">@currentPage of @totalPages</span>
+                        <button type="button" class="ops-step" disabled="@(!hasMore)" @onclick="NextPage">
+                            Next<i class="ph ph-caret-right" aria-hidden="true"></i>
+                        </button>
+                    </div>
                 }
             </div>
-            <div class="drawer-footer">
-                <MudButton Variant="Variant.Outlined" OnClick="CloseDrawer">Close</MudButton>
-            </div>
+        </div>
+    }
+    else
+    {
+        <div class="ops-empty">
+            <i class="ph ph-receipt" aria-hidden="true"></i>
+            <h3>@emptyTitle</h3>
+            <p>@emptyBody</p>
+            @if (hasFilters)
+            {
+                <div class="ops-empty-actions">
+                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearFilters">
+                        <i class="ph ph-x-circle" aria-hidden="true"></i>Clear filters
+                    </button>
+                </div>
+            }
         </div>
     }
 </div>
 
+@* Both overlays are siblings of `.ops`, not children — see operations.css's
+   header for why they carry `.ops-overlay` themselves. *@
+@if (showConsolidate)
+{
+    <div class="ops-overlay ops-overlay-center" @onclick="CloseConsolidate">
+        <div class="ops-dialog" role="dialog" aria-modal="true" aria-label="Consolidate the day"
+             @onclick:stopPropagation="true">
+            <div class="ops-dialog-head">
+                <h2>Consolidate the day</h2>
+                <button type="button" class="ops-x" aria-label="Close" @onclick="CloseConsolidate">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </div>
+
+            <div class="ops-dialog-body">
+                <p class="ops-ds-lede">
+                    Everything still awaiting close is uploaded to the back office as one
+                    consolidation document. Fiscal numbers stay as they were issued on the device.
+                </p>
+
+                <dl class="ops-ds-facts">
+                    <dt>Awaiting close</dt>
+                    <dd>@(report?.UnpostedInvoiceCount ?? 0)</dd>
+                    <dt>Value listed</dt>
+                    <dd>@Money(awaitingValue)</dd>
+                    <dt>Already consolidated</dt>
+                    <dd>@(report?.PostedInvoiceCount ?? 0)</dd>
+                    <dt>Posting date</dt>
+                    <dd>@DateTime.Today.ToString("dd.MM.yyyy")</dd>
+                </dl>
+
+                @if (report != null && report.ReportDate.Date != DateTime.Today)
+                {
+                    <div class="ops-msg ops-fam-warn">
+                        <i class="ph ph-warning" aria-hidden="true"></i>
+                        <div class="ops-msg-body">
+                            The figures above are for @report.ReportDate.ToString("dd MMM yyyy"), but the
+                            run itself always closes today. Set the period back to Today to see what it
+                            will actually pick up.
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="ops-dialog-foot">
+                <button type="button" class="ops-btn ops-btn-ghost" @onclick="CloseConsolidate">Cancel</button>
+                <button type="button" class="ops-btn ops-btn-primary" @onclick="TriggerConsolidation"
+                        disabled="@isConsolidating">
+                    @if (isConsolidating)
+                    {
+                        <span class="ops-spin"></span>
+                        <span>Consolidating&hellip;</span>
+                    }
+                    else
+                    {
+                        <span>Consolidate</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (selectedSale != null)
+{
+    <div class="ops-overlay ops-overlay-right" @onclick="CloseDrawer">
+        <aside class="ops-drawer" role="dialog" aria-modal="true" aria-label="Sale details"
+               @onclick:stopPropagation="true">
+            <div class="ops-drawer-head">
+                <h2>@selectedSale.ExternalReferenceId</h2>
+                <button type="button" class="ops-x" aria-label="Close" @onclick="CloseDrawer">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </div>
+
+            <div class="ops-drawer-body">
+                <div class="ops-defs">
+                    <div>
+                        <div class="ops-def-k">Customer</div>
+                        <div class="ops-def-v">@(selectedSale.CardName ?? selectedSale.CardCode)</div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">Card code</div>
+                        <div class="ops-def-v">@selectedSale.CardCode</div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">Warehouse</div>
+                        <div class="ops-def-v">@selectedSale.WarehouseCode</div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">Fiscalized</div>
+                        <div class="ops-def-v">@selectedSale.CreatedAt.AddHours(2).ToString("dd MMM yyyy, HH:mm")</div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">Total</div>
+                        <div class="ops-def-v">@Money(selectedSale.TotalAmount, selectedSale.Currency)</div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">VAT</div>
+                        <div class="ops-def-v">@Money(selectedSale.VatAmount, selectedSale.Currency)</div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">Paid</div>
+                        <div class="ops-def-v">@Money(selectedSale.AmountPaid, selectedSale.Currency)</div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">Payment method</div>
+                        <div class="ops-def-v">@(selectedSale.PaymentMethod ?? "—")</div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">Fiscal status</div>
+                        <div class="ops-def-v">
+                            <span class="ops-ds-state @FiscalFamily(selectedSale.FiscalizationStatus)">
+                                <span class="ops-dot"></span>@Blank(selectedSale.FiscalizationStatus)
+                            </span>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">Consolidation</div>
+                        <div class="ops-def-v">
+                            <span class="ops-ds-state @ConsolidationFamily(selectedSale.ConsolidationStatus)">
+                                <span class="ops-dot"></span>@ConsolidationLabel(selectedSale.ConsolidationStatus)
+                            </span>
+                        </div>
+                    </div>
+                    @if (selectedSale.ConsolidationId.HasValue)
+                    {
+                        <div>
+                            <div class="ops-def-k">Consolidation run</div>
+                            <div class="ops-def-v">#@selectedSale.ConsolidationId</div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(selectedSale.FiscalReceiptNumber))
+                    {
+                        <div>
+                            <div class="ops-def-k">Fiscal receipt</div>
+                            <div class="ops-def-v">@selectedSale.FiscalReceiptNumber</div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(selectedSale.PaymentReference))
+                    {
+                        <div>
+                            <div class="ops-def-k">Payment reference</div>
+                            <div class="ops-def-v">@selectedSale.PaymentReference</div>
+                        </div>
+                    }
+                    <div>
+                        <div class="ops-def-k">Captured by</div>
+                        <div class="ops-def-v">@(selectedSale.CreatedBy ?? "—")</div>
+                    </div>
+                </div>
+
+                @if (selectedSale.Lines.Count > 0)
+                {
+                    <div>
+                        <div class="ops-def-k">Line items</div>
+                        <table class="ops-table">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th class="ops-num">Qty</th>
+                                    <th class="ops-num">Unit price</th>
+                                    <th class="ops-num">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in selectedSale.Lines)
+                                {
+                                    <tr>
+                                        <td>
+                                            <span class="ops-code">@line.ItemCode</span>
+                                            @if (!string.IsNullOrEmpty(line.ItemDescription))
+                                            {
+                                                <div class="ops-sub">@line.ItemDescription</div>
+                                            }
+                                        </td>
+                                        <td class="ops-num">@QuantityDisplay.Format(line.Quantity)</td>
+                                        <td class="ops-num">@line.UnitPrice.ToString("N2")</td>
+                                        <td class="ops-num">@line.LineTotal.ToString("N2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+
+            <div class="ops-drawer-foot">
+                <button type="button" class="ops-btn ops-btn-ghost" @onclick="CloseDrawer">Close</button>
+            </div>
+        </aside>
+    </div>
+}
+
 @code {
+    private const string PeriodToday = "today";
+    private const string PeriodWeek = "week";
+    private const string PeriodCustom = "custom";
+
     private List<DesktopSaleDto> sales = new();
     private List<WarehouseDto> warehouses = new();
     private DesktopSaleDto? selectedSale;
     private EndOfDayReportDto? report;
 
-    private bool isLoading = false;
-    private bool isConsolidating = false;
-    private bool isExporting = false;
-    private string? errorMessage;
+    private bool isLoading;
+    private bool isConsolidating;
+    private bool isExporting;
+    private bool showConsolidate;
+    private DateTime? lastPolledAt;
+
+    // One notice for everything this page does itself; the Snackbar is left to
+    // the push events, which arrive while the user is looking elsewhere.
+    private string? notice;
+    private string noticeFamily = "ops-fam-info";
+    private string noticeIcon = "ph-info";
 
     // Filters
     private string filterWarehouse = "";
     private string filterCardCode = "";
     private string filterStatus = "";
+    private string period = PeriodToday;
     private DateTime? filterFromDate;
     private DateTime? filterToDate;
 
     // Pagination
     private int currentPage = 1;
     private int pageSize = 50;
-    private int totalCount = 0;
-    private bool hasMore = false;
+    private int totalCount;
+    private bool hasMore;
     private int totalPages => totalCount > 0 ? (int)Math.Ceiling((double)totalCount / pageSize) : 1;
+
+    private bool hasFilters =>
+        filterWarehouse != "" || filterCardCode != "" || filterStatus != "" || period != PeriodToday;
 
     protected override async Task OnInitializedAsync()
     {
@@ -904,7 +626,6 @@
         await LoadData();
         await AuditService.LogAsync(AuditActions.ViewDesktopTransactions, "DesktopSale", null);
 
-        // Subscribe to real-time events
         HubService.OnDesktopSaleCreated += OnSaleCreated;
         HubService.OnConsolidationCompleted += OnConsolidationDone;
     }
@@ -929,10 +650,11 @@
         });
     }
 
+    // ── Loading ──────────────────────────────────────────────────────────
+
     private async Task LoadData()
     {
         isLoading = true;
-        errorMessage = null;
         StateHasChanged();
 
         try
@@ -951,17 +673,19 @@
                 sales = response.Sales;
                 totalCount = response.TotalCount;
                 hasMore = response.HasMore;
+                lastPolledAt = DateTime.Now;
+                ClearError();
             }
             else
             {
-                errorMessage = "Failed to load desktop sales. Check if the API is running.";
+                SayError("Failed to load desktop sales. Check that the API is running.");
             }
 
             report = await DesktopService.GetEndOfDayReportAsync(filterFromDate);
         }
         catch (Exception ex)
         {
-            errorMessage = $"Error: {ex.Message}";
+            SayError($"Error: {ex.Message}");
         }
         finally
         {
@@ -975,23 +699,65 @@
         await LoadData();
     }
 
-    private async Task ApplyFilter()
+    // ── Filters ──────────────────────────────────────────────────────────
+    // Every one of these is a single deliberate act — picking a warehouse,
+    // committing a card code, choosing a period — so each reloads on its own
+    // rather than waiting behind a Search button the design does not draw.
+
+    private async Task ApplyFilters()
     {
         currentPage = 1;
         await LoadData();
     }
 
-    private void ClearFilter()
+    private async Task SetPeriod(string value)
+    {
+        if (period == value)
+        {
+            return;
+        }
+
+        period = value;
+
+        if (value == PeriodToday)
+        {
+            filterFromDate = DateTime.Today;
+            filterToDate = DateTime.Today;
+        }
+        else if (value == PeriodWeek)
+        {
+            filterFromDate = DateTime.Today.AddDays(-6);
+            filterToDate = DateTime.Today;
+        }
+        // "custom" keeps whatever pair is already in the fields and reveals them.
+
+        await ApplyFilters();
+    }
+
+    private async Task OnFromDateChanged(DateTime? value)
+    {
+        filterFromDate = value;
+        await ApplyFilters();
+    }
+
+    private async Task OnToDateChanged(DateTime? value)
+    {
+        filterToDate = value;
+        await ApplyFilters();
+    }
+
+    private async Task ClearFilters()
     {
         filterWarehouse = "";
         filterCardCode = "";
         filterStatus = "";
+        period = PeriodToday;
         filterFromDate = DateTime.Today;
         filterToDate = DateTime.Today;
-        currentPage = 1;
-        sales = new();
-        report = null;
+        await ApplyFilters();
     }
+
+    // ── Paging ───────────────────────────────────────────────────────────
 
     private async Task NextPage()
     {
@@ -1011,15 +777,19 @@
         }
     }
 
-    private void SelectSale(DesktopSaleDto sale)
-    {
-        selectedSale = sale;
-    }
+    // ── The detail drawer ────────────────────────────────────────────────
 
-    private void CloseDrawer()
-    {
-        selectedSale = null;
-    }
+    private void SelectSale(DesktopSaleDto sale) => selectedSale = sale;
+
+    private void CloseDrawer() => selectedSale = null;
+
+    // ── Consolidation ────────────────────────────────────────────────────
+
+    private void OpenConsolidate() => showConsolidate = true;
+
+    private void CloseConsolidate() => showConsolidate = false;
+
+    private decimal awaitingValue => report?.UnpostedSales.Sum(s => s.Amount) ?? 0m;
 
     private async Task TriggerConsolidation()
     {
@@ -1028,19 +798,23 @@
         try
         {
             var success = await DesktopService.TriggerConsolidationAsync();
+            showConsolidate = false;
+
             if (success)
             {
-                Snackbar.Add("End-of-day consolidation triggered successfully", Severity.Success);
+                Say("End-of-day consolidation triggered. The back office picks the invoices up as the run completes.",
+                    "ops-fam-good", "ph-check-circle");
                 await LoadData();
             }
             else
             {
-                Snackbar.Add("Failed to trigger consolidation", Severity.Error);
+                SayError("The consolidation run could not be started.");
             }
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+            showConsolidate = false;
+            SayError($"Consolidation failed: {ex.Message}");
         }
         finally
         {
@@ -1048,27 +822,13 @@
         }
     }
 
-    private static string GetFiscalStatusClass(string status) => status.ToLower() switch
-    {
-        "success" => "status-success",
-        "pending" => "status-pending",
-        "failed" => "status-failed",
-        "skipped" => "status-skipped",
-        _ => "status-pending"
-    };
-
-    private static string GetConsolidationStatusClass(string status) => status.ToLower() switch
-    {
-        "consolidated" => "status-consolidated",
-        "pending" => "status-pending",
-        "failed" => "status-failed",
-        "excluded" => "status-excluded",
-        _ => "status-pending"
-    };
-
     private async Task ExportToExcel()
     {
-        if (!sales.Any()) return;
+        if (sales.Count == 0)
+        {
+            return;
+        }
+
         isExporting = true;
         StateHasChanged();
         try
@@ -1079,7 +839,7 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Export failed: {ex.Message}", Severity.Error);
+            SayError($"Export failed: {ex.Message}");
         }
         finally
         {
@@ -1087,6 +847,145 @@
             StateHasChanged();
         }
     }
+
+    // ── Notices ──────────────────────────────────────────────────────────
+
+    private void Say(string text, string family, string icon)
+    {
+        notice = text;
+        noticeFamily = family;
+        noticeIcon = icon;
+    }
+
+    private void SayError(string text) => Say(text, "ops-fam-bad", "ph-warning-octagon");
+
+    // A successful reload clears a failure that is no longer true, and leaves a
+    // consolidation result standing — that one is news, not an error state.
+    private void ClearError()
+    {
+        if (noticeFamily == "ops-fam-bad")
+        {
+            notice = null;
+        }
+    }
+
+    // ── The day summary ──────────────────────────────────────────────────
+
+    private sealed record Lane(string Name, int Count, string Family);
+
+    private string dayLabel => report == null
+        ? "Day in progress"
+        : report.ReportDate.Date == DateTime.Today
+            ? "Day in progress"
+            : report.ReportDate.ToString("dd MMM yyyy");
+
+    // Drawn from the report rather than from `sales`, which is one page of a
+    // filtered list and would make the lanes disagree with the total above them.
+    // The unposted list carries a status per row; the counts it does not explain
+    // fall into "awaiting close", so the four always add up to the day.
+    private List<Lane> lanes
+    {
+        get
+        {
+            if (report == null)
+            {
+                return new();
+            }
+
+            var listed = report.UnpostedSales;
+            var failed = listed.Count(s => Is(s.ConsolidationStatus, "Failed"));
+            var excluded = listed.Count(s => Is(s.ConsolidationStatus, "Excluded"));
+            var awaiting = Math.Max(0, report.UnpostedInvoiceCount - failed - excluded);
+
+            return new()
+            {
+                new Lane("Awaiting close", awaiting, "ops-fam-accent"),
+                new Lane("Consolidated", report.PostedInvoiceCount, "ops-fam-good"),
+                new Lane("Failed", failed, "ops-fam-bad"),
+                new Lane("Excluded", excluded, "ops-fam-neutral")
+            };
+        }
+    }
+
+    private int laneTotal => lanes.Sum(l => l.Count);
+
+    private List<BPSummaryDto> topPartners => report?.BusinessPartnerSummaries
+        .Where(b => b.TotalAmount > 0)
+        .OrderByDescending(b => b.TotalAmount)
+        .Take(5)
+        .ToList() ?? new();
+
+    private decimal topPartnerMax => topPartners.Count > 0 ? topPartners.Max(b => b.TotalAmount) : 0m;
+
+    // ── Text ─────────────────────────────────────────────────────────────
+
+    private string footerText
+    {
+        get
+        {
+            var shown = $"Showing {sales.Count} of {totalCount} · newest first";
+            return lastPolledAt.HasValue ? $"{shown} · polled {lastPolledAt:HH:mm:ss}" : shown;
+        }
+    }
+
+    private string emptyTitle => hasFilters ? "Nothing matches these filters" : "The day is clear";
+
+    private string emptyBody => hasFilters
+        ? "Widen the period or clear the filters to see the rest of the day."
+        : "Invoices fiscalized on the desktop apps appear here within a few seconds of being issued.";
+
+    // ── Formatting ───────────────────────────────────────────────────────
+
+    // The report carries no currency of its own, so its figures borrow the one
+    // the loaded sales are in. With nothing loaded the amount stands alone
+    // rather than being labelled with a guess.
+    private string currencyCode => sales.FirstOrDefault()?.Currency ?? "";
+
+    private string Money(decimal value) => Money(value, currencyCode);
+
+    private static string Money(decimal value, string? code) =>
+        string.IsNullOrEmpty(code) ? value.ToString("N2") : $"{code} {value.ToString("N2")}";
+
+    private static string Percent(int part, int whole) =>
+        whole <= 0 ? "0%" : ((double)part / whole * 100).ToString("0.##", CultureInfo.InvariantCulture) + "%";
+
+    private static string Percent(decimal part, decimal whole) =>
+        whole <= 0 ? "0%" : ((double)(part / whole) * 100).ToString("0.##", CultureInfo.InvariantCulture) + "%";
+
+    // The +2h is the app's standing display offset for these timestamps.
+    private static string Stamp(DateTime createdAt)
+    {
+        var local = createdAt.AddHours(2);
+        return local.Date == DateTime.Today ? local.ToString("HH:mm") : local.ToString("dd MMM HH:mm");
+    }
+
+    private static bool Is(string? status, string value) =>
+        string.Equals(status, value, StringComparison.OrdinalIgnoreCase);
+
+    private static string Blank(string? text) => string.IsNullOrWhiteSpace(text) ? "—" : text;
+
+    private static string ConsolidationLabel(string? status) =>
+        Is(status, "Pending") ? "Awaiting close" : Blank(status);
+
+    private static string FiscalFamily(string? status) => status?.ToLowerInvariant() switch
+    {
+        "success" => "ops-fam-good",
+        "pending" => "ops-fam-warn",
+        "failed" => "ops-fam-bad",
+        "skipped" => "ops-fam-neutral",
+        _ => "ops-fam-neutral"
+    };
+
+    // Awaiting close takes the accent rather than a warning hue: it is the
+    // expected state of a sale the day has not closed on yet, not a problem.
+    private static string ConsolidationFamily(string? status) => status?.ToLowerInvariant() switch
+    {
+        "consolidated" => "ops-fam-good",
+        "pending" => "ops-fam-accent",
+        "failed" => "ops-fam-bad",
+        "excluded" => "ops-fam-neutral",
+        _ => "ops-fam-neutral"
+    };
 
     public void Dispose()
     {
