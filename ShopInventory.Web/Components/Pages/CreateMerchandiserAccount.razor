@@ -436,6 +436,33 @@
                 box-shadow: 0 0 0 4px rgba(14, 165, 233, .14);
             }
 
+            /* app.css turns Blazor's two validation classes into a 2px outline
+               (`.invalid` and `.valid.modified:not([type=checkbox])`). In the
+               light app theme it resolves --danger-color and --success-color to
+               the same #333333, so a rejected field and one the user has merely
+               typed in wear identical near-black rings and neither reads as a
+               validation state; in dark it swaps in a green/red pair from
+               outside this page's slate-and-sky family. Both are also drawn
+               square around a 14px radius.
+
+               The border is the state channel here, so the ring is dropped and
+               a red edge is put on the rejected field instead. `.valid.modified`
+               is (0,3,0), so the suppression is scoped through .macc-page to
+               beat it. No focus ring is restored: these fields signal focus with
+               the box-shadow above, not with an outline, so putting one back
+               would double-ring them.
+
+               The colours stay literal like the rest of this sheet, which
+               predates the Nocturne tokens. */
+            .macc-page .macc-input.invalid,
+            .macc-page .macc-input.valid.modified {
+                outline: none;
+            }
+
+            .macc-page .macc-input.invalid {
+                border-color: #dc2626;
+            }
+
             .macc-customer-list,
             .macc-account-list {
                 display: flex;
@@ -774,6 +801,14 @@
                 background: #0f172a;
                 border-color: #334155;
                 color: #e2e8f0;
+            }
+
+            /* #dc2626 is too dark to read as red against #0f172a; this is the
+               same lighter red the page's other dark red-family rules use.
+               Scoped through .macc-page so it out-specifies the light rule
+               above on specificity rather than on source order. */
+            .dark-theme .macc-page .macc-input.invalid {
+                border-color: #f87171;
             }
 
             .dark-theme .macc-chip-warehouse {

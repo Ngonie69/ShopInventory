@@ -384,6 +384,29 @@
         color: #111111; outline: none;
     }
 
+    /* app.css turns Blazor's two validation classes into a 2px outline
+       (`.invalid` and `.valid.modified:not([type=checkbox])`). `.form-input`
+       above already clears the outline at (0,2,0), which is enough to hold off
+       `.invalid` — but not `.valid.modified` at (0,3,0), so a field the user
+       had merely typed into grew a hard 2px ring drawn tight inside the
+       wrapper's rounded edge: near-black #333333 in the light app theme, green
+       in dark, and in neither case a state this form means to report.
+
+       Rejected fields had the opposite problem — the ring app.css meant for
+       them never appeared, so the only red was the message below. The edge of
+       a field here belongs to `.input-wrapper` rather than to the borderless
+       input, so that is where the red goes, in the same #dc2626 the validation
+       message uses. No focus ring is restored: focus is the wrapper's
+       :focus-within box-shadow, not an outline. */
+    .customer-register-page .form-input.invalid,
+    .customer-register-page .form-input.valid.modified {
+        outline: none;
+    }
+
+    .customer-register-page .input-wrapper:has(.form-input.invalid) {
+        border-color: #dc2626;
+    }
+
     .customer-register-page .password-toggle {
         background: transparent; border: none;
         cursor: pointer; color: #5a5a5a; padding: 0;
