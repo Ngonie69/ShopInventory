@@ -640,7 +640,96 @@ public class NotificationModel
             return CreatedAt.ToString("MMM dd");
         }
     }
+
+    /// <summary>
+    /// What a notification does not already say in its title and message: the exact
+    /// time behind "4h ago", the type its coloured mark stands for, what raised it,
+    /// and whatever structured fields the producer attached. Both readers of a
+    /// notification show these behind the same Details toggle — the /notifications
+    /// page and the topbar bell — so the list is built once here.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Data"/> is null for producers that attach nothing and for anything
+    /// raised before the column existed, so this degrades to the fields every
+    /// notification carries.
+    /// </remarks>
+    public List<NotificationDetailFact> DetailFacts()
+    {
+        var facts = new List<NotificationDetailFact>
+        {
+            new("Received", FormatTimestamp(CreatedAt)),
+            new("Type", string.IsNullOrWhiteSpace(Type) ? "—" : Type)
+        };
+
+        if (!string.IsNullOrWhiteSpace(EntityType))
+        {
+            facts.Add(new NotificationDetailFact(
+                "Reference",
+                string.IsNullOrWhiteSpace(EntityId) ? EntityType : $"{EntityType} {EntityId}"));
+        }
+
+        if (!string.IsNullOrWhiteSpace(CreatedBy))
+        {
+            facts.Add(new NotificationDetailFact("Raised by", CreatedBy));
+        }
+
+        if (IsRead && ReadAt.HasValue)
+        {
+            facts.Add(new NotificationDetailFact("Read", FormatTimestamp(ReadAt.Value)));
+        }
+
+        if (Data is not null)
+        {
+            foreach (var pair in Data)
+            {
+                if (!string.IsNullOrWhiteSpace(pair.Value))
+                {
+                    facts.Add(new NotificationDetailFact(HumaniseKey(pair.Key), pair.Value));
+                }
+            }
+        }
+
+        return facts;
+    }
+
+    /// <summary>
+    /// Timestamps arrive UTC — <see cref="TimeAgo"/> does its arithmetic against
+    /// UtcNow on the same assumption — but System.Text.Json hands back an
+    /// Unspecified Kind on a payload without an offset, and ToLocalTime() on
+    /// Unspecified is a no-op that would silently show CAT times two hours early.
+    /// State the Kind first.
+    /// </summary>
+    public static string FormatTimestamp(DateTime timestamp) =>
+        DateTime.SpecifyKind(timestamp, DateTimeKind.Utc).ToLocalTime().ToString("d MMM yyyy, HH:mm");
+
+    // Data keys are the producer's camelCase field names — see
+    // NotificationDataKeys — so they are spaced and sentence-cased rather than
+    // shown raw.
+    private static string HumaniseKey(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return key;
+        }
+
+        var label = new System.Text.StringBuilder(key.Length + 4);
+        for (var i = 0; i < key.Length; i++)
+        {
+            if (i > 0 && char.IsUpper(key[i]) && !char.IsUpper(key[i - 1]))
+            {
+                label.Append(' ');
+                label.Append(char.ToLowerInvariant(key[i]));
+                continue;
+            }
+
+            label.Append(i == 0 ? char.ToUpperInvariant(key[i]) : key[i]);
+        }
+
+        return label.ToString();
+    }
 }
+
+public sealed record NotificationDetailFact(string Label, string Value);
 
 public class StockFetchProgressModel
 {

@@ -641,6 +641,125 @@
     overflow: hidden;
 }
 
+/* ── Row detail ────────────────────────────────────────────────────────── */
+/* The clamp above keeps the list scannable, at the cost of the rest of a long
+   message: the evening credit-limit sweep names several accounts in one line
+   and the row shows two of them. Opening the detail unclamps the message where
+   it sits and states the fields the prose does not carry, so a notification can
+   be read in full without following its link off the page — which for the rows
+   that carry an ActionUrl was the only thing a click could do. */
+
+.ntf-msg-open {
+    display: block;
+    -webkit-line-clamp: none;
+    overflow: visible;
+    text-wrap: pretty;
+    /* The row is a button; the message inside an open one is prose to be read
+       and copied, so it says so. */
+    cursor: text;
+}
+
+.ntf .ntf-more {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 3px;
+    padding: 2px 8px 2px 6px;
+    font: inherit;
+    font-size: 11.5px;
+    color: var(--ntf-mute-3);
+    background: transparent;
+    border: 0;
+    border-radius: var(--ntf-r-sm);
+    cursor: pointer;
+    transition: color .13s, background-color .13s;
+}
+
+.ntf .ntf-more:hover {
+    color: var(--ntf-accent);
+    background: rgba(var(--ntf-accent-rgb), .1);
+}
+
+.ntf-more-caret {
+    flex: none;
+    transition: transform .15s ease;
+}
+
+.ntf .ntf-more[aria-expanded="true"] .ntf-more-caret {
+    transform: rotate(180deg);
+}
+
+.ntf-detail {
+    margin-top: 8px;
+    padding: 11px 13px;
+    border-radius: var(--ntf-r-md);
+    /* A translucent tint, not `--ntf-wash`: wash is #fff in light, which is the
+       panel's own colour at the top of the list and would draw nothing. */
+    background: var(--ntf-field-bg);
+    box-shadow: inset 0 0 0 1px var(--ntf-divider);
+    cursor: default;
+}
+
+/* Auto-fit rather than a fixed count: the fact list is as long as the producer's
+   attached data, which is two fields for some notifications and eight for a
+   sales order. */
+.ntf-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px var(--ntf-s6);
+    margin: 0;
+}
+
+.ntf-fact {
+    min-width: 0;
+}
+
+.ntf-fact dt {
+    margin: 0;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--ntf-mute-3);
+}
+
+.ntf-fact dd {
+    margin: 2px 0 0;
+    font-size: 12.5px;
+    color: var(--ntf-ink-2);
+    font-variant-numeric: tabular-nums;
+    /* A card code or a document number has nowhere to break, and this column can
+       be 180px wide. */
+    overflow-wrap: anywhere;
+}
+
+.ntf .ntf-open {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 11px;
+    padding: 5px 11px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--ntf-accent);
+    background: transparent;
+    border: 1px solid rgba(var(--ntf-accent-rgb), .45);
+    border-radius: var(--ntf-r-md);
+    cursor: pointer;
+    transition: background-color .13s, border-color .13s;
+}
+
+.ntf .ntf-open:hover {
+    background: rgba(var(--ntf-accent-rgb), .1);
+    border-color: var(--ntf-accent);
+}
+
+.ntf-open-path {
+    color: var(--ntf-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
 .ntf-entity {
     display: inline-flex;
     align-items: center;

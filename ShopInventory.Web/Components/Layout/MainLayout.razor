@@ -83,17 +83,44 @@
             }
             else
             {
+                @* A div carrying role="button" rather than a <button>: the row now
+                   holds a Details control of its own, and a button inside a button
+                   is markup the browser unnests. Every .notification-item rule is
+                   keyed on the class, so the styling carries over unchanged. *@
                 @foreach (var n in _recentNotifications)
                 {
-                    <button type="button" class="notification-item @(n.IsRead ? "" : "unread")"
-                            @onclick="() => OnNotificationClick(n)">
+                    var isOpen = _expandedNotifIds.Contains(n.Id);
+                    <div class="notification-item @(n.IsRead ? "" : "unread")"
+                         role="button" tabindex="0"
+                         @onclick="() => OnNotificationClick(n)"
+                         @onkeydown="args => OnNotificationKeyDown(args, n)">
                         <i class="ph @GetNotifIcon(n.Type)" aria-hidden="true"></i>
                         <span>
                             <strong>@n.Title</strong>
-                            <small>@n.Message</small>
-                            <time>@n.TimeAgo</time>
+                            <small class="@(isOpen ? "kf-notif-message-open" : "")"
+                                   @onclick:stopPropagation="isOpen">@n.Message</small>
+                            <time title="@NotificationModel.FormatTimestamp(n.CreatedAt)">@n.TimeAgo</time>
+                            <button type="button" class="kf-notif-more" aria-expanded="@isOpen"
+                                    @onclick="() => ToggleNotificationDetails(n)" @onclick:stopPropagation="true">
+                                @(isOpen ? "Hide details" : "Details")
+                            </button>
+                            @if (isOpen)
+                            {
+                                @* Spans throughout, laid out as a grid: the row's
+                                   text sits inside a <span>, and a <dl> or <div>
+                                   there is invalid phrasing content. *@
+                                <span class="kf-notif-facts" @onclick:stopPropagation="true">
+                                    @foreach (var fact in n.DetailFacts())
+                                    {
+                                        <span class="kf-notif-fact">
+                                            <span class="kf-notif-fact-key">@fact.Label</span>
+                                            <span class="kf-notif-fact-value">@fact.Value</span>
+                                        </span>
+                                    }
+                                </span>
+                            }
                         </span>
-                    </button>
+                    </div>
                 }
             }
         </div>
@@ -130,6 +157,11 @@
     private ElementReference _notifPanel;
     private Topbar? _topbar;
     private List<NotificationModel> _recentNotifications = new();
+
+    // Rows whose detail is open. Cleared when the panel closes, so it opens on the
+    // same shape every time; the list itself is replaced by every poll and every
+    // real-time push, which is why this holds ids and not models.
+    private readonly HashSet<int> _expandedNotifIds = new();
 
     // How many notifications the bell holds. It used to be 5, which a single busy producer could
     // monopolise outright — a depot uploading PODs turned the whole dropdown over every couple of
@@ -304,6 +336,7 @@
     {
         _notifPopoverOpen = !_notifPopoverOpen;
         _notifPanelNeedsFocus = _notifPopoverOpen;
+        _expandedNotifIds.Clear();
     }
 
     private async Task CloseNotifications()
@@ -315,6 +348,7 @@
 
         _notifPopoverOpen = false;
         _notifPanelNeedsFocus = false;
+        _expandedNotifIds.Clear();
 
         // Focus came from the bell, so send it back there rather than to the top
         // of the document.
@@ -361,19 +395,66 @@
 
     private async Task OnNotificationClick(NotificationModel notification)
     {
-        if (!notification.IsRead)
-        {
-            await NotificationClient.MarkAsReadAsync(new List<int> { notification.Id });
-            notification.IsRead = true;
-            _unreadCount = Math.Max(0, _unreadCount - 1);
-        }
-
-        _notifPopoverOpen = false;
+        await MarkNotificationRead(notification);
 
         if (!string.IsNullOrEmpty(notification.EffectiveActionUrl))
         {
+            _notifPopoverOpen = false;
+            _expandedNotifIds.Clear();
             NavigationManager.NavigateTo(notification.EffectiveActionUrl);
+            return;
         }
+
+        // Nothing to open. Closing the panel was all this used to do, which left the
+        // notification unread in the sense that matters — so show what it says.
+        ToggleNotificationExpanded(notification.Id);
+    }
+
+    // The row is a div carrying role="button", so it needs its own key handler.
+    // Enter only — see the same handler on the Notifications page for why Space is
+    // left to the Details button inside the row.
+    private async Task OnNotificationKeyDown(KeyboardEventArgs args, NotificationModel notification)
+    {
+        if (args.Key == "Enter")
+        {
+            await OnNotificationClick(notification);
+        }
+    }
+
+    /// <summary>
+    /// Opens or closes a bell row's detail: the full message, the exact time, and
+    /// whatever fields the producer attached. Separate from the row click, which
+    /// navigates and closes the panel for any notification carrying an ActionUrl.
+    /// </summary>
+    private async Task ToggleNotificationDetails(NotificationModel notification)
+    {
+        if (ToggleNotificationExpanded(notification.Id))
+        {
+            await MarkNotificationRead(notification);
+        }
+    }
+
+    private bool ToggleNotificationExpanded(int id)
+    {
+        if (_expandedNotifIds.Remove(id))
+        {
+            return false;
+        }
+
+        _expandedNotifIds.Add(id);
+        return true;
+    }
+
+    private async Task MarkNotificationRead(NotificationModel notification)
+    {
+        if (notification.IsRead)
+        {
+            return;
+        }
+
+        await NotificationClient.MarkAsReadAsync(new List<int> { notification.Id });
+        notification.IsRead = true;
+        _unreadCount = Math.Max(0, _unreadCount - 1);
     }
 
     private async Task MarkAllRead()

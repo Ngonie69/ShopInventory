@@ -1046,6 +1046,80 @@ body {
     margin-top: 3px;
 }
 
+/* Clamped to three lines, the same count the toast uses: the bell holds twenty
+   notifications and the evening credit-limit sweep's message runs six lines on
+   its own, so one row took a quarter of the panel. Details puts it back. */
+.notification-item small {
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    display: -webkit-box;
+    line-clamp: 3;
+    overflow: hidden;
+}
+
+.notification-item small.kf-notif-message-open {
+    -webkit-line-clamp: none;
+    /* The row is a button; the message inside an open one is prose to be read and
+       copied, so it says so. */
+    cursor: text;
+    display: block;
+    line-clamp: none;
+    overflow: visible;
+}
+
+.kf-notif-more {
+    align-self: flex-start;
+    background: transparent;
+    border: 0;
+    border-radius: 5px;
+    color: var(--kf-gold-strong);
+    cursor: pointer;
+    font-size: 9px;
+    font-weight: 700;
+    margin-top: 5px;
+    padding: 2px 6px 2px 0;
+}
+
+.kf-notif-more:hover {
+    text-decoration: underline;
+}
+
+/* Spans, not a <dl>: this sits inside the row's own <span>, where a definition
+   list would be invalid phrasing content. Auto-fit because the field count is
+   whatever the producer attached — two for some notifications, eight for a
+   sales order. */
+.kf-notif-facts {
+    border-top: 1px solid var(--kf-border);
+    display: grid;
+    gap: 7px 12px;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    margin-top: 6px;
+    padding-top: 8px;
+}
+
+.kf-notif-fact {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.kf-notif-fact-key {
+    color: var(--kf-text-secondary);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.kf-notif-fact-value {
+    color: var(--kf-text);
+    font-size: 9.5px;
+    margin-top: 1px;
+    /* A card code or a document number has nowhere to break, and this column can
+       be 120px wide. */
+    overflow-wrap: anywhere;
+}
+
 .kf-notification-view-all {
     border-top: 1px solid var(--kf-border);
     flex: none;
