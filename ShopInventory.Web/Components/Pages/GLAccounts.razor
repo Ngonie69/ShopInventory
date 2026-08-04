@@ -11,238 +11,230 @@
 
 <PageTitle>G/L Accounts - Shop Inventory</PageTitle>
 
-<div class="container-fluid">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="bi bi-journal-text me-2"></i>G/L Accounts</h2>
-        <div>
-            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="me-2"
-                       OnClick="SyncFromSAP" Disabled="@isSyncing">
+@* Styles live in wwwroot/css/operations.css (linked from App.razor), shared
+   with the other four operational pages — see that file's header. `ops` is the
+   scope; `ops-gl` is this page's own half of it. *@
+
+<div class="ops ops-gl">
+
+    <div class="ops-hero">
+        <div class="ops-hero-text">
+            <div class="ops-kicker">Master data</div>
+            <h1>G/L Accounts</h1>
+            <p>
+                The chart of accounts as SAP holds it. Read-only here — accounts are created and
+                edited in SAP, and this page shows what the last sync brought back.
+            </p>
+        </div>
+        <div class="ops-hero-actions">
+            @if (lastSyncTime.HasValue)
+            {
+                <span class="ops-count">Last synced @lastSyncTime.Value.ToString("dd MMM yyyy HH:mm")</span>
+            }
+            <button type="button" class="ops-btn ops-btn-primary" @onclick="SyncFromSAP" disabled="@isSyncing">
                 @if (isSyncing)
                 {
-                    <span class="spinner-border spinner-border-sm me-1"></span>
+                    <span class="ops-spin"></span>
+                    <span>Syncing&hellip;</span>
                 }
-                <i class="bi bi-cloud-download me-1"></i>Sync from SAP
-            </MudButton>
-        </div>
-    </div>
-
-    <!-- Summary Cards -->
-    @if (accounts != null)
-    {
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="card text-center">
-                    <div class="card-body">
-                        <h5 class="card-title text-muted">Total Accounts</h5>
-                        <h3 class="mb-0">@accounts.Count</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card text-center">
-                    <div class="card-body">
-                        <h5 class="card-title text-muted">Revenue</h5>
-                        <h3 class="mb-0 text-success">@accounts.Count(a => a.AccountType == "at_Revenues")</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card text-center">
-                    <div class="card-body">
-                        <h5 class="card-title text-muted">Expenses</h5>
-                        <h3 class="mb-0 text-danger">@accounts.Count(a => a.AccountType == "at_Expenses")</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card text-center">
-                    <div class="card-body">
-                        <h5 class="card-title text-muted">Other</h5>
-                        <h3 class="mb-0 text-info">@accounts.Count(a => a.AccountType != "at_Revenues" && a.AccountType != "at_Expenses")</h3>
-                    </div>
-                </div>
-            </div>
-        </div>
-    }
-
-    <!-- Filters -->
-    <div class="card mb-4">
-        <div class="card-body">
-            <div class="row g-3 align-items-end">
-                <div class="col-md-4">
-                    <label class="form-label">Search</label>
-                    <input type="text" class="form-control" placeholder="Search by code or name..."
-                           @bind="searchTerm" @bind:event="oninput" @onkeyup="OnSearchChanged" />
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Account Type</label>
-                    <select class="form-select" @bind="selectedAccountType" @bind:after="ApplyFilters">
-                        <option value="">All Types</option>
-                        <option value="at_Revenues">Revenue</option>
-                        <option value="at_Expenses">Expenses</option>
-                        <option value="at_Other">Other</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Currency</label>
-                    <select class="form-select" @bind="selectedCurrency" @bind:after="ApplyFilters">
-                        <option value="">All Currencies</option>
-                        @foreach (var currency in availableCurrencies)
-                        {
-                            <option value="@currency">@currency</option>
-                        }
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" OnClick="ClearFilters">
-                        <i class="bi bi-x-circle me-1"></i>Clear
-                    </MudButton>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    @if (isLoading)
-    {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <p class="mt-2">Loading G/L accounts...</p>
-        </div>
-    }
-    else if (errorMessage != null)
-    {
-        <div class="alert alert-danger">
-            <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
-        </div>
-    }
-    else if (filteredAccounts?.Any() == true)
-    {
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span>
-                    <i class="bi bi-table me-1"></i>
-                    Showing @filteredAccounts.Count of @accounts?.Count accounts
-                </span>
-                @if (lastSyncTime.HasValue)
+                else
                 {
-                    <small class="text-muted">
-                        <i class="bi bi-clock me-1"></i>Last synced: @lastSyncTime.Value.ToString("dd MMM yyyy HH:mm")
-                    </small>
+                    <i class="ph ph-cloud-arrow-down" aria-hidden="true"></i>
+                    <span>Sync from SAP</span>
                 }
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover table-striped mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th style="cursor: pointer" @onclick="() => SortBy(nameof(GLAccountDto.Code))">
-                                    Code
-                                    @if (sortColumn == nameof(GLAccountDto.Code))
-                                    {
-                                        <i class="bi bi-chevron-@(sortAscending ? "up" : "down") ms-1"></i>
-                                    }
-                                </th>
-                                <th style="cursor: pointer" @onclick="() => SortBy(nameof(GLAccountDto.Name))">
-                                    Name
-                                    @if (sortColumn == nameof(GLAccountDto.Name))
-                                    {
-                                        <i class="bi bi-chevron-@(sortAscending ? "up" : "down") ms-1"></i>
-                                    }
-                                </th>
-                                <th style="cursor: pointer" @onclick="() => SortBy(nameof(GLAccountDto.AccountType))">
-                                    Type
-                                    @if (sortColumn == nameof(GLAccountDto.AccountType))
-                                    {
-                                        <i class="bi bi-chevron-@(sortAscending ? "up" : "down") ms-1"></i>
-                                    }
-                                </th>
-                                <th>Currency</th>
-                                <th class="text-end" style="cursor: pointer" @onclick="() => SortBy(nameof(GLAccountDto.Balance))">
-                                    Balance
-                                    @if (sortColumn == nameof(GLAccountDto.Balance))
-                                    {
-                                        <i class="bi bi-chevron-@(sortAscending ? "up" : "down") ms-1"></i>
-                                    }
-                                </th>
-                                <th class="text-center">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var account in pagedAccounts)
-                            {
-                                <tr>
-                                    <td><strong>@account.Code</strong></td>
-                                    <td>@account.Name</td>
-                                    <td>
-                                        <span class="badge @GetAccountTypeBadgeClass(account.AccountType)">
-                                            @GetAccountTypeLabel(account.AccountType)
-                                        </span>
-                                    </td>
-                                    <td>@account.Currency</td>
-                                    <td class="text-end @(account.Balance < 0 ? "text-danger" : "")">
-                                        @account.Balance.ToString("N2")
-                                    </td>
-                                    <td class="text-center">
-                                        @if (account.IsActive)
-                                        {
-                                            <span class="badge bg-success">Active</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="badge bg-secondary">Inactive</span>
-                                        }
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            @if (totalPages > 1)
-            {
-                <div class="card-footer d-flex justify-content-between align-items-center">
-                    <span class="text-muted">
-                        Page @currentPage of @totalPages
-                    </span>
-                    <div>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
-                                   Disabled="@(currentPage <= 1)" OnClick="PreviousPage" Class="me-1">
-                            <i class="bi bi-chevron-left"></i> Previous
-                        </MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
-                                   Disabled="@(currentPage >= totalPages)" OnClick="NextPage">
-                            Next <i class="bi bi-chevron-right"></i>
-                        </MudButton>
-                    </div>
-                </div>
-            }
+            </button>
         </div>
-    }
-    else
-    {
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle me-2"></i>
-            @if (accounts?.Any() == true)
-            {
-                <span>No accounts match the current filters.</span>
-            }
-            else
-            {
-                <span>No G/L accounts found. Click <strong>Sync from SAP</strong> to fetch accounts.</span>
-            }
-        </div>
-    }
+    </div>
 
     @if (!string.IsNullOrEmpty(syncMessage))
     {
-        <div class="alert @(syncSuccess ? "alert-success" : "alert-danger") mt-3 alert-dismissible fade show">
-            <i class="bi @(syncSuccess ? "bi-check-circle" : "bi-exclamation-triangle") me-2"></i>
-            @syncMessage
-            <button type="button" class="btn-close" @onclick="() => syncMessage = null"></button>
+        <div class="ops-msg @(syncSuccess ? "ops-fam-good" : "ops-fam-bad")" role="status">
+            <i class="ph @(syncSuccess ? "ph-check-circle" : "ph-warning-octagon")" aria-hidden="true"></i>
+            <div class="ops-msg-body">@syncMessage</div>
+            <button type="button" class="ops-msg-x" aria-label="Dismiss" @onclick="() => syncMessage = null">
+                <i class="ph ph-x" aria-hidden="true"></i>
+            </button>
         </div>
     }
+
+    @if (accounts != null)
+    {
+        @* Revenue and expenses take good and bad because that is what they are on
+           a ledger — neither is a problem, and neither figure is an alert. *@
+        <div class="ops-figures">
+            <div class="ops-figure ops-fam-accent">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Total accounts</div>
+                <div class="ops-figure-num">@accounts.Count</div>
+            </div>
+            <div class="ops-figure ops-fam-good">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Revenue</div>
+                <div class="ops-figure-num">@accounts.Count(a => a.AccountType == "at_Revenues")</div>
+            </div>
+            <div class="ops-figure ops-fam-bad">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Expenses</div>
+                <div class="ops-figure-num">@accounts.Count(a => a.AccountType == "at_Expenses")</div>
+            </div>
+            <div class="ops-figure ops-fam-info">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Other</div>
+                <div class="ops-figure-num">
+                    @accounts.Count(a => a.AccountType != "at_Revenues" && a.AccountType != "at_Expenses")
+                </div>
+            </div>
+        </div>
+    }
+
+    <section class="ops-panel">
+        <div class="ops-panel-head">
+            <h2><i class="ph ph-book-open" aria-hidden="true"></i>Accounts</h2>
+            @if (accounts != null)
+            {
+                <span class="ops-count">@filteredAccounts.Count of @accounts.Count</span>
+            }
+        </div>
+
+        <div class="ops-filters">
+            <div class="ops-field">
+                <label class="ops-label" for="gl-search">Search</label>
+                <div class="ops-search">
+                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                    <input id="gl-search" type="search" class="ops-input" placeholder="Code or name"
+                           @bind="searchTerm" @bind:event="oninput" @onkeyup="OnSearchChanged" />
+                </div>
+            </div>
+            <div class="ops-field">
+                <label class="ops-label" for="gl-type">Account type</label>
+                <select id="gl-type" class="ops-input" @bind="selectedAccountType" @bind:after="ApplyFilters">
+                    <option value="">All types</option>
+                    <option value="at_Revenues">Revenue</option>
+                    <option value="at_Expenses">Expenses</option>
+                    <option value="at_Other">Other</option>
+                </select>
+            </div>
+            <div class="ops-field">
+                <label class="ops-label" for="gl-currency">Currency</label>
+                <select id="gl-currency" class="ops-input" @bind="selectedCurrency" @bind:after="ApplyFilters">
+                    <option value="">All currencies</option>
+                    @foreach (var currency in availableCurrencies)
+                    {
+                        <option value="@currency">@currency</option>
+                    }
+                </select>
+            </div>
+            <div class="ops-filter-actions">
+                <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearFilters">
+                    <i class="ph ph-x-circle" aria-hidden="true"></i>Clear
+                </button>
+            </div>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="ops-loading">
+                <span class="ops-spin ops-spin-lg"></span>
+                <p>Loading G/L accounts&hellip;</p>
+            </div>
+        }
+        else if (errorMessage != null)
+        {
+            <div class="ops-empty">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <h3>Could not load the accounts</h3>
+                <p>@errorMessage</p>
+            </div>
+        }
+        else if (filteredAccounts.Count == 0)
+        {
+            <div class="ops-empty">
+                <i class="ph ph-book-open" aria-hidden="true"></i>
+                @if (accounts?.Any() == true)
+                {
+                    <h3>Nothing matches those filters</h3>
+                    <p>Clear them to see the whole chart of accounts.</p>
+                    <div class="ops-empty-actions">
+                        <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearFilters">Clear filters</button>
+                    </div>
+                }
+                else
+                {
+                    <h3>No accounts yet</h3>
+                    <p>Sync from SAP to bring the chart of accounts across.</p>
+                    <div class="ops-empty-actions">
+                        <button type="button" class="ops-btn ops-btn-primary" @onclick="SyncFromSAP" disabled="@isSyncing">
+                            Sync from SAP
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="ops-scroll">
+                <table class="ops-table">
+                    <thead>
+                        <tr>
+                            <th class="ops-th-sort" @onclick="@(() => SortBy(nameof(GLAccountDto.Code)))">
+                                Code @SortMark(nameof(GLAccountDto.Code))
+                            </th>
+                            <th class="ops-th-sort" @onclick="@(() => SortBy(nameof(GLAccountDto.Name)))">
+                                Name @SortMark(nameof(GLAccountDto.Name))
+                            </th>
+                            <th class="ops-th-sort" @onclick="@(() => SortBy(nameof(GLAccountDto.AccountType)))">
+                                Type @SortMark(nameof(GLAccountDto.AccountType))
+                            </th>
+                            <th>Currency</th>
+                            <th class="ops-num ops-th-sort" @onclick="@(() => SortBy(nameof(GLAccountDto.Balance)))">
+                                Balance @SortMark(nameof(GLAccountDto.Balance))
+                            </th>
+                            <th class="ops-mid">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var account in pagedAccounts)
+                        {
+                            <tr>
+                                <td><span class="ops-code">@account.Code</span></td>
+                                <td class="ops-name">@account.Name</td>
+                                <td>
+                                    <span class="ops-badge @GetAccountTypeFamily(account.AccountType)">
+                                        @GetAccountTypeLabel(account.AccountType)
+                                    </span>
+                                </td>
+                                <td><span class="ops-unit">@account.Currency</span></td>
+                                @* A negative balance is a fact about the account, not an error —
+                                   so it takes the family and nothing else about the row changes. *@
+                                <td class="ops-num">
+                                    <span class="ops-qty @(account.Balance < 0 ? "ops-fam-bad" : "")">
+                                        @account.Balance.ToString("N2")
+                                    </span>
+                                </td>
+                                <td class="ops-mid">
+                                    <span class="ops-badge @(account.IsActive ? "ops-fam-good" : "ops-fam-neutral")">
+                                        @(account.IsActive ? "Active" : "Inactive")
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (totalPages > 1)
+            {
+                <div class="ops-foot">
+                    <span class="ops-foot-info">Page @currentPage of @totalPages</span>
+                    <div class="ops-pages">
+                        <button type="button" class="ops-step" disabled="@(currentPage <= 1)" @onclick="PreviousPage">
+                            <i class="ph ph-caret-left" aria-hidden="true"></i>Previous
+                        </button>
+                        <span class="ops-page-now">@currentPage</span>
+                        <button type="button" class="ops-step" disabled="@(currentPage >= totalPages)" @onclick="NextPage">
+                            Next<i class="ph ph-caret-right" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+    </section>
 </div>
 
 @code {
@@ -419,12 +411,18 @@
         }
     }
 
-    private static string GetAccountTypeBadgeClass(string? accountType) => accountType switch
+    // The caret beside the column currently sorted on. A MarkupString rather than
+    // a component so it can sit inline inside the <th> text.
+    private MarkupString SortMark(string column) => sortColumn != column
+        ? default
+        : (MarkupString)$"<span class=\"ops-sort-mark\">{(sortAscending ? "&#9650;" : "&#9660;")}</span>";
+
+    private static string GetAccountTypeFamily(string? accountType) => accountType switch
     {
-        "at_Revenues" => "bg-success",
-        "at_Expenses" => "bg-danger",
-        "at_Other" => "bg-info",
-        _ => "bg-secondary"
+        "at_Revenues" => "ops-fam-good",
+        "at_Expenses" => "ops-fam-bad",
+        "at_Other" => "ops-fam-info",
+        _ => "ops-fam-neutral"
     };
 
     private static string GetAccountTypeLabel(string? accountType) => accountType switch

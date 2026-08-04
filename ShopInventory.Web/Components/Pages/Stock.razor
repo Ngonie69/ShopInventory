@@ -13,1086 +13,335 @@
 @rendermode InteractiveServer
 
 <PageTitle>Stock Monitoring - Shop Inventory</PageTitle>
-
-<style>
-    /* ── Page ────────────────────────────────────────── */
-    .stk-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
-
-    /* ── Header ──────────────────────────────────────── */
-    .stk-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .stk-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
-
-    .stk-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
-
-    .stk-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-        letter-spacing: -.3px;
-    }
-
-    .stk-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    .stk-header-actions {
-        display: flex;
-        gap: .5rem;
-        flex-wrap: wrap;
-    }
-
-    .btn-stk-gradient {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
-        cursor: pointer;
-    }
-
-    .btn-stk-gradient:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
-        color: #fff;
-    }
-
-    .btn-stk-gradient:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-        transform: none;
-        box-shadow: none;
-    }
-
-    .btn-stk-outline {
-        background: #fff;
-        color: #374151;
-        border: 1px solid #d1d5db;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .btn-stk-outline:hover {
-        background: #f9fafb;
-        border-color: #9ca3af;
-    }
-
-    .btn-stk-outline:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-    }
-
-    .btn-stk-warning {
-        background: linear-gradient(135deg, #f59e0b, #d97706);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        box-shadow: 0 2px 8px rgba(217, 119, 6, .25);
-    }
-
-    .btn-stk-warning:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(217, 119, 6, .4);
-        color: #fff;
-    }
-
-    .btn-stk-warning:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    /* ── Stat Cards ──────────────────────────────────── */
-    .stat-row {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .stat-card {
-        background: #fff;
-        border-radius: 12px;
-        padding: 1.1rem 1.25rem;
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-        border: 1px solid #e5e7eb;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-        transition: all .25s ease;
-    }
-
-    .stat-card:hover {
-        box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
-        transform: translateY(-2px);
-    }
-
-    .stat-card.warning-pulse {
-        border-color: #fde68a;
-    }
-
-    .stat-card.danger-pulse {
-        border-color: #fecaca;
-    }
-
-    .stat-icon {
-        width: 42px;
-        height: 42px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.1rem;
-        flex-shrink: 0;
-    }
-
-    .stat-icon.purple {
-        background: #ede9fe;
-        color: #7c3aed;
-    }
-
-    .stat-icon.green {
-        background: #d1fae5;
-        color: #059669;
-    }
-
-    .stat-icon.amber {
-        background: #fef3c7;
-        color: #d97706;
-    }
-
-    .stat-icon.red {
-        background: #fee2e2;
-        color: #dc2626;
-    }
-
-    .stat-info .stat-value {
-        font-size: 1.35rem;
-        font-weight: 700;
-        color: #1a1a2e;
-        line-height: 1.2;
-    }
-
-    .stat-info .stat-label {
-        font-size: .78rem;
-        color: #6b7280;
-        font-weight: 500;
-    }
-
-    .stat-info .stat-hint {
-        font-size: .72rem;
-        font-weight: 500;
-        margin-top: .15rem;
-    }
-
-    /* ── Filter Bar ──────────────────────────────────── */
-    .filter-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .75rem;
-        align-items: flex-end;
-        padding: 1rem 1.25rem;
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        margin-bottom: 1.25rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .filter-bar .filter-field {
-        flex: 1;
-        min-width: 160px;
-    }
-
-    .filter-bar .filter-field label {
-        display: block;
-        font-size: .72rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        margin-bottom: .3rem;
-    }
-
-    .filter-bar .filter-field select,
-    .filter-bar .filter-field input {
-        width: 100%;
-        padding: .5rem .75rem;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .88rem;
-        color: #374151;
-        background: #fff;
-        transition: all .15s;
-    }
-
-    .filter-bar .filter-field select:focus,
-    .filter-bar .filter-field input:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
-    }
-
-    .filter-actions-row {
-        display: flex;
-        gap: .5rem;
-        align-items: flex-end;
-    }
-
-    .btn-search {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        border: none;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-search:hover {
-        opacity: .92;
-        transform: translateY(-1px);
-    }
-
-    .btn-search:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    .btn-clear {
-        background: #fff;
-        color: #6b7280;
-        border: 1px solid #d1d5db;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .15s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-clear:hover {
-        background: #f3f4f6;
-    }
-
-    /* ── Table ───────────────────────────────────────── */
-    .stk-table-wrap {
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .stk-table-header {
-        padding: .85rem 1.25rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 1px solid #e5e7eb;
-        background: #f8fafc;
-    }
-
-    .stk-table-header h6 {
-        margin: 0;
-        font-weight: 600;
-        color: #1a1a2e;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-        font-size: .92rem;
-    }
-
-    .stk-count-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .25rem;
-        padding: .2rem .6rem;
-        border-radius: 6px;
-        font-size: .75rem;
-        font-weight: 600;
-        background: #f3f4f6;
-        color: #374151;
-    }
-
-    .stk-table {
-        width: 100%;
-        font-size: .85rem;
-        border-collapse: separate;
-        border-spacing: 0;
-    }
-
-    .stk-table th {
-        background: #f8fafc;
-        font-size: .72rem;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #6b7280;
-        font-weight: 600;
-        padding: .6rem .75rem;
-        border-bottom: 2px solid #e5e7eb;
-        white-space: nowrap;
-    }
-
-    .stk-table td {
-        padding: .55rem .75rem;
-        border-bottom: 1px solid #f3f4f6;
-        color: #374151;
-        vertical-align: middle;
-    }
-
-    .stk-table tr:last-child td {
-        border-bottom: none;
-    }
-
-    .stk-table tbody tr {
-        transition: background .15s;
-    }
-
-    .stk-table tbody tr:hover {
-        background: #f8fafc;
-    }
-
-    .stk-table tbody tr.row-danger {
-        background: #fef2f2;
-    }
-
-    .stk-table tbody tr.row-danger:hover {
-        background: #fee2e2;
-    }
-
-    .stk-table tbody tr.row-warning {
-        background: #fffbeb;
-    }
-
-    .stk-table tbody tr.row-warning:hover {
-        background: #fef3c7;
-    }
-
-    .item-code {
-        font-weight: 700;
-        color: #667eea;
-        font-size: .88rem;
-        font-family: 'Space Grotesk', monospace;
-    }
-
-    .item-name {
-        font-weight: 500;
-        color: #1a1a2e;
-    }
-
-    .qty-cell {
-        font-family: 'Space Grotesk', monospace;
-        font-weight: 600;
-        font-size: .88rem;
-    }
-
-    .qty-warning {
-        color: #d97706;
-    }
-
-    .qty-info {
-        color: #2563eb;
-    }
-
-    .qty-danger {
-        color: #dc2626;
-    }
-
-    .qty-success {
-        color: #059669;
-    }
-
-    .uom-label {
-        font-size: .82rem;
-        color: #6b7280;
-    }
-
-    /* Health Bar */
-    .health-bar {
-        width: 56px;
-        height: 6px;
-        border-radius: 3px;
-        background: #e5e7eb;
-        overflow: hidden;
-    }
-
-    .health-bar-fill {
-        height: 100%;
-        border-radius: 3px;
-        transition: width .3s ease;
-    }
-
-    .health-bar-fill.green {
-        background: linear-gradient(90deg, #34d399, #059669);
-    }
-
-    .health-bar-fill.amber {
-        background: linear-gradient(90deg, #fbbf24, #d97706);
-    }
-
-    .health-bar-fill.red {
-        background: linear-gradient(90deg, #f87171, #dc2626);
-    }
-
-    /* Status Indicator */
-    .status-dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        display: inline-block;
-    }
-
-    .status-dot.green {
-        background: #059669;
-        box-shadow: 0 0 0 3px rgba(5, 150, 105, .2);
-    }
-
-    .status-dot.amber {
-        background: #d97706;
-        box-shadow: 0 0 0 3px rgba(217, 119, 6, .2);
-    }
-
-    .status-dot.red {
-        background: #dc2626;
-        box-shadow: 0 0 0 3px rgba(220, 38, 38, .2);
-    }
-
-    /* ── Pagination ──────────────────────────────────── */
-    .stk-pagination {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: .5rem;
-        margin-top: 1.25rem;
-    }
-
-    .stk-pagination button {
-        padding: .45rem 1rem;
-        border-radius: 8px;
-        border: 1px solid #d1d5db;
-        background: #fff;
-        color: #374151;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .15s;
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-    }
-
-    .stk-pagination button:hover:not(:disabled) {
-        background: #f3f4f6;
-        border-color: #9ca3af;
-    }
-
-    .stk-pagination button:disabled {
-        opacity: .4;
-        cursor: not-allowed;
-    }
-
-    .stk-pagination .page-indicator {
-        padding: .45rem .85rem;
-        border-radius: 8px;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        font-weight: 600;
-        font-size: .85rem;
-    }
-
-    /* ── Empty & Loading States ──────────────────────── */
-    .empty-state {
-        text-align: center;
-        padding: 3rem 1.5rem;
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-    }
-
-    .empty-icon {
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        background: #f3f4f6;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 1rem;
-        font-size: 1.8rem;
-        color: #9ca3af;
-    }
-
-    .empty-state h6 {
-        font-weight: 600;
-        color: #374151;
-        margin-bottom: .35rem;
-    }
-
-    .empty-state p {
-        color: #9ca3af;
-        font-size: .88rem;
-        margin-bottom: 1rem;
-    }
-
-    .loading-state {
-        text-align: center;
-        padding: 3rem;
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-    }
-
-    /* ── Alert ───────────────────────────────────────── */
-    .alert-banner {
-        border-radius: 10px;
-        padding: .75rem 1rem;
-        display: flex;
-        align-items: flex-start;
-        gap: .6rem;
-        margin-bottom: 1rem;
-        font-size: .88rem;
-        animation: slideDown .3s ease;
-    }
-
-    .alert-banner.error-alert {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #991b1b;
-    }
-
-    /* ── Drawer Modal ────────────────────────────────── */
-    /* Offset below the app bar: the page container is a stacking context, so a drawer
-       cannot paint over the topbar however high its z-index. */
-    .modal-backdrop-custom {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(0, 0, 0, .45);
-        z-index: 9998;
-        animation: fadeIn .2s ease;
-    }
-
-    .detail-drawer {
-        position: fixed;
-        top: var(--kf-topbar-h, 74px);
-        right: 0;
-        width: min(520px, 95vw);
-        height: calc(100vh - var(--kf-topbar-h, 74px));
-        background: #fff;
-        z-index: 9999;
-        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
-        display: flex;
-        flex-direction: column;
-        animation: slideInRight .25s ease;
-    }
-
-    .drawer-header {
-        padding: 1.15rem 1.5rem;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-shrink: 0;
-    }
-
-    .drawer-header h5 {
-        margin: 0;
-        font-weight: 600;
-        font-size: 1.05rem;
-    }
-
-    .drawer-header .btn-close-drawer {
-        background: rgba(255, 255, 255, .15);
-        border: none;
-        color: #fff;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: background .15s;
-        font-size: 1rem;
-    }
-
-    .drawer-header .btn-close-drawer:hover {
-        background: rgba(255, 255, 255, .25);
-    }
-
-    .drawer-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1.5rem;
-    }
-
-    .drawer-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid #e5e7eb;
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-        flex-shrink: 0;
-    }
-
-    .detail-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: .85rem;
-    }
-
-    .detail-item .detail-label {
-        font-size: .72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #9ca3af;
-        margin-bottom: .15rem;
-    }
-
-    .detail-item .detail-value {
-        font-size: .92rem;
-        font-weight: 600;
-        color: #1a1a2e;
-    }
-
-    /* ── Animations ──────────────────────────────────── */
-    @@keyframes fadeIn {
-        from {
-            opacity: 0;
-        }
-
-        to {
-            opacity: 1;
-        }
-    }
-
-    @@keyframes slideInRight {
-        from {
-            transform: translateX(100%);
-        }
-
-        to {
-            transform: translateX(0);
-        }
-    }
-
-    @@keyframes slideDown {
-        from {
-            opacity: 0;
-            transform: translateY(-6px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    /* ── Responsive ──────────────────────────────────── */
-    @@media (max-width:768px) {
-        .stat-row {
-            grid-template-columns: 1fr 1fr;
-        }
-
-        .filter-bar {
-            flex-direction: column;
-        }
-
-        .filter-bar .filter-field {
-            min-width: 100%;
-        }
-
-        .stk-header {
-            flex-direction: column;
-        }
-
-        .detail-grid {
-            grid-template-columns: 1fr;
-        }
-    }
-</style>
-
-<div class="stk-page">
-    <div class="container-fluid">
-
-        <!-- ━━━ Header ━━━ -->
-        <div class="stk-header">
-            <div class="stk-header-left">
-                <div class="stk-header-icon"><i class="bi bi-clipboard-data"></i></div>
-                <div>
-                    <h2>Stock Monitoring</h2>
-                    <p>Monitor inventory levels, alerts & stock status</p>
-                </div>
+@* Styles live in wwwroot/css/operations.css (linked from App.razor), shared
+   with the other four operational pages — see that file's header. `ops` is the
+   scope; `ops-stk` is this page's own half of it.
+
+   The 757-line inline <style> block is gone, and so are the *unnamespaced*
+   class names it dressed. This page's markup used bare `stat-card`,
+   `filter-bar`, `filter-field`, `empty-state`, `loading-state`,
+   `detail-drawer`, `alert-banner` and `item-code` — all of which app.css also
+   styles, and all of which three to six other pages still use. Those app.css
+   rules are deliberately left alone: deleting them because this page stopped
+   calling them would have silently restyled /local-stock and its siblings. *@
+
+<div class="ops ops-stk">
+
+    <div class="ops-hero">
+        <div class="ops-hero-text">
+            <div class="ops-kicker">Inventory</div>
+            <h1>Stock Monitoring</h1>
+            <p>
+                On-hand, committed and available quantities for one warehouse, straight from SAP.
+                Available already includes what is on order.
+            </p>
+        </div>
+        <div class="ops-hero-actions">
+            @if (lowStockCount > 0)
+            {
+                <button type="button" class="ops-btn ops-btn-warn" @onclick="ShowLowStockAlerts"
+                        disabled="@(stockItems.Count == 0)">
+                    <i class="ph ph-warning" aria-hidden="true"></i>
+                    <span>Low stock (@lowStockCount)</span>
+                </button>
+            }
+            <button type="button" class="ops-btn ops-btn-primary" @onclick="RefreshStock" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="ops-spin"></span>
+                    <span>Loading&hellip;</span>
+                }
+                else
+                {
+                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    <span>Refresh</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="ops-msg ops-fam-bad" role="alert">
+            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+            <div class="ops-msg-body">@errorMessage</div>
+            <button type="button" class="ops-msg-x" aria-label="Dismiss" @onclick="() => errorMessage = null">
+                <i class="ph ph-x" aria-hidden="true"></i>
+            </button>
+        </div>
+    }
+
+    @if (stockItems.Any())
+    {
+        @* Low and out-of-stock take their family only when the count is not
+           zero — a permanently red figure would say something is wrong on a
+           day when nothing is. *@
+        <div class="ops-figures">
+            <div class="ops-figure ops-fam-accent">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Total SKUs</div>
+                <div class="ops-figure-num">@totalItems</div>
             </div>
-            <div class="stk-header-actions">
-                <MudButton Class="btn-stk-warning" OnClick="ShowLowStockAlerts" Disabled="@(stockItems.Count == 0)">
-                    <i class="bi bi-exclamation-triangle"></i>
-                    Low Stock (@lowStockCount)
-                </MudButton>
-                <MudButton Class="btn-stk-outline" OnClick="RefreshStock" Disabled="@isLoading">
-                    @if (isLoading)
-                    {
-                        <span class="spinner-border spinner-border-sm"></span>
-                    }
-                    else
-                    {
-                        <i class="bi bi-arrow-clockwise"></i>
-                    }
-                    Refresh
-                </MudButton>
+            <div class="ops-figure ops-fam-good">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Healthy</div>
+                <div class="ops-figure-num">@inStockCount</div>
+            </div>
+            <div class="ops-figure @(lowStockCount > 0 ? "ops-fam-warn" : "ops-fam-neutral")">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Low stock</div>
+                <div class="ops-figure-num">@lowStockCount</div>
+                @if (lowStockCount > 0)
+                {
+                    <div class="ops-figure-sub">Needs reorder</div>
+                }
+            </div>
+            <div class="ops-figure @(outOfStockCount > 0 ? "ops-fam-bad" : "ops-fam-neutral")">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Out of stock</div>
+                <div class="ops-figure-num">@outOfStockCount</div>
+                @if (outOfStockCount > 0)
+                {
+                    <div class="ops-figure-sub">Nothing available</div>
+                }
             </div>
         </div>
+    }
 
-        <!-- ━━━ Alerts ━━━ -->
-        @if (!string.IsNullOrEmpty(errorMessage))
-        {
-            <div class="alert-banner error-alert">
-                <i class="bi bi-exclamation-octagon-fill"></i>
-                <div style="flex:1;">@errorMessage</div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close"
-                               Style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
-                               OnClick="() => errorMessage = null" />
-            </div>
-        }
+    <section class="ops-panel">
+        <div class="ops-panel-head">
+            <h2><i class="ph ph-clipboard-text" aria-hidden="true"></i>Stock status</h2>
+            @if (stockItems.Any())
+            {
+                <span class="ops-count">@filteredItems.Count() of @stockItems.Count items</span>
+            }
+        </div>
 
-        <!-- ━━━ Stat Cards ━━━ -->
-        @if (stockItems.Any())
-        {
-            <div class="stat-row">
-                <div class="stat-card">
-                    <div class="stat-icon purple"><i class="bi bi-box-seam"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@totalItems</div>
-                        <div class="stat-label">Total SKUs</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon green"><i class="bi bi-check-circle-fill"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@inStockCount</div>
-                        <div class="stat-label">Healthy Stock</div>
-                    </div>
-                </div>
-                <div class="stat-card @(lowStockCount > 0 ? "warning-pulse" : "")">
-                    <div class="stat-icon amber"><i class="bi bi-exclamation-triangle-fill"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@lowStockCount</div>
-                        <div class="stat-label">Low Stock</div>
-                        @if (lowStockCount > 0)
-                        {
-                            <div class="stat-hint" style="color:#d97706;">Needs reorder</div>
-                        }
-                    </div>
-                </div>
-                <div class="stat-card @(outOfStockCount > 0 ? "danger-pulse" : "")">
-                    <div class="stat-icon red"><i class="bi bi-x-circle-fill"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@outOfStockCount</div>
-                        <div class="stat-label">Out of Stock</div>
-                        @if (outOfStockCount > 0)
-                        {
-                            <div class="stat-hint" style="color:#dc2626;">Critical</div>
-                        }
-                    </div>
-                </div>
-            </div>
-        }
-
-        <!-- ━━━ Filter Bar ━━━ -->
-        <div class="filter-bar">
-            <div class="filter-field">
-                <label>Warehouse *</label>
+        <div class="ops-filters">
+            <div class="ops-field ops-field-lead">
+                <label class="ops-label" for="stk-warehouse">Warehouse</label>
                 @if (isLoadingWarehouses)
                 {
-                    <div style="display:flex;align-items:center;gap:.4rem;padding:.5rem 0;">
-                        <span class="spinner-border spinner-border-sm" style="color:#667eea;"></span>
-                        <span style="font-size:.85rem;color:#6b7280;">Loading warehouses...</span>
+                    <div class="ops-loading">
+                        <span class="ops-spin"></span>
+                        <p>Loading warehouses&hellip;</p>
                     </div>
                 }
                 else
                 {
-                    <select @bind="selectedWarehouseCode" disabled="@isWarehouseLocked">
-                        <option value="">-- Select Warehouse --</option>
+                    <select id="stk-warehouse" class="ops-input" @bind="selectedWarehouseCode"
+                            disabled="@isWarehouseLocked">
+                        <option value="">Select a warehouse</option>
                         @foreach (var warehouse in warehouses)
                         {
-                            <option value="@warehouse.WarehouseCode">@warehouse.WarehouseCode - @warehouse.WarehouseName
+                            <option value="@warehouse.WarehouseCode">
+                                @warehouse.WarehouseCode — @warehouse.WarehouseName
                             </option>
                         }
                     </select>
                     @if (isWarehouseLocked)
                     {
-                        <small style="font-size:.75rem;color:#6b7280;">Warehouse assigned to your account</small>
+                        <small>Fixed to the warehouse on your account.</small>
                     }
                 }
             </div>
-            <div class="filter-field" style="max-width:180px;">
-                <label>Stock Status</label>
-                <select @bind="stockFilter">
-                    <option value="all">All Items</option>
-                    <option value="instock">Healthy Stock</option>
-                    <option value="lowstock">Low Stock</option>
-                    <option value="outofstock">Out of Stock</option>
+            <div class="ops-field">
+                <label class="ops-label" for="stk-status">Stock status</label>
+                <select id="stk-status" class="ops-input" @bind="stockFilter">
+                    <option value="all">All items</option>
+                    <option value="instock">Healthy</option>
+                    <option value="lowstock">Low stock</option>
+                    <option value="outofstock">Out of stock</option>
                 </select>
             </div>
-            <div class="filter-field" style="max-width:150px;">
-                <label>Low Threshold</label>
-                <input type="number" @bind="lowStockThreshold" min="1" max="1000" />
+            <div class="ops-field">
+                <label class="ops-label" for="stk-threshold">Low threshold</label>
+                <input id="stk-threshold" type="number" class="ops-input" min="1" max="1000"
+                       @bind="lowStockThreshold" />
             </div>
-            <div class="filter-field">
-                <label>Search Item</label>
-                <input type="text" @bind="searchTerm" @bind:event="oninput" placeholder="Code, name or barcode..."
-                       @onkeypress="OnSearchKeyPress" />
+            <div class="ops-field">
+                <label class="ops-label" for="stk-search">Search item</label>
+                <div class="ops-search">
+                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                    <input id="stk-search" type="search" class="ops-input" placeholder="Code, name or barcode"
+                           @bind="searchTerm" @bind:event="oninput" @onkeypress="OnSearchKeyPress" />
+                </div>
             </div>
-            <div class="filter-actions-row">
-                <MudButton Class="btn-search" OnClick="LoadStock"
-                           Disabled="@(string.IsNullOrEmpty(selectedWarehouseCode))">
-                    <i class="bi bi-search"></i> Load
-                </MudButton>
-                <MudButton Class="btn-clear" OnClick="ClearFilters">
-                    <i class="bi bi-x-circle"></i> Clear
-                </MudButton>
+            <div class="ops-filter-actions">
+                <button type="button" class="ops-btn ops-btn-primary" @onclick="LoadStock"
+                        disabled="@(string.IsNullOrEmpty(selectedWarehouseCode))">
+                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>Load
+                </button>
+                <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearFilters">
+                    <i class="ph ph-x-circle" aria-hidden="true"></i>Clear
+                </button>
             </div>
         </div>
 
-        <!-- ━━━ Content States ━━━ -->
         @if (isLoading)
         {
-            <div class="loading-state">
-                <div class="spinner-border" style="color:#667eea;width:2.5rem;height:2.5rem;" role="status"></div>
-                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading stock data...</p>
+            <div class="ops-loading">
+                <span class="ops-spin ops-spin-lg"></span>
+                <p>Loading stock data&hellip;</p>
             </div>
         }
         else if (string.IsNullOrEmpty(selectedWarehouseCode) && !stockItems.Any())
         {
-            <div class="empty-state">
-                <div class="empty-icon"><i class="bi bi-building"></i></div>
-                <h6>Select a Warehouse</h6>
-                <p>Choose a warehouse above to view its stock levels</p>
+            <div class="ops-empty">
+                <i class="ph ph-warehouse" aria-hidden="true"></i>
+                <h3>Select a warehouse</h3>
+                <p>Stock is held per warehouse, so pick one above to see its levels.</p>
             </div>
         }
         else if (!stockItems.Any())
         {
-            <div class="empty-state">
-                <div class="empty-icon"><i class="bi bi-inbox"></i></div>
-                <h6>No stock items found</h6>
-                <p>No items match your search criteria</p>
-                <MudButton Class="btn-search" OnClick="RefreshStock"><i class="bi bi-arrow-clockwise"></i> Retry</MudButton>
+            <div class="ops-empty">
+                <i class="ph ph-package" aria-hidden="true"></i>
+                <h3>No stock items found</h3>
+                <p>Nothing in this warehouse matches the current filters.</p>
+                <div class="ops-empty-actions">
+                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="RefreshStock">
+                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Retry
+                    </button>
+                </div>
             </div>
         }
         else
         {
-            <!-- ━━━ Stock Table ━━━ -->
-            <div class="stk-table-wrap">
-                <div class="stk-table-header">
-                    <h6><i class="bi bi-table"></i> Stock Status — @selectedWarehouseCode</h6>
-                    <span class="stk-count-badge">
-                        <i class="bi bi-funnel"></i> @filteredItems.Count() of @stockItems.Count items
-                    </span>
-                </div>
-                <div style="overflow-x:auto;">
-                    <table class="stk-table mobile-card-table">
-                        <thead>
-                            <tr>
-                                <th style="width:40px;text-align:center;">Status</th>
-                                <th>Item Code</th>
-                                <th>Item Name</th>
-                                <th style="text-align:right;">On Hand</th>
-                                <th style="text-align:right;">Committed</th>
-                                <th style="text-align:right;">On Order</th>
-                                <th style="text-align:right;">Available</th>
-                                <th>UoM</th>
-                                <th style="text-align:center;">Health</th>
+            <div class="ops-scroll ops-tall">
+                <table class="ops-table mobile-card-table">
+                    <thead>
+                        <tr>
+                            <th class="ops-mid">Status</th>
+                            <th>Item code</th>
+                            <th>Item name</th>
+                            <th class="ops-num">On hand</th>
+                            <th class="ops-num">Committed</th>
+                            <th class="ops-num">On order</th>
+                            <th class="ops-num">Available</th>
+                            <th>UoM</th>
+                            <th class="ops-mid">Health</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in filteredItems)
+                        {
+                            @* One family per row, read by the dot, the available
+                               quantity and the meter alike — so the three cannot
+                               disagree, which three separate colour ladders used
+                               to allow. *@
+                            var family = item.Available <= 0
+                                ? "ops-fam-bad"
+                                : item.Available < lowStockThreshold ? "ops-fam-warn" : "ops-fam-good";
+                            var rowClass = item.Available <= 0
+                                ? "ops-row-bad"
+                                : item.Available < lowStockThreshold ? "ops-row-warn" : "";
+                            var healthPercent = item.InStock > 0
+                                ? Math.Min(100, (item.Available / lowStockThreshold) * 100)
+                                : 0;
+
+                            <tr class="@rowClass">
+                                <td data-label="Status" class="ops-mid">
+                                    <span class="ops-dot @family"
+                                          title="@(item.Available <= 0 ? "Out of stock"
+                                                : item.Available < lowStockThreshold ? "Low stock" : "Healthy")"></span>
+                                </td>
+                                <td data-label="Item code"><span class="ops-code">@item.ItemCode</span></td>
+                                <td data-label="Item name" class="ops-name">@item.ItemName</td>
+                                <td data-label="On hand" class="ops-num">
+                                    <span class="ops-qty">@item.InStock.ToString("N0")</span>
+                                </td>
+                                <td data-label="Committed" class="ops-num">
+                                    <span class="ops-qty">@item.Committed.ToString("N0")</span>
+                                </td>
+                                <td data-label="On order" class="ops-num">
+                                    <span class="ops-qty">@item.Ordered.ToString("N0")</span>
+                                </td>
+                                <td data-label="Available" class="ops-num">
+                                    <span class="ops-qty @family">@item.Available.ToString("N0")</span>
+                                </td>
+                                <td data-label="UoM"><span class="ops-unit">@item.UoM</span></td>
+                                <td data-label="Health" class="ops-mid">
+                                    <div class="ops-meter @family" title="@healthPercent.ToString("N0")% of threshold">
+                                        <div class="ops-meter-fill" style="width:@healthPercent%"></div>
+                                    </div>
+                                </td>
                             </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var item in filteredItems)
-                            {
-                                var rowClass = item.Available <= 0 ? "row-danger" : item.Available < lowStockThreshold ?
-                                "row-warning" : "";
-                                <tr class="@rowClass">
-                                    <td data-label="Status" style="text-align:center;">
-                                        @if (item.Available <= 0)
-                                        {
-                                            <span class="status-dot red" title="Out of stock"></span>
-                                        }
-                                        else if (item.Available < lowStockThreshold)
-                                        {
-                                            <span class="status-dot amber" title="Low stock"></span>
-                                        }
-                                        else
-                                        {
-                                            <span class="status-dot green" title="Healthy"></span>
-                                        }
-                                    </td>
-                                    <td data-label="Item Code"><span class="item-code">@item.ItemCode</span></td>
-                                    <td data-label="Item Name"><span class="item-name">@item.ItemName</span></td>
-                                    <td data-label="On Hand" style="text-align:right;"><span
-                                        class="qty-cell">@item.InStock.ToString("N0")</span>
-                                    </td>
-                                    <td data-label="Committed" style="text-align:right;"><span
-                                        class="qty-cell qty-warning">@item.Committed.ToString("N0")</span></td>
-                                        <td data-label="On Order" style="text-align:right;"><span
-                                            class="qty-cell qty-info">@item.Ordered.ToString("N0")</span></td>
-                                            <td data-label="Available" style="text-align:right;">
-                                                <span
-                                                    class="qty-cell @(item.Available <= 0 ? "qty-danger" : item.Available < lowStockThreshold ? "qty-warning" : "qty-success")">
-                                                    @item.Available.ToString("N0")
-                                                </span>
-                                            </td>
-                                            <td data-label="UoM"><span class="uom-label">@item.UoM</span></td>
-                                            <td data-label="Health" style="text-align:center;">
-                                                @{
-                                                    var healthPercent = item.InStock > 0 ? Math.Min(100, (item.Available /
-                                                    lowStockThreshold) * 100) : 0;
-                                                    var healthFill = healthPercent >= 100 ? "green" : healthPercent >= 50 ? "amber" : "red";
-                                                }
-                                                <div class="health-bar" title="@healthPercent.ToString("N0")% healthy">
-                                                    <div class="health-bar-fill @healthFill" style="width:@healthPercent%"></div>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- ━━━ Pagination ━━━ -->
-                    @if (hasMore || currentPage > 1)
-                    {
-                        <div class="stk-pagination">
-                            <MudButton OnClick="PreviousPage" Disabled="@(currentPage == 1)" Variant="Variant.Text">
-                                <i class="bi bi-chevron-left"></i> Previous
-                            </MudButton>
-                            <span class="page-indicator">Page @currentPage</span>
-                            <MudButton OnClick="NextPage" Disabled="@(!hasMore)" Variant="Variant.Text">
-                                Next <i class="bi bi-chevron-right"></i>
-                            </MudButton>
-                        </div>
-                    }
-                }
+                        }
+                    </tbody>
+                </table>
             </div>
-        </div>
 
-        <!-- ━━━ Warehouse Details Drawer ━━━ -->
-        @if (showWarehouseDetails && selectedWarehouse != null)
-        {
-            <div class="modal-backdrop-custom" @onclick="() => showWarehouseDetails = false"></div>
-            <div class="detail-drawer">
-                <div class="drawer-header">
-                    <h5><i class="bi bi-building me-2"></i>Warehouse Details</h5>
-                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer"
-                                   OnClick="() => showWarehouseDetails = false" />
-                </div>
-                <div class="drawer-body">
-                    <div class="detail-grid">
-                        <div class="detail-item">
-                            <div class="detail-label">Code</div>
-                            <div class="detail-value">@selectedWarehouse.WarehouseCode</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Name</div>
-                            <div class="detail-value">@selectedWarehouse.WarehouseName</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Location</div>
-                            <div class="detail-value">@(selectedWarehouse.Location ?? "—")</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">City</div>
-                            <div class="detail-value">@(selectedWarehouse.City ?? "—")</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Country</div>
-                            <div class="detail-value">@(selectedWarehouse.Country ?? "—")</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Status</div>
-                            <div class="detail-value">
-                                @if (selectedWarehouse.IsActive)
-                                {
-                                    <span
-                                        style="display:inline-flex;align-items:center;gap:.3rem;padding:.2rem .6rem;border-radius:6px;font-size:.78rem;font-weight:600;background:#d1fae5;color:#065f46;">
-                                        <i class="bi bi-check-circle-fill"></i> Active
-                                    </span>
-                                }
-                                else
-                                {
-                                    <span
-                                        style="display:inline-flex;align-items:center;gap:.3rem;padding:.2rem .6rem;border-radius:6px;font-size:.78rem;font-weight:600;background:#f3f4f6;color:#6b7280;">
-                                        Inactive
-                                    </span>
-                                }
-                            </div>
-                        </div>
+            @if (hasMore || currentPage > 1)
+            {
+                <div class="ops-foot">
+                    <span class="ops-foot-info">Page @currentPage</span>
+                    <div class="ops-pages">
+                        <button type="button" class="ops-step" disabled="@(currentPage == 1)" @onclick="PreviousPage">
+                            <i class="ph ph-caret-left" aria-hidden="true"></i>Previous
+                        </button>
+                        <span class="ops-page-now">@currentPage</span>
+                        <button type="button" class="ops-step" disabled="@(!hasMore)" @onclick="NextPage">
+                            Next<i class="ph ph-caret-right" aria-hidden="true"></i>
+                        </button>
                     </div>
                 </div>
-                <div class="drawer-footer">
-                    <MudButton Class="btn-stk-outline" OnClick="() => showWarehouseDetails = false">Close</MudButton>
-                </div>
-            </div>
+            }
         }
+    </section>
+</div>
+
+@* The drawer is a sibling of `.ops`, not a child — see operations.css's header
+   for why it carries `.ops-overlay` itself. *@
+@if (showWarehouseDetails && selectedWarehouse != null)
+{
+    <div class="ops-overlay ops-overlay-right" @onclick="() => showWarehouseDetails = false">
+        <aside class="ops-drawer" role="dialog" aria-modal="true" aria-label="Warehouse details"
+               @onclick:stopPropagation="true">
+            <div class="ops-drawer-head">
+                <h2>Warehouse details</h2>
+                <button type="button" class="ops-x" aria-label="Close"
+                        @onclick="() => showWarehouseDetails = false">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </div>
+
+            <div class="ops-drawer-body">
+                <div class="ops-defs">
+                    <div>
+                        <div class="ops-def-k">Code</div>
+                        <div class="ops-def-v">@selectedWarehouse.WarehouseCode</div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">Name</div>
+                        <div class="ops-def-v">@selectedWarehouse.WarehouseName</div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">Location</div>
+                        <div class="ops-def-v">@(selectedWarehouse.Location ?? "—")</div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">City</div>
+                        <div class="ops-def-v">@(selectedWarehouse.City ?? "—")</div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">Country</div>
+                        <div class="ops-def-v">@(selectedWarehouse.Country ?? "—")</div>
+                    </div>
+                    <div>
+                        <div class="ops-def-k">Status</div>
+                        <div class="ops-def-v">
+                            <span class="ops-badge @(selectedWarehouse.IsActive ? "ops-fam-good" : "ops-fam-neutral")">
+                                @(selectedWarehouse.IsActive ? "Active" : "Inactive")
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="ops-drawer-foot">
+                <button type="button" class="ops-btn ops-btn-ghost"
+                        @onclick="() => showWarehouseDetails = false">Close</button>
+            </div>
+        </aside>
+    </div>
+}
 
 @code {
     private List<WarehouseDto> warehouses = new();
