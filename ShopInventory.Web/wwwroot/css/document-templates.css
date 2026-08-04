@@ -667,6 +667,17 @@
     transition: border-color .15s, background-color .15s;
 }
 
+/* A native <select> popup takes its background from the field, and the field
+   above is a 5%-white wash — which the browser composites onto white and then
+   ignores `color-scheme: dark` for. Left alone the options render in the field's
+   near-white ink on a near-white sheet, i.e. invisible in dark theme only. The
+   fill has to be opaque, so it is --dtp-surface rather than --dtp-field-bg. */
+.dtp .dtp-input option,
+.dtp .dtp-input optgroup {
+    color: var(--dtp-ink);
+    background-color: var(--dtp-surface);
+}
+
 /* The four markup fields. A monospace face because the content is HTML and CSS,
    and a hard tab stop so an indented block keeps its shape. */
 .dtp .dtp-textarea {
