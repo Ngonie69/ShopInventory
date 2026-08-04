@@ -13,996 +13,488 @@
 
 <PageTitle>Create Purchase Order - Shop Inventory</PageTitle>
 
-<style>
-    .cpo-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
-
-    .cpo-breadcrumb {
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-        font-size: .85rem;
-        color: #6b7280;
-        margin-bottom: 1.25rem;
-    }
-
-    .cpo-breadcrumb a {
-        color: #667eea;
-        text-decoration: none;
-        font-weight: 500;
-    }
-
-    .cpo-breadcrumb a:hover {
-        text-decoration: underline;
-    }
-
-    .cpo-breadcrumb .sep {
-        color: #d1d5db;
-    }
-
-    .cpo-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .cpo-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
-
-    .cpo-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
-
-    .cpo-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-        letter-spacing: -.3px;
-    }
-
-    .cpo-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    .cpo-header-actions {
-        display: flex;
-        gap: .5rem;
-        align-items: center;
-    }
-
-    .btn-back {
-        background: #fff;
-        color: #374151;
-        border: 1px solid #d1d5db;
-        padding: .55rem 1.1rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .85rem;
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        transition: all .15s;
-    }
-
-    .btn-back:hover {
-        background: #f9fafb;
-        border-color: #9ca3af;
-        color: #374151;
-    }
-
-    .cpo-card {
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 14px;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-        padding: 1.5rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .cpo-card-title {
-        font-weight: 600;
-        font-size: .95rem;
-        color: #1a1a2e;
-        margin-bottom: 1rem;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .cpo-grid {
-        display: grid;
-        gap: .85rem;
-    }
-
-    .cpo-grid.cpo-grid-three {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .cpo-field {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .cpo-field.full {
-        grid-column: 1 / -1;
-    }
-
-    .cpo-field.compact label {
-        font-size: .68rem;
-        margin-bottom: .2rem;
-    }
-
-    .cpo-field label {
-        font-size: .75rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .4px;
-        margin-bottom: .25rem;
-    }
-
-    .cpo-field label .req {
-        color: #ef4444;
-    }
-
-    /* (0,1,1), so the date field's own `.ndf .ndf-input` at (0,2,0) beats it
-       and it needs no guard. app.css's `.dark-theme .cpo-field` twin is
-       (0,2,1) and does — it excludes `.ndf-input` there. */
-    .cpo-field input,
-    .cpo-field select,
-    .cpo-field textarea {
-        width: 100%;
-        padding: .5rem .75rem;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .88rem;
-        color: #374151;
-        background: #fff;
-        transition: all .15s;
-    }
-
-    /* The delivery date takes its metrics from the row it sits in; its
-       calendar is the shared one. See wwwroot/css/nocturne-date-field.css. */
-    .cpo-field .ndf {
-        --ndf-pad-y: .5rem;
-        --ndf-pad-x: .75rem;
-        --ndf-fs: .88rem;
-        --ndf-radius: 8px;
-        --ndf-fill: #fff;
-        --ndf-edge: #d1d5db;
-    }
-
-    .cpo-field textarea {
-        min-height: 88px;
-        resize: vertical;
-    }
-
-    .cpo-field input:focus,
-    .cpo-field select:focus,
-    .cpo-field textarea:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
-    }
-
-    .cpo-field input.has-error,
-    .cpo-field select.has-error,
-    .cpo-field textarea.has-error {
-        border-color: #ef4444;
-        box-shadow: 0 0 0 1px rgba(239, 68, 68, .12);
-    }
-
-    .cpo-inline-error {
-        color: #ef4444;
-        font-size: .78rem;
-        margin-top: .25rem;
-    }
-
-    .cpo-helper,
-    .cpo-loading-inline,
-    .cpo-empty-text {
-        color: #6b7280;
-        font-size: .82rem;
-    }
-
-    .cpo-loading-inline {
-        display: inline-flex;
-        align-items: center;
-        gap: .5rem;
-        margin-bottom: .75rem;
-    }
-
-    .cpo-alert {
-        border-radius: 12px;
-        border: 1px solid transparent;
-        padding: .85rem 1rem;
-        margin-bottom: 1rem;
-        font-size: .88rem;
-        font-weight: 500;
-    }
-
-    .cpo-alert.success {
-        background: #ecfdf5;
-        border-color: #bbf7d0;
-        color: #065f46;
-    }
-
-    .cpo-alert.error {
-        background: #fef2f2;
-        border-color: #fecaca;
-        color: #991b1b;
-    }
-
-    .cpo-search-wrapper {
-        position: relative;
-    }
-
-    .cpo-dropdown {
-        position: absolute;
-        z-index: 100;
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        max-height: 250px;
-        overflow-y: auto;
-        width: 100%;
-        box-shadow: 0 8px 25px rgba(0, 0, 0, .12);
-        margin-top: 2px;
-    }
-
-    .cpo-dropdown-item {
-        padding: .5rem .75rem;
-        cursor: pointer;
-        font-size: .85rem;
-        border-bottom: 1px solid #f3f4f6;
-        transition: background .12s;
-    }
-
-    .cpo-dropdown-item:hover {
-        background: #f0f4ff;
-    }
-
-    .cpo-dropdown-note {
-        padding: .65rem .75rem;
-        color: #9ca3af;
-        font-size: .82rem;
-        text-align: center;
-    }
-
-    .cpo-selected-card {
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        border-radius: 10px;
-        padding: .75rem 1rem;
-    }
-
-    .cpo-selected-code {
-        font-weight: 700;
-        color: #065f46;
-    }
-
-    .cpo-selected-name {
-        font-size: .85rem;
-        color: #065f46;
-        opacity: .85;
-    }
-
-    .cpo-selected-meta {
-        font-size: .82rem;
-        color: #065f46;
-        opacity: .75;
-        margin-top: .25rem;
-    }
-
-    .cpo-clear-button,
-    .cpo-line-remove {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #dc2626;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all .15s;
-    }
-
-    .cpo-clear-button {
-        width: 28px;
-        height: 28px;
-        border-radius: 7px;
-        font-size: .8rem;
-    }
-
-    .cpo-line-remove {
-        width: 24px;
-        height: 24px;
-        border-radius: 6px;
-        font-size: .75rem;
-    }
-
-    .cpo-clear-button:hover,
-    .cpo-line-remove:hover {
-        background: #fee2e2;
-    }
-
-    .cpo-line-remove:disabled {
-        opacity: .55;
-        cursor: not-allowed;
-    }
-
-    .cpo-section-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 1rem;
-        flex-wrap: wrap;
-        margin-bottom: .75rem;
-    }
-
-    .cpo-section-title {
-        font-weight: 600;
-        font-size: .92rem;
-        color: #1a1a2e;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .btn-po-gradient {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        text-decoration: none;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
-        cursor: pointer;
-    }
-
-    .btn-po-gradient:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
-        color: #fff;
-    }
-
-    .btn-create {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .btn-create:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-    }
-
-    .btn-create:disabled,
-    .btn-secondary-action:disabled,
-    .btn-outline-action:disabled {
-        opacity: .55;
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    .btn-secondary-action,
-    .btn-outline-action {
-        background: #fff;
-        color: #374151;
-        border: 1px solid #d1d5db;
-        padding: .55rem 1.35rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .15s;
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .btn-outline-action {
-        background: #f8fafc;
-    }
-
-    .btn-secondary-action:hover,
-    .btn-outline-action:hover {
-        background: #f9fafb;
-        border-color: #9ca3af;
-    }
-
-    .cpo-line-card {
-        background: #f8fafc;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        padding: .85rem;
-        margin-bottom: .65rem;
-    }
-
-    .cpo-line-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: .75rem;
-        margin-bottom: .6rem;
-        flex-wrap: wrap;
-    }
-
-    .cpo-line-heading {
-        display: flex;
-        align-items: center;
-        gap: .45rem;
-        flex-wrap: wrap;
-    }
-
-    .cpo-line-badge {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 600;
-        font-size: .75rem;
-    }
-
-    .cpo-line-code {
-        font-weight: 600;
-        font-size: .85rem;
-        color: #1a1a2e;
-    }
-
-    .cpo-line-sep {
-        color: #d1d5db;
-    }
-
-    .cpo-line-desc,
-    .cpo-line-placeholder {
-        color: #6b7280;
-        font-size: .82rem;
-    }
-
-    .cpo-line-total {
-        font-weight: 700;
-        color: #059669;
-        font-size: .92rem;
-    }
-
-    .cpo-line-grid {
-        display: grid;
-        gap: .65rem;
-    }
-
-    .cpo-line-grid.cpo-line-grid-top {
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-        margin-bottom: .65rem;
-    }
-
-    .cpo-line-grid.cpo-line-grid-bottom {
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-    }
-
-    .cpo-add-another {
-        background: none;
-        border: 1px dashed #d1d5db;
-        color: #6b7280;
-        padding: .4rem 1rem;
-        border-radius: 8px;
-        font-size: .82rem;
-        cursor: pointer;
-        transition: all .15s;
-    }
-
-    .cpo-add-another:hover {
-        border-color: #9ca3af;
-        color: #374151;
-        background: #f8fafc;
-    }
-
-    .cpo-empty-state {
-        text-align: center;
-        padding: 2rem 1rem;
-        background: #f9fafb;
-        border-radius: 10px;
-        border: 2px dashed #e5e7eb;
-    }
-
-    .cpo-empty-state i {
-        font-size: 1.5rem;
-        color: #9ca3af;
-        margin-bottom: .5rem;
-    }
-
-    .cpo-empty-title {
-        color: #6b7280;
-        font-size: .85rem;
-        margin-bottom: .25rem;
-    }
-
-    .cpo-summary {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border-radius: 10px;
-        padding: .95rem 1.15rem;
-        margin-top: 1rem;
-        color: #fff;
-    }
-
-    .cpo-summary-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 1rem;
-    }
-
-    .cpo-summary-item span {
-        display: block;
-        font-size: .76rem;
-        opacity: .8;
-        text-transform: uppercase;
-        letter-spacing: .35px;
-        margin-bottom: .15rem;
-    }
-
-    .cpo-summary-item strong {
-        display: block;
-        font-size: 1.08rem;
-        font-weight: 700;
-    }
-
-    .cpo-footer {
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-        padding-top: 1rem;
-        flex-wrap: wrap;
-    }
-
-    @@media (max-width: 992px) {
-
-        .cpo-grid.cpo-grid-three,
-        .cpo-line-grid.cpo-line-grid-bottom,
-        .cpo-summary-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-    }
-
-    @@media (max-width: 768px) {
-        .cpo-page {
-            padding: 1rem;
-        }
-
-        .cpo-header,
-        .cpo-footer,
-        .cpo-section-header {
-            flex-direction: column;
-            align-items: stretch;
-        }
-
-        .cpo-header-left {
-            align-items: flex-start;
-        }
-
-        .cpo-header-actions,
-        .cpo-header-actions>*,
-        .cpo-footer>* {
-            width: 100%;
-        }
-
-        .cpo-grid.cpo-grid-three,
-        .cpo-line-grid.cpo-line-grid-top,
-        .cpo-line-grid.cpo-line-grid-bottom,
-        .cpo-summary-grid {
-            grid-template-columns: 1fr;
-        }
-    }
-</style>
-
-<div class="cpo-page">
-    <div class="container-fluid">
-        <div class="cpo-breadcrumb">
-            <a href="/purchase-orders">Purchase Orders</a>
-            <span class="sep">/</span>
-            <span>Create New</span>
-        </div>
-
-        <div class="cpo-header">
-            <div class="cpo-header-left">
-                <div class="cpo-header-icon"><i class="bi bi-bag-plus"></i></div>
-                <div>
-                    <h2>Create Purchase Order</h2>
-                    <p>Create a new purchase order with the same guided layout as the sales-order flow.</p>
+@* Nocturne. wwwroot/css/purchase-forms.css (linked from App.razor) carries the
+   design and its light counterpart, and follows the app's theme toggle like
+   every other page. See CreatePurchaseQuotation for the notes on the line grid
+   and the inline icons, which this page repeats.
+
+   This page previously carried a 620-line <style> block whose dark half lived
+   in app.css under `.cpo-*`. Both are gone with this sheet.
+
+   No MudBlazor. The four MudAutocompletes this form used render their own
+   chrome in MudBlazor's palette, which loads after every sheet here and cannot
+   be reached from one — so the supplier picker is now the same native combo the
+   other purchase forms use, and the two warehouse pickers are selects. All
+   three lookups were already in-memory lists (`allBusinessPartners`,
+   `cachedProducts`, `cachedWarehouses`), so nothing became slower: the async
+   SearchFunc signatures they needed were filtering a list in place. *@
+
+<datalist id="purchase-order-products">
+    @foreach (var product in cachedProducts)
+    {
+        <option value="@product.ItemCode">@product.ItemName</option>
+    }
+</datalist>
+
+<div class="pfm is-order">
+    <div class="pfm-shell">
+
+        <nav class="pfm-crumbs" aria-label="Breadcrumb">
+            <a href="/purchase-orders">Purchase orders</a>
+            <span class="pfm-crumb-sep" aria-hidden="true">/</span>
+            <span class="pfm-crumb-now">New</span>
+        </nav>
+
+        <header class="pfm-head">
+            <div class="pfm-head-main">
+                <div class="pfm-kicker">Purchasing</div>
+                <h1>New purchase order</h1>
+                <p>
+                    Order stock from a supplier &#8212; what is being bought, where it is to be
+                    delivered, and what the order commits the business to.
+                </p>
+            </div>
+            <div class="pfm-stats">
+                <div class="pfm-stat">
+                    <div class="pfm-stat-k">Lines</div>
+                    <div class="pfm-stat-v">@purchaseOrder.Lines.Count</div>
+                </div>
+                <div class="pfm-stat">
+                    <div class="pfm-stat-k">Subtotal</div>
+                    <div class="pfm-stat-v">@CalculateSubTotal().ToString("N2")</div>
+                </div>
+                <div class="pfm-stat">
+                    <div class="pfm-stat-k">Grand total</div>
+                    <div class="pfm-stat-v is-total">@CalculateGrandTotal().ToString("N2")</div>
                 </div>
             </div>
-            <div class="cpo-header-actions">
-                <button type="button" class="btn-back" @onclick="GoBack">
-                    <i class="bi bi-arrow-left"></i>
-                    <span>Back</span>
-                </button>
-            </div>
-        </div>
-
-        @if (!string.IsNullOrEmpty(successMessage))
-        {
-            <div class="cpo-alert success">@successMessage</div>
-        }
+        </header>
 
         @if (!string.IsNullOrEmpty(errorMessage))
         {
-            <div class="cpo-alert error">@errorMessage</div>
+            <div class="pfm-alert is-err" role="alert">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                     stroke-linecap="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                </svg>
+                <div class="pfm-alert-bd">@errorMessage</div>
+                <button type="button" class="pfm-alert-x" aria-label="Dismiss" @onclick="() => errorMessage = null">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
+                </button>
+            </div>
         }
 
-        <div class="cpo-card">
-            <div class="cpo-card-title"><i class="bi bi-building"></i> Supplier</div>
-            <div class="cpo-field">
-                <label>Supplier <span class="req">*</span></label>
-                @if (isLoadingLookups)
-                {
-                    <div class="cpo-loading-inline">
-                        <span class="spinner-border spinner-border-sm text-primary"></span>
-                        <span>Loading suppliers...</span>
-                    </div>
-                }
-
-                <MudAutocomplete T="BusinessPartnerDto"
-                                 Value="selectedBusinessPartner"
-                                 ValueChanged="OnSelectedBusinessPartnerChanged"
-                                 SearchFunc="SearchBusinessPartnersAsync"
-                                 ToStringFunc="@(bp => bp == null ? string.Empty : bp.DisplayName)"
-                                 Placeholder="Search by code or name..."
-                                 Dense="true"
-                                 Variant="Variant.Outlined"
-                                 Margin="Margin.Dense"
-                                 ResetValueOnEmptyText="true"
-                                 ShowProgressIndicator="true"
-                                 MaxItems="20"
-                                 DebounceInterval="150"
-                                 Clearable="true"
-                                 Disabled="@isLoadingLookups">
-                    <ItemTemplate>
-                        <div class="d-flex flex-column py-1">
-                            <span class="fw-semibold">@context.CardCode</span>
-                            <small class="text-muted">@context.CardName</small>
-                        </div>
-                    </ItemTemplate>
-                </MudAutocomplete>
-
-                @if (selectedBusinessPartner is not null)
-                {
-                    <div class="cpo-selected-card" style="margin-top:.75rem;">
-                        <div class="d-flex justify-content-between align-items-start gap-3">
-                            <div>
-                                <div class="cpo-selected-code">
-                                    <i class="bi bi-check-circle-fill me-1"></i>@selectedBusinessPartner.CardCode
-                                </div>
-                                <div class="cpo-selected-name">@selectedBusinessPartner.CardName</div>
-                                @if (!string.IsNullOrWhiteSpace(selectedBusinessPartner.Phone1))
-                                {
-                                    <div class="cpo-selected-meta"><i class="bi bi-telephone me-1"></i>@selectedBusinessPartner.Phone1</div>
-                                }
-                                @if (!string.IsNullOrWhiteSpace(selectedBusinessPartner.Currency))
-                                {
-                                    <div class="cpo-selected-meta"><i class="bi bi-cash-coin me-1"></i>@selectedBusinessPartner.Currency</div>
-                                }
-                            </div>
-                            <button type="button" class="cpo-clear-button" @onclick="ClearSelectedBP">
-                                <i class="bi bi-x"></i>
-                            </button>
-                        </div>
-                    </div>
-                }
-
-                @if (HasError("CardCode"))
-                {
-                    <div class="cpo-inline-error">@GetError("CardCode")</div>
-                }
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+            <div class="pfm-alert is-ok" role="status">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M5 12.5l4.5 4.5L19 7"></path>
+                </svg>
+                <div class="pfm-alert-bd">@successMessage</div>
             </div>
-        </div>
+        }
 
-                <div class="cpo-card">
-                    <div class="cpo-card-title"><i class="bi bi-info-circle"></i> Order Details</div>
-                    <div class="cpo-grid cpo-grid-three">
-                        <div class="cpo-field">
-                            <label>Supplier Reference</label>
-                            <input type="text" @bind="purchaseOrder.SupplierRefNo" placeholder="Quote / Ref number" />
-                        </div>
-                        <div class="cpo-field">
-                            <label for="cpo-delivery-date">Delivery Date</label>
-                            <NocturneDateField Id="cpo-delivery-date" @bind-Date="deliveryDate" />
-                        </div>
-                        <div class="cpo-field">
-                            <label>Currency</label>
-                            <select @bind="purchaseOrder.Currency">
-                                <option value="USD">USD</option>
-                                <option value="ZIG">ZIG</option>
-                            </select>
-                        </div>
-                        <div class="cpo-field">
-                            <label>Receiving Warehouse</label>
-                            <MudAutocomplete T="WarehouseDto"
-                                             Value="GetSelectedWarehouse(purchaseOrder.WarehouseCode)"
-                                             ValueChanged="OnHeaderWarehouseChanged"
-                                             SearchFunc="SearchWarehousesAsync"
-                                             ToStringFunc="@(warehouse => warehouse == null ? string.Empty : warehouse.DisplayName)"
-                                             Placeholder="Search warehouse..."
-                                             Dense="true"
-                                             Variant="Variant.Outlined"
-                                             Margin="Margin.Dense"
-                                             ResetValueOnEmptyText="true"
-                                             ShowProgressIndicator="true"
-                                             MaxItems="20"
-                                             DebounceInterval="150"
-                                             Clearable="true"
-                                             Disabled="@isLoadingLookups">
-                                <ItemTemplate>
-                                    <div class="d-flex flex-column py-1">
-                                        <span class="fw-semibold">@context.WarehouseCode</span>
-                                        <small class="text-muted">@context.WarehouseName</small>
-                                    </div>
-                                </ItemTemplate>
-                            </MudAutocomplete>
-                        </div>
-                        <div class="cpo-field">
-                            <label>Header Discount %</label>
-                            <input type="number" @bind="purchaseOrder.DiscountPercent" min="0" max="100" step="0.5" />
-                        </div>
-                        <div class="cpo-field full">
-                            <label>Comments</label>
-                            <textarea @bind="purchaseOrder.Comments" rows="2"
-                                      placeholder="Optional notes for this order..."></textarea>
-                        </div>
+        <div class="pfm-grid">
+            <div class="pfm-main">
+
+                <section class="pfm-card">
+                    <div class="pfm-card-hd">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M4 21V6l7-3v18"></path>
+                            <path d="M11 9h6a2 2 0 0 1 2 2v10"></path>
+                            <path d="M2 21h20M7 8v.01M7 12v.01M7 16v.01"></path>
+                        </svg>
+                        <h2>Supplier</h2>
                     </div>
-                    <p class="cpo-helper" style="margin:.85rem 0 0;">Header discount is applied to the subtotal before tax is
-                        added.</p>
-                    </div>
-
-                    <div class="cpo-card">
-                        <div class="cpo-section-header">
-                            <div class="cpo-section-title"><i class="bi bi-list-ul"></i> Order Lines</div>
-                            <button type="button" class="btn-po-gradient" @onclick="AddLine">
-                                <i class="bi bi-plus-lg"></i>
-                                <span>Add Line</span>
-                            </button>
-                        </div>
-
-                        @if (validationErrors.ContainsKey("Lines"))
+                    <div class="pfm-card-bd">
+                        @if (isLoadingLookups)
                         {
-                            <div class="cpo-inline-error" style="margin-bottom:.75rem;">@validationErrors["Lines"]</div>
-                        }
-
-                        @if (purchaseOrder.Lines.Any())
-                        {
-                            @for (int i = 0; i < purchaseOrder.Lines.Count; i++)
-                            {
-                                var idx = i;
-                                var line = purchaseOrder.Lines[idx];
-
-                                <div class="cpo-line-card">
-                                    <div class="cpo-line-header">
-                                        <div class="cpo-line-heading">
-                                            <span class="cpo-line-badge">@(idx + 1)</span>
-                                            @if (!string.IsNullOrWhiteSpace(line.ItemCode) ||
-                                                                    !string.IsNullOrWhiteSpace(line.ItemDescription))
-                                            {
-                                                @if (!string.IsNullOrWhiteSpace(line.ItemCode))
-                                                {
-                                                    <span class="cpo-line-code">@line.ItemCode</span>
-                                                }
-                                                @if (!string.IsNullOrWhiteSpace(line.ItemCode) &&
-                                                                        !string.IsNullOrWhiteSpace(line.ItemDescription))
-                                                {
-                                                    <span class="cpo-line-sep">-</span>
-                                                }
-                                                @if (!string.IsNullOrWhiteSpace(line.ItemDescription))
-                                                {
-                                                    <span class="cpo-line-desc">@line.ItemDescription</span>
-                                                }
-                                            }
-                                            else
-                                            {
-                                                <span class="cpo-line-placeholder">New Line Item</span>
-                                            }
-                                        </div>
-                                        <div class="d-flex align-items-center gap-2">
-                                            <span class="cpo-line-total">@CalculateLineTotal(line).ToString("N2")</span>
-                                            <button type="button" class="cpo-line-remove" @onclick="() => RemoveLine(idx)"
-                                                    disabled="@(purchaseOrder.Lines.Count == 1)">
-                                                <i class="bi bi-x"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    <div class="cpo-line-grid cpo-line-grid-top">
-                                        <div class="cpo-field compact">
-                                            <label>Item Code <span class="req">*</span></label>
-                                            <MudAutocomplete T="ProductDto"
-                                                             Value="GetSelectedProduct(line.ItemCode)"
-                                                             ValueChanged="(product) => OnLineProductChanged(idx, product)"
-                                                             SearchFunc="SearchProductsAsync"
-                                                             ToStringFunc="@(product => product == null ? string.Empty : $"{product.ItemCode} - {product.ItemName}")"
-                                                             Placeholder="Search item..."
-                                                             Dense="true"
-                                                             Variant="Variant.Outlined"
-                                                             Margin="Margin.Dense"
-                                                             ResetValueOnEmptyText="true"
-                                                             ShowProgressIndicator="true"
-                                                             MaxItems="20"
-                                                             DebounceInterval="150"
-                                                             Clearable="true"
-                                                             Disabled="@isLoadingLookups">
-                                                <ItemTemplate>
-                                                    <div class="d-flex justify-content-between align-items-center py-1 w-100">
-                                                        <div class="d-flex flex-column">
-                                                            <span class="fw-semibold">@context.ItemCode</span>
-                                                            <small class="text-muted">@context.ItemName</small>
-                                                        </div>
-                                                        @if (context.QuantityInStock > 0)
-                                                        {
-                                                            <span class="badge bg-success-subtle text-success ms-2">@context.QuantityInStock.ToString("N0") in stock</span>
-                                                        }
-                                                    </div>
-                                                </ItemTemplate>
-                                            </MudAutocomplete>
-                                            @if (HasError($"Line{idx}_ItemCode"))
-                                            {
-                                                <div class="cpo-inline-error">@GetError($"Line{idx}_ItemCode")</div>
-                                            }
-                                        </div>
-                                        <div class="cpo-field compact">
-                                            <label>Description</label>
-                                            <input type="text" @bind="line.ItemDescription" placeholder="Description" />
-                                        </div>
-                                    </div>
-
-                                    <div class="cpo-line-grid cpo-line-grid-bottom">
-                                        <div class="cpo-field compact">
-                                            <label>Qty <span class="req">*</span></label>
-                                            <input class="@(HasError($"Line{idx}_Quantity") ? "has-error" : string.Empty)" type="number"
-                                                   @bind="line.Quantity" min="0.0001" step="any" />
-                                            @if (HasError($"Line{idx}_Quantity"))
-                                            {
-                                                <div class="cpo-inline-error">@GetError($"Line{idx}_Quantity")</div>
-                                            }
-                                        </div>
-                                        <div class="cpo-field compact">
-                                            <label>Unit Price</label>
-                                            <input type="number" @bind="line.UnitPrice" min="0" step="any" />
-                                        </div>
-                                        <div class="cpo-field compact">
-                                            <label>Tax %</label>
-                                            <input type="number" @bind="line.TaxPercent" min="0" max="100" step="0.5" />
-                                        </div>
-                                        <div class="cpo-field compact">
-                                            <label>Discount %</label>
-                                            <input type="number" @bind="line.DiscountPercent" min="0" max="100" step="0.5" />
-                                        </div>
-                                        <div class="cpo-field compact">
-                                            <label>Warehouse</label>
-                                            <MudAutocomplete T="WarehouseDto"
-                                                             Value="GetSelectedWarehouse(line.WarehouseCode)"
-                                                             ValueChanged="(warehouse) => OnLineWarehouseChanged(idx, warehouse)"
-                                                             SearchFunc="SearchWarehousesAsync"
-                                                             ToStringFunc="@(warehouse => warehouse == null ? string.Empty : warehouse.DisplayName)"
-                                                             Placeholder="@(purchaseOrder.WarehouseCode ?? "Search warehouse...")"
-                                                             Dense="true"
-                                                             Variant="Variant.Outlined"
-                                                             Margin="Margin.Dense"
-                                                             ResetValueOnEmptyText="true"
-                                                             ShowProgressIndicator="true"
-                                                             MaxItems="20"
-                                                             DebounceInterval="150"
-                                                             Clearable="true"
-                                                             Disabled="@isLoadingLookups">
-                                                <ItemTemplate>
-                                                    <div class="d-flex flex-column py-1">
-                                                        <span class="fw-semibold">@context.WarehouseCode</span>
-                                                        <small class="text-muted">@context.WarehouseName</small>
-                                                    </div>
-                                                </ItemTemplate>
-                                            </MudAutocomplete>
-                                        </div>
-                                    </div>
-                                </div>
-                            }
-
-                            <div style="text-align:center; margin-top:.5rem;">
-                                <button type="button" class="cpo-add-another" @onclick="AddLine">
-                                    <i class="bi bi-plus-lg me-1"></i>Add Another Line
-                                </button>
+                            <div class="pfm-loading">
+                                <span class="pfm-spin" aria-hidden="true"></span>
+                                <span>Loading suppliers, products and warehouses&#8230;</span>
                             </div>
-
-                            <div class="cpo-summary">
-                                <div class="cpo-summary-grid">
-                                    <div class="cpo-summary-item">
-                                        <span>Lines</span>
-                                        <strong>@purchaseOrder.Lines.Count</strong>
+                        }
+                        else if (selectedBusinessPartner is not null)
+                        {
+                            <div class="pfm-party">
+                                <div>
+                                    <div class="pfm-party-code">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                             stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"
+                                             aria-hidden="true">
+                                            <path d="M5 12.5l4.5 4.5L19 7"></path>
+                                        </svg>
+                                        @selectedBusinessPartner.CardCode
                                     </div>
-                                    <div class="cpo-summary-item">
-                                        <span>Subtotal</span>
-                                        <strong>@CalculateSubTotal().ToString("N2")</strong>
-                                    </div>
-                                    <div class="cpo-summary-item">
-                                        <span>Discount + Tax</span>
-                                        <strong>@CalculateDiscount().ToString("N2") / @CalculateTax().ToString("N2")</strong>
-                                    </div>
-                                    <div class="cpo-summary-item">
-                                        <span>Grand Total</span>
-                                        <strong>@purchaseOrder.Currency @CalculateGrandTotal().ToString("N2")</strong>
+                                    <div class="pfm-party-name">@selectedBusinessPartner.CardName</div>
+                                    <div class="pfm-party-meta">
+                                        @if (!string.IsNullOrWhiteSpace(selectedBusinessPartner.Phone1))
+                                        {
+                                            <span>@selectedBusinessPartner.Phone1</span>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(selectedBusinessPartner.Currency))
+                                        {
+                                            <span>@selectedBusinessPartner.Currency</span>
+                                        }
                                     </div>
                                 </div>
+                                <button type="button" class="pfm-btn-x" aria-label="Clear the supplier"
+                                        @onclick="ClearSelectedBP">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                                         stroke-linecap="round" aria-hidden="true">
+                                        <path d="M6 6l12 12M18 6L6 18"></path>
+                                    </svg>
+                                </button>
                             </div>
                         }
                         else
                         {
-                            <div class="cpo-empty-state">
-                                <i class="bi bi-inbox"></i>
-                                <p class="cpo-empty-title">No order lines yet</p>
-                                <p class="cpo-empty-text">Add items to build the purchase order.</p>
-                                <button type="button" class="btn-po-gradient" @onclick="AddLine">
-                                    <i class="bi bi-plus-lg"></i>
-                                    <span>Add First Line</span>
-                                </button>
+                            @* Not a <label>: it wraps a popup whose clicks a label would
+                               swallow by refocusing the input behind it. *@
+                            <div class="pfm-lab">
+                                <span class="pfm-lab-t" id="cpo-supplier-label">
+                                    Supplier <span class="pfm-req">*</span>
+                                </span>
+                                <span class="pfm-combo">
+                                    <input class="pfm-input @(HasError("CardCode") ? "is-bad" : "")" type="text"
+                                           aria-labelledby="cpo-supplier-label" autocomplete="off"
+                                           placeholder="Search a supplier code or name&#8230;"
+                                           value="@supplierTerm" @oninput="OnSupplierTermInput"
+                                           @onfocus="() => showSupplierDrop = true"
+                                           @onblur="() => showSupplierDrop = false" />
+                                    @if (showSupplierDrop && FilteredSuppliers.Any())
+                                    {
+                                        @* preventDefault on mousedown keeps the focus — and so the
+                                           blur that would close this popup — from firing before the
+                                           click lands. *@
+                                        <span class="pfm-drop is-wide" @onmousedown:preventDefault>
+                                            @foreach (var supplier in FilteredSuppliers)
+                                            {
+                                                <button type="button" class="pfm-drop-i"
+                                                        @onmousedown="() => ChooseSupplier(supplier)">
+                                                    <span>
+                                                        <span class="pfm-drop-code">@supplier.CardCode</span>
+                                                        <span class="pfm-drop-sub">@supplier.CardName</span>
+                                                    </span>
+                                                    @if (!string.IsNullOrWhiteSpace(supplier.Currency)
+                                                        && !string.Equals(supplier.Currency, "##", StringComparison.OrdinalIgnoreCase))
+                                                    {
+                                                        <span class="pfm-drop-price">@supplier.Currency</span>
+                                                    }
+                                                </button>
+                                            }
+                                        </span>
+                                    }
+                                    else if (showSupplierDrop && !string.IsNullOrWhiteSpace(supplierTerm))
+                                    {
+                                        <span class="pfm-drop">
+                                            <span class="pfm-drop-empty">No supplier matches that.</span>
+                                        </span>
+                                    }
+                                </span>
+                                @if (HasError("CardCode"))
+                                {
+                                    <span class="pfm-field-err">@GetError("CardCode")</span>
+                                }
                             </div>
                         }
                     </div>
+                </section>
 
-                    <div class="cpo-footer">
-                        <button type="button" class="btn-secondary-action" @onclick="GoBack">Cancel</button>
-                        <button type="button" class="btn-outline-action" @onclick="SaveAsDraft" disabled="@isSubmitting">
-                            @if (isSubmitting && !submitForApproval)
-                            {
-                                <span class="spinner-border spinner-border-sm"></span>
-                            }
-                            <i class="bi bi-save"></i>
-                            <span>Save as Draft</span>
-                        </button>
-                        <button type="button" class="btn-create" @onclick="SaveAndSubmit" disabled="@isSubmitting">
-                            @if (isSubmitting && submitForApproval)
-                            {
-                                <span class="spinner-border spinner-border-sm"></span>
-                            }
-                            <i class="bi bi-send"></i>
-                            <span>Save &amp; Submit for Approval</span>
+                <section class="pfm-card">
+                    <div class="pfm-card-hd">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="M12 11v5M12 7.8v.1"></path>
+                        </svg>
+                        <h2>Order details</h2>
+                    </div>
+                    <div class="pfm-card-bd">
+                        <div class="pfm-fields">
+                            <label class="pfm-lab">
+                                <span class="pfm-lab-t">Supplier reference</span>
+                                <input class="pfm-input" type="text" placeholder="Quote or reference number"
+                                       @bind="purchaseOrder.SupplierRefNo" />
+                            </label>
+                            <div class="pfm-lab">
+                                <span class="pfm-lab-t">Delivery date</span>
+                                <NocturneDateField Id="cpo-delivery-date" @bind-Date="deliveryDate"
+                                                   AriaLabel="Delivery date" />
+                            </div>
+                            <label class="pfm-lab">
+                                <span class="pfm-lab-t">Currency</span>
+                                <select class="pfm-select" @bind="purchaseOrder.Currency">
+                                    <option value="USD">USD</option>
+                                    <option value="ZIG">ZIG</option>
+                                </select>
+                            </label>
+                            <label class="pfm-lab">
+                                <span class="pfm-lab-t">Receiving warehouse</span>
+                                @* Sets the default every new line is created with, which is why it
+                                   is the header's field and not just the first line's. *@
+                                <select class="pfm-select" value="@purchaseOrder.WarehouseCode"
+                                        @onchange="e => ChooseHeaderWarehouse(e.Value?.ToString())">
+                                    <option value="">Choose a warehouse</option>
+                                    @foreach (var warehouse in cachedWarehouses)
+                                    {
+                                        <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
+                                    }
+                                </select>
+                            </label>
+                            <label class="pfm-lab">
+                                <span class="pfm-lab-t">Header discount %</span>
+                                <input class="pfm-input" type="number" min="0" max="100" step="0.5"
+                                       @bind="purchaseOrder.DiscountPercent" />
+                            </label>
+                            <label class="pfm-lab pfm-span3">
+                                <span class="pfm-lab-t">Comments</span>
+                                <textarea class="pfm-area" rows="2" placeholder="Optional notes for this order"
+                                          @bind="purchaseOrder.Comments"></textarea>
+                            </label>
+                        </div>
+                        <p class="pfm-note" style="margin:14px 0 0">
+                            The header discount is applied to the subtotal before tax is added.
+                        </p>
+                    </div>
+                </section>
+
+                <section class="pfm-card">
+                    <div class="pfm-card-hd">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                            <path d="M8 6h12M8 12h12M8 18h12M4 6v.01M4 12v.01M4 18v.01"></path>
+                        </svg>
+                        <h2>Order lines</h2>
+                        <span class="pfm-count">@purchaseOrder.Lines.Count</span>
+                        <span class="pfm-spacer"></span>
+                        <button type="button" class="pfm-btn pfm-btn-accent" @onclick="AddLine">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                 stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                                <path d="M12 5v14M5 12h14"></path>
+                            </svg>
+                            <span>Add line</span>
                         </button>
                     </div>
-                </div>
+
+                    @if (validationErrors.ContainsKey("Lines"))
+                    {
+                        <div class="pfm-card-bd" style="padding-bottom:0">
+                            <div class="pfm-err-panel">
+                                <div class="pfm-err-panel-t">@validationErrors["Lines"]</div>
+                            </div>
+                        </div>
+                    }
+
+                    @if (purchaseOrder.Lines.Count == 0)
+                    {
+                        <div class="pfm-card-bd">
+                            <button type="button" class="pfm-addline" @onclick="AddLine">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                                    <path d="M12 5v14M5 12h14"></path>
+                                </svg>
+                                <span>Add the first line</span>
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="pfm-lines">
+                            <div class="pfm-lines-inner">
+                                <div class="pfm-row is-head">
+                                    <span>#</span>
+                                    <span>Item</span>
+                                    <span>Description</span>
+                                    <span class="pfm-r">Qty</span>
+                                    <span class="pfm-r">Unit price</span>
+                                    <span>Warehouse</span>
+                                    <span class="pfm-r">Tax %</span>
+                                    <span class="pfm-r">Disc %</span>
+                                    <span class="pfm-r">Total</span>
+                                    <span></span>
+                                </div>
+
+                                @for (var i = 0; i < purchaseOrder.Lines.Count; i++)
+                                {
+                                    var idx = i;
+                                    var line = purchaseOrder.Lines[idx];
+
+                                    <div class="pfm-row">
+                                        <span class="pfm-n">@(idx + 1)</span>
+
+                                        <input class="pfm-input pfm-cell @(HasError($"Line{idx}_ItemCode") ? "is-bad" : "")"
+                                               list="purchase-order-products" placeholder="Item code"
+                                               @bind="line.ItemCode" @onblur="() => SyncLineProduct(idx)" />
+
+                                        <input class="pfm-input pfm-desc" placeholder="Description"
+                                               @bind="line.ItemDescription" />
+
+                                        <input class="pfm-input pfm-num @(HasError($"Line{idx}_Quantity") ? "is-bad" : "")"
+                                               type="number" min="0.0001" step="any" @bind="line.Quantity" />
+
+                                        <input class="pfm-input pfm-num" type="number" min="0" step="any"
+                                               @bind="line.UnitPrice" />
+
+                                        <select class="pfm-select pfm-cell" value="@line.WarehouseCode"
+                                                @onchange="e => ChooseLineWarehouse(idx, e.Value?.ToString())">
+                                            <option value="">Warehouse</option>
+                                            @foreach (var warehouse in cachedWarehouses)
+                                            {
+                                                <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
+                                            }
+                                        </select>
+
+                                        <input class="pfm-input pfm-num" type="number" min="0" max="100" step="0.5"
+                                               @bind="line.TaxPercent" />
+
+                                        <input class="pfm-input pfm-num" type="number" min="0" max="100" step="0.5"
+                                               @bind="line.DiscountPercent" />
+
+                                        <span class="pfm-amt-v pfm-r">@CalculateLineTotal(line).ToString("N2")</span>
+
+                                        <button type="button" class="pfm-btn-x" aria-label="Remove this line"
+                                                disabled="@(purchaseOrder.Lines.Count == 1)"
+                                                @onclick="() => RemoveLine(idx)">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                                                 stroke-linecap="round" aria-hidden="true">
+                                                <path d="M6 6l12 12M18 6L6 18"></path>
+                                            </svg>
+                                        </button>
+
+                                        @if (HasError($"Line{idx}_ItemCode") || HasError($"Line{idx}_Quantity"))
+                                        {
+                                            <span class="pfm-row-err">
+                                                @(HasError($"Line{idx}_ItemCode")
+                                                    ? GetError($"Line{idx}_ItemCode")
+                                                    : GetError($"Line{idx}_Quantity"))
+                                            </span>
+                                        }
+                                    </div>
+                                }
+
+                                <button type="button" class="pfm-addline" @onclick="AddLine">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                                        <path d="M12 5v14M5 12h14"></path>
+                                    </svg>
+                                    <span>Add another line</span>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </section>
             </div>
+
+            <aside class="pfm-aside">
+                <section class="pfm-card pfm-total-card">
+                    <div class="pfm-total-hd">
+                        <span class="pfm-total-k">Grand total</span>
+                        <span class="pfm-total-cur">@purchaseOrder.Currency</span>
+                    </div>
+                    <div class="pfm-total-v">@CalculateGrandTotal().ToString("N2")</div>
+
+                    <div class="pfm-gap-md">
+                        <div class="pfm-sum">
+                            <span>Subtotal</span>
+                            <span class="pfm-sum-v">@CalculateSubTotal().ToString("N2")</span>
+                        </div>
+                        <div class="pfm-sum">
+                            <span>Discount</span>
+                            <span class="pfm-sum-v">@CalculateDiscount().ToString("N2")</span>
+                        </div>
+                        <div class="pfm-sum">
+                            <span>Tax</span>
+                            <span class="pfm-sum-v">@CalculateTax().ToString("N2")</span>
+                        </div>
+                        <div class="pfm-sum-rule" aria-hidden="true"></div>
+                        <div class="pfm-sum">
+                            <span>Lines</span>
+                            <span class="pfm-sum-v">@purchaseOrder.Lines.Count</span>
+                        </div>
+                    </div>
+
+                    <div class="pfm-gap-md">
+                        @* Submitting for approval is the committing action of the two, so it
+                           is the filled one; saving a draft leaves the order changeable. *@
+                        <button type="button" class="pfm-btn-solid" @onclick="SaveAndSubmit" disabled="@isSubmitting">
+                            @if (isSubmitting && submitForApproval)
+                            {
+                                <span class="pfm-spin on-solid" aria-hidden="true"></span>
+                                <span>Submitting&#8230;</span>
+                            }
+                            else
+                            {
+                                <span>Save &amp; submit for approval</span>
+                            }
+                        </button>
+                        <button type="button" class="pfm-btn pfm-btn-wide" style="margin-top:8px"
+                                @onclick="SaveAsDraft" disabled="@isSubmitting">
+                            @if (isSubmitting && !submitForApproval)
+                            {
+                                <span class="pfm-spin" aria-hidden="true"></span>
+                                <span>Saving&#8230;</span>
+                            }
+                            else
+                            {
+                                <span>Save as draft</span>
+                            }
+                        </button>
+                        <button type="button" class="pfm-btn pfm-btn-wide" style="margin-top:8px"
+                                @onclick="GoBack" disabled="@isSubmitting">
+                            Cancel
+                        </button>
+                    </div>
+                </section>
+
+                <section class="pfm-card pfm-panel">
+                    <div class="pfm-panel-hd">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M5 12.5l4.5 4.5L19 7"></path>
+                        </svg>
+                        <span>Before submitting</span>
+                    </div>
+                    <div class="pfm-checks">
+                        <div class="pfm-checks-i @(selectedBusinessPartner is null ? "is-no" : "")">
+                            <span class="pfm-checks-ic">
+                                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M5 12.5l4.5 4.5L19 7"></path>
+                                </svg>
+                            </span>
+                            <span>A supplier is chosen</span>
+                        </div>
+                        <div class="pfm-checks-i @(purchaseOrder.Lines.Any(l => !string.IsNullOrWhiteSpace(l.ItemCode)) ? "" : "is-no")">
+                            <span class="pfm-checks-ic">
+                                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M5 12.5l4.5 4.5L19 7"></path>
+                                </svg>
+                            </span>
+                            <span>At least one line has an item</span>
+                        </div>
+                        <div class="pfm-checks-i @(string.IsNullOrWhiteSpace(purchaseOrder.WarehouseCode) ? "is-no" : "")">
+                            <span class="pfm-checks-ic">
+                                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M5 12.5l4.5 4.5L19 7"></path>
+                                </svg>
+                            </span>
+                            <span>A receiving warehouse is set</span>
+                        </div>
+                    </div>
+                </section>
+            </aside>
+        </div>
+    </div>
+</div>
 
 @code {
     private CreatePurchaseOrderRequest purchaseOrder = new()
@@ -1073,48 +565,61 @@ new CreatePurchaseOrderLineRequest()
         }
     }
 
-    private Task<IEnumerable<BusinessPartnerDto>> SearchBusinessPartnersAsync(string searchText, CancellationToken cancellationToken)
+    // The supplier combo. Native rather than MudAutocomplete, so the filtering
+    // that used to be a SearchFunc is a property — the list is already in memory
+    // and this is the same predicate the Mud version ran.
+    private string supplierTerm = string.Empty;
+    private bool showSupplierDrop;
+
+    private IEnumerable<BusinessPartnerDto> FilteredSuppliers => allBusinessPartners
+        .Where(bp => !string.IsNullOrWhiteSpace(bp.CardCode))
+        .Where(bp => string.IsNullOrWhiteSpace(supplierTerm)
+            || (bp.CardCode?.Contains(supplierTerm, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (bp.CardName?.Contains(supplierTerm, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Take(20);
+
+    private void OnSupplierTermInput(ChangeEventArgs e)
     {
-        IEnumerable<BusinessPartnerDto> results = allBusinessPartners
-            .Where(bp => !string.IsNullOrWhiteSpace(bp.CardCode));
-
-        if (!string.IsNullOrWhiteSpace(searchText))
-        {
-            results = results.Where(bp =>
-                (bp.CardCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (bp.CardName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false));
-        }
-
-        return Task.FromResult(results.Take(20));
+        supplierTerm = e.Value?.ToString() ?? string.Empty;
+        showSupplierDrop = true;
     }
 
-    private Task<IEnumerable<WarehouseDto>> SearchWarehousesAsync(string searchText, CancellationToken cancellationToken)
+    private void ChooseSupplier(BusinessPartnerDto supplier)
     {
-        IEnumerable<WarehouseDto> results = cachedWarehouses;
-
-        if (!string.IsNullOrWhiteSpace(searchText))
-        {
-            results = results.Where(warehouse =>
-                (warehouse.WarehouseCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (warehouse.WarehouseName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false));
-        }
-
-        return Task.FromResult(results.Take(20));
+        OnSelectedBusinessPartnerChanged(supplier);
+        supplierTerm = string.Empty;
+        showSupplierDrop = false;
     }
 
-    private Task<IEnumerable<ProductDto>> SearchProductsAsync(string searchText, CancellationToken cancellationToken)
+    // The two warehouse pickers are selects, so what arrives is a code rather
+    // than the object the old handlers took.
+    private void ChooseHeaderWarehouse(string? warehouseCode) =>
+        OnHeaderWarehouseChanged(cachedWarehouses.FirstOrDefault(w =>
+            string.Equals(w.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase)));
+
+    private void ChooseLineWarehouse(int index, string? warehouseCode) =>
+        OnLineWarehouseChanged(index, cachedWarehouses.FirstOrDefault(w =>
+            string.Equals(w.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase)));
+
+    // The item cell is a datalist input, so the product is resolved from what
+    // was typed once the cell is left — the description and price then come from
+    // the same handler the picker used.
+    private void SyncLineProduct(int index)
     {
-        IEnumerable<ProductDto> results = cachedProducts;
+        if (index < 0 || index >= purchaseOrder.Lines.Count)
+            return;
 
-        if (!string.IsNullOrWhiteSpace(searchText))
+        var itemCode = purchaseOrder.Lines[index].ItemCode;
+        if (string.IsNullOrWhiteSpace(itemCode))
+            return;
+
+        var product = cachedProducts.FirstOrDefault(p =>
+            string.Equals(p.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
+
+        if (product is not null)
         {
-            results = results.Where(product =>
-                (product.ItemCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (product.ItemName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (product.BarCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false));
+            OnLineProductChanged(index, product);
         }
-
-        return Task.FromResult(results.Take(20));
     }
 
     private void OnSelectedBusinessPartnerChanged(BusinessPartnerDto? bp)
@@ -1193,23 +698,7 @@ new CreatePurchaseOrderLineRequest()
         return CalculateSubTotal() - CalculateDiscount() + CalculateTax();
     }
 
-    private WarehouseDto? GetSelectedWarehouse(string? warehouseCode)
-    {
-        if (string.IsNullOrWhiteSpace(warehouseCode))
-            return null;
 
-        return cachedWarehouses.FirstOrDefault(warehouse =>
-            string.Equals(warehouse.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private ProductDto? GetSelectedProduct(string? itemCode)
-    {
-        if (string.IsNullOrWhiteSpace(itemCode))
-            return null;
-
-        return cachedProducts.FirstOrDefault(product =>
-            string.Equals(product.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
-    }
 
     private void OnHeaderWarehouseChanged(WarehouseDto? warehouse)
     {

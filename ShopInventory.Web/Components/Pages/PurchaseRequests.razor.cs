@@ -30,6 +30,38 @@ public partial class PurchaseRequests
     private int OpenRequestCount => Requests.Count(request => string.Equals(request.DocStatus, "Open", StringComparison.OrdinalIgnoreCase));
     private int CurrentPageLineCount => Requests.Sum(request => request.Lines.Count);
 
+    // The window the page opened on, stated in the sticky bar: the figures below
+    // are all "in this window", and once the hero has scrolled away nothing else
+    // says which window that is.
+    private string DateRangeLabel =>
+        $"{fromDate?.ToString("dd MMM yyyy") ?? "Any"} – {toDate?.ToString("dd MMM yyyy") ?? "Any"}";
+
+    private string RegisterCountText => requestResponse is null
+        ? "Not loaded"
+        : $"{CurrentPageCount:N0} of {requestResponse.TotalCount:N0}";
+
+    // SAP is asked for one page at a time, so the foot counts the rows on screen
+    // against the whole result rather than numbering pages it has not seen.
+    private string PageRangeText
+    {
+        get
+        {
+            if (CurrentPageCount == 0)
+                return "No requests";
+
+            var start = ((currentPage - 1) * PageSize) + 1;
+            return $"Showing {start:N0}–{start + CurrentPageCount - 1:N0} of {requestResponse?.TotalCount ?? CurrentPageCount:N0}";
+        }
+    }
+
+    // SAP carries the requester as a name where it has one and as a bare user id
+    // where it does not; the register says whichever exists rather than showing
+    // an empty column.
+    private static string RequesterOf(PurchaseRequestDto request) =>
+        string.IsNullOrWhiteSpace(request.RequesterName)
+            ? request.Requester?.ToString() ?? "Not set"
+            : request.RequesterName;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender || hasInitialized)
@@ -53,7 +85,10 @@ public partial class PurchaseRequests
                 value =>
                 {
                     requestResponse = value;
-                    selectedRequest = value.Requests.FirstOrDefault();
+                    // Cleared rather than set to the first row: the detail is a
+                    // drawer now, and pre-selecting would open it over the
+                    // register on every load and every page turn.
+                    selectedRequest = null;
                 },
                 error =>
                 {
@@ -93,6 +128,8 @@ public partial class PurchaseRequests
     {
         selectedRequest = request;
     }
+
+    private void CloseDetail() => selectedRequest = null;
 
     private async Task SearchAsync()
     {
@@ -136,12 +173,15 @@ public partial class PurchaseRequests
         NavigationManager.NavigateTo("/purchase-requests/create");
     }
 
+    // The badge takes its hue from a family token in purchase-documents.css, so
+    // what this returns is the family class rather than a status name: open is
+    // the good family, closed the neutral one, cancelled the bad one.
     private static string GetStatusCssClass(string? status)
     {
         if (string.Equals(status, "Closed", StringComparison.OrdinalIgnoreCase))
-            return "closed";
+            return "pdx-fam-neutral";
         if (string.Equals(status, "Cancelled", StringComparison.OrdinalIgnoreCase))
-            return "cancelled";
-        return "open";
+            return "pdx-fam-bad";
+        return "pdx-fam-good";
     }
 }

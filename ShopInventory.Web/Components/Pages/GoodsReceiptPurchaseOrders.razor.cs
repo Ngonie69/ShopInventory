@@ -44,6 +44,30 @@ public partial class GoodsReceiptPurchaseOrders
     private int OpenGoodsReceiptCount => GoodsReceipts.Count(goodsReceipt => string.Equals(goodsReceipt.DocStatus, "Open", StringComparison.OrdinalIgnoreCase));
     private decimal CurrentPageTotal => GoodsReceipts.Sum(goodsReceipt => goodsReceipt.DocTotal);
 
+    // The window the page opened on, stated in the sticky bar: the figures below
+    // are all "in this window", and once the hero has scrolled away nothing else
+    // says which window that is.
+    private string DateRangeLabel =>
+        $"{fromDate?.ToString("dd MMM yyyy") ?? "Any"} – {toDate?.ToString("dd MMM yyyy") ?? "Any"}";
+
+    private string RegisterCountText => goodsReceiptResponse is null
+        ? "Not loaded"
+        : $"{CurrentPageCount:N0} of {goodsReceiptResponse.TotalCount:N0}";
+
+    // SAP is asked for one page at a time, so the foot counts the rows on screen
+    // against the whole result rather than numbering pages it has not seen.
+    private string PageRangeText
+    {
+        get
+        {
+            if (CurrentPageCount == 0)
+                return "No documents";
+
+            var start = ((currentPage - 1) * PageSize) + 1;
+            return $"Showing {start:N0}–{start + CurrentPageCount - 1:N0} of {goodsReceiptResponse?.TotalCount ?? CurrentPageCount:N0}";
+        }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender || hasInitialized)
@@ -85,7 +109,10 @@ public partial class GoodsReceiptPurchaseOrders
                 value =>
                 {
                     goodsReceiptResponse = value;
-                    selectedGoodsReceipt = value.GoodsReceipts.FirstOrDefault();
+                    // Cleared rather than set to the first row: the detail is a
+                    // drawer now, and pre-selecting would open it over the
+                    // register on every load and every page turn.
+                    selectedGoodsReceipt = null;
                 },
                 error =>
                 {
@@ -125,6 +152,8 @@ public partial class GoodsReceiptPurchaseOrders
     {
         selectedGoodsReceipt = goodsReceipt;
     }
+
+    private void CloseDetail() => selectedGoodsReceipt = null;
 
     private async Task SearchAsync()
     {
@@ -261,12 +290,15 @@ public partial class GoodsReceiptPurchaseOrders
         return true;
     }
 
+    // The badge takes its hue from a family token in purchase-documents.css, so
+    // what this returns is the family class rather than a status name: open is
+    // the good family, closed the neutral one, cancelled the bad one.
     private static string GetStatusCssClass(string? status)
     {
         if (string.Equals(status, "Closed", StringComparison.OrdinalIgnoreCase))
-            return "closed";
+            return "pdx-fam-neutral";
         if (string.Equals(status, "Cancelled", StringComparison.OrdinalIgnoreCase))
-            return "cancelled";
-        return "open";
+            return "pdx-fam-bad";
+        return "pdx-fam-good";
     }
 }

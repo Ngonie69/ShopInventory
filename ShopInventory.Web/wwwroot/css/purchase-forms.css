@@ -1,0 +1,1222 @@
+/* ==========================================================================
+   Purchase forms — Nocturne
+
+   Dresses the five purchase documents that are entered rather than listed:
+
+     /purchase-orders/create        CreatePurchaseOrder                .pfm.is-order
+     /purchase-invoices/create      CreatePurchaseInvoice              .pfm.is-invoice
+     /purchase-quotations/create    CreatePurchaseQuotation            .pfm.is-quotation
+     /purchase-requests/create      CreatePurchaseRequest              .pfm.is-request
+     /goods-receipt-pos/create      CreateGoodsReceiptPurchaseOrder    .pfm.is-receipt
+
+   They are one document in five moods: a supplier, a set of lines and a total.
+   The request is the one that breaks the pattern — nothing on it is priced
+   until a supplier is sourced, so it counts quantities where the others count
+   money. Five sheets would have been the same 900 lines with five prefixes,
+   and they would have drifted; that is the reasoning sales-forms.css and
+   transfer-forms.css both set out for their own groups.
+
+   **Layout** is derived from sales-forms.css. A purchase document and a sales
+   document are the same form — a party, dated fields, a line editor and a
+   sticky aside carrying the total and the one commitment — so the derivation
+   was mostly deletion: the payment means, the proof-of-payment upload, the
+   receipt's ledger and the print dialog all belong to sales documents only.
+
+   **Palette** is not sales-forms'. transfer-forms.css states the rule this
+   follows: a form takes the palette of the register it is entered from, not a
+   third one of its own. These five are entered from the four purchase
+   registers, which are purchase-documents.css — so the tokens below alias
+   nocturne-tokens.css, the same blurple accent and the same grounds, rather
+   than the mint green sales-forms took from Create Invoice.dc.html. That also
+   means there is no `.dark-theme .pfm` block here: the canonical tokens flip
+   at the root and these aliases resolve against whichever is in force.
+
+   What this replaces: `.pdoc-create-*` in app.css (three of the five shared it)
+   plus two inline <style> blocks — `.cpinv-*` in CreatePurchaseInvoice and
+   `.cpo-*` in CreatePurchaseOrder, the latter with its dark half in app.css as
+   well. All of that is deleted with this sheet, not left alongside it.
+
+   Rules live here rather than in an inline <style> block for the reason the
+   sibling sheets give: app.css carries global `.dark-theme input/select/
+   textarea` rules at (0,1,1) that would otherwise repaint every field #1e293b,
+   so each control carries a class and each control selector is two classes
+   deep, winning regardless of load order. Headings are pinned to Nocturne's
+   500 because Bootstrap's global `h1-h6 { font-weight: 600 }` would bolden
+   them past the weight this system allows.
+
+   Each form's line editor is the same row with different columns, so the track
+   list is a variable set per mood and `.pfm-row` reads it — a form that needs a
+   column the others don't adds one declaration, not a second copy of the row,
+   its header and its four responsive overrides.
+   ========================================================================== */
+
+.pfm {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --pfm-bg: var(--noct-bg);
+    --pfm-surface: var(--noct-surface);
+    --pfm-surface-2: var(--noct-field-bg);
+    --pfm-ink: var(--noct-ink);
+    --pfm-ink-2: var(--noct-ink-2);
+    --pfm-muted: var(--noct-mute);
+    --pfm-muted-2: var(--noct-mute-2);
+    --pfm-muted-3: var(--noct-mute-3);
+    --pfm-faint: var(--noct-faint);
+    --pfm-label: var(--noct-mute-3);
+    --pfm-placeholder: var(--noct-placeholder);
+    --pfm-readonly-ink: var(--noct-ink-2);
+    --pfm-edge: var(--noct-divider);
+    --pfm-hairline: var(--noct-rule);
+    --pfm-rowline: var(--noct-rule);
+    --pfm-hover: var(--noct-hover);
+    --pfm-press: var(--noct-press);
+    --pfm-field: var(--noct-field-bg);
+    --pfm-field-edge: var(--noct-field-edge);
+    --pfm-field-edge-hi: var(--noct-field-edge-hi);
+    --pfm-accent: var(--noct-accent);
+    --pfm-accent-rgb: var(--noct-accent-rgb);
+    --pfm-accent-text: var(--noct-accent-text);
+    /* The submit is the page's one commitment, and the only filled control on
+       it — so it takes the system's filled-control pair rather than the accent,
+       whose ink has to invert against a fill. */
+    --pfm-solid: var(--noct-box);
+    --pfm-on-solid: var(--noct-on-box);
+    --pfm-on-solid-ring: rgba(243, 245, 254, .35);
+    --pfm-info: var(--noct-fam-info);
+    --pfm-info-rgb: var(--noct-fam-info-rgb);
+    --pfm-warn: var(--noct-fam-warn);
+    --pfm-warn-rgb: var(--noct-fam-warn-rgb);
+    --pfm-good: var(--noct-fam-good);
+    --pfm-good-rgb: var(--noct-fam-good-rgb);
+    --pfm-bad: var(--noct-fam-bad);
+    --pfm-bad-rgb: var(--noct-fam-bad-rgb);
+    --pfm-caret: var(--noct-caret);
+    --pfm-thumb: var(--noct-thumb);
+    --pfm-shadow-pop: var(--noct-shadow-pop);
+    --pfm-scheme: var(--noct-scheme);
+
+    /* A dashed edge — the add-line control and nothing else — needs an ink the
+       system does not carry: --divider is too faint to read as dashes. */
+    --pfm-dashed: var(--noct-field-edge);
+
+    --pfm-s1: var(--noct-s1);
+    --pfm-s2: var(--noct-s2);
+    --pfm-s3: var(--noct-s3);
+    --pfm-s4: var(--noct-s4);
+    --pfm-s6: var(--noct-s6);
+    --pfm-s8: var(--noct-s8);
+    --pfm-r-sm: var(--noct-r-sm);
+    --pfm-r-md: var(--noct-r-md);
+    --pfm-r-lg: var(--noct-r-lg);
+
+    color-scheme: var(--pfm-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.pfm {
+    min-height: 100vh;
+    background: var(--pfm-bg);
+    color: var(--pfm-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside this page that would flatten the accent and warning hues
+   on WebKit, so hand the fill back to `color`. */
+.pfm,
+.pfm * {
+    -webkit-text-fill-color: currentColor;
+    box-sizing: border-box;
+}
+
+.pfm ::selection {
+    background: rgba(var(--pfm-accent-rgb), .25);
+}
+
+.pfm :focus-visible {
+    outline: 2px solid var(--pfm-accent);
+    outline-offset: 2px;
+}
+
+.pfm h1,
+.pfm h2,
+.pfm h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+.pfm-shell {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 22px 32px 56px;
+}
+
+/* ── Breadcrumb strip ──────────────────────────────────────────────────── */
+
+.pfm-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--pfm-s3);
+    margin-bottom: var(--pfm-s6);
+    font-size: 12px;
+    color: var(--pfm-muted-2);
+    flex-wrap: wrap;
+}
+
+.pfm-crumbs a {
+    color: var(--pfm-muted);
+    text-decoration: none;
+}
+
+.pfm-crumbs a:hover {
+    color: var(--pfm-accent);
+}
+
+.pfm-crumb-sep {
+    color: var(--pfm-faint);
+}
+
+.pfm-crumb-now {
+    color: var(--pfm-ink);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its actions; the submit is the exception and is filled,
+   because it is the one thing on the page that cannot be undone. */
+
+.pfm .pfm-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 5px 11px;
+    border: 1px solid var(--pfm-edge);
+    border-radius: var(--pfm-r-md);
+    background: transparent;
+    color: var(--pfm-muted);
+    font-family: inherit;
+    font-size: 11.5px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    text-decoration: none;
+    cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s;
+}
+
+.pfm .pfm-btn:hover:not(:disabled) {
+    border-color: var(--pfm-accent);
+    color: var(--pfm-accent);
+}
+
+.pfm .pfm-btn:active:not(:disabled) {
+    background: rgba(var(--pfm-accent-rgb), .1);
+}
+
+.pfm .pfm-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.pfm .pfm-btn-accent {
+    padding: 6px 12px;
+    border-color: var(--pfm-accent);
+    background: rgba(var(--pfm-accent-rgb), .08);
+    color: var(--pfm-accent);
+}
+
+.pfm .pfm-btn-accent:hover:not(:disabled) {
+    background: rgba(var(--pfm-accent-rgb), .16);
+    color: var(--pfm-accent);
+}
+
+.pfm .pfm-btn-solid {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--pfm-s3);
+    padding: 13px;
+    border: none;
+    border-radius: var(--pfm-r-md);
+    background: var(--pfm-solid);
+    color: var(--pfm-on-solid);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: filter .15s;
+}
+
+.pfm .pfm-btn-solid:hover:not(:disabled) {
+    filter: brightness(1.08);
+}
+
+.pfm .pfm-btn-solid:active:not(:disabled) {
+    filter: brightness(.95);
+}
+
+.pfm .pfm-btn-solid:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+.pfm .pfm-btn-wide {
+    width: 100%;
+    padding: 11px;
+    border-radius: var(--pfm-r-md);
+    font-size: 12px;
+    letter-spacing: .06em;
+}
+
+/* The line's remove control. Its glyph is its whole label, so it is drawn
+   inline rather than set in the icon font — a font that failed to arrive would
+   leave it reading as a dead square. */
+.pfm .pfm-btn-x {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--pfm-edge);
+    border-radius: var(--pfm-r-sm);
+    background: transparent;
+    color: var(--pfm-muted-2);
+    cursor: pointer;
+    line-height: 1;
+    transition: border-color .15s, color .15s, background .15s;
+}
+
+.pfm .pfm-btn-x svg {
+    width: 12px;
+    height: 12px;
+    display: block;
+}
+
+.pfm .pfm-btn-x:hover:not(:disabled) {
+    border-color: var(--pfm-bad);
+    color: var(--pfm-bad);
+    background: rgba(var(--pfm-bad-rgb), .08);
+}
+
+.pfm .pfm-btn-x:disabled {
+    opacity: .35;
+    cursor: not-allowed;
+}
+
+/* ── Page head ─────────────────────────────────────────────────────────── */
+
+.pfm-head {
+    display: flex;
+    align-items: flex-end;
+    gap: 24px;
+    flex-wrap: wrap;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--pfm-hairline);
+}
+
+.pfm-head-main {
+    flex: 1;
+    min-width: 280px;
+}
+
+.pfm-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--pfm-accent-text);
+    margin-bottom: 9px;
+}
+
+.pfm-head-main h1 {
+    margin: 0;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.pfm-head-main p {
+    margin: 7px 0 0;
+    font-size: 13px;
+    color: var(--pfm-muted-2);
+    max-width: 62ch;
+    text-wrap: pretty;
+}
+
+/* The head's live figures — what the document currently comes to, restated as
+   it is typed so the operator never has to scroll to the aside to see it. */
+.pfm-stats {
+    display: flex;
+    align-items: stretch;
+    flex-wrap: wrap;
+}
+
+.pfm-stat {
+    padding: 0 22px;
+    border-left: 1px solid var(--pfm-hairline);
+}
+
+.pfm-stat:first-child {
+    padding-left: 0;
+    border-left: none;
+}
+
+.pfm-stat:last-child {
+    padding-right: 0;
+}
+
+.pfm-stat-k {
+    font-size: 10px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--pfm-muted-2);
+    margin-bottom: 5px;
+}
+
+.pfm-stat-v {
+    font-size: 19px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.pfm-stat-v.is-total {
+    color: var(--pfm-accent);
+}
+
+/* ── Layout ────────────────────────────────────────────────────────────── */
+
+.pfm-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 322px;
+    gap: 20px;
+    align-items: start;
+    margin-top: 22px;
+}
+
+.pfm-main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--pfm-s6);
+    min-width: 0;
+}
+
+/* The 20px gap is measured from the app bar, not the viewport top, or the bar
+   covers the first 54px of the aside once it pins. */
+.pfm-aside {
+    position: sticky;
+    top: calc(var(--kf-topbar-h, 74px) + 20px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+/* ── Cards ─────────────────────────────────────────────────────────────── */
+
+.pfm-card {
+    background: var(--pfm-surface);
+    border: 1px solid var(--pfm-edge);
+    border-radius: var(--pfm-r-lg);
+}
+
+.pfm-card-hd {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 13px 18px;
+    border-bottom: 1px solid var(--pfm-edge);
+}
+
+.pfm-card-hd h2 {
+    margin: 0;
+    font-size: 13px;
+    letter-spacing: .02em;
+}
+
+.pfm-card-hd svg {
+    flex: none;
+    color: var(--pfm-muted-2);
+}
+
+.pfm-count {
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--pfm-press);
+    color: var(--pfm-muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.pfm-spacer {
+    flex: 1;
+}
+
+.pfm-card-bd {
+    padding: 18px;
+}
+
+.pfm-note {
+    font-size: 11.5px;
+    color: var(--pfm-muted-3);
+    text-wrap: pretty;
+}
+
+/* ── Fields ────────────────────────────────────────────────────────────── */
+
+.pfm-fields {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px 16px;
+}
+
+.pfm-span2 {
+    grid-column: span 2;
+}
+
+.pfm-span3 {
+    grid-column: span 3;
+}
+
+.pfm-lab {
+    display: block;
+    min-width: 0;
+}
+
+.pfm-lab-t {
+    display: block;
+    font-size: 10px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--pfm-label);
+    margin-bottom: 6px;
+}
+
+.pfm-req {
+    color: var(--pfm-bad);
+}
+
+.pfm .pfm-input,
+.pfm .pfm-select,
+.pfm .pfm-area {
+    width: 100%;
+    background: var(--pfm-field);
+    border: 1px solid var(--pfm-field-edge);
+    border-radius: var(--pfm-r-md);
+    padding: 9px 11px;
+    color: var(--pfm-ink);
+    caret-color: var(--pfm-accent);
+    font-family: inherit;
+    font-size: 13.5px;
+    line-height: 1.35;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s;
+}
+
+.pfm .pfm-area {
+    resize: vertical;
+    min-height: 64px;
+}
+
+.pfm .pfm-select {
+    padding-right: 28px;
+    background-image: var(--pfm-caret);
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    cursor: pointer;
+}
+
+.pfm .pfm-input:hover:not(:disabled):not([readonly]),
+.pfm .pfm-select:hover:not(:disabled),
+.pfm .pfm-area:hover:not(:disabled) {
+    border-color: var(--pfm-field-edge-hi);
+}
+
+.pfm .pfm-input:focus,
+.pfm .pfm-select:focus,
+.pfm .pfm-area:focus {
+    border-color: var(--pfm-accent);
+    outline: none;
+}
+
+.pfm .pfm-input::placeholder,
+.pfm .pfm-area::placeholder {
+    color: var(--pfm-placeholder);
+    -webkit-text-fill-color: var(--pfm-placeholder);
+    opacity: 1;
+}
+
+.pfm .pfm-input[readonly] {
+    color: var(--pfm-readonly-ink);
+    cursor: default;
+}
+
+.pfm .pfm-input:disabled,
+.pfm .pfm-select:disabled,
+.pfm .pfm-area:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.pfm .pfm-input.is-bad,
+.pfm .pfm-select.is-bad {
+    border-color: var(--pfm-bad);
+}
+
+.pfm-field-err {
+    margin-top: 5px;
+    font-size: 11px;
+    color: var(--pfm-bad);
+}
+
+/* A value the form states but will not change — the request's signed-in
+   requester. Reads as fact rather than as a disabled field the operator might
+   keep clicking. */
+.pfm-static {
+    padding: 9px 0;
+    min-height: 37px;
+    font-size: 13.5px;
+    color: var(--pfm-readonly-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Combobox (supplier, item code) ────────────────────────────────────── */
+
+.pfm-combo {
+    position: relative;
+}
+
+.pfm-drop {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 100%;
+    max-height: 280px;
+    overflow-y: auto;
+    padding: var(--pfm-s1);
+    background: var(--pfm-surface);
+    border: 1px solid var(--pfm-edge);
+    border-radius: var(--pfm-r-md);
+    box-shadow: var(--pfm-shadow-pop);
+}
+
+.pfm-drop.is-wide {
+    min-width: 320px;
+}
+
+.pfm .pfm-drop-i {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: var(--pfm-s3) var(--pfm-s4);
+    border: none;
+    border-radius: var(--pfm-r-sm);
+    background: transparent;
+    color: var(--pfm-ink-2);
+    font-family: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pfm .pfm-drop-i:hover,
+.pfm .pfm-drop-i.is-sel {
+    background: rgba(var(--pfm-accent-rgb), .12);
+    color: var(--pfm-ink);
+}
+
+.pfm-drop-code {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.pfm-drop-sub {
+    display: block;
+    font-size: 11px;
+    color: var(--pfm-muted-3);
+}
+
+.pfm-drop-price {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(var(--pfm-info-rgb), .3);
+    background: rgba(var(--pfm-info-rgb), .1);
+    color: var(--pfm-info);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.pfm-drop-empty {
+    padding: 10px 11px;
+    font-size: 12px;
+    color: var(--pfm-muted-3);
+}
+
+/* ── The chosen supplier ───────────────────────────────────────────────── */
+/* Stated rather than left in the search box: what the document will be raised
+   against is a fact about it, not a query that happened to match. */
+
+.pfm-party {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid rgba(var(--pfm-accent-rgb), .35);
+    border-radius: var(--pfm-r-md);
+    background: rgba(var(--pfm-accent-rgb), .07);
+}
+
+.pfm-party-code {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--pfm-accent-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.pfm-party-name {
+    margin-top: 2px;
+    font-size: 13px;
+    color: var(--pfm-ink-2);
+}
+
+.pfm-party-meta {
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: var(--pfm-s2) var(--pfm-s4);
+    flex-wrap: wrap;
+    font-size: 11.5px;
+    color: var(--pfm-muted-2);
+}
+
+/* ── Line rows ─────────────────────────────────────────────────────────────
+   Each form's line editor is the same row with different columns, so the track
+   list is a variable set on the scroller and `.pfm-row` reads it.
+
+   Keep every template's total at or under `--pfm-lines-min`, or the rows and
+   their header disagree about where the horizontal scroll starts. */
+
+.pfm-lines {
+    --pfm-cols: 24px 132px minmax(150px, 1fr) 84px 96px 110px 84px 64px 100px 28px;
+    --pfm-lines-min: 980px;
+    overflow-x: auto;
+    padding: 0 18px 18px;
+}
+
+/* #, code, description, qty, price, warehouse, tax, disc %, total, remove */
+.is-quotation .pfm-lines,
+.is-invoice .pfm-lines,
+.is-order .pfm-lines {
+    --pfm-cols: 24px 132px minmax(150px, 1fr) 84px 96px 110px 84px 64px 100px 28px;
+    --pfm-lines-min: 980px;
+}
+
+/* A receipt closes purchase-order lines, so it names the order entry and line
+   where the others discount — two columns, and the widest row here. */
+.is-receipt .pfm-lines {
+    --pfm-cols: 24px 132px minmax(150px, 1fr) 84px 96px 110px 84px 76px 76px 100px 28px;
+    --pfm-lines-min: 1060px;
+}
+
+/* Nothing on a request is priced, so it carries no money at all: the columns
+   the others spend on price, tax and total go to the need-by date and the
+   vendor the requester has in mind. */
+.is-request .pfm-lines {
+    --pfm-cols: 24px 132px minmax(150px, 1fr) 84px 110px 150px 132px 28px;
+    --pfm-lines-min: 880px;
+}
+
+/* `overflow-x: auto` also clips vertically, which would cut an item picker off
+   at the bottom of the table. While a picker is open the clip is lifted; at the
+   widths where the rows fit nothing overflows either way. */
+.pfm-lines.is-picking {
+    overflow: visible;
+}
+
+.pfm-lines-inner {
+    min-width: var(--pfm-lines-min);
+}
+
+.pfm-row {
+    display: grid;
+    grid-template-columns: var(--pfm-cols);
+    gap: 10px;
+    align-items: center;
+    padding: 9px 0;
+    border-top: 1px solid var(--pfm-rowline);
+}
+
+.pfm-row.is-head {
+    padding: 12px 0 9px;
+    border-top: none;
+    align-items: end;
+    font-size: 9.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--pfm-muted-3);
+}
+
+.pfm-r {
+    text-align: right;
+}
+
+.pfm-n {
+    font-size: 11px;
+    color: var(--pfm-muted-3);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+.pfm .pfm-cell {
+    padding: 8px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.pfm .pfm-select.pfm-cell {
+    padding-right: 24px;
+}
+
+.pfm .pfm-num {
+    padding: 8px 6px;
+    font-size: 13px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Description reads as text until touched, then becomes a field. */
+.pfm .pfm-desc {
+    background: transparent;
+    border-color: transparent;
+    padding: 8px 9px;
+    color: var(--pfm-ink-2);
+    font-size: 13px;
+}
+
+.pfm .pfm-desc:hover:not([readonly]) {
+    border-color: var(--pfm-field-edge);
+    background: var(--pfm-field);
+}
+
+.pfm .pfm-desc:focus {
+    border-color: var(--pfm-accent);
+    background: var(--pfm-field);
+    color: var(--pfm-ink);
+}
+
+.pfm-amt-v {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--pfm-accent);
+    font-variant-numeric: tabular-nums;
+}
+
+.pfm-row-err {
+    grid-column: 2 / -1;
+    font-size: 11px;
+    color: var(--pfm-bad);
+}
+
+.pfm .pfm-addline {
+    width: 100%;
+    margin-top: 12px;
+    padding: 11px;
+    border: 1px dashed var(--pfm-dashed);
+    border-radius: var(--pfm-r-md);
+    background: transparent;
+    color: var(--pfm-muted-2);
+    font-family: inherit;
+    font-size: 12px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+}
+
+.pfm .pfm-addline:hover {
+    border-color: var(--pfm-accent);
+    color: var(--pfm-accent);
+}
+
+.pfm-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    padding: 34px 0;
+    font-size: 12.5px;
+    color: var(--pfm-muted-2);
+}
+
+/* ── Totals panel ──────────────────────────────────────────────────────── */
+
+.pfm-total-card {
+    padding: 18px;
+}
+
+.pfm-total-hd {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.pfm-total-k {
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--pfm-label);
+}
+
+.pfm-total-cur {
+    font-size: 11px;
+    color: var(--pfm-muted-3);
+}
+
+.pfm-total-v {
+    margin-top: var(--pfm-s3);
+    font-size: 38px;
+    font-weight: 500;
+    color: var(--pfm-accent);
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.pfm-sum {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    font-size: 12.5px;
+    color: var(--pfm-muted);
+}
+
+.pfm-sum-v {
+    font-variant-numeric: tabular-nums;
+}
+
+.pfm-sum-rule {
+    height: 1px;
+    background: var(--pfm-hairline);
+    margin: 9px 0;
+}
+
+.pfm-gap-md {
+    margin-top: var(--pfm-s6);
+}
+
+/* ── Pre-flight checks ─────────────────────────────────────────────────── */
+/* What the document still needs before SAP will take it, stated before the
+   submit rather than after it fails. */
+
+.pfm-panel {
+    padding: 16px 18px;
+}
+
+.pfm-panel-hd {
+    display: flex;
+    align-items: center;
+    gap: var(--pfm-s3);
+    margin-bottom: 12px;
+    font-size: 12.5px;
+    font-weight: 500;
+}
+
+.pfm-panel-hd svg {
+    flex: none;
+    color: var(--pfm-muted-2);
+}
+
+.pfm-checks {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.pfm-checks-i {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+    color: var(--pfm-ink-2);
+}
+
+.pfm-checks-i.is-no {
+    color: var(--pfm-muted-2);
+}
+
+.pfm-checks-ic {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(var(--pfm-good-rgb), .16);
+    color: var(--pfm-good);
+}
+
+.pfm-checks-ic svg {
+    display: block;
+}
+
+/* An outstanding check is an empty circle, not a greyed tick: a tick means the
+   thing is done, and dimming it says "done, quietly" rather than "not yet". */
+.pfm-checks-i.is-no .pfm-checks-ic {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--pfm-field-edge-hi);
+}
+
+.pfm-checks-i.is-no .pfm-checks-ic svg {
+    display: none;
+}
+
+/* ── Notes, alerts, errors ─────────────────────────────────────────────── */
+
+.pfm-info-note {
+    display: flex;
+    gap: 9px;
+    padding: 12px 14px;
+    border-radius: var(--pfm-r-md);
+    border: 1px solid var(--pfm-edge);
+    background: rgba(var(--pfm-info-rgb), .06);
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--pfm-muted);
+}
+
+.pfm-info-note > svg {
+    flex: none;
+    margin-top: 1px;
+    color: var(--pfm-info);
+}
+
+.pfm-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: var(--pfm-s6);
+    padding: 12px 14px;
+    border-radius: var(--pfm-r-md);
+    font-size: 12.5px;
+    line-height: 1.5;
+}
+
+.pfm-alert > svg {
+    flex: none;
+    margin-top: 1px;
+}
+
+.pfm-alert.is-ok {
+    border: 1px solid rgba(var(--pfm-good-rgb), .35);
+    background: rgba(var(--pfm-good-rgb), .08);
+    color: var(--pfm-good);
+}
+
+.pfm-alert.is-err {
+    border: 1px solid rgba(var(--pfm-bad-rgb), .35);
+    background: rgba(var(--pfm-bad-rgb), .08);
+    color: var(--pfm-bad);
+}
+
+.pfm-alert-bd {
+    flex: 1;
+    min-width: 0;
+}
+
+.pfm .pfm-alert-x {
+    border: none;
+    background: transparent;
+    color: inherit;
+    opacity: .55;
+    cursor: pointer;
+    padding: 0 2px;
+    line-height: 1;
+}
+
+.pfm .pfm-alert-x:hover {
+    opacity: 1;
+}
+
+.pfm-err-panel {
+    margin-bottom: 12px;
+    padding: 11px 13px;
+    border: 1px solid rgba(var(--pfm-bad-rgb), .3);
+    border-radius: var(--pfm-r-md);
+    background: rgba(var(--pfm-bad-rgb), .06);
+}
+
+.pfm-err-panel-t {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 6px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--pfm-bad);
+}
+
+.pfm-err-panel ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--pfm-bad);
+}
+
+/* ── Spinner ───────────────────────────────────────────────────────────── */
+
+.pfm-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    display: inline-block;
+    border: 2px solid rgba(var(--pfm-accent-rgb), .25);
+    border-top-color: var(--pfm-accent);
+    border-radius: 50%;
+    animation: pfm-spin .7s linear infinite;
+}
+
+.pfm-spin.on-solid {
+    border-color: var(--pfm-on-solid-ring);
+    border-top-color: var(--pfm-on-solid);
+}
+
+@keyframes pfm-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pfm-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.pfm-lines::-webkit-scrollbar,
+.pfm-drop::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.pfm-lines::-webkit-scrollbar-thumb,
+.pfm-drop::-webkit-scrollbar-thumb {
+    background: var(--pfm-thumb);
+    border-radius: 8px;
+}
+
+.pfm-lines::-webkit-scrollbar-track,
+.pfm-drop::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── The date field ────────────────────────────────────────────────────────
+   NocturneDateField takes the shorthand this app's operators type (`030826`)
+   and draws its own calendar; only the closed field is fitted here, the
+   calendar is the shared one. See wwwroot/css/nocturne-date-field.css.
+
+   37px because that is where a `.pfm-input` lands with 9px of padding around
+   13.5px text, and a date field short of its neighbours staggers the row. */
+.pfm {
+    --ndf-h: 37px;
+    --ndf-pad-y: 9px;
+    --ndf-pad-x: 11px;
+    --ndf-fs: 13.5px;
+    --ndf-fill: var(--pfm-field);
+    --ndf-edge: var(--pfm-field-edge);
+    --ndf-edge-hi: var(--pfm-field-edge-hi);
+    --ndf-radius: var(--pfm-r-md);
+}
+
+/* In a line row the field is one cell among nine, so it takes the row's
+   metrics rather than the form's. */
+.pfm-row {
+    --ndf-h: 33px;
+    --ndf-pad-y: 8px;
+    --ndf-pad-x: 8px;
+    --ndf-fs: 13px;
+}
+
+/* ── Narrow viewports ──────────────────────────────────────────────────── */
+
+@media (max-width: 1120px) {
+    .pfm-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pfm-aside {
+        position: static;
+    }
+}
+
+@media (max-width: 900px) {
+    .pfm-fields {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .pfm-span3 {
+        grid-column: span 2;
+    }
+}
+
+@media (max-width: 720px) {
+    .pfm-shell {
+        padding: 18px 16px 44px;
+    }
+
+    .pfm-head-main h1 {
+        font-size: 24px;
+    }
+
+    .pfm-stats {
+        gap: 12px 0;
+    }
+
+    .pfm-stat {
+        padding: 0 16px;
+    }
+
+    .pfm-fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pfm-span2,
+    .pfm-span3 {
+        grid-column: span 1;
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .pfm .pfm-input,
+    .pfm .pfm-select,
+    .pfm .pfm-area {
+        font-size: 16px;
+    }
+}
