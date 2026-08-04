@@ -1,0 +1,654 @@
+/* ==========================================================================
+   Mobile Push — Nocturne
+
+   The first of the admin/ops pages onto Nocturne, and a derivation rather than
+   an import: there is no Mobile Push.dc.html in any of the design projects, so
+   this is the documented fallback, taken the way audit-trail.css and
+   local-stock.css were taken from business-partners.css.
+
+   The source here is driver-shop-access.css instead, because the shape is that
+   page's and not the directory's: a sticky header carrying the page's one
+   secondary action, a stated hero whose right-hand figure is the last result,
+   and below it two panels — a wide one that washes into the ground and a
+   narrower one, pinned, that stays put beside it. What that page calls a
+   catalogue and a scope, this page calls a composer and a receipt.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system. Light is the base and `.dark-theme` the override, both
+   stated there in the order App.razor's pre-paint script stamps the class in,
+   so neither scheme flashes.
+
+   Rules live here rather than in the inline Razor <style> block this page used
+   to carry, for the reason every sibling sheet gives: app.css carries global
+   `.dark-theme input/select/textarea` rules at (0,1,1) that would otherwise
+   repaint every field #1e293b, so each control carries a class and each control
+   selector is two classes deep, winning regardless of load order. Headings are
+   pinned to Nocturne's 500 because Bootstrap's global `h1-h6 { font-weight:
+   600 }` would bolden them past the weight this system allows.
+
+   One departure from the block this replaces. That block drew the page red —
+   a #dc2626 title tile, a red filled submit, a red focus ring — on the reading
+   that a push is an alarm. Nocturne spends red on states that are wrong, and a
+   push that sends correctly is not one; the page is on the system's accent
+   like every other, and the only red left is the one an actual failure lights.
+   ========================================================================== */
+
+.mpu {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values. */
+    --mpu-bg: var(--noct-bg);
+    --mpu-surface: var(--noct-surface);
+    --mpu-wash: var(--noct-wash);
+    --mpu-ink: var(--noct-ink);
+    --mpu-ink-2: var(--noct-ink-2);
+    --mpu-mute: var(--noct-mute);
+    --mpu-mute-2: var(--noct-mute-2);
+    --mpu-mute-3: var(--noct-mute-3);
+    --mpu-faint: var(--noct-faint);
+    --mpu-placeholder: var(--noct-placeholder);
+    --mpu-divider: var(--noct-divider);
+    --mpu-rule: var(--noct-rule);
+    --mpu-hover: var(--noct-hover);
+    --mpu-press: var(--noct-press);
+    --mpu-field-bg: var(--noct-field-bg);
+    --mpu-field-edge: var(--noct-field-edge);
+    --mpu-field-edge-hi: var(--noct-field-edge-hi);
+    --mpu-accent: var(--noct-accent);
+    --mpu-accent-rgb: var(--noct-accent-rgb);
+    --mpu-accent-text: var(--noct-accent-text);
+    --mpu-good: var(--noct-fam-good);
+    --mpu-good-rgb: var(--noct-fam-good-rgb);
+    --mpu-bad: var(--noct-fam-bad);
+    --mpu-bad-rgb: var(--noct-fam-bad-rgb);
+    --mpu-caret: var(--noct-caret);
+    --mpu-scheme: var(--noct-scheme);
+
+    --mpu-s1: var(--noct-s1);
+    --mpu-s2: var(--noct-s2);
+    --mpu-s3: var(--noct-s3);
+    --mpu-s4: var(--noct-s4);
+    --mpu-s6: var(--noct-s6);
+    --mpu-s8: var(--noct-s8);
+    --mpu-r-sm: var(--noct-r-sm);
+    --mpu-r-md: var(--noct-r-md);
+    --mpu-r-lg: var(--noct-r-lg);
+
+    color-scheme: var(--mpu-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.mpu {
+    min-height: 100vh;
+    background: var(--mpu-bg);
+    color: var(--mpu-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.mpu * {
+    box-sizing: border-box;
+}
+
+.mpu :focus-visible {
+    outline: 2px solid var(--mpu-accent);
+    outline-offset: 2px;
+}
+
+.mpu ::selection {
+    background: rgba(var(--mpu-accent-rgb), .3);
+}
+
+.mpu h1,
+.mpu h2 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, and opaque rather than
+   frosted — the hero's 30px title passes directly beneath it, and a translucent
+   bar only hides that title while the compositor honours the backdrop blur. */
+
+.mpu-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--mpu-bg);
+    border-bottom: 1px solid var(--mpu-divider);
+}
+
+.mpu-head-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--mpu-s6);
+}
+
+.mpu-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--mpu-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--mpu-mute-3);
+}
+
+.mpu-crumb-sep {
+    color: var(--mpu-faint);
+}
+
+.mpu-crumb-now {
+    color: var(--mpu-ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mpu-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--mpu-s3);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.mpu .mpu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--mpu-s2) calc(var(--mpu-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--mpu-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--mpu-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.mpu .mpu-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.mpu .mpu-btn svg {
+    display: block;
+    flex: none;
+}
+
+.mpu .mpu-btn-primary {
+    color: var(--mpu-accent);
+    border-color: var(--mpu-accent);
+    letter-spacing: .02em;
+}
+
+.mpu .mpu-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--mpu-accent-rgb), .12);
+}
+
+.mpu .mpu-btn-primary:active:not(:disabled) {
+    background: rgba(var(--mpu-accent-rgb), .22);
+}
+
+.mpu .mpu-btn-ghost {
+    color: var(--mpu-accent);
+}
+
+.mpu .mpu-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--mpu-accent-rgb), .1);
+}
+
+.mpu .mpu-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--mpu-accent-rgb), .18);
+}
+
+.mpu .mpu-btn-lg {
+    height: 36px;
+    font-size: 13px;
+    padding-inline: var(--mpu-s6);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.mpu-body {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--mpu-s8);
+}
+
+/* ── Hero: the ask on the left, what the last send did on the right ────── */
+
+.mpu-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 32px;
+    flex-wrap: wrap;
+}
+
+.mpu-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--mpu-accent-text);
+    margin-bottom: 9px;
+}
+
+.mpu-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.mpu-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--mpu-mute-2);
+    max-width: 62ch;
+    text-wrap: pretty;
+}
+
+.mpu-stat {
+    min-width: 250px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.mpu-stat-line {
+    display: flex;
+    align-items: baseline;
+    gap: var(--mpu-s3);
+}
+
+.mpu-stat-num {
+    font-size: 27px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+}
+
+.mpu-stat-of {
+    font-size: 13px;
+    color: var(--mpu-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.mpu-stat-foot {
+    font-size: 11.5px;
+    color: var(--mpu-mute-3);
+}
+
+/* ── The two panels ────────────────────────────────────────────────────── */
+
+.mpu-grid {
+    display: grid;
+    grid-template-columns: 1.35fr 1fr;
+    gap: var(--mpu-s6);
+    align-items: start;
+}
+
+.mpu-panel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    border: 1px solid var(--mpu-divider);
+    border-radius: var(--mpu-r-lg);
+}
+
+/* The composer is a wash that falls away into the ground; the receipt, which
+   stays put while the composer grows under a long message, is a filled
+   surface. */
+.mpu-panel-compose {
+    background: linear-gradient(to bottom, var(--mpu-wash), transparent 200px);
+}
+
+.mpu-panel-receipt {
+    position: sticky;
+    top: calc(var(--kf-topbar-h, 74px) + 74px);
+    background: var(--mpu-surface);
+}
+
+.mpu-panel-head {
+    padding: var(--mpu-s6) 18px var(--mpu-s4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--mpu-s4);
+}
+
+.mpu-panel-title {
+    display: flex;
+    align-items: center;
+    gap: var(--mpu-s3);
+}
+
+.mpu-panel-title h2 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.mpu-count {
+    font-size: 11.5px;
+    color: var(--mpu-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.mpu-panel-body {
+    padding: var(--mpu-s1) 18px var(--mpu-s6);
+}
+
+.mpu-panel-foot {
+    padding: 13px 18px;
+    border-top: 1px solid var(--mpu-divider);
+    display: flex;
+    align-items: center;
+    gap: var(--mpu-s4);
+}
+
+.mpu-panel-foot .mpu-btn {
+    margin-left: auto;
+}
+
+.mpu-foot-note {
+    font-size: 11.5px;
+    color: var(--mpu-mute-3);
+    text-wrap: pretty;
+}
+
+/* ── The form ──────────────────────────────────────────────────────────── */
+
+.mpu-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--mpu-s6);
+}
+
+.mpu-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--mpu-s4);
+    align-items: start;
+}
+
+.mpu-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.mpu-label {
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--mpu-mute-3);
+}
+
+/* Every control selector is two classes deep so it out-specifies app.css's
+   global `.dark-theme input/select/textarea` block regardless of load order. */
+.mpu .mpu-input,
+.mpu .mpu-textarea {
+    width: 100%;
+    min-height: 34px;
+    padding: 9px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--mpu-ink);
+    caret-color: var(--mpu-accent);
+    background: var(--mpu-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--mpu-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.mpu .mpu-textarea {
+    min-height: 132px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.mpu .mpu-input:hover,
+.mpu .mpu-textarea:hover {
+    border-color: var(--mpu-field-edge);
+}
+
+.mpu .mpu-input:focus-visible,
+.mpu .mpu-textarea:focus-visible {
+    border-color: rgba(var(--mpu-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.mpu .mpu-input::placeholder,
+.mpu .mpu-textarea::placeholder {
+    color: var(--mpu-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--mpu-placeholder);
+}
+
+.mpu-select {
+    position: relative;
+    display: flex;
+}
+
+.mpu .mpu-select select.mpu-input {
+    padding: 8px 26px 8px 11px;
+    cursor: pointer;
+}
+
+.mpu-select .mpu-caret {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--mpu-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+/* Blazor stamps `invalid` on a field a validator has rejected; the ring is the
+   only red the page carries at rest. */
+.mpu .mpu-input.invalid,
+.mpu .mpu-textarea.invalid {
+    border-color: rgba(var(--mpu-bad-rgb), .55);
+}
+
+.mpu-validation {
+    font-size: 11.5px;
+    color: var(--mpu-bad);
+}
+
+.mpu-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--mpu-s4);
+    flex-wrap: wrap;
+}
+
+.mpu-hint {
+    font-size: 11.5px;
+    color: var(--mpu-mute-3);
+    text-wrap: pretty;
+}
+
+/* ── The result notice ─────────────────────────────────────────────────── */
+/* Tinted from the family token rather than filled: Nocturne keeps saturation
+   off large fields, so the hue arrives as a rule, a mark and a thin wash. */
+
+.mpu-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--mpu-s3);
+    margin-top: var(--mpu-s6);
+    padding: 11px 13px;
+    border-radius: var(--mpu-r-md);
+    font-size: 12.5px;
+    text-wrap: pretty;
+}
+
+.mpu-notice svg {
+    flex: none;
+    margin-top: 1px;
+}
+
+.mpu-notice-good {
+    color: var(--mpu-good);
+    background: rgba(var(--mpu-good-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--mpu-good-rgb), .3);
+}
+
+.mpu-notice-bad {
+    color: var(--mpu-bad);
+    background: rgba(var(--mpu-bad-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--mpu-bad-rgb), .3);
+}
+
+/* ── The receipt ───────────────────────────────────────────────────────── */
+
+.mpu-meta {
+    display: flex;
+    flex-direction: column;
+}
+
+.mpu-meta-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--mpu-s6);
+    padding: 10px 0;
+    border-bottom: 1px solid var(--mpu-rule);
+}
+
+.mpu-meta-row:last-child {
+    border-bottom: 0;
+}
+
+.mpu-meta-label {
+    font-size: 12px;
+    color: var(--mpu-mute-3);
+    flex: none;
+}
+
+.mpu-meta-value {
+    font-size: 13px;
+    color: var(--mpu-ink-2);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mpu-meta-value-lead {
+    font-size: 20px;
+    letter-spacing: -.01em;
+    line-height: 1.2;
+}
+
+/* ── Spinner ───────────────────────────────────────────────────────────── */
+
+.mpu-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: mpu-spin .7s linear infinite;
+}
+
+@keyframes mpu-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 1080px) {
+    .mpu-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Stacked, the receipt is below the composer rather than beside it, so
+       pinning it would park it over the form it reports on. */
+    .mpu-panel-receipt {
+        position: static;
+    }
+}
+
+@media (max-width: 700px) {
+    .mpu-head-inner {
+        padding: var(--mpu-s3) 18px;
+        flex-wrap: wrap;
+        gap: var(--mpu-s3);
+    }
+
+    .mpu-head-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .mpu-head-actions .mpu-btn {
+        flex: 1;
+    }
+
+    .mpu-body {
+        padding: var(--mpu-s8) 18px 56px;
+    }
+
+    .mpu-hero h1 {
+        font-size: 24px;
+    }
+
+    .mpu-stat {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .mpu-row {
+        grid-template-columns: 1fr;
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .mpu .mpu-input,
+    .mpu .mpu-textarea {
+        font-size: 16px;
+    }
+
+    .mpu-panel-foot {
+        flex-wrap: wrap;
+    }
+
+    .mpu-panel-foot .mpu-btn {
+        width: 100%;
+        margin-left: 0;
+    }
+}

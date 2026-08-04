@@ -1,0 +1,1323 @@
+/* ==========================================================================
+   Document Templates — Nocturne
+
+   A derivation, not an import: there is no Document Templates.dc.html in any of
+   the design projects, so this follows the documented fallback the way
+   audit-trail.css and local-stock.css did.
+
+   The source is audit-trail.css again — a header carrying the page's action, a
+   stated hero, a row of four figures, a filtered panel that washes into the
+   ground, a pagination foot, and a right-hand drawer. What differs is that the
+   panel holds a card grid rather than rows, because a template has no columns
+   worth lining up: a name, a type, a paper size and four controls, and the
+   useful comparison between two of them is "which one is the default", not
+   "which was updated later".
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system. Light is the base and `.dark-theme` the override, both
+   stated there in the order App.razor's pre-paint script stamps the class in.
+
+   Rules live here rather than in the inline Razor <style> block this page used
+   to carry, for the reason every sibling gives: app.css carries global
+   `.dark-theme input/select/textarea` rules at (0,1,1) that would otherwise
+   repaint every field in the editor #1e293b, so each control carries a class
+   and each control selector is two classes deep, winning regardless of load
+   order. Headings are pinned to Nocturne's 500 against Bootstrap's global
+   `h1-h6 { font-weight: 600 }`.
+
+   Four departures from the block this replaces:
+
+   - Six hard-coded pastel pairs said what kind of document a template is
+     (#dbeafe/#2563eb for an invoice and so on). They are one family token
+     apiece now, through `.dtp-fam-*`, so the ink is mixed from the same value
+     as the wash and the two cannot drift.
+   - The 135° #667eea→#764ba2 gradient — on the header tile, the primary
+     button, the active filter chip, the Default badge and the drawer's whole
+     header bar — is gone. It is not a Nocturne colour, and Nocturne outlines
+     its primary action rather than filling it.
+   - The drawers and the modal painted themselves #fff outright, so both stayed
+     white in dark mode. They are on the page's own surfaces now, and they carry
+     `.dtp` themselves — which is what puts the tokens in reach, since every
+     rule below reads two classes deep.
+   - MudPagination is replaced by the sibling sheets' own step/page controls.
+     Restyling it would have meant out-specifying MudBlazor's sheet, which loads
+     after this one, for a control the module already has.
+
+   The editor's four HTML fields keep a monospace face and a recessed ground:
+   they hold markup, and markup that is set in the page's own prose face reads
+   as prose.
+   ========================================================================== */
+
+.dtp {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --dtp-bg: var(--noct-bg);
+    --dtp-surface: var(--noct-surface);
+    --dtp-wash: var(--noct-wash);
+    --dtp-ink: var(--noct-ink);
+    --dtp-ink-2: var(--noct-ink-2);
+    --dtp-mute: var(--noct-mute);
+    --dtp-mute-2: var(--noct-mute-2);
+    --dtp-mute-3: var(--noct-mute-3);
+    --dtp-faint: var(--noct-faint);
+    --dtp-placeholder: var(--noct-placeholder);
+    --dtp-divider: var(--noct-divider);
+    --dtp-rule: var(--noct-rule);
+    --dtp-hover: var(--noct-hover);
+    --dtp-press: var(--noct-press);
+    --dtp-field-bg: var(--noct-field-bg);
+    --dtp-field-edge: var(--noct-field-edge);
+    --dtp-field-edge-hi: var(--noct-field-edge-hi);
+    --dtp-accent: var(--noct-accent);
+    --dtp-accent-rgb: var(--noct-accent-rgb);
+    --dtp-accent-text: var(--noct-accent-text);
+    --dtp-box: var(--noct-box);
+    --dtp-on-box: var(--noct-on-box);
+    --dtp-thumb: var(--noct-thumb);
+    --dtp-scrim: var(--noct-scrim);
+    --dtp-shadow-lg: var(--noct-shadow-lg);
+    --dtp-shadow-pop: var(--noct-shadow-pop);
+    --dtp-caret: var(--noct-caret);
+    --dtp-scheme: var(--noct-scheme);
+
+    /* Document families — one per document type, plus good and bad for the two
+       notices. */
+    --dtp-fam-neutral: var(--noct-fam-neutral);
+    --dtp-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --dtp-fam-accent: var(--noct-fam-accent);
+    --dtp-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --dtp-fam-info: var(--noct-fam-info);
+    --dtp-fam-info-rgb: var(--noct-fam-info-rgb);
+    --dtp-fam-good: var(--noct-fam-good);
+    --dtp-fam-good-rgb: var(--noct-fam-good-rgb);
+    --dtp-fam-warn: var(--noct-fam-warn);
+    --dtp-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --dtp-fam-bad: var(--noct-fam-bad);
+    --dtp-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --dtp-s1: var(--noct-s1);
+    --dtp-s2: var(--noct-s2);
+    --dtp-s3: var(--noct-s3);
+    --dtp-s4: var(--noct-s4);
+    --dtp-s6: var(--noct-s6);
+    --dtp-s8: var(--noct-s8);
+    --dtp-r-sm: var(--noct-r-sm);
+    --dtp-r-md: var(--noct-r-md);
+    --dtp-r-lg: var(--noct-r-lg);
+
+    /* This page's own: the face the four markup fields are set in. */
+    --dtp-mono: ui-monospace, 'SF Mono', 'Fira Code', 'Cascadia Mono', Menlo, monospace;
+
+    color-scheme: var(--dtp-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.dtp {
+    min-height: 100vh;
+    background: var(--dtp-bg);
+    color: var(--dtp-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.dtp * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside this page that would flatten the family hues the badges
+   carry on WebKit, so hand the fill back to `color`. */
+.dtp,
+.dtp * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.dtp :focus-visible {
+    outline: 2px solid var(--dtp-accent);
+    outline-offset: 2px;
+}
+
+.dtp ::selection {
+    background: rgba(var(--dtp-accent-rgb), .3);
+}
+
+.dtp h1,
+.dtp h2,
+.dtp h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.dtp-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--dtp-bg);
+    border-bottom: 1px solid var(--dtp-divider);
+}
+
+.dtp-head-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--dtp-s6);
+}
+
+.dtp-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--dtp-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--dtp-mute-3);
+}
+
+.dtp-crumb-sep {
+    color: var(--dtp-faint);
+}
+
+.dtp-crumb-now {
+    color: var(--dtp-ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dtp-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--dtp-s3);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.dtp .dtp-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--dtp-s2) calc(var(--dtp-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--dtp-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--dtp-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.dtp .dtp-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.dtp .dtp-btn svg {
+    display: block;
+    flex: none;
+}
+
+.dtp .dtp-btn-primary {
+    color: var(--dtp-accent);
+    border-color: var(--dtp-accent);
+    letter-spacing: .02em;
+}
+
+.dtp .dtp-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--dtp-accent-rgb), .12);
+}
+
+.dtp .dtp-btn-primary:active:not(:disabled) {
+    background: rgba(var(--dtp-accent-rgb), .22);
+}
+
+.dtp .dtp-btn-ghost {
+    color: var(--dtp-accent);
+}
+
+.dtp .dtp-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--dtp-accent-rgb), .1);
+}
+
+.dtp .dtp-btn-quiet {
+    color: var(--dtp-mute-2);
+    border-color: var(--dtp-divider);
+}
+
+.dtp .dtp-btn-quiet:hover:not(:disabled) {
+    color: var(--dtp-ink);
+    border-color: var(--dtp-field-edge-hi);
+    background: var(--dtp-hover);
+}
+
+.dtp .dtp-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--dtp-r-sm);
+    background: transparent;
+    color: var(--dtp-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.dtp .dtp-icon-btn:hover {
+    background: var(--dtp-press);
+    color: var(--dtp-ink);
+}
+
+/* Delete is the one control on a card that cannot be undone, so it is the one
+   that takes a hue — and only on hover, so a wall of cards is not a wall of
+   red. */
+.dtp .dtp-icon-btn-danger:hover {
+    background: rgba(var(--dtp-fam-bad-rgb), .12);
+    color: var(--dtp-fam-bad);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.dtp-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--dtp-s8);
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.dtp-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.dtp-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--dtp-accent-text);
+    margin-bottom: 9px;
+}
+
+.dtp-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.dtp-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--dtp-mute-2);
+    max-width: 56ch;
+    text-wrap: pretty;
+}
+
+/* ── The four figures ──────────────────────────────────────────────────── */
+
+.dtp-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--dtp-s4);
+}
+
+.dtp-stat {
+    padding: var(--dtp-s6) 18px;
+    border: 1px solid var(--dtp-divider);
+    border-radius: var(--dtp-r-lg);
+    background: var(--dtp-surface);
+    min-width: 0;
+}
+
+/* Only the first card carries the accent — the way of saying which figure the
+   page is actually about. */
+.dtp-stat-lead {
+    background:
+        linear-gradient(155deg, rgba(var(--dtp-accent-rgb), .12), transparent 62%),
+        var(--dtp-surface);
+}
+
+.dtp-stat-head {
+    display: flex;
+    align-items: center;
+    gap: var(--dtp-s3);
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--dtp-mute-2);
+}
+
+.dtp-stat-lead .dtp-stat-head {
+    color: var(--dtp-accent-text);
+}
+
+.dtp-stat-rule {
+    width: 12px;
+    height: 1px;
+    flex: none;
+    background: var(--dtp-mute-3);
+}
+
+.dtp-stat-lead .dtp-stat-rule {
+    background: var(--dtp-accent);
+}
+
+.dtp-stat-num {
+    margin-top: var(--dtp-s4);
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.dtp-stat-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--dtp-mute-2);
+}
+
+/* ── The panel ─────────────────────────────────────────────────────────── */
+/* A wash that falls away into the ground over its first 240px rather than a
+   filled card. */
+
+.dtp-panel {
+    border: 1px solid var(--dtp-divider);
+    border-radius: var(--dtp-r-lg);
+    background: linear-gradient(to bottom, var(--dtp-wash), transparent 240px);
+}
+
+.dtp-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--dtp-s4);
+    padding: var(--dtp-s4) var(--dtp-s8);
+    flex-wrap: wrap;
+}
+
+.dtp-panel-head h2 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.dtp-count {
+    font-size: 12.5px;
+    color: var(--dtp-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Type filter ───────────────────────────────────────────────────────── */
+/* Seven chips rather than a select: the set is fixed, short, and the one the
+   page is filtered by has to be visible without opening anything. */
+
+.dtp-chips {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+    padding: 0 var(--dtp-s8) var(--dtp-s4);
+}
+
+.dtp .dtp-chip {
+    padding: 5px 12px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--dtp-mute-2);
+    background: transparent;
+    border: 1px solid var(--dtp-divider);
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color .14s, border-color .14s, background-color .14s;
+}
+
+.dtp .dtp-chip:hover {
+    color: var(--dtp-ink);
+    border-color: var(--dtp-field-edge-hi);
+}
+
+.dtp .dtp-chip-on {
+    color: var(--dtp-accent-text);
+    border-color: rgba(var(--dtp-accent-rgb), .45);
+    background: rgba(var(--dtp-accent-rgb), .14);
+}
+
+/* ── The card grid ─────────────────────────────────────────────────────── */
+
+.dtp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+    gap: var(--dtp-s4);
+    padding: 0 var(--dtp-s8) var(--dtp-s8);
+}
+
+.dtp-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    border: 1px solid var(--dtp-divider);
+    border-radius: var(--dtp-r-lg);
+    background: var(--dtp-surface);
+    transition: border-color .14s;
+}
+
+.dtp-card:hover {
+    border-color: var(--dtp-field-edge-hi);
+}
+
+/* The default for its type is the one card in the grid worth finding at a
+   glance, so it takes the accent edge — the same mark the sibling sheets put on
+   a row that differs. */
+.dtp-card-default {
+    border-color: rgba(var(--dtp-accent-rgb), .45);
+    box-shadow: inset 3px 0 0 var(--dtp-accent);
+}
+
+/* An inactive template is still listed, because it is still a thing you can
+   edit or turn back on — but it recedes. */
+.dtp-card-off {
+    opacity: .72;
+}
+
+.dtp-card-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--dtp-s3);
+    padding: var(--dtp-s6) 18px var(--dtp-s3);
+}
+
+.dtp-card-title {
+    margin: 0;
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--dtp-ink-2);
+    letter-spacing: -.01em;
+    overflow-wrap: anywhere;
+}
+
+.dtp-card-marks {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: none;
+    flex-wrap: wrap;
+}
+
+.dtp-card-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--dtp-s3);
+    padding: 0 18px var(--dtp-s4);
+}
+
+.dtp-card-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--dtp-s3);
+    flex-wrap: wrap;
+}
+
+.dtp-paper {
+    font-size: 11.5px;
+    color: var(--dtp-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.dtp-dates {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-size: 11.5px;
+    color: var(--dtp-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.dtp-card-foot {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: var(--dtp-s3) 14px;
+    border-top: 1px solid var(--dtp-rule);
+}
+
+.dtp-card-foot-gap {
+    flex: 1;
+}
+
+/* ── Badges ────────────────────────────────────────────────────────────── */
+/* One badge, one family token. Each family class sets the hue and its channel;
+   the badge mixes both its ink and its wash from them, so adding a family is
+   two declarations and never a fill-and-ink pair that can drift apart. */
+
+.dtp-badge {
+    display: inline-block;
+    max-width: 100%;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    color: var(--dtp-fam, var(--dtp-mute));
+    background: rgba(var(--dtp-fam-rgb, 94, 100, 131), .14);
+}
+
+.dtp-fam-neutral {
+    --dtp-fam: var(--dtp-fam-neutral);
+    --dtp-fam-rgb: var(--dtp-fam-neutral-rgb);
+}
+
+.dtp-fam-accent {
+    --dtp-fam: var(--dtp-fam-accent);
+    --dtp-fam-rgb: var(--dtp-fam-accent-rgb);
+}
+
+.dtp-fam-info {
+    --dtp-fam: var(--dtp-fam-info);
+    --dtp-fam-rgb: var(--dtp-fam-info-rgb);
+}
+
+.dtp-fam-good {
+    --dtp-fam: var(--dtp-fam-good);
+    --dtp-fam-rgb: var(--dtp-fam-good-rgb);
+}
+
+.dtp-fam-warn {
+    --dtp-fam: var(--dtp-fam-warn);
+    --dtp-fam-rgb: var(--dtp-fam-warn-rgb);
+}
+
+.dtp-fam-bad {
+    --dtp-fam: var(--dtp-fam-bad);
+    --dtp-fam-rgb: var(--dtp-fam-bad-rgb);
+}
+
+/* Default and Inactive are states rather than kinds, so they are drawn as an
+   outline instead of a tint — that keeps the one filled badge on a card
+   meaning "document type" and nothing else. */
+.dtp-mark {
+    display: inline-block;
+    padding: 1.5px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.dtp-mark-default {
+    color: var(--dtp-accent-text);
+    box-shadow: inset 0 0 0 1px rgba(var(--dtp-accent-rgb), .45);
+}
+
+.dtp-mark-off {
+    color: var(--dtp-mute-3);
+    box-shadow: inset 0 0 0 1px var(--dtp-divider);
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+.dtp .dtp-input,
+.dtp .dtp-textarea {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--dtp-ink);
+    caret-color: var(--dtp-accent);
+    background: var(--dtp-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--dtp-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+/* The four markup fields. A monospace face because the content is HTML and CSS,
+   and a hard tab stop so an indented block keeps its shape. */
+.dtp .dtp-textarea {
+    font-family: var(--dtp-mono);
+    font-size: 12px;
+    line-height: 1.55;
+    resize: vertical;
+    tab-size: 2;
+}
+
+.dtp .dtp-input:hover,
+.dtp .dtp-textarea:hover {
+    border-color: var(--dtp-field-edge);
+}
+
+.dtp .dtp-input:focus-visible,
+.dtp .dtp-textarea:focus-visible {
+    border-color: rgba(var(--dtp-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.dtp .dtp-input::placeholder,
+.dtp .dtp-textarea::placeholder {
+    color: var(--dtp-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--dtp-placeholder);
+}
+
+.dtp-select {
+    position: relative;
+    display: flex;
+}
+
+.dtp .dtp-select select.dtp-input {
+    padding: 8px 28px 8px 11px;
+    cursor: pointer;
+}
+
+.dtp-select .dtp-caret {
+    position: absolute;
+    right: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--dtp-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+.dtp-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.dtp-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--dtp-mute-3);
+}
+
+.dtp-hint {
+    font-size: 11.5px;
+    color: var(--dtp-mute-3);
+    text-wrap: pretty;
+}
+
+/* A native checkbox wearing the design's box, so it keeps its keyboard and
+   screen-reader behaviour while the drawn square carries the state. */
+.dtp-checks {
+    display: flex;
+    align-items: center;
+    gap: var(--dtp-s6);
+    min-height: 34px;
+    flex-wrap: wrap;
+}
+
+.dtp-check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--dtp-s3);
+    font-size: 13px;
+    color: var(--dtp-mute);
+    cursor: pointer;
+    user-select: none;
+}
+
+.dtp .dtp-check input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    margin: 0;
+    accent-color: var(--dtp-box);
+    cursor: pointer;
+}
+
+/* ── The editor ────────────────────────────────────────────────────────── */
+/* Centred below the app bar rather than against the viewport: the page is a
+   stacking context, so the bar paints over anything centred against the whole
+   window however high its z-index. */
+
+.dtp-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    /* `.dtp`'s own min-height would otherwise stretch the scrim 74px past the
+       bottom of what it is meant to cover. */
+    min-height: 0;
+    background: var(--dtp-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--dtp-s6);
+    animation: dtp-fade .18s ease;
+}
+
+.dtp-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(880px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--dtp-s8));
+    /* Same reason as the scrim's. */
+    min-height: 0;
+    border: 1px solid var(--dtp-divider);
+    border-radius: var(--dtp-r-lg);
+    background: var(--dtp-bg);
+    box-shadow: var(--dtp-shadow-pop);
+    animation: dtp-rise .2s ease;
+}
+
+.dtp-modal-head {
+    display: flex;
+    align-items: center;
+    gap: var(--dtp-s4);
+    padding: var(--dtp-s6) var(--dtp-s8);
+    border-bottom: 1px solid var(--dtp-divider);
+    flex: none;
+}
+
+.dtp-modal-head h2 {
+    font-size: 17px;
+    letter-spacing: -.01em;
+}
+
+.dtp-modal-x {
+    margin-left: auto;
+}
+
+.dtp-modal-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--dtp-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--dtp-s6);
+}
+
+.dtp-modal-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--dtp-s3);
+    padding: var(--dtp-s4) var(--dtp-s8);
+    border-top: 1px solid var(--dtp-divider);
+    flex: none;
+}
+
+.dtp-form-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--dtp-s4);
+}
+
+.dtp-form-row-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dtp-legend {
+    display: flex;
+    align-items: center;
+    gap: var(--dtp-s4);
+    padding-top: var(--dtp-s3);
+    border-top: 1px solid var(--dtp-rule);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--dtp-mute-3);
+}
+
+.dtp-legend-action {
+    margin-left: auto;
+}
+
+/* ── Drawers ───────────────────────────────────────────────────────────── */
+/* Offset below the app bar for the reason the scrim is: the page is a stacking
+   context, so a drawer cannot paint over the topbar however high its z-index.
+   The scrim and the drawer sit outside the page element and carry `.dtp`
+   themselves, which is what puts the tokens in reach — every rule above that
+   reads two classes deep therefore still applies inside them. */
+
+.dtp-drawer-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    min-height: 0;
+    background: var(--dtp-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    animation: dtp-fade .18s ease;
+}
+
+.dtp-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 74px);
+    right: 0;
+    z-index: 9999;
+    width: min(560px, 100vw);
+    height: calc(100vh - var(--kf-topbar-h, 74px));
+    /* Carrying `.dtp` also carries its `min-height: 100vh`, which would beat the
+       height just set and hang the last 74px of the drawer below the fold. */
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--dtp-bg);
+    box-shadow: var(--dtp-shadow-lg);
+    animation: dtp-slide .22s ease;
+}
+
+.dtp-drawer-wide {
+    width: min(760px, 100vw);
+}
+
+.dtp-drawer-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--dtp-s4);
+    padding: var(--dtp-s6) var(--dtp-s8);
+    border-bottom: 1px solid var(--dtp-divider);
+    flex: none;
+}
+
+.dtp-drawer-head h2 {
+    font-size: 18px;
+    letter-spacing: -.01em;
+    text-wrap: pretty;
+}
+
+.dtp-drawer-sub {
+    margin-top: 3px;
+    display: flex;
+    align-items: center;
+    gap: var(--dtp-s3);
+    flex-wrap: wrap;
+}
+
+.dtp-drawer-x {
+    margin-left: auto;
+}
+
+.dtp-drawer-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--dtp-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--dtp-s8);
+}
+
+.dtp-drawer-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--dtp-s3);
+    padding: var(--dtp-s4) var(--dtp-s8);
+    border-top: 1px solid var(--dtp-divider);
+    flex: none;
+}
+
+.dtp-section h3 {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--dtp-mute-3);
+    margin-bottom: var(--dtp-s4);
+}
+
+/* Markup the user wrote, shown back: its own recessed ground and the monospace
+   face, so a block of HTML reads as a quotation rather than as page prose. */
+.dtp-pre {
+    margin: 0;
+    padding: var(--dtp-s4) var(--dtp-s6);
+    border: 1px solid var(--dtp-divider);
+    border-radius: var(--dtp-r-md);
+    background: var(--dtp-field-bg);
+    font-family: var(--dtp-mono);
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--dtp-ink-2);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    tab-size: 2;
+}
+
+/* ── Placeholders ──────────────────────────────────────────────────────── */
+
+.dtp-ph-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dtp-s2);
+}
+
+.dtp-ph-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--dtp-s4);
+    padding: var(--dtp-s3) var(--dtp-s4);
+    border-radius: var(--dtp-r-md);
+    transition: background-color .12s;
+}
+
+.dtp-ph-row:hover {
+    background: var(--dtp-hover);
+}
+
+.dtp-ph-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.dtp-ph-key {
+    display: inline-block;
+    padding: 1.5px 7px;
+    border-radius: var(--dtp-r-sm);
+    background: var(--dtp-press);
+    font-family: var(--dtp-mono);
+    font-size: 12px;
+    color: var(--dtp-ink-2);
+    overflow-wrap: anywhere;
+}
+
+.dtp-ph-desc {
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--dtp-mute-2);
+    text-wrap: pretty;
+}
+
+/* ── Pagination ────────────────────────────────────────────────────────── */
+
+.dtp-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--dtp-s6);
+    padding: var(--dtp-s4) var(--dtp-s8);
+    border-top: 1px solid var(--dtp-divider);
+    font-size: 12.5px;
+    color: var(--dtp-mute-3);
+    flex-wrap: wrap;
+}
+
+.dtp-foot-info {
+    font-variant-numeric: tabular-nums;
+}
+
+.dtp-pages {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.dtp .dtp-step {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--dtp-mute-2);
+    background: transparent;
+    border: 1px solid var(--dtp-divider);
+    border-radius: var(--dtp-r-md);
+    cursor: pointer;
+    transition: color .14s, border-color .14s;
+}
+
+.dtp .dtp-step:hover:not(:disabled) {
+    color: var(--dtp-ink);
+    border-color: var(--dtp-field-edge-hi);
+}
+
+.dtp .dtp-step:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.dtp .dtp-page {
+    padding: 5px 9px;
+    font: inherit;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--dtp-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--dtp-r-md);
+    cursor: pointer;
+    transition: color .14s, background-color .14s;
+}
+
+.dtp .dtp-page:hover {
+    color: var(--dtp-ink);
+    background: var(--dtp-hover);
+}
+
+.dtp .dtp-page-on {
+    padding-inline: 11px;
+    color: var(--dtp-accent-text);
+    background: rgba(var(--dtp-accent-rgb), .16);
+}
+
+/* ── Notices, empty and loading ────────────────────────────────────────── */
+/* Tinted from the family token rather than filled: Nocturne keeps saturation
+   off large fields, so the hue arrives as a rule, a mark and a thin wash. */
+
+.dtp-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--dtp-s3);
+    padding: 11px 13px;
+    border-radius: var(--dtp-r-md);
+    font-size: 12.5px;
+    text-wrap: pretty;
+}
+
+.dtp-notice svg {
+    flex: none;
+    margin-top: 1px;
+}
+
+.dtp-notice-good {
+    color: var(--dtp-fam-good);
+    background: rgba(var(--dtp-fam-good-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--dtp-fam-good-rgb), .3);
+}
+
+.dtp-notice-bad {
+    color: var(--dtp-fam-bad);
+    background: rgba(var(--dtp-fam-bad-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--dtp-fam-bad-rgb), .3);
+}
+
+.dtp-notice-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.dtp .dtp-notice-x {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    opacity: .6;
+    cursor: pointer;
+    transition: opacity .13s;
+}
+
+.dtp .dtp-notice-x:hover {
+    opacity: 1;
+}
+
+.dtp-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--dtp-s3);
+    padding: 64px var(--dtp-s8);
+    font-size: 13px;
+    color: var(--dtp-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+}
+
+.dtp-empty svg {
+    color: var(--dtp-accent);
+    opacity: .7;
+}
+
+.dtp-empty h3 {
+    font-size: 15px;
+    color: var(--dtp-ink-2);
+}
+
+.dtp-empty p {
+    margin: 0;
+    max-width: 44ch;
+}
+
+.dtp-empty-actions {
+    margin-top: var(--dtp-s3);
+    display: flex;
+    gap: var(--dtp-s3);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.dtp-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--dtp-s4);
+    padding: 72px var(--dtp-s8);
+    font-size: 13px;
+    color: var(--dtp-mute-2);
+}
+
+.dtp-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: dtp-spin .7s linear infinite;
+}
+
+@keyframes dtp-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes dtp-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes dtp-slide {
+    from {
+        transform: translateX(24px);
+        opacity: 0;
+    }
+}
+
+@keyframes dtp-rise {
+    from {
+        transform: translateY(8px);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .dtp-scrim,
+    .dtp-modal,
+    .dtp-drawer-scrim,
+    .dtp-drawer {
+        animation: none;
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.dtp-modal-body::-webkit-scrollbar,
+.dtp-drawer-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+.dtp-modal-body::-webkit-scrollbar-thumb,
+.dtp-drawer-body::-webkit-scrollbar-thumb {
+    background: var(--dtp-thumb);
+    border-radius: 8px;
+}
+
+.dtp-modal-body::-webkit-scrollbar-track,
+.dtp-drawer-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+    .dtp-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dtp-form-row,
+    .dtp-form-row-3 {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 700px) {
+    .dtp-head-inner {
+        padding: var(--dtp-s3) 18px;
+        flex-wrap: wrap;
+        gap: var(--dtp-s3);
+    }
+
+    .dtp-head-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .dtp-head-actions .dtp-btn {
+        flex: 1;
+    }
+
+    .dtp-body {
+        padding: var(--dtp-s8) 18px 56px;
+    }
+
+    .dtp-hero h1 {
+        font-size: 24px;
+    }
+
+    .dtp-panel-head,
+    .dtp-chips,
+    .dtp-grid,
+    .dtp-foot {
+        padding-inline: var(--dtp-s6);
+    }
+
+    .dtp-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .dtp-modal-body,
+    .dtp-drawer-body,
+    .dtp-modal-head,
+    .dtp-drawer-head,
+    .dtp-modal-foot,
+    .dtp-drawer-foot {
+        padding-inline: var(--dtp-s6);
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .dtp .dtp-input {
+        font-size: 16px;
+    }
+}

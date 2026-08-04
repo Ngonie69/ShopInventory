@@ -1,0 +1,1022 @@
+/* ==========================================================================
+   AI Assistant — Nocturne
+
+   A derivation, not an import: there is no AI Assistant.dc.html in any of the
+   design projects, so this follows the documented fallback the way
+   audit-trail.css and local-stock.css did.
+
+   The chrome is audit-trail.css's — sticky header, stated hero — and the tab
+   strip is approval-process.css's underlined pair widened to four. Below the
+   tabs each panel is this page's own, because a conversation, a set of insight
+   cards, a forecast table and a list of anomalies have nothing structural in
+   common beyond sitting in the same panel.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system. Light is the base and `.dark-theme` the override, both
+   stated there in the order App.razor's pre-paint script stamps the class in.
+
+   Two things about how this page was styled before.
+
+   Its rules did not live in a Razor <style> block; they were in app.css, keyed
+   on `.ai-assistant-container` and about thirty descendants. That file is
+   321 KB and a bad edit there deletes whole rules with no error, so those rules
+   are left where they are rather than pulled out — they simply stop matching,
+   because the markup is on a new prefix. Removing them is worth doing on its
+   own, with the brace-level lint, and not as a side effect of this.
+
+   The four MudButtons are gone. Re-skinning them would have meant
+   out-specifying MudBlazor's own sheet, which loads after this one, for
+   controls this module already has as native buttons — a tab, a quick prompt,
+   a send button and a generate button. The three MudProgressCirculars are the
+   module's own spinner for the same reason.
+
+   The severity words the AI returns (`high`/`medium`/`low`, and
+   `critical`/`warning`/`info`) are mapped to family tokens rather than to a
+   hue each, so ink and wash are mixed from one value and cannot drift.
+   ========================================================================== */
+
+.aia {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --aia-bg: var(--noct-bg);
+    --aia-surface: var(--noct-surface);
+    --aia-wash: var(--noct-wash);
+    --aia-ink: var(--noct-ink);
+    --aia-ink-2: var(--noct-ink-2);
+    --aia-mute: var(--noct-mute);
+    --aia-mute-2: var(--noct-mute-2);
+    --aia-mute-3: var(--noct-mute-3);
+    --aia-faint: var(--noct-faint);
+    --aia-placeholder: var(--noct-placeholder);
+    --aia-divider: var(--noct-divider);
+    --aia-rule: var(--noct-rule);
+    --aia-hover: var(--noct-hover);
+    --aia-press: var(--noct-press);
+    --aia-avatar-bg: var(--noct-avatar-bg);
+    --aia-field-bg: var(--noct-field-bg);
+    --aia-field-edge: var(--noct-field-edge);
+    --aia-field-edge-hi: var(--noct-field-edge-hi);
+    --aia-accent: var(--noct-accent);
+    --aia-accent-rgb: var(--noct-accent-rgb);
+    --aia-accent-text: var(--noct-accent-text);
+    --aia-thumb: var(--noct-thumb);
+    --aia-scheme: var(--noct-scheme);
+
+    /* Severity families — insight severity, anomaly severity and overall risk
+       all resolve to one of these. */
+    --aia-fam-neutral: var(--noct-fam-neutral);
+    --aia-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --aia-fam-accent: var(--noct-fam-accent);
+    --aia-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --aia-fam-info: var(--noct-fam-info);
+    --aia-fam-info-rgb: var(--noct-fam-info-rgb);
+    --aia-fam-good: var(--noct-fam-good);
+    --aia-fam-good-rgb: var(--noct-fam-good-rgb);
+    --aia-fam-warn: var(--noct-fam-warn);
+    --aia-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --aia-fam-bad: var(--noct-fam-bad);
+    --aia-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --aia-s1: var(--noct-s1);
+    --aia-s2: var(--noct-s2);
+    --aia-s3: var(--noct-s3);
+    --aia-s4: var(--noct-s4);
+    --aia-s6: var(--noct-s6);
+    --aia-s8: var(--noct-s8);
+    --aia-r-sm: var(--noct-r-sm);
+    --aia-r-md: var(--noct-r-md);
+    --aia-r-lg: var(--noct-r-lg);
+
+    color-scheme: var(--aia-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.aia {
+    min-height: 100vh;
+    background: var(--aia-bg);
+    color: var(--aia-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.aia * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside this page that would flatten the family hues the severity
+   badges carry on WebKit, so hand the fill back to `color`. */
+.aia,
+.aia * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.aia :focus-visible {
+    outline: 2px solid var(--aia-accent);
+    outline-offset: 2px;
+}
+
+.aia ::selection {
+    background: rgba(var(--aia-accent-rgb), .3);
+}
+
+.aia h1,
+.aia h2,
+.aia h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.aia-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--aia-bg);
+    border-bottom: 1px solid var(--aia-divider);
+}
+
+.aia-head-inner {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--aia-s6);
+}
+
+.aia-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--aia-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--aia-mute-3);
+}
+
+.aia-crumb-sep {
+    color: var(--aia-faint);
+}
+
+.aia-crumb-now {
+    color: var(--aia-ink-2);
+    white-space: nowrap;
+}
+
+.aia-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--aia-s3);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.aia .aia-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--aia-s2) calc(var(--aia-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--aia-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--aia-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.aia .aia-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.aia .aia-btn svg {
+    display: block;
+    flex: none;
+}
+
+.aia .aia-btn-primary {
+    color: var(--aia-accent);
+    border-color: var(--aia-accent);
+    letter-spacing: .02em;
+}
+
+.aia .aia-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--aia-accent-rgb), .12);
+}
+
+.aia .aia-btn-primary:active:not(:disabled) {
+    background: rgba(var(--aia-accent-rgb), .22);
+}
+
+.aia .aia-btn-quiet {
+    color: var(--aia-mute-2);
+    border-color: var(--aia-divider);
+}
+
+.aia .aia-btn-quiet:hover:not(:disabled) {
+    color: var(--aia-ink);
+    border-color: var(--aia-field-edge-hi);
+    background: var(--aia-hover);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.aia-body {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--aia-s6);
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.aia-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.aia-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--aia-accent-text);
+    margin-bottom: 9px;
+}
+
+.aia-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.aia-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--aia-mute-2);
+    max-width: 56ch;
+    text-wrap: pretty;
+}
+
+/* ── Tabs ──────────────────────────────────────────────────────────────── */
+/* Underlined rather than filled — the tab strip is navigation, and Nocturne
+   spends fills on nothing that only says where you are. */
+
+.aia-tabs {
+    display: flex;
+    align-items: center;
+    gap: var(--aia-s6);
+    border-bottom: 1px solid var(--aia-divider);
+    overflow-x: auto;
+}
+
+.aia .aia-tab {
+    position: relative;
+    padding: var(--aia-s3) 2px calc(var(--aia-s3) + 1px);
+    font: inherit;
+    font-size: 13px;
+    color: var(--aia-mute-2);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color .14s;
+}
+
+.aia .aia-tab:hover {
+    color: var(--aia-ink);
+}
+
+.aia .aia-tab-on {
+    color: var(--aia-ink);
+}
+
+.aia .aia-tab-on::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--aia-accent);
+}
+
+/* ── Panels ────────────────────────────────────────────────────────────── */
+
+.aia-panel {
+    border: 1px solid var(--aia-divider);
+    border-radius: var(--aia-r-lg);
+    background: linear-gradient(to bottom, var(--aia-wash), transparent 240px);
+    min-width: 0;
+}
+
+.aia-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--aia-s4);
+    padding: var(--aia-s6) 18px var(--aia-s4);
+    flex-wrap: wrap;
+}
+
+.aia-panel-head h2 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.aia-panel-head-aside {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--aia-s3);
+}
+
+.aia-panel-body {
+    padding: 0 18px var(--aia-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--aia-s6);
+}
+
+.aia-stamp {
+    font-size: 11.5px;
+    color: var(--aia-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Chat ──────────────────────────────────────────────────────────────── */
+/* Sized against the viewport rather than the content, so the composer stays
+   where it is while the transcript grows underneath it. The topbar and this
+   page's own header are both taken off first. */
+
+.aia-chat {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: calc(100vh - var(--kf-topbar-h, 74px) - 300px);
+    min-height: 420px;
+}
+
+.aia-transcript {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 18px var(--aia-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--aia-s6);
+}
+
+.aia-turn {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--aia-s4);
+    min-width: 0;
+}
+
+/* The operator's own turn is mirrored, which is the one structural signal that
+   the two speakers differ — the bubbles themselves are only a shade apart. */
+.aia-turn-user {
+    flex-direction: row-reverse;
+}
+
+.aia-avatar {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--aia-avatar-bg);
+    color: var(--aia-mute);
+}
+
+.aia-turn-user .aia-avatar {
+    background: rgba(var(--aia-accent-rgb), .16);
+    color: var(--aia-accent-text);
+}
+
+.aia-bubble {
+    min-width: 0;
+    max-width: 68ch;
+    padding: var(--aia-s4) var(--aia-s6);
+    border: 1px solid var(--aia-divider);
+    border-radius: var(--aia-r-lg);
+    background: var(--aia-surface);
+    font-size: 13.5px;
+    text-wrap: pretty;
+    overflow-wrap: anywhere;
+}
+
+.aia-turn-user .aia-bubble {
+    border-color: rgba(var(--aia-accent-rgb), .3);
+    background: rgba(var(--aia-accent-rgb), .08);
+}
+
+.aia-bubble p {
+    margin: 0 0 var(--aia-s3);
+}
+
+.aia-bubble p:last-child {
+    margin-bottom: 0;
+}
+
+.aia-bubble code {
+    padding: 1px 5px;
+    border-radius: var(--aia-r-sm);
+    background: var(--aia-press);
+    font-size: 12px;
+}
+
+.aia-time {
+    margin-top: var(--aia-s2);
+    font-size: 11px;
+    color: var(--aia-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.aia-turn-user .aia-time {
+    text-align: right;
+}
+
+/* Three dots while the model is answering. Deliberately not the module's
+   spinner: a spinner says "loading", and this says "still talking". */
+.aia-typing {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 0;
+}
+
+.aia-typing span {
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--aia-mute-3);
+    animation: aia-blink 1.2s infinite ease-in-out;
+}
+
+.aia-typing span:nth-child(2) {
+    animation-delay: .18s;
+}
+
+.aia-typing span:nth-child(3) {
+    animation-delay: .36s;
+}
+
+@keyframes aia-blink {
+
+    0%,
+    60%,
+    100% {
+        opacity: .3;
+    }
+
+    30% {
+        opacity: 1;
+    }
+}
+
+.aia-composer {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--aia-s3);
+    padding: var(--aia-s4) 18px;
+    border-top: 1px solid var(--aia-divider);
+    flex: none;
+}
+
+.aia .aia-textarea {
+    flex: 1;
+    min-width: 0;
+    min-height: 38px;
+    max-height: 180px;
+    padding: 9px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13.5px;
+    line-height: 1.45;
+    color: var(--aia-ink);
+    caret-color: var(--aia-accent);
+    background: var(--aia-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--aia-r-md);
+    resize: vertical;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.aia .aia-textarea:hover {
+    border-color: var(--aia-field-edge);
+}
+
+.aia .aia-textarea:focus-visible {
+    border-color: rgba(var(--aia-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.aia .aia-textarea::placeholder {
+    color: var(--aia-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--aia-placeholder);
+}
+
+.aia .aia-send {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    flex: none;
+    padding: 0;
+    color: var(--aia-accent);
+    background: transparent;
+    border: 1px solid var(--aia-accent);
+    border-radius: var(--aia-r-md);
+    cursor: pointer;
+    transition: background-color .15s;
+}
+
+.aia .aia-send:hover:not(:disabled) {
+    background: rgba(var(--aia-accent-rgb), .12);
+}
+
+.aia .aia-send:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+/* ── The empty conversation ────────────────────────────────────────────── */
+
+.aia-welcome {
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--aia-s4);
+    padding: var(--aia-s8);
+    text-align: center;
+    max-width: 56ch;
+}
+
+.aia-welcome svg {
+    color: var(--aia-accent);
+    opacity: .7;
+}
+
+.aia-welcome h2 {
+    font-size: 17px;
+    color: var(--aia-ink-2);
+}
+
+.aia-welcome p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--aia-mute-2);
+    text-wrap: pretty;
+}
+
+.aia-prompts {
+    margin-top: var(--aia-s3);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+}
+
+.aia .aia-prompt {
+    padding: 6px 13px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--aia-accent-text);
+    background: transparent;
+    border: 1px solid rgba(var(--aia-accent-rgb), .32);
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s;
+}
+
+.aia .aia-prompt:hover {
+    background: rgba(var(--aia-accent-rgb), .12);
+    border-color: rgba(var(--aia-accent-rgb), .5);
+}
+
+/* ── Insights ──────────────────────────────────────────────────────────── */
+
+.aia-summary {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--aia-mute);
+    max-width: 78ch;
+    text-wrap: pretty;
+}
+
+.aia-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--aia-s4);
+}
+
+/* One card, one family token: the severity sets the hue and the card takes its
+   edge mark and its category chip from the same value. */
+.aia-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--aia-s2);
+    padding: var(--aia-s4) var(--aia-s6);
+    border: 1px solid var(--aia-divider);
+    border-left: 3px solid var(--aia-fam, var(--aia-mute-3));
+    border-radius: var(--aia-r-md);
+    background: var(--aia-surface);
+    min-width: 0;
+}
+
+.aia-card h3 {
+    font-size: 13.5px;
+    color: var(--aia-ink-2);
+    text-wrap: pretty;
+}
+
+.aia-card p {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--aia-mute-2);
+    text-wrap: pretty;
+}
+
+.aia-chip {
+    align-self: flex-start;
+    margin-top: var(--aia-s1);
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--aia-fam, var(--aia-mute));
+    background: rgba(var(--aia-fam-rgb, 94, 100, 131), .14);
+}
+
+.aia-fam-neutral {
+    --aia-fam: var(--aia-fam-neutral);
+    --aia-fam-rgb: var(--aia-fam-neutral-rgb);
+}
+
+.aia-fam-accent {
+    --aia-fam: var(--aia-fam-accent);
+    --aia-fam-rgb: var(--aia-fam-accent-rgb);
+}
+
+.aia-fam-info {
+    --aia-fam: var(--aia-fam-info);
+    --aia-fam-rgb: var(--aia-fam-info-rgb);
+}
+
+.aia-fam-good {
+    --aia-fam: var(--aia-fam-good);
+    --aia-fam-rgb: var(--aia-fam-good-rgb);
+}
+
+.aia-fam-warn {
+    --aia-fam: var(--aia-fam-warn);
+    --aia-fam-rgb: var(--aia-fam-warn-rgb);
+}
+
+.aia-fam-bad {
+    --aia-fam: var(--aia-fam-bad);
+    --aia-fam-rgb: var(--aia-fam-bad-rgb);
+}
+
+.aia-recs {
+    display: flex;
+    flex-direction: column;
+    gap: var(--aia-s4);
+}
+
+.aia-recs h3 {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--aia-mute-3);
+}
+
+.aia-recs ul {
+    margin: 0;
+    padding-left: var(--aia-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--aia-s2);
+    font-size: 13px;
+    color: var(--aia-mute);
+}
+
+.aia-recs li {
+    text-wrap: pretty;
+}
+
+.aia-recs li::marker {
+    color: var(--aia-accent);
+}
+
+/* ── Forecast ──────────────────────────────────────────────────────────── */
+
+.aia-figures {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--aia-s4);
+    max-width: 520px;
+}
+
+.aia-figure {
+    padding: var(--aia-s4) var(--aia-s6);
+    border: 1px solid var(--aia-divider);
+    border-radius: var(--aia-r-md);
+    background: var(--aia-surface);
+}
+
+.aia-figure-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--aia-mute-3);
+}
+
+.aia-figure-value {
+    margin-top: var(--aia-s2);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    text-transform: capitalize;
+    color: var(--aia-fam, var(--aia-ink));
+}
+
+.aia-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.aia-table th {
+    padding: 0 var(--aia-s4) var(--aia-s3);
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--aia-mute-3);
+}
+
+.aia-table td {
+    padding: 9px var(--aia-s4);
+    border-top: 1px solid var(--aia-rule);
+    color: var(--aia-mute);
+    font-variant-numeric: tabular-nums;
+}
+
+.aia-table td:first-child {
+    color: var(--aia-ink-2);
+}
+
+.aia-scroll {
+    overflow-x: auto;
+}
+
+/* ── Anomalies ─────────────────────────────────────────────────────────── */
+
+.aia-risk {
+    display: flex;
+    align-items: center;
+    gap: var(--aia-s6);
+    flex-wrap: wrap;
+    padding: var(--aia-s4) var(--aia-s6);
+    border: 1px solid var(--aia-divider);
+    border-left: 3px solid var(--aia-fam, var(--aia-mute-3));
+    border-radius: var(--aia-r-md);
+    background: var(--aia-surface);
+}
+
+.aia-risk-level {
+    font-size: 15px;
+    text-transform: capitalize;
+    color: var(--aia-fam, var(--aia-ink));
+}
+
+.aia-risk-count {
+    font-size: 12.5px;
+    color: var(--aia-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.aia-rows {
+    display: flex;
+    flex-direction: column;
+}
+
+.aia-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--aia-s4);
+    padding: var(--aia-s4) 0;
+    border-top: 1px solid var(--aia-rule);
+    min-width: 0;
+}
+
+.aia-row:first-child {
+    border-top: 0;
+}
+
+.aia-row-mark {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    margin-top: 7px;
+    border-radius: 999px;
+    background: var(--aia-fam, var(--aia-mute-3));
+}
+
+.aia-row-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.aia-row-kind {
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--aia-mute-3);
+}
+
+.aia-row-title {
+    font-size: 13.5px;
+    color: var(--aia-ink-2);
+    overflow-wrap: anywhere;
+}
+
+.aia-row-desc {
+    font-size: 12.5px;
+    color: var(--aia-mute-2);
+    text-wrap: pretty;
+}
+
+.aia-row-badge {
+    flex: none;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--aia-fam, var(--aia-mute));
+    background: rgba(var(--aia-fam-rgb, 94, 100, 131), .14);
+}
+
+/* ── Empty, notice and loading ─────────────────────────────────────────── */
+
+.aia-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--aia-s3);
+    padding: 56px var(--aia-s8);
+    font-size: 13px;
+    color: var(--aia-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+}
+
+.aia-empty svg {
+    color: var(--aia-accent);
+    opacity: .7;
+}
+
+.aia-empty-good svg {
+    color: var(--aia-fam-good);
+}
+
+.aia-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--aia-s3);
+    padding: 11px 13px;
+    border-radius: var(--aia-r-md);
+    font-size: 12.5px;
+    text-wrap: pretty;
+    color: var(--aia-fam, var(--aia-mute));
+    background: rgba(var(--aia-fam-rgb, 94, 100, 131), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--aia-fam-rgb, 94, 100, 131), .3);
+}
+
+.aia-notice svg {
+    flex: none;
+    margin-top: 1px;
+}
+
+.aia-notice-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.aia-notice-text p {
+    margin: var(--aia-s2) 0 0;
+}
+
+.aia-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: aia-spin .7s linear infinite;
+}
+
+@keyframes aia-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .aia-typing span,
+    .aia-spin {
+        animation: none;
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.aia-transcript::-webkit-scrollbar {
+    width: 8px;
+}
+
+.aia-transcript::-webkit-scrollbar-thumb {
+    background: var(--aia-thumb);
+    border-radius: 8px;
+}
+
+.aia-transcript::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 700px) {
+    .aia-head-inner {
+        padding: var(--aia-s3) 18px;
+    }
+
+    .aia-body {
+        padding: var(--aia-s8) 18px 56px;
+    }
+
+    .aia-hero h1 {
+        font-size: 24px;
+    }
+
+    .aia-panel-head,
+    .aia-panel-body,
+    .aia-transcript,
+    .aia-composer {
+        padding-inline: var(--aia-s6);
+    }
+
+    .aia-figures {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .aia-bubble {
+        max-width: none;
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .aia .aia-textarea {
+        font-size: 16px;
+    }
+}

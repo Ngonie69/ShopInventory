@@ -11,583 +11,523 @@
 
 <PageTitle>Document Templates - Shop Inventory</PageTitle>
 
-<style>
-    /* ── Page ────────────────────────────────────────── */
-    .dt-page { background:#f0f2f5; min-height:100vh; padding:1.5rem; }
+@* The Nocturne sheet is wwwroot/css/document-templates.css (linked from
+   App.razor), derived from audit-trail.css — the same header, hero, four
+   figures, filtered panel, pagination foot and right-hand drawer. It lives in
+   a file rather than in the <style> block this page used to carry because
+   app.css's global `.dark-theme input/select/textarea` rules have to be
+   out-specified, which a scoped block cannot do.
 
-    /* ── Header ──────────────────────────────────────── */
-    .dt-header { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem; }
-    .dt-header-left { display:flex; align-items:center; gap:.85rem; }
-    .dt-header-icon { width:48px; height:48px; border-radius:14px; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#667eea,#764ba2); box-shadow:0 4px 14px rgba(102,126,234,.3); color:#fff; font-size:1.4rem; }
-    .dt-header h2 { font-weight:700; color:#1a1a2e; margin:0; letter-spacing:-.3px; }
-    .dt-header p { color:#6b7280; margin:0; font-size:.88rem; }
-    .header-chips { display:flex; gap:.5rem; flex-wrap:wrap; }
-    .header-chip { display:inline-flex; align-items:center; gap:.3rem; padding:.3rem .7rem; border-radius:8px; font-size:.78rem; font-weight:600; }
-    .header-chip.primary { background:#ede9fe; color:#7c3aed; }
-    .header-chip.info { background:#dbeafe; color:#2563eb; }
-    .header-chip.success { background:#d1fae5; color:#059669; }
+   The modal and both drawers carry `.dtp` themselves. They sit outside the
+   page element, and that class is what puts the page's tokens in reach — every
+   rule in the sheet reads two classes deep, so none of them would apply
+   otherwise, and the old block's hard-coded #fff is why they stayed white in
+   dark mode. *@
 
-    .btn-dt-gradient { background:linear-gradient(135deg,#667eea,#764ba2); border:none; color:#fff; padding:.55rem 1.35rem; border-radius:10px; font-weight:600; font-size:.88rem; text-decoration:none; transition:all .2s; display:inline-flex; align-items:center; gap:.4rem; box-shadow:0 2px 8px rgba(102,126,234,.25); cursor:pointer; }
-    .btn-dt-gradient:hover { transform:translateY(-1px); box-shadow:0 4px 14px rgba(102,126,234,.35); color:#fff; }
+<div class="dtp">
 
-    /* ── Stat Cards ───────────────────────────────────── */
-    .stat-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1rem; margin-bottom:1.25rem; }
-    .stat-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem 1.15rem; display:flex; align-items:center; gap:.85rem; box-shadow:0 1px 4px rgba(0,0,0,.04); transition:transform .15s,box-shadow .15s; }
-    .stat-card:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,.06); }
-    .stat-icon { width:42px; height:42px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1.15rem; flex-shrink:0; }
-    .stat-icon.total { background:#ede9fe; color:#7c3aed; }
-    .stat-icon.active { background:#d1fae5; color:#059669; }
-    .stat-icon.default-t { background:#dbeafe; color:#2563eb; }
-    .stat-icon.types { background:#fef3c7; color:#d97706; }
-    .stat-info .stat-value { font-size:1.35rem; font-weight:700; color:#1a1a2e; line-height:1.1; font-family:'Space Grotesk',monospace; }
-    .stat-info .stat-label { font-size:.72rem; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#9ca3af; }
-
-    /* ── Filter Bar ───────────────────────────────────── */
-    .filter-bar { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem 1.25rem; margin-bottom:1.25rem; display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; box-shadow:0 1px 4px rgba(0,0,0,.04); }
-    .filter-bar-label { font-size:.75rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; white-space:nowrap; }
-    .filter-chips { display:flex; gap:.4rem; flex-wrap:wrap; }
-    .filter-chip { padding:.35rem .85rem; border-radius:8px; font-size:.82rem; font-weight:600; border:1px solid #e5e7eb; background:#fff; color:#6b7280; cursor:pointer; transition:all .15s; display:inline-flex; align-items:center; gap:.3rem; }
-    .filter-chip:hover { background:#f3f4f6; border-color:#d1d5db; }
-    .filter-chip.active { background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; border-color:transparent; box-shadow:0 2px 8px rgba(102,126,234,.25); }
-
-    /* ── Template Cards ───────────────────────────────── */
-    .templates-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:1rem; margin-bottom:1.5rem; }
-    .template-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; transition:all .2s; box-shadow:0 1px 4px rgba(0,0,0,.04); display:flex; flex-direction:column; }
-    .template-card:hover { transform:translateY(-2px); box-shadow:0 6px 20px rgba(0,0,0,.08); }
-    .template-card.is-default { border-color:#667eea; box-shadow:0 2px 10px rgba(102,126,234,.15); }
-    .template-card-header { padding:1rem 1.25rem .75rem; display:flex; justify-content:space-between; align-items:flex-start; gap:.5rem; }
-    .template-card-title { font-weight:700; color:#1a1a2e; font-size:.95rem; margin:0; line-height:1.3; }
-    .template-card-badges { display:flex; gap:.35rem; flex-wrap:wrap; flex-shrink:0; }
-    .badge-default { background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; padding:.2rem .55rem; border-radius:6px; font-size:.7rem; font-weight:600; }
-    .badge-inactive { background:#f3f4f6; color:#9ca3af; padding:.2rem .55rem; border-radius:6px; font-size:.7rem; font-weight:600; }
-    .template-card-body { padding:0 1.25rem 1rem; flex:1; }
-    .template-meta { display:flex; align-items:center; gap:.5rem; margin-bottom:.75rem; flex-wrap:wrap; }
-    .doc-type-badge { padding:.25rem .65rem; border-radius:6px; font-size:.75rem; font-weight:600; }
-    .doc-type-badge.invoice { background:#dbeafe; color:#2563eb; }
-    .doc-type-badge.quote { background:#d1fae5; color:#059669; }
-    .doc-type-badge.salesorder { background:#ede9fe; color:#7c3aed; }
-    .doc-type-badge.purchaseorder { background:#fef3c7; color:#d97706; }
-    .doc-type-badge.deliverynote { background:#e0e7ff; color:#4338ca; }
-    .doc-type-badge.creditnote { background:#fee2e2; color:#dc2626; }
-    .paper-info { font-size:.78rem; color:#9ca3af; font-weight:500; }
-    .template-dates { font-size:.78rem; color:#9ca3af; display:flex; flex-direction:column; gap:.15rem; }
-    .template-dates i { font-size:.72rem; margin-right:.25rem; }
-    .template-card-footer { padding:.75rem 1.25rem; border-top:1px solid #f3f4f6; display:flex; gap:.35rem; }
-    .action-btn { width:34px; height:34px; border-radius:8px; border:1px solid #e5e7eb; background:#fff; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:all .15s; font-size:.85rem; color:#6b7280; }
-    .action-btn:hover { background:#f3f4f6; }
-    .action-btn.primary { color:#667eea; border-color:#c7d2fe; }
-    .action-btn.primary:hover { background:#ede9fe; }
-    .action-btn.success { color:#059669; border-color:#a7f3d0; }
-    .action-btn.success:hover { background:#d1fae5; }
-    .action-btn.danger { color:#dc2626; border-color:#fecaca; }
-    .action-btn.danger:hover { background:#fee2e2; }
-    .action-btn-label { flex:1; }
-
-    /* ── Pagination ───────────────────────────────────── */
-    .pagination-wrap { display:flex; justify-content:center; }
-
-    /* ── Create/Edit Modal ────────────────────────────── */
-    /* Centres below the app bar, not the viewport: the page container is a stacking
-       context, so the bar paints over anything centred against the full viewport. */
-    .create-modal-overlay { position:fixed; inset: var(--kf-topbar-h, 74px) 0 0; background:rgba(0,0,0,.5); z-index:10000; display:flex; justify-content:center; align-items:center; animation:fadeIn .2s ease; padding:1rem; }
-    .create-modal { background:#fff; border-radius:14px; width:min(880px,95vw); max-height:calc(90vh - var(--kf-topbar-h, 74px)); display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,.2); animation:scaleIn .25s ease; }
-    .create-modal-header { padding:1.15rem 1.5rem; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center; }
-    .create-modal-header h5 { margin:0; font-weight:600; font-size:1rem; color:#1a1a2e; display:flex; align-items:center; gap:.4rem; }
-    .create-modal-header .btn-close-modal { background:#f3f4f6; border:none; width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:#6b7280; transition:all .15s; font-size:.9rem; }
-    .create-modal-header .btn-close-modal:hover { background:#e5e7eb; color:#374151; }
-    .create-modal-body { flex:1; overflow-y:auto; padding:1.5rem; }
-    .create-modal-footer { padding:1rem 1.5rem; border-top:1px solid #e5e7eb; display:flex; gap:.5rem; justify-content:flex-end; }
-    .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:.85rem; }
-    .form-grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:.85rem; }
-    .form-field { display:flex; flex-direction:column; }
-    .form-field.full { grid-column:span 2; }
-    .form-field.full-3 { grid-column:span 3; }
-    .form-field label { font-size:.75rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.25rem; }
-    .form-field input, .form-field select, .form-field textarea { padding:.5rem .75rem; border:1px solid #d1d5db; border-radius:8px; font-size:.88rem; color:#374151; transition:all .15s; background:#fff; font-family:inherit; }
-    .form-field textarea { font-family:'SF Mono','Fira Code',monospace; font-size:.82rem; line-height:1.5; }
-    .form-field input:focus, .form-field select:focus, .form-field textarea:focus { outline:none; border-color:#667eea; box-shadow:0 0 0 3px rgba(102,126,234,.15); }
-    .form-field .field-hint { font-size:.72rem; color:#9ca3af; margin-top:.2rem; }
-    .checkbox-row { display:flex; gap:1.5rem; align-items:center; padding-top:.5rem; }
-    .checkbox-item { display:flex; align-items:center; gap:.4rem; font-size:.88rem; color:#374151; cursor:pointer; }
-    .checkbox-item input[type="checkbox"] { width:16px; height:16px; accent-color:#667eea; cursor:pointer; }
-    .btn-create { background:linear-gradient(135deg,#667eea,#764ba2); border:none; color:#fff; padding:.55rem 1.35rem; border-radius:8px; font-weight:600; font-size:.88rem; cursor:pointer; transition:all .2s; display:inline-flex; align-items:center; gap:.4rem; }
-    .btn-create:hover { transform:translateY(-1px); box-shadow:0 4px 14px rgba(102,126,234,.3); }
-    .btn-create:disabled { opacity:.5; cursor:not-allowed; transform:none; }
-    .btn-secondary-action { background:#fff; color:#374151; border:1px solid #d1d5db; padding:.55rem 1.35rem; border-radius:8px; font-weight:600; font-size:.88rem; cursor:pointer; transition:all .15s; }
-    .btn-secondary-action:hover { background:#f9fafb; }
-    .btn-placeholder { background:#f0fdf4; color:#059669; border:1px solid #a7f3d0; padding:.35rem .85rem; border-radius:8px; font-weight:600; font-size:.8rem; cursor:pointer; transition:all .15s; display:inline-flex; align-items:center; gap:.3rem; }
-    .btn-placeholder:hover { background:#d1fae5; }
-    .section-divider { font-size:.8rem; font-weight:700; color:#1a1a2e; text-transform:uppercase; letter-spacing:.5px; padding:.5rem 0; margin-top:.5rem; border-top:1px solid #e5e7eb; display:flex; align-items:center; gap:.4rem; }
-
-    /* ── Placeholder Drawer ───────────────────────────── */
-    /* Offset below the app bar: the page container is a stacking context, so a drawer
-       cannot paint over the topbar however high its z-index. */
-    .modal-backdrop-custom { position:fixed; inset: var(--kf-topbar-h, 74px) 0 0; background:rgba(0,0,0,.45); z-index:10001; animation:fadeIn .2s ease; }
-    .placeholder-drawer { position:fixed; top: var(--kf-topbar-h, 74px); right:0; width:min(480px,95vw); height: calc(100vh - var(--kf-topbar-h, 74px)); background:#fff; z-index:10002; box-shadow:-8px 0 30px rgba(0,0,0,.12); display:flex; flex-direction:column; animation:slideInRight .25s ease; }
-    .drawer-header { padding:1.15rem 1.5rem; background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; display:flex; justify-content:space-between; align-items:center; flex-shrink:0; }
-    .drawer-header h5 { margin:0; font-weight:600; font-size:1.05rem; }
-    .drawer-header .btn-close-drawer { background:rgba(255,255,255,.15); border:none; color:#fff; width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .15s; font-size:1rem; }
-    .drawer-header .btn-close-drawer:hover { background:rgba(255,255,255,.25); }
-    .drawer-body { flex:1; overflow-y:auto; padding:1.5rem; }
-    .placeholder-group { margin-bottom:1.25rem; }
-    .placeholder-group-title { font-size:.78rem; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:#667eea; margin-bottom:.5rem; display:flex; align-items:center; gap:.35rem; }
-    .placeholder-item { display:flex; justify-content:space-between; align-items:flex-start; padding:.5rem .65rem; border-radius:8px; margin-bottom:.25rem; transition:background .1s; }
-    .placeholder-item:hover { background:#f8fafc; }
-    .placeholder-key { font-family:'SF Mono','Fira Code',monospace; font-size:.82rem; font-weight:600; color:#1a1a2e; background:#f3f4f6; padding:.15rem .45rem; border-radius:4px; }
-    .placeholder-desc { font-size:.78rem; color:#6b7280; margin-top:.15rem; }
-    .placeholder-copy { background:none; border:1px solid #e5e7eb; border-radius:6px; padding:.2rem .5rem; cursor:pointer; font-size:.7rem; color:#6b7280; transition:all .15s; white-space:nowrap; flex-shrink:0; }
-    .placeholder-copy:hover { background:#ede9fe; color:#667eea; border-color:#c7d2fe; }
-
-    /* ── Preview Drawer ───────────────────────────────── */
-    .preview-drawer { position:fixed; top: var(--kf-topbar-h, 74px); right:0; width:min(700px,95vw); height: calc(100vh - var(--kf-topbar-h, 74px)); background:#fff; z-index:10002; box-shadow:-8px 0 30px rgba(0,0,0,.12); display:flex; flex-direction:column; animation:slideInRight .25s ease; }
-    .preview-frame { flex:1; border:none; background:#fff; }
-    .drawer-footer { padding:1rem 1.5rem; border-top:1px solid #e5e7eb; display:flex; gap:.5rem; justify-content:flex-end; flex-shrink:0; }
-
-    /* ── Empty / Loading States ────────────────────────── */
-    .empty-state { text-align:center; padding:3rem 1.5rem; background:#fff; border-radius:12px; border:1px solid #e5e7eb; }
-    .empty-icon { width:72px; height:72px; border-radius:50%; background:#f3f4f6; display:inline-flex; align-items:center; justify-content:center; margin-bottom:1rem; font-size:1.8rem; color:#9ca3af; }
-    .empty-state h6 { font-weight:600; color:#374151; margin-bottom:.35rem; }
-    .empty-state p { color:#9ca3af; font-size:.88rem; margin:0; }
-    .loading-state { text-align:center; padding:3rem; background:#fff; border-radius:12px; border:1px solid #e5e7eb; }
-
-    /* ── Alert ───────────────────────────────────────── */
-    .alert-banner { border-radius:10px; padding:.75rem 1rem; display:flex; align-items:flex-start; gap:.6rem; margin-bottom:1rem; font-size:.88rem; animation:slideDown .3s ease; }
-    .alert-banner.error-alert { background:#fef2f2; border:1px solid #fecaca; color:#991b1b; }
-    .alert-banner.success-alert { background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; }
-
-    /* ── Animations ──────────────────────────────────── */
-    @@keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
-    @@keyframes slideInRight { from { transform:translateX(100%); } to { transform:translateX(0); } }
-    @@keyframes slideDown { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
-    @@keyframes scaleIn { from { opacity:0; transform:scale(.95); } to { opacity:1; transform:scale(1); } }
-
-    /* ── Responsive ──────────────────────────────────── */
-    @@media (max-width:768px) {
-        .dt-header { flex-direction:column; }
-        .stat-row { grid-template-columns:1fr 1fr; }
-        .templates-grid { grid-template-columns:1fr; }
-        .form-grid, .form-grid-3 { grid-template-columns:1fr; }
-        .form-field.full, .form-field.full-3 { grid-column:span 1; }
-        .filter-chips { gap:.3rem; }
-    }
-</style>
-
-<div class="dt-page">
-    <div class="container-fluid">
-
-        <!-- ━━━ Header ━━━ -->
-        <div class="dt-header">
-            <div class="dt-header-left">
-                <div class="dt-header-icon"><i class="bi bi-file-earmark-text"></i></div>
-                <div>
-                    <h2>Document Templates</h2>
-                    <p>Manage customizable templates for invoices, quotes, and other documents</p>
-                </div>
+    <header class="dtp-head">
+        <div class="dtp-head-inner">
+            <nav class="dtp-crumbs" aria-label="Breadcrumb">
+                <span>Administration</span>
+                <span class="dtp-crumb-sep" aria-hidden="true">/</span>
+                <span class="dtp-crumb-now" aria-current="page">Document templates</span>
+            </nav>
+            <div class="dtp-head-actions">
+                <button type="button" class="dtp-btn dtp-btn-primary" @onclick="OpenCreateModal">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 5v14"></path>
+                        <path d="M5 12h14"></path>
+                    </svg>
+                    <span>New template</span>
+                </button>
             </div>
-            @if (templates?.Any() == true)
-            {
-                <div class="header-chips">
-                    <span class="header-chip primary"><i class="bi bi-collection"></i> @totalCount templates</span>
-                    <span class="header-chip success"><i class="bi bi-check-circle"></i> @templates.Count(t => t.IsActive) active</span>
-                </div>
-            }
         </div>
+    </header>
 
-        <!-- ━━━ Stat Cards ━━━ -->
+    <div class="dtp-body">
+
+        <section class="dtp-hero">
+            <div>
+                <div class="dtp-kicker">Print and PDF</div>
+                <h1>Document templates</h1>
+                <p>
+                    The markup every printed document is rendered from. One template per document type is
+                    the default; the rest are kept for editing and can be switched in at any time.
+                </p>
+            </div>
+        </section>
+
         @if (!isLoading && templates != null)
         {
-            <div class="stat-row">
-                <div class="stat-card">
-                    <div class="stat-icon total"><i class="bi bi-collection"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@totalCount</div>
-                        <div class="stat-label">TOTAL TEMPLATES</div>
-                    </div>
+            <section class="dtp-stats">
+                <div class="dtp-stat dtp-stat-lead">
+                    <div class="dtp-stat-head"><span class="dtp-stat-rule"></span>Templates</div>
+                    <div class="dtp-stat-num">@totalCount</div>
+                    <div class="dtp-stat-sub">across all document types</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon active"><i class="bi bi-check-circle"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@templates.Count(t => t.IsActive)</div>
-                        <div class="stat-label">ACTIVE</div>
-                    </div>
+                <div class="dtp-stat">
+                    <div class="dtp-stat-head"><span class="dtp-stat-rule"></span>Active</div>
+                    <div class="dtp-stat-num">@templates.Count(t => t.IsActive)</div>
+                    <div class="dtp-stat-sub">on this page</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon default-t"><i class="bi bi-star-fill"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@templates.Count(t => t.IsDefault)</div>
-                        <div class="stat-label">DEFAULTS SET</div>
-                    </div>
+                <div class="dtp-stat">
+                    <div class="dtp-stat-head"><span class="dtp-stat-rule"></span>Defaults set</div>
+                    <div class="dtp-stat-num">@templates.Count(t => t.IsDefault)</div>
+                    <div class="dtp-stat-sub">one per type is used</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon types"><i class="bi bi-diagram-3"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@templates.Select(t => t.DocumentType).Distinct().Count()</div>
-                        <div class="stat-label">DOC TYPES</div>
-                    </div>
+                <div class="dtp-stat">
+                    <div class="dtp-stat-head"><span class="dtp-stat-rule"></span>Doc types</div>
+                    <div class="dtp-stat-num">@templates.Select(t => t.DocumentType).Distinct().Count()</div>
+                    <div class="dtp-stat-sub">represented on this page</div>
                 </div>
-            </div>
+            </section>
         }
 
-        <!-- ━━━ Filter Bar ━━━ -->
-        <div class="filter-bar">
-            <span class="filter-bar-label"><i class="bi bi-funnel"></i> Filter:</span>
-            <div class="filter-chips">
-                <button class="filter-chip @(selectedDocumentType == null ? "active" : "")"
-                        @onclick='() => FilterByType(null)'>
-                    All
-                </button>
-                <button class="filter-chip @(selectedDocumentType == "Invoice" ? "active" : "")"
-                        @onclick='() => FilterByType("Invoice")'>
-                    <i class="bi bi-receipt"></i> Invoice
-                </button>
-                <button class="filter-chip @(selectedDocumentType == "Quote" ? "active" : "")"
-                        @onclick='() => FilterByType("Quote")'>
-                    <i class="bi bi-chat-square-quote"></i> Quote
-                </button>
-                <button class="filter-chip @(selectedDocumentType == "SalesOrder" ? "active" : "")"
-                        @onclick='() => FilterByType("SalesOrder")'>
-                    <i class="bi bi-cart-check"></i> Sales Order
-                </button>
-                <button class="filter-chip @(selectedDocumentType == "PurchaseOrder" ? "active" : "")"
-                        @onclick='() => FilterByType("PurchaseOrder")'>
-                    <i class="bi bi-bag-check"></i> Purchase Order
-                </button>
-                <button class="filter-chip @(selectedDocumentType == "DeliveryNote" ? "active" : "")"
-                        @onclick='() => FilterByType("DeliveryNote")'>
-                    <i class="bi bi-truck"></i> Delivery Note
-                </button>
-                <button class="filter-chip @(selectedDocumentType == "CreditNote" ? "active" : "")"
-                        @onclick='() => FilterByType("CreditNote")'>
-                    <i class="bi bi-arrow-return-left"></i> Credit Note
-                </button>
-            </div>
-            <div style="flex:1;"></div>
-            <button class="btn-dt-gradient" @onclick="OpenCreateModal">
-                <i class="bi bi-plus-lg"></i> New Template
-            </button>
-        </div>
-
-        <!-- ━━━ Alerts ━━━ -->
         @if (successMessage != null)
         {
-            <div class="alert-banner success-alert">
-                <i class="bi bi-check-circle-fill"></i>
-                <div style="flex:1;">@successMessage</div>
-                <button style="background:none;border:none;opacity:.45;cursor:pointer;" @onclick="() => successMessage = null">
-                    <i class="bi bi-x-lg"></i>
+            <div class="dtp-notice dtp-notice-good" role="status">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M20 6L9 17l-5-5"></path>
+                </svg>
+                <span class="dtp-notice-text">@successMessage</span>
+                <button type="button" class="dtp-notice-x" aria-label="Dismiss" @onclick="() => successMessage = null">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                        <path d="M5 5l14 14M19 5L5 19"></path>
+                    </svg>
                 </button>
             </div>
         }
         @if (errorMessage != null)
         {
-            <div class="alert-banner error-alert">
-                <i class="bi bi-exclamation-octagon-fill"></i>
-                <div style="flex:1;">@errorMessage</div>
-                <button style="background:none;border:none;opacity:.45;cursor:pointer;" @onclick="() => errorMessage = null">
-                    <i class="bi bi-x-lg"></i>
+            <div class="dtp-notice dtp-notice-bad" role="alert">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7v6"></path>
+                    <path d="M12 16.5v.01"></path>
+                </svg>
+                <span class="dtp-notice-text">@errorMessage</span>
+                <button type="button" class="dtp-notice-x" aria-label="Dismiss" @onclick="() => errorMessage = null">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                        <path d="M5 5l14 14M19 5L5 19"></path>
+                    </svg>
                 </button>
             </div>
         }
 
-        <!-- ━━━ Content ━━━ -->
-        @if (isLoading)
-        {
-            <div class="loading-state">
-                <div class="spinner-border" style="color:#667eea;width:2.5rem;height:2.5rem;" role="status"></div>
-                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading templates...</p>
+        <section class="dtp-panel">
+            <div class="dtp-panel-head">
+                <h2>Templates</h2>
+                <span class="dtp-count">
+                    @totalCount @(totalCount == 1 ? "template" : "templates")@(selectedDocumentType == null ? "" : $" · {FormatDocType(selectedDocumentType)}")
+                </span>
             </div>
-        }
-        else if (templates?.Any() == true)
-        {
-            <div class="templates-grid">
-                @foreach (var template in templates)
+
+            <div class="dtp-chips" role="group" aria-label="Document type">
+                <button type="button" class="dtp-chip @(selectedDocumentType == null ? "dtp-chip-on" : "")"
+                        @onclick="() => FilterByType(null)">All</button>
+                @foreach (var t in documentTypes)
                 {
-                    <div class="template-card @(template.IsDefault ? "is-default" : "")">
-                        <div class="template-card-header">
-                            <h6 class="template-card-title">@template.Name</h6>
-                            <div class="template-card-badges">
-                                @if (template.IsDefault)
-                                {
-                                    <span class="badge-default"><i class="bi bi-star-fill" style="font-size:.6rem;"></i> Default</span>
-                                }
-                                @if (!template.IsActive)
-                                {
-                                    <span class="badge-inactive">Inactive</span>
-                                }
-                            </div>
-                        </div>
-                        <div class="template-card-body">
-                            <div class="template-meta">
-                                <span class="doc-type-badge @GetDocTypeCss(template.DocumentType)">@FormatDocType(template.DocumentType)</span>
-                                <span class="paper-info"><i class="bi bi-file-earmark"></i> @template.PaperSize &middot; @template.Orientation</span>
-                            </div>
-                            <div class="template-dates">
-                                <span><i class="bi bi-calendar3"></i> Created @template.CreatedAt.ToLocalTime().ToString("MMM dd, yyyy")</span>
-                                @if (template.UpdatedAt.HasValue)
-                                {
-                                    <span><i class="bi bi-pencil-square"></i> Updated @template.UpdatedAt.Value.ToLocalTime().ToString("MMM dd, yyyy")</span>
-                                }
-                            </div>
-                        </div>
-                        <div class="template-card-footer">
-                            <button class="action-btn primary" title="Preview" @onclick="() => PreviewTemplate(template)">
-                                <i class="bi bi-eye"></i>
-                            </button>
-                            <button class="action-btn primary" title="Edit" @onclick="() => EditTemplate(template)">
-                                <i class="bi bi-pencil"></i>
-                            </button>
-                            @if (!template.IsDefault)
-                            {
-                                <button class="action-btn success" title="Set as Default" @onclick="() => SetAsDefault(template.Id)">
-                                    <i class="bi bi-star"></i>
-                                </button>
-                            }
-                            <div class="action-btn-label"></div>
-                            <button class="action-btn danger" title="Delete" @onclick="() => DeleteTemplate(template.Id)">
-                                <i class="bi bi-trash3"></i>
-                            </button>
-                        </div>
-                    </div>
+                    var type = t;
+                    <button type="button" class="dtp-chip @(selectedDocumentType == type ? "dtp-chip-on" : "")"
+                            @onclick="() => FilterByType(type)">@FormatDocType(type)</button>
                 }
             </div>
 
-            <!-- Pagination -->
-            @if (totalPages > 1)
+            @if (isLoading)
             {
-                <div class="pagination-wrap">
-                    <MudPagination Count="@totalPages" Selected="@currentPage" SelectedChanged="OnPageChanged"
-                                   Color="Color.Primary" Variant="Variant.Outlined" />
+                <div class="dtp-loading">
+                    <span class="dtp-spin" aria-hidden="true"></span>
+                    <span>Loading templates&#8230;</span>
                 </div>
             }
-        }
-        else
-        {
-            <div class="empty-state">
-                <div class="empty-icon"><i class="bi bi-file-earmark-plus"></i></div>
-                <h6>No templates found</h6>
-                <p>Create your first document template to get started, or adjust your filter.</p>
-                <button class="btn-dt-gradient" style="margin-top:1rem;" @onclick="OpenCreateModal">
-                    <i class="bi bi-plus-lg"></i> Create Template
-                </button>
-            </div>
-        }
-    </div>
-</div>
-
-<!-- ━━━ Create/Edit Template Modal ━━━ -->
-@if (showTemplateModal)
-{
-    <div class="create-modal-overlay" @onclick="CloseTemplateModal">
-        <div class="create-modal" @onclick:stopPropagation="true">
-            <div class="create-modal-header">
-                <h5>
-                    <i class="bi bi-@(editingTemplate == null ? "plus-circle" : "pencil-square")" style="color:#667eea;"></i>
-                    @(editingTemplate == null ? "Create Template" : "Edit Template")
-                </h5>
-                <button class="btn-close-modal" @onclick="CloseTemplateModal"><i class="bi bi-x-lg"></i></button>
-            </div>
-            <div class="create-modal-body">
-                @if (savingError != null)
-                {
-                    <div class="alert-banner error-alert" style="margin-bottom:1rem;">
-                        <i class="bi bi-exclamation-octagon-fill"></i>
-                        <div style="flex:1;">@savingError</div>
-                    </div>
-                }
-
-                <div class="form-grid">
-                    <div class="form-field">
-                        <label>Template Name *</label>
-                        <input type="text" @bind="templateName" placeholder="e.g., Default Invoice Template" />
-                    </div>
-                    <div class="form-field">
-                        <label>Document Type *</label>
-                        <select @bind="templateDocumentType">
-                            <option value="">Select type...</option>
-                            <option value="Invoice">Invoice</option>
-                            <option value="Quote">Quote</option>
-                            <option value="SalesOrder">Sales Order</option>
-                            <option value="PurchaseOrder">Purchase Order</option>
-                            <option value="DeliveryNote">Delivery Note</option>
-                            <option value="CreditNote">Credit Note</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="form-grid-3" style="margin-top:.85rem;">
-                    <div class="form-field">
-                        <label>Paper Size</label>
-                        <select @bind="templatePaperSize">
-                            <option value="A4">A4</option>
-                            <option value="Letter">Letter</option>
-                            <option value="Legal">Legal</option>
-                        </select>
-                    </div>
-                    <div class="form-field">
-                        <label>Orientation</label>
-                        <select @bind="templateOrientation">
-                            <option value="Portrait">Portrait</option>
-                            <option value="Landscape">Landscape</option>
-                        </select>
-                    </div>
-                    <div class="form-field">
-                        <label>Options</label>
-                        <div class="checkbox-row">
-                            <label class="checkbox-item">
-                                <input type="checkbox" @bind="templateIsDefault" /> Default
-                            </label>
-                            <label class="checkbox-item">
-                                <input type="checkbox" @bind="templateIsActive" /> Active
-                            </label>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="section-divider" style="margin-top:1rem;">
-                    <i class="bi bi-code-slash"></i> Template Content
-                </div>
-
-                <div class="form-grid" style="margin-top:.75rem;">
-                    <div class="form-field full">
-                        <label>Header Content (HTML)</label>
-                        <textarea @bind="templateHeaderContent" rows="3"
-                                  placeholder="Company logo, address, contact info..."></textarea>
-                        <span class="field-hint">Appears at the top of the document</span>
-                    </div>
-                    <div class="form-field full">
-                        <div style="display:flex;justify-content:space-between;align-items:center;">
-                            <label style="margin-bottom:0;">Main Content (HTML) *</label>
-                            <button class="btn-placeholder" @onclick="ShowPlaceholders">
-                                <i class="bi bi-braces"></i> View Placeholders
-                            </button>
-                        </div>
-                        <textarea @bind="templateHtmlContent" rows="12" style="margin-top:.25rem;"
-                                  placeholder="Use {{PlaceholderName}} for dynamic content..."></textarea>
-                        <span class="field-hint">Use &#123;&#123;PlaceholderName&#125;&#125; syntax for dynamic values</span>
-                    </div>
-                    <div class="form-field full">
-                        <label>Footer Content (HTML)</label>
-                        <textarea @bind="templateFooterContent" rows="3"
-                                  placeholder="Terms, conditions, signature blocks..."></textarea>
-                    </div>
-                    <div class="form-field full">
-                        <label>CSS Styles</label>
-                        <textarea @bind="templateCssStyles" rows="5"
-                                  placeholder=".header { font-size: 24px; } ..."></textarea>
-                    </div>
-                </div>
-            </div>
-            <div class="create-modal-footer">
-                <button class="btn-secondary-action" @onclick="CloseTemplateModal">Cancel</button>
-                <button class="btn-create" @onclick="SaveTemplate" disabled="@isSaving">
-                    @if (isSaving)
-                    {
-                        <span class="spinner-border spinner-border-sm"></span>
-                    }
-                    <i class="bi bi-check-lg"></i> Save Template
-                </button>
-            </div>
-        </div>
-    </div>
-}
-
-<!-- ━━━ Placeholder Drawer ━━━ -->
-@if (showPlaceholderDrawer)
-{
-    <div class="modal-backdrop-custom" @onclick="ClosePlaceholderDrawer"></div>
-    <div class="placeholder-drawer">
-        <div class="drawer-header">
-            <h5><i class="bi bi-braces" style="margin-right:.4rem;"></i> Template Placeholders</h5>
-            <button class="btn-close-drawer" @onclick="ClosePlaceholderDrawer"><i class="bi bi-x-lg"></i></button>
-        </div>
-        <div class="drawer-body">
-            @if (placeholders != null)
+            else if (templates?.Any() == true)
             {
-                @foreach (var group in placeholders.Placeholders.GroupBy(p => p.Category))
-                {
-                    <div class="placeholder-group">
-                        <div class="placeholder-group-title">
-                            <i class="bi bi-folder2"></i> @group.Key
-                        </div>
-                        @foreach (var p in group)
-                        {
-                            <div class="placeholder-item">
-                                <div>
-                                    <span class="placeholder-key">@($"{{{{{p.Key}}}}}")</span>
-                                    <div class="placeholder-desc">@p.Description</div>
+                <div class="dtp-grid">
+                    @foreach (var template in templates)
+                    {
+                        var tpl = template;
+                        <article class="dtp-card @(tpl.IsDefault ? "dtp-card-default" : "") @(tpl.IsActive ? "" : "dtp-card-off")">
+                            <div class="dtp-card-head">
+                                <h3 class="dtp-card-title">@tpl.Name</h3>
+                                <div class="dtp-card-marks">
+                                    @if (tpl.IsDefault)
+                                    {
+                                        <span class="dtp-mark dtp-mark-default">Default</span>
+                                    }
+                                    @if (!tpl.IsActive)
+                                    {
+                                        <span class="dtp-mark dtp-mark-off">Inactive</span>
+                                    }
                                 </div>
-                                <button class="placeholder-copy" @onclick="() => CopyPlaceholder(p.Key)" title="Copy to clipboard">
-                                    <i class="bi bi-clipboard"></i> Copy
+                            </div>
+                            <div class="dtp-card-body">
+                                <div class="dtp-card-meta">
+                                    <span class="dtp-badge @DocTypeFamily(tpl.DocumentType)">@FormatDocType(tpl.DocumentType)</span>
+                                    <span class="dtp-paper">@tpl.PaperSize &middot; @tpl.Orientation</span>
+                                </div>
+                                <div class="dtp-dates">
+                                    <span>Created @tpl.CreatedAt.ToLocalTime().ToString("d MMM yyyy")</span>
+                                    @if (tpl.UpdatedAt.HasValue)
+                                    {
+                                        <span>Updated @tpl.UpdatedAt.Value.ToLocalTime().ToString("d MMM yyyy")</span>
+                                    }
+                                </div>
+                            </div>
+                            <div class="dtp-card-foot">
+                                <button type="button" class="dtp-icon-btn" title="Preview" aria-label="Preview template"
+                                        @onclick="() => PreviewTemplate(tpl)">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"></path>
+                                        <circle cx="12" cy="12" r="2.6"></circle>
+                                    </svg>
+                                </button>
+                                <button type="button" class="dtp-icon-btn" title="Edit" aria-label="Edit template"
+                                        @onclick="() => EditTemplate(tpl)">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M4 20h4l10-10a2.1 2.1 0 0 0-3-3L5 17v3z"></path>
+                                    </svg>
+                                </button>
+                                @if (!tpl.IsDefault)
+                                {
+                                    <button type="button" class="dtp-icon-btn" title="Set as default"
+                                            aria-label="Set as default template" @onclick="() => SetAsDefault(tpl.Id)">
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                             stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M12 4l2.4 5 5.6.8-4 3.9 1 5.5-5-2.6-5 2.6 1-5.5-4-3.9 5.6-.8z"></path>
+                                        </svg>
+                                    </button>
+                                }
+                                <span class="dtp-card-foot-gap"></span>
+                                <button type="button" class="dtp-icon-btn dtp-icon-btn-danger" title="Delete"
+                                        aria-label="Delete template" @onclick="() => DeleteTemplate(tpl.Id)">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M4 7h16"></path>
+                                        <path d="M9 7V5h6v2"></path>
+                                        <path d="M6 7l1 13h10l1-13"></path>
+                                    </svg>
                                 </button>
                             </div>
-                        }
+                        </article>
+                    }
+                </div>
+
+                @if (totalPages > 1)
+                {
+                    <div class="dtp-foot">
+                        <span class="dtp-foot-info">
+                            @(((currentPage - 1) * pageSize) + 1)&#8211;@(Math.Min(currentPage * pageSize, totalCount)) of @totalCount
+                        </span>
+                        <div class="dtp-pages">
+                            <button type="button" class="dtp-step" disabled="@(currentPage == 1)"
+                                    @onclick="() => OnPageChanged(currentPage - 1)">Previous</button>
+                            @foreach (var pg in GetPageNumbers())
+                            {
+                                var p = pg;
+                                <button type="button" class="dtp-page @(currentPage == p ? "dtp-page-on" : "")"
+                                        @onclick="() => OnPageChanged(p)">@p</button>
+                            }
+                            <button type="button" class="dtp-step" disabled="@(currentPage == totalPages)"
+                                    @onclick="() => OnPageChanged(currentPage + 1)">Next</button>
+                        </div>
                     </div>
                 }
             }
             else
             {
-                <div class="loading-state">
-                    <div class="spinner-border" style="color:#667eea;width:2rem;height:2rem;" role="status"></div>
-                    <p style="margin-top:.5rem;color:#6b7280;font-size:.88rem;">Loading placeholders...</p>
+                <div class="dtp-empty">
+                    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path>
+                        <path d="M14 3v5h5"></path>
+                        <path d="M12 11v6"></path>
+                        <path d="M9 14h6"></path>
+                    </svg>
+                    <h3>No templates here</h3>
+                    <p>
+                        @(selectedDocumentType == null
+                            ? "Nothing has been created yet. A document type with no template falls back to the built-in layout."
+                            : $"No {FormatDocType(selectedDocumentType)} template exists yet.")
+                    </p>
+                    <div class="dtp-empty-actions">
+                        @if (selectedDocumentType != null)
+                        {
+                            <button type="button" class="dtp-btn dtp-btn-quiet" @onclick="() => FilterByType(null)">Show all types</button>
+                        }
+                        <button type="button" class="dtp-btn dtp-btn-primary" @onclick="OpenCreateModal">Create a template</button>
+                    </div>
                 </div>
             }
+        </section>
+    </div>
+</div>
+
+@* ── The editor ────────────────────────────────────────────────────────── *@
+@if (showTemplateModal)
+{
+    <div class="dtp dtp-scrim" @onclick="CloseTemplateModal">
+        <div class="dtp-modal" role="dialog" aria-modal="true" aria-label="@(editingTemplate == null ? "Create template" : "Edit template")"
+             @onclick:stopPropagation="true">
+            <div class="dtp-modal-head">
+                <h2>@(editingTemplate == null ? "Create template" : "Edit template")</h2>
+                <button type="button" class="dtp-icon-btn dtp-modal-x" aria-label="Close" @onclick="CloseTemplateModal">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                        <path d="M5 5l14 14M19 5L5 19"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="dtp-modal-body">
+                @if (savingError != null)
+                {
+                    <div class="dtp-notice dtp-notice-bad" role="alert">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="M12 7v6"></path>
+                            <path d="M12 16.5v.01"></path>
+                        </svg>
+                        <span class="dtp-notice-text">@savingError</span>
+                    </div>
+                }
+
+                <div class="dtp-form-row">
+                    <div class="dtp-field">
+                        <label class="dtp-label" for="tplName">Template name</label>
+                        <input id="tplName" type="text" class="dtp-input" @bind="templateName"
+                               placeholder="Default invoice template" />
+                    </div>
+                    <div class="dtp-field">
+                        <label class="dtp-label" for="tplType">Document type</label>
+                        <div class="dtp-select">
+                            <select id="tplType" class="dtp-input" @bind="templateDocumentType">
+                                <option value="">Select a type&#8230;</option>
+                                @foreach (var t in documentTypes)
+                                {
+                                    <option value="@t">@FormatDocType(t)</option>
+                                }
+                            </select>
+                            <span class="dtp-caret" aria-hidden="true"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dtp-form-row dtp-form-row-3">
+                    <div class="dtp-field">
+                        <label class="dtp-label" for="tplPaper">Paper size</label>
+                        <div class="dtp-select">
+                            <select id="tplPaper" class="dtp-input" @bind="templatePaperSize">
+                                <option value="A4">A4</option>
+                                <option value="Letter">Letter</option>
+                                <option value="Legal">Legal</option>
+                            </select>
+                            <span class="dtp-caret" aria-hidden="true"></span>
+                        </div>
+                    </div>
+                    <div class="dtp-field">
+                        <label class="dtp-label" for="tplOrient">Orientation</label>
+                        <div class="dtp-select">
+                            <select id="tplOrient" class="dtp-input" @bind="templateOrientation">
+                                <option value="Portrait">Portrait</option>
+                                <option value="Landscape">Landscape</option>
+                            </select>
+                            <span class="dtp-caret" aria-hidden="true"></span>
+                        </div>
+                    </div>
+                    <div class="dtp-field">
+                        <span class="dtp-label">Options</span>
+                        <div class="dtp-checks">
+                            <label class="dtp-check">
+                                <input type="checkbox" @bind="templateIsDefault" />
+                                <span>Default</span>
+                            </label>
+                            <label class="dtp-check">
+                                <input type="checkbox" @bind="templateIsActive" />
+                                <span>Active</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dtp-legend">
+                    <span>Template content</span>
+                    <button type="button" class="dtp-btn dtp-btn-ghost dtp-legend-action" @onclick="ShowPlaceholders">
+                        View placeholders
+                    </button>
+                </div>
+
+                <div class="dtp-field">
+                    <label class="dtp-label" for="tplHeader">Header (HTML)</label>
+                    <textarea id="tplHeader" class="dtp-textarea" rows="3" @bind="templateHeaderContent"
+                              placeholder="Company logo, address, contact details&#8230;"></textarea>
+                    <span class="dtp-hint">Appears at the top of every page of the document.</span>
+                </div>
+
+                <div class="dtp-field">
+                    <label class="dtp-label" for="tplBody">Main content (HTML)</label>
+                    <textarea id="tplBody" class="dtp-textarea" rows="12" @bind="templateHtmlContent"
+                              placeholder="Use &#123;&#123;PlaceholderName&#125;&#125; for values from the document&#8230;"></textarea>
+                    <span class="dtp-hint">&#123;&#123;PlaceholderName&#125;&#125; is substituted when the document is rendered.</span>
+                </div>
+
+                <div class="dtp-field">
+                    <label class="dtp-label" for="tplFooter">Footer (HTML)</label>
+                    <textarea id="tplFooter" class="dtp-textarea" rows="3" @bind="templateFooterContent"
+                              placeholder="Terms, conditions, signature blocks&#8230;"></textarea>
+                </div>
+
+                <div class="dtp-field">
+                    <label class="dtp-label" for="tplCss">CSS</label>
+                    <textarea id="tplCss" class="dtp-textarea" rows="5" @bind="templateCssStyles"
+                              placeholder=".header &#123; font-size: 24px; &#125;"></textarea>
+                </div>
+            </div>
+
+            <div class="dtp-modal-foot">
+                <button type="button" class="dtp-btn dtp-btn-quiet" @onclick="CloseTemplateModal">Cancel</button>
+                <button type="button" class="dtp-btn dtp-btn-primary" disabled="@isSaving" @onclick="SaveTemplate">
+                    @if (isSaving)
+                    {
+                        <span class="dtp-spin" aria-hidden="true"></span>
+                        <span>Saving&#8230;</span>
+                    }
+                    else
+                    {
+                        <span>Save template</span>
+                    }
+                </button>
+            </div>
         </div>
     </div>
 }
 
-<!-- ━━━ Preview Drawer ━━━ -->
-@if (showPreviewDrawer && previewTemplate != null)
+@* ── Placeholders ──────────────────────────────────────────────────────── *@
+@if (showPlaceholderDrawer)
 {
-    <div class="modal-backdrop-custom" @onclick="ClosePreviewDrawer"></div>
-    <div class="preview-drawer">
-        <div class="drawer-header">
-            <h5><i class="bi bi-eye" style="margin-right:.4rem;"></i> @previewTemplate.Name</h5>
-            <button class="btn-close-drawer" @onclick="ClosePreviewDrawer"><i class="bi bi-x-lg"></i></button>
-        </div>
-        <div class="drawer-body" style="padding:0;">
-            <div style="padding:1rem 1.25rem;border-bottom:1px solid #e5e7eb;display:flex;gap:.5rem;flex-wrap:wrap;">
-                <span class="doc-type-badge @GetDocTypeCss(previewTemplate.DocumentType)">@FormatDocType(previewTemplate.DocumentType)</span>
-                <span class="paper-info"><i class="bi bi-file-earmark"></i> @previewTemplate.PaperSize &middot; @previewTemplate.Orientation</span>
-                @if (previewTemplate.IsDefault)
-                {
-                    <span class="badge-default"><i class="bi bi-star-fill" style="font-size:.6rem;"></i> Default</span>
-                }
-            </div>
-            <div style="padding:1.5rem;overflow-y:auto;flex:1;">
-                @if (!string.IsNullOrWhiteSpace(previewTemplate.CssStyles))
-                {
-                    <div class="placeholder-group">
-                        <div class="placeholder-group-title"><i class="bi bi-palette"></i> CSS Styles</div>
-                        <pre style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:.75rem;font-size:.8rem;overflow-x:auto;color:#374151;">@previewTemplate.CssStyles</pre>
-                    </div>
-                }
-                @if (!string.IsNullOrWhiteSpace(previewTemplate.HeaderContent))
-                {
-                    <div class="placeholder-group">
-                        <div class="placeholder-group-title"><i class="bi bi-layout-text-window"></i> Header</div>
-                        <pre style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:.75rem;font-size:.8rem;overflow-x:auto;color:#374151;">@previewTemplate.HeaderContent</pre>
-                    </div>
-                }
-                <div class="placeholder-group">
-                    <div class="placeholder-group-title"><i class="bi bi-code-slash"></i> Main Content</div>
-                    <pre style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:.75rem;font-size:.8rem;overflow-x:auto;color:#374151;">@previewTemplate.HtmlContent</pre>
+    <div class="dtp dtp-drawer-scrim" @onclick="ClosePlaceholderDrawer"></div>
+    <aside class="dtp dtp-drawer" role="dialog" aria-modal="true" aria-label="Template placeholders">
+        <div class="dtp-drawer-head">
+            <div>
+                <h2>Placeholders</h2>
+                <div class="dtp-drawer-sub">
+                    <span class="dtp-badge @DocTypeFamily(templateDocumentType)">@FormatDocType(templateDocumentType)</span>
                 </div>
-                @if (!string.IsNullOrWhiteSpace(previewTemplate.FooterContent))
-                {
-                    <div class="placeholder-group">
-                        <div class="placeholder-group-title"><i class="bi bi-layout-text-window-reverse"></i> Footer</div>
-                        <pre style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:.75rem;font-size:.8rem;overflow-x:auto;color:#374151;">@previewTemplate.FooterContent</pre>
-                    </div>
-                }
             </div>
-        </div>
-        <div class="drawer-footer">
-            <button class="btn-secondary-action" @onclick="ClosePreviewDrawer">Close</button>
-            <button class="btn-create" @onclick="() => EditTemplate(previewTemplate)">
-                <i class="bi bi-pencil"></i> Edit Template
+            <button type="button" class="dtp-icon-btn dtp-drawer-x" aria-label="Close" @onclick="ClosePlaceholderDrawer">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                    <path d="M5 5l14 14M19 5L5 19"></path>
+                </svg>
             </button>
         </div>
-    </div>
+        <div class="dtp-drawer-body">
+            @if (placeholders != null)
+            {
+                @foreach (var group in placeholders.Placeholders.GroupBy(p => p.Category))
+                {
+                    <section class="dtp-section">
+                        <h3>@group.Key</h3>
+                        <div class="dtp-ph-group">
+                            @foreach (var ph in group)
+                            {
+                                var key = ph.Key;
+                                <div class="dtp-ph-row">
+                                    <div class="dtp-ph-text">
+                                        <span class="dtp-ph-key">@($"{{{{{key}}}}}")</span>
+                                        <div class="dtp-ph-desc">@ph.Description</div>
+                                    </div>
+                                    <button type="button" class="dtp-icon-btn" title="Copy" aria-label="Copy placeholder"
+                                            @onclick="() => CopyPlaceholder(key)">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                             stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                                            <path d="M5 15V5a2 2 0 0 1 2-2h8"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    </section>
+                }
+            }
+            else
+            {
+                <div class="dtp-loading">
+                    <span class="dtp-spin" aria-hidden="true"></span>
+                    <span>Loading placeholders&#8230;</span>
+                </div>
+            }
+        </div>
+    </aside>
+}
+
+@* ── Preview ───────────────────────────────────────────────────────────── *@
+@if (showPreviewDrawer && previewTemplate != null)
+{
+    <div class="dtp dtp-drawer-scrim" @onclick="ClosePreviewDrawer"></div>
+    <aside class="dtp dtp-drawer dtp-drawer-wide" role="dialog" aria-modal="true" aria-label="Template preview">
+        <div class="dtp-drawer-head">
+            <div>
+                <h2>@previewTemplate.Name</h2>
+                <div class="dtp-drawer-sub">
+                    <span class="dtp-badge @DocTypeFamily(previewTemplate.DocumentType)">@FormatDocType(previewTemplate.DocumentType)</span>
+                    <span class="dtp-paper">@previewTemplate.PaperSize &middot; @previewTemplate.Orientation</span>
+                    @if (previewTemplate.IsDefault)
+                    {
+                        <span class="dtp-mark dtp-mark-default">Default</span>
+                    }
+                </div>
+            </div>
+            <button type="button" class="dtp-icon-btn dtp-drawer-x" aria-label="Close" @onclick="ClosePreviewDrawer">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                    <path d="M5 5l14 14M19 5L5 19"></path>
+                </svg>
+            </button>
+        </div>
+        <div class="dtp-drawer-body">
+            @if (!string.IsNullOrWhiteSpace(previewTemplate.CssStyles))
+            {
+                <section class="dtp-section">
+                    <h3>CSS</h3>
+                    <pre class="dtp-pre">@previewTemplate.CssStyles</pre>
+                </section>
+            }
+            @if (!string.IsNullOrWhiteSpace(previewTemplate.HeaderContent))
+            {
+                <section class="dtp-section">
+                    <h3>Header</h3>
+                    <pre class="dtp-pre">@previewTemplate.HeaderContent</pre>
+                </section>
+            }
+            <section class="dtp-section">
+                <h3>Main content</h3>
+                <pre class="dtp-pre">@previewTemplate.HtmlContent</pre>
+            </section>
+            @if (!string.IsNullOrWhiteSpace(previewTemplate.FooterContent))
+            {
+                <section class="dtp-section">
+                    <h3>Footer</h3>
+                    <pre class="dtp-pre">@previewTemplate.FooterContent</pre>
+                </section>
+            }
+        </div>
+        <div class="dtp-drawer-foot">
+            <button type="button" class="dtp-btn dtp-btn-quiet" @onclick="ClosePreviewDrawer">Close</button>
+            <button type="button" class="dtp-btn dtp-btn-primary" @onclick="() => EditTemplate(previewTemplate)">
+                Edit template
+            </button>
+        </div>
+    </aside>
 }
 
 @code {
@@ -848,16 +788,36 @@
         await JS.InvokeVoidAsync("navigator.clipboard.writeText", $"{{{{{key}}}}}");
     }
 
-    private string GetDocTypeCss(string docType) => docType.ToLower() switch
+    // The filter chips and the editor's type picker are the same six values, so
+    // they are stated once. Order is the order a document is met in: quote,
+    // order, delivery, invoice, credit — with the purchase order beside the
+    // sales one.
+    private static readonly string[] documentTypes =
+        ["Invoice", "Quote", "SalesOrder", "PurchaseOrder", "DeliveryNote", "CreditNote"];
+
+    // Six hues off the one family set in nocturne-tokens.css, so each type's ink
+    // is mixed from the same value as its wash. Held apart in hue rather than
+    // ranked: no document type matters more than another.
+    private static string DocTypeFamily(string docType) => docType switch
     {
-        "invoice" => "invoice",
-        "quote" => "quote",
-        "salesorder" => "salesorder",
-        "purchaseorder" => "purchaseorder",
-        "deliverynote" => "deliverynote",
-        "creditnote" => "creditnote",
-        _ => "invoice"
+        "Invoice" => "dtp-fam-info",
+        "Quote" => "dtp-fam-good",
+        "SalesOrder" => "dtp-fam-accent",
+        "PurchaseOrder" => "dtp-fam-warn",
+        "DeliveryNote" => "dtp-fam-neutral",
+        "CreditNote" => "dtp-fam-bad",
+        _ => "dtp-fam-neutral"
     };
+
+    private List<int> GetPageNumbers()
+    {
+        var pages = new List<int>();
+        var start = Math.Max(1, currentPage - 2);
+        var end = Math.Min(totalPages, currentPage + 2);
+        for (var i = start; i <= end; i++)
+            pages.Add(i);
+        return pages;
+    }
 
     private string FormatDocType(string docType) => docType switch
     {

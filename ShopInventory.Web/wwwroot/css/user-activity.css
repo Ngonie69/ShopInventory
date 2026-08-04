@@ -1,0 +1,1348 @@
+/* ==========================================================================
+   User Activity — Nocturne
+
+   A derivation, not an import: there is no User Activity.dc.html in any of the
+   design projects, so this follows the documented fallback.
+
+   The source is audit-trail.css, and of every page in this admin group it is
+   the closest match there has been — the two pages show the same table from
+   the same store. Header, hero, four figures, filter row, a grid whose rows
+   wash into the ground, a pagination foot, a row-click detail drawer and the
+   family-token badge for saying what kind of event a row is are all carried
+   over. What this page adds is the three summary panels above the log: who is
+   most active, what actions are being taken, and when in the day.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system. Light is the base and `.dark-theme` the override, both
+   stated there in the order App.razor's pre-paint script stamps the class in.
+
+   Rules live here rather than in the inline Razor <style> block this page used
+   to carry, for the reason every sibling gives: app.css's global
+   `.dark-theme select` rules at (0,1,1) would repaint the three filter pickers
+   #1e293b, so each control carries a class and each control selector is two
+   classes deep. Headings are pinned to Nocturne's 500 against Bootstrap's
+   global 600.
+
+   **MudDataGrid is gone**, and that is a functional change as well as a visual
+   one, so it is worth stating plainly. What the grid gave and this does not:
+   multi-column sort, per-column filtering and column hiding. What it keeps:
+   the quick search across every field, the row click that opens the drawer, and
+   the pagination. What it gains: a row that becomes a labelled card below
+   1040px, which the data grid could not do, and a table that follows the theme
+   — the grid was carrying eight hard-coded hexes in inline `style=` attributes,
+   none of which changed in dark mode.
+
+   The eight-colour avatar palette the rank list cycled through is gone for the
+   same reason: those hues were chosen against white and three of them are
+   illegible on the dark ground. One avatar treatment, from the system.
+   ========================================================================== */
+
+.uac {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --uac-bg: var(--noct-bg);
+    --uac-surface: var(--noct-surface);
+    --uac-wash: var(--noct-wash);
+    --uac-ink: var(--noct-ink);
+    --uac-ink-2: var(--noct-ink-2);
+    --uac-mute: var(--noct-mute);
+    --uac-mute-2: var(--noct-mute-2);
+    --uac-mute-3: var(--noct-mute-3);
+    --uac-faint: var(--noct-faint);
+    --uac-placeholder: var(--noct-placeholder);
+    --uac-divider: var(--noct-divider);
+    --uac-rule: var(--noct-rule);
+    --uac-hover: var(--noct-hover);
+    --uac-press: var(--noct-press);
+    --uac-avatar-bg: var(--noct-avatar-bg);
+    --uac-field-bg: var(--noct-field-bg);
+    --uac-field-edge: var(--noct-field-edge);
+    --uac-field-edge-hi: var(--noct-field-edge-hi);
+    --uac-accent: var(--noct-accent);
+    --uac-accent-rgb: var(--noct-accent-rgb);
+    --uac-accent-text: var(--noct-accent-text);
+    --uac-thumb: var(--noct-thumb);
+    --uac-scrim: var(--noct-scrim);
+    --uac-shadow-lg: var(--noct-shadow-lg);
+    --uac-caret: var(--noct-caret);
+    --uac-clear: var(--noct-clear);
+    --uac-scheme: var(--noct-scheme);
+
+    /* Event families — the action badge and the outcome take one each. */
+    --uac-fam-neutral: var(--noct-fam-neutral);
+    --uac-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --uac-fam-accent: var(--noct-fam-accent);
+    --uac-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --uac-fam-info: var(--noct-fam-info);
+    --uac-fam-info-rgb: var(--noct-fam-info-rgb);
+    --uac-fam-good: var(--noct-fam-good);
+    --uac-fam-good-rgb: var(--noct-fam-good-rgb);
+    --uac-fam-warn: var(--noct-fam-warn);
+    --uac-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --uac-fam-bad: var(--noct-fam-bad);
+    --uac-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --uac-s1: var(--noct-s1);
+    --uac-s2: var(--noct-s2);
+    --uac-s3: var(--noct-s3);
+    --uac-s4: var(--noct-s4);
+    --uac-s6: var(--noct-s6);
+    --uac-s8: var(--noct-s8);
+    --uac-r-sm: var(--noct-r-sm);
+    --uac-r-md: var(--noct-r-md);
+    --uac-r-lg: var(--noct-r-lg);
+
+    /* The log's six columns — this page's own. */
+    --uac-cols: 132px minmax(0, 1fr) 168px 150px minmax(0, 1.6fr) 104px;
+
+    color-scheme: var(--uac-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.uac {
+    min-height: 100vh;
+    background: var(--uac-bg);
+    color: var(--uac-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.uac * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside this page that would flatten the family hues the badges
+   carry on WebKit, so hand the fill back to `color`. */
+.uac,
+.uac * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.uac :focus-visible {
+    outline: 2px solid var(--uac-accent);
+    outline-offset: 2px;
+}
+
+.uac ::selection {
+    background: rgba(var(--uac-accent-rgb), .3);
+}
+
+.uac h1,
+.uac h2,
+.uac h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.uac-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--uac-bg);
+    border-bottom: 1px solid var(--uac-divider);
+}
+
+.uac-head-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--uac-s6);
+}
+
+.uac-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--uac-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--uac-mute-3);
+}
+
+.uac-crumb-sep {
+    color: var(--uac-faint);
+}
+
+.uac-crumb-now {
+    color: var(--uac-ink-2);
+    white-space: nowrap;
+}
+
+.uac-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--uac-s3);
+}
+
+/* The time range: three states, always all visible, so it is a segmented set
+   rather than a dropdown — the window is what every figure on the page is
+   counted over, and it has to be readable without opening anything. */
+.uac-seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--uac-divider);
+    border-radius: 999px;
+}
+
+.uac .uac-seg-btn {
+    padding: 4px 13px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--uac-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color .14s, background-color .14s;
+}
+
+.uac .uac-seg-btn:hover {
+    color: var(--uac-ink);
+}
+
+.uac .uac-seg-on {
+    color: var(--uac-accent-text);
+    background: rgba(var(--uac-accent-rgb), .16);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.uac .uac-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--uac-s2) calc(var(--uac-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--uac-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--uac-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.uac .uac-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.uac .uac-btn-primary {
+    color: var(--uac-accent);
+    border-color: var(--uac-accent);
+    letter-spacing: .02em;
+}
+
+.uac .uac-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--uac-accent-rgb), .12);
+}
+
+.uac .uac-btn-quiet {
+    color: var(--uac-mute-2);
+    border-color: var(--uac-divider);
+}
+
+.uac .uac-btn-quiet:hover:not(:disabled) {
+    color: var(--uac-ink);
+    border-color: var(--uac-field-edge-hi);
+    background: var(--uac-hover);
+}
+
+.uac .uac-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--uac-r-sm);
+    background: transparent;
+    color: var(--uac-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.uac .uac-icon-btn:hover {
+    background: var(--uac-press);
+    color: var(--uac-ink);
+}
+
+/* ── Body and hero ─────────────────────────────────────────────────────── */
+
+.uac-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--uac-s8);
+}
+
+.uac-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.uac-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--uac-accent-text);
+    margin-bottom: 9px;
+}
+
+.uac-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.uac-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--uac-mute-2);
+    max-width: 58ch;
+    text-wrap: pretty;
+}
+
+/* ── The four figures ──────────────────────────────────────────────────── */
+
+.uac-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--uac-s4);
+}
+
+.uac-stat {
+    padding: var(--uac-s6) 18px;
+    border: 1px solid var(--uac-divider);
+    border-radius: var(--uac-r-lg);
+    background: var(--uac-surface);
+    min-width: 0;
+}
+
+.uac-stat-lead {
+    background:
+        linear-gradient(155deg, rgba(var(--uac-accent-rgb), .12), transparent 62%),
+        var(--uac-surface);
+}
+
+/* The failure count is the one figure that changes meaning when it is not zero,
+   so it takes the danger hue only then. */
+.uac-stat-alert {
+    background:
+        linear-gradient(155deg, rgba(var(--uac-fam-bad-rgb), .12), transparent 62%),
+        var(--uac-surface);
+}
+
+.uac-stat-head {
+    display: flex;
+    align-items: center;
+    gap: var(--uac-s3);
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--uac-mute-2);
+}
+
+.uac-stat-lead .uac-stat-head {
+    color: var(--uac-accent-text);
+}
+
+.uac-stat-alert .uac-stat-head {
+    color: var(--uac-fam-bad);
+}
+
+.uac-stat-rule {
+    width: 12px;
+    height: 1px;
+    flex: none;
+    background: var(--uac-mute-3);
+}
+
+.uac-stat-lead .uac-stat-rule {
+    background: var(--uac-accent);
+}
+
+.uac-stat-alert .uac-stat-rule {
+    background: var(--uac-fam-bad);
+}
+
+.uac-stat-num {
+    margin-top: var(--uac-s4);
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.uac-stat-alert .uac-stat-num {
+    color: var(--uac-fam-bad);
+}
+
+.uac-stat-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--uac-mute-2);
+}
+
+/* ── The three summary panels ──────────────────────────────────────────── */
+
+.uac-summaries {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--uac-s4);
+    align-items: start;
+}
+
+.uac-card {
+    border: 1px solid var(--uac-divider);
+    border-radius: var(--uac-r-lg);
+    background: var(--uac-surface);
+    min-width: 0;
+}
+
+.uac-card-head {
+    padding: var(--uac-s6) 18px var(--uac-s4);
+}
+
+.uac-card-head h2 {
+    font-size: 13.5px;
+    letter-spacing: -.01em;
+}
+
+.uac-card-body {
+    padding: 0 18px var(--uac-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--uac-s3);
+    min-width: 0;
+}
+
+/* ── Most active users ─────────────────────────────────────────────────── */
+
+.uac-rank-row {
+    display: flex;
+    align-items: center;
+    gap: var(--uac-s3);
+    min-width: 0;
+}
+
+/* The top three take the accent; below that the rank is a figure and not a
+   prize. The old sheet used gold, silver and bronze, which are three more hues
+   the system does not have and which read as three unrelated states. */
+.uac-rank {
+    width: 18px;
+    flex: none;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--uac-faint);
+    text-align: right;
+}
+
+.uac-rank-top {
+    color: var(--uac-accent-text);
+}
+
+.uac-avatar {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    flex: none;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 500;
+    background: var(--uac-avatar-bg);
+    color: var(--uac-mute);
+}
+
+.uac-rank-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.uac-rank-name {
+    font-size: 12.5px;
+    color: var(--uac-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.uac-rank-when {
+    font-size: 11px;
+    color: var(--uac-mute-3);
+}
+
+.uac-rank-count {
+    flex: none;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--uac-mute);
+}
+
+/* ── Action breakdown ──────────────────────────────────────────────────── */
+
+.uac-break {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.uac-break-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--uac-s4);
+    min-width: 0;
+}
+
+.uac-break-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--uac-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.uac-break-dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--uac-fam, var(--uac-mute-3));
+}
+
+.uac-break-num {
+    flex: none;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--uac-mute-3);
+}
+
+.uac-break-track {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--uac-press);
+    overflow: hidden;
+}
+
+.uac-break-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--uac-fam, var(--uac-accent));
+    transition: width .3s ease;
+}
+
+/* ── Activity by hour ──────────────────────────────────────────────────── */
+/* Twenty-four bars on one shared scale. The four steps are the accent at four
+   strengths rather than four hues: this is one quantity read across, not four
+   kinds of thing. */
+
+.uac-hours {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 150px;
+    padding-top: var(--uac-s4);
+}
+
+.uac-hour {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 3px;
+}
+
+.uac-hour-bar {
+    width: 100%;
+    min-height: 2px;
+    border-radius: 2px 2px 0 0;
+    background: rgba(var(--uac-accent-rgb), var(--uac-hour-a, .2));
+    transition: background-color .15s;
+}
+
+.uac-hour-peak {
+    --uac-hour-a: 1;
+}
+
+.uac-hour-high {
+    --uac-hour-a: .72;
+}
+
+.uac-hour-mid {
+    --uac-hour-a: .46;
+}
+
+.uac-hour-low {
+    --uac-hour-a: .22;
+}
+
+.uac-hour-lbl {
+    font-size: 9.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--uac-faint);
+}
+
+.uac-hour-tip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 4px;
+    padding: 2px 7px;
+    border-radius: var(--uac-r-sm);
+    background: var(--uac-ink);
+    color: var(--uac-bg);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .12s;
+    z-index: 2;
+}
+
+.uac-hour:hover .uac-hour-tip {
+    opacity: 1;
+}
+
+/* ── The log ───────────────────────────────────────────────────────────── */
+
+.uac-panel {
+    border: 1px solid var(--uac-divider);
+    border-radius: var(--uac-r-lg);
+    background: linear-gradient(to bottom, var(--uac-wash), transparent 240px);
+}
+
+.uac-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--uac-s4);
+    padding: var(--uac-s4) var(--uac-s8);
+    flex-wrap: wrap;
+}
+
+.uac-panel-head h2 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.uac-count {
+    font-size: 12.5px;
+    color: var(--uac-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.uac-panel-tools {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+.uac-filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--uac-s4);
+    padding: 0 var(--uac-s8) var(--uac-s4);
+    align-items: end;
+}
+
+.uac-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.uac-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--uac-mute-3);
+}
+
+.uac-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--uac-s3);
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+.uac .uac-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--uac-ink);
+    caret-color: var(--uac-accent);
+    background: var(--uac-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--uac-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.uac .uac-input-search {
+    min-width: 220px;
+    padding-left: 33px;
+    border-radius: 999px;
+}
+
+.uac .uac-input:hover {
+    border-color: var(--uac-field-edge);
+}
+
+.uac .uac-input:focus-visible {
+    border-color: rgba(var(--uac-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.uac .uac-input::placeholder {
+    color: var(--uac-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--uac-placeholder);
+}
+
+.uac .uac-input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    margin-left: var(--uac-s2);
+    background: var(--uac-clear) no-repeat center / contain;
+    opacity: .7;
+    cursor: pointer;
+}
+
+.uac-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.uac-search svg {
+    position: absolute;
+    left: 11px;
+    pointer-events: none;
+    color: var(--uac-mute-3);
+}
+
+.uac-select {
+    position: relative;
+    display: flex;
+}
+
+.uac .uac-select select.uac-input {
+    padding: 8px 28px 8px 11px;
+    cursor: pointer;
+}
+
+.uac-select .uac-caret {
+    position: absolute;
+    right: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--uac-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+/* ── The grid ──────────────────────────────────────────────────────────── */
+
+.uac-scroll {
+    overflow-x: auto;
+}
+
+.uac-grid {
+    min-width: 1080px;
+}
+
+.uac-thead,
+.uac-row {
+    display: grid;
+    grid-template-columns: var(--uac-cols);
+    align-items: center;
+    gap: var(--uac-s6);
+}
+
+.uac-thead {
+    padding: 0 var(--uac-s8) var(--uac-s4);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--uac-mute-3);
+}
+
+/* A sortable heading is a button so it keeps the keyboard behaviour. Three
+   columns are sortable; the rest are not, because sorting a details string or
+   an entity id answers no question anyone has. */
+.uac .uac-th {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: color .13s;
+}
+
+.uac .uac-th:hover {
+    color: var(--uac-ink-2);
+}
+
+.uac .uac-th-on {
+    color: var(--uac-accent-text);
+}
+
+.uac-th-mark {
+    font-size: 8px;
+    line-height: 1;
+}
+
+.uac-row {
+    width: 100%;
+    padding: 11px var(--uac-s8);
+    border: 0;
+    border-top: 1px solid var(--uac-rule);
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color .12s ease;
+}
+
+.uac-row:hover {
+    background: var(--uac-hover);
+}
+
+/* A failed action is marked at the row's edge rather than by washing the whole
+   line: the status badge already says failed. */
+.uac-row-failed {
+    box-shadow: inset 3px 0 0 var(--uac-fam-bad);
+    background: rgba(var(--uac-fam-bad-rgb), .05);
+}
+
+.uac-row-failed:hover {
+    background: rgba(var(--uac-fam-bad-rgb), .1);
+}
+
+.uac-when {
+    font-size: 12.5px;
+    color: var(--uac-mute);
+    font-variant-numeric: tabular-nums;
+}
+
+.uac-user {
+    display: flex;
+    align-items: center;
+    gap: var(--uac-s3);
+    min-width: 0;
+}
+
+.uac-user-name {
+    font-size: 13px;
+    color: var(--uac-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.uac-entity {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--uac-mute);
+}
+
+.uac-entity-id {
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--uac-mute-3);
+}
+
+.uac-details {
+    font-size: 12.5px;
+    color: var(--uac-mute-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.uac-none {
+    color: var(--uac-faint);
+}
+
+/* Row labels, carried for the card layout below 1040px and hidden above it. */
+.uac-rl {
+    display: none;
+}
+
+/* ── Badges ────────────────────────────────────────────────────────────── */
+/* One badge, one family token. Each family class sets the hue and its channel;
+   the badge mixes both its ink and its wash from them, so adding a family is
+   two declarations and never a fill-and-ink pair that can drift apart. */
+
+/* inline-block rather than inline-flex: in a flex container the label becomes
+   an anonymous flex item, `text-overflow` does not apply to it, and a long
+   action name is cut mid-letter with nothing to say it was cut. */
+.uac-badge {
+    display: inline-block;
+    max-width: 100%;
+    padding: 2.5px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: .04em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    color: var(--uac-fam, var(--uac-mute));
+    background: rgba(var(--uac-fam-rgb, 94, 100, 131), .14);
+}
+
+.uac-fam-neutral {
+    --uac-fam: var(--uac-fam-neutral);
+    --uac-fam-rgb: var(--uac-fam-neutral-rgb);
+}
+
+.uac-fam-accent {
+    --uac-fam: var(--uac-fam-accent);
+    --uac-fam-rgb: var(--uac-fam-accent-rgb);
+}
+
+.uac-fam-info {
+    --uac-fam: var(--uac-fam-info);
+    --uac-fam-rgb: var(--uac-fam-info-rgb);
+}
+
+.uac-fam-good {
+    --uac-fam: var(--uac-fam-good);
+    --uac-fam-rgb: var(--uac-fam-good-rgb);
+}
+
+.uac-fam-warn {
+    --uac-fam: var(--uac-fam-warn);
+    --uac-fam-rgb: var(--uac-fam-warn-rgb);
+}
+
+.uac-fam-bad {
+    --uac-fam: var(--uac-fam-bad);
+    --uac-fam-rgb: var(--uac-fam-bad-rgb);
+}
+
+/* ── Pagination ────────────────────────────────────────────────────────── */
+
+.uac-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--uac-s6);
+    padding: var(--uac-s4) var(--uac-s8);
+    border-top: 1px solid var(--uac-divider);
+    font-size: 12.5px;
+    color: var(--uac-mute-3);
+    flex-wrap: wrap;
+}
+
+.uac-foot-info {
+    font-variant-numeric: tabular-nums;
+}
+
+.uac-pages {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.uac .uac-step {
+    padding: 5px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--uac-mute-2);
+    background: transparent;
+    border: 1px solid var(--uac-divider);
+    border-radius: var(--uac-r-md);
+    cursor: pointer;
+    transition: color .14s, border-color .14s;
+}
+
+.uac .uac-step:hover:not(:disabled) {
+    color: var(--uac-ink);
+    border-color: var(--uac-field-edge-hi);
+}
+
+.uac .uac-step:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.uac .uac-page {
+    padding: 5px 9px;
+    font: inherit;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--uac-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--uac-r-md);
+    cursor: pointer;
+    transition: color .14s, background-color .14s;
+}
+
+.uac .uac-page:hover {
+    color: var(--uac-ink);
+    background: var(--uac-hover);
+}
+
+.uac .uac-page-on {
+    padding-inline: 11px;
+    color: var(--uac-accent-text);
+    background: rgba(var(--uac-accent-rgb), .16);
+}
+
+/* ── Detail drawer ─────────────────────────────────────────────────────── */
+/* Offset below the app bar: the page is a stacking context, so a drawer cannot
+   paint over the topbar however high its z-index. The scrim and the drawer sit
+   outside the page element and carry `.uac` themselves, which is what puts the
+   tokens in reach. */
+
+.uac-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    /* `.uac`'s own min-height would otherwise stretch the scrim 74px past the
+       bottom of what it is meant to cover. */
+    min-height: 0;
+    background: var(--uac-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    animation: uac-fade .18s ease;
+}
+
+.uac-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 74px);
+    right: 0;
+    z-index: 9999;
+    width: min(560px, 100vw);
+    height: calc(100vh - var(--kf-topbar-h, 74px));
+    /* Carrying `.uac` also carries its min-height, which would beat the height
+       just set and hang the last 74px of the drawer below the fold. */
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--uac-bg);
+    box-shadow: var(--uac-shadow-lg);
+    animation: uac-slide .22s ease;
+}
+
+.uac-drawer-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--uac-s4);
+    padding: var(--uac-s6) var(--uac-s8);
+    border-bottom: 1px solid var(--uac-divider);
+    flex: none;
+}
+
+.uac-drawer-head h2 {
+    font-size: 18px;
+    letter-spacing: -.01em;
+}
+
+.uac-drawer-sub {
+    margin-top: 3px;
+    font-size: 12.5px;
+    color: var(--uac-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.uac-drawer-x {
+    margin-left: auto;
+}
+
+.uac-drawer-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--uac-s8);
+}
+
+.uac-dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--uac-s6) var(--uac-s8);
+}
+
+.uac-dl-full {
+    grid-column: 1 / -1;
+}
+
+.uac-dt {
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--uac-faint);
+    margin-bottom: 2px;
+}
+
+.uac-dd {
+    font-size: 13.5px;
+    color: var(--uac-ink);
+    overflow-wrap: anywhere;
+}
+
+.uac-dd-num {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+}
+
+/* ── Empty and loading ─────────────────────────────────────────────────── */
+
+.uac-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--uac-s3);
+    padding: 56px var(--uac-s6);
+    font-size: 12.5px;
+    color: var(--uac-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+}
+
+.uac-empty svg {
+    color: var(--uac-accent);
+    opacity: .7;
+}
+
+.uac-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--uac-s4);
+    padding: 56px var(--uac-s6);
+    font-size: 13px;
+    color: var(--uac-mute-2);
+}
+
+.uac-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: uac-spin .7s linear infinite;
+}
+
+@keyframes uac-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes uac-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes uac-slide {
+    from {
+        transform: translateX(24px);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .uac-scrim,
+    .uac-drawer,
+    .uac-spin {
+        animation: none;
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.uac-scroll::-webkit-scrollbar,
+.uac-drawer-body::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.uac-scroll::-webkit-scrollbar-thumb,
+.uac-drawer-body::-webkit-scrollbar-thumb {
+    background: var(--uac-thumb);
+    border-radius: 8px;
+}
+
+.uac-scroll::-webkit-scrollbar-track,
+.uac-drawer-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 1200px) {
+    .uac-summaries {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* Below 1040px a row stops being a grid row and becomes a labelled card, which
+   is the treatment every sibling sheet uses — and the thing MudDataGrid could
+   not do. */
+@media (max-width: 1040px) {
+    .uac-scroll {
+        overflow-x: visible;
+    }
+
+    .uac-grid {
+        min-width: 0;
+    }
+
+    .uac-thead {
+        display: none;
+    }
+
+    .uac-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--uac-s2);
+        padding: var(--uac-s4) var(--uac-s6);
+    }
+
+    .uac-row > * {
+        display: flex;
+        align-items: baseline;
+        gap: var(--uac-s4);
+        min-width: 0;
+    }
+
+    .uac-rl {
+        display: block;
+        flex: none;
+        width: 68px;
+        font-size: 10.5px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--uac-faint);
+    }
+
+    .uac-details {
+        white-space: normal;
+    }
+}
+
+@media (max-width: 900px) {
+    .uac-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .uac-summaries {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 700px) {
+    .uac-head-inner {
+        padding: var(--uac-s3) 18px;
+        flex-wrap: wrap;
+        gap: var(--uac-s3);
+    }
+
+    .uac-head-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .uac-body {
+        padding: var(--uac-s8) 18px 56px;
+    }
+
+    .uac-hero h1 {
+        font-size: 24px;
+    }
+
+    .uac-panel-head,
+    .uac-filters,
+    .uac-foot {
+        padding-inline: var(--uac-s6);
+    }
+
+    .uac-panel-tools {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .uac .uac-input-search {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .uac-dl {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .uac .uac-input {
+        font-size: 16px;
+    }
+}

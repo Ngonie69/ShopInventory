@@ -11,276 +11,230 @@
 
 <PageTitle>Notifications - Shop Inventory</PageTitle>
 
-<style>
-    /* ── Page ─────────────────────────────────────────── */
-    .notif-page { min-height: 100vh; padding: 1.5rem; }
+@* The Nocturne sheet is wwwroot/css/notifications.css (linked from App.razor),
+   derived from audit-trail.css — the same page shape, and the same
+   family-token badge for saying what kind of event a row is. It lives in a
+   file rather than in the <style> block this page used to carry because
+   app.css's global `.dark-theme select` rules have to be out-specified, which
+   a scoped block cannot do.
 
-    /* ── Header ───────────────────────────────────────── */
-    .notif-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
-    .notif-header-left { display: flex; align-items: center; gap: .85rem; }
-    .notif-header-icon { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea, #764ba2); box-shadow: 0 4px 14px rgba(102,126,234,.3); color: #fff; font-size: 1.4rem; }
-    .notif-header h2 { font-weight: 700; color: #1a1a2e; margin: 0; letter-spacing: -.3px; }
-    .notif-header p  { color: #6b7280; margin: 0; font-size: .88rem; }
-    .notif-header-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
-    .btn-notif-gradient { background: linear-gradient(135deg, #667eea, #764ba2); border: none; color: #fff; padding: .55rem 1.35rem; border-radius: 10px; font-weight: 600; font-size: .88rem; transition: all .2s; display: inline-flex; align-items: center; gap: .4rem; box-shadow: 0 2px 8px rgba(102,126,234,.25); cursor: pointer; }
-    .btn-notif-gradient:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(102,126,234,.4); color: #fff; }
-    .btn-notif-gradient:disabled { opacity: .5; cursor: not-allowed; transform: none; }
-    .btn-notif-outline { background: #fff; color: #6b7280; border: 1px solid #d1d5db; padding: .55rem 1.35rem; border-radius: 10px; font-weight: 600; font-size: .88rem; cursor: pointer; transition: all .2s; display: inline-flex; align-items: center; gap: .4rem; }
-    .btn-notif-outline:hover { background: #f3f4f6; }
+   The type and the category are the two things that distinguish one row from
+   another, so each takes a family hue: the type tints the row's mark, the
+   category tints the badge beside the title. *@
 
-    /* ── Stat Cards ────────────────────────────────────── */
-    .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-    .stat-card { background: #fff; border-radius: 12px; padding: 1.1rem 1.25rem; display: flex; align-items: center; gap: .85rem; border: 1px solid #e5e7eb; box-shadow: 0 1px 4px rgba(0,0,0,.04); transition: box-shadow .2s; }
-    .stat-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.08); }
-    .stat-icon { width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
-    .stat-icon.purple { background: #ede9fe; color: #7c3aed; }
-    .stat-icon.red    { background: #fee2e2; color: #dc2626; }
-    .stat-icon.amber  { background: #fef3c7; color: #d97706; }
-    .stat-icon.green  { background: #d1fae5; color: #059669; }
-    .stat-info .stat-value { font-size: 1.35rem; font-weight: 700; color: #1a1a2e; line-height: 1.2; }
-    .stat-info .stat-label { font-size: .78rem; color: #6b7280; font-weight: 500; }
+<div class="ntf">
 
-    /* ── Filter Bar ────────────────────────────────────── */
-    .filter-bar { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; padding: .75rem 1.25rem; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; margin-bottom: 1.25rem; }
-    .filter-tabs { display: flex; gap: 2px; background: #f1f5f9; border-radius: 8px; padding: 3px; }
-    .filter-tab { padding: .4rem 1rem; border-radius: 6px; border: none; background: transparent; font-weight: 600; font-size: .82rem; color: #6b7280; cursor: pointer; transition: all .2s; }
-    .filter-tab.active { background: #fff; color: #667eea; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
-    .filter-tab .tab-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: .7rem; font-weight: 700; margin-left: 4px; }
-    .filter-tab .tab-badge.bg-muted { background: #e2e8f0; color: #64748b; }
-    .filter-tab .tab-badge.bg-red { background: #fee2e2; color: #dc2626; }
-    .filter-tab.active .tab-badge.bg-muted { background: #ede9fe; color: #7c3aed; }
-    .filter-tab.active .tab-badge.bg-red { background: #fee2e2; color: #dc2626; }
-    .category-select { border: 1px solid #e5e7eb; border-radius: 8px; padding: .4rem .75rem; font-size: .85rem; color: #374151; background: #f8fafc; outline: none; transition: border-color .2s; }
-    .category-select:focus { border-color: #667eea; }
-
-    /* ── Notification List ─────────────────────────────── */
-    .notif-list-wrap { border-radius: 12px; border: 1px solid #e5e7eb; background: #fff; overflow: hidden; }
-    .notif-item { display: flex; align-items: flex-start; gap: .85rem; padding: 1rem 1.25rem; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background .15s; position: relative; }
-    .notif-item:last-child { border-bottom: none; }
-    .notif-item:hover { background: #f8fafc; }
-    .notif-item.unread { background: rgba(102,126,234,.03); border-left: 3px solid #667eea; }
-    .notif-item.unread:hover { background: rgba(102,126,234,.06); }
-    .notif-icon-wrap { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 1rem; }
-    .notif-icon-wrap.error   { background: #fee2e2; color: #dc2626; }
-    .notif-icon-wrap.warning { background: #fef3c7; color: #d97706; }
-    .notif-icon-wrap.success { background: #d1fae5; color: #059669; }
-    .notif-icon-wrap.info    { background: #dbeafe; color: #2563eb; }
-    .notif-icon-wrap.default { background: #f1f5f9; color: #64748b; }
-    .notif-content { flex: 1; min-width: 0; }
-    .notif-title-row { display: flex; align-items: center; gap: .5rem; margin-bottom: 2px; }
-    .notif-title { font-weight: 600; font-size: .9rem; color: #1a1a2e; margin: 0; }
-    .notif-item.unread .notif-title { font-weight: 700; }
-    .notif-category { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; }
-    .cat-LowStock { background: #fef3c7; color: #92400e; }
-    .cat-Payment  { background: #d1fae5; color: #065f46; }
-    .cat-Invoice  { background: #dbeafe; color: #1e40af; }
-    .cat-System   { background: #f1f5f9; color: #475569; }
-    .cat-default  { background: #ede9fe; color: #5b21b6; }
-    .notif-msg { color: #6b7280; font-size: .84rem; margin: 2px 0 0; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .notif-entity { font-size: .78rem; color: #667eea; margin-top: 4px; display: inline-flex; align-items: center; gap: .25rem; }
-    .notif-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; min-width: 80px; }
-    .notif-time { font-size: .76rem; color: #9ca3af; white-space: nowrap; }
-    .notif-new-badge { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: .68rem; font-weight: 700; background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; }
-    .notif-delete-btn { border: none; background: transparent; color: #d1d5db; padding: 4px; border-radius: 6px; cursor: pointer; transition: all .15s; display: flex; align-items: center; justify-content: center; }
-    .notif-delete-btn:hover { background: #fee2e2; color: #dc2626; }
-
-    /* ── Empty State ───────────────────────────────────── */
-    .notif-empty { text-align: center; padding: 4rem 2rem; }
-    .notif-empty-icon { width: 80px; height: 80px; border-radius: 50%; background: #f1f5f9; display: inline-flex; align-items: center; justify-content: center; font-size: 2rem; color: #94a3b8; margin-bottom: 1rem; }
-    .notif-empty h5 { font-weight: 600; color: #475569; margin: 0 0 .5rem; }
-    .notif-empty p { color: #9ca3af; font-size: .9rem; margin: 0; }
-
-    /* ── Pagination ────────────────────────────────────── */
-    .notif-pagination { display: flex; justify-content: center; align-items: center; gap: .25rem; padding: 1rem; }
-    .page-btn { padding: .4rem .75rem; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; color: #374151; font-size: .85rem; font-weight: 500; cursor: pointer; transition: all .15s; }
-    .page-btn:hover:not(:disabled) { background: #f3f4f6; border-color: #667eea; color: #667eea; }
-    .page-btn.active  { background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; border-color: transparent; }
-    .page-btn:disabled { opacity: .4; cursor: not-allowed; }
-
-    /* ── Loading ───────────────────────────────────────── */
-    .notif-loading { text-align: center; padding: 4rem 2rem; }
-    .notif-loading .spinner { width: 40px; height: 40px; border: 3px solid #e5e7eb; border-top-color: #667eea; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; }
-    @@keyframes spin { to { transform: rotate(360deg); } }
-
-    /* ── Alert ─────────────────────────────────────────── */
-    .notif-alert { padding: 1rem 1.25rem; border-radius: 10px; border: 1px solid #fca5a5; background: #fef2f2; color: #991b1b; display: flex; align-items: center; gap: .5rem; margin-bottom: 1rem; font-size: .9rem; }
-</style>
-
-<div class="notif-page fade-in">
-    <!-- Header -->
-    <div class="notif-header">
-        <div class="notif-header-left">
-            <div class="notif-header-icon">
-                <i class="bi bi-bell-fill"></i>
-            </div>
-            <div>
-                <h2>Notifications</h2>
-                <p>Stay updated with system alerts and important messages</p>
-            </div>
-        </div>
-        <div class="notif-header-actions">
-            @if (unreadCount > 0)
-            {
-                <button class="btn-notif-gradient" @onclick="MarkAllAsRead" disabled="@isProcessing">
-                    <i class="bi bi-check-all"></i> Mark All as Read
-                </button>
-            }
-            <button class="btn-notif-outline" @onclick="RefreshNotifications" disabled="@isLoading">
-                @if (isLoading)
-                {
-                    <span class="spinner-border spinner-border-sm"></span>
-                }
-                else
-                {
-                    <i class="bi bi-arrow-clockwise"></i>
-                }
-                Refresh
-            </button>
-        </div>
-    </div>
-
-    <!-- Stats -->
-    <div class="stat-row">
-        <div class="stat-card">
-            <div class="stat-icon purple"><i class="bi bi-bell-fill"></i></div>
-            <div class="stat-info">
-                <div class="stat-value">@totalCount</div>
-                <div class="stat-label">Total</div>
-            </div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-icon red"><i class="bi bi-envelope-fill"></i></div>
-            <div class="stat-info">
-                <div class="stat-value">@unreadCount</div>
-                <div class="stat-label">Unread</div>
-            </div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-icon amber"><i class="bi bi-exclamation-triangle-fill"></i></div>
-            <div class="stat-info">
-                <div class="stat-value">@notifications.Count(n => n.Type == "Warning" || n.Type == "Error")</div>
-                <div class="stat-label">Alerts</div>
-            </div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-icon green"><i class="bi bi-check-circle-fill"></i></div>
-            <div class="stat-info">
-                <div class="stat-value">@(totalCount - unreadCount)</div>
-                <div class="stat-label">Read</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Filter Bar -->
-    <div class="filter-bar">
-        <div class="filter-tabs">
-            <button class="filter-tab @(showUnreadOnly ? "" : "active")" @onclick="() => SetFilter(false)">
-                All
-                @if (totalCount > 0)
-                {
-                    <span class="tab-badge bg-muted">@totalCount</span>
-                }
-            </button>
-            <button class="filter-tab @(showUnreadOnly ? "active" : "")" @onclick="() => SetFilter(true)">
-                Unread
+    <header class="ntf-head">
+        <div class="ntf-head-inner">
+            <nav class="ntf-crumbs" aria-label="Breadcrumb">
+                <span>Administration</span>
+                <span class="ntf-crumb-sep" aria-hidden="true">/</span>
+                <span class="ntf-crumb-now" aria-current="page">Notifications</span>
+            </nav>
+            <div class="ntf-head-actions">
                 @if (unreadCount > 0)
                 {
-                    <span class="tab-badge bg-red">@unreadCount</span>
+                    <button type="button" class="ntf-btn ntf-btn-primary"
+                            disabled="@isProcessing" @onclick="MarkAllAsRead">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M2 12l5 5L14 8"></path>
+                            <path d="M11 15l3 2 7-9"></path>
+                        </svg>
+                        <span>Mark all read</span>
+                    </button>
                 }
-            </button>
-        </div>
-        <div style="flex: 1;"></div>
-        <select class="category-select" @bind="selectedCategory" @bind:after="OnCategoryChanged">
-            <option value="">All Categories</option>
-            <option value="System">System</option>
-            <option value="LowStock">Low Stock</option>
-            <option value="Payment">Payment</option>
-            <option value="Invoice">Invoice</option>
-        </select>
-    </div>
-
-    <!-- Notification List -->
-    @if (isLoading && !notifications.Any())
-    {
-        <div class="notif-list-wrap">
-            <div class="notif-loading">
-                <div class="spinner"></div>
-                <p style="color: #6b7280; margin-top: .75rem;">Loading notifications...</p>
+                <button type="button" class="ntf-btn ntf-btn-ghost"
+                        disabled="@isLoading" @onclick="RefreshNotifications">
+                    @if (isLoading)
+                    {
+                        <span class="ntf-spin" aria-hidden="true"></span>
+                        <span>Refreshing&#8230;</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 11a8 8 0 0 0-13.7-5.3L4 8"></path>
+                            <path d="M4 4v4h4"></path>
+                            <path d="M4 13a8 8 0 0 0 13.7 5.3L20 16"></path>
+                            <path d="M20 20v-4h-4"></path>
+                        </svg>
+                        <span>Refresh</span>
+                    }
+                </button>
             </div>
         </div>
-    }
-    else if (errorMessage != null)
-    {
-        <div class="notif-alert">
-            <i class="bi bi-exclamation-triangle"></i>@errorMessage
-        </div>
-    }
-    else if (!notifications.Any())
-    {
-        <div class="notif-list-wrap">
-            <div class="notif-empty">
-                <div class="notif-empty-icon">
-                    <i class="bi bi-bell-slash"></i>
-                </div>
-                <h5>You're all caught up!</h5>
-                <p>No notifications to show. New alerts will appear here.</p>
-            </div>
-        </div>
-    }
-    else
-    {
-        <div class="notif-list-wrap">
-            @foreach (var notification in notifications)
-            {
-                <div class="notif-item @(notification.IsRead ? "" : "unread")" @onclick="() => HandleNotificationClick(notification)">
-                    <div class="notif-icon-wrap @GetIconWrapClass(notification.Type)">
-                        <i class="@notification.TypeIconClass"></i>
-                    </div>
-                    <div class="notif-content">
-                        <div class="notif-title-row">
-                            <p class="notif-title">@notification.Title</p>
-                            <span class="notif-category @GetCategoryClass(notification.Category)">@notification.Category</span>
-                        </div>
-                        <p class="notif-msg">@notification.Message</p>
-                        @if (!string.IsNullOrEmpty(notification.EntityType) && !string.IsNullOrEmpty(notification.EntityId))
-                        {
-                            <span class="notif-entity">
-                                <i class="bi bi-link-45deg"></i> @notification.EntityType: @notification.EntityId
-                            </span>
-                        }
-                    </div>
-                    <div class="notif-meta">
-                        <span class="notif-time">@notification.TimeAgo</span>
-                        @if (!notification.IsRead)
-                        {
-                            <span class="notif-new-badge">New</span>
-                        }
-                        <button class="notif-delete-btn" title="Delete" @onclick="() => DeleteNotification(notification.Id)" @onclick:stopPropagation="true">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </div>
-                </div>
-            }
-        </div>
+    </header>
 
-        <!-- Pagination -->
-        @if (totalPages > 1)
+    <div class="ntf-body">
+
+        <section class="ntf-hero">
+            <div>
+                <div class="ntf-kicker">System alerts</div>
+                <h1>Notifications</h1>
+                <p>
+                    What the system noticed while you were elsewhere — stock that ran low, a payment that
+                    landed, a sync that failed. Opening one marks it read and takes you to what it is about.
+                </p>
+            </div>
+        </section>
+
+        <section class="ntf-stats">
+            <div class="ntf-stat @(unreadCount > 0 ? "ntf-stat-lead" : "")">
+                <div class="ntf-stat-head"><span class="ntf-stat-rule"></span>Unread</div>
+                <div class="ntf-stat-num">@unreadCount</div>
+                <div class="ntf-stat-sub">waiting on you</div>
+            </div>
+            <div class="ntf-stat">
+                <div class="ntf-stat-head"><span class="ntf-stat-rule"></span>Total</div>
+                <div class="ntf-stat-num">@totalCount</div>
+                <div class="ntf-stat-sub">in this view</div>
+            </div>
+            <div class="ntf-stat @(alertCount > 0 ? "ntf-stat-alert" : "")">
+                <div class="ntf-stat-head"><span class="ntf-stat-rule"></span>Alerts</div>
+                <div class="ntf-stat-num">@alertCount</div>
+                <div class="ntf-stat-sub">warnings and errors on this page</div>
+            </div>
+            <div class="ntf-stat">
+                <div class="ntf-stat-head"><span class="ntf-stat-rule"></span>Read</div>
+                <div class="ntf-stat-num">@(totalCount - unreadCount)</div>
+                <div class="ntf-stat-sub">dealt with</div>
+            </div>
+        </section>
+
+        @if (errorMessage != null)
         {
-            <div class="notif-pagination">
-                <button class="page-btn" disabled="@(currentPage == 1)" @onclick="() => GoToPage(currentPage - 1)">
-                    <i class="bi bi-chevron-left"></i>
-                </button>
-                @foreach (var pg in GetPageNumbers())
-                {
-                    var p = pg;
-                    <button class="page-btn @(currentPage == p ? "active" : "")" @onclick="() => GoToPage(p)">@p</button>
-                }
-                <button class="page-btn" disabled="@(currentPage == totalPages)" @onclick="() => GoToPage(currentPage + 1)">
-                    <i class="bi bi-chevron-right"></i>
-                </button>
+            <div class="ntf-notice" role="alert">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7v6"></path>
+                    <path d="M12 16.5v.01"></path>
+                </svg>
+                <span>@errorMessage</span>
             </div>
         }
-    }
+
+        <section class="ntf-panel">
+            <div class="ntf-panel-head">
+                <h2>Inbox</h2>
+                <span class="ntf-count">@totalCount @(totalCount == 1 ? "notification" : "notifications")</span>
+                <div class="ntf-panel-tools">
+                    <div class="ntf-seg" role="group" aria-label="Read state">
+                        <button type="button" class="ntf-seg-btn @(showUnreadOnly ? "" : "ntf-seg-on")"
+                                aria-pressed="@(!showUnreadOnly)" @onclick="() => SetFilter(false)">
+                            All
+                            @if (totalCount > 0)
+                            {
+                                <span class="ntf-seg-count">@totalCount</span>
+                            }
+                        </button>
+                        <button type="button" class="ntf-seg-btn @(showUnreadOnly ? "ntf-seg-on" : "")"
+                                aria-pressed="@showUnreadOnly" @onclick="() => SetFilter(true)">
+                            Unread
+                            @if (unreadCount > 0)
+                            {
+                                <span class="ntf-seg-count">@unreadCount</span>
+                            }
+                        </button>
+                    </div>
+                    <div class="ntf-select">
+                        <label class="visually-hidden" for="ntfCategory">Category</label>
+                        <select id="ntfCategory" class="ntf-input" @bind="selectedCategory" @bind:after="OnCategoryChanged">
+                            <option value="">All categories</option>
+                            <option value="System">System</option>
+                            <option value="LowStock">Low stock</option>
+                            <option value="Payment">Payment</option>
+                            <option value="Invoice">Invoice</option>
+                        </select>
+                        <span class="ntf-caret" aria-hidden="true"></span>
+                    </div>
+                </div>
+            </div>
+
+            @if (isLoading && !notifications.Any())
+            {
+                <div class="ntf-loading">
+                    <span class="ntf-spin" aria-hidden="true"></span>
+                    <span>Loading notifications&#8230;</span>
+                </div>
+            }
+            else if (!notifications.Any())
+            {
+                <div class="ntf-empty">
+                    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                        <path d="M13.7 21a2 2 0 0 1-3.4 0"></path>
+                    </svg>
+                    <h3>@(showUnreadOnly ? "Nothing unread" : "You're all caught up")</h3>
+                    <p>
+                        @(showUnreadOnly
+                            ? "Everything in this view has been read. Switch to All to see it again."
+                            : "No notifications match this view. New alerts will appear here as they are raised.")
+                    </p>
+                </div>
+            }
+            else
+            {
+                <div class="ntf-list">
+                    @foreach (var notification in notifications)
+                    {
+                        var n = notification;
+                        <div class="ntf-item @TypeFamily(n.Type) @(n.IsRead ? "" : "ntf-item-unread")"
+                             role="button" tabindex="0" @onclick="() => HandleNotificationClick(n)">
+                            <span class="ntf-mark" aria-hidden="true"></span>
+                            <div class="ntf-content">
+                                <div class="ntf-title-row">
+                                    <p class="ntf-title">@n.Title</p>
+                                    <span class="ntf-badge @CategoryFamily(n.Category)">@n.Category</span>
+                                </div>
+                                <p class="ntf-msg">@n.Message</p>
+                                @if (!string.IsNullOrEmpty(n.EntityType) && !string.IsNullOrEmpty(n.EntityId))
+                                {
+                                    <span class="ntf-entity">@n.EntityType @n.EntityId</span>
+                                }
+                            </div>
+                            <div class="ntf-meta">
+                                <span class="ntf-time">@n.TimeAgo</span>
+                                <button type="button" class="ntf-icon-btn" title="Delete" aria-label="Delete notification"
+                                        @onclick="() => DeleteNotification(n.Id)" @onclick:stopPropagation="true">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M4 7h16"></path>
+                                        <path d="M9 7V5h6v2"></path>
+                                        <path d="M6 7l1 13h10l1-13"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                @if (totalPages > 1)
+                {
+                    <div class="ntf-foot">
+                        <span class="ntf-foot-info">
+                            @(((currentPage - 1) * pageSize) + 1)&#8211;@(Math.Min(currentPage * pageSize, totalCount)) of @totalCount
+                        </span>
+                        <div class="ntf-pages">
+                            <button type="button" class="ntf-step" disabled="@(currentPage == 1)"
+                                    @onclick="() => GoToPage(currentPage - 1)">Previous</button>
+                            @foreach (var pg in GetPageNumbers())
+                            {
+                                var p = pg;
+                                <button type="button" class="ntf-page @(currentPage == p ? "ntf-page-on" : "")"
+                                        @onclick="() => GoToPage(p)">@p</button>
+                            }
+                            <button type="button" class="ntf-step" disabled="@(currentPage == totalPages)"
+                                    @onclick="() => GoToPage(currentPage + 1)">Next</button>
+                        </div>
+                    </div>
+                }
+            }
+        </section>
+    </div>
 </div>
 
 @code {
@@ -415,22 +369,31 @@
         }
     }
 
-    private static string GetIconWrapClass(string type) => type switch
+    // Warnings and errors on the page in hand, not across the whole result set:
+    // the API returns a count of everything and a count of what is unread, and
+    // nothing that would let this be totalled server-side. The figure's label
+    // says which it is rather than implying a total it cannot know.
+    private int alertCount => notifications.Count(n => n.Type == "Warning" || n.Type == "Error");
+
+    // The type tints the row's mark and the category tints the badge. Both come
+    // from the same six-family set in nocturne-tokens.css, so a hue is stated
+    // once and its ink is mixed from the same value as its wash.
+    private static string TypeFamily(string type) => type switch
     {
-        "Error" => "error",
-        "Warning" => "warning",
-        "Success" => "success",
-        "Info" => "info",
-        _ => "default"
+        "Error" => "ntf-fam-bad",
+        "Warning" => "ntf-fam-warn",
+        "Success" => "ntf-fam-good",
+        "Info" => "ntf-fam-info",
+        _ => "ntf-fam-neutral"
     };
 
-    private static string GetCategoryClass(string category) => category switch
+    private static string CategoryFamily(string category) => category switch
     {
-        "LowStock" => "cat-LowStock",
-        "Payment" => "cat-Payment",
-        "Invoice" => "cat-Invoice",
-        "System" => "cat-System",
-        _ => "cat-default"
+        "LowStock" => "ntf-fam-warn",
+        "Payment" => "ntf-fam-good",
+        "Invoice" => "ntf-fam-info",
+        "System" => "ntf-fam-neutral",
+        _ => "ntf-fam-accent"
     };
 
     private List<int> GetPageNumbers()

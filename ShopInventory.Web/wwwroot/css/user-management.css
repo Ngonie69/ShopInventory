@@ -1,0 +1,1826 @@
+/* ==========================================================================
+   User Management — Nocturne
+
+   A derivation, not an import: there is no User Management.dc.html in any of
+   the design projects, so this follows the documented fallback.
+
+   The sources are the two sheets this admin group has already settled on —
+   audit-trail.css for the chrome, the figures, the family badges and the
+   row-to-card treatment, and document-templates.css for the tabbed panel, the
+   card list and the modal. Nothing here is new; it is the same vocabulary
+   under this page's own prefix.
+
+   **This page is a stylesheet replacement, not a markup rewrite**, and it is
+   the only one in the group that is. Its 780 lines of markup already carry a
+   clean `um-*` namespace — `um-user-card`, `um-badge-admin`, `um-perm-summary`
+   and 120 more — chosen for what each thing *is* rather than for how it looked.
+   That is exactly what a page stylesheet needs, so the names are kept and only
+   what they resolve to changes. The 2,338-line inline <style> block they used
+   to resolve against is gone.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system. Light is the base and `.dark-theme` the override, both
+   stated there in the order App.razor's pre-paint script stamps the class in.
+
+   The token block is declared on `.um-page` **and** `.um-overlay`. The modals
+   are siblings of the page element rather than children of it, so they would
+   otherwise inherit neither the tokens nor the font context and every control
+   inside them would fall back to Bootstrap's 16px. The overlay therefore
+   repeats the root's font-size and line-height, and omits its `min-height` and
+   `background` — a scrim carrying `min-height: 100vh` hangs a topbar below the
+   fold.
+
+   Every control selector is two classes deep (`.um-page .um-input`, 0-2-0) so
+   it out-specifies app.css's global `.dark-theme input/select/textarea` block
+   at (0,1,1) regardless of load order. Headings are pinned to Nocturne's 500
+   against Bootstrap's global `h1-h6 { font-weight: 600 }`.
+
+   Two departures worth naming:
+
+   - The five avatar tints and the six role badges were eleven hard-coded
+     fill-and-ink pairs. They are family tokens now, and the avatar and the
+     badge for a given role take the *same* family — so a row reads as one
+     person of one kind rather than as two unrelated colours.
+   - The status badges (active, inactive, locked, 2FA) were four more pairs, in
+     hues that overlapped the role ones. They are the system's good, neutral,
+     bad and info, which is the same set every sibling page uses for the same
+     four meanings.
+   ========================================================================== */
+
+.um-page,
+.um-overlay {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --um-bg: var(--noct-bg);
+    --um-surface: var(--noct-surface);
+    --um-wash: var(--noct-wash);
+    --um-ink: var(--noct-ink);
+    --um-ink-2: var(--noct-ink-2);
+    --um-mute: var(--noct-mute);
+    --um-mute-2: var(--noct-mute-2);
+    --um-mute-3: var(--noct-mute-3);
+    --um-faint: var(--noct-faint);
+    --um-placeholder: var(--noct-placeholder);
+    --um-divider: var(--noct-divider);
+    --um-rule: var(--noct-rule);
+    --um-hover: var(--noct-hover);
+    --um-press: var(--noct-press);
+    --um-avatar-bg: var(--noct-avatar-bg);
+    --um-field-bg: var(--noct-field-bg);
+    --um-field-edge: var(--noct-field-edge);
+    --um-field-edge-hi: var(--noct-field-edge-hi);
+    --um-accent: var(--noct-accent);
+    --um-accent-rgb: var(--noct-accent-rgb);
+    --um-accent-text: var(--noct-accent-text);
+    --um-box: var(--noct-box);
+    --um-on-box: var(--noct-on-box);
+    --um-dot-off: var(--noct-dot-off);
+    --um-thumb: var(--noct-thumb);
+    --um-scrim: var(--noct-scrim);
+    --um-shadow-pop: var(--noct-shadow-pop);
+    --um-caret: var(--noct-caret);
+    --um-clear: var(--noct-clear);
+    --um-scheme: var(--noct-scheme);
+
+    /* Families — a role tints its avatar and its badge from one of these, and
+       the four account states take good / neutral / bad / info. */
+    --um-fam-neutral: var(--noct-fam-neutral);
+    --um-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --um-fam-accent: var(--noct-fam-accent);
+    --um-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --um-fam-info: var(--noct-fam-info);
+    --um-fam-info-rgb: var(--noct-fam-info-rgb);
+    --um-fam-good: var(--noct-fam-good);
+    --um-fam-good-rgb: var(--noct-fam-good-rgb);
+    --um-fam-warn: var(--noct-fam-warn);
+    --um-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --um-fam-bad: var(--noct-fam-bad);
+    --um-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --um-s1: var(--noct-s1);
+    --um-s2: var(--noct-s2);
+    --um-s3: var(--noct-s3);
+    --um-s4: var(--noct-s4);
+    --um-s6: var(--noct-s6);
+    --um-s8: var(--noct-s8);
+    --um-r-sm: var(--noct-r-sm);
+    --um-r-md: var(--noct-r-md);
+    --um-r-lg: var(--noct-r-lg);
+
+    --um-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+
+    color-scheme: var(--um-scheme);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.um-page {
+    min-height: 100vh;
+    padding: 30px 28px 64px;
+    max-width: 1400px;
+    margin: 0 auto;
+    background: var(--um-bg);
+    color: var(--um-ink);
+    display: flex;
+    flex-direction: column;
+    gap: var(--um-s6);
+}
+
+.um-page *,
+.um-overlay * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside this page that would flatten the family hues the badges and
+   avatars carry on WebKit, so hand the fill back to `color`. */
+.um-page,
+.um-page *,
+.um-overlay,
+.um-overlay * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.um-page :focus-visible,
+.um-overlay :focus-visible {
+    outline: 2px solid var(--um-accent);
+    outline-offset: 2px;
+}
+
+.um-page ::selection,
+.um-overlay ::selection {
+    background: rgba(var(--um-accent-rgb), .3);
+}
+
+.um-page h1,
+.um-page h2,
+.um-page h3,
+.um-overlay h1,
+.um-overlay h2,
+.um-overlay h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.um-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.um-header-left {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--um-s4);
+    min-width: 0;
+}
+
+/* Was a 48px gradient tile. Nocturne does not put a flooded square beside a
+   title, so this is the kicker rule the sibling heroes use — the same signal at
+   a tenth of the ink. */
+.um-header-icon {
+    display: none;
+}
+
+.um-title {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.um-subtitle {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--um-mute-2);
+    max-width: 58ch;
+    text-wrap: pretty;
+}
+
+.um-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--um-s3);
+    flex-wrap: wrap;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.um-page .um-btn,
+.um-overlay .um-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--um-s2) calc(var(--um-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--um-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--um-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.um-page .um-btn:disabled,
+.um-overlay .um-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.um-page .um-btn-primary,
+.um-overlay .um-btn-primary {
+    color: var(--um-accent);
+    border-color: var(--um-accent);
+    letter-spacing: .02em;
+}
+
+.um-page .um-btn-primary:hover:not(:disabled),
+.um-overlay .um-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--um-accent-rgb), .12);
+}
+
+.um-page .um-btn-primary:active:not(:disabled),
+.um-overlay .um-btn-primary:active:not(:disabled) {
+    background: rgba(var(--um-accent-rgb), .22);
+}
+
+.um-page .um-btn-ghost,
+.um-overlay .um-btn-ghost {
+    color: var(--um-mute-2);
+    border-color: var(--um-divider);
+}
+
+.um-page .um-btn-ghost:hover:not(:disabled),
+.um-overlay .um-btn-ghost:hover:not(:disabled) {
+    color: var(--um-ink);
+    border-color: var(--um-field-edge-hi);
+    background: var(--um-hover);
+}
+
+.um-page .um-btn-danger,
+.um-overlay .um-btn-danger {
+    color: var(--um-fam-bad);
+    border-color: rgba(var(--um-fam-bad-rgb), .55);
+}
+
+.um-page .um-btn-danger:hover:not(:disabled),
+.um-overlay .um-btn-danger:hover:not(:disabled) {
+    background: rgba(var(--um-fam-bad-rgb), .12);
+    border-color: var(--um-fam-bad);
+}
+
+.um-page .um-btn-link,
+.um-overlay .um-btn-link {
+    height: auto;
+    padding: 2px 4px;
+    font-size: 12px;
+    color: var(--um-accent);
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+.um-page .um-btn-link:hover,
+.um-overlay .um-btn-link:hover {
+    text-decoration: underline;
+}
+
+.um-page .um-btn-link-muted,
+.um-overlay .um-btn-link-muted {
+    color: var(--um-mute-2);
+}
+
+.um-page .um-action-btn,
+.um-overlay .um-action-btn {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--um-r-sm);
+    background: transparent;
+    color: var(--um-mute-2);
+    cursor: pointer;
+    font-size: 13px;
+    transition: background-color .13s, color .13s;
+}
+
+.um-page .um-action-btn:hover,
+.um-overlay .um-action-btn:hover {
+    background: var(--um-press);
+    color: var(--um-ink);
+}
+
+/* ── Tabs ──────────────────────────────────────────────────────────────── */
+/* Underlined rather than filled — a tab strip is navigation, and Nocturne
+   spends fills on nothing that only says where you are. */
+
+.um-tabs {
+    display: flex;
+    align-items: center;
+    gap: var(--um-s6);
+    border-bottom: 1px solid var(--um-divider);
+    overflow-x: auto;
+}
+
+.um-page .um-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: var(--um-s3) 2px calc(var(--um-s3) + 1px);
+    font: inherit;
+    font-size: 13px;
+    color: var(--um-mute-2);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color .14s;
+}
+
+.um-page .um-tab:hover {
+    color: var(--um-ink);
+}
+
+.um-page .um-tab.active {
+    color: var(--um-ink);
+}
+
+.um-page .um-tab.active::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--um-accent);
+}
+
+.um-tab-count {
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--um-mute-3);
+    background: var(--um-press);
+}
+
+.um-page .um-tab.active .um-tab-count {
+    color: var(--um-accent-text);
+    background: rgba(var(--um-accent-rgb), .16);
+}
+
+/* ── Filter bar ────────────────────────────────────────────────────────── */
+
+.um-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--um-s3);
+    flex-wrap: wrap;
+}
+
+.um-search-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 220px;
+    max-width: 420px;
+}
+
+.um-search-box i {
+    position: absolute;
+    left: 12px;
+    pointer-events: none;
+    font-size: 13px;
+    color: var(--um-mute-3);
+}
+
+.um-page .um-search-box input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px 8px 33px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--um-ink);
+    caret-color: var(--um-accent);
+    background: var(--um-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.um-page .um-search-box input:hover {
+    border-color: var(--um-field-edge);
+}
+
+.um-page .um-search-box input:focus-visible {
+    border-color: rgba(var(--um-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.um-page .um-search-box input::placeholder {
+    color: var(--um-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--um-placeholder);
+}
+
+.um-page .um-search-box input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    background: var(--um-clear) no-repeat center / contain;
+    opacity: .7;
+    cursor: pointer;
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+/* Every one of these is two classes deep so it beats app.css's global
+   `.dark-theme input/select/textarea` block regardless of load order. */
+
+.um-page .um-input,
+.um-page .um-select,
+.um-overlay .um-input,
+.um-overlay .um-select,
+.um-overlay textarea.um-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--um-ink);
+    caret-color: var(--um-accent);
+    background: var(--um-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--um-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.um-overlay textarea.um-input {
+    min-height: 76px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+/* The caret is drawn into the field rather than into a wrapper: these selects
+   are used bare in the markup, with no element to hang a pseudo-caret on. */
+.um-page .um-select,
+.um-overlay .um-select {
+    width: auto;
+    min-width: 148px;
+    padding-right: 30px;
+    background-image: var(--um-caret);
+    background-repeat: no-repeat;
+    background-position: right 11px center;
+    cursor: pointer;
+}
+
+.um-page .um-select-sm,
+.um-overlay .um-select-sm {
+    min-width: 116px;
+    min-height: 30px;
+    padding-block: 5px;
+    font-size: 12.5px;
+}
+
+.um-page .um-input:hover,
+.um-page .um-select:hover,
+.um-overlay .um-input:hover,
+.um-overlay .um-select:hover {
+    border-color: var(--um-field-edge);
+}
+
+.um-page .um-input:focus-visible,
+.um-page .um-select:focus-visible,
+.um-overlay .um-input:focus-visible,
+.um-overlay .um-select:focus-visible {
+    border-color: rgba(var(--um-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.um-page .um-input::placeholder,
+.um-overlay .um-input::placeholder {
+    color: var(--um-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--um-placeholder);
+}
+
+/* Blazor stamps `invalid` on a field a validator rejected. */
+.um-page .um-input.invalid,
+.um-overlay .um-input.invalid {
+    border-color: rgba(var(--um-fam-bad-rgb), .55);
+}
+
+/* ── The user list ─────────────────────────────────────────────────────── */
+
+.um-user-list {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--um-divider);
+    border-radius: var(--um-r-lg);
+    background: linear-gradient(to bottom, var(--um-wash), transparent 240px);
+}
+
+.um-user-card {
+    display: flex;
+    align-items: center;
+    gap: var(--um-s4);
+    padding: 12px var(--um-s6);
+    border-top: 1px solid var(--um-rule);
+    transition: background-color .12s ease;
+}
+
+.um-user-card:first-child {
+    border-top: 0;
+}
+
+.um-user-card:hover {
+    background: var(--um-hover);
+}
+
+/* A locked account is the one row worth finding in a long list, so it takes the
+   edge mark the sibling sheets put on a row that differs. An inactive one
+   simply recedes — it is not a problem, it is just switched off. */
+.um-user-card.locked {
+    box-shadow: inset 3px 0 0 var(--um-fam-bad);
+    background: rgba(var(--um-fam-bad-rgb), .05);
+}
+
+.um-user-card.locked:hover {
+    background: rgba(var(--um-fam-bad-rgb), .1);
+}
+
+.um-user-card.inactive {
+    opacity: .66;
+}
+
+.um-user-main {
+    display: flex;
+    align-items: center;
+    gap: var(--um-s4);
+    flex: 1;
+    min-width: 0;
+}
+
+/* ── Avatars ───────────────────────────────────────────────────────────── */
+/* One family token per role, and the badge for that role takes the same one —
+   so a row reads as one person of one kind rather than as two unrelated
+   colours, which is what five avatar hexes and six badge pairs used to give. */
+
+.um-avatar {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    flex: none;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--um-fam, var(--um-mute));
+    background: rgba(var(--um-fam-rgb, 94, 100, 131), .16);
+}
+
+.um-avatar-admin {
+    --um-fam: var(--um-fam-accent);
+    --um-fam-rgb: var(--um-fam-accent-rgb);
+}
+
+.um-avatar-cashier {
+    --um-fam: var(--um-fam-good);
+    --um-fam-rgb: var(--um-fam-good-rgb);
+}
+
+.um-avatar-stock {
+    --um-fam: var(--um-fam-info);
+    --um-fam-rgb: var(--um-fam-info-rgb);
+}
+
+.um-avatar-depot {
+    --um-fam: var(--um-fam-warn);
+    --um-fam-rgb: var(--um-fam-warn-rgb);
+}
+
+.um-avatar-default {
+    --um-fam: var(--um-fam-neutral);
+    --um-fam-rgb: var(--um-fam-neutral-rgb);
+}
+
+.um-user-info {
+    min-width: 0;
+    flex: 1;
+}
+
+.um-user-name {
+    font-size: 13.5px;
+    color: var(--um-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.um-user-email {
+    font-size: 11.5px;
+    color: var(--um-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.um-user-meta {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+    flex: none;
+}
+
+.um-user-login {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    flex: none;
+    min-width: 108px;
+}
+
+.um-login-label {
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--um-faint);
+}
+
+.um-login-time {
+    font-size: 12px;
+    color: var(--um-mute);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.um-login-never {
+    color: var(--um-faint);
+}
+
+.um-user-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: none;
+}
+
+/* ── Badges ────────────────────────────────────────────────────────────── */
+/* One badge, one family token. Each family class sets the hue and its channel;
+   the badge mixes both its ink and its wash from them, so adding a family is
+   two declarations and never a fill-and-ink pair that can drift apart. */
+
+.um-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    letter-spacing: .04em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--um-fam, var(--um-mute));
+    background: rgba(var(--um-fam-rgb, 94, 100, 131), .14);
+}
+
+/* Roles — matched to the avatar families above. */
+.um-badge-admin {
+    --um-fam: var(--um-fam-accent);
+    --um-fam-rgb: var(--um-fam-accent-rgb);
+}
+
+.um-badge-cashier {
+    --um-fam: var(--um-fam-good);
+    --um-fam-rgb: var(--um-fam-good-rgb);
+}
+
+.um-badge-stockcontroller {
+    --um-fam: var(--um-fam-info);
+    --um-fam-rgb: var(--um-fam-info-rgb);
+}
+
+.um-badge-depotcontroller {
+    --um-fam: var(--um-fam-warn);
+    --um-fam-rgb: var(--um-fam-warn-rgb);
+}
+
+.um-badge-podoperator {
+    --um-fam: var(--um-fam-info);
+    --um-fam-rgb: var(--um-fam-info-rgb);
+}
+
+.um-badge-user {
+    --um-fam: var(--um-fam-neutral);
+    --um-fam-rgb: var(--um-fam-neutral-rgb);
+}
+
+/* States — the same good / neutral / bad / info every sibling page uses for
+   these four meanings. */
+.um-badge-active {
+    --um-fam: var(--um-fam-good);
+    --um-fam-rgb: var(--um-fam-good-rgb);
+}
+
+.um-badge-inactive {
+    --um-fam: var(--um-fam-neutral);
+    --um-fam-rgb: var(--um-fam-neutral-rgb);
+}
+
+.um-badge-locked {
+    --um-fam: var(--um-fam-bad);
+    --um-fam-rgb: var(--um-fam-bad-rgb);
+}
+
+.um-badge-2fa {
+    --um-fam: var(--um-fam-info);
+    --um-fam-rgb: var(--um-fam-info-rgb);
+}
+
+/* ── The row's overflow menu ───────────────────────────────────────────── */
+
+.um-action-more {
+    position: relative;
+}
+
+.um-dropdown-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 40;
+    min-width: 194px;
+    padding: var(--um-s2);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    border: 1px solid var(--um-divider);
+    border-radius: var(--um-r-md);
+    background: var(--um-surface);
+    box-shadow: var(--um-shadow-pop);
+}
+
+.um-page .um-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: var(--um-s3);
+    width: 100%;
+    padding: 7px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--um-mute);
+    background: transparent;
+    border: 0;
+    border-radius: var(--um-r-sm);
+    cursor: pointer;
+    text-align: left;
+    white-space: nowrap;
+    transition: background-color .12s, color .12s;
+}
+
+.um-page .um-dropdown-item:hover {
+    background: var(--um-hover);
+    color: var(--um-ink);
+}
+
+.um-page .um-dropdown-danger {
+    color: var(--um-fam-bad);
+}
+
+.um-page .um-dropdown-danger:hover {
+    background: rgba(var(--um-fam-bad-rgb), .12);
+    color: var(--um-fam-bad);
+}
+
+.um-page .um-dropdown-success {
+    color: var(--um-fam-good);
+}
+
+.um-page .um-dropdown-success:hover {
+    background: rgba(var(--um-fam-good-rgb), .12);
+    color: var(--um-fam-good);
+}
+
+.um-dropdown-divider {
+    height: 1px;
+    margin: var(--um-s2) 0;
+    background: var(--um-rule);
+}
+
+/* The menu items carry Bootstrap's text-* utilities on their icons, which are
+   colours from a different system. Inside this page the icon follows its
+   item. */
+.um-page .um-dropdown-item .text-warning,
+.um-page .um-dropdown-item .text-secondary,
+.um-page .um-dropdown-item .text-danger {
+    color: inherit !important;
+}
+
+/* ── Pagination ────────────────────────────────────────────────────────── */
+
+.um-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--um-s4);
+    flex-wrap: wrap;
+    font-size: 12.5px;
+    color: var(--um-mute-3);
+}
+
+.um-page-info {
+    font-variant-numeric: tabular-nums;
+}
+
+.um-page-buttons {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.um-page .um-page-btn {
+    min-width: 30px;
+    padding: 5px 9px;
+    font: inherit;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--um-mute-2);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--um-r-md);
+    cursor: pointer;
+    transition: color .14s, background-color .14s, border-color .14s;
+}
+
+.um-page .um-page-btn:hover:not(:disabled) {
+    color: var(--um-ink);
+    background: var(--um-hover);
+}
+
+.um-page .um-page-btn:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.um-page .um-page-btn.active {
+    color: var(--um-accent-text);
+    background: rgba(var(--um-accent-rgb), .16);
+}
+
+/* ── Section cards (permissions and security tabs) ─────────────────────── */
+
+.um-section-card {
+    border: 1px solid var(--um-divider);
+    border-radius: var(--um-r-lg);
+    background: var(--um-surface);
+}
+
+.um-section-header {
+    padding: var(--um-s6) 18px var(--um-s4);
+    border-bottom: 1px solid var(--um-rule);
+}
+
+.um-section-header h3 {
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+/* ── Permissions ───────────────────────────────────────────────────────── */
+
+.um-perm-group {
+    border-bottom: 1px solid var(--um-rule);
+}
+
+.um-perm-group:last-child {
+    border-bottom: 0;
+}
+
+.um-perm-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--um-s3);
+    padding: var(--um-s4) 18px;
+    font-size: 13px;
+    color: var(--um-ink-2);
+    cursor: pointer;
+    list-style: none;
+    transition: background-color .12s;
+}
+
+.um-perm-summary::-webkit-details-marker {
+    display: none;
+}
+
+/* A disclosure needs a mark of its own once the browser's is gone. */
+.um-perm-summary::before {
+    content: "";
+    width: 10px;
+    height: 7px;
+    flex: none;
+    background: var(--um-caret) no-repeat center / contain;
+    transform: rotate(-90deg);
+    transition: transform .15s;
+}
+
+.um-perm-group[open] > .um-perm-summary::before {
+    transform: rotate(0deg);
+}
+
+.um-perm-summary:hover {
+    background: var(--um-hover);
+}
+
+.um-perm-count {
+    margin-left: auto;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--um-mute-3);
+    background: var(--um-press);
+}
+
+.um-perm-list {
+    display: flex;
+    flex-direction: column;
+    padding: 0 18px var(--um-s4);
+}
+
+.um-perm-item {
+    display: grid;
+    grid-template-columns: 210px 190px minmax(0, 1fr);
+    align-items: baseline;
+    gap: var(--um-s4);
+    padding: 7px 0;
+    border-top: 1px solid var(--um-rule);
+    min-width: 0;
+}
+
+.um-perm-code {
+    font-family: var(--um-mono);
+    font-size: 11.5px;
+    color: var(--um-accent-text);
+    overflow-wrap: anywhere;
+}
+
+.um-perm-name {
+    font-size: 12.5px;
+    color: var(--um-ink-2);
+}
+
+.um-perm-desc {
+    font-size: 12px;
+    color: var(--um-mute-3);
+    text-wrap: pretty;
+}
+
+.um-role-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: var(--um-s4);
+    padding: var(--um-s6) 18px;
+}
+
+.um-role-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--um-s3);
+    padding: var(--um-s4) var(--um-s6);
+    border: 1px solid var(--um-divider);
+    border-radius: var(--um-r-md);
+    min-width: 0;
+}
+
+.um-role-name {
+    display: flex;
+}
+
+.um-role-desc {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--um-mute-2);
+    text-wrap: pretty;
+}
+
+/* ── Security tab ──────────────────────────────────────────────────────── */
+
+.um-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--um-s4);
+}
+
+.um-stat-card {
+    padding: var(--um-s6) 18px;
+    border: 1px solid var(--um-divider);
+    border-radius: var(--um-r-lg);
+    background:
+        linear-gradient(155deg, rgba(var(--um-fam-rgb, 94, 100, 131), .12), transparent 62%),
+        var(--um-surface);
+    min-width: 0;
+}
+
+.um-stat-success {
+    --um-fam: var(--um-fam-good);
+    --um-fam-rgb: var(--um-fam-good-rgb);
+}
+
+.um-stat-warning {
+    --um-fam: var(--um-fam-warn);
+    --um-fam-rgb: var(--um-fam-warn-rgb);
+}
+
+.um-stat-danger {
+    --um-fam: var(--um-fam-bad);
+    --um-fam-rgb: var(--um-fam-bad-rgb);
+}
+
+/* The tile is gone the way the header's was; the hue is carried by the figure
+   and the label instead. */
+.um-stat-icon {
+    display: none;
+}
+
+.um-stat-value {
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    color: var(--um-fam, var(--um-ink));
+}
+
+.um-stat-label {
+    margin-top: 4px;
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--um-mute-2);
+}
+
+.um-event-list {
+    display: flex;
+    flex-direction: column;
+    padding: 0 18px var(--um-s4);
+}
+
+.um-event-item {
+    display: flex;
+    align-items: center;
+    gap: var(--um-s4);
+    padding: 10px 0;
+    border-top: 1px solid var(--um-rule);
+    min-width: 0;
+}
+
+.um-event-item:first-child {
+    border-top: 0;
+}
+
+.um-event-icon {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    flex: none;
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--um-mute-2);
+    background: var(--um-avatar-bg);
+}
+
+.um-event-info {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+}
+
+.um-event-user {
+    font-size: 12.5px;
+    color: var(--um-ink-2);
+}
+
+.um-event-desc {
+    font-size: 11.5px;
+    color: var(--um-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.um-event-time {
+    flex: none;
+    font-size: 11.5px;
+    color: var(--um-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ── Modals ────────────────────────────────────────────────────────────── */
+/* Offset below the app bar rather than against the viewport: the page is a
+   stacking context, so the bar paints over anything centred against the whole
+   window however high its z-index. The overlay carries the token block at the
+   top of this sheet, which is what puts the page's values in reach — it is a
+   sibling of `.um-page`, not a child. */
+
+.um-overlay {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    /* Deliberately not `min-height: 100vh` — see this sheet's header. */
+    min-height: 0;
+    background: var(--um-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--um-s6);
+    color: var(--um-ink);
+    animation: um-fade .18s ease;
+}
+
+.um-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(560px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--um-s8));
+    min-height: 0;
+    border: 1px solid var(--um-divider);
+    border-radius: var(--um-r-lg);
+    background: var(--um-bg);
+    box-shadow: var(--um-shadow-pop);
+    animation: um-rise .2s ease;
+}
+
+.um-modal-wide {
+    width: min(860px, 100%);
+}
+
+.um-modal-header {
+    display: flex;
+    align-items: center;
+    gap: var(--um-s4);
+    padding: var(--um-s6) var(--um-s8);
+    border-bottom: 1px solid var(--um-divider);
+    flex: none;
+}
+
+.um-modal-header h2 {
+    font-size: 17px;
+    letter-spacing: -.01em;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.um-overlay .um-modal-close {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    border-radius: var(--um-r-sm);
+    background: transparent;
+    color: var(--um-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.um-overlay .um-modal-close:hover {
+    background: var(--um-press);
+    color: var(--um-ink);
+}
+
+.um-modal-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--um-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--um-s6);
+}
+
+.um-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--um-s3);
+    padding: var(--um-s4) var(--um-s8);
+    border-top: 1px solid var(--um-divider);
+    flex: none;
+}
+
+/* The delete dialog says what it is before anything is read. */
+.um-delete-header {
+    border-bottom-color: rgba(var(--um-fam-bad-rgb), .35);
+}
+
+.um-delete-header h2 {
+    color: var(--um-fam-bad);
+}
+
+.um-delete-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--um-s3);
+    padding: 11px 13px;
+    border-radius: var(--um-r-md);
+    font-size: 12.5px;
+    color: var(--um-fam-bad);
+    background: rgba(var(--um-fam-bad-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--um-fam-bad-rgb), .3);
+    text-wrap: pretty;
+}
+
+/* ── Forms inside a modal ──────────────────────────────────────────────── */
+
+.um-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--um-s4);
+}
+
+.um-form-full {
+    grid-column: 1 / -1;
+}
+
+.um-form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.um-form-field > label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--um-mute-3);
+}
+
+.um-form-field .required {
+    color: var(--um-fam-bad);
+}
+
+.um-form-hint {
+    font-size: 11.5px;
+    color: var(--um-mute-3);
+    text-wrap: pretty;
+}
+
+/* Blazor's own validation output, and Bootstrap's `.text-danger` on the
+   summary — both routed to the system's danger hue. */
+.um-overlay .validation-message,
+.um-overlay .text-danger,
+.um-page .text-danger {
+    color: var(--um-fam-bad) !important;
+    font-size: 11.5px;
+}
+
+.um-overlay .validation-errors {
+    margin: 0;
+    padding-left: var(--um-s6);
+}
+
+/* ── Toggle ────────────────────────────────────────────────────────────── */
+/* A native checkbox with its own drawn track, so it keeps the keyboard and
+   screen-reader behaviour the control has for free. */
+
+.um-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--um-s4);
+    cursor: pointer;
+    user-select: none;
+}
+
+.um-overlay .um-toggle input[type="checkbox"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.um-toggle-slider {
+    position: relative;
+    width: 34px;
+    height: 19px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--um-dot-off);
+    transition: background-color .15s;
+}
+
+.um-toggle-slider::after {
+    content: "";
+    position: absolute;
+    top: 2.5px;
+    left: 2.5px;
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    background: var(--um-on-box);
+    transition: transform .15s;
+}
+
+.um-toggle input:checked + .um-toggle-slider {
+    background: var(--um-box);
+}
+
+.um-toggle input:checked + .um-toggle-slider::after {
+    transform: translateX(15px);
+}
+
+.um-toggle input:focus-visible + .um-toggle-slider {
+    outline: 2px solid var(--um-accent);
+    outline-offset: 2px;
+}
+
+.um-toggle-label {
+    font-size: 13px;
+    color: var(--um-mute);
+}
+
+/* ── Chips and pickers ─────────────────────────────────────────────────── */
+
+.um-chip-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.um-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--um-mute);
+    background: var(--um-press);
+    max-width: 100%;
+}
+
+.um-chip-blue {
+    color: var(--um-accent-text);
+    background: rgba(var(--um-accent-rgb), .12);
+    box-shadow: inset 0 0 0 1px rgba(var(--um-accent-rgb), .26);
+}
+
+.um-overlay .um-chip-remove {
+    display: grid;
+    place-items: center;
+    width: 17px;
+    height: 17px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    opacity: .65;
+    cursor: pointer;
+    transition: opacity .13s, background-color .13s;
+}
+
+.um-overlay .um-chip-remove:hover {
+    opacity: 1;
+    background: var(--um-press);
+}
+
+.um-customer-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 230px;
+    overflow-y: auto;
+    border: 1px solid var(--um-divider);
+    border-radius: var(--um-r-md);
+}
+
+.um-customer-item {
+    display: flex;
+    align-items: center;
+    gap: var(--um-s4);
+    width: 100%;
+    padding: 8px 11px;
+    border: 0;
+    border-top: 1px solid var(--um-rule);
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    min-width: 0;
+    transition: background-color .12s;
+}
+
+.um-customer-item:first-child {
+    border-top: 0;
+}
+
+.um-customer-item:hover {
+    background: var(--um-hover);
+}
+
+.um-customer-code {
+    flex: none;
+    min-width: 72px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--um-ink-2);
+}
+
+.um-customer-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--um-mute);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.um-customer-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--um-accent-text);
+    background: rgba(var(--um-accent-rgb), .12);
+    box-shadow: inset 0 0 0 1px rgba(var(--um-accent-rgb), .26);
+    max-width: 100%;
+}
+
+.um-overlay .um-customer-tag-remove {
+    display: grid;
+    place-items: center;
+    width: 17px;
+    height: 17px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    opacity: .65;
+    cursor: pointer;
+    transition: opacity .13s;
+}
+
+.um-overlay .um-customer-tag-remove:hover {
+    opacity: 1;
+}
+
+/* ── Checklists ────────────────────────────────────────────────────────── */
+
+.um-checklist-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: var(--um-s2);
+    max-height: 250px;
+    overflow-y: auto;
+    padding: var(--um-s3);
+    border: 1px solid var(--um-divider);
+    border-radius: var(--um-r-md);
+}
+
+.um-checklist-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--um-s3);
+    min-width: 0;
+    cursor: pointer;
+}
+
+.um-overlay .um-checklist-item input[type="checkbox"],
+.um-overlay .um-perm-check input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    margin: 0;
+    margin-top: 2px;
+    accent-color: var(--um-box);
+    cursor: pointer;
+}
+
+.um-checklist-label {
+    font-size: 12.5px;
+    color: var(--um-mute);
+    min-width: 0;
+}
+
+.um-checklist-hint {
+    font-size: 11.5px;
+    color: var(--um-mute-3);
+    text-wrap: pretty;
+}
+
+/* ── The permissions modal ─────────────────────────────────────────────── */
+
+.um-perm-modal-header {
+    display: flex;
+    align-items: center;
+    gap: var(--um-s4);
+    flex-wrap: wrap;
+    font-size: 12.5px;
+    color: var(--um-mute-2);
+}
+
+.um-perm-modal-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--um-s3);
+}
+
+.um-perm-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--um-s6);
+}
+
+.um-perm-modal-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--um-s2);
+    min-width: 0;
+}
+
+.um-perm-modal-group > h4,
+.um-perm-modal-group > strong {
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--um-accent-text);
+}
+
+.um-perm-check {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--um-s3);
+    padding: 5px 7px;
+    border-radius: var(--um-r-sm);
+    min-width: 0;
+    cursor: pointer;
+    transition: background-color .12s;
+}
+
+.um-perm-check:hover {
+    background: var(--um-hover);
+}
+
+.um-perm-check-name {
+    font-size: 12.5px;
+    color: var(--um-ink-2);
+}
+
+.um-perm-check-desc {
+    font-size: 11.5px;
+    color: var(--um-mute-3);
+    text-wrap: pretty;
+}
+
+/* ── Empty, loading and spinners ───────────────────────────────────────── */
+
+.um-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--um-s3);
+    padding: 64px var(--um-s8);
+    font-size: 13px;
+    color: var(--um-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+    border: 1px solid var(--um-divider);
+    border-radius: var(--um-r-lg);
+}
+
+.um-empty i {
+    font-size: 26px;
+    color: var(--um-accent);
+    opacity: .7;
+}
+
+.um-empty h3 {
+    font-size: 15px;
+    color: var(--um-ink-2);
+}
+
+.um-empty p {
+    margin: 0;
+    max-width: 44ch;
+}
+
+.um-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--um-s4);
+    padding: 72px var(--um-s8);
+    font-size: 13px;
+    color: var(--um-mute-2);
+}
+
+.um-loading p {
+    margin: 0;
+}
+
+.um-spinner,
+.um-spinner-sm {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: um-spin .7s linear infinite;
+}
+
+.um-spinner-sm {
+    width: 11px;
+    height: 11px;
+    border-width: 1.5px;
+}
+
+@keyframes um-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes um-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes um-rise {
+    from {
+        transform: translateY(8px);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .um-overlay,
+    .um-modal,
+    .um-spinner,
+    .um-spinner-sm {
+        animation: none;
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.um-modal-body::-webkit-scrollbar,
+.um-customer-list::-webkit-scrollbar,
+.um-checklist-wrap::-webkit-scrollbar {
+    width: 8px;
+}
+
+.um-modal-body::-webkit-scrollbar-thumb,
+.um-customer-list::-webkit-scrollbar-thumb,
+.um-checklist-wrap::-webkit-scrollbar-thumb {
+    background: var(--um-thumb);
+    border-radius: 8px;
+}
+
+.um-modal-body::-webkit-scrollbar-track,
+.um-customer-list::-webkit-scrollbar-track,
+.um-checklist-wrap::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 1040px) {
+    .um-perm-item {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 2px;
+    }
+
+    /* Stacked, the login column has no column to align with, so it goes under
+       the name rather than pinning to the right. */
+    .um-user-card {
+        flex-wrap: wrap;
+    }
+
+    .um-user-main {
+        flex-wrap: wrap;
+    }
+
+    .um-user-login {
+        align-items: flex-start;
+        min-width: 0;
+    }
+}
+
+@media (max-width: 900px) {
+    .um-stats-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .um-form-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 700px) {
+    .um-page {
+        padding: var(--um-s8) 18px 56px;
+    }
+
+    .um-title {
+        font-size: 24px;
+    }
+
+    .um-header-actions {
+        width: 100%;
+    }
+
+    .um-header-actions .um-btn {
+        flex: 1;
+    }
+
+    .um-search-box {
+        max-width: none;
+    }
+
+    .um-page .um-select {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .um-user-card {
+        padding-inline: var(--um-s4);
+    }
+
+    .um-modal-header,
+    .um-modal-body,
+    .um-modal-footer {
+        padding-inline: var(--um-s6);
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .um-page .um-input,
+    .um-page .um-select,
+    .um-page .um-search-box input,
+    .um-overlay .um-input,
+    .um-overlay .um-select {
+        font-size: 16px;
+    }
+}

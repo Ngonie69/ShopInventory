@@ -1,0 +1,928 @@
+/* ==========================================================================
+   Notifications — Nocturne
+
+   A derivation, not an import: there is no Notifications.dc.html in any of the
+   design projects, so this follows the documented fallback the way
+   audit-trail.css and local-stock.css did.
+
+   The source is audit-trail.css, and the match is close enough that most of the
+   work was deletion. Both pages are one long list of events under a header
+   carrying the page's actions, a stated hero, a row of four figures, a panel
+   whose rows wash into the ground, and a pagination foot. Both also need a way
+   to say *what kind* of event a row is, which is the reason this page is a
+   sibling of the log rather than of the directory: the family-token badge is
+   the mechanism, and it is carried over whole.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system. Light is the base and `.dark-theme` the override, both
+   stated there in the order App.razor's pre-paint script stamps the class in,
+   so neither scheme flashes.
+
+   Rules live here rather than in the inline Razor <style> block this page used
+   to carry, for the reason every sibling gives: app.css carries global
+   `.dark-theme input/select` rules at (0,1,1) that would otherwise repaint the
+   category picker #1e293b, so each control carries a class and each control
+   selector is two classes deep, winning regardless of load order. Headings are
+   pinned to Nocturne's 500 against Bootstrap's global `h1-h6 { font-weight:
+   600 }`.
+
+   Three departures from the block this replaces:
+
+   - The old sheet drew four hard-coded pastel pairs for the notification type
+     (#fee2e2/#dc2626 and friends) and five more for the category, ten fill-and-
+     ink pairs in all, each able to drift from its partner. Both columns now
+     take one family token apiece through `.ntf-fam-*`, so a hue is two
+     declarations and the ink is mixed from the same value as the wash.
+   - Unread was a 3px left border plus a tinted row plus a bolder title plus a
+     gradient "New" pill — four ways of saying one thing. It is now the accent
+     edge and a dot, which is how audit-trail.css marks a row that differs.
+   - The 135° #667eea→#764ba2 gradient the page used for its header tile, its
+     primary button and its current page number is gone. It is not a Nocturne
+     colour, and Nocturne outlines its primary action rather than filling it.
+
+   A row here is a flex line rather than the log's fixed grid: the message wraps
+   to two lines and the rows are therefore not a common height, so there are no
+   columns to keep aligned and nothing for a grid to buy.
+   ========================================================================== */
+
+.ntf {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --ntf-bg: var(--noct-bg);
+    --ntf-surface: var(--noct-surface);
+    --ntf-wash: var(--noct-wash);
+    --ntf-ink: var(--noct-ink);
+    --ntf-ink-2: var(--noct-ink-2);
+    --ntf-mute: var(--noct-mute);
+    --ntf-mute-2: var(--noct-mute-2);
+    --ntf-mute-3: var(--noct-mute-3);
+    --ntf-faint: var(--noct-faint);
+    --ntf-placeholder: var(--noct-placeholder);
+    --ntf-divider: var(--noct-divider);
+    --ntf-rule: var(--noct-rule);
+    --ntf-hover: var(--noct-hover);
+    --ntf-press: var(--noct-press);
+    --ntf-field-bg: var(--noct-field-bg);
+    --ntf-field-edge: var(--noct-field-edge);
+    --ntf-field-edge-hi: var(--noct-field-edge-hi);
+    --ntf-accent: var(--noct-accent);
+    --ntf-accent-rgb: var(--noct-accent-rgb);
+    --ntf-accent-text: var(--noct-accent-text);
+    --ntf-dot-on: var(--noct-dot-on);
+    --ntf-caret: var(--noct-caret);
+    --ntf-scheme: var(--noct-scheme);
+
+    /* Event families — the notification's type and its category each tint a
+       badge from one. */
+    --ntf-fam-neutral: var(--noct-fam-neutral);
+    --ntf-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --ntf-fam-accent: var(--noct-fam-accent);
+    --ntf-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --ntf-fam-info: var(--noct-fam-info);
+    --ntf-fam-info-rgb: var(--noct-fam-info-rgb);
+    --ntf-fam-good: var(--noct-fam-good);
+    --ntf-fam-good-rgb: var(--noct-fam-good-rgb);
+    --ntf-fam-warn: var(--noct-fam-warn);
+    --ntf-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --ntf-fam-bad: var(--noct-fam-bad);
+    --ntf-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --ntf-s1: var(--noct-s1);
+    --ntf-s2: var(--noct-s2);
+    --ntf-s3: var(--noct-s3);
+    --ntf-s4: var(--noct-s4);
+    --ntf-s6: var(--noct-s6);
+    --ntf-s8: var(--noct-s8);
+    --ntf-r-sm: var(--noct-r-sm);
+    --ntf-r-md: var(--noct-r-md);
+    --ntf-r-lg: var(--noct-r-lg);
+
+    color-scheme: var(--ntf-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.ntf {
+    min-height: 100vh;
+    background: var(--ntf-bg);
+    color: var(--ntf-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.ntf * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside this page that would flatten the family hues the badges
+   carry on WebKit, so hand the fill back to `color`. */
+.ntf,
+.ntf * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.ntf :focus-visible {
+    outline: 2px solid var(--ntf-accent);
+    outline-offset: 2px;
+}
+
+.ntf ::selection {
+    background: rgba(var(--ntf-accent-rgb), .3);
+}
+
+.ntf h1,
+.ntf h2,
+.ntf h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, and opaque rather than
+   frosted — the hero's 30px title passes beneath it, and a translucent bar
+   hides that title only while the compositor honours the backdrop blur. */
+
+.ntf-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--ntf-bg);
+    border-bottom: 1px solid var(--ntf-divider);
+}
+
+.ntf-head-inner {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--ntf-s6);
+}
+
+.ntf-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--ntf-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--ntf-mute-3);
+}
+
+.ntf-crumb-sep {
+    color: var(--ntf-faint);
+}
+
+.ntf-crumb-now {
+    color: var(--ntf-ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ntf-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--ntf-s3);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.ntf .ntf-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--ntf-s2) calc(var(--ntf-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--ntf-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--ntf-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.ntf .ntf-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.ntf .ntf-btn svg {
+    display: block;
+    flex: none;
+}
+
+.ntf .ntf-btn-primary {
+    color: var(--ntf-accent);
+    border-color: var(--ntf-accent);
+    letter-spacing: .02em;
+}
+
+.ntf .ntf-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--ntf-accent-rgb), .12);
+}
+
+.ntf .ntf-btn-primary:active:not(:disabled) {
+    background: rgba(var(--ntf-accent-rgb), .22);
+}
+
+.ntf .ntf-btn-ghost {
+    color: var(--ntf-accent);
+}
+
+.ntf .ntf-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--ntf-accent-rgb), .1);
+}
+
+.ntf .ntf-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--ntf-accent-rgb), .18);
+}
+
+.ntf .ntf-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 27px;
+    height: 27px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ntf-r-sm);
+    background: transparent;
+    color: var(--ntf-faint);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.ntf .ntf-icon-btn:hover {
+    background: rgba(var(--ntf-fam-bad-rgb), .12);
+    color: var(--ntf-fam-bad);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.ntf-body {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--ntf-s8);
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.ntf-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.ntf-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ntf-accent-text);
+    margin-bottom: 9px;
+}
+
+.ntf-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.ntf-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--ntf-mute-2);
+    max-width: 56ch;
+    text-wrap: pretty;
+}
+
+/* ── The four figures ──────────────────────────────────────────────────── */
+
+.ntf-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--ntf-s4);
+}
+
+.ntf-stat {
+    padding: var(--ntf-s6) 18px;
+    border: 1px solid var(--ntf-divider);
+    border-radius: var(--ntf-r-lg);
+    background: var(--ntf-surface);
+    min-width: 0;
+}
+
+/* Only the unread card carries the accent — it is the figure the page is
+   actually about, and the one that makes anyone open it. */
+.ntf-stat-lead {
+    background:
+        linear-gradient(155deg, rgba(var(--ntf-accent-rgb), .12), transparent 62%),
+        var(--ntf-surface);
+}
+
+/* The alert count changes meaning when it is not zero, so it takes the danger
+   hue only then — a permanently red card would say "something is wrong" on a
+   quiet day. */
+.ntf-stat-alert {
+    background:
+        linear-gradient(155deg, rgba(var(--ntf-fam-bad-rgb), .12), transparent 62%),
+        var(--ntf-surface);
+}
+
+.ntf-stat-head {
+    display: flex;
+    align-items: center;
+    gap: var(--ntf-s3);
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--ntf-mute-2);
+}
+
+.ntf-stat-lead .ntf-stat-head {
+    color: var(--ntf-accent-text);
+}
+
+.ntf-stat-alert .ntf-stat-head {
+    color: var(--ntf-fam-bad);
+}
+
+.ntf-stat-rule {
+    width: 12px;
+    height: 1px;
+    flex: none;
+    background: var(--ntf-mute-3);
+}
+
+.ntf-stat-lead .ntf-stat-rule {
+    background: var(--ntf-accent);
+}
+
+.ntf-stat-alert .ntf-stat-rule {
+    background: var(--ntf-fam-bad);
+}
+
+.ntf-stat-num {
+    margin-top: var(--ntf-s4);
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.ntf-stat-alert .ntf-stat-num {
+    color: var(--ntf-fam-bad);
+}
+
+.ntf-stat-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--ntf-mute-2);
+}
+
+/* ── The inbox ─────────────────────────────────────────────────────────── */
+/* A wash that falls away into the ground over its first 240px rather than a
+   filled card. Not clipped: the category picker drops a native menu, and an
+   `overflow` other than `visible` on an ancestor would cut it off at the panel
+   edge. Nothing is lost — the only painted thing that reaches a corner is the
+   panel's own background, which is clipped to the radius anyway, and the rows
+   that paint on hover are bounded by the head and the foot. */
+
+.ntf-panel {
+    border: 1px solid var(--ntf-divider);
+    border-radius: var(--ntf-r-lg);
+    background: linear-gradient(to bottom, var(--ntf-wash), transparent 240px);
+}
+
+.ntf-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--ntf-s4);
+    padding: var(--ntf-s4) var(--ntf-s8);
+    flex-wrap: wrap;
+}
+
+.ntf-panel-head h2 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.ntf-count {
+    font-size: 12.5px;
+    color: var(--ntf-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.ntf-panel-tools {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+/* ── The read/unread switch ────────────────────────────────────────────── */
+/* Two states, always both visible, so it is a segmented pair rather than a
+   dropdown: the count on each is half the reason to press it. */
+
+.ntf-seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--ntf-divider);
+    border-radius: 999px;
+}
+
+.ntf .ntf-seg-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--ntf-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color .14s, background-color .14s;
+}
+
+.ntf .ntf-seg-btn:hover {
+    color: var(--ntf-ink);
+}
+
+.ntf .ntf-seg-on {
+    color: var(--ntf-accent-text);
+    background: rgba(var(--ntf-accent-rgb), .16);
+}
+
+.ntf-seg-count {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ntf-mute-3);
+}
+
+.ntf .ntf-seg-on .ntf-seg-count {
+    color: var(--ntf-accent-text);
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+.ntf .ntf-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 6px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    line-height: 1.3;
+    color: var(--ntf-ink);
+    caret-color: var(--ntf-accent);
+    background: var(--ntf-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--ntf-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.ntf .ntf-input:hover {
+    border-color: var(--ntf-field-edge);
+}
+
+.ntf .ntf-input:focus-visible {
+    border-color: rgba(var(--ntf-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.ntf-select {
+    position: relative;
+    display: flex;
+}
+
+.ntf .ntf-select select.ntf-input {
+    padding: 6px 28px 6px 11px;
+    cursor: pointer;
+}
+
+.ntf-select .ntf-caret {
+    position: absolute;
+    right: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--ntf-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+/* ── A notification ────────────────────────────────────────────────────── */
+
+.ntf-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.ntf-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ntf-s4);
+    width: 100%;
+    padding: 13px var(--ntf-s8);
+    border: 0;
+    border-top: 1px solid var(--ntf-rule);
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color .12s ease;
+}
+
+.ntf-item:hover {
+    background: var(--ntf-hover);
+}
+
+/* Unread is marked at the row's edge, the way audit-trail.css marks a failed
+   event: the dot and the accent edge say it once each, and the title is left
+   at the same weight as every other so a full inbox does not read as bold. */
+.ntf-item-unread {
+    box-shadow: inset 3px 0 0 var(--ntf-accent);
+    background: rgba(var(--ntf-accent-rgb), .05);
+}
+
+.ntf-item-unread:hover {
+    background: rgba(var(--ntf-accent-rgb), .1);
+}
+
+/* The type's mark. A hollow ring for a read notification, filled for an unread
+   one, tinted from the same family token the badges use. */
+.ntf-mark {
+    width: 9px;
+    height: 9px;
+    flex: none;
+    margin-top: 6px;
+    border-radius: 999px;
+    border: 1.5px solid var(--ntf-fam, var(--ntf-mute-3));
+}
+
+.ntf-item-unread .ntf-mark {
+    background: var(--ntf-fam, var(--ntf-accent));
+}
+
+.ntf-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.ntf-title-row {
+    display: flex;
+    align-items: center;
+    gap: var(--ntf-s3);
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.ntf-title {
+    margin: 0;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--ntf-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Two lines and then an ellipsis: the whole message is one click away, and a
+   long one would otherwise push the next notification off the screen. */
+.ntf-msg {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--ntf-mute-2);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.ntf-entity {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    align-self: flex-start;
+    margin-top: 2px;
+    padding: 1.5px 7px;
+    border-radius: var(--ntf-r-sm);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ntf-mute);
+    background: var(--ntf-press);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ntf-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--ntf-s3);
+    flex: none;
+}
+
+.ntf-time {
+    font-size: 11.5px;
+    color: var(--ntf-mute-3);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Badges ────────────────────────────────────────────────────────────── */
+/* One badge, one family token. Each family class sets the hue and its channel;
+   the badge mixes both its ink and its wash from them, so adding a family is
+   two declarations and never a fill-and-ink pair that can drift apart. */
+
+/* inline-block rather than inline-flex: in a flex container the label becomes
+   an anonymous flex item, `text-overflow` does not apply to it, and a long
+   category name is cut mid-letter with nothing to say it was cut. */
+.ntf-badge {
+    display: inline-block;
+    max-width: 100%;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    color: var(--ntf-fam, var(--ntf-mute));
+    background: rgba(var(--ntf-fam-rgb, 94, 100, 131), .14);
+}
+
+.ntf-fam-neutral {
+    --ntf-fam: var(--ntf-fam-neutral);
+    --ntf-fam-rgb: var(--ntf-fam-neutral-rgb);
+}
+
+.ntf-fam-accent {
+    --ntf-fam: var(--ntf-fam-accent);
+    --ntf-fam-rgb: var(--ntf-fam-accent-rgb);
+}
+
+.ntf-fam-info {
+    --ntf-fam: var(--ntf-fam-info);
+    --ntf-fam-rgb: var(--ntf-fam-info-rgb);
+}
+
+.ntf-fam-good {
+    --ntf-fam: var(--ntf-fam-good);
+    --ntf-fam-rgb: var(--ntf-fam-good-rgb);
+}
+
+.ntf-fam-warn {
+    --ntf-fam: var(--ntf-fam-warn);
+    --ntf-fam-rgb: var(--ntf-fam-warn-rgb);
+}
+
+.ntf-fam-bad {
+    --ntf-fam: var(--ntf-fam-bad);
+    --ntf-fam-rgb: var(--ntf-fam-bad-rgb);
+}
+
+/* ── Pagination ────────────────────────────────────────────────────────── */
+
+.ntf-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ntf-s6);
+    padding: var(--ntf-s4) var(--ntf-s8);
+    border-top: 1px solid var(--ntf-divider);
+    font-size: 12.5px;
+    color: var(--ntf-mute-3);
+    flex-wrap: wrap;
+}
+
+.ntf-foot-info {
+    font-variant-numeric: tabular-nums;
+}
+
+.ntf-pages {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.ntf .ntf-step {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--ntf-mute-2);
+    background: transparent;
+    border: 1px solid var(--ntf-divider);
+    border-radius: var(--ntf-r-md);
+    cursor: pointer;
+    transition: color .14s, border-color .14s;
+}
+
+.ntf .ntf-step:hover:not(:disabled) {
+    color: var(--ntf-ink);
+    border-color: var(--ntf-field-edge-hi);
+}
+
+.ntf .ntf-step:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.ntf .ntf-page {
+    padding: 5px 9px;
+    font: inherit;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ntf-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--ntf-r-md);
+    cursor: pointer;
+    transition: color .14s, background-color .14s;
+}
+
+.ntf .ntf-page:hover {
+    color: var(--ntf-ink);
+    background: var(--ntf-hover);
+}
+
+.ntf .ntf-page-on {
+    padding-inline: 11px;
+    color: var(--ntf-accent-text);
+    background: rgba(var(--ntf-accent-rgb), .16);
+}
+
+/* ── Empty, loading and failure ────────────────────────────────────────── */
+
+.ntf-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--ntf-s3);
+    padding: 64px var(--ntf-s8);
+    text-align: center;
+}
+
+.ntf-empty svg {
+    color: var(--ntf-accent);
+    opacity: .7;
+}
+
+.ntf-empty h3 {
+    font-size: 15px;
+    color: var(--ntf-ink-2);
+}
+
+.ntf-empty p {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--ntf-mute-3);
+    max-width: 44ch;
+    text-wrap: pretty;
+}
+
+.ntf-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--ntf-s4);
+    padding: 72px var(--ntf-s8);
+    font-size: 13px;
+    color: var(--ntf-mute-2);
+}
+
+.ntf-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: ntf-spin .7s linear infinite;
+}
+
+@keyframes ntf-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Tinted from the family token rather than filled: Nocturne keeps saturation
+   off large fields, so the hue arrives as a rule, a mark and a thin wash. */
+.ntf-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ntf-s3);
+    padding: 11px 13px;
+    border-radius: var(--ntf-r-md);
+    font-size: 12.5px;
+    color: var(--ntf-fam-bad);
+    background: rgba(var(--ntf-fam-bad-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--ntf-fam-bad-rgb), .3);
+    text-wrap: pretty;
+}
+
+.ntf-notice svg {
+    flex: none;
+    margin-top: 1px;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+    .ntf-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 700px) {
+    .ntf-head-inner {
+        padding: var(--ntf-s3) 18px;
+        flex-wrap: wrap;
+        gap: var(--ntf-s3);
+    }
+
+    .ntf-head-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .ntf-head-actions .ntf-btn {
+        flex: 1;
+    }
+
+    .ntf-body {
+        padding: var(--ntf-s8) 18px 56px;
+    }
+
+    .ntf-hero h1 {
+        font-size: 24px;
+    }
+
+    .ntf-panel-head,
+    .ntf-item,
+    .ntf-foot {
+        padding-inline: var(--ntf-s6);
+    }
+
+    .ntf-panel-tools {
+        width: 100%;
+        margin-left: 0;
+        flex-wrap: wrap;
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .ntf .ntf-input {
+        font-size: 16px;
+    }
+
+    /* Stacked under the message rather than beside it: at this width the time
+       and the delete control were squeezing the title into three lines. */
+    .ntf-item {
+        flex-wrap: wrap;
+    }
+
+    .ntf-meta {
+        width: 100%;
+        padding-left: calc(9px + var(--ntf-s4));
+        justify-content: flex-start;
+    }
+}
