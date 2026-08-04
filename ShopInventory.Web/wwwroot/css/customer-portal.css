@@ -2966,6 +2966,44 @@
     color: var(--cpx-bad);
 }
 
+/* The same treatment `.cpd-input` gets above, for the same reason: app.css
+   turns Blazor's two validation classes into a 2px outline, and in the light
+   theme it resolves both --danger-color and --success-color to #333333, so a
+   rejected field and one the user has merely typed in wear identical
+   near-black rings and neither reads as a state. Dark swaps in a green/red
+   pair from outside the portal family.
+
+   This block arrived by a different route than the `.cpd-input` one. That fix
+   was written against /customer-portal/register's old `.form-input` markup,
+   which this branch replaced when it moved registration onto the shared
+   sign-in composition — so without restating it here the fix would have been
+   undone by the rewrite. Stating it on `.signin-input` rather than on one page
+   covers all four front-door pages, which all render a ValidationMessage.
+
+   `.valid.modified:not([type=checkbox])` is (0,3,0), so the suppression is
+   three classes deep to beat it. The border carries the state instead — the
+   same channel `:focus` uses, so a field only ever changes its edge. No focus
+   ring is restored: these fields signal focus with a box-shadow, not an
+   outline, so putting one back would double-ring them. */
+.cpx .signin-input.invalid,
+.cpx .signin-input.valid.modified {
+    outline: none;
+}
+
+.cpx .signin-input.invalid {
+    border-color: var(--cpx-bad);
+}
+
+/* What a field wants that its label has no room to say — the registration
+   page's note about where the customer code is printed. Sits under the
+   control, so it reads after the field rather than as part of the label. */
+.cpx .signin-hint {
+    margin: var(--cpx-s1) 0 0;
+    font-size: .72rem;
+    line-height: 1.45;
+    color: var(--cpx-faint);
+}
+
 /* Notices ---------------------------------------------------------------- */
 
 .cpx .signin-note {
@@ -3004,6 +3042,11 @@
 
 /* Actions ---------------------------------------------------------------- */
 
+/* Both of these are worn by a `<button>` on one page and an `<a>` on another —
+   registration's "Go to sign in" and recovery's "Request a new link" are
+   navigation once the form has done its work. Hence the underline reset and
+   the explicit line-height: an anchor brings both from elsewhere. */
+
 .cpx .signin-submit {
     display: inline-flex;
     align-items: center;
@@ -3015,13 +3058,20 @@
     font-family: "Space Grotesk", "Inter", sans-serif;
     font-size: .95rem;
     font-weight: 600;
+    line-height: 1.2;
     letter-spacing: .01em;
+    text-decoration: none;
     color: var(--cpx-on-accent);
     background: var(--cpx-accent);
     border: 1px solid var(--cpx-accent);
     border-radius: var(--cpx-r-md);
     cursor: pointer;
     transition: background-color .15s ease, border-color .15s ease;
+}
+
+.cpx .signin-submit:hover {
+    color: var(--cpx-on-accent);
+    text-decoration: none;
 }
 
 .cpx .signin-submit:hover:not(:disabled) {
@@ -3046,6 +3096,7 @@
     font: inherit;
     font-size: var(--cpx-text-sm);
     font-weight: 600;
+    text-decoration: none;
     color: var(--cpx-mute);
     background: transparent;
     border: 0;
@@ -3057,6 +3108,7 @@
 .cpx .signin-back:hover {
     background: var(--cpx-hover);
     color: var(--cpx-ink);
+    text-decoration: none;
 }
 
 .cpx .signin-spinner {
@@ -3166,6 +3218,49 @@
     .cpx .signin-hero-foot {
         flex-wrap: wrap;
     }
+}
+
+/* ==========================================================================
+   Boot
+
+   /customer-portal is a redirect: it reads the session and sends the visitor
+   to the dashboard or to sign-in. It is on screen for one render, so all it
+   has to do is be the same colour as both of those — a portal-toned page
+   rather than the Bootstrap `bg-light` it used to flash.
+
+   Like sign-in it runs on EmptyLayout, so `cpx` sits on its own root.
+   ========================================================================== */
+
+.cpx.cpx-boot {
+    display: grid;
+    place-items: center;
+    min-height: 100dvh;
+    padding: var(--cpx-s8);
+    background: var(--cpx-bg);
+    color: var(--cpx-ink);
+}
+
+.cpx .cpx-boot-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--cpx-s6);
+    text-align: center;
+}
+
+.cpx .cpx-boot-inner p {
+    margin: 0;
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute);
+}
+
+.cpx .cpx-boot-spinner {
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--cpx-divider);
+    border-top-color: var(--cpx-accent);
+    border-radius: 50%;
+    animation: cpx-spin .8s linear infinite;
 }
 
 /* ==========================================================================

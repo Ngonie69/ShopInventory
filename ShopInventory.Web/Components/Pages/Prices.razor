@@ -11,266 +11,231 @@
 
 <PageTitle>Price List - Shop Inventory</PageTitle>
 
-<div class="container-fluid">
-    <h2 class="mb-4"><i class="bi bi-tags me-2"></i>Price List</h2>
+@* Styles live in wwwroot/css/operations.css (linked from App.razor), shared
+   with the other four operational pages — see that file's header. `ops` is the
+   scope; `ops-prc` is this page's own half of it. *@
 
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0"><i class="bi bi-filter me-2"></i>Price List Selection & Search</h5>
+<div class="ops ops-prc">
+
+    <div class="ops-hero">
+        <div class="ops-hero-text">
+            <div class="ops-kicker">Master data</div>
+            <h1>Price List</h1>
+            <p>
+                Item prices as they stand on each SAP price list. Pick a list to see what it
+                charges, or search a code to read one price straight off.
+            </p>
         </div>
-        <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-4">
-                    <label class="form-label">Select Price List</label>
-                    <select class="form-select" @bind="selectedPriceListNum" @bind:after="OnPriceListChanged">
-                        <option value="0">-- Select a Price List --</option>
-                        @if (priceLists != null)
-                        {
-                            @foreach (var priceList in priceLists.Where(p => p.IsActive))
-                            {
-                                <option value="@priceList.ListNum">
-                                    @priceList.ListName @(string.IsNullOrEmpty(priceList.Currency) ? "" :
-                                    $"({priceList.Currency})")
-                                </option>
-                            }
-                        }
-                    </select>
-                    @if (isLoadingPriceLists)
-                    {
-                        <small class="text-muted mt-1 d-block">
-                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                            Loading price lists...
-                        </small>
-                    }
-                </div>
-                <div class="col-md-5">
-                    <label class="form-label">Search by Item Code or Description</label>
-                    <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-search"></i></span>
-                        <input type="text" class="form-control" @bind="searchTerm" @bind:event="oninput"
-                               @bind:after="FilterPrices" placeholder="Type to search by code or description..." />
-                        @if (!string.IsNullOrWhiteSpace(searchTerm))
-                        {
-                            <MudButton Variant="Variant.Outlined" Color="Color.Default" ButtonType="ButtonType.Button"
-                                       OnClick="ClearSearch">
-                                <i class="bi bi-x-lg"></i>
-                            </MudButton>
-                        }
-                    </div>
-                    @if (!string.IsNullOrWhiteSpace(searchTerm) && filteredPrices != null)
-                    {
-                        <small class="text-muted mt-1 d-block">
-                            Showing @filteredPrices.Count of @allPricesForList?.Count items
-                        </small>
-                    }
-                </div>
-                <div class="col-md-3 d-flex align-items-end">
-                    <MudButton Variant="Variant.Filled" Color="Color.Success" FullWidth="true"
-                               OnClick="RefreshPriceLists" Disabled="@isLoadingPriceLists">
-                        @if (isLoadingPriceLists)
-                        {
-                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                        }
-                        else
-                        {
-                            <i class="bi bi-arrow-clockwise me-1"></i>
-                        }
-                        Refresh
-                    </MudButton>
-                </div>
-            </div>
+        <div class="ops-hero-actions">
+            <button type="button" class="ops-btn ops-btn-primary" @onclick="RefreshPriceLists"
+                    disabled="@isLoadingPriceLists">
+                @if (isLoadingPriceLists)
+                {
+                    <span class="ops-spin"></span>
+                    <span>Refreshing&hellip;</span>
+                }
+                else
+                {
+                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    <span>Refresh</span>
+                }
+            </button>
+        </div>
+    </div>
 
+    <section class="ops-panel">
+        <div class="ops-panel-head">
+            <h2><i class="ph ph-tag" aria-hidden="true"></i>@(selectedPriceList?.ListName ?? "Select a price list")</h2>
             @if (selectedPriceList != null)
             {
-                <div class="alert alert-info mt-3 mb-0">
-                    <div class="d-flex align-items-center">
-                        <i class="bi bi-info-circle me-2"></i>
-                        <div>
-                            <strong>@selectedPriceList.ListName</strong>
-                            @if (!string.IsNullOrEmpty(selectedPriceList.Currency))
-                            {
-                                <span class="badge bg-primary ms-2">@selectedPriceList.Currency</span>
-                            }
-                            @if (selectedPriceList.Factor.HasValue && selectedPriceList.Factor != 1)
-                            {
-                                <span class="badge bg-secondary ms-2">Factor:
-                                    @selectedPriceList.Factor.Value.ToString("N2")</span>
-                                }
-                            </div>
-                        </div>
-                    </div>
+                <span class="ops-badge ops-fam-accent">@(string.IsNullOrEmpty(selectedPriceList.Currency)
+                    ? "No currency" : selectedPriceList.Currency)</span>
+                @if (selectedPriceList.Factor.HasValue && selectedPriceList.Factor != 1)
+                {
+                    <span class="ops-badge ops-fam-neutral">Factor @selectedPriceList.Factor.Value.ToString("N2")</span>
+                }
+            }
+            @if (filteredPrices != null)
+            {
+                <span class="ops-count">
+                    @filteredPrices.Count@(allPricesForList != null ? $" of {allPricesForList.Count}" : "") items
+                </span>
+            }
+        </div>
+
+        <div class="ops-filters">
+            <div class="ops-field">
+                <label class="ops-label" for="prc-list">Price list</label>
+                <select id="prc-list" class="ops-input" @bind="selectedPriceListNum" @bind:after="OnPriceListChanged">
+                    <option value="0">Select a price list</option>
+                    @if (priceLists != null)
+                    {
+                        @foreach (var priceList in priceLists.Where(p => p.IsActive))
+                        {
+                            <option value="@priceList.ListNum">
+                                @priceList.ListName@(string.IsNullOrEmpty(priceList.Currency) ? "" : $" ({priceList.Currency})")
+                            </option>
+                        }
+                    }
+                </select>
+            </div>
+            <div class="ops-field">
+                <label class="ops-label" for="prc-search">Search items</label>
+                <div class="ops-search">
+                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                    <input id="prc-search" type="search" class="ops-input" placeholder="Item code or description"
+                           disabled="@(selectedPriceListNum == 0)"
+                           @bind="searchTerm" @bind:event="oninput" @bind:after="FilterPrices" />
+                </div>
+            </div>
+            <div class="ops-filter-actions">
+                @if (!string.IsNullOrWhiteSpace(searchTerm))
+                {
+                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearSearch">
+                        <i class="ph ph-x-circle" aria-hidden="true"></i>Clear
+                    </button>
                 }
             </div>
         </div>
 
         @if (isLoading)
         {
-            <div class="text-center py-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                <p class="mt-2">Loading prices for @(selectedPriceList?.ListName ?? "selected list")...</p>
+            <div class="ops-loading">
+                <span class="ops-spin ops-spin-lg"></span>
+                <p>Loading prices for @(selectedPriceList?.ListName ?? "the selected list")&hellip;</p>
             </div>
         }
         else if (errorMessage != null)
         {
-            <div class="alert alert-danger">
-                <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
+            <div class="ops-empty">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <h3>Could not load prices</h3>
+                <p>@errorMessage</p>
+                <div class="ops-empty-actions">
+                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="ForceRefreshPrices">Retry</button>
+                </div>
             </div>
         }
         else if (selectedPriceListNum == 0)
         {
-            <div class="alert alert-info">
-                <i class="bi bi-info-circle me-2"></i>
-                Select a price list above to view item prices.
-            </div>
-
-            <!-- Show available price lists as cards -->
-            @if (priceLists?.Any() == true)
+            @* No list chosen, so the page offers the lists themselves. Cards
+               rather than a table: it is a choice, not something to compare
+               column-wise. *@
+            @if (priceLists?.Any(p => p.IsActive) == true)
             {
-                <div class="row g-4 mt-3">
+                <div class="ops-prc-lists">
                     @foreach (var priceList in priceLists.Where(p => p.IsActive).OrderBy(p => p.ListNum))
                     {
-                        <div class="col-md-4 col-lg-3">
-                            <div class="card h-100 cursor-pointer price-list-card" @onclick="() => SelectPriceList(priceList.ListNum)">
-                                <div class="card-body text-center">
-                                    <i class="bi bi-tags fs-1 text-primary mb-2"></i>
-                                    <h5 class="card-title">@priceList.ListName</h5>
-                                    <p class="card-text">
-                                        @if (!string.IsNullOrEmpty(priceList.Currency))
-                                        {
-                                            <span class="badge bg-success">@priceList.Currency</span>
-                                        }
-                                        <span class="badge bg-secondary">List #@priceList.ListNum</span>
-                                    </p>
-                                </div>
-                                <div class="card-footer bg-transparent border-top-0 text-center">
-                                    <small class="text-muted">Click to view prices</small>
-                                </div>
-                            </div>
-                        </div>
+                        <button type="button" class="ops-prc-list" @onclick="() => SelectPriceList(priceList.ListNum)">
+                            <span class="ops-prc-list-name">@priceList.ListName</span>
+                            <span class="ops-prc-list-meta">
+                                @if (!string.IsNullOrEmpty(priceList.Currency))
+                                {
+                                    <span class="ops-badge ops-fam-good">@priceList.Currency</span>
+                                }
+                                <span class="ops-badge ops-fam-neutral">List @priceList.ListNum</span>
+                            </span>
+                        </button>
                     }
+                </div>
+            }
+            else
+            {
+                <div class="ops-empty">
+                    <i class="ph ph-tag" aria-hidden="true"></i>
+                    <h3>No price lists</h3>
+                    <p>Nothing has been synced from SAP yet.</p>
                 </div>
             }
         }
         else if (searchedPrice != null)
         {
-            <div class="card mb-4">
-                <div class="card-header bg-info text-white">
-                    <h5 class="mb-0">Search Result</h5>
+            @* One exact match, so the price is the page. *@
+            <div class="ops-prc-hit">
+                <div>
+                    <div class="ops-code">@searchedPrice.ItemCode</div>
+                    <h3>@searchedPrice.ItemName</h3>
+                    <div class="ops-sub">@(selectedPriceList?.ListName ?? "Price")</div>
                 </div>
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-6">
-                            <h4>@searchedPrice.ItemName</h4>
-                            <p class="text-muted mb-3">Item Code: <strong>@searchedPrice.ItemCode</strong></p>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="card bg-success bg-opacity-10">
-                                <div class="card-body text-center">
-                                    <h6 class="text-muted">@(selectedPriceList?.ListName ?? "Price")</h6>
-                                    <h3 class="text-success mb-0">
-                                        @GetCurrencySymbol(selectedPriceList?.Currency)@searchedPrice.Price.ToString("N2")
-                                    </h3>
-                                    @if (!string.IsNullOrEmpty(selectedPriceList?.Currency))
-                                    {
-                                        <small class="text-muted">@selectedPriceList.Currency</small>
-                                    }
-                                </div>
-                            </div>
-                        </div>
+                <div>
+                    <div class="ops-prc-hit-price">
+                        @GetCurrencySymbol(selectedPriceList?.Currency)@searchedPrice.Price.ToString("N2")
                     </div>
+                    @if (!string.IsNullOrEmpty(selectedPriceList?.Currency))
+                    {
+                        <div class="ops-sub">@selectedPriceList.Currency</div>
+                    }
                 </div>
             </div>
         }
         else if (filteredPrices?.Any() == true)
         {
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">
-                        @(selectedPriceList?.ListName ?? "Prices")
-                        @if (!string.IsNullOrEmpty(selectedPriceList?.Currency))
+            <div class="ops-scroll ops-tall">
+                <table class="ops-table">
+                    <thead>
+                        <tr>
+                            <th>Item code</th>
+                            <th>Item name</th>
+                            <th class="ops-num">Price @(string.IsNullOrEmpty(selectedPriceList?.Currency)
+                                ? "" : $"({selectedPriceList.Currency})")</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in filteredPrices)
                         {
-                            <span class="badge bg-primary ms-2">@selectedPriceList.Currency</span>
+                            <tr>
+                                <td><span class="ops-code">@HighlightMatch(item.ItemCode, searchTerm)</span></td>
+                                <td class="ops-name">@HighlightMatch(item.ItemName, searchTerm)</td>
+                                <td class="ops-num">
+                                    <span class="ops-qty">
+                                        @GetCurrencySymbol(selectedPriceList?.Currency)@item.Price.ToString("N2")
+                                    </span>
+                                </td>
+                            </tr>
                         }
-                    </h5>
-                    <span class="badge bg-primary">@filteredPrices.Count items</span>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-                        <table class="table table-hover table-sm">
-                            <thead class="table-light sticky-top">
-                                <tr>
-                                    <th>Item Code</th>
-                                    <th>Item Name</th>
-                                    <th class="text-end">Price (@(selectedPriceList?.Currency ?? ""))</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var item in filteredPrices)
-                                {
-                                    <tr>
-                                        <td><strong>@HighlightMatch(item.ItemCode, searchTerm)</strong></td>
-                                        <td>@HighlightMatch(item.ItemName, searchTerm)</td>
-                                        <td class="text-end">
-                                            <span class="text-success fw-bold">
-                                                @GetCurrencySymbol(selectedPriceList?.Currency)@item.Price.ToString("N2")
-                                            </span>
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                    </tbody>
+                </table>
             </div>
         }
         else if (allPricesForList != null && !string.IsNullOrWhiteSpace(searchTerm))
         {
-            <div class="alert alert-warning">
-                <i class="bi bi-search me-2"></i>
-                No items found matching "<strong>@searchTerm</strong>". Try a different search term.
+            <div class="ops-empty">
+                <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                <h3>Nothing matches "@searchTerm"</h3>
+                <p>Try a shorter term, or a code rather than a description.</p>
+                <div class="ops-empty-actions">
+                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearSearch">Clear search</button>
+                </div>
             </div>
         }
-        else if (selectedPriceListNum > 0 && allPricesForList?.Count == 0)
+        else if (allPricesForList?.Count == 0)
         {
-            <div class="alert alert-warning d-flex align-items-center justify-content-between">
-                <span>
-                    <i class="bi bi-exclamation-triangle me-2"></i>
-                    No items found in this price list. It may not have been synced yet or the list is empty in SAP.
-                </span>
-                <MudButton Variant="Variant.Outlined" Color="Color.Warning" Size="Size.Small" Class="ms-3"
-                           OnClick="ForceRefreshPrices" Disabled="@isLoading">
-                    <i class="bi bi-arrow-clockwise me-1"></i>Retry from SAP
-                </MudButton>
+            <div class="ops-empty">
+                <i class="ph ph-tag" aria-hidden="true"></i>
+                <h3>This list is empty</h3>
+                <p>It may not have been synced yet, or the list has no items in SAP.</p>
+                <div class="ops-empty-actions">
+                    <button type="button" class="ops-btn ops-btn-warn" @onclick="ForceRefreshPrices" disabled="@isLoading">
+                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Retry from SAP
+                    </button>
+                </div>
             </div>
         }
-        else if (selectedPriceListNum > 0 && allPricesForList == null)
+        else
         {
-            <div class="alert alert-danger d-flex align-items-center justify-content-between">
-                <span>
-                    <i class="bi bi-exclamation-circle me-2"></i>
-                    Failed to load prices from the server. Please check your connection and try again.
-                </span>
-                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" Class="ms-3"
-                           OnClick="ForceRefreshPrices" Disabled="@isLoading">
-                    <i class="bi bi-arrow-clockwise me-1"></i>Retry
-                </MudButton>
+            <div class="ops-empty">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <h3>Could not reach the server</h3>
+                <p>Check the connection and try again.</p>
+                <div class="ops-empty-actions">
+                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="ForceRefreshPrices" disabled="@isLoading">
+                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Retry
+                    </button>
+                </div>
             </div>
         }
-    </div>
-
-    <style>
-        .price-list-card {
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        .price-list-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-        }
-    </style>
+    </section>
+</div>
 
 @code {
     private List<PriceListDto>? priceLists;
@@ -437,6 +402,9 @@
         }
     }
 
+    // The match is marked with a bare <mark>, which operations.css dresses as an
+    // underline. Bootstrap's `.bg-warning` used to fill it, which on a page of
+    // matches was louder than the rows themselves.
     private MarkupString HighlightMatch(string? text, string? search)
     {
         if (string.IsNullOrEmpty(text) || string.IsNullOrWhiteSpace(search))
@@ -450,7 +418,7 @@
         var match = System.Web.HttpUtility.HtmlEncode(text.Substring(index, search.Length));
         var after = System.Web.HttpUtility.HtmlEncode(text[(index + search.Length)..]);
 
-        return new MarkupString($"{before}<mark class=\"bg-warning px-0\">{match}</mark>{after}");
+        return new MarkupString($"{before}<mark>{match}</mark>{after}");
     }
 
     private string GetCurrencySymbol(string? currency)

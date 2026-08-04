@@ -95,6 +95,12 @@
     <link rel="stylesheet" href="@Assets["css/webhooks.css"]" />
     <link rel="stylesheet" href="@Assets["css/user-activity.css"]" />
     <link rel="stylesheet" href="@Assets["css/user-management.css"]" />
+    @* Both merchandiser admin pages, derived from user-management.css above and
+       sharing its shape — see that sheet's header. *@
+    <link rel="stylesheet" href="@Assets["css/merchandiser.css"]" />
+    @* The five operational pages, derived from audit-trail.css — one `.ops`
+       scope with a vocabulary per page. See that sheet's header. *@
+    <link rel="stylesheet" href="@Assets["css/operations.css"]" />
     @* Not a page: the shared Nocturne date field, which carries its own copy of
        the palette because a component cannot see a page's own tokens. *@
     <link rel="stylesheet" href="@Assets["css/nocturne-date-field.css"]" />

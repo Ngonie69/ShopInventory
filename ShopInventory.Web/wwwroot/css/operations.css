@@ -1,0 +1,1850 @@
+/* ==========================================================================
+   Operations — Nocturne
+
+   The five operational pages, on one sheet:
+
+     /gl-accounts           `.ops.ops-gl`   chart of accounts, synced from SAP
+     /prices                `.ops.ops-prc`  a price list's items
+     /stock                 `.ops.ops-stk`  stock levels for one warehouse
+     /route-customers       `.ops.ops-rc`   locally captured customers by route
+     /desktop-transactions  `.ops.ops-dt`   the desktop sync queues
+
+   A derivation, not an import: no design exists for any of them, so this
+   follows the documented fallback and takes its vocabulary from
+   audit-trail.css — the sibling picked by page *shape*. Four of these five are
+   the same page: a stated hero, a row of figures, a filter row, one long
+   sortable table, a pager, and a detail overlay. That is what the audit trail
+   is, so almost nothing here is new.
+
+   **One scope, five vocabularies**, the way customer-portal.css is built
+   rather than the way merchandiser.css is. `.ops` carries the token block, the
+   type context and every shared part — buttons, controls, panel, table,
+   badges, pager, states. A page adds `.ops-<page>` for what is genuinely its
+   own: the health meter on /stock, the route grouping on /route-customers, the
+   queue pills on /desktop-transactions. Five parallel root classes would have
+   meant writing the table five times, which is the thing that drifts.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system. Light is the base and `.dark-theme` the override, both
+   stated there; this sheet needs no `.dark-theme` block of its own.
+
+   `.ops-overlay` repeats the token block and the font context. The drawers and
+   dialogs are siblings of the page element rather than children, so they would
+   otherwise inherit neither, and every control inside them would fall back to
+   Bootstrap's 16px. It deliberately omits the root's `min-height` and
+   `background` — a scrim carrying `min-height: 100vh` hangs a topbar below the
+   fold.
+
+   Every control selector is two classes deep (`.ops .ops-input`, 0-2-0) so it
+   out-specifies app.css's global `.dark-theme input/select/textarea` block at
+   (0,1,1) regardless of load order. Headings are pinned to Nocturne's 500
+   against Bootstrap's global `h1-h6 { font-weight: 600 }`, and the button and
+   badge names are namespaced so Bootstrap's `.btn-primary` and `.badge` cannot
+   reach them.
+
+   **Three of these pages were wearing shared class names, and those names are
+   still live elsewhere.** /stock's markup used bare `stat-card`, `filter-bar`,
+   `filter-field`, `empty-state`, `loading-state`, `detail-drawer`,
+   `alert-banner` and `item-code` — all of which app.css styles, and all of
+   which three to six *other* pages still use. So this conversion renames them
+   in /stock's markup only and leaves every app.css rule alone. Deleting those
+   rules because /stock stopped calling them would have silently restyled
+   /local-stock and its siblings.
+
+   Two departures worth naming:
+
+   - Every one of these pages opened with a filled gradient tile beside its
+     title, and /stock and /gl-accounts carried four more inside their figures.
+     Nocturne does not put a flooded square beside a heading; the hue moves to
+     the figure and its label.
+   - The status colours were fourteen hard-coded fill-and-ink pairs across the
+     five pages — /stock alone had green/amber/red three times over, for the
+     dot, the quantity and the meter. They are family tokens now, so a healthy
+     row reads as one colour in all three places.
+   ========================================================================== */
+
+.ops,
+.ops-overlay {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --ops-bg: var(--noct-bg);
+    --ops-surface: var(--noct-surface);
+    --ops-wash: var(--noct-wash);
+    --ops-ink: var(--noct-ink);
+    --ops-ink-2: var(--noct-ink-2);
+    --ops-mute: var(--noct-mute);
+    --ops-mute-2: var(--noct-mute-2);
+    --ops-mute-3: var(--noct-mute-3);
+    --ops-faint: var(--noct-faint);
+    --ops-placeholder: var(--noct-placeholder);
+    --ops-divider: var(--noct-divider);
+    --ops-rule: var(--noct-rule);
+    --ops-hover: var(--noct-hover);
+    --ops-press: var(--noct-press);
+    --ops-field-bg: var(--noct-field-bg);
+    --ops-field-edge: var(--noct-field-edge);
+    --ops-field-edge-hi: var(--noct-field-edge-hi);
+    --ops-accent: var(--noct-accent);
+    --ops-accent-rgb: var(--noct-accent-rgb);
+    --ops-accent-text: var(--noct-accent-text);
+    --ops-box: var(--noct-box);
+    --ops-thumb: var(--noct-thumb);
+    --ops-scrim: var(--noct-scrim);
+    --ops-shadow-lg: var(--noct-shadow-lg);
+    --ops-shadow-pop: var(--noct-shadow-pop);
+    --ops-caret: var(--noct-caret);
+    --ops-clear: var(--noct-clear);
+    --ops-scheme: var(--noct-scheme);
+
+    /* Families — a status takes good / warn / bad, a type takes accent or
+       info, and anything switched off takes neutral. */
+    --ops-fam-neutral: var(--noct-fam-neutral);
+    --ops-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --ops-fam-accent: var(--noct-fam-accent);
+    --ops-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --ops-fam-info: var(--noct-fam-info);
+    --ops-fam-info-rgb: var(--noct-fam-info-rgb);
+    --ops-fam-good: var(--noct-fam-good);
+    --ops-fam-good-rgb: var(--noct-fam-good-rgb);
+    --ops-fam-warn: var(--noct-fam-warn);
+    --ops-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --ops-fam-bad: var(--noct-fam-bad);
+    --ops-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --ops-s1: var(--noct-s1);
+    --ops-s2: var(--noct-s2);
+    --ops-s3: var(--noct-s3);
+    --ops-s4: var(--noct-s4);
+    --ops-s6: var(--noct-s6);
+    --ops-s8: var(--noct-s8);
+    --ops-r-sm: var(--noct-r-sm);
+    --ops-r-md: var(--noct-r-md);
+    --ops-r-lg: var(--noct-r-lg);
+
+    --ops-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+
+    color-scheme: var(--ops-scheme);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.ops {
+    min-height: 100vh;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    background: var(--ops-bg);
+    color: var(--ops-ink);
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s8);
+}
+
+.ops *,
+.ops-overlay * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside these pages that would flatten the family hues the badges
+   and status marks carry on WebKit, so hand the fill back to `color`. */
+.ops,
+.ops *,
+.ops-overlay,
+.ops-overlay * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.ops :focus-visible,
+.ops-overlay :focus-visible {
+    outline: 2px solid var(--ops-accent);
+    outline-offset: 2px;
+}
+
+.ops ::selection,
+.ops-overlay ::selection {
+    background: rgba(var(--ops-accent-rgb), .3);
+}
+
+.ops h1,
+.ops h2,
+.ops h3,
+.ops h4,
+.ops-overlay h2,
+.ops-overlay h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* Blazor stamps `valid`/`invalid` on every field a validator has seen, and
+   app.css rings both at (0,1,0) — with `--success-color` and `--danger-color`
+   both #333333 in the light theme, so the two states are the same near-black
+   ring and a merely-typed-in field gets one at all. Suppressed here, carried
+   on the border below, and handed back on focus because the outline is this
+   sheet's focus ring for everything else. */
+.ops .ops-input.invalid,
+.ops .ops-input.valid.modified,
+.ops-overlay .ops-input.invalid,
+.ops-overlay .ops-input.valid.modified {
+    outline: 0;
+}
+
+.ops .ops-input.invalid,
+.ops-overlay .ops-input.invalid {
+    border-color: rgba(var(--ops-fam-bad-rgb), .55);
+}
+
+.ops .ops-input.invalid:focus-visible,
+.ops .ops-input.valid.modified:focus-visible,
+.ops-overlay .ops-input.invalid:focus-visible,
+.ops-overlay .ops-input.valid.modified:focus-visible {
+    outline: 2px solid var(--ops-accent);
+    outline-offset: 0;
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.ops-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.ops-hero-text {
+    min-width: 0;
+}
+
+.ops-kicker {
+    margin-bottom: 9px;
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ops-accent-text);
+}
+
+.ops-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.ops-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--ops-mute-2);
+    max-width: 56ch;
+    text-wrap: pretty;
+}
+
+.ops-hero-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    flex-wrap: wrap;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.ops .ops-btn,
+.ops-overlay .ops-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--ops-s2) calc(var(--ops-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--ops-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--ops-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.ops .ops-btn:disabled,
+.ops-overlay .ops-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.ops .ops-btn-primary,
+.ops-overlay .ops-btn-primary {
+    color: var(--ops-accent);
+    border-color: var(--ops-accent);
+    letter-spacing: .02em;
+}
+
+.ops .ops-btn-primary:hover:not(:disabled),
+.ops-overlay .ops-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--ops-accent-rgb), .12);
+}
+
+.ops .ops-btn-primary:active:not(:disabled),
+.ops-overlay .ops-btn-primary:active:not(:disabled) {
+    background: rgba(var(--ops-accent-rgb), .22);
+}
+
+.ops .ops-btn-ghost,
+.ops-overlay .ops-btn-ghost {
+    color: var(--ops-mute-2);
+    border-color: var(--ops-divider);
+}
+
+.ops .ops-btn-ghost:hover:not(:disabled),
+.ops-overlay .ops-btn-ghost:hover:not(:disabled) {
+    color: var(--ops-ink);
+    border-color: var(--ops-field-edge-hi);
+    background: var(--ops-hover);
+}
+
+.ops .ops-btn-warn,
+.ops-overlay .ops-btn-warn {
+    color: var(--ops-fam-warn);
+    border-color: rgba(var(--ops-fam-warn-rgb), .55);
+}
+
+.ops .ops-btn-warn:hover:not(:disabled),
+.ops-overlay .ops-btn-warn:hover:not(:disabled) {
+    background: rgba(var(--ops-fam-warn-rgb), .12);
+    border-color: var(--ops-fam-warn);
+}
+
+.ops .ops-btn-danger,
+.ops-overlay .ops-btn-danger {
+    color: var(--ops-fam-bad);
+    border-color: rgba(var(--ops-fam-bad-rgb), .55);
+}
+
+.ops .ops-btn-danger:hover:not(:disabled),
+.ops-overlay .ops-btn-danger:hover:not(:disabled) {
+    background: rgba(var(--ops-fam-bad-rgb), .12);
+    border-color: var(--ops-fam-bad);
+}
+
+.ops .ops-btn-sm,
+.ops-overlay .ops-btn-sm {
+    height: 26px;
+    padding: 0 var(--ops-s3);
+    font-size: 11.5px;
+}
+
+.ops .ops-icon-btn,
+.ops-overlay .ops-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ops-r-sm);
+    background: transparent;
+    color: var(--ops-mute-2);
+    cursor: pointer;
+    font-size: 13px;
+    transition: background-color .13s, color .13s;
+}
+
+.ops .ops-icon-btn:hover,
+.ops-overlay .ops-icon-btn:hover {
+    background: var(--ops-press);
+    color: var(--ops-ink);
+}
+
+.ops .ops-icon-btn-danger:hover,
+.ops-overlay .ops-icon-btn-danger:hover {
+    background: rgba(var(--ops-fam-bad-rgb), .12);
+    color: var(--ops-fam-bad);
+}
+
+/* ── Figures ───────────────────────────────────────────────────────────── */
+/* The hue is carried by the number and the label, not by a tile beside them.
+   A figure only takes a family when its value *means* something — an alert
+   count that is zero is good news and stays neutral. */
+
+.ops-figures {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: var(--ops-s4);
+}
+
+.ops-figure {
+    padding: var(--ops-s6) 18px;
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-lg);
+    background:
+        linear-gradient(155deg, rgba(var(--ops-fam-rgb, 94, 100, 131), .12), transparent 62%),
+        var(--ops-surface);
+    min-width: 0;
+}
+
+.ops-figure-head {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--ops-fam, var(--ops-mute-2));
+}
+
+.ops-figure-rule {
+    width: 12px;
+    height: 1px;
+    flex: none;
+    background: var(--ops-fam, var(--ops-mute-3));
+}
+
+.ops-figure-num {
+    margin-top: var(--ops-s4);
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-fam, var(--ops-ink));
+}
+
+.ops-figure-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--ops-mute-2);
+}
+
+/* ── Families ──────────────────────────────────────────────────────────── */
+/* One class sets a hue and its channel; everything that carries a family —
+   figure, badge, dot, quantity, meter — reads both from the same pair, so a
+   row cannot disagree with itself. */
+
+.ops-fam-neutral {
+    --ops-fam: var(--ops-fam-neutral);
+    --ops-fam-rgb: var(--ops-fam-neutral-rgb);
+}
+
+.ops-fam-accent {
+    --ops-fam: var(--ops-fam-accent);
+    --ops-fam-rgb: var(--ops-fam-accent-rgb);
+}
+
+.ops-fam-info {
+    --ops-fam: var(--ops-fam-info);
+    --ops-fam-rgb: var(--ops-fam-info-rgb);
+}
+
+.ops-fam-good {
+    --ops-fam: var(--ops-fam-good);
+    --ops-fam-rgb: var(--ops-fam-good-rgb);
+}
+
+.ops-fam-warn {
+    --ops-fam: var(--ops-fam-warn);
+    --ops-fam-rgb: var(--ops-fam-warn-rgb);
+}
+
+.ops-fam-bad {
+    --ops-fam: var(--ops-fam-bad);
+    --ops-fam-rgb: var(--ops-fam-bad-rgb);
+}
+
+/* ── Badges ────────────────────────────────────────────────────────────── */
+
+.ops .ops-badge,
+.ops-overlay .ops-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 400;
+    letter-spacing: .04em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--ops-fam, var(--ops-mute));
+    background: rgba(var(--ops-fam-rgb, 94, 100, 131), .14);
+}
+
+/* A status told by a mark rather than a word — /stock's per-row health, where
+   the row already carries three numbers and a fourth word would crowd them. */
+.ops-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--ops-fam, var(--ops-mute-3));
+}
+
+/* ── Panel ─────────────────────────────────────────────────────────────── */
+/* A wash that falls away into the ground over its first 240px rather than a
+   filled card — the design's one gradient.
+
+   Deliberately not clipped: /stock and /gl-accounts drop a select's menu out
+   of the filter row, and an `overflow` other than `visible` on an ancestor
+   cuts it off at the panel edge. Nothing is lost — a background is clipped to
+   the border radius anyway, and the rows that paint on hover are inside
+   `.ops-scroll`. */
+
+.ops-panel {
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-lg);
+    background: linear-gradient(to bottom, var(--ops-wash), transparent 240px);
+}
+
+.ops-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s4);
+    padding: var(--ops-s4) var(--ops-s8);
+    flex-wrap: wrap;
+}
+
+.ops-panel-head h2 {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.ops-panel-head h2 i {
+    font-size: 15px;
+    line-height: 1;
+    color: var(--ops-mute-3);
+}
+
+.ops-count {
+    font-size: 12.5px;
+    color: var(--ops-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-panel-tools {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+.ops-filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--ops-s4);
+    padding: 0 var(--ops-s8) var(--ops-s4);
+    align-items: end;
+}
+
+.ops-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.ops-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ops-mute-3);
+}
+
+.ops-field small,
+.ops-hint {
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+    text-wrap: pretty;
+}
+
+.ops-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+/* Every one of these is two classes deep so it beats app.css's global
+   `.dark-theme input/select/textarea` block regardless of load order. */
+
+.ops .ops-input,
+.ops-overlay .ops-input,
+.ops-overlay textarea.ops-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--ops-ink);
+    caret-color: var(--ops-accent);
+    background: var(--ops-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--ops-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.ops textarea.ops-input,
+.ops-overlay textarea.ops-input {
+    min-height: 76px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+/* The caret is drawn into the field rather than into a wrapper: these selects
+   are used bare in the markup, with no element to hang a pseudo-caret on. */
+.ops select.ops-input,
+.ops-overlay select.ops-input {
+    padding-right: 30px;
+    background-image: var(--ops-caret);
+    background-repeat: no-repeat;
+    background-position: right 11px center;
+    cursor: pointer;
+}
+
+/* The popup is a platform window, so no rule here reaches inside it — but it
+   takes its fill from the *field*, and the field above is a translucent wash
+   (`--noct-field-bg` is rgba(243,245,254,.05) in dark). The browser composites
+   that 5%-white onto white and then ignores `color-scheme: dark` for the
+   popup, while the options inherit the field's light ink: near-white on
+   near-white, present and focusable and invisible.
+
+   `--ops-surface` rather than `--ops-field-bg` on purpose — the popup needs an
+   opaque fill, and surface is the token that is opaque in both themes. It
+   never reproduces in light, so a light-mode screenshot proves nothing here.
+   See .claude/skills/nocturne-dropdowns-and-dates. */
+.ops select.ops-input option,
+.ops select.ops-input optgroup,
+.ops-overlay select.ops-input option,
+.ops-overlay select.ops-input optgroup {
+    color: var(--ops-ink);
+    background-color: var(--ops-surface);
+}
+
+.ops .ops-input:hover,
+.ops-overlay .ops-input:hover {
+    border-color: var(--ops-field-edge);
+}
+
+.ops .ops-input:focus-visible,
+.ops-overlay .ops-input:focus-visible {
+    border-color: rgba(var(--ops-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.ops .ops-input::placeholder,
+.ops-overlay .ops-input::placeholder {
+    color: var(--ops-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--ops-placeholder);
+}
+
+.ops .ops-input:disabled,
+.ops-overlay .ops-input:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+/* The pill-shaped search these pages open a list with. */
+.ops-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.ops-search i {
+    position: absolute;
+    left: 12px;
+    pointer-events: none;
+    font-size: 13px;
+    color: var(--ops-mute-3);
+}
+
+.ops .ops-search .ops-input {
+    padding-left: 33px;
+    border-radius: 999px;
+}
+
+.ops .ops-input[type="search"]::-webkit-search-cancel-button,
+.ops-overlay .ops-input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    margin-left: var(--ops-s2);
+    background: var(--ops-clear) no-repeat center / contain;
+    opacity: .7;
+    cursor: pointer;
+}
+
+.ops .ops-input[type="search"]::-webkit-search-cancel-button:hover,
+.ops-overlay .ops-input[type="search"]::-webkit-search-cancel-button:hover {
+    opacity: 1;
+}
+
+/* Native checkboxes keep the keyboard and screen-reader behaviour the control
+   has for free; only the fill is ours. `appearance` and `background-color` are
+   restated, not just `accent-color`, because app.css's dark-theme block sets
+   `appearance: none` on bare `input` — which strips the tick glyph and paints
+   the box flat slate, so a ticked box and an unticked one look identical. */
+.ops input[type="checkbox"],
+.ops-overlay input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    margin: 0;
+    appearance: auto;
+    -webkit-appearance: checkbox;
+    background-color: initial;
+    accent-color: var(--ops-box);
+    cursor: pointer;
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────── */
+/* These pages ship real `<table>` markup, and it stays: the sortable headers,
+   the `data-label` mobile-card fallback and the numeric alignment all hang off
+   it. Only what the cells resolve to changes.
+
+   Bootstrap's `.table` is not used — its `--bs-table-bg` and striping paint
+   over the panel's own wash, and its border colour is from a different system.
+   `ops-table` replaces it outright rather than overriding it. */
+
+.ops-scroll {
+    overflow-x: auto;
+}
+
+.ops .ops-table {
+    width: 100%;
+    margin: 0;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.ops .ops-table thead th {
+    padding: var(--ops-s4);
+    border: 0;
+    border-bottom: 1px solid var(--ops-divider);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ops-mute-3);
+    text-align: left;
+    white-space: nowrap;
+    vertical-align: bottom;
+}
+
+/* The head pins only inside `.ops-tall`, which is the element that actually
+   scrolls. Pinning it unconditionally would pin it against the *page* on the
+   short tables — and `.ops-scroll` is a scrollport in both axes (an
+   `overflow-x: auto` with a visible `overflow-y` computes to `auto`), so the
+   header would stick to the wrong box and sit over the first rows. It also
+   needs an opaque ground of its own: the panel behind it is a gradient, so a
+   transparent head lets the rows scroll through it. */
+.ops .ops-tall .ops-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--ops-surface);
+}
+
+.ops .ops-table thead th:first-child {
+    padding-left: var(--ops-s8);
+}
+
+.ops .ops-table thead th:last-child {
+    padding-right: var(--ops-s8);
+}
+
+/* A sortable head is a button in everything but tag name. */
+.ops .ops-table th.ops-th-sort {
+    cursor: pointer;
+    user-select: none;
+    transition: color .14s;
+}
+
+.ops .ops-table th.ops-th-sort:hover {
+    color: var(--ops-ink);
+}
+
+.ops-sort-mark {
+    display: inline-block;
+    margin-left: 5px;
+    font-size: 11px;
+    line-height: 1;
+    color: var(--ops-accent);
+}
+
+.ops .ops-table tbody td {
+    padding: 11px var(--ops-s4);
+    border: 0;
+    border-top: 1px solid var(--ops-rule);
+    color: var(--ops-ink-2);
+    vertical-align: middle;
+}
+
+.ops .ops-table tbody td:first-child {
+    padding-left: var(--ops-s8);
+}
+
+.ops .ops-table tbody td:last-child {
+    padding-right: var(--ops-s8);
+}
+
+.ops .ops-table tbody tr {
+    transition: background-color .12s ease;
+}
+
+.ops .ops-table tbody tr:hover {
+    background: var(--ops-hover);
+}
+
+.ops .ops-table tbody tr:first-child td {
+    border-top: 0;
+}
+
+/* A row that differs is marked at its edge rather than by washing the whole
+   line — the badges and numbers in it have to stay readable. */
+.ops .ops-table tbody tr.ops-row-warn td {
+    box-shadow: inset 0 0 0 rgba(0, 0, 0, 0);
+}
+
+.ops .ops-table tbody tr.ops-row-warn td:first-child {
+    box-shadow: inset 3px 0 0 var(--ops-fam-warn);
+}
+
+.ops .ops-table tbody tr.ops-row-warn {
+    background: rgba(var(--ops-fam-warn-rgb), .05);
+}
+
+.ops .ops-table tbody tr.ops-row-warn:hover {
+    background: rgba(var(--ops-fam-warn-rgb), .1);
+}
+
+.ops .ops-table tbody tr.ops-row-bad td:first-child {
+    box-shadow: inset 3px 0 0 var(--ops-fam-bad);
+}
+
+.ops .ops-table tbody tr.ops-row-bad {
+    background: rgba(var(--ops-fam-bad-rgb), .05);
+}
+
+.ops .ops-table tbody tr.ops-row-bad:hover {
+    background: rgba(var(--ops-fam-bad-rgb), .1);
+}
+
+/* Numeric columns. Tabular figures so a column of them lines up, which is the
+   whole reason these pages are tables and not cards. */
+.ops-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.ops-mid {
+    text-align: center;
+}
+
+/* The head has to be told twice. `.ops .ops-table thead th` sets
+   `text-align: left` at (0,2,2), which beats a bare `.ops-num` at (0,1,0) — so
+   without these the numbers right-align and their heading does not, and the
+   column reads as two columns. Same for the centred ones. */
+.ops .ops-table thead th.ops-num {
+    text-align: right;
+}
+
+.ops .ops-table thead th.ops-mid {
+    text-align: center;
+}
+
+/* A code — an item, an account, a customer. Monospace so a column of them
+   aligns and so it reads as data rather than as a word. */
+.ops-code {
+    font-family: var(--ops-mono);
+    font-size: 11.5px;
+    color: var(--ops-ink-2);
+    white-space: nowrap;
+}
+
+/* The name beside a code: the long column, and the one that has to give. */
+.ops-name {
+    color: var(--ops-ink-2);
+    min-width: 0;
+}
+
+.ops-sub {
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+}
+
+/* A quantity that carries a meaning takes the family; a plain one does not. */
+.ops-qty {
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-fam, var(--ops-ink-2));
+}
+
+.ops-unit {
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--ops-mute-3);
+}
+
+/* ── Pagination ────────────────────────────────────────────────────────── */
+
+.ops-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ops-s4);
+    flex-wrap: wrap;
+    padding: var(--ops-s4) var(--ops-s8);
+    border-top: 1px solid var(--ops-rule);
+    font-size: 12.5px;
+    color: var(--ops-mute-3);
+}
+
+.ops-foot-info {
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-pages {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ops .ops-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 30px;
+    padding: 5px 9px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--ops-mute-2);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--ops-r-md);
+    cursor: pointer;
+    transition: color .14s, background-color .14s, border-color .14s;
+}
+
+.ops .ops-step:hover:not(:disabled) {
+    color: var(--ops-ink);
+    background: var(--ops-hover);
+}
+
+.ops .ops-step:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.ops-page-now {
+    padding: 0 var(--ops-s3);
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-ink-2);
+}
+
+/* ── Notices ───────────────────────────────────────────────────────────── */
+/* One shape, four families — so a warning and a failure differ by hue rather
+   than by build, and none of them is a Bootstrap alert. */
+
+.ops-msg {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ops-s3);
+    padding: 11px 13px;
+    border-radius: var(--ops-r-md);
+    font-size: 12.5px;
+    color: var(--ops-fam, var(--ops-ink-2));
+    background: rgba(var(--ops-fam-rgb, 94, 100, 131), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--ops-fam-rgb, 94, 100, 131), .3);
+    text-wrap: pretty;
+}
+
+.ops-msg>i {
+    flex: none;
+    margin-top: 1px;
+    font-size: 15px;
+}
+
+.ops-msg-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.ops .ops-msg-x {
+    flex: none;
+    margin: -3px -4px 0 auto;
+    padding: 3px;
+    border: 0;
+    border-radius: var(--ops-r-sm);
+    background: transparent;
+    color: inherit;
+    opacity: .6;
+    cursor: pointer;
+    transition: opacity .13s;
+}
+
+.ops .ops-msg-x:hover {
+    opacity: 1;
+}
+
+/* ── Empty and loading ─────────────────────────────────────────────────── */
+
+.ops-empty,
+.ops-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--ops-s2);
+    padding: 56px var(--ops-s8);
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--ops-mute-3);
+    text-wrap: pretty;
+}
+
+.ops-empty>i {
+    font-size: 28px;
+    color: var(--ops-faint);
+}
+
+.ops-empty h3 {
+    margin: var(--ops-s2) 0 0;
+    font-size: 14px;
+    color: var(--ops-ink-2);
+}
+
+.ops-empty p,
+.ops-loading p {
+    margin: 0;
+    max-width: 46ch;
+}
+
+.ops-empty-actions {
+    margin-top: var(--ops-s4);
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+}
+
+.ops-loading {
+    flex-direction: row;
+    justify-content: center;
+    gap: var(--ops-s3);
+    color: var(--ops-mute-2);
+}
+
+.ops-spin {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    border: 2px solid var(--ops-divider);
+    border-top-color: var(--ops-accent);
+    border-radius: 50%;
+    animation: ops-spin .7s linear infinite;
+}
+
+.ops-spin-lg {
+    width: 22px;
+    height: 22px;
+    border-width: 2.5px;
+}
+
+@keyframes ops-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Overlays: drawers and dialogs ─────────────────────────────────────── */
+/* Offset below the app bar rather than against the viewport: the page is a
+   stacking context, so the bar paints over anything centred against the whole
+   window however high its z-index. */
+
+.ops-overlay {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    /* Deliberately not `min-height: 100vh` — see this sheet's header. */
+    min-height: 0;
+    background: var(--ops-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    display: flex;
+    color: var(--ops-ink);
+    animation: ops-fade .18s ease;
+}
+
+/* A dialog centres; a drawer pins right. */
+.ops-overlay-center {
+    align-items: center;
+    justify-content: center;
+    padding: var(--ops-s6);
+}
+
+.ops-overlay-right {
+    justify-content: flex-end;
+}
+
+.ops-dialog {
+    display: flex;
+    flex-direction: column;
+    width: min(560px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--ops-s8));
+    min-height: 0;
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-lg);
+    background: var(--ops-bg);
+    box-shadow: var(--ops-shadow-pop);
+    animation: ops-rise .2s ease;
+    /* The body scrolls, the dialog does not: without this a body that outgrows
+       `max-height` spills past the rounded corners instead of being clipped. */
+    overflow: hidden;
+}
+
+.ops-dialog-wide {
+    width: min(760px, 100%);
+}
+
+/* An `EditForm` renders a plain `<form>` between the dialog and its body, and
+   left unstyled it is a block box with an auto min-height — so the body never
+   becomes a scrollport and the footer, which is where Save lives, is pushed
+   below the fold with no way to reach it. The form carries the column. */
+.ops-dialog>form {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.ops-drawer {
+    display: flex;
+    flex-direction: column;
+    width: min(420px, 100%);
+    height: 100%;
+    min-height: 0;
+    border-left: 1px solid var(--ops-divider);
+    background: var(--ops-bg);
+    box-shadow: var(--ops-shadow-lg);
+    animation: ops-slide .22s ease;
+}
+
+.ops-dialog-head,
+.ops-drawer-head {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s4);
+    padding: var(--ops-s6) var(--ops-s8);
+    border-bottom: 1px solid var(--ops-divider);
+    flex: none;
+}
+
+.ops-dialog-head h2,
+.ops-drawer-head h2 {
+    font-size: 17px;
+    letter-spacing: -.01em;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ops-overlay .ops-x {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ops-r-sm);
+    background: transparent;
+    color: var(--ops-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.ops-overlay .ops-x:hover {
+    background: var(--ops-press);
+    color: var(--ops-ink);
+}
+
+.ops-dialog-body,
+.ops-drawer-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--ops-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s6);
+}
+
+.ops-dialog-foot,
+.ops-drawer-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--ops-s3);
+    padding: var(--ops-s4) var(--ops-s8);
+    border-top: 1px solid var(--ops-divider);
+    flex: none;
+}
+
+.ops-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--ops-s4);
+}
+
+.ops-form-full {
+    grid-column: 1 / -1;
+}
+
+/* A read-only fact list — the warehouse drawer on /stock. */
+.ops-defs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--ops-s6) var(--ops-s4);
+}
+
+.ops-def-k {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ops-mute-3);
+}
+
+.ops-def-v {
+    margin-top: 3px;
+    font-size: 13px;
+    color: var(--ops-ink-2);
+    overflow-wrap: anywhere;
+}
+
+@keyframes ops-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes ops-rise {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+}
+
+@keyframes ops-slide {
+    from {
+        transform: translateX(14px);
+        opacity: 0;
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   /stock — `.ops-stk`
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* The health meter. It reads the row's family like everything else, so a bar
+   cannot be green while the dot beside it is amber — which is exactly what
+   three independent colour ladders used to allow. */
+
+.ops-stk .ops-meter {
+    width: 56px;
+    height: 4px;
+    margin: 0 auto;
+    border-radius: 999px;
+    background: var(--ops-press);
+    overflow: hidden;
+}
+
+.ops-stk .ops-meter-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--ops-fam, var(--ops-fam-good));
+    transition: width .3s ease;
+}
+
+/* The warehouse picker is the one control the page cannot run without, so it
+   is stated wider than its neighbours rather than left to the auto-fit grid.
+   The narrow-screen block at the foot of this sheet hands the span back. */
+.ops-stk .ops-field-lead {
+    grid-column: span 2;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   /prices — `.ops-prc`
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* With no list chosen the page offers the lists themselves. Cards, because
+   there is nothing to compare column-wise — it is a choice, not a table. */
+
+.ops-prc .ops-prc-lists {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: var(--ops-s4);
+    padding: 0 var(--ops-s8) var(--ops-s8);
+}
+
+.ops-prc .ops-prc-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s3);
+    padding: var(--ops-s6);
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-lg);
+    background: var(--ops-surface);
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .14s, background-color .14s;
+}
+
+.ops-prc .ops-prc-list:hover {
+    border-color: rgba(var(--ops-accent-rgb), .5);
+    background: rgba(var(--ops-accent-rgb), .06);
+}
+
+.ops-prc .ops-prc-list-name {
+    font-size: 14px;
+    color: var(--ops-ink);
+}
+
+.ops-prc .ops-prc-list-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s2);
+    flex-wrap: wrap;
+}
+
+/* The one-item answer to a search that matched exactly. A figure, because at
+   that point the price *is* the page. */
+.ops-prc .ops-prc-hit {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--ops-s8);
+    flex-wrap: wrap;
+    padding: var(--ops-s8);
+}
+
+.ops-prc .ops-prc-hit-price {
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-fam-good);
+}
+
+/* A search term found inside a cell. Underlined rather than highlighted: a
+   filled mark on every other row is louder than the rows themselves. */
+.ops-prc mark {
+    padding: 0;
+    background: transparent;
+    color: var(--ops-accent-text);
+    text-decoration: underline;
+    text-decoration-color: rgba(var(--ops-accent-rgb), .5);
+    text-underline-offset: 2px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   /route-customers — `.ops-rc`
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* One panel per route rather than one table with a route column: the route is
+   the thing being read, and repeating it down a column would say otherwise. */
+
+.ops-rc .ops-rc-groups {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s6);
+}
+
+.ops-rc .ops-rc-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--ops-s4);
+    flex-wrap: wrap;
+    padding: var(--ops-s4) var(--ops-s8);
+}
+
+.ops-rc .ops-rc-title {
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.ops-rc .ops-rc-key {
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+}
+
+.ops-rc .ops-rc-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+}
+
+/* A checkbox standing in a field slot beside text inputs, so it takes the
+   field's own height rather than sitting at the top of the cell.
+
+   Scoped under `.ops-overlay` as well as `.ops-rc`, because the only place it
+   is used is the edit dialog — and that is a *sibling* of the page element,
+   so a `.ops-rc`-only rule never reaches it. The failure is quiet: the control
+   still renders, just with no gap between the box and its label. Anything else
+   this page puts inside a dialog needs the same treatment. */
+.ops-rc .ops-rc-check,
+.ops-overlay .ops-rc-check {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    min-height: 34px;
+    font-size: 13px;
+    color: var(--ops-ink-2);
+    cursor: pointer;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   /desktop-transactions — `.ops-dt`
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* Two queue panels side by side, each a strip of counters. */
+
+.ops-dt .ops-dt-queues {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: var(--ops-s4);
+}
+
+.ops-dt .ops-dt-queue {
+    padding-bottom: var(--ops-s4);
+}
+
+.ops-dt .ops-dt-queue-head {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    padding: var(--ops-s4) var(--ops-s6) var(--ops-s3);
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--ops-mute-2);
+}
+
+.ops-dt .ops-dt-queue-head i {
+    font-size: 14px;
+    line-height: 1;
+    color: var(--ops-mute-3);
+}
+
+/* The queue counters. Five states across one strip, each a filter — so they
+   are buttons that carry a family, not decoration. */
+
+.ops-dt .ops-dt-pills {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    flex-wrap: wrap;
+}
+
+.ops-dt .ops-dt-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    padding: 5px 12px;
+    border: 1px solid rgba(var(--ops-fam-rgb, 94, 100, 131), .38);
+    border-radius: 999px;
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    color: var(--ops-fam, var(--ops-mute-2));
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .14s, border-color .14s;
+}
+
+.ops-dt .ops-dt-pill:hover {
+    background: rgba(var(--ops-fam-rgb, 94, 100, 131), .12);
+}
+
+.ops-dt .ops-dt-pill.is-on {
+    background: rgba(var(--ops-fam-rgb, 94, 100, 131), .16);
+    border-color: var(--ops-fam, var(--ops-field-edge-hi));
+}
+
+.ops-dt .ops-dt-pill-count {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+}
+
+/* The row a queue entry expands into. It belongs to the row above it, so it
+   takes the accent rail rather than a border of its own. */
+.ops-dt .ops-dt-expand {
+    padding: var(--ops-s6) var(--ops-s8);
+    box-shadow: inset 3px 0 0 var(--ops-accent);
+    background: var(--ops-hover);
+}
+
+.ops-dt .ops-dt-expand-title {
+    margin-bottom: var(--ops-s4);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ops-mute-3);
+}
+
+.ops-dt .ops-dt-mini {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: var(--ops-s4) var(--ops-s6);
+}
+
+.ops-dt .ops-dt-mini-k {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ops-mute-3);
+}
+
+.ops-dt .ops-dt-mini-v {
+    margin-top: 2px;
+    font-size: 12.5px;
+    color: var(--ops-ink-2);
+    overflow-wrap: anywhere;
+}
+
+/* A read-only field in the detail panel — the same idea one size up. */
+.ops-dt .ops-dt-detail {
+    padding: var(--ops-s4);
+    border-radius: var(--ops-r-md);
+    background: var(--ops-field-bg);
+}
+
+/* ── The MudBlazor surfaces ────────────────────────────────────────────── */
+/* This page keeps its five MudDataGrids and its MudTabs, so those have to be
+   skinned rather than replaced. MudBlazor.min.css is the last stylesheet
+   App.razor loads, so **later source order does not help** — every selector
+   here is three classes deep (`.ops.ops-dt .mud-…`, 0-3-0) to beat it on
+   specificity instead. See wwwroot/css/customer-portal.css for the same move
+   on the portal's Mud controls.
+
+   Only the surfaces are taken: the grid's own layout, sorting affordances and
+   column sizing are left exactly as MudBlazor draws them. */
+
+.ops.ops-dt .mud-paper {
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-lg);
+    background: linear-gradient(to bottom, var(--ops-wash), transparent 240px);
+    box-shadow: none;
+    color: var(--ops-ink);
+}
+
+/* Tabs — underlined, like every other tab strip in the system. */
+.ops.ops-dt .ops-dt-tabhead {
+    background: transparent;
+    border-bottom: 1px solid var(--ops-divider);
+}
+
+.ops.ops-dt .mud-tab {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+    min-width: auto;
+    padding: 10px 16px;
+    color: var(--ops-mute-2);
+}
+
+.ops.ops-dt .mud-tab:hover,
+.ops.ops-dt .mud-tab.mud-tab-active {
+    color: var(--ops-ink);
+}
+
+.ops.ops-dt .mud-tab-slider {
+    background: var(--ops-accent);
+}
+
+/* The grid. Header, cells and rows only — the same ink and rules the
+   hand-written `.ops-table` uses, so the two read as one page. */
+.ops.ops-dt .mud-table-root {
+    background: transparent;
+    color: var(--ops-ink);
+}
+
+.ops.ops-dt .mud-table-head .mud-table-cell {
+    padding: var(--ops-s4);
+    border-bottom: 1px solid var(--ops-divider);
+    background: transparent;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ops-mute-3);
+}
+
+.ops.ops-dt .mud-table-body .mud-table-cell {
+    padding: 9px var(--ops-s4);
+    border-bottom: 1px solid var(--ops-rule);
+    font-size: 12.5px;
+    color: var(--ops-ink-2);
+}
+
+.ops.ops-dt .mud-table-body .mud-table-row:hover>.mud-table-cell {
+    background: var(--ops-hover);
+}
+
+/* A row that opens a detail panel says so with the cursor. */
+.ops.ops-dt .mud-table-body .mud-table-row {
+    cursor: pointer;
+}
+
+/* MudDataGrid's own filter and sort affordances sit in the header cell; they
+   inherit the header's muted ink rather than Mud's primary. */
+.ops.ops-dt .mud-table-head .mud-button-root,
+.ops.ops-dt .mud-table-head .mud-icon-root {
+    color: inherit;
+}
+
+/* Chips and alerts — routed to the families so a success chip here is the same
+   green as a good badge two panels up. */
+.ops.ops-dt .mud-chip {
+    height: auto;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 10.5px;
+    letter-spacing: .04em;
+    background: rgba(var(--ops-fam-good-rgb), .14);
+    border: 0;
+    color: var(--ops-fam-good);
+}
+
+.ops.ops-dt .mud-alert {
+    border-radius: var(--ops-r-md);
+    box-shadow: none;
+    font-size: 12.5px;
+}
+
+.ops.ops-dt .mud-alert-filled-info,
+.ops.ops-dt .mud-alert-outlined-info {
+    background: rgba(var(--ops-fam-info-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--ops-fam-info-rgb), .3);
+    color: var(--ops-fam-info);
+}
+
+.ops.ops-dt .mud-alert-filled-warning,
+.ops.ops-dt .mud-alert-outlined-warning {
+    background: rgba(var(--ops-fam-warn-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--ops-fam-warn-rgb), .3);
+    color: var(--ops-fam-warn);
+}
+
+.ops.ops-dt .mud-alert-filled-error,
+.ops.ops-dt .mud-alert-outlined-error {
+    background: rgba(var(--ops-fam-bad-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--ops-fam-bad-rgb), .3);
+    color: var(--ops-fam-bad);
+}
+
+.ops.ops-dt .mud-alert-filled-success,
+.ops.ops-dt .mud-alert-outlined-success {
+    background: rgba(var(--ops-fam-good-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--ops-fam-good-rgb), .3);
+    color: var(--ops-fam-good);
+}
+
+/* The row-level icon buttons: quiet until hovered, like `.ops-icon-btn`. */
+.ops.ops-dt .mud-table-body .mud-icon-button {
+    color: var(--ops-mute-2);
+}
+
+.ops.ops-dt .mud-table-body .mud-icon-button:hover {
+    background: var(--ops-press);
+    color: var(--ops-ink);
+}
+
+.ops.ops-dt .mud-progress-linear {
+    border-radius: 999px;
+    background: var(--ops-press);
+}
+
+.ops.ops-dt .mud-progress-linear-bar {
+    background: var(--ops-accent);
+}
+
+/* ── Tabs ──────────────────────────────────────────────────────────────── */
+/* Underlined rather than filled — a tab strip is navigation, and Nocturne
+   spends fills on nothing that only says where you are. */
+
+.ops-tabs {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s6);
+    border-bottom: 1px solid var(--ops-divider);
+    overflow-x: auto;
+}
+
+.ops .ops-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: var(--ops-s3) 2px calc(var(--ops-s3) + 1px);
+    font: inherit;
+    font-size: 13px;
+    color: var(--ops-mute-2);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color .14s;
+}
+
+.ops .ops-tab:hover,
+.ops .ops-tab.is-on {
+    color: var(--ops-ink);
+}
+
+.ops .ops-tab.is-on::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--ops-accent);
+}
+
+.ops-tab-count {
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-mute-3);
+    background: var(--ops-press);
+}
+
+.ops .ops-tab.is-on .ops-tab-count {
+    color: var(--ops-accent-text);
+    background: rgba(var(--ops-accent-rgb), .16);
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.ops-scroll,
+.ops-tabs,
+.ops-dialog-body,
+.ops-drawer-body,
+.ops-tall {
+    scrollbar-width: thin;
+    scrollbar-color: var(--ops-thumb) transparent;
+}
+
+.ops-scroll::-webkit-scrollbar,
+.ops-tabs::-webkit-scrollbar,
+.ops-dialog-body::-webkit-scrollbar,
+.ops-drawer-body::-webkit-scrollbar,
+.ops-tall::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+}
+
+.ops-scroll::-webkit-scrollbar-thumb,
+.ops-tabs::-webkit-scrollbar-thumb,
+.ops-dialog-body::-webkit-scrollbar-thumb,
+.ops-drawer-body::-webkit-scrollbar-thumb,
+.ops-tall::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: var(--ops-thumb);
+    background-clip: content-box;
+}
+
+.ops-scroll::-webkit-scrollbar-track,
+.ops-tabs::-webkit-scrollbar-track,
+.ops-dialog-body::-webkit-scrollbar-track,
+.ops-drawer-body::-webkit-scrollbar-track,
+.ops-tall::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* A table long enough to scroll inside the panel rather than the page —
+   /prices and /stock both run to thousands of rows. */
+.ops-tall {
+    max-height: 620px;
+    overflow-y: auto;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+    .ops {
+        padding: 22px 16px 48px;
+    }
+
+    .ops-hero h1 {
+        font-size: 24px;
+    }
+
+    .ops-panel-head,
+    .ops-filters,
+    .ops-foot,
+    .ops-rc .ops-rc-head {
+        padding-inline: 14px;
+    }
+
+    .ops .ops-table thead th:first-child,
+    .ops .ops-table tbody td:first-child {
+        padding-left: 14px;
+    }
+
+    .ops .ops-table thead th:last-child,
+    .ops .ops-table tbody td:last-child {
+        padding-right: 14px;
+    }
+
+    .ops-form-grid,
+    .ops-stk .ops-field-lead {
+        grid-template-columns: minmax(0, 1fr);
+        grid-column: span 1;
+    }
+
+    .ops-overlay-center {
+        padding: var(--ops-s3);
+    }
+}

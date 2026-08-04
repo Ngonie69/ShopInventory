@@ -1,0 +1,1656 @@
+/* ==========================================================================
+   Merchandiser — Nocturne
+
+   The two pages of the merchandiser admin area:
+
+     /merchandiser-account   `.macc-page`  — create an account, then review and
+                                             re-assign the existing ones
+     /merchandiser-products  `.mp-page`    — the product set every merchandiser
+                              `.mp-overlay`  sells from, and the dialog that
+                                             adds to it
+
+   A derivation, not an import: no Merchandiser*.dc.html exists in any of the
+   design projects, so this follows the documented fallback and takes its
+   vocabulary from user-management.css — the sibling picked by page *shape*
+   rather than by subject. Both of these are what that page is: a header, a
+   form, a list of accounts or items each carrying a state, and a modal that
+   edits a selection. Nothing here is new; it is that sheet's chrome, section
+   cards, badges, checklists and modal under these two prefixes.
+
+   The `macc-*` and `mp-*` names are mostly the ones these pages already used —
+   they said what each thing *was*, which is what a page stylesheet needs. What
+   changed in the markup is what named an appearance the design no longer has:
+   `mp-container` became `mp-page` (it is the page, not a width), the four
+   `mp-stat-icon` colour classes and the three `mp-btn-*` fills went, and the
+   Bootstrap Icons became Phosphor to match every other Nocturne page. The
+   132-line and 607-line inline <style> blocks they used to resolve against are
+   gone.
+
+   Anything *both* pages use is prefixed `mch-` rather than twice over — the
+   buttons, the controls, the search, the badge and the spinner. Two pages in
+   one area sharing one sheet is the point of the sheet; a `macc-input` and an
+   `mp-input` that had to stay identical by hand is the thing that drifts.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system. Light is the base and `.dark-theme` the override, both
+   stated there in the order App.razor's pre-paint script stamps the class in;
+   this sheet needs no `.dark-theme` block of its own because those tokens flip
+   at the root.
+
+   The token block is declared on `.macc-page`, `.mp-page` **and**
+   `.mp-overlay`. The assign dialog is a sibling of the page element rather
+   than a child of it, so it would otherwise inherit neither the tokens nor the
+   font context and every control inside it would fall back to Bootstrap's
+   16px. The overlay therefore repeats the root's font-size and line-height,
+   and omits its `min-height` and `background` — a scrim carrying
+   `min-height: 100vh` hangs a topbar below the fold.
+
+   Every control selector is two classes deep (`.macc-page .mch-input`, 0-2-0)
+   so it out-specifies app.css's global `.dark-theme input/select/textarea`
+   block at (0,1,1) regardless of load order. Headings are pinned to Nocturne's
+   500 against Bootstrap's global `h1-h6 { font-weight: 600 }`, and both
+   prefixes are namespaced against Bootstrap's own `.btn-primary` and friends.
+
+   Three departures from what these pages used to be, worth naming:
+
+   - The account page floated everything on a tinted gradient with 24px radii
+     and 60px drop shadows. Nocturne's surfaces sit *in* the page rather than
+     above it, so the cards are ruled rather than shadowed and the gradient is
+     gone.
+   - Both pages had a filled-tile-beside-a-title header and four fill-and-ink
+     icon chips. Nocturne does not put a flooded square beside a heading; the
+     figures carry their hue in the number and the label instead.
+   - The status and category pills were six hard-coded fill-and-ink pairs
+     across the two pages. They are family tokens now — the same good /
+     neutral / bad / accent set every sibling page uses for these meanings.
+   ========================================================================== */
+
+.macc-page,
+.mp-page,
+.mp-overlay {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --mch-bg: var(--noct-bg);
+    --mch-surface: var(--noct-surface);
+    --mch-wash: var(--noct-wash);
+    --mch-ink: var(--noct-ink);
+    --mch-ink-2: var(--noct-ink-2);
+    --mch-mute: var(--noct-mute);
+    --mch-mute-2: var(--noct-mute-2);
+    --mch-mute-3: var(--noct-mute-3);
+    --mch-faint: var(--noct-faint);
+    --mch-placeholder: var(--noct-placeholder);
+    --mch-divider: var(--noct-divider);
+    --mch-rule: var(--noct-rule);
+    --mch-hover: var(--noct-hover);
+    --mch-press: var(--noct-press);
+    --mch-field-bg: var(--noct-field-bg);
+    --mch-field-edge: var(--noct-field-edge);
+    --mch-field-edge-hi: var(--noct-field-edge-hi);
+    --mch-accent: var(--noct-accent);
+    --mch-accent-rgb: var(--noct-accent-rgb);
+    --mch-accent-text: var(--noct-accent-text);
+    --mch-box: var(--noct-box);
+    --mch-thumb: var(--noct-thumb);
+    --mch-scrim: var(--noct-scrim);
+    --mch-shadow-pop: var(--noct-shadow-pop);
+    --mch-caret: var(--noct-caret);
+    --mch-clear: var(--noct-clear);
+    --mch-scheme: var(--noct-scheme);
+
+    /* Families — a state takes good / neutral / bad, a category takes the
+       accent, and the two figures take good and info. */
+    --mch-fam-neutral: var(--noct-fam-neutral);
+    --mch-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --mch-fam-accent: var(--noct-fam-accent);
+    --mch-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --mch-fam-info: var(--noct-fam-info);
+    --mch-fam-info-rgb: var(--noct-fam-info-rgb);
+    --mch-fam-good: var(--noct-fam-good);
+    --mch-fam-good-rgb: var(--noct-fam-good-rgb);
+    --mch-fam-warn: var(--noct-fam-warn);
+    --mch-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --mch-fam-bad: var(--noct-fam-bad);
+    --mch-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --mch-s1: var(--noct-s1);
+    --mch-s2: var(--noct-s2);
+    --mch-s3: var(--noct-s3);
+    --mch-s4: var(--noct-s4);
+    --mch-s6: var(--noct-s6);
+    --mch-s8: var(--noct-s8);
+    --mch-r-sm: var(--noct-r-sm);
+    --mch-r-md: var(--noct-r-md);
+    --mch-r-lg: var(--noct-r-lg);
+
+    color-scheme: var(--mch-scheme);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.macc-page,
+.mp-page {
+    min-height: 100vh;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    background: var(--mch-bg);
+    color: var(--mch-ink);
+    display: flex;
+    flex-direction: column;
+    gap: var(--mch-s6);
+}
+
+.macc-page *,
+.mp-page *,
+.mp-overlay * {
+    box-sizing: border-box;
+}
+
+/* `EditForm` renders a plain `<form>` between `.macc-page` and the create
+   panel, so the page's own column gap stops at it and the two children inside
+   it close up. The form has to carry the column through — the same shape of
+   problem the modal dialogs hit, for the same reason. */
+.macc-page form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--mch-s6);
+    min-width: 0;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside these pages that would flatten the family hues the badges
+   carry on WebKit, so hand the fill back to `color`. */
+.macc-page,
+.macc-page *,
+.mp-page,
+.mp-page *,
+.mp-overlay,
+.mp-overlay * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.macc-page :focus-visible,
+.mp-page :focus-visible,
+.mp-overlay :focus-visible {
+    outline: 2px solid var(--mch-accent);
+    outline-offset: 2px;
+}
+
+.macc-page ::selection,
+.mp-page ::selection,
+.mp-overlay ::selection {
+    background: rgba(var(--mch-accent-rgb), .3);
+}
+
+.macc-page h1,
+.macc-page h2,
+.macc-page h3,
+.mp-page h1,
+.mp-page h2,
+.mp-page h3,
+.mp-overlay h2 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Shared by both pages: a title, a sentence saying what the page is for, and
+   the actions that belong to the page rather than to a row. */
+
+.macc-header,
+.mp-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.macc-header-text,
+.mp-header-text {
+    min-width: 0;
+}
+
+.macc-title,
+.mp-title {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.macc-subtitle,
+.mp-subtitle {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--mch-mute-2);
+    max-width: 58ch;
+    text-wrap: pretty;
+}
+
+.macc-header-actions,
+.mp-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--mch-s3);
+    flex-wrap: wrap;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. Namespaced two
+   classes deep so Bootstrap's `.btn-primary` fill cannot reach them. */
+
+.macc-page .mch-btn,
+.mp-page .mch-btn,
+.mp-overlay .mch-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--mch-s2) calc(var(--mch-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--mch-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--mch-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.macc-page .mch-btn:disabled,
+.mp-page .mch-btn:disabled,
+.mp-overlay .mch-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.macc-page .mch-btn-primary,
+.mp-page .mch-btn-primary,
+.mp-overlay .mch-btn-primary {
+    color: var(--mch-accent);
+    border-color: var(--mch-accent);
+    letter-spacing: .02em;
+}
+
+.macc-page .mch-btn-primary:hover:not(:disabled),
+.mp-page .mch-btn-primary:hover:not(:disabled),
+.mp-overlay .mch-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--mch-accent-rgb), .12);
+}
+
+.macc-page .mch-btn-primary:active:not(:disabled),
+.mp-page .mch-btn-primary:active:not(:disabled),
+.mp-overlay .mch-btn-primary:active:not(:disabled) {
+    background: rgba(var(--mch-accent-rgb), .22);
+}
+
+.macc-page .mch-btn-ghost,
+.mp-page .mch-btn-ghost,
+.mp-overlay .mch-btn-ghost {
+    color: var(--mch-mute-2);
+    border-color: var(--mch-divider);
+}
+
+.macc-page .mch-btn-ghost:hover:not(:disabled),
+.mp-page .mch-btn-ghost:hover:not(:disabled),
+.mp-overlay .mch-btn-ghost:hover:not(:disabled) {
+    color: var(--mch-ink);
+    border-color: var(--mch-field-edge-hi);
+    background: var(--mch-hover);
+}
+
+.macc-page .mch-btn-good,
+.mp-page .mch-btn-good {
+    color: var(--mch-fam-good);
+    border-color: rgba(var(--mch-fam-good-rgb), .55);
+}
+
+.macc-page .mch-btn-good:hover:not(:disabled),
+.mp-page .mch-btn-good:hover:not(:disabled) {
+    background: rgba(var(--mch-fam-good-rgb), .12);
+    border-color: var(--mch-fam-good);
+}
+
+.macc-page .mch-btn-danger,
+.mp-page .mch-btn-danger,
+.mp-overlay .mch-btn-danger {
+    color: var(--mch-fam-bad);
+    border-color: rgba(var(--mch-fam-bad-rgb), .55);
+}
+
+.macc-page .mch-btn-danger:hover:not(:disabled),
+.mp-page .mch-btn-danger:hover:not(:disabled),
+.mp-overlay .mch-btn-danger:hover:not(:disabled) {
+    background: rgba(var(--mch-fam-bad-rgb), .12);
+    border-color: var(--mch-fam-bad);
+}
+
+/* A row's own control — smaller than a page action, and quiet until hovered. */
+.macc-page .mch-btn-sm,
+.mp-page .mch-btn-sm {
+    height: 26px;
+    padding: 0 var(--mch-s3);
+    font-size: 11.5px;
+}
+
+.mp-page .mch-icon-btn,
+.mp-overlay .mch-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--mch-r-sm);
+    background: transparent;
+    color: var(--mch-mute-2);
+    cursor: pointer;
+    font-size: 13px;
+    transition: background-color .13s, color .13s;
+}
+
+.mp-page .mch-icon-btn:hover,
+.mp-overlay .mch-icon-btn:hover {
+    background: var(--mch-press);
+    color: var(--mch-ink);
+}
+
+.mp-page .mch-icon-btn-danger:hover {
+    background: rgba(var(--mch-fam-bad-rgb), .12);
+    color: var(--mch-fam-bad);
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+/* Every one of these is two classes deep so it beats app.css's global
+   `.dark-theme input/select/textarea` block regardless of load order. */
+
+.macc-page .mch-input,
+.macc-page .mch-select,
+.mp-page .mch-input,
+.mp-page .mch-select,
+.mp-overlay .mch-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--mch-ink);
+    caret-color: var(--mch-accent);
+    background: var(--mch-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--mch-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+/* The caret is drawn into the field rather than into a wrapper: these selects
+   are used bare in the markup, with no element to hang a pseudo-caret on. */
+.macc-page .mch-select,
+.mp-page .mch-select {
+    padding-right: 30px;
+    background-image: var(--mch-caret);
+    background-repeat: no-repeat;
+    background-position: right 11px center;
+    cursor: pointer;
+}
+
+/* On the products toolbar the category select sits in a row of controls and
+   sizes to its content; in a form column it fills the column. */
+.mp-page .mch-select-auto {
+    width: auto;
+    min-width: 148px;
+}
+
+/* The popup is a platform window, so no rule here reaches inside it — but it
+   takes its fill from the *field*, and the field above is a translucent wash
+   (`--noct-field-bg` is rgba(243,245,254,.05) in dark). The browser composites
+   that 5%-white onto white and then ignores `color-scheme: dark` for the
+   popup, while the options inherit the field's light ink: near-white on
+   near-white, present and focusable and invisible.
+
+   `--mch-surface` rather than `--mch-field-bg` on purpose — the popup needs an
+   opaque fill, and surface is the token that is opaque in both themes. It
+   never reproduces in light, so a light-mode screenshot proves nothing here.
+   See .claude/skills/nocturne-dropdowns-and-dates. */
+.macc-page .mch-select option,
+.macc-page .mch-select optgroup,
+.mp-page .mch-select option,
+.mp-page .mch-select optgroup {
+    color: var(--mch-ink);
+    background-color: var(--mch-surface);
+}
+
+.macc-page .mch-input:hover,
+.macc-page .mch-select:hover,
+.mp-page .mch-input:hover,
+.mp-page .mch-select:hover,
+.mp-overlay .mch-input:hover {
+    border-color: var(--mch-field-edge);
+}
+
+.macc-page .mch-input:focus-visible,
+.macc-page .mch-select:focus-visible,
+.mp-page .mch-input:focus-visible,
+.mp-page .mch-select:focus-visible,
+.mp-overlay .mch-input:focus-visible {
+    border-color: rgba(var(--mch-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.macc-page .mch-input::placeholder,
+.mp-page .mch-input::placeholder,
+.mp-overlay .mch-input::placeholder {
+    color: var(--mch-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--mch-placeholder);
+}
+
+/* Blazor stamps `valid`/`invalid` on every field a validator has seen, and
+   app.css rings both at (0,1,0):
+     .valid.modified:not([type=checkbox]) { outline: 2px solid var(--success-color) }
+     .invalid                             { outline: 2px solid var(--danger-color) }
+   Neither hue is one: `--success-color` and `--danger-color` are both #333333
+   in the light theme, so a rejected field and an accepted one both get the
+   same 2px near-black ring — and a field the user merely typed in gets ringed
+   at all, which is not something Nocturne does. Suppressed here and carried on
+   the border instead, which is the one place this sheet spends red. */
+.macc-page .mch-input.invalid,
+.macc-page .mch-select.invalid,
+.macc-page .mch-input.valid.modified,
+.macc-page .mch-select.valid.modified {
+    outline: 0;
+}
+
+.macc-page .mch-input.invalid,
+.macc-page .mch-select.invalid {
+    border-color: rgba(var(--mch-fam-bad-rgb), .55);
+}
+
+/* The outline is the focus ring on every other control here, so a focused
+   field has to get it back after the rule above takes it away. */
+.macc-page .mch-input.invalid:focus-visible,
+.macc-page .mch-select.invalid:focus-visible,
+.macc-page .mch-input.valid.modified:focus-visible,
+.macc-page .mch-select.valid.modified:focus-visible {
+    outline: 2px solid var(--mch-accent);
+    outline-offset: 0;
+}
+
+/* The pill-shaped search both pages open a list with. */
+.macc-page .mch-search,
+.mp-page .mch-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 200px;
+    max-width: 380px;
+}
+
+.macc-page .mch-search i,
+.mp-page .mch-search i {
+    position: absolute;
+    left: 12px;
+    pointer-events: none;
+    font-size: 13px;
+    color: var(--mch-mute-3);
+}
+
+.macc-page .mch-search .mch-input,
+.mp-page .mch-search .mch-input {
+    padding-left: 33px;
+    border-radius: 999px;
+}
+
+/* A search field inside a form column, where it is one of several fields
+   rather than a toolbar control. */
+.macc-page .mch-search-block {
+    max-width: none;
+}
+
+/* The browser's own clear affordance, drawn in the sheet's ink. */
+.macc-page .mch-input[type="search"]::-webkit-search-cancel-button,
+.mp-page .mch-input[type="search"]::-webkit-search-cancel-button,
+.mp-overlay .mch-input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    background: var(--mch-clear) no-repeat center / contain;
+    opacity: .7;
+    cursor: pointer;
+}
+
+/* Native checkboxes keep the keyboard and screen-reader behaviour the control
+   has for free; only the fill is ours.
+
+   `appearance` and `background-color` are restated, not just `accent-color`,
+   because app.css's `.dark-theme input/textarea/select` block at (0,1,1) sets
+   `appearance: none` and `background-color: #1e293b` for text fields — and it
+   reaches checkboxes too. That strips the tick glyph and paints the box flat
+   slate, so in dark mode a ticked row and an unticked one look identical.
+   These selectors are (0,2,1), so they win regardless of load order.
+
+   Both pages select in bulk, so this is not cosmetic: a checkbox that cannot
+   show its own state is the one control on the page that has to. */
+.macc-page input[type="checkbox"],
+.mp-page input[type="checkbox"],
+.mp-overlay input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    margin: 0;
+    appearance: auto;
+    -webkit-appearance: checkbox;
+    background-color: initial;
+    accent-color: var(--mch-box);
+    cursor: pointer;
+}
+
+/* Blazor's own validation output, and Bootstrap's `.text-danger`. */
+.macc-page .validation-message,
+.macc-page .text-danger,
+.mp-overlay .validation-message {
+    display: block;
+    margin-top: 4px;
+    color: var(--mch-fam-bad) !important;
+    font-size: 11.5px;
+}
+
+/* ── Badges ────────────────────────────────────────────────────────────── */
+/* One badge, one family token. Each family class sets the hue and its channel;
+   the badge mixes both its ink and its wash from them, so adding a family is
+   two declarations and never a fill-and-ink pair that can drift apart. */
+
+.macc-page .mch-badge,
+.mp-page .mch-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    letter-spacing: .04em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--mch-fam, var(--mch-mute));
+    background: rgba(var(--mch-fam-rgb, 94, 100, 131), .14);
+}
+
+.mch-fam-good {
+    --mch-fam: var(--mch-fam-good);
+    --mch-fam-rgb: var(--mch-fam-good-rgb);
+}
+
+.mch-fam-bad {
+    --mch-fam: var(--mch-fam-bad);
+    --mch-fam-rgb: var(--mch-fam-bad-rgb);
+}
+
+.mch-fam-neutral {
+    --mch-fam: var(--mch-fam-neutral);
+    --mch-fam-rgb: var(--mch-fam-neutral-rgb);
+}
+
+.mch-fam-accent {
+    --mch-fam: var(--mch-fam-accent);
+    --mch-fam-rgb: var(--mch-fam-accent-rgb);
+}
+
+.mch-fam-info {
+    --mch-fam: var(--mch-fam-info);
+    --mch-fam-rgb: var(--mch-fam-info-rgb);
+}
+
+/* ── Section cards ─────────────────────────────────────────────────────── */
+/* The ruled surface both pages build from. Nocturne's panels sit in the page
+   rather than above it, so this is a 1px divider and a radius — no shadow. */
+
+.macc-card,
+.mp-panel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    border: 1px solid var(--mch-divider);
+    border-radius: var(--mch-r-lg);
+    background: var(--mch-surface);
+}
+
+.macc-card-header,
+.mp-panel-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--mch-s4);
+    flex-wrap: wrap;
+    padding: var(--mch-s6) 18px var(--mch-s4);
+    border-bottom: 1px solid var(--mch-rule);
+}
+
+.macc-card-header h2,
+.macc-card-header h3,
+.mp-panel-header h2 {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.macc-card-header h2 i,
+.macc-card-header h3 i,
+.mp-panel-header h2 i {
+    font-size: 15px;
+    line-height: 1;
+    color: var(--mch-mute-3);
+}
+
+/* The count or the qualifier that sits opposite a section title. */
+.macc-card-note,
+.mp-panel-note {
+    font-size: 12px;
+    color: var(--mch-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.macc-card-body {
+    padding: var(--mch-s6) 18px var(--mch-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--mch-s6);
+    min-width: 0;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   /merchandiser-account
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* The create form and the business-partner picker stand side by side; below
+   1100px the picker drops under the form rather than squeezing beside it. */
+.macc-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--mch-s6);
+    align-items: start;
+}
+
+.macc-field-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--mch-s4);
+}
+
+.macc-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.macc-field-full {
+    grid-column: 1 / -1;
+}
+
+/* The label is the small-caps eyebrow the sibling forms use, so a field reads
+   as a labelled slot rather than as a sentence with a box under it. */
+.macc-page .macc-field>label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--mch-mute-3);
+}
+
+.macc-page .macc-field>label i {
+    font-size: 12px;
+    line-height: 1;
+    color: var(--mch-faint);
+}
+
+.macc-page .macc-field small {
+    font-size: 11.5px;
+    color: var(--mch-mute-3);
+    text-wrap: pretty;
+}
+
+/* The scrolling list of business partners a new account can be given. */
+.macc-customer-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 420px;
+    overflow-y: auto;
+    border: 1px solid var(--mch-divider);
+    border-radius: var(--mch-r-md);
+}
+
+.macc-customer-item {
+    display: flex;
+    align-items: center;
+    gap: var(--mch-s3);
+    padding: 8px 11px;
+    border-top: 1px solid var(--mch-rule);
+    cursor: pointer;
+    min-width: 0;
+    transition: background-color .12s;
+}
+
+.macc-customer-item:first-child {
+    border-top: 0;
+}
+
+.macc-customer-item:hover {
+    background: var(--mch-hover);
+}
+
+.macc-customer-text {
+    display: flex;
+    align-items: baseline;
+    gap: var(--mch-s3);
+    min-width: 0;
+}
+
+.macc-customer-text strong {
+    flex: none;
+    min-width: 72px;
+    font-size: 12px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--mch-ink-2);
+}
+
+.macc-customer-text span {
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--mch-mute);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.macc-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--mch-s3);
+    flex-wrap: wrap;
+}
+
+/* ── The account list ──────────────────────────────────────────────────── */
+/* Same shape as user-management's: a ruled stack that washes into the ground
+   at the top rather than sitting on a slab.
+
+   Its heading and its search sit *outside* the list rather than in a card
+   header above it — the list is the thing, and a second box around it would
+   only draw a line the rows already draw. */
+
+.macc-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--mch-s4);
+    min-width: 0;
+}
+
+.macc-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--mch-s6);
+    flex-wrap: wrap;
+}
+
+.macc-section-head h2 {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.macc-section-head h2 i {
+    font-size: 15px;
+    line-height: 1;
+    color: var(--mch-mute-3);
+}
+
+.macc-section-count {
+    font-size: 12px;
+    color: var(--mch-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.macc-account-list {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--mch-divider);
+    border-radius: var(--mch-r-lg);
+    background: linear-gradient(to bottom, var(--mch-wash), transparent 240px);
+}
+
+.macc-account-item {
+    border-top: 1px solid var(--mch-rule);
+}
+
+.macc-account-item:first-child {
+    border-top: 0;
+}
+
+/* An inactive account recedes rather than being marked — it is not a problem,
+   it is just switched off. */
+.macc-account-item.is-inactive .macc-account-summary {
+    opacity: .66;
+}
+
+.macc-account-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--mch-s4);
+    flex-wrap: wrap;
+    padding: 12px var(--mch-s6);
+    transition: background-color .12s ease;
+}
+
+.macc-account-item:not(.is-editing) .macc-account-summary:hover {
+    background: var(--mch-hover);
+}
+
+.macc-account-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.macc-account-name {
+    display: flex;
+    align-items: center;
+    gap: var(--mch-s3);
+    font-size: 13.5px;
+    color: var(--mch-ink-2);
+}
+
+.macc-account-name h3 {
+    font-size: 13.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.macc-account-sub {
+    font-size: 11.5px;
+    color: var(--mch-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The warehouse, the assigned count and the first few partner codes. Facts
+   about the row, so they read as one line of quiet text rather than as five
+   coloured chips. */
+.macc-account-facts {
+    display: flex;
+    align-items: center;
+    gap: var(--mch-s3);
+    flex-wrap: wrap;
+    flex: none;
+    max-width: 100%;
+}
+
+.macc-fact {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    color: var(--mch-mute-2);
+    white-space: nowrap;
+}
+
+.macc-fact i {
+    font-size: 12px;
+    line-height: 1;
+    color: var(--mch-faint);
+}
+
+.macc-fact-none {
+    color: var(--mch-faint);
+}
+
+.macc-bp-tags {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.macc-bp-tag {
+    max-width: 190px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    color: var(--mch-mute-2);
+    background: var(--mch-press);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.macc-bp-tag-muted {
+    color: var(--mch-faint);
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--mch-divider);
+}
+
+/* ── The inline assignment editor ──────────────────────────────────────── */
+/* Opens under the row it belongs to rather than in a dialog, because the row
+   above it is the context for every choice in it. The accent rail is what says
+   the panel belongs to that row. */
+
+.macc-editor {
+    padding: var(--mch-s6);
+    border-top: 1px solid var(--mch-divider);
+    box-shadow: inset 3px 0 0 var(--mch-accent);
+    background: var(--mch-hover);
+    display: flex;
+    flex-direction: column;
+    gap: var(--mch-s6);
+}
+
+.macc-editor-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--mch-s4);
+    flex-wrap: wrap;
+}
+
+.macc-editor-head h3 {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 14px;
+    letter-spacing: -.01em;
+}
+
+.macc-editor-head h3 i {
+    font-size: 14px;
+    line-height: 1;
+    color: var(--mch-mute-3);
+}
+
+/* Chosen on the left, searchable on the right — so what is already assigned
+   stays visible while more is added. */
+.macc-editor-grid {
+    display: grid;
+    grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+    gap: var(--mch-s6);
+    align-items: start;
+}
+
+.macc-editor-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--mch-s3);
+    min-width: 0;
+}
+
+.macc-editor-col-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--mch-s3);
+    flex-wrap: wrap;
+}
+
+.macc-editor-col-head h4 {
+    margin: 0;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--mch-mute-3);
+}
+
+.macc-selected-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 320px;
+    overflow-y: auto;
+    border: 1px solid var(--mch-divider);
+    border-radius: var(--mch-r-md);
+    background: var(--mch-surface);
+}
+
+.macc-selected-item {
+    display: flex;
+    align-items: center;
+    gap: var(--mch-s3);
+    padding: 7px 11px;
+    border-top: 1px solid var(--mch-rule);
+    min-width: 0;
+}
+
+.macc-selected-item:first-child {
+    border-top: 0;
+}
+
+.macc-selected-text {
+    display: flex;
+    align-items: baseline;
+    gap: var(--mch-s3);
+    flex: 1;
+    min-width: 0;
+}
+
+.macc-selected-text strong {
+    flex: none;
+    min-width: 72px;
+    font-size: 12px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--mch-ink-2);
+}
+
+.macc-selected-text span {
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--mch-mute);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.macc-page .macc-selected-remove {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--mch-r-sm);
+    background: transparent;
+    color: var(--mch-mute-3);
+    cursor: pointer;
+    font-size: 12px;
+    transition: background-color .13s, color .13s;
+}
+
+.macc-page .macc-selected-remove:hover {
+    background: rgba(var(--mch-fam-bad-rgb), .12);
+    color: var(--mch-fam-bad);
+}
+
+.macc-editor .macc-customer-list {
+    max-height: 320px;
+    background: var(--mch-surface);
+}
+
+/* ── States ────────────────────────────────────────────────────────────── */
+
+.macc-state,
+.mp-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--mch-s3);
+    padding: 44px var(--mch-s6);
+    font-size: 13px;
+    color: var(--mch-mute-2);
+}
+
+/* Empty is a smaller thing than a failure, so it is stated and not framed. */
+.macc-empty,
+.mp-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--mch-s2);
+    padding: 44px var(--mch-s6);
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--mch-mute-3);
+    text-wrap: pretty;
+}
+
+.macc-empty i,
+.mp-empty i {
+    font-size: 26px;
+    color: var(--mch-faint);
+}
+
+.macc-empty h3,
+.mp-empty h5 {
+    margin: var(--mch-s2) 0 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--mch-ink-2);
+}
+
+.macc-empty p,
+.mp-empty p {
+    margin: 0;
+    max-width: 46ch;
+}
+
+/* An inline row-level empty — inside a list that is otherwise a stack. */
+.macc-empty-inline {
+    padding: 22px var(--mch-s6);
+    font-size: 12.5px;
+    color: var(--mch-mute-3);
+    text-align: center;
+}
+
+.mch-spinner {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    border: 2px solid var(--mch-divider);
+    border-top-color: var(--mch-accent);
+    border-radius: 50%;
+    animation: mch-spin .7s linear infinite;
+}
+
+.mch-spinner-lg {
+    width: 22px;
+    height: 22px;
+    border-width: 2.5px;
+}
+
+@keyframes mch-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   /merchandiser-products
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* ── Figures ───────────────────────────────────────────────────────────── */
+/* Two counts, not four: the old page carried Total and Active twice over — as
+   tiles and again in the panel header. The tiles keep them; the header says
+   what the list is. The hue is in the figure and the label, not in a tile
+   beside them. */
+
+.mp-figures {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--mch-s4);
+}
+
+.mp-figure {
+    padding: var(--mch-s6) 18px;
+    border: 1px solid var(--mch-divider);
+    border-radius: var(--mch-r-lg);
+    background:
+        linear-gradient(155deg, rgba(var(--mch-fam-rgb, 94, 100, 131), .12), transparent 62%),
+        var(--mch-surface);
+    min-width: 0;
+}
+
+.mp-figure-value {
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    color: var(--mch-fam, var(--mch-ink));
+}
+
+.mp-figure-label {
+    margin-top: 4px;
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--mch-mute-2);
+}
+
+/* ── Toolbar ───────────────────────────────────────────────────────────── */
+
+.mp-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--mch-s3);
+    flex-wrap: wrap;
+    padding: var(--mch-s3) 18px;
+    border-bottom: 1px solid var(--mch-rule);
+}
+
+/* The status filter. A segmented set rather than three buttons, because the
+   three are one choice. */
+.mp-segment {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px;
+    border: 1px solid var(--mch-divider);
+    border-radius: 999px;
+}
+
+.mp-page .mp-segment-btn {
+    padding: 4px 11px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--mch-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color .14s, background-color .14s;
+}
+
+.mp-page .mp-segment-btn:hover {
+    color: var(--mch-ink);
+}
+
+.mp-page .mp-segment-btn.active {
+    color: var(--mch-accent-text);
+    background: rgba(var(--mch-accent-rgb), .16);
+}
+
+/* The bulk bar only exists while something is ticked, so it takes the right
+   half of the toolbar rather than a row of its own. */
+.mp-bulk {
+    display: flex;
+    align-items: center;
+    gap: var(--mch-s3);
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+
+.mp-bulk-count {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--mch-accent-text);
+}
+
+/* ── The product list ──────────────────────────────────────────────────── */
+
+.mp-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 560px;
+    overflow-y: auto;
+}
+
+.mp-row {
+    display: flex;
+    align-items: center;
+    gap: var(--mch-s4);
+    padding: 9px 18px;
+    border-top: 1px solid var(--mch-rule);
+    min-width: 0;
+    transition: background-color .12s ease;
+}
+
+.mp-row:first-child {
+    border-top: 0;
+}
+
+.mp-row:hover {
+    background: var(--mch-hover);
+}
+
+/* A deactivated product is still assigned — it recedes rather than being
+   marked, the same way an inactive account does on the sibling page. */
+.mp-row.is-inactive {
+    opacity: .66;
+}
+
+.mp-row.is-inactive:hover {
+    opacity: 1;
+}
+
+.mp-code {
+    flex: none;
+    min-width: 104px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--mch-ink-2);
+}
+
+.mp-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--mch-mute);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mp-row-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--mch-s3);
+    flex: none;
+}
+
+.mp-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: none;
+}
+
+/* ── The assign dialog ─────────────────────────────────────────────────── */
+/* Offset below the app bar rather than against the viewport: the page is a
+   stacking context, so the bar paints over anything centred against the whole
+   window however high its z-index. The overlay carries the token block at the
+   top of this sheet, which is what puts the page's values in reach — it is a
+   sibling of `.mp-page`, not a child. */
+
+.mp-overlay {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    /* Deliberately not `min-height: 100vh` — see this sheet's header. */
+    min-height: 0;
+    background: var(--mch-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--mch-s6);
+    color: var(--mch-ink);
+    animation: mch-fade .18s ease;
+}
+
+.mp-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(620px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--mch-s8));
+    min-height: 0;
+    border: 1px solid var(--mch-divider);
+    border-radius: var(--mch-r-lg);
+    background: var(--mch-bg);
+    box-shadow: var(--mch-shadow-pop);
+    animation: mch-rise .2s ease;
+    /* The body scrolls, the dialog does not: without this a body that outgrows
+       `max-height` spills past the rounded corners instead of being clipped. */
+    overflow: hidden;
+}
+
+.mp-modal-header {
+    display: flex;
+    align-items: center;
+    gap: var(--mch-s4);
+    padding: var(--mch-s6) var(--mch-s8);
+    border-bottom: 1px solid var(--mch-divider);
+    flex: none;
+}
+
+.mp-modal-header h2 {
+    font-size: 17px;
+    letter-spacing: -.01em;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mp-overlay .mp-modal-close {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    border-radius: var(--mch-r-sm);
+    background: transparent;
+    color: var(--mch-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.mp-overlay .mp-modal-close:hover {
+    background: var(--mch-press);
+    color: var(--mch-ink);
+}
+
+.mp-modal-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--mch-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--mch-s4);
+}
+
+.mp-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--mch-s3);
+    padding: var(--mch-s4) var(--mch-s8);
+    border-top: 1px solid var(--mch-divider);
+    flex: none;
+}
+
+.mp-assign-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 340px;
+    overflow-y: auto;
+    border: 1px solid var(--mch-divider);
+    border-radius: var(--mch-r-md);
+}
+
+.mp-assign-item {
+    display: flex;
+    align-items: center;
+    gap: var(--mch-s3);
+    padding: 8px 11px;
+    border-top: 1px solid var(--mch-rule);
+    cursor: pointer;
+    min-width: 0;
+    transition: background-color .12s;
+}
+
+.mp-assign-item:first-child {
+    border-top: 0;
+}
+
+.mp-assign-item:hover {
+    background: var(--mch-hover);
+}
+
+.mp-assign-text {
+    display: flex;
+    align-items: baseline;
+    gap: var(--mch-s3);
+    min-width: 0;
+}
+
+.mp-assign-text strong {
+    flex: none;
+    min-width: 96px;
+    font-size: 12px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--mch-ink-2);
+}
+
+.mp-assign-text span {
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--mch-mute);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Select-all sits above the list and belongs to it, so it is ruled to it. */
+.mp-select-all {
+    display: flex;
+    align-items: center;
+    gap: var(--mch-s3);
+    font-size: 12.5px;
+    color: var(--mch-mute-2);
+    cursor: pointer;
+}
+
+.mp-modal-note {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--mch-s3);
+    padding: 10px 12px;
+    border-radius: var(--mch-r-md);
+    font-size: 12.5px;
+    color: var(--mch-fam-bad);
+    background: rgba(var(--mch-fam-bad-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--mch-fam-bad-rgb), .3);
+    text-wrap: pretty;
+}
+
+.mp-modal-note i {
+    flex: none;
+    margin-top: 1px;
+    font-size: 14px;
+}
+
+@keyframes mch-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes mch-rise {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+/* The lists here scroll inside themselves, so the bar is part of the panel
+   rather than part of the window. */
+
+.macc-customer-list,
+.macc-selected-list,
+.mp-list,
+.mp-assign-list,
+.mp-modal-body {
+    scrollbar-width: thin;
+    scrollbar-color: var(--mch-thumb) transparent;
+}
+
+.macc-customer-list::-webkit-scrollbar,
+.macc-selected-list::-webkit-scrollbar,
+.mp-list::-webkit-scrollbar,
+.mp-assign-list::-webkit-scrollbar,
+.mp-modal-body::-webkit-scrollbar {
+    width: 9px;
+}
+
+.macc-customer-list::-webkit-scrollbar-thumb,
+.macc-selected-list::-webkit-scrollbar-thumb,
+.mp-list::-webkit-scrollbar-thumb,
+.mp-assign-list::-webkit-scrollbar-thumb,
+.mp-modal-body::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: var(--mch-thumb);
+    background-clip: content-box;
+}
+
+.macc-customer-list::-webkit-scrollbar-track,
+.macc-selected-list::-webkit-scrollbar-track,
+.mp-list::-webkit-scrollbar-track,
+.mp-assign-list::-webkit-scrollbar-track,
+.mp-modal-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+
+    .macc-grid,
+    .macc-editor-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 720px) {
+
+    .macc-page,
+    .mp-page {
+        padding: 22px 16px 48px;
+    }
+
+    .macc-field-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .macc-card-header,
+    .mp-panel-header,
+    .macc-card-body,
+    .mp-toolbar,
+    .mp-row,
+    .macc-account-summary {
+        padding-inline: 14px;
+    }
+
+    .macc-title,
+    .mp-title {
+        font-size: 24px;
+    }
+
+    /* The row's three columns stop fitting side by side; the code and the name
+       stack and the state and its action stay on the right. */
+    .mp-row {
+        flex-wrap: wrap;
+    }
+
+    .mp-code {
+        min-width: 0;
+    }
+
+    .mp-name {
+        flex: 1 0 100%;
+        order: 3;
+    }
+
+    .macc-account-facts {
+        flex-basis: 100%;
+    }
+
+    .mch-search {
+        max-width: none;
+    }
+
+    .mp-page .mch-select-auto {
+        width: 100%;
+    }
+
+    .mp-bulk {
+        margin-left: 0;
+        width: 100%;
+    }
+}
