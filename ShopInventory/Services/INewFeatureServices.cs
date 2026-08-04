@@ -4,6 +4,17 @@ using ShopInventory.Models.Entities;
 namespace ShopInventory.Services;
 
 /// <summary>
+/// Outcome of rewriting posted sales orders' local financial mirror from their SAP documents.
+/// </summary>
+/// <param name="OrdersRepaired">Orders whose header or lines changed.</param>
+/// <param name="LinesRepaired">Lines that gained a tax rate they were missing.</param>
+/// <param name="OrdersUnresolved">Orders whose SAP document could not be read; these are retryable.</param>
+public sealed record SalesOrderTaxRepairSummary(
+    int OrdersRepaired,
+    int LinesRepaired,
+    int OrdersUnresolved);
+
+/// <summary>
 /// Service interface for Sales Order operations
 /// </summary>
 public interface ISalesOrderService
@@ -22,6 +33,7 @@ public interface ISalesOrderService
     Task<string> GenerateOrderNumberAsync(CancellationToken cancellationToken = default);
     Task<SalesOrderDto> PostToSAPAsync(int id, Guid userId, CancellationToken cancellationToken = default);
     Task<int> ReconcileUnlinkedSapSalesOrdersAsync(TimeSpan lookback, int maxOrders, CancellationToken cancellationToken = default);
+    Task<SalesOrderTaxRepairSummary> RepairSyncedSalesOrderTaxFromSapAsync(IReadOnlyCollection<int> orderIds, bool dryRun, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
