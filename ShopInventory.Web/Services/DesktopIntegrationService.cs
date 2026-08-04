@@ -507,6 +507,11 @@ public class InvoiceQueueStatsDto
     public int Failed { get; set; }
     public int RequiresReview { get; set; }
     public int Cancelled { get; set; }
+    // The API counts a seventh status the mirror was missing, so
+    // Pending + Processing + Completed + Failed + RequiresReview + Cancelled
+    // came up short of TotalQueued by however many invoices had been
+    // fiscalized. /desktop-transactions shows the split against the total.
+    public int Fiscalized { get; set; }
     public DateTime? OldestPendingAge { get; set; }
     public decimal TotalAmountPending { get; set; }
 }
