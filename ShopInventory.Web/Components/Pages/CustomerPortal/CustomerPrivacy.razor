@@ -5,229 +5,215 @@
 
 <PageTitle>Privacy Policy - Customer Portal</PageTitle>
 
-<div class="container-fluid fade-in staff-dashboard staff-shell">
-    <div class="dashboard-hero">
-        <div class="page-header staff-dashboard-header">
-            <div class="dashboard-title">
-                <h2>
-                    <MudIcon Icon="@Icons.Material.Filled.PrivacyTip" Size="Size.Large" Class="mr-2" />
-                    Privacy Policy
-                </h2>
-                <span class="text-muted">How we collect, use, and protect your information.</span>
+@* On the portal's page vocabulary — the `cpd` blocks the dashboard was built
+   from; see the Page vocabulary section of customer-portal.css. `cpx` comes
+   down from the shell. `cpd-note`, `cpd-prose` and `cpd-stamp` were written in
+   that file for these two legal pages and had no caller until now — the pages
+   were still wearing the *staff* `staff-dashboard staff-shell` chrome inside
+   the portal layout.
+
+   The policy text is unchanged. Only the markup carrying it is: MudPaper and
+   the MudText-per-paragraph stack became a panel of ordinary prose, which is
+   what `cpd-prose` exists to set. *@
+<div class="cpd fade-in">
+    <div class="cpd-hero">
+        <div class="cpd-hero-text">
+            <h2>Privacy Policy</h2>
+            <div class="cpd-hero-meta">
+                <span>How we collect, use and protect your information</span>
+                <span>Last updated March 2026</span>
             </div>
+        </div>
+        <div class="cpd-hero-actions">
+            <a href="/customer-portal/terms" class="btn btn-outline-primary">Terms of service</a>
+            <a href="/customer-portal/support" class="btn btn-primary">Contact support</a>
         </div>
     </div>
 
-    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-4 mb-2" Dense="true">
-        This Privacy Policy is issued in compliance with the Cyber and Data Protection Act [Chapter 12:07]
-        of Zimbabwe and the regulations of the Postal and Telecommunications Regulatory Authority of Zimbabwe (POTRAZ).
-    </MudAlert>
+    <div class="cpd-note">
+        <i class="ph ph-info" aria-hidden="true"></i>
+        <span>
+            This Privacy Policy is issued in compliance with the Cyber and Data Protection Act
+            [Chapter 12:07] of Zimbabwe and the regulations of the Postal and Telecommunications
+            Regulatory Authority of Zimbabwe (POTRAZ).
+        </span>
+    </div>
 
-    <MudPaper Class="pa-6 mt-4" Elevation="1">
-        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-4">Last updated: March 2026</MudText>
+    <div class="cpd-panel">
+        <div class="cpd-stamp">Last updated: March 2026</div>
 
-        <MudText Typo="Typo.h5" Class="mb-3">1. Data Controller</MudText>
-        <MudText Typo="Typo.body1" Class="mb-4">
-            Kefalos Cheese (Pvt) Ltd is the data controller responsible for the personal data collected through
-            this Customer Portal, as defined under the Cyber and Data Protection Act [Chapter 12:07]. We are
-            registered with the Data Protection Authority of Zimbabwe as required by law.
-        </MudText>
+        <div class="cpd-prose">
+            <h3>1. Data Controller</h3>
+            <p>
+                Kefalos Cheese (Pvt) Ltd is the data controller responsible for the personal data collected through
+                this Customer Portal, as defined under the Cyber and Data Protection Act [Chapter 12:07]. We are
+                registered with the Data Protection Authority of Zimbabwe as required by law.
+            </p>
 
-        <MudText Typo="Typo.h5" Class="mb-3">2. Lawful Basis for Processing</MudText>
-        <MudText Typo="Typo.body1" Class="mb-2">
-            In accordance with Section 8 of the Cyber and Data Protection Act, we process your personal data
-            on the following lawful bases:
-        </MudText>
-        <ul class="mb-4 pl-4">
-            <li>
-                <MudText Typo="Typo.body1"><strong>Consent:</strong> You have given consent for specific processing
-                    activities when registering for and using this portal</MudText>
+            <h3>2. Lawful Basis for Processing</h3>
+            <p>
+                In accordance with Section 8 of the Cyber and Data Protection Act, we process your personal data
+                on the following lawful bases:
+            </p>
+            <ul>
+                <li>
+                    <strong>Consent:</strong> You have given consent for specific processing activities when
+                    registering for and using this portal
                 </li>
                 <li>
-                    <MudText Typo="Typo.body1"><strong>Contractual necessity:</strong> Processing is necessary to perform
-                        our contract with you (invoicing, payments, statements)</MudText>
-                    </li>
-                    <li>
-                        <MudText Typo="Typo.body1"><strong>Legal obligation:</strong> Processing is required to comply with
-                            Zimbabwean law, including tax and financial reporting requirements</MudText>
-                        </li>
-                        <li>
-                            <MudText Typo="Typo.body1"><strong>Legitimate interest:</strong> Processing is necessary for our
-                                legitimate business interests, provided these do not override your fundamental rights</MudText>
-                            </li>
-                        </ul>
+                    <strong>Contractual necessity:</strong> Processing is necessary to perform our contract with
+                    you (invoicing, payments, statements)
+                </li>
+                <li>
+                    <strong>Legal obligation:</strong> Processing is required to comply with Zimbabwean law,
+                    including tax and financial reporting requirements
+                </li>
+                <li>
+                    <strong>Legitimate interest:</strong> Processing is necessary for our legitimate business
+                    interests, provided these do not override your fundamental rights
+                </li>
+            </ul>
 
-                        <MudText Typo="Typo.h5" Class="mb-3">3. Information We Collect</MudText>
-                        <MudText Typo="Typo.body1" Class="mb-2">
-                            We collect information you provide directly when using the Customer Portal, including:
-                        </MudText>
-                        <ul class="mb-4 pl-4">
-                            <li>
-                                <MudText Typo="Typo.body1">Name, email address, phone number, and company details</MudText>
-                            </li>
-                            <li>
-                                <MudText Typo="Typo.body1">Billing information and payment details</MudText>
-                            </li>
-                            <li>
-                                <MudText Typo="Typo.body1">Transaction data related to invoices, payments, and statements</MudText>
-                            </li>
-                            <li>
-                                <MudText Typo="Typo.body1">Technical data such as IP address, browser type, and session information for
-                                    security purposes</MudText>
-                                </li>
-                            </ul>
+            <h3>3. Information We Collect</h3>
+            <p>We collect information you provide directly when using the Customer Portal, including:</p>
+            <ul>
+                <li>Name, email address, phone number, and company details</li>
+                <li>Billing information and payment details</li>
+                <li>Transaction data related to invoices, payments, and statements</li>
+                <li>Technical data such as IP address, browser type, and session information for security purposes</li>
+            </ul>
 
-                            <MudText Typo="Typo.h5" Class="mb-3">4. Purpose Limitation</MudText>
-                            <MudText Typo="Typo.body1" Class="mb-2">
-                                In line with the data minimisation and purpose limitation principles under the Act, we use
-                                the information we collect only to:
-                            </MudText>
-                            <ul class="mb-4 pl-4">
-                                <li>
-                                    <MudText Typo="Typo.body1">Process and manage your invoices, payments, and account statements</MudText>
-                                </li>
-                                <li>
-                                    <MudText Typo="Typo.body1">Communicate with you about your account and transactions</MudText>
-                                </li>
-                                <li>
-                                    <MudText Typo="Typo.body1">Provide customer support and respond to your enquiries</MudText>
-                                </li>
-                                <li>
-                                    <MudText Typo="Typo.body1">Improve our services and user experience</MudText>
-                                </li>
-                                <li>
-                                    <MudText Typo="Typo.body1">Comply with legal and regulatory obligations, including POTRAZ requirements
-                                    </MudText>
-                                </li>
-                            </ul>
+            <h3>4. Purpose Limitation</h3>
+            <p>
+                In line with the data minimisation and purpose limitation principles under the Act, we use
+                the information we collect only to:
+            </p>
+            <ul>
+                <li>Process and manage your invoices, payments, and account statements</li>
+                <li>Communicate with you about your account and transactions</li>
+                <li>Provide customer support and respond to your enquiries</li>
+                <li>Improve our services and user experience</li>
+                <li>Comply with legal and regulatory obligations, including POTRAZ requirements</li>
+            </ul>
 
-                            <MudText Typo="Typo.h5" Class="mb-3">5. Data Security</MudText>
-                            <MudText Typo="Typo.body1" Class="mb-4">
-                                We implement appropriate technical and organisational measures to protect your personal data against
-                                unauthorised access, alteration, disclosure, or destruction, as required by the Cyber and Data
-                                Protection Act and POTRAZ security standards. All data transmitted between your browser and our
-                                servers is encrypted using TLS. Access to customer data is restricted to authorised personnel only.
-                                We conduct regular security assessments to ensure continued compliance.
-                            </MudText>
+            <h3>5. Data Security</h3>
+            <p>
+                We implement appropriate technical and organisational measures to protect your personal data against
+                unauthorised access, alteration, disclosure, or destruction, as required by the Cyber and Data
+                Protection Act and POTRAZ security standards. All data transmitted between your browser and our
+                servers is encrypted using TLS. Access to customer data is restricted to authorised personnel only.
+                We conduct regular security assessments to ensure continued compliance.
+            </p>
 
-                            <MudText Typo="Typo.h5" Class="mb-3">6. Data Retention</MudText>
-                            <MudText Typo="Typo.body1" Class="mb-4">
-                                We retain your personal data for as long as necessary to fulfil the purposes for which it was collected,
-                                including to satisfy legal, accounting, or reporting requirements under Zimbabwean law. Transaction
-                                records are retained in accordance with applicable financial regulations. When data is no longer
-                                required, it is securely deleted or anonymised in accordance with the Act.
-                            </MudText>
+            <h3>6. Data Retention</h3>
+            <p>
+                We retain your personal data for as long as necessary to fulfil the purposes for which it was collected,
+                including to satisfy legal, accounting, or reporting requirements under Zimbabwean law. Transaction
+                records are retained in accordance with applicable financial regulations. When data is no longer
+                required, it is securely deleted or anonymised in accordance with the Act.
+            </p>
 
-                            <MudText Typo="Typo.h5" Class="mb-3">7. Cross-Border Data Transfers</MudText>
-                            <MudText Typo="Typo.body1" Class="mb-4">
-                                In accordance with Section 29 of the Cyber and Data Protection Act, we do not transfer your personal
-                                data outside Zimbabwe unless the receiving country provides an adequate level of data protection as
-                                determined by the Data Protection Authority, or appropriate safeguards are in place. Where cloud
-                                services are used, we ensure that data processing agreements meet the requirements of Zimbabwean law
-                                and POTRAZ regulations.
-                            </MudText>
+            <h3>7. Cross-Border Data Transfers</h3>
+            <p>
+                In accordance with Section 29 of the Cyber and Data Protection Act, we do not transfer your personal
+                data outside Zimbabwe unless the receiving country provides an adequate level of data protection as
+                determined by the Data Protection Authority, or appropriate safeguards are in place. Where cloud
+                services are used, we ensure that data processing agreements meet the requirements of Zimbabwean law
+                and POTRAZ regulations.
+            </p>
 
-                            <MudText Typo="Typo.h5" Class="mb-3">8. Third-Party Sharing</MudText>
-                            <MudText Typo="Typo.body1" Class="mb-4">
-                                We do not sell your personal information to third parties. We may share your data with trusted service
-                                providers who assist us in operating the portal, processing payments, or complying with legal requirements.
-                                All third parties are contractually obligated to protect your data in accordance with the Cyber and Data
-                                Protection Act and are prohibited from using your data for any purpose other than the services they
-                                provide to us.
-                            </MudText>
+            <h3>8. Third-Party Sharing</h3>
+            <p>
+                We do not sell your personal information to third parties. We may share your data with trusted service
+                providers who assist us in operating the portal, processing payments, or complying with legal requirements.
+                All third parties are contractually obligated to protect your data in accordance with the Cyber and Data
+                Protection Act and are prohibited from using your data for any purpose other than the services they
+                provide to us.
+            </p>
 
-                            <MudText Typo="Typo.h5" Class="mb-3">9. Your Rights as a Data Subject</MudText>
-                            <MudText Typo="Typo.body1" Class="mb-2">
-                                Under Sections 22–28 of the Cyber and Data Protection Act, you have the following rights:
-                            </MudText>
-                            <ul class="mb-4 pl-4">
-                                <li>
-                                    <MudText Typo="Typo.body1"><strong>Right of access:</strong> Obtain confirmation of whether we process
-                                        your personal data and request a copy</MudText>
-                                    </li>
-                                    <li>
-                                        <MudText Typo="Typo.body1"><strong>Right to rectification:</strong> Request correction of inaccurate or
-                                            incomplete personal data</MudText>
-                                        </li>
-                                        <li>
-                                            <MudText Typo="Typo.body1"><strong>Right to erasure:</strong> Request deletion of your personal data
-                                                where there is no compelling reason for continued processing</MudText>
-                                            </li>
-                                            <li>
-                                                <MudText Typo="Typo.body1"><strong>Right to restriction:</strong> Request that we restrict the
-                                                    processing of your data in certain circumstances</MudText>
-                                                </li>
-                                                <li>
-                                                    <MudText Typo="Typo.body1"><strong>Right to data portability:</strong> Receive your personal data in a
-                                                        structured, commonly used, machine-readable format</MudText>
-                                                    </li>
-                                                    <li>
-                                                        <MudText Typo="Typo.body1"><strong>Right to object:</strong> Object to processing based on legitimate
-                                                            interests or for direct marketing purposes</MudText>
-                                                        </li>
-                                                        <li>
-                                                            <MudText Typo="Typo.body1"><strong>Right to withdraw consent:</strong> Withdraw your consent at any time
-                                                                without affecting the lawfulness of processing carried out before withdrawal</MudText>
-                                                            </li>
-                                                        </ul>
-                                                        <MudText Typo="Typo.body1" Class="mb-4">
-                                                            To exercise any of these rights, please contact us through the
-                                                            <MudLink Href="/customer-portal/support" Color="Color.Primary">Support</MudLink> page.
-                                                            We will respond to your request within 30 days as required by law.
-                                                        </MudText>
+            <h3>9. Your Rights as a Data Subject</h3>
+            <p>Under Sections 22–28 of the Cyber and Data Protection Act, you have the following rights:</p>
+            <ul>
+                <li>
+                    <strong>Right of access:</strong> Obtain confirmation of whether we process your personal data
+                    and request a copy
+                </li>
+                <li>
+                    <strong>Right to rectification:</strong> Request correction of inaccurate or incomplete personal data
+                </li>
+                <li>
+                    <strong>Right to erasure:</strong> Request deletion of your personal data where there is no
+                    compelling reason for continued processing
+                </li>
+                <li>
+                    <strong>Right to restriction:</strong> Request that we restrict the processing of your data in
+                    certain circumstances
+                </li>
+                <li>
+                    <strong>Right to data portability:</strong> Receive your personal data in a structured, commonly
+                    used, machine-readable format
+                </li>
+                <li>
+                    <strong>Right to object:</strong> Object to processing based on legitimate interests or for
+                    direct marketing purposes
+                </li>
+                <li>
+                    <strong>Right to withdraw consent:</strong> Withdraw your consent at any time without affecting
+                    the lawfulness of processing carried out before withdrawal
+                </li>
+            </ul>
+            <p>
+                To exercise any of these rights, please contact us through the
+                <a href="/customer-portal/support">Support</a> page.
+                We will respond to your request within 30 days as required by law.
+            </p>
 
-                                                        <MudText Typo="Typo.h5" Class="mb-3">10. Data Breach Notification</MudText>
-                                                        <MudText Typo="Typo.body1" Class="mb-4">
-                                                            In accordance with Section 30 of the Cyber and Data Protection Act, in the event of a personal data
-                                                            breach that is likely to result in a risk to your rights and freedoms, we will notify the Data
-                                                            Protection Authority within 72 hours of becoming aware of the breach. Where the breach is likely
-                                                            to result in a high risk to you, we will notify you directly without undue delay, providing details
-                                                            of the nature of the breach and the measures taken to address it.
-                                                        </MudText>
+            <h3>10. Data Breach Notification</h3>
+            <p>
+                In accordance with Section 30 of the Cyber and Data Protection Act, in the event of a personal data
+                breach that is likely to result in a risk to your rights and freedoms, we will notify the Data
+                Protection Authority within 72 hours of becoming aware of the breach. Where the breach is likely
+                to result in a high risk to you, we will notify you directly without undue delay, providing details
+                of the nature of the breach and the measures taken to address it.
+            </p>
 
-                                                        <MudText Typo="Typo.h5" Class="mb-3">11. Cookies</MudText>
-                                                        <MudText Typo="Typo.body1" Class="mb-4">
-                                                            The Customer Portal uses essential cookies to maintain your session and preferences. These cookies are
-                                                            necessary for the portal to function and cannot be disabled. We do not use tracking or advertising cookies.
-                                                        </MudText>
+            <h3>11. Cookies</h3>
+            <p>
+                The Customer Portal uses essential cookies to maintain your session and preferences. These cookies are
+                necessary for the portal to function and cannot be disabled. We do not use tracking or advertising cookies.
+            </p>
 
-                                                        <MudText Typo="Typo.h5" Class="mb-3">12. Complaints</MudText>
-                                                        <MudText Typo="Typo.body1" Class="mb-2">
-                                                            If you believe your data protection rights have been violated, you have the right to:
-                                                        </MudText>
-                                                        <ul class="mb-4 pl-4">
-                                                            <li>
-                                                                <MudText Typo="Typo.body1">Contact us directly through the <MudLink Href="/customer-portal/support"
-                                                                                                                                        Color="Color.Primary">Support</MudLink> page</MudText>
-                                                                </li>
-                                                                <li>
-                                                                    <MudText Typo="Typo.body1">Lodge a complaint with the Data Protection Authority of Zimbabwe established
-                                                                        under the Cyber and Data Protection Act</MudText>
-                                                                    </li>
-                                                                    <li>
-                                                                        <MudText Typo="Typo.body1">Escalate regulatory matters to POTRAZ at <MudLink
-                                                                            Href="https://www.potraz.gov.zw" Target="_blank" Color="Color.Primary">www.potraz.gov.zw
-                                                                        </MudLink>
-                                                                    </MudText>
-                                                                </li>
-                                                            </ul>
+            <h3>12. Complaints</h3>
+            <p>If you believe your data protection rights have been violated, you have the right to:</p>
+            <ul>
+                <li>Contact us directly through the <a href="/customer-portal/support">Support</a> page</li>
+                <li>
+                    Lodge a complaint with the Data Protection Authority of Zimbabwe established under the Cyber
+                    and Data Protection Act
+                </li>
+                <li>
+                    Escalate regulatory matters to POTRAZ at
+                    <a href="https://www.potraz.gov.zw" target="_blank" rel="noopener">www.potraz.gov.zw</a>
+                </li>
+            </ul>
 
-                                                            <MudText Typo="Typo.h5" Class="mb-3">13. Changes to this Policy</MudText>
-                                                            <MudText Typo="Typo.body1" Class="mb-4">
-                                                                We may update this Privacy Policy from time to time to reflect changes in our practices or applicable
-                                                                law. Material changes will be communicated to you via the portal or email. The "Last updated" date
-                                                                at the top of this policy indicates when the latest revision was made.
-                                                            </MudText>
+            <h3>13. Changes to this Policy</h3>
+            <p>
+                We may update this Privacy Policy from time to time to reflect changes in our practices or applicable
+                law. Material changes will be communicated to you via the portal or email. The "Last updated" date
+                at the top of this policy indicates when the latest revision was made.
+            </p>
 
-                                                            <MudText Typo="Typo.h5" Class="mb-3">14. Contact Us</MudText>
-                                                            <MudText Typo="Typo.body1" Class="mb-2">
-                                                                If you have any questions about this Privacy Policy, wish to exercise your data rights, or need to
-                                                                report a data protection concern, please contact us through the
-                                                                <MudLink Href="/customer-portal/support" Color="Color.Primary">Support</MudLink> page.
-                                                            </MudText>
-                                                            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">
-                                                                Regulatory enquiries may be directed to POTRAZ at
-                                                                <MudLink Href="https://www.potraz.gov.zw" Target="_blank" Color="Color.Primary">www.potraz.gov.zw</MudLink>.
-                                                            </MudText>
-                                                        </MudPaper>
-                                                    </div>
+            <h3>14. Contact Us</h3>
+            <p>
+                If you have any questions about this Privacy Policy, wish to exercise your data rights, or need to
+                report a data protection concern, please contact us through the
+                <a href="/customer-portal/support">Support</a> page.
+            </p>
+            <p class="cpd-stamp">
+                Regulatory enquiries may be directed to POTRAZ at
+                <a href="https://www.potraz.gov.zw" target="_blank" rel="noopener">www.potraz.gov.zw</a>.
+            </p>
+        </div>
+    </div>
+</div>
