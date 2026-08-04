@@ -427,6 +427,17 @@
     transition: border-color .15s, background-color .15s;
 }
 
+/* A native <select> popup takes its background from the field, and the field
+   above is a 5%-white wash — which the browser composites onto white and then
+   ignores `color-scheme: dark` for. Left alone the options render in the field's
+   near-white ink on a near-white sheet, i.e. invisible in dark theme only. The
+   fill has to be opaque, so it is --mpu-surface rather than --mpu-field-bg. */
+.mpu .mpu-input option,
+.mpu .mpu-input optgroup {
+    color: var(--mpu-ink);
+    background-color: var(--mpu-surface);
+}
+
 .mpu .mpu-textarea {
     min-height: 132px;
     line-height: 1.5;
