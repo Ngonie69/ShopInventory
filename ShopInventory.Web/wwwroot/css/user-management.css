@@ -1187,6 +1187,23 @@
     background: var(--um-bg);
     box-shadow: var(--um-shadow-pop);
     animation: um-rise .2s ease;
+    /* The body scrolls, the dialog does not: without this a body that outgrows
+       `max-height` spills past the rounded corners instead of being clipped. */
+    overflow: hidden;
+}
+
+/* Two of these dialogs wrap their body and footer in an `EditForm`, which
+   renders a plain `<form>` between `.um-modal` and them. Left unstyled it is a
+   block box with an auto min-height, so the body's `flex: 1; min-height: 0`
+   resolves against nothing, the body never becomes a scrollport, and the
+   footer — which is where Save Changes lives — is pushed below the fold with
+   no way to scroll to it. The form has to carry the column through. */
+.um-modal>form {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .um-modal-wide {
