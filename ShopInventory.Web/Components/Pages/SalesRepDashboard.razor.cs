@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
+using ShopInventory.Web.Common;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
 
@@ -286,13 +287,21 @@ public partial class SalesRepDashboard
         // Unsynced local orders are returned ahead of the SAP page rather than
         // merged into its date order, so the recent queue has to sort before it
         // takes a top slice.
-        var orders = response.Orders
+        var fetched = response.Orders
             .OrderByDescending(order => order.OrderDate)
             .ThenByDescending(order => order.Id)
             .ToList();
 
-        rangeOrderCount = response.TotalCount;
-        ordersTruncated = orders.Count < response.TotalCount;
+        // Van sales accounts are dropped before anything is counted, so every
+        // panel on this page reads the same book of business the rep is
+        // measured on.
+        var orders = fetched.Where(IsRepBusiness).ToList();
+
+        // Truncation is judged on what the fetch returned, since that is what
+        // the page size cut short; the count then reports what survived the
+        // exclusion rather than the server's unfiltered total.
+        ordersTruncated = fetched.Count < response.TotalCount;
+        rangeOrderCount = orders.Count;
         hasOrders = true;
         recentOrders = orders.Take(6).ToList();
 
@@ -323,7 +332,7 @@ public partial class SalesRepDashboard
             return;
         }
 
-        var previousValue = previous.Orders.Sum(order => order.DocTotal);
+        var previousValue = previous.Orders.Where(IsRepBusiness).Sum(order => order.DocTotal);
         valueChangePercent = previousValue == 0
             ? null
             : Math.Round((rangeValue - previousValue) / previousValue * 100m, 1);
@@ -410,12 +419,19 @@ public partial class SalesRepDashboard
                 return;
             }
 
-            mobilePending = response.TotalCount;
+            // Van sales accounts are dropped here as everywhere else on this
+            // page, which the queue can only be counted net of once the fetch
+            // covers all of it. A queue deeper than one page keeps the server's
+            // total, which is a decision count either way.
+            var covered = response.Orders.Count >= response.TotalCount;
+            var queue = response.Orders.Where(IsRepBusiness).ToList();
+
+            mobilePending = covered ? queue.Count : response.TotalCount;
 
             // The list arrives newest first, so the oldest entry is only really
             // the oldest when the page covers the whole queue.
-            oldestMobile = response.Orders.Count > 0 && response.Orders.Count >= response.TotalCount
-                ? response.Orders.Min(order => OrderMoment(order))
+            oldestMobile = covered && queue.Count > 0
+                ? queue.Min(order => OrderMoment(order))
                 : null;
         }
         catch (Exception ex)
@@ -608,6 +624,15 @@ public partial class SalesRepDashboard
 
     private static string OrderLabel(SalesOrderDto order) =>
         order.SAPDocNum is > 0 ? $"SO-{order.SAPDocNum}" : order.OrderNumber;
+
+    /// <summary>
+    /// Whether the order counts towards a rep. Van sales accounts move stock
+    /// onto the vans rather than out to a customer any rep covers, and they
+    /// trade at a scale that would otherwise own the value chart and every
+    /// place in the customer ranking.
+    /// </summary>
+    private static bool IsRepBusiness(SalesOrderDto order) =>
+        !VanSalesAccounts.IsVanSalesAccount(order.CardCode);
 
     private static string CustomerLabel(SalesOrderDto order) =>
         string.IsNullOrWhiteSpace(order.CardName) ? order.CardCode : order.CardName!;
