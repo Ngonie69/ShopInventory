@@ -1702,10 +1702,12 @@
             var orderForExport = await SalesOrderService.GetSalesOrderDetailsAsync(selectedOrder) ?? selectedOrder;
             selectedOrder = orderForExport;
 
-            var exportHtml = BuildSelectedOrderPdfHtml(
+            var exportHtml = MobileOrderDocumentBuilder.Build(
                 orderForExport,
                 purchaseOrderAttachments.ToList(),
-                purchaseOrderAttachmentError);
+                purchaseOrderAttachmentError,
+                GetPurchaseOrderReference(orderForExport),
+                IAuditService.ToCAT(DateTime.UtcNow));
 
             await JS.InvokeVoidAsync("printReportHtml", exportHtml);
             Snackbar.Add("Print dialog opened. Choose Save as PDF to create the mobile order PDF.", Severity.Info);
@@ -1720,113 +1722,6 @@
             isGeneratingOrderPdf = false;
         }
     }
-
-    private string BuildSelectedOrderPdfHtml(
-        SalesOrderDto order,
-        IReadOnlyCollection<DocumentAttachmentDto> attachments,
-        string? attachmentError)
-    {
-        var builder = new System.Text.StringBuilder();
-
-        builder.Append("<div class='kpi-row'>");
-        AppendSelectedOrderPdfKpi(builder, order.OrderNumber, "Order");
-        AppendSelectedOrderPdfKpi(builder, GetOrderStatusLabel(order), "Status", GetOrderPdfStatusClass(order.Status));
-        AppendSelectedOrderPdfKpi(builder, FormatOrderLineCount(order), "Lines");
-        AppendSelectedOrderPdfKpi(builder, FormatOrderItemCount(order), "Items");
-        AppendSelectedOrderPdfKpi(builder, FormatOrderPdfMoney(order.Currency, order.DocTotal), "Total");
-        AppendSelectedOrderPdfKpi(builder, attachments.Count.ToString("N0"), "Uploaded PO Files");
-        builder.Append("</div>");
-
-        builder.Append("<h3 style='font-size:14px;margin-top:20px;'>Order Summary</h3>");
-        builder.Append("<table><thead><tr><th>Field</th><th>Value</th><th>Field</th><th>Value</th></tr></thead><tbody>");
-        builder.Append($"<tr><th>Order Number</th><td>{Html(order.OrderNumber)}</td><th>Status</th><td>{Html(GetOrderStatusLabel(order))}</td></tr>");
-        builder.Append($"<tr><th>Customer</th><td>{Html($"{order.CardCode} - {order.CardName}")}</td><th>Received From Mobile</th><td>{Html(FormatOrderPdfCatDateTime(order.CreatedAt))}</td></tr>");
-        builder.Append($"<tr><th>PO Reference</th><td>{Html(GetPurchaseOrderReference(order) ?? "Not provided")}</td><th>Delivery Date</th><td>{Html(order.DeliveryDate?.ToString("dd MMM yyyy") ?? "Not set")}</td></tr>");
-        builder.Append($"<tr><th>Created By</th><td>{Html(order.CreatedByUserName ?? "Unknown")}</td><th>Currency</th><td>{Html(order.Currency ?? "USD")}</td></tr>");
-        builder.Append($"<tr><th>SAP Document</th><td>{Html(order.SAPDocNum?.ToString() ?? "Not synced")}</td><th>SAP DocEntry</th><td>{Html(order.SAPDocEntry?.ToString() ?? "Not synced")}</td></tr>");
-        builder.Append($"<tr><th>Subtotal</th><td>{Html(FormatOrderPdfMoney(order.Currency, order.SubTotal))}</td><th>Tax</th><td>{Html(FormatOrderPdfMoney(order.Currency, order.TaxAmount))}</td></tr>");
-        builder.Append($"<tr><th>Total</th><td>{Html(FormatOrderPdfMoney(order.Currency, order.DocTotal))}</td><th>Device Info</th><td>{Html(string.IsNullOrWhiteSpace(order.DeviceInfo) ? "Not captured" : order.DeviceInfo)}</td></tr>");
-        builder.Append($"<tr><th>Merchandiser Notes</th><td colspan='3'>{Html(string.IsNullOrWhiteSpace(order.MerchandiserNotes) ? "No merchandiser notes" : order.MerchandiserNotes)}</td></tr>");
-        builder.Append("</tbody></table>");
-
-        if (order.Latitude.HasValue && order.Longitude.HasValue)
-        {
-            builder.Append("<h3 style='font-size:14px;margin-top:20px;'>Location</h3>");
-            builder.Append("<table><thead><tr><th>Latitude</th><th>Longitude</th><th>Maps Link</th></tr></thead><tbody>");
-            builder.Append($"<tr><td>{Html(order.Latitude.Value.ToString("F6"))}</td><td>{Html(order.Longitude.Value.ToString("F6"))}</td><td>{Html($"https://www.google.com/maps?q={order.Latitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)},{order.Longitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}")}</td></tr>");
-            builder.Append("</tbody></table>");
-        }
-
-        builder.Append("<h3 style='font-size:14px;margin-top:20px;'>Physical Purchase Order</h3>");
-        if (!string.IsNullOrWhiteSpace(attachmentError))
-        {
-            builder.Append($"<p style='color:#b91c1c;font-weight:600;'>{Html(attachmentError)}</p>");
-        }
-        else if (attachments.Count == 0)
-        {
-            builder.Append($"<p style='color:#616161;font-style:italic;'>No uploaded physical purchase order was found for reference {Html(GetPurchaseOrderReference(order) ?? order.OrderNumber)}.</p>");
-        }
-        else
-        {
-            builder.Append("<table><thead><tr><th>File Name</th><th>Size</th><th>Uploaded</th><th>Uploaded By</th><th>Description</th></tr></thead><tbody>");
-            foreach (var attachment in attachments)
-            {
-                builder.Append($"<tr><td>{Html(attachment.FileName)}</td><td>{Html(attachment.FileSizeFormatted)}</td><td>{Html(FormatOrderPdfCatDateTime(attachment.UploadedAt))}</td><td>{Html(string.IsNullOrWhiteSpace(attachment.UploadedByUserName) ? "Unknown uploader" : attachment.UploadedByUserName)}</td><td>{Html(string.IsNullOrWhiteSpace(attachment.Description) ? "-" : attachment.Description)}</td></tr>");
-            }
-            builder.Append("</tbody></table>");
-        }
-
-        builder.Append("<h3 style='font-size:14px;margin-top:20px;'>Order Lines</h3>");
-        if (order.Lines?.Any() == true)
-        {
-            builder.Append("<table><thead><tr><th>Item</th><th>Description</th><th>Qty</th><th>UoM</th><th>Warehouse</th><th>Unit Price</th><th>Total</th></tr></thead><tbody>");
-            foreach (var line in order.Lines)
-            {
-                builder.Append($"<tr><td>{Html(line.ItemCode)}</td><td>{Html(line.ItemDescription)}</td><td class='text-end'>{Html(QuantityDisplay.Format(line.Quantity, line.UoMCode))}</td><td>{Html(string.IsNullOrWhiteSpace(line.UoMCode) ? "-" : line.UoMCode)}</td><td>{Html(string.IsNullOrWhiteSpace(line.WarehouseCode) ? "-" : line.WarehouseCode)}</td><td class='text-end'>{Html(FormatOrderPdfMoney(order.Currency, line.UnitPrice))}</td><td class='text-end'>{Html(FormatOrderPdfMoney(order.Currency, line.LineTotal))}</td></tr>");
-            }
-            builder.Append("</tbody></table>");
-
-            builder.Append("<table style='margin-top:14px;'><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>");
-            builder.Append($"<tr><td>Item Count</td><td>{Html(FormatOrderItemCount(order))}</td></tr>");
-            builder.Append($"<tr><td>Subtotal</td><td>{Html(FormatOrderPdfMoney(order.Currency, order.SubTotal))}</td></tr>");
-            builder.Append($"<tr><td>Tax</td><td>{Html(FormatOrderPdfMoney(order.Currency, order.TaxAmount))}</td></tr>");
-            builder.Append($"<tr><td><strong>Total</strong></td><td><strong>{Html(FormatOrderPdfMoney(order.Currency, order.DocTotal))}</strong></td></tr>");
-            builder.Append("</tbody></table>");
-        }
-        else
-        {
-            builder.Append("<p style='color:#616161;font-style:italic;'>No line items were returned for this mobile order.</p>");
-        }
-
-        return ExportService.GeneratePrintableHtml($"Mobile Order {order.OrderNumber}", builder.ToString());
-    }
-
-    private static void AppendSelectedOrderPdfKpi(System.Text.StringBuilder builder, string value, string label, string? cssClass = null)
-    {
-        var classSuffix = string.IsNullOrWhiteSpace(cssClass) ? string.Empty : $" {cssClass}";
-        builder.Append($"<div class='kpi{classSuffix}'><h3>{Html(value)}</h3><p>{Html(label)}</p></div>");
-    }
-
-    private static string GetOrderStatusLabel(SalesOrderDto order) => order.Status.ToString();
-
-    private static string? GetOrderPdfStatusClass(SalesOrderStatus status) => status switch
-    {
-        SalesOrderStatus.Approved or SalesOrderStatus.Fulfilled or SalesOrderStatus.Invoiced => "success",
-        SalesOrderStatus.Pending or SalesOrderStatus.PartiallyFulfilled => "warning",
-        SalesOrderStatus.Cancelled or SalesOrderStatus.Rejected => "danger",
-        _ => null
-    };
-
-    private static string FormatOrderPdfMoney(string? currency, decimal amount) =>
-        string.IsNullOrWhiteSpace(currency) ? amount.ToString("N2") : $"{currency} {amount:N2}";
-
-    private static string FormatOrderPdfCatDateTime(DateTime value)
-    {
-        var utcValue = value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
-        return $"{IAuditService.ToCAT(utcValue):dd MMM yyyy HH:mm} CAT";
-    }
-
-    private static string Html(string? value) => System.Net.WebUtility.HtmlEncode(value ?? string.Empty);
 
     private async Task RefreshSelectedOrderAsync()
     {
