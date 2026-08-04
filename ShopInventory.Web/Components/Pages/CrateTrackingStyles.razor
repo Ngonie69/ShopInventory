@@ -389,6 +389,97 @@
         background: var(--crt-surface-alt);
     }
 
+    /* Icons. Phosphor is loaded globally in App.razor; every selector below is
+       scoped under a .crt-* class, so it reaches the crate pages that include
+       this component and nothing else. Colours come from the crate tokens, so
+       they follow the theme without a separate dark block. */
+    .crt-hero-lead {
+        display: flex;
+        align-items: flex-start;
+        gap: .9rem;
+    }
+
+    .crt-hero-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+        width: 46px;
+        height: 46px;
+        border-radius: 14px;
+        background: var(--crt-surface-alt);
+        color: var(--crt-accent);
+        font-size: 1.4rem;
+    }
+
+    .crt-kicker,
+    .crt-summary-label,
+    .crt-label {
+        display: flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .crt-kicker i,
+    .crt-summary-label i,
+    .crt-label i {
+        font-size: .95rem;
+        line-height: 1;
+    }
+
+    .crt-btn,
+    .crt-attachment-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: .4rem;
+    }
+
+    .crt-btn i,
+    .crt-attachment-btn i {
+        font-size: 1.05rem;
+        line-height: 1;
+    }
+
+    .crt-card-title {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+    }
+
+    .crt-card-title i {
+        font-size: 1.1rem;
+        line-height: 1;
+        color: var(--crt-accent);
+    }
+
+    .crt-table thead th i {
+        margin-right: .35rem;
+        font-size: .9rem;
+    }
+
+    .crt-empty-icon {
+        display: block;
+        font-size: 2.1rem;
+        line-height: 1;
+        margin-bottom: .5rem;
+        opacity: .65;
+    }
+
+    /* CratePageHeader's status banner is a Bootstrap .alert; scoped to
+       .crt-page so this does not restyle alerts on any other page. */
+    .crt-page .alert {
+        display: flex;
+        align-items: flex-start;
+        gap: .55rem;
+    }
+
+    .crt-page .alert i {
+        font-size: 1.1rem;
+        line-height: 1.4;
+        flex: none;
+    }
+
     @@media (max-width: 991.98px) {
         .crt-summary-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -61,6 +61,29 @@
     .preq-loading { padding: 2.5rem 1rem; text-align: center; color: #6b7280; }
     .preq-pager { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-top: 1px solid #eef2f6; }
     .preq-pager span { color: #5f6b7a; font-size: .9rem; }
+
+    /* Icons. Phosphor is loaded globally in App.razor; every rule below is
+       scoped under .preq-page so it cannot reach the shell or a sibling page.
+       Buttons become inline-flex with a gap so an icon reads the same whether
+       it sits before the label (Previous) or after it (Next). */
+    .preq-page .btn { display: inline-flex; align-items: center; gap: .4rem; }
+    .preq-page .btn i { font-size: 1.05rem; line-height: 1; }
+    .preq-title-row { display: flex; align-items: center; gap: .85rem; }
+    .preq-header-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 46px; height: 46px; border-radius: 15px; background: #e8f7ec; color: #2f7d45; font-size: 1.45rem; }
+    .preq-stat-top { display: flex; align-items: center; gap: .55rem; }
+    .preq-stat-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; border-radius: 10px; background: #e8f7ec; color: #2f7d45; font-size: 1rem; }
+    .preq-field label { display: flex; align-items: center; gap: .35rem; }
+    .preq-field label i { font-size: .95rem; }
+    .preq-panel-header h2 { display: flex; align-items: center; gap: .5rem; }
+    .preq-panel-header h2 i { font-size: 1.1rem; color: #2f7d45; }
+    .preq-detail-card label { display: flex; align-items: center; gap: .35rem; }
+    .preq-detail-card label i { font-size: .9rem; }
+    .preq-empty-icon { display: block; font-size: 2.1rem; line-height: 1; color: #b6c2d0; margin-bottom: .6rem; }
+    .preq-alert { display: flex; align-items: flex-start; gap: .55rem; }
+    .preq-alert i { font-size: 1.15rem; line-height: 1.35; flex: none; }
+    .preq-loading i { display: block; font-size: 1.9rem; line-height: 1; margin-bottom: .55rem; color: #2f7d45; animation: preq-spin 1.1s linear infinite; }
+    @@keyframes preq-spin { to { transform: rotate(360deg); } }
+    @@media (prefers-reduced-motion: reduce) { .preq-loading i { animation: none; } }
     .dark-theme .preq-title h1, .dark-theme .preq-panel-header h2, .dark-theme .preq-table td, .dark-theme .preq-detail-card div, .dark-theme .preq-line-code, .dark-theme .preq-empty strong, .dark-theme .preq-stat-value { color: #edf2f7; }
     .dark-theme .preq-title p, .dark-theme .preq-panel-header span, .dark-theme .preq-subtext, .dark-theme .preq-empty, .dark-theme .preq-loading, .dark-theme .preq-pager span, .dark-theme .preq-detail-card label, .dark-theme .preq-line-desc, .dark-theme .preq-stat-label, .dark-theme .preq-field label { color: #a9b4c2; }
     .dark-theme .preq-stat, .dark-theme .preq-filters, .dark-theme .preq-panel { background: #16202c; border-color: #2a3645; box-shadow: none; }
@@ -72,6 +95,9 @@
     .dark-theme .preq-table td, .dark-theme .preq-panel-header, .dark-theme .preq-pager { border-color: #2a3645; }
     .dark-theme .preq-row:hover { background: #1f2c3b; }
     .dark-theme .preq-row.is-selected { background: #263647; }
+    .dark-theme .preq-header-icon, .dark-theme .preq-stat-icon { background: #1c3327; color: #6ed48f; }
+    .dark-theme .preq-panel-header h2 i, .dark-theme .preq-loading i { color: #6ed48f; }
+    .dark-theme .preq-empty-icon { color: #4a5768; }
     @@media (max-width: 1100px) { .preq-layout { grid-template-columns: 1fr; } .preq-filters { grid-template-columns: 1fr; } }
     @@media (max-width: 720px) { .preq-page { padding: 1rem; } .preq-detail-grid { grid-template-columns: 1fr; } .preq-pager { flex-direction: column; align-items: stretch; } }
 </style>
@@ -79,54 +105,57 @@
 <div class="preq-page">
     <div class="preq-header">
         <div class="preq-title">
-            <h1>Purchase Requests</h1>
+            <div class="preq-title-row">
+                <span class="preq-header-icon"><i class="ph ph-clipboard-text" aria-hidden="true"></i></span>
+                <h1>Purchase Requests</h1>
+            </div>
             <p>Review internal procurement requests created in SAP and inspect requested lines before sourcing suppliers.</p>
         </div>
         <div class="preq-header-actions">
-            <button class="btn btn-outline-secondary" @onclick="ReloadAsync">Refresh</button>
-            <button class="btn btn-success" @onclick="NavigateToCreate">Create Purchase Request</button>
+            <button class="btn btn-outline-secondary" @onclick="ReloadAsync"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Refresh</button>
+            <button class="btn btn-success" @onclick="NavigateToCreate"><i class="ph ph-plus" aria-hidden="true"></i>Create Purchase Request</button>
         </div>
     </div>
 
     @if (!string.IsNullOrWhiteSpace(errorMessage))
     {
-        <div class="preq-alert error">@errorMessage</div>
+        <div class="preq-alert error"><i class="ph ph-warning-octagon" aria-hidden="true"></i><span>@errorMessage</span></div>
     }
 
     <div class="preq-stats">
-        <div class="preq-stat"><div class="preq-stat-label">Total Requests</div><div class="preq-stat-value">@requestResponse?.TotalCount</div></div>
-        <div class="preq-stat"><div class="preq-stat-label">Current Page</div><div class="preq-stat-value">@CurrentPageCount</div></div>
-        <div class="preq-stat"><div class="preq-stat-label">Open Requests</div><div class="preq-stat-value">@OpenRequestCount</div></div>
-        <div class="preq-stat"><div class="preq-stat-label">Requested Lines</div><div class="preq-stat-value">@CurrentPageLineCount</div></div>
+        <div class="preq-stat"><div class="preq-stat-top"><span class="preq-stat-icon"><i class="ph ph-clipboard-text" aria-hidden="true"></i></span><div class="preq-stat-label">Total Requests</div></div><div class="preq-stat-value">@requestResponse?.TotalCount</div></div>
+        <div class="preq-stat"><div class="preq-stat-top"><span class="preq-stat-icon"><i class="ph ph-files" aria-hidden="true"></i></span><div class="preq-stat-label">Current Page</div></div><div class="preq-stat-value">@CurrentPageCount</div></div>
+        <div class="preq-stat"><div class="preq-stat-top"><span class="preq-stat-icon"><i class="ph ph-hourglass-high" aria-hidden="true"></i></span><div class="preq-stat-label">Open Requests</div></div><div class="preq-stat-value">@OpenRequestCount</div></div>
+        <div class="preq-stat"><div class="preq-stat-top"><span class="preq-stat-icon"><i class="ph ph-list-bullets" aria-hidden="true"></i></span><div class="preq-stat-label">Requested Lines</div></div><div class="preq-stat-value">@CurrentPageLineCount</div></div>
     </div>
 
     <div class="preq-filters">
         <div class="preq-field">
-            <label for="preq-f-from">From Date</label>
+            <label for="preq-f-from"><i class="ph ph-calendar-blank" aria-hidden="true"></i>From Date</label>
             <NocturneDateField Id="preq-f-from" @bind-Date="fromDate" />
         </div>
         <div class="preq-field">
-            <label for="preq-f-to">To Date</label>
+            <label for="preq-f-to"><i class="ph ph-calendar-check" aria-hidden="true"></i>To Date</label>
             <NocturneDateField Id="preq-f-to" @bind-Date="toDate" />
         </div>
         <div class="preq-filter-actions">
-            <button class="btn btn-dark" @onclick="SearchAsync" disabled="@isLoading">Apply Filters</button>
-            <button class="btn btn-outline-secondary" @onclick="ClearFiltersAsync" disabled="@isLoading">Clear</button>
+            <button class="btn btn-dark" @onclick="SearchAsync" disabled="@isLoading"><i class="ph ph-funnel-simple" aria-hidden="true"></i>Apply Filters</button>
+            <button class="btn btn-outline-secondary" @onclick="ClearFiltersAsync" disabled="@isLoading"><i class="ph ph-funnel-x" aria-hidden="true"></i>Clear</button>
         </div>
     </div>
 
     @if (isLoading)
     {
-        <div class="preq-panel"><div class="preq-loading">Loading purchase requests from SAP...</div></div>
+        <div class="preq-panel"><div class="preq-loading"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Loading purchase requests from SAP...</div></div>
     }
     else
     {
         <div class="preq-layout">
             <section class="preq-panel">
-                <div class="preq-panel-header"><h2>Request Register</h2><span>Page @currentPage of @(requestResponse?.TotalPages == 0 ? 1 : requestResponse?.TotalPages)</span></div>
+                <div class="preq-panel-header"><h2><i class="ph ph-list-dashes" aria-hidden="true"></i>Request Register</h2><span>Page @currentPage of @(requestResponse?.TotalPages == 0 ? 1 : requestResponse?.TotalPages)</span></div>
                 @if (Requests.Count == 0)
                 {
-                    <div class="preq-empty"><strong>No purchase requests matched the current filters.</strong>Adjust the date range and try again.</div>
+                    <div class="preq-empty"><i class="ph ph-file-dashed preq-empty-icon" aria-hidden="true"></i><strong>No purchase requests matched the current filters.</strong>Adjust the date range and try again.</div>
                 }
                 else
                 {
@@ -150,30 +179,30 @@
                 }
 
                 <div class="preq-pager">
-                    <button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)">Previous</button>
+                    <button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)"><i class="ph ph-arrow-left" aria-hidden="true"></i>Previous</button>
                     <span>Showing @CurrentPageCount of @requestResponse?.TotalCount requests</span>
-                    <button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(isLoading || !(requestResponse?.HasMore ?? false))">Next</button>
+                    <button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(isLoading || !(requestResponse?.HasMore ?? false))">Next<i class="ph ph-arrow-right" aria-hidden="true"></i></button>
                 </div>
             </section>
 
             <aside class="preq-panel">
-                <div class="preq-panel-header"><h2>Selected Request</h2><span>@(selectedRequest is null ? "No selection" : $"{selectedRequest.Lines.Count} line(s)")</span></div>
+                <div class="preq-panel-header"><h2><i class="ph ph-identification-card" aria-hidden="true"></i>Selected Request</h2><span>@(selectedRequest is null ? "No selection" : $"{selectedRequest.Lines.Count} line(s)")</span></div>
                 @if (selectedRequest is null)
                 {
-                    <div class="preq-empty"><strong>Select a request.</strong>The document summary and requested lines will appear here.</div>
+                    <div class="preq-empty"><i class="ph ph-cursor-click preq-empty-icon" aria-hidden="true"></i><strong>Select a request.</strong>The document summary and requested lines will appear here.</div>
                 }
                 else
                 {
                     <div class="preq-detail">
                         <div class="preq-detail-grid">
-                            <div class="preq-detail-card"><label>Requester</label><div>@(string.IsNullOrWhiteSpace(selectedRequest.RequesterName) ? (selectedRequest.Requester?.ToString() ?? "Not set") : selectedRequest.RequesterName)</div></div>
-                            <div class="preq-detail-card"><label>Posting Date</label><div>@(selectedRequest.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
-                            <div class="preq-detail-card"><label>Required Date</label><div>@(selectedRequest.RequriedDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
-                            <div class="preq-detail-card"><label>Status</label><div>@selectedRequest.DocStatus</div></div>
+                            <div class="preq-detail-card"><label><i class="ph ph-user" aria-hidden="true"></i>Requester</label><div>@(string.IsNullOrWhiteSpace(selectedRequest.RequesterName) ? (selectedRequest.Requester?.ToString() ?? "Not set") : selectedRequest.RequesterName)</div></div>
+                            <div class="preq-detail-card"><label><i class="ph ph-calendar-blank" aria-hidden="true"></i>Posting Date</label><div>@(selectedRequest.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
+                            <div class="preq-detail-card"><label><i class="ph ph-calendar-check" aria-hidden="true"></i>Required Date</label><div>@(selectedRequest.RequriedDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
+                            <div class="preq-detail-card"><label><i class="ph ph-seal-check" aria-hidden="true"></i>Status</label><div>@selectedRequest.DocStatus</div></div>
                         </div>
                         @if (!string.IsNullOrWhiteSpace(selectedRequest.Comments))
                         {
-                            <div class="preq-detail-card" style="margin-bottom: 1rem;"><label>Comments</label><div>@selectedRequest.Comments</div></div>
+                            <div class="preq-detail-card" style="margin-bottom: 1rem;"><label><i class="ph ph-chat-text" aria-hidden="true"></i>Comments</label><div>@selectedRequest.Comments</div></div>
                         }
                         <div class="preq-line-list">
                             @foreach (var line in selectedRequest.Lines)

@@ -71,6 +71,38 @@
     .grpo-loading { padding: 2.5rem 1rem; text-align: center; color: #6b7280; }
     .grpo-pager { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-top: 1px solid #eef2f6; }
     .grpo-pager span { color: #5f6b7a; font-size: .9rem; }
+
+    /* Icons. Phosphor is loaded globally in App.razor; every rule below is
+       scoped under .grpo-page so it cannot reach the shell or a sibling page.
+       Buttons become inline-flex with a gap so an icon reads the same whether
+       it sits before the label (Previous) or after it (Next). */
+    .grpo-page .btn { display: inline-flex; align-items: center; gap: .4rem; }
+    .grpo-page .btn i { font-size: 1.05rem; line-height: 1; }
+    .grpo-title-row { display: flex; align-items: center; gap: .85rem; }
+    .grpo-header-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 46px; height: 46px; border-radius: 15px; background: #e8f2ff; color: #29507e; font-size: 1.45rem; }
+    .grpo-stat-top { display: flex; align-items: center; gap: .55rem; }
+    .grpo-stat-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; border-radius: 10px; background: #e8f2ff; color: #29507e; font-size: 1rem; }
+    .grpo-field label { display: flex; align-items: center; gap: .35rem; }
+    .grpo-field label i { font-size: .95rem; }
+    /* The supplier box gets a leading glyph, so its input needs room for it. */
+    .grpo-input-wrap { position: relative; }
+    .grpo-input-icon { position: absolute; left: .8rem; top: 50%; transform: translateY(-50%); font-size: 1rem; color: #9aa4b2; pointer-events: none; }
+    /* Same (0,1,1) as `.grpo-field input` above but declared later, so the
+       longhand wins over that rule's `padding` shorthand without !important. */
+    .grpo-input-wrap input { padding-left: 2.35rem; }
+    .grpo-search-option { display: flex; align-items: center; gap: .55rem; }
+    .grpo-search-option > i { font-size: 1.05rem; color: #29507e; flex: none; }
+    .grpo-chip i { font-size: 1rem; }
+    .grpo-panel-header h2 { display: flex; align-items: center; gap: .5rem; }
+    .grpo-panel-header h2 i { font-size: 1.1rem; color: #29507e; }
+    .grpo-detail-card label { display: flex; align-items: center; gap: .35rem; }
+    .grpo-detail-card label i { font-size: .9rem; }
+    .grpo-empty-icon { display: block; font-size: 2.1rem; line-height: 1; color: #b6c2d0; margin-bottom: .6rem; }
+    .grpo-alert { display: flex; align-items: flex-start; gap: .55rem; }
+    .grpo-alert i { font-size: 1.15rem; line-height: 1.35; flex: none; }
+    .grpo-loading i { display: block; font-size: 1.9rem; line-height: 1; margin-bottom: .55rem; color: #29507e; animation: grpo-spin 1.1s linear infinite; }
+    @@keyframes grpo-spin { to { transform: rotate(360deg); } }
+    @@media (prefers-reduced-motion: reduce) { .grpo-loading i { animation: none; } }
     .dark-theme .grpo-title h1, .dark-theme .grpo-panel-header h2, .dark-theme .grpo-table td, .dark-theme .grpo-detail-card div, .dark-theme .grpo-line-code, .dark-theme .grpo-empty strong, .dark-theme .grpo-stat-value { color: #edf2f7; }
     .dark-theme .grpo-title p, .dark-theme .grpo-panel-header span, .dark-theme .grpo-subtext, .dark-theme .grpo-empty, .dark-theme .grpo-loading, .dark-theme .grpo-pager span, .dark-theme .grpo-detail-card label, .dark-theme .grpo-line-desc, .dark-theme .grpo-stat-label, .dark-theme .grpo-filter-hint, .dark-theme .grpo-search-meta { color: #a9b4c2; }
     .dark-theme .grpo-stat, .dark-theme .grpo-filters, .dark-theme .grpo-panel { background: #16202c; border-color: #2a3645; box-shadow: none; }
@@ -86,6 +118,9 @@
     .dark-theme .grpo-table td, .dark-theme .grpo-panel-header, .dark-theme .grpo-pager { border-color: #2a3645; }
     .dark-theme .grpo-row:hover { background: #1f2c3b; }
     .dark-theme .grpo-row.is-selected { background: #263647; }
+    .dark-theme .grpo-header-icon, .dark-theme .grpo-stat-icon { background: #1b2a3d; color: #9fc7ff; }
+    .dark-theme .grpo-panel-header h2 i, .dark-theme .grpo-loading i, .dark-theme .grpo-search-option > i { color: #9fc7ff; }
+    .dark-theme .grpo-empty-icon, .dark-theme .grpo-input-icon { color: #4a5768; }
     @@media (max-width: 1100px) { .grpo-layout { grid-template-columns: 1fr; } .grpo-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     @@media (max-width: 720px) { .grpo-page { padding: 1rem; } .grpo-filters { grid-template-columns: 1fr; } .grpo-detail-grid { grid-template-columns: 1fr; } .grpo-pager { flex-direction: column; align-items: stretch; } }
 </style>
@@ -93,63 +128,69 @@
 <div class="grpo-page">
     <div class="grpo-header">
         <div class="grpo-title">
-            <h1>Goods Receipt POs</h1>
+            <div class="grpo-title-row">
+                <span class="grpo-header-icon"><i class="ph ph-package" aria-hidden="true"></i></span>
+                <h1>Goods Receipt POs</h1>
+            </div>
             <p>Review posted goods receipt purchase orders from SAP and inspect the received lines tied back to supplier documents.</p>
         </div>
         <div class="grpo-header-actions">
-            <button class="btn btn-outline-secondary" @onclick="ReloadAsync">Refresh</button>
-            <button class="btn btn-primary" @onclick="NavigateToCreate">Create GRPO</button>
+            <button class="btn btn-outline-secondary" @onclick="ReloadAsync"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Refresh</button>
+            <button class="btn btn-primary" @onclick="NavigateToCreate"><i class="ph ph-plus" aria-hidden="true"></i>Create GRPO</button>
         </div>
     </div>
 
     @if (!string.IsNullOrWhiteSpace(errorMessage))
     {
-        <div class="grpo-alert error">@errorMessage</div>
+        <div class="grpo-alert error"><i class="ph ph-warning-octagon" aria-hidden="true"></i><span>@errorMessage</span></div>
     }
 
     <div class="grpo-stats">
-        <div class="grpo-stat"><div class="grpo-stat-label">Total Documents</div><div class="grpo-stat-value">@goodsReceiptResponse?.TotalCount</div></div>
-        <div class="grpo-stat"><div class="grpo-stat-label">Current Page</div><div class="grpo-stat-value">@CurrentPageCount</div></div>
-        <div class="grpo-stat"><div class="grpo-stat-label">Open Documents</div><div class="grpo-stat-value">@OpenGoodsReceiptCount</div></div>
-        <div class="grpo-stat"><div class="grpo-stat-label">Page Total</div><div class="grpo-stat-value">@CurrentPageTotal.ToString("N2")</div></div>
+        <div class="grpo-stat"><div class="grpo-stat-top"><span class="grpo-stat-icon"><i class="ph ph-package" aria-hidden="true"></i></span><div class="grpo-stat-label">Total Documents</div></div><div class="grpo-stat-value">@goodsReceiptResponse?.TotalCount</div></div>
+        <div class="grpo-stat"><div class="grpo-stat-top"><span class="grpo-stat-icon"><i class="ph ph-files" aria-hidden="true"></i></span><div class="grpo-stat-label">Current Page</div></div><div class="grpo-stat-value">@CurrentPageCount</div></div>
+        <div class="grpo-stat"><div class="grpo-stat-top"><span class="grpo-stat-icon"><i class="ph ph-hourglass-high" aria-hidden="true"></i></span><div class="grpo-stat-label">Open Documents</div></div><div class="grpo-stat-value">@OpenGoodsReceiptCount</div></div>
+        <div class="grpo-stat"><div class="grpo-stat-top"><span class="grpo-stat-icon"><i class="ph ph-coins" aria-hidden="true"></i></span><div class="grpo-stat-label">Page Total</div></div><div class="grpo-stat-value">@CurrentPageTotal.ToString("N2")</div></div>
     </div>
 
     <div class="grpo-filters">
         <div class="grpo-field">
-            <label>Supplier</label>
-            <input type="text" @bind="supplierSearchTerm" @bind:event="oninput" @onfocus="ShowSupplierResults" @onblur="HandleSupplierBlur" placeholder="Search supplier code or name" />
+            <label><i class="ph ph-buildings" aria-hidden="true"></i>Supplier</label>
+            <div class="grpo-input-wrap">
+                <i class="ph ph-magnifying-glass grpo-input-icon" aria-hidden="true"></i>
+                <input type="text" @bind="supplierSearchTerm" @bind:event="oninput" @onfocus="ShowSupplierResults" @onblur="HandleSupplierBlur" placeholder="Search supplier code or name" />
+            </div>
             @if (showSupplierResults && FilteredSuppliers.Any())
             {
                 <div class="grpo-search-results">
                     @foreach (var supplier in FilteredSuppliers)
                     {
-                        <button type="button" class="grpo-search-option" @onmousedown="() => SelectSupplier(supplier)"><strong>@supplier.CardCode - @supplier.CardName</strong><span class="grpo-search-meta">@supplier.Currency</span></button>
+                        <button type="button" class="grpo-search-option" @onmousedown="() => SelectSupplier(supplier)"><i class="ph ph-buildings" aria-hidden="true"></i><span><strong>@supplier.CardCode - @supplier.CardName</strong><span class="grpo-search-meta">@supplier.Currency</span></span></button>
                     }
                 </div>
             }
             @if (selectedSupplier is not null)
             {
-                <div class="grpo-chip">@selectedSupplier.DisplayName<button type="button" @onclick="ClearSupplier">Change</button></div>
+                <div class="grpo-chip"><i class="ph ph-buildings" aria-hidden="true"></i>@selectedSupplier.DisplayName<button type="button" @onclick="ClearSupplier">Change</button></div>
             }
             <div class="grpo-filter-hint">Type a supplier code or name, then pick a suggestion to filter by name.</div>
         </div>
-        <div class="grpo-field"><label for="grpo-f-from">From Date</label><NocturneDateField Id="grpo-f-from" @bind-Date="fromDate" /></div>
-        <div class="grpo-field"><label for="grpo-f-to">To Date</label><NocturneDateField Id="grpo-f-to" @bind-Date="toDate" /></div>
-        <div class="grpo-filter-actions"><button class="btn btn-dark" @onclick="SearchAsync" disabled="@isLoading">Apply Filters</button><button class="btn btn-outline-secondary" @onclick="ClearFiltersAsync" disabled="@isLoading">Clear</button></div>
+        <div class="grpo-field"><label for="grpo-f-from"><i class="ph ph-calendar-blank" aria-hidden="true"></i>From Date</label><NocturneDateField Id="grpo-f-from" @bind-Date="fromDate" /></div>
+        <div class="grpo-field"><label for="grpo-f-to"><i class="ph ph-calendar-check" aria-hidden="true"></i>To Date</label><NocturneDateField Id="grpo-f-to" @bind-Date="toDate" /></div>
+        <div class="grpo-filter-actions"><button class="btn btn-dark" @onclick="SearchAsync" disabled="@isLoading"><i class="ph ph-funnel-simple" aria-hidden="true"></i>Apply Filters</button><button class="btn btn-outline-secondary" @onclick="ClearFiltersAsync" disabled="@isLoading"><i class="ph ph-funnel-x" aria-hidden="true"></i>Clear</button></div>
     </div>
 
     @if (isLoading)
     {
-        <div class="grpo-panel"><div class="grpo-loading">Loading goods receipt POs from SAP...</div></div>
+        <div class="grpo-panel"><div class="grpo-loading"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Loading goods receipt POs from SAP...</div></div>
     }
     else
     {
         <div class="grpo-layout">
             <section class="grpo-panel">
-                <div class="grpo-panel-header"><h2>Goods Receipt Register</h2><span>Page @currentPage of @(goodsReceiptResponse?.TotalPages == 0 ? 1 : goodsReceiptResponse?.TotalPages)</span></div>
+                <div class="grpo-panel-header"><h2><i class="ph ph-list-dashes" aria-hidden="true"></i>Goods Receipt Register</h2><span>Page @currentPage of @(goodsReceiptResponse?.TotalPages == 0 ? 1 : goodsReceiptResponse?.TotalPages)</span></div>
                 @if (GoodsReceipts.Count == 0)
                 {
-                    <div class="grpo-empty"><strong>No goods receipt POs matched the current filters.</strong>Adjust the supplier code or date range and try again.</div>
+                    <div class="grpo-empty"><i class="ph ph-file-dashed grpo-empty-icon" aria-hidden="true"></i><strong>No goods receipt POs matched the current filters.</strong>Adjust the supplier code or date range and try again.</div>
                 }
                 else
                 {
@@ -171,26 +212,26 @@
                         </table>
                     </div>
                 }
-                <div class="grpo-pager"><button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)">Previous</button><span>Showing @CurrentPageCount of @goodsReceiptResponse?.TotalCount goods receipts</span><button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(isLoading || !(goodsReceiptResponse?.HasMore ?? false))">Next</button></div>
+                <div class="grpo-pager"><button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)"><i class="ph ph-arrow-left" aria-hidden="true"></i>Previous</button><span>Showing @CurrentPageCount of @goodsReceiptResponse?.TotalCount goods receipts</span><button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(isLoading || !(goodsReceiptResponse?.HasMore ?? false))">Next<i class="ph ph-arrow-right" aria-hidden="true"></i></button></div>
             </section>
             <aside class="grpo-panel">
-                <div class="grpo-panel-header"><h2>Selected GRPO</h2><span>@(selectedGoodsReceipt is null ? "No selection" : $"{selectedGoodsReceipt.DocCurrency} {selectedGoodsReceipt.DocTotal:N2}")</span></div>
+                <div class="grpo-panel-header"><h2><i class="ph ph-identification-card" aria-hidden="true"></i>Selected GRPO</h2><span>@(selectedGoodsReceipt is null ? "No selection" : $"{selectedGoodsReceipt.DocCurrency} {selectedGoodsReceipt.DocTotal:N2}")</span></div>
                 @if (selectedGoodsReceipt is null)
                 {
-                    <div class="grpo-empty"><strong>Select a goods receipt PO.</strong>The document summary and lines will appear here.</div>
+                    <div class="grpo-empty"><i class="ph ph-cursor-click grpo-empty-icon" aria-hidden="true"></i><strong>Select a goods receipt PO.</strong>The document summary and lines will appear here.</div>
                 }
                 else
                 {
                     <div class="grpo-detail">
                         <div class="grpo-detail-grid">
-                            <div class="grpo-detail-card"><label>Supplier</label><div>@selectedGoodsReceipt.CardCode - @selectedGoodsReceipt.CardName</div></div>
-                            <div class="grpo-detail-card"><label>Posting Date</label><div>@(selectedGoodsReceipt.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
-                            <div class="grpo-detail-card"><label>Due Date</label><div>@(selectedGoodsReceipt.DocDueDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
-                            <div class="grpo-detail-card"><label>Discount %</label><div>@selectedGoodsReceipt.DiscountPercent.ToString("N2")</div></div>
+                            <div class="grpo-detail-card"><label><i class="ph ph-buildings" aria-hidden="true"></i>Supplier</label><div>@selectedGoodsReceipt.CardCode - @selectedGoodsReceipt.CardName</div></div>
+                            <div class="grpo-detail-card"><label><i class="ph ph-calendar-blank" aria-hidden="true"></i>Posting Date</label><div>@(selectedGoodsReceipt.DocDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
+                            <div class="grpo-detail-card"><label><i class="ph ph-calendar-check" aria-hidden="true"></i>Due Date</label><div>@(selectedGoodsReceipt.DocDueDate?.ToString("dd MMM yyyy") ?? "Not set")</div></div>
+                            <div class="grpo-detail-card"><label><i class="ph ph-percent" aria-hidden="true"></i>Discount %</label><div>@selectedGoodsReceipt.DiscountPercent.ToString("N2")</div></div>
                         </div>
                         @if (!string.IsNullOrWhiteSpace(selectedGoodsReceipt.Comments))
                         {
-                            <div class="grpo-detail-card" style="margin-bottom: 1rem;"><label>Comments</label><div>@selectedGoodsReceipt.Comments</div></div>
+                            <div class="grpo-detail-card" style="margin-bottom: 1rem;"><label><i class="ph ph-chat-text" aria-hidden="true"></i>Comments</label><div>@selectedGoodsReceipt.Comments</div></div>
                         }
                         <div class="grpo-line-list">
                             @foreach (var line in selectedGoodsReceipt.Lines)

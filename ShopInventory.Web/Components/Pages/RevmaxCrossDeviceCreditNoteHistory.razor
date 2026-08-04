@@ -8,41 +8,44 @@
 
 <div class="cdnh-page">
     <section class="cdnh-hero">
-        <div>
-            <span class="cdnh-kicker">REVMax Audit Trail</span>
-            <h1>Cross-device credit note history</h1>
-            <p>Review every TransactMExt credit-note submission routed through ShopInventory, inspect the returned QR data, and verify the fiscal details that REVMax accepted.</p>
+        <div class="cdnh-hero-lead">
+            <span class="cdnh-hero-icon"><i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i></span>
+            <div>
+                <span class="cdnh-kicker"><i class="ph ph-shield-check" aria-hidden="true"></i>REVMax Audit Trail</span>
+                <h1>Cross-device credit note history</h1>
+                <p>Review every TransactMExt credit-note submission routed through ShopInventory, inspect the returned QR data, and verify the fiscal details that REVMax accepted.</p>
+            </div>
         </div>
         <div class="cdnh-hero-actions">
-            <a class="cdnh-action" href="/revmax/cross-device-credit-note">Back to fiscalize</a>
-            <button type="button" class="cdnh-action cdnh-action--primary" @onclick="ReloadAsync" disabled="@isLoading">Refresh</button>
-            <button type="button" class="cdnh-action" @onclick="ClearFiltersAsync" disabled="@isLoading">Reset</button>
+            <a class="cdnh-action" href="/revmax/cross-device-credit-note"><i class="ph ph-arrow-left" aria-hidden="true"></i>Back to fiscalize</a>
+            <button type="button" class="cdnh-action cdnh-action--primary" @onclick="ReloadAsync" disabled="@isLoading"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Refresh</button>
+            <button type="button" class="cdnh-action" @onclick="ClearFiltersAsync" disabled="@isLoading"><i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i>Reset</button>
         </div>
     </section>
 
     <section class="cdnh-summary-grid">
         <article class="cdnh-summary-card">
-            <span>Total transactions</span>
+            <span><i class="ph ph-list-bullets" aria-hidden="true"></i>Total transactions</span>
             <strong>@historyResult.Summary.TotalTransactions</strong>
             <small>@PageSummary</small>
         </article>
         <article class="cdnh-summary-card cdnh-summary-card--success">
-            <span>Success</span>
+            <span><i class="ph ph-check-circle" aria-hidden="true"></i>Success</span>
             <strong>@historyResult.Summary.SuccessCount</strong>
             <small>New fiscalised credit notes</small>
         </article>
         <article class="cdnh-summary-card cdnh-summary-card--info">
-            <span>Already fiscalised</span>
+            <span><i class="ph ph-seal-check" aria-hidden="true"></i>Already fiscalised</span>
             <strong>@historyResult.Summary.FiscalisedCount</strong>
             <small>REVMax already had a receipt</small>
         </article>
         <article class="cdnh-summary-card cdnh-summary-card--danger">
-            <span>Failed</span>
+            <span><i class="ph ph-warning-octagon" aria-hidden="true"></i>Failed</span>
             <strong>@historyResult.Summary.FailedCount</strong>
             <small>Submission needs operator attention</small>
         </article>
         <article class="cdnh-summary-card">
-            <span>Operators</span>
+            <span><i class="ph ph-users" aria-hidden="true"></i>Operators</span>
             <strong>@historyResult.Summary.UniqueOperators</strong>
             <small>@LatestActivityText</small>
         </article>
@@ -51,11 +54,11 @@
     <section class="cdnh-filter-card">
         <div class="cdnh-filter-grid">
             <label>
-                <span>Search</span>
+                <span><i class="ph ph-magnifying-glass" aria-hidden="true"></i>Search</span>
                 <input @bind="searchTerm" placeholder="Credit note, original invoice, verification code, operator" />
             </label>
             <label>
-                <span>Status</span>
+                <span><i class="ph ph-seal-check" aria-hidden="true"></i>Status</span>
                 <select @bind="selectedStatus">
                     <option value="All">All</option>
                     <option value="Success">Success</option>
@@ -64,22 +67,22 @@
                 </select>
             </label>
             <label>
-                <span>From</span>
+                <span><i class="ph ph-calendar-blank" aria-hidden="true"></i>From</span>
                 <InputDate @bind-Value="fromDate" />
             </label>
             <label>
-                <span>To</span>
+                <span><i class="ph ph-calendar-check" aria-hidden="true"></i>To</span>
                 <InputDate @bind-Value="toDate" />
             </label>
         </div>
         <div class="cdnh-filter-actions">
-            <button type="button" class="cdnh-action cdnh-action--primary" @onclick="ApplyFiltersAsync" disabled="@isLoading">Apply filters</button>
+            <button type="button" class="cdnh-action cdnh-action--primary" @onclick="ApplyFiltersAsync" disabled="@isLoading"><i class="ph ph-funnel-simple" aria-hidden="true"></i>Apply filters</button>
         </div>
     </section>
 
     @if (!string.IsNullOrWhiteSpace(errorMessage))
     {
-        <div class="alert alert-danger" role="alert">@errorMessage</div>
+        <div class="alert alert-danger" role="alert"><i class="ph ph-warning-octagon" aria-hidden="true"></i> @errorMessage</div>
     }
 
     @if (isLoading)
@@ -95,19 +98,20 @@
         <section class="cdnh-table-card">
             <div class="cdnh-table-toolbar">
                 <div>
-                    <h2>Transactions</h2>
+                    <h2><i class="ph ph-list-dashes" aria-hidden="true"></i>Transactions</h2>
                     <p>@PageSummary</p>
                 </div>
                 <div class="cdnh-pagination">
-                    <button type="button" class="cdnh-action" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)">Previous</button>
+                    <button type="button" class="cdnh-action" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)"><i class="ph ph-arrow-left" aria-hidden="true"></i>Previous</button>
                     <span>Page @currentPage</span>
-                    <button type="button" class="cdnh-action" @onclick="NextPageAsync" disabled="@(isLoading || !historyResult.HasMore)">Next</button>
+                    <button type="button" class="cdnh-action" @onclick="NextPageAsync" disabled="@(isLoading || !historyResult.HasMore)">Next<i class="ph ph-arrow-right" aria-hidden="true"></i></button>
                 </div>
             </div>
 
             @if (!historyResult.Transactions.Any())
             {
                 <div class="cdnh-empty">
+                    <i class="ph ph-file-dashed cdnh-empty-icon" aria-hidden="true"></i>
                     <strong>No matching submissions found</strong>
                     <p>Try widening the date range or clearing the search term.</p>
                 </div>
@@ -118,12 +122,12 @@
                     <table class="cdnh-table">
                         <thead>
                             <tr>
-                                <th>Credit note</th>
-                                <th>Original invoice</th>
-                                <th>Status</th>
-                                <th>Response</th>
-                                <th>Operator</th>
-                                <th>When</th>
+                                <th><i class="ph ph-receipt" aria-hidden="true"></i>Credit note</th>
+                                <th><i class="ph ph-file-text" aria-hidden="true"></i>Original invoice</th>
+                                <th><i class="ph ph-seal-check" aria-hidden="true"></i>Status</th>
+                                <th><i class="ph ph-hash" aria-hidden="true"></i>Response</th>
+                                <th><i class="ph ph-user" aria-hidden="true"></i>Operator</th>
+                                <th><i class="ph ph-clock" aria-hidden="true"></i>When</th>
                                 <th class="cdnh-actions-column">Actions</th>
                             </tr>
                         </thead>
@@ -155,7 +159,7 @@
                                         <div class="cdnh-meta-sub">Synced @FormatTimestamp(transaction.LastSyncedAtUtc)</div>
                                     </td>
                                     <td class="cdnh-actions-cell">
-                                        <button type="button" class="cdnh-action" @onclick="() => OpenTransactionDetails(transaction)">View details</button>
+                                        <button type="button" class="cdnh-action" @onclick="() => OpenTransactionDetails(transaction)"><i class="ph ph-eye" aria-hidden="true"></i>View details</button>
                                     </td>
                                 </tr>
                             }
@@ -172,7 +176,7 @@
             <div class="cdnh-modal" role="dialog" aria-modal="true" aria-labelledby="cdnh-title" @onclick:stopPropagation="true">
                 <div class="cdnh-modal-hero">
                     <div class="cdnh-modal-heading">
-                        <span class="cdnh-kicker cdnh-kicker--modal">Transaction detail</span>
+                        <span class="cdnh-kicker cdnh-kicker--modal"><i class="ph ph-identification-card" aria-hidden="true"></i>Transaction detail</span>
                         <h2 id="cdnh-title">Credit note #@selectedTransaction.DocNum</h2>
                         <p class="cdnh-modal-subtitle">
                             Original invoice @(selectedRequest?.OriginalInvoiceNumber ?? selectedTransaction.OriginalInvoiceNumber ?? "Not captured")
@@ -180,48 +184,48 @@
                             @DisplayCustomer(selectedTransaction)
                         </p>
                         <div class="cdnh-modal-meta">
-                            <span class="cdnh-modal-meta-chip">@selectedTransaction.ClientTransactionId</span>
-                            <span class="cdnh-modal-meta-chip">@DisplayOperator(selectedTransaction)</span>
-                            <span class="cdnh-modal-meta-chip">@FormatTimestamp(selectedTransaction.TimestampUtc)</span>
+                            <span class="cdnh-modal-meta-chip"><i class="ph ph-hash" aria-hidden="true"></i>@selectedTransaction.ClientTransactionId</span>
+                            <span class="cdnh-modal-meta-chip"><i class="ph ph-user" aria-hidden="true"></i>@DisplayOperator(selectedTransaction)</span>
+                            <span class="cdnh-modal-meta-chip"><i class="ph ph-clock" aria-hidden="true"></i>@FormatTimestamp(selectedTransaction.TimestampUtc)</span>
                         </div>
                     </div>
                     <div class="cdnh-modal-hero-actions">
                         <span class="@GetStatusBadgeClass(selectedTransaction.Status)">@selectedTransaction.Status</span>
-                        <button type="button" class="cdnh-modal-close" @onclick="CloseTransactionDetails" aria-label="Close details">Close</button>
+                        <button type="button" class="cdnh-modal-close" @onclick="CloseTransactionDetails" aria-label="Close details"><i class="ph ph-x" aria-hidden="true"></i>Close</button>
                     </div>
                 </div>
 
                 <div class="cdnh-modal-stats">
                     <article class="cdnh-modal-stat">
-                        <span>Request total</span>
+                        <span><i class="ph ph-currency-dollar" aria-hidden="true"></i>Request total</span>
                         <strong>@FormatAmount(selectedRequest?.InvoiceAmount ?? selectedTransaction.DocTotal, selectedRequest?.Currency ?? selectedTransaction.Currency)</strong>
                         <small>VAT @FormatAmount(selectedRequest?.InvoiceTaxAmount ?? selectedTransaction.VatSum, selectedRequest?.Currency ?? selectedTransaction.Currency)</small>
                     </article>
                     <article class="cdnh-modal-stat">
-                        <span>Verification</span>
+                        <span><i class="ph ph-shield-check" aria-hidden="true"></i>Verification</span>
                         <strong>@(selectedResponse?.VerificationCode ?? DisplayVerification(selectedTransaction))</strong>
                         <small>Receipt @GetSelectedReceiptGlobalNoText()</small>
                     </article>
                     <article class="cdnh-modal-stat">
-                        <span>Device</span>
+                        <span><i class="ph ph-device-mobile" aria-hidden="true"></i>Device</span>
                         <strong>@(selectedResponse?.DeviceID ?? selectedTransaction.DeviceId ?? "Not captured")</strong>
                         <small>Fiscal day @GetSelectedFiscalDayText()</small>
                     </article>
                     <article class="cdnh-modal-stat">
-                        <span>Response code</span>
+                        <span><i class="ph ph-hash" aria-hidden="true"></i>Response code</span>
                         <strong>@(selectedResponse?.Code ?? "Not captured")</strong>
                         <small>@(selectedReceiptData?.ReceiptType ?? "Receipt type not captured")</small>
                     </article>
                 </div>
 
                 <section class="cdnh-message-banner">
-                    <div class="cdnh-message-label">Fiscal response message</div>
+                    <div class="cdnh-message-label"><i class="ph ph-chat-text" aria-hidden="true"></i>Fiscal response message</div>
                     <p class="cdnh-message-copy">@selectedDisplayMessage</p>
                 </section>
 
                 <div class="cdnh-modal-grid">
                     <section class="cdnh-panel cdnh-qr-card">
-                        <div class="cdnh-panel-title">QR and verification</div>
+                        <div class="cdnh-panel-title"><i class="ph ph-shield-check" aria-hidden="true"></i>QR and verification</div>
                         @if (!string.IsNullOrWhiteSpace(selectedQrCodeImageSrc))
                         {
                             <div class="cdnh-qr-wrap">
@@ -237,23 +241,23 @@
 
                         <div class="cdnh-kv-list">
                             <div>
-                                <span class="cdnh-kv-label">Verification code</span>
+                                <span class="cdnh-kv-label"><i class="ph ph-shield-check" aria-hidden="true"></i>Verification code</span>
                                 <span class="cdnh-kv-value">@(selectedResponse?.VerificationCode ?? DisplayVerification(selectedTransaction))</span>
                             </div>
                             <div>
-                                <span class="cdnh-kv-label">Receipt global no</span>
+                                <span class="cdnh-kv-label"><i class="ph ph-receipt" aria-hidden="true"></i>Receipt global no</span>
                                 <span class="cdnh-kv-value">@GetSelectedReceiptGlobalNoText()</span>
                             </div>
                             <div>
-                                <span class="cdnh-kv-label">Device ID</span>
+                                <span class="cdnh-kv-label"><i class="ph ph-cpu" aria-hidden="true"></i>Device ID</span>
                                 <span class="cdnh-kv-value">@(selectedResponse?.DeviceID ?? selectedTransaction.DeviceId ?? "Not captured")</span>
                             </div>
                             <div>
-                                <span class="cdnh-kv-label">Device serial</span>
+                                <span class="cdnh-kv-label"><i class="ph ph-device-mobile" aria-hidden="true"></i>Device serial</span>
                                 <span class="cdnh-kv-value">@(selectedResponse?.DeviceSerialNumber ?? selectedResponse?.DeviceSerial ?? selectedTransaction.DeviceSerialNumber ?? "Not captured")</span>
                             </div>
                             <div>
-                                <span class="cdnh-kv-label">Fiscal day</span>
+                                <span class="cdnh-kv-label"><i class="ph ph-calendar-blank" aria-hidden="true"></i>Fiscal day</span>
                                 <span class="cdnh-kv-value">@GetSelectedFiscalDayText()</span>
                             </div>
                         </div>
@@ -265,42 +269,42 @@
                     </section>
 
                     <section class="cdnh-panel">
-                        <div class="cdnh-panel-title">Request submitted to REVMax</div>
+                        <div class="cdnh-panel-title"><i class="ph ph-upload-simple" aria-hidden="true"></i>Request submitted to REVMax</div>
                         <dl class="cdnh-detail-list">
                             <div>
-                                <dt>Original invoice</dt>
+                                <dt><i class="ph ph-file-text" aria-hidden="true"></i>Original invoice</dt>
                                 <dd>@(selectedRequest?.OriginalInvoiceNumber ?? selectedTransaction.OriginalInvoiceNumber ?? "Not captured")</dd>
                             </div>
                             <div>
-                                <dt>Customer</dt>
+                                <dt><i class="ph ph-user-circle" aria-hidden="true"></i>Customer</dt>
                                 <dd>@(selectedRequest?.CustomerName ?? DisplayCustomer(selectedTransaction))</dd>
                             </div>
                             <div>
-                                <dt>Currency</dt>
+                                <dt><i class="ph ph-coins" aria-hidden="true"></i>Currency</dt>
                                 <dd>@(selectedRequest?.Currency ?? selectedTransaction.Currency ?? "Not captured")</dd>
                             </div>
                             <div>
-                                <dt>Request total</dt>
+                                <dt><i class="ph ph-currency-dollar" aria-hidden="true"></i>Request total</dt>
                                 <dd>@FormatAmount(selectedRequest?.InvoiceAmount ?? selectedTransaction.DocTotal, selectedRequest?.Currency ?? selectedTransaction.Currency)</dd>
                             </div>
                             <div>
-                                <dt>Request VAT</dt>
+                                <dt><i class="ph ph-percent" aria-hidden="true"></i>Request VAT</dt>
                                 <dd>@FormatAmount(selectedRequest?.InvoiceTaxAmount ?? selectedTransaction.VatSum, selectedRequest?.Currency ?? selectedTransaction.Currency)</dd>
                             </div>
                             <div>
-                                <dt>Ref device ID</dt>
+                                <dt><i class="ph ph-cpu" aria-hidden="true"></i>Ref device ID</dt>
                                 <dd>@(selectedRequest?.refDeviceId?.ToString() ?? "Not supplied")</dd>
                             </div>
                             <div>
-                                <dt>Ref receipt global no</dt>
+                                <dt><i class="ph ph-receipt" aria-hidden="true"></i>Ref receipt global no</dt>
                                 <dd>@(selectedRequest?.refReceiptGlobalNo?.ToString() ?? "Not supplied")</dd>
                             </div>
                             <div>
-                                <dt>Ref fiscal day</dt>
+                                <dt><i class="ph ph-calendar-blank" aria-hidden="true"></i>Ref fiscal day</dt>
                                 <dd>@(selectedRequest?.refFiscalDayNo?.ToString() ?? "Not supplied")</dd>
                             </div>
                             <div>
-                                <dt>Comment</dt>
+                                <dt><i class="ph ph-chat-text" aria-hidden="true"></i>Comment</dt>
                                 <dd>@(string.IsNullOrWhiteSpace(selectedRequest?.InvoiceComment) ? "Not supplied" : selectedRequest.InvoiceComment)</dd>
                             </div>
                         </dl>
@@ -309,68 +313,68 @@
                     <section class="cdnh-panel">
                         @if (selectedHasFailurePayload && selectedReceiptData is null)
                         {
-                            <div class="cdnh-panel-title">Failure summary</div>
+                            <div class="cdnh-panel-title"><i class="ph ph-warning-octagon" aria-hidden="true"></i>Failure summary</div>
                             <dl class="cdnh-detail-list">
                                 <div>
-                                    <dt>Response code</dt>
+                                    <dt><i class="ph ph-hash" aria-hidden="true"></i>Response code</dt>
                                     <dd>@(selectedResponse?.Code ?? "Not captured")</dd>
                                 </div>
                                 <div>
-                                    <dt>Failure source</dt>
+                                    <dt><i class="ph ph-warning-octagon" aria-hidden="true"></i>Failure source</dt>
                                     <dd>@(selectedFailureSource ?? "REVMaxUpstream")</dd>
                                 </div>
                                 <div>
-                                    <dt>Endpoint</dt>
+                                    <dt><i class="ph ph-plugs-connected" aria-hidden="true"></i>Endpoint</dt>
                                     <dd>@(selectedFailureEndpoint ?? "TransactMExt")</dd>
                                 </div>
                                 <div>
-                                    <dt>Document no</dt>
+                                    <dt><i class="ph ph-file-text" aria-hidden="true"></i>Document no</dt>
                                     <dd>@GetSelectedFailureDocumentText()</dd>
                                 </div>
                                 <div>
-                                    <dt>Receipt data</dt>
+                                    <dt><i class="ph ph-receipt" aria-hidden="true"></i>Receipt data</dt>
                                     <dd>REVMax did not return receipt totals, taxes, or payments for this submission.</dd>
                                 </div>
                                 <div>
-                                    <dt>Next step</dt>
+                                    <dt><i class="ph ph-signpost" aria-hidden="true"></i>Next step</dt>
                                     <dd>Review the raw response below before retrying the fiscalisation.</dd>
                                 </div>
                             </dl>
                         }
                         else
                         {
-                            <div class="cdnh-panel-title">Fiscal response summary</div>
+                            <div class="cdnh-panel-title"><i class="ph ph-seal-check" aria-hidden="true"></i>Fiscal response summary</div>
                             <dl class="cdnh-detail-list">
                                 <div>
-                                    <dt>Response code</dt>
+                                    <dt><i class="ph ph-hash" aria-hidden="true"></i>Response code</dt>
                                     <dd>@(selectedResponse?.Code ?? "Not captured")</dd>
                                 </div>
                                 <div>
-                                    <dt>Receipt type</dt>
+                                    <dt><i class="ph ph-tag" aria-hidden="true"></i>Receipt type</dt>
                                     <dd>@(selectedReceiptData?.ReceiptType ?? "Not captured")</dd>
                                 </div>
                                 <div>
-                                    <dt>Invoice no</dt>
+                                    <dt><i class="ph ph-file-text" aria-hidden="true"></i>Invoice no</dt>
                                     <dd>@(selectedReceiptData?.InvoiceNo ?? "Not captured")</dd>
                                 </div>
                                 <div>
-                                    <dt>Receipt currency</dt>
+                                    <dt><i class="ph ph-coins" aria-hidden="true"></i>Receipt currency</dt>
                                     <dd>@(selectedReceiptData?.ReceiptCurrency ?? "Not captured")</dd>
                                 </div>
                                 <div>
-                                    <dt>Receipt counter</dt>
+                                    <dt><i class="ph ph-hash" aria-hidden="true"></i>Receipt counter</dt>
                                     <dd>@(selectedReceiptData?.ReceiptCounter > 0 ? selectedReceiptData.ReceiptCounter.ToString() : "Not captured")</dd>
                                 </div>
                                 <div>
-                                    <dt>Receipt total</dt>
+                                    <dt><i class="ph ph-currency-dollar" aria-hidden="true"></i>Receipt total</dt>
                                     <dd>@(selectedReceiptData is null ? "Not captured" : FormatAmount(selectedReceiptData.ReceiptTotal, selectedReceiptData.ReceiptCurrency))</dd>
                                 </div>
                                 <div>
-                                    <dt>Receipt date</dt>
+                                    <dt><i class="ph ph-calendar-blank" aria-hidden="true"></i>Receipt date</dt>
                                     <dd>@(string.IsNullOrWhiteSpace(selectedReceiptData?.ReceiptDate) ? "Not captured" : selectedReceiptData.ReceiptDate)</dd>
                                 </div>
                                 <div>
-                                    <dt>Receipt notes</dt>
+                                    <dt><i class="ph ph-note" aria-hidden="true"></i>Receipt notes</dt>
                                     <dd>@(string.IsNullOrWhiteSpace(selectedReceiptData?.ReceiptNotes) ? "Not captured" : selectedReceiptData.ReceiptNotes)</dd>
                                 </div>
                             </dl>
@@ -381,7 +385,7 @@
                 @if (selectedReceiptData?.ReceiptLines?.Count > 0)
                 {
                     <section class="cdnh-panel">
-                        <div class="cdnh-panel-title">Fiscalised line items</div>
+                        <div class="cdnh-panel-title"><i class="ph ph-list-bullets" aria-hidden="true"></i>Fiscalised line items</div>
                         <div class="table-responsive">
                             <table class="cdnh-lines-table">
                                 <thead>
@@ -414,7 +418,7 @@
 
                 <div class="cdnh-modal-grid cdnh-modal-grid--double">
                     <section class="cdnh-panel">
-                        <div class="cdnh-panel-title">Taxes</div>
+                        <div class="cdnh-panel-title"><i class="ph ph-percent" aria-hidden="true"></i>Taxes</div>
                         @if (selectedReceiptData?.ReceiptTaxes?.Count > 0)
                         {
                             <ul class="cdnh-tax-list">
@@ -434,7 +438,7 @@
                     </section>
 
                     <section class="cdnh-panel">
-                        <div class="cdnh-panel-title">Payments</div>
+                        <div class="cdnh-panel-title"><i class="ph ph-hand-coins" aria-hidden="true"></i>Payments</div>
                         @if (selectedReceiptData?.ReceiptPayments?.Count > 0)
                         {
                             <ul class="cdnh-payment-list">
@@ -456,12 +460,12 @@
 
                 <div class="cdnh-modal-grid cdnh-modal-grid--double">
                     <section class="cdnh-panel">
-                        <div class="cdnh-panel-title">Raw request</div>
+                        <div class="cdnh-panel-title"><i class="ph ph-code" aria-hidden="true"></i>Raw request</div>
                         <div class="cdnh-code-caption">The exact payload sent to `api/revmax/transact-ext`.</div>
                         <pre class="cdnh-code-block">@(selectedRawRequestJson ?? "No raw request stored.")</pre>
                     </section>
                     <section class="cdnh-panel">
-                        <div class="cdnh-panel-title">Raw response</div>
+                        <div class="cdnh-panel-title"><i class="ph ph-code" aria-hidden="true"></i>Raw response</div>
                         <div class="cdnh-code-caption">The full response returned by the API log for this submission.</div>
                         <pre class="cdnh-code-block">@(selectedRawResponseJson ?? "No raw response stored.")</pre>
                     </section>
@@ -1022,6 +1026,112 @@
     .cdnh-link {
         color: #0f766e;
         font-weight: 700;
+    }
+
+    /* Icons. Phosphor is loaded globally in App.razor; every selector below is
+       scoped under a .cdnh-* class so nothing here reaches the shell or another
+       page. The hero is a dark panel in both themes, so its glyph is light on a
+       translucent chip rather than a themed tint. */
+    .cdnh-hero-lead {
+        display: flex;
+        align-items: flex-start;
+        gap: .9rem;
+    }
+
+    .cdnh-hero-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+        width: 48px;
+        height: 48px;
+        border-radius: 15px;
+        background: rgba(226, 232, 240, 0.14);
+        color: #5eead4;
+        font-size: 1.5rem;
+    }
+
+    .cdnh-kicker,
+    .cdnh-summary-card span,
+    .cdnh-filter-grid label span,
+    .cdnh-detail-list dt,
+    .cdnh-kv-label,
+    .cdnh-modal-stat span,
+    .cdnh-message-label,
+    .cdnh-modal-meta-chip {
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .cdnh-summary-card span,
+    .cdnh-filter-grid label span,
+    .cdnh-detail-list dt,
+    .cdnh-kv-label,
+    .cdnh-modal-stat span,
+    .cdnh-message-label,
+    .cdnh-modal-meta-chip {
+        display: inline-flex;
+    }
+
+    .cdnh-kicker i,
+    .cdnh-summary-card span i,
+    .cdnh-filter-grid label span i,
+    .cdnh-detail-list dt i,
+    .cdnh-kv-label i,
+    .cdnh-modal-stat span i,
+    .cdnh-message-label i,
+    .cdnh-modal-meta-chip i {
+        font-size: .95rem;
+        line-height: 1;
+    }
+
+    .cdnh-action,
+    .cdnh-modal-close,
+    .cdnh-link {
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .cdnh-action i,
+    .cdnh-modal-close i,
+    .cdnh-link i {
+        font-size: 1.05rem;
+        line-height: 1;
+    }
+
+    .cdnh-table-toolbar h2,
+    .cdnh-panel-title {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+    }
+
+    .cdnh-table-toolbar h2 i,
+    .cdnh-panel-title i {
+        font-size: 1.1rem;
+        color: #0f766e;
+    }
+
+    .cdnh-table thead th i {
+        margin-right: .35rem;
+        font-size: .9rem;
+    }
+
+    .cdnh-empty-icon {
+        font-size: 2.2rem;
+        line-height: 1;
+        color: #94a3b8;
+        margin-bottom: .5rem;
+    }
+
+    .dark-theme .cdnh-table-toolbar h2 i,
+    .dark-theme .cdnh-panel-title i {
+        color: #5eead4;
+    }
+
+    .dark-theme .cdnh-empty-icon {
+        color: #64748b;
     }
 
     @@media (max-width: 991.98px) {

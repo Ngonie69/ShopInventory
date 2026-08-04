@@ -77,6 +77,38 @@
     .apinv-pager { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: 1rem 1.1rem; border-top: 1px solid #eef2f6; }
     .apinv-pager span { color: #5f6b7a; font-size: .9rem; }
 
+    /* Icons. Phosphor is loaded globally in App.razor; every rule below is
+       scoped under .apinv-page so it cannot reach the shell or a sibling page.
+       Buttons become inline-flex with a gap so an icon reads the same whether
+       it sits before the label (Previous) or after it (Next). */
+    .apinv-page .btn { display: inline-flex; align-items: center; gap: .4rem; }
+    .apinv-page .btn i { font-size: 1.05rem; line-height: 1; }
+    .apinv-title-row { display: flex; align-items: center; gap: .85rem; }
+    .apinv-header-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 46px; height: 46px; border-radius: 15px; background: #fff4d3; color: #8a6f2f; font-size: 1.45rem; }
+    .apinv-stat-top { display: flex; align-items: center; gap: .55rem; }
+    .apinv-stat-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; border-radius: 10px; background: #fff4d3; color: #8a6f2f; font-size: 1rem; }
+    .apinv-field label { display: flex; align-items: center; gap: .35rem; }
+    .apinv-field label i { font-size: .95rem; }
+    /* The supplier box gets a leading glyph, so its input needs room for it. */
+    .apinv-input-wrap { position: relative; }
+    .apinv-input-icon { position: absolute; left: .8rem; top: 50%; transform: translateY(-50%); font-size: 1rem; color: #9aa4b2; pointer-events: none; }
+    /* Same (0,1,1) as `.apinv-field input` above but declared later, so the
+       longhand wins over that rule's `padding` shorthand without !important. */
+    .apinv-input-wrap input { padding-left: 2.35rem; }
+    .apinv-search-option { display: flex; align-items: center; gap: .55rem; }
+    .apinv-search-option > i { font-size: 1.05rem; color: #8a6f2f; flex: none; }
+    .apinv-chip i { font-size: 1rem; }
+    .apinv-panel-header h2 { display: flex; align-items: center; gap: .5rem; }
+    .apinv-panel-header h2 i { font-size: 1.1rem; color: #8a6f2f; }
+    .apinv-detail-card label { display: flex; align-items: center; gap: .35rem; }
+    .apinv-detail-card label i { font-size: .9rem; }
+    .apinv-empty-icon { display: block; font-size: 2.1rem; line-height: 1; color: #b6c2d0; margin-bottom: .6rem; }
+    .apinv-alert { display: flex; align-items: flex-start; gap: .55rem; }
+    .apinv-alert i { font-size: 1.15rem; line-height: 1.35; flex: none; }
+    .apinv-loading i { display: block; font-size: 1.9rem; line-height: 1; margin-bottom: .55rem; color: #8a6f2f; animation: apinv-spin 1.1s linear infinite; }
+    @@keyframes apinv-spin { to { transform: rotate(360deg); } }
+    @@media (prefers-reduced-motion: reduce) { .apinv-loading i { animation: none; } }
+
     .dark-theme .apinv-title h1,
     .dark-theme .apinv-panel-header h2,
     .dark-theme .apinv-table td,
@@ -115,6 +147,9 @@
     .dark-theme .apinv-pager { border-color: #2a3645; }
     .dark-theme .apinv-row:hover { background: #1f2c3b; }
     .dark-theme .apinv-row.is-selected { background: #263647; }
+    .dark-theme .apinv-header-icon, .dark-theme .apinv-stat-icon { background: #332912; color: #f7d37d; }
+    .dark-theme .apinv-panel-header h2 i, .dark-theme .apinv-loading i, .dark-theme .apinv-search-option > i { color: #f7d37d; }
+    .dark-theme .apinv-empty-icon, .dark-theme .apinv-input-icon { color: #4a5768; }
 
     @@media (max-width: 1100px) {
         .apinv-layout { grid-template-columns: 1fr; }
@@ -132,56 +167,77 @@
 <div class="apinv-page">
     <div class="apinv-header">
         <div class="apinv-title">
-            <h1>A/P Invoices</h1>
+            <div class="apinv-title-row">
+                <span class="apinv-header-icon"><i class="ph ph-receipt" aria-hidden="true"></i></span>
+                <h1>A/P Invoices</h1>
+            </div>
             <p>View supplier invoices pulled from SAP and inspect the posted document lines before creating the next document.</p>
         </div>
         <div class="apinv-header-actions">
-            <button class="btn btn-outline-secondary" @onclick="ReloadAsync">Refresh</button>
-            <button class="btn btn-warning" @onclick="NavigateToCreate">Create A/P Invoice</button>
+            <button class="btn btn-outline-secondary" @onclick="ReloadAsync"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Refresh</button>
+            <button class="btn btn-warning" @onclick="NavigateToCreate"><i class="ph ph-plus" aria-hidden="true"></i>Create A/P Invoice</button>
         </div>
     </div>
 
     @if (!string.IsNullOrWhiteSpace(errorMessage))
     {
-        <div class="apinv-alert error">@errorMessage</div>
+        <div class="apinv-alert error"><i class="ph ph-warning-octagon" aria-hidden="true"></i><span>@errorMessage</span></div>
     }
 
     <div class="apinv-stats">
         <div class="apinv-stat">
-            <div class="apinv-stat-label">Total Documents</div>
+            <div class="apinv-stat-top">
+                <span class="apinv-stat-icon"><i class="ph ph-receipt" aria-hidden="true"></i></span>
+                <div class="apinv-stat-label">Total Documents</div>
+            </div>
             <div class="apinv-stat-value">@invoiceResponse?.TotalCount</div>
         </div>
         <div class="apinv-stat">
-            <div class="apinv-stat-label">Current Page</div>
+            <div class="apinv-stat-top">
+                <span class="apinv-stat-icon"><i class="ph ph-files" aria-hidden="true"></i></span>
+                <div class="apinv-stat-label">Current Page</div>
+            </div>
             <div class="apinv-stat-value">@CurrentPageCount</div>
         </div>
         <div class="apinv-stat">
-            <div class="apinv-stat-label">Open Documents</div>
+            <div class="apinv-stat-top">
+                <span class="apinv-stat-icon"><i class="ph ph-hourglass-high" aria-hidden="true"></i></span>
+                <div class="apinv-stat-label">Open Documents</div>
+            </div>
             <div class="apinv-stat-value">@OpenInvoiceCount</div>
         </div>
         <div class="apinv-stat">
-            <div class="apinv-stat-label">Page Total</div>
+            <div class="apinv-stat-top">
+                <span class="apinv-stat-icon"><i class="ph ph-coins" aria-hidden="true"></i></span>
+                <div class="apinv-stat-label">Page Total</div>
+            </div>
             <div class="apinv-stat-value">@CurrentPageTotal.ToString("N2")</div>
         </div>
     </div>
 
     <div class="apinv-filters">
         <div class="apinv-field">
-            <label>Supplier</label>
-            <input type="text"
-                   @bind="supplierSearchTerm"
-                   @bind:event="oninput"
-                   @onfocus="ShowSupplierResults"
-                   @onblur="HandleSupplierBlur"
-                   placeholder="Search supplier code or name" />
+            <label><i class="ph ph-buildings" aria-hidden="true"></i>Supplier</label>
+            <div class="apinv-input-wrap">
+                <i class="ph ph-magnifying-glass apinv-input-icon" aria-hidden="true"></i>
+                <input type="text"
+                       @bind="supplierSearchTerm"
+                       @bind:event="oninput"
+                       @onfocus="ShowSupplierResults"
+                       @onblur="HandleSupplierBlur"
+                       placeholder="Search supplier code or name" />
+            </div>
             @if (showSupplierResults && FilteredSuppliers.Any())
             {
                 <div class="apinv-search-results">
                     @foreach (var supplier in FilteredSuppliers)
                     {
                         <button type="button" class="apinv-search-option" @onmousedown="() => SelectSupplier(supplier)">
-                            <strong>@supplier.CardCode - @supplier.CardName</strong>
-                            <span class="apinv-search-meta">@supplier.Currency</span>
+                            <i class="ph ph-buildings" aria-hidden="true"></i>
+                            <span>
+                                <strong>@supplier.CardCode - @supplier.CardName</strong>
+                                <span class="apinv-search-meta">@supplier.Currency</span>
+                            </span>
                         </button>
                     }
                 </div>
@@ -189,6 +245,7 @@
             @if (selectedSupplier is not null)
             {
                 <div class="apinv-chip">
+                    <i class="ph ph-buildings" aria-hidden="true"></i>
                     @selectedSupplier.DisplayName
                     <button type="button" @onclick="ClearSupplier">Change</button>
                 </div>
@@ -196,23 +253,23 @@
             <div class="apinv-filter-hint">Type a supplier code or name, then pick a suggestion to filter by name.</div>
         </div>
         <div class="apinv-field">
-            <label for="apinv-f-from">From Date</label>
+            <label for="apinv-f-from"><i class="ph ph-calendar-blank" aria-hidden="true"></i>From Date</label>
             <NocturneDateField Id="apinv-f-from" @bind-Date="fromDate" />
         </div>
         <div class="apinv-field">
-            <label for="apinv-f-to">To Date</label>
+            <label for="apinv-f-to"><i class="ph ph-calendar-check" aria-hidden="true"></i>To Date</label>
             <NocturneDateField Id="apinv-f-to" @bind-Date="toDate" />
         </div>
         <div class="apinv-filter-actions">
-            <button class="btn btn-dark" @onclick="SearchAsync" disabled="@isLoading">Apply Filters</button>
-            <button class="btn btn-outline-secondary" @onclick="ClearFiltersAsync" disabled="@isLoading">Clear</button>
+            <button class="btn btn-dark" @onclick="SearchAsync" disabled="@isLoading"><i class="ph ph-funnel-simple" aria-hidden="true"></i>Apply Filters</button>
+            <button class="btn btn-outline-secondary" @onclick="ClearFiltersAsync" disabled="@isLoading"><i class="ph ph-funnel-x" aria-hidden="true"></i>Clear</button>
         </div>
     </div>
 
     @if (isLoading)
     {
         <div class="apinv-panel">
-            <div class="apinv-loading">Loading purchase invoices from SAP...</div>
+            <div class="apinv-loading"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Loading purchase invoices from SAP...</div>
         </div>
     }
     else
@@ -220,13 +277,14 @@
         <div class="apinv-layout">
             <section class="apinv-panel">
                 <div class="apinv-panel-header">
-                    <h2>Invoice Register</h2>
+                    <h2><i class="ph ph-list-dashes" aria-hidden="true"></i>Invoice Register</h2>
                     <span>Page @currentPage of @(invoiceResponse?.TotalPages == 0 ? 1 : invoiceResponse?.TotalPages)</span>
                 </div>
 
                 @if (Invoices.Count == 0)
                 {
                     <div class="apinv-empty">
+                        <i class="ph ph-file-dashed apinv-empty-icon" aria-hidden="true"></i>
                         <strong>No A/P invoices matched the current filters.</strong>
                         Adjust the supplier code or date range and try again.
                     </div>
@@ -281,21 +339,22 @@
                 }
 
                 <div class="apinv-pager">
-                    <button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)">Previous</button>
+                    <button class="btn btn-outline-secondary" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)"><i class="ph ph-arrow-left" aria-hidden="true"></i>Previous</button>
                     <span>Showing @CurrentPageCount of @invoiceResponse?.TotalCount invoices</span>
-                    <button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(isLoading || !(invoiceResponse?.HasMore ?? false))">Next</button>
+                    <button class="btn btn-outline-secondary" @onclick="NextPageAsync" disabled="@(isLoading || !(invoiceResponse?.HasMore ?? false))">Next<i class="ph ph-arrow-right" aria-hidden="true"></i></button>
                 </div>
             </section>
 
             <aside class="apinv-panel">
                 <div class="apinv-panel-header">
-                    <h2>Selected Invoice</h2>
+                    <h2><i class="ph ph-identification-card" aria-hidden="true"></i>Selected Invoice</h2>
                     <span>@(selectedInvoice is null ? "No selection" : $"{selectedInvoice.DocCurrency} {selectedInvoice.DocTotal:N2}")</span>
                 </div>
 
                 @if (selectedInvoice is null)
                 {
                     <div class="apinv-empty">
+                        <i class="ph ph-cursor-click apinv-empty-icon" aria-hidden="true"></i>
                         <strong>Select an invoice.</strong>
                         The document summary and lines will appear here.
                     </div>
@@ -305,19 +364,19 @@
                     <div class="apinv-detail">
                         <div class="apinv-detail-grid">
                             <div class="apinv-detail-card">
-                                <label>Supplier</label>
+                                <label><i class="ph ph-buildings" aria-hidden="true"></i>Supplier</label>
                                 <div>@selectedInvoice.CardCode - @selectedInvoice.CardName</div>
                             </div>
                             <div class="apinv-detail-card">
-                                <label>Posting Date</label>
+                                <label><i class="ph ph-calendar-blank" aria-hidden="true"></i>Posting Date</label>
                                 <div>@selectedInvoice.DocDate.ToString("dd MMM yyyy")</div>
                             </div>
                             <div class="apinv-detail-card">
-                                <label>Due Date</label>
+                                <label><i class="ph ph-calendar-check" aria-hidden="true"></i>Due Date</label>
                                 <div>@(selectedInvoice.DocDueDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
                             </div>
                             <div class="apinv-detail-card">
-                                <label>Discount %</label>
+                                <label><i class="ph ph-percent" aria-hidden="true"></i>Discount %</label>
                                 <div>@selectedInvoice.DiscountPercent.ToString("N2")</div>
                             </div>
                         </div>
@@ -325,7 +384,7 @@
                         @if (!string.IsNullOrWhiteSpace(selectedInvoice.Comments))
                         {
                             <div class="apinv-detail-card" style="margin-bottom: 1rem;">
-                                <label>Comments</label>
+                                <label><i class="ph ph-chat-text" aria-hidden="true"></i>Comments</label>
                                 <div>@selectedInvoice.Comments</div>
                             </div>
                         }

@@ -10,25 +10,28 @@
 
 <div class="aspr-page">
     <section class="aspr-hero">
-        <div>
-            <span class="aspr-kicker">Account Performance</span>
+        <div class="aspr-hero-lead">
+            <span class="aspr-hero-icon"><i class="ph ph-chart-bar" aria-hidden="true"></i></span>
+            <div>
+            <span class="aspr-kicker"><i class="ph ph-trend-up" aria-hidden="true"></i>Account Performance</span>
             <h1>Sales and incoming payments</h1>
             <p>Track item movement, invoice value, and cash collections for selected accounts across daily, weekly, or
                 monthly buckets.</p>
             </div>
+            </div>
             <div class="aspr-hero-meta">
                 @if (hasRequestedReport)
                 {
-                    <span class="aspr-meta-chip">@reportResult.Summary.ActiveAccountCount active of
+                    <span class="aspr-meta-chip"><i class="ph ph-users-three" aria-hidden="true"></i>@reportResult.Summary.ActiveAccountCount active of
                         @reportResult.Summary.RequestedAccountCount requested</span>
                     @if (reportResult.GeneratedAtUtc != default)
                     {
-                        <span class="aspr-meta-chip">Updated @FormatGeneratedAt()</span>
+                        <span class="aspr-meta-chip"><i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i>Updated @FormatGeneratedAt()</span>
                     }
                 }
                 else
                 {
-                    <span class="aspr-meta-chip">Waiting for your first load</span>
+                    <span class="aspr-meta-chip"><i class="ph ph-hourglass-high" aria-hidden="true"></i>Waiting for your first load</span>
                 }
                 </div>
             </section>
@@ -37,26 +40,26 @@
                 <div class="aspr-grouping" role="tablist" aria-label="Grouping">
                     <button type="button" class="@GetGroupingButtonClass(AccountSalesPaymentGrouping.Daily)"
                             @onclick="() => SetGroupingAsync(AccountSalesPaymentGrouping.Daily)"
-                            disabled="@isLoading">Daily</button>
+                            disabled="@isLoading"><i class="ph ph-calendar-blank" aria-hidden="true"></i>Daily</button>
                     <button type="button" class="@GetGroupingButtonClass(AccountSalesPaymentGrouping.Weekly)"
                             @onclick="() => SetGroupingAsync(AccountSalesPaymentGrouping.Weekly)"
-                            disabled="@isLoading">Weekly</button>
+                            disabled="@isLoading"><i class="ph ph-calendar-check" aria-hidden="true"></i>Weekly</button>
                     <button type="button" class="@GetGroupingButtonClass(AccountSalesPaymentGrouping.Monthly)"
                             @onclick="() => SetGroupingAsync(AccountSalesPaymentGrouping.Monthly)"
-                            disabled="@isLoading">Monthly</button>
+                            disabled="@isLoading"><i class="ph ph-calendar-blank" aria-hidden="true"></i>Monthly</button>
                 </div>
 
                 <div class="aspr-filter-grid">
                     <label>
-                        <span>From</span>
+                        <span><i class="ph ph-calendar-blank" aria-hidden="true"></i>From</span>
                         <InputDate class="form-control" @bind-Value="fromDate" />
                     </label>
                     <label>
-                        <span>To</span>
+                        <span><i class="ph ph-calendar-check" aria-hidden="true"></i>To</span>
                         <InputDate class="form-control" @bind-Value="toDate" />
                     </label>
                     <label class="aspr-account-field">
-                        <span>Accounts</span>
+                        <span><i class="ph ph-users-three" aria-hidden="true"></i>Accounts</span>
                         <textarea class="form-control aspr-account-input" @bind="accountCodesText" rows="3"></textarea>
                         <small>Use commas or new lines. Range syntax like VAN008-019 is supported.</small>
                     </label>
@@ -64,23 +67,23 @@
 
                 <div class="aspr-filter-actions">
                     <button class="aspr-action aspr-action--primary" @onclick="ApplyFiltersAsync"
-                            disabled="@isLoading">@(isLoading ? "Loading..." : PrimaryActionLabel)</button>
-                    <button class="aspr-action" @onclick="ResetFiltersAsync" disabled="@isLoading">Reset</button>
+                            disabled="@isLoading"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>@(isLoading ? "Loading..." : PrimaryActionLabel)</button>
+                    <button class="aspr-action" @onclick="ResetFiltersAsync" disabled="@isLoading"><i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i>Reset</button>
                     <button class="aspr-action" @onclick="ExportToExcelAsync"
-                        disabled="@(isLoading || isExporting || !CanExportReport)">@(isExporting ? "Exporting..." : "Export Excel")</button>
+                        disabled="@(isLoading || isExporting || !CanExportReport)"><i class="ph ph-file-xls" aria-hidden="true"></i>@(isExporting ? "Exporting..." : "Export Excel")</button>
                 </div>
 
                 <div class="aspr-pill-row">
                     @foreach (var accountCode in DisplayedRequestedAccounts)
                     {
-                        <span class="aspr-pill">@accountCode</span>
+                        <span class="aspr-pill"><i class="ph ph-user-circle" aria-hidden="true"></i>@accountCode</span>
                     }
                 </div>
             </section>
 
             @if (!string.IsNullOrWhiteSpace(errorMessage))
             {
-                <div class="alert alert-danger aspr-alert" role="alert">@errorMessage</div>
+                <div class="alert alert-danger aspr-alert" role="alert"><i class="ph ph-warning-octagon" aria-hidden="true"></i> @errorMessage</div>
             }
 
             @if (isLoading)
@@ -94,6 +97,7 @@
             {
                 <section class="aspr-card">
                     <div class="aspr-empty-state">
+                        <i class="ph ph-chart-bar aspr-empty-icon" aria-hidden="true"></i>
                         <strong>Report is ready to load</strong>
                         <p>Choose the date range, grouping, and accounts, then click Load report.</p>
                     </div>
@@ -103,28 +107,28 @@
             {
                 <section class="aspr-summary-grid">
                     <article class="aspr-summary-card">
-                        <span>Accounts</span>
+                        <span><i class="ph ph-users-three" aria-hidden="true"></i>Accounts</span>
                         <strong>@reportResult.Summary.RequestedAccountCount</strong>
                         <small>@reportResult.Summary.ActiveAccountCount with activity in range</small>
                     </article>
                     <article class="aspr-summary-card">
-                        <span>Invoices</span>
+                        <span><i class="ph ph-receipt" aria-hidden="true"></i>Invoices</span>
                         <strong>@reportResult.Summary.TotalInvoices</strong>
                         <small>@reportResult.Summary.TotalPayments incoming payments</small>
                     </article>
                     <article class="aspr-summary-card">
-                        <span>Quantity sold</span>
+                        <span><i class="ph ph-package" aria-hidden="true"></i>Quantity sold</span>
                         <strong>@reportResult.Summary.TotalQuantitySold.ToString("N2")</strong>
                         <small>@reportResult.Summary.TotalPeriods @GroupingPeriodNoun</small>
                     </article>
                     <article class="aspr-summary-card aspr-summary-card--accent">
-                        <span>Sales value</span>
+                        <span><i class="ph ph-currency-dollar" aria-hidden="true"></i>Sales value</span>
                         <strong>@FormatAmounts(reportResult.Summary.TotalSalesUsd, reportResult.Summary.TotalSalesZig)</strong>
                         <small>Collection rate @FormatRates(reportResult.Summary.CollectionRatePercentUsd,
                                             reportResult.Summary.CollectionRatePercentZig)</small>
                         </article>
                         <article class="aspr-summary-card aspr-summary-card--success">
-                            <span>Incoming payments</span>
+                            <span><i class="ph ph-hand-coins" aria-hidden="true"></i>Incoming payments</span>
                             <strong>@FormatAmounts(reportResult.Summary.TotalIncomingPaymentsUsd,
                                                 reportResult.Summary.TotalIncomingPaymentsZig)</strong>
                                 <small>Grouped by payment date within the selected range</small>
@@ -134,7 +138,7 @@
                         <section class="aspr-card">
                             <div class="aspr-section-header">
                                 <div>
-                                    <h2>Account totals</h2>
+                                    <h2><i class="ph ph-list-checks" aria-hidden="true"></i>Account totals</h2>
                                     <p>Full-window totals for each requested account.</p>
                                 </div>
                             </div>
@@ -142,6 +146,7 @@
                             @if (!reportResult.AccountTotals.Any())
                             {
                                 <div class="aspr-empty-state">
+                                    <i class="ph ph-file-dashed aspr-empty-icon" aria-hidden="true"></i>
                                     <strong>No account activity found</strong>
                                     <p>Adjust the accounts or date range and try again.</p>
                                 </div>
@@ -156,28 +161,28 @@
                                         <details class="aspr-detail" open="@(account == orderedAccounts.First())">
                                             <summary class="aspr-detail-summary">
                                                 <div>
-                                                    <strong>@account.CardCode</strong>
+                                                    <strong><i class="ph ph-user-circle" aria-hidden="true"></i>@account.CardCode</strong>
                                                     <span>@account.CardName</span>
                                                 </div>
                                                 <div class="aspr-detail-metrics">
-                                                    <span>Qty @account.TotalQuantitySold.ToString("N2")</span>
-                                                    <span>Sales @FormatAmounts(account.TotalSalesUsd, account.TotalSalesZig)</span>
-                                                    <span>Payments @FormatAmounts(account.IncomingPaymentsUsd, account.IncomingPaymentsZig)</span>
+                                                    <span><i class="ph ph-package" aria-hidden="true"></i>Qty @account.TotalQuantitySold.ToString("N2")</span>
+                                                    <span><i class="ph ph-currency-dollar" aria-hidden="true"></i>Sales @FormatAmounts(account.TotalSalesUsd, account.TotalSalesZig)</span>
+                                                    <span><i class="ph ph-hand-coins" aria-hidden="true"></i>Payments @FormatAmounts(account.IncomingPaymentsUsd, account.IncomingPaymentsZig)</span>
                                                 </div>
                                             </summary>
 
                                             <div class="aspr-detail-body">
                                                 <div class="aspr-kv-grid">
                                                     <div>
-                                                        <span>Invoices</span>
+                                                        <span><i class="ph ph-receipt" aria-hidden="true"></i>Invoices</span>
                                                         <strong>@account.InvoiceCount</strong>
                                                     </div>
                                                     <div>
-                                                        <span>Incoming payments</span>
+                                                        <span><i class="ph ph-hand-coins" aria-hidden="true"></i>Incoming payments</span>
                                                         <strong>@account.PaymentCount</strong>
                                                     </div>
                                                     <div>
-                                                        <span>Collection</span>
+                                                        <span><i class="ph ph-percent" aria-hidden="true"></i>Collection</span>
                                                         <strong>@FormatRates(account.CollectionRatePercentUsd,
                                                                                             account.CollectionRatePercentZig)</strong>
                                                         </div>
@@ -189,10 +194,10 @@
                                                             <table class="table aspr-table">
                                                                 <thead>
                                                                     <tr>
-                                                                        <th>Item</th>
-                                                                        <th>Invoices</th>
-                                                                        <th>Quantity</th>
-                                                                        <th>Sales value</th>
+                                                                        <th><i class="ph ph-cube" aria-hidden="true"></i>Item</th>
+                                                                        <th><i class="ph ph-receipt" aria-hidden="true"></i>Invoices</th>
+                                                                        <th><i class="ph ph-package" aria-hidden="true"></i>Quantity</th>
+                                                                        <th><i class="ph ph-currency-dollar" aria-hidden="true"></i>Sales value</th>
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody>
@@ -226,7 +231,7 @@
                             <section class="aspr-card">
                                 <div class="aspr-section-header">
                                     <div>
-                                        <h2>@SelectedGroupingLabel breakdown</h2>
+                                        <h2><i class="ph ph-chart-pie-slice" aria-hidden="true"></i>@SelectedGroupingLabel breakdown</h2>
                                         <p>Only @GroupingPeriodNoun with activity are shown below.</p>
                                     </div>
                                 </div>
@@ -234,6 +239,7 @@
                                 @if (!VisiblePeriods.Any())
                                 {
                                     <div class="aspr-empty-state">
+                                        <i class="ph ph-file-dashed aspr-empty-icon" aria-hidden="true"></i>
                                         <strong>No grouped activity available</strong>
                                         <p>The selected range returned no sales or incoming payments for the requested accounts.</p>
                                     </div>
@@ -249,13 +255,13 @@
                                             <details class="aspr-period" open="@(periodIndex == 0)">
                                                 <summary class="aspr-period-summary">
                                                     <div>
-                                                        <strong>@period.Label</strong>
+                                                        <strong><i class="ph ph-calendar-blank" aria-hidden="true"></i>@period.Label</strong>
                                                         <span>@period.InvoiceCount invoices • @period.PaymentCount payments</span>
                                                     </div>
                                                     <div class="aspr-detail-metrics">
-                                                        <span>Qty @period.TotalQuantitySold.ToString("N2")</span>
-                                                        <span>Sales @FormatAmounts(period.TotalSalesUsd, period.TotalSalesZig)</span>
-                                                        <span>Payments @FormatAmounts(period.IncomingPaymentsUsd, period.IncomingPaymentsZig)</span>
+                                                        <span><i class="ph ph-package" aria-hidden="true"></i>Qty @period.TotalQuantitySold.ToString("N2")</span>
+                                                        <span><i class="ph ph-currency-dollar" aria-hidden="true"></i>Sales @FormatAmounts(period.TotalSalesUsd, period.TotalSalesZig)</span>
+                                                        <span><i class="ph ph-hand-coins" aria-hidden="true"></i>Payments @FormatAmounts(period.IncomingPaymentsUsd, period.IncomingPaymentsZig)</span>
                                                     </div>
                                                 </summary>
 
@@ -271,13 +277,13 @@
                                                             <details class="aspr-nested-detail">
                                                                 <summary class="aspr-detail-summary aspr-detail-summary--nested">
                                                                     <div>
-                                                                        <strong>@account.CardCode</strong>
+                                                                        <strong><i class="ph ph-user-circle" aria-hidden="true"></i>@account.CardCode</strong>
                                                                         <span>@account.CardName</span>
                                                                     </div>
                                                                     <div class="aspr-detail-metrics">
-                                                                        <span>Qty @account.TotalQuantitySold.ToString("N2")</span>
-                                                                        <span>Sales @FormatAmounts(account.TotalSalesUsd, account.TotalSalesZig)</span>
-                                                                        <span>Payments @FormatAmounts(account.IncomingPaymentsUsd,
+                                                                        <span><i class="ph ph-package" aria-hidden="true"></i>Qty @account.TotalQuantitySold.ToString("N2")</span>
+                                                                        <span><i class="ph ph-currency-dollar" aria-hidden="true"></i>Sales @FormatAmounts(account.TotalSalesUsd, account.TotalSalesZig)</span>
+                                                                        <span><i class="ph ph-hand-coins" aria-hidden="true"></i>Payments @FormatAmounts(account.IncomingPaymentsUsd,
                                                                                                                 account.IncomingPaymentsZig)</span>
                                                                         </div>
                                                                     </summary>
@@ -289,10 +295,10 @@
                                                                                 <table class="table aspr-table">
                                                                                     <thead>
                                                                                         <tr>
-                                                                                            <th>Item</th>
-                                                                                            <th>Invoices</th>
-                                                                                            <th>Quantity</th>
-                                                                                            <th>Sales value</th>
+                                                                                            <th><i class="ph ph-cube" aria-hidden="true"></i>Item</th>
+                                                                                            <th><i class="ph ph-receipt" aria-hidden="true"></i>Invoices</th>
+                                                                                            <th><i class="ph ph-package" aria-hidden="true"></i>Quantity</th>
+                                                                                            <th><i class="ph ph-currency-dollar" aria-hidden="true"></i>Sales value</th>
                                                                                         </tr>
                                                                                     </thead>
                                                                                     <tbody>

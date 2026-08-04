@@ -22,13 +22,13 @@
                 <div class="crt-card">
                     <div class="crt-card-header">
                         <div>
-                            <h3 class="crt-card-title">Raise GRV</h3>
+                            <h3 class="crt-card-title"><i class="ph ph-note-pencil" aria-hidden="true"></i>Raise GRV</h3>
                             <p class="crt-card-note">Only transactions with a merchandiser variance can raise a GRV, and a supporting document is mandatory.</p>
                         </div>
                     </div>
                     <div class="row g-3">
                         <div class="col-12">
-                            <label class="crt-label">Variance Transaction</label>
+                            <label class="crt-label"><i class="ph ph-arrows-down-up" aria-hidden="true"></i>Variance Transaction</label>
                             <select class="crt-form-select" @bind="selectedGrvTransactionId">
                                 <option value="">Select a variance transaction</option>
                                 @foreach (var transaction in GrvEligibleTransactions)
@@ -38,7 +38,7 @@
                             </select>
                         </div>
                         <div class="col-12">
-                            <label class="crt-label">Possible Reasons</label>
+                            <label class="crt-label"><i class="ph ph-list-checks" aria-hidden="true"></i>Possible Reasons</label>
                             <select class="crt-form-select" value="@selectedGrvReasonOption" @onchange="ApplyGrvReasonOption">
                                 <option value="">Select a suggested reason</option>
                                 @foreach (var reasonOption in grvReasonOptions)
@@ -49,16 +49,16 @@
                             <div class="crt-muted mt-2">Selecting a reason fills the text box below. You can still edit it.</div>
                         </div>
                         <div class="col-12">
-                            <label class="crt-label">Reason</label>
+                            <label class="crt-label"><i class="ph ph-chat-text" aria-hidden="true"></i>Reason</label>
                             <textarea class="crt-form-control" rows="3" @bind="grvReason" placeholder="Explain why the supply was under or over the invoiced crates"></textarea>
                         </div>
                         <div class="col-12">
-                            <label class="crt-label">GRV Document</label>
+                            <label class="crt-label"><i class="ph ph-paperclip" aria-hidden="true"></i>GRV Document</label>
                             <InputFile @key="grvFileKey" OnChange="OnGrvFileSelected" class="crt-form-control" accept=".jpg,.jpeg,.png,.webp,.pdf" />
                         </div>
                         <div class="col-12">
                             <button type="button" class="crt-btn crt-btn-primary w-100" @onclick="SubmitGrvAsync" disabled="@isSubmittingGrv">
-                                @(isSubmittingGrv ? "Creating..." : "Create GRV")
+                                <i class="ph ph-plus" aria-hidden="true"></i>@(isSubmittingGrv ? "Creating..." : "Create GRV")
                             </button>
                         </div>
                     </div>
@@ -71,7 +71,7 @@
                 <div class="crt-card">
                     <div class="crt-card-header">
                         <div>
-                            <h3 class="crt-card-title">Read-only GRV access</h3>
+                            <h3 class="crt-card-title"><i class="ph ph-lock-key" aria-hidden="true"></i>Read-only GRV access</h3>
                             <p class="crt-card-note">You can review crate variances and download GRV documents from this page, but only admins, managers, and merchandisers can create crate GRVs.</p>
                         </div>
                     </div>
@@ -83,14 +83,14 @@
             <div class="crt-card h-100">
                 <div class="crt-card-header">
                     <div>
-                        <h3 class="crt-card-title">Transactions Awaiting GRV</h3>
+                        <h3 class="crt-card-title"><i class="ph ph-hourglass-high" aria-hidden="true"></i>Transactions Awaiting GRV</h3>
                         <p class="crt-card-note">@(canRaiseGrvs ? "These transactions have a merchandiser variance and can be raised as a GRV." : "These transactions have a merchandiser variance and may require GRV follow-up by a crate field role.")</p>
                     </div>
                 </div>
 
                 @if (!GrvEligibleTransactions.Any())
                 {
-                    <div class="crt-empty">No crate variances are currently waiting for a GRV.</div>
+                    <div class="crt-empty"><i class="ph ph-check-circle crt-empty-icon" aria-hidden="true"></i>No crate variances are currently waiting for a GRV.</div>
                 }
                 else
                 {
@@ -98,11 +98,11 @@
                         <table class="crt-table">
                             <thead>
                                 <tr>
-                                    <th>Invoice</th>
-                                    <th>Shop</th>
-                                    <th>Expected</th>
-                                    <th>Merch</th>
-                                    <th>Variance</th>
+                                    <th><i class="ph ph-receipt" aria-hidden="true"></i>Invoice</th>
+                                    <th><i class="ph ph-buildings" aria-hidden="true"></i>Shop</th>
+                                    <th><i class="ph ph-cube" aria-hidden="true"></i>Expected</th>
+                                    <th><i class="ph ph-user" aria-hidden="true"></i>Merch</th>
+                                    <th><i class="ph ph-arrows-down-up" aria-hidden="true"></i>Variance</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -133,14 +133,14 @@
     <div class="crt-table-card">
         <div class="crt-card-header">
             <div>
-                <h3 class="crt-card-title">GRVs Raised</h3>
+                <h3 class="crt-card-title"><i class="ph ph-check-circle" aria-hidden="true"></i>GRVs Raised</h3>
                 <p class="crt-card-note">Only crate GRVs raised from merchandiser variance are shown here.</p>
             </div>
         </div>
 
         @if (grvs.Count == 0)
         {
-            <div class="crt-empty">No crate GRVs have been raised yet.</div>
+            <div class="crt-empty"><i class="ph ph-file-dashed crt-empty-icon" aria-hidden="true"></i>No crate GRVs have been raised yet.</div>
         }
         else
         {
@@ -148,11 +148,11 @@
                 <table class="crt-table">
                     <thead>
                         <tr>
-                            <th>GRV</th>
-                            <th>Invoice</th>
-                            <th>Variance</th>
-                            <th>Reason</th>
-                            <th>Documents</th>
+                            <th><i class="ph ph-file-text" aria-hidden="true"></i>GRV</th>
+                            <th><i class="ph ph-receipt" aria-hidden="true"></i>Invoice</th>
+                            <th><i class="ph ph-arrows-down-up" aria-hidden="true"></i>Variance</th>
+                            <th><i class="ph ph-chat-text" aria-hidden="true"></i>Reason</th>
+                            <th><i class="ph ph-paperclip" aria-hidden="true"></i>Documents</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -186,7 +186,7 @@
                                         <div class="crt-attachments">
                                             @foreach (var attachment in grv.Attachments)
                                             {
-                                                <button type="button" class="crt-attachment-btn" @onclick="() => DownloadAttachmentAsync(attachment)">@attachment.FileName</button>
+                                                <button type="button" class="crt-attachment-btn" @onclick="() => DownloadAttachmentAsync(attachment)"><i class="ph ph-download-simple" aria-hidden="true"></i>@attachment.FileName</button>
                                             }
                                         </div>
                                     }
