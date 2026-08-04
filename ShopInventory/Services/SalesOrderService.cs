@@ -1,4 +1,4 @@
-using System.Linq.Expressions;
+﻿using System.Linq.Expressions;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
@@ -41,7 +41,7 @@ public class SalesOrderService : ISalesOrderService
     private readonly ILocalPriceCatalogService _localPriceCatalogService;
     private readonly IIdempotencyRequestStore _idempotencyRequestStore;
     private readonly ICreditLimitService _creditLimitService;
-    private readonly decimal _defaultMobileTaxPercent;
+    private readonly decimal _defaultTaxPercent;
     private readonly string _connectionString;
 
     public SalesOrderService(
@@ -63,7 +63,7 @@ public class SalesOrderService : ISalesOrderService
         _localPriceCatalogService = localPriceCatalogService;
         _idempotencyRequestStore = idempotencyRequestStore;
         _creditLimitService = creditLimitService;
-        _defaultMobileTaxPercent = NormalizeTaxPercent(revmaxSettings.Value.VatRate);
+        _defaultTaxPercent = NormalizeTaxPercent(revmaxSettings.Value.VatRate);
         _connectionString = context.Database.GetConnectionString()
             ?? throw new InvalidOperationException("DefaultConnection is not configured.");
     }
@@ -468,7 +468,7 @@ public class SalesOrderService : ISalesOrderService
         // sees — the refusal has to reach them here, while they are still holding the order.
         await EnsureWithinCreditLimitAsync(
             request.CardCode,
-            CalculateSalesOrderTotals(request.Lines, request.DiscountPercent, request.Source).DocTotal,
+            CalculateSalesOrderTotals(request.Lines, request.DiscountPercent).DocTotal,
             cancellationToken);
 
         // If no warehouse specified, fall back to the user's assigned warehouse
@@ -539,7 +539,7 @@ public class SalesOrderService : ISalesOrderService
                             Quantity = lineRequest.Quantity,
                             UnitPrice = lineRequest.UnitPrice,
                             DiscountPercent = lineRequest.DiscountPercent,
-                            TaxPercent = ResolveLineTaxPercent(lineRequest.TaxPercent, request.Source),
+                            TaxPercent = ResolveLineTaxPercent(lineRequest.TaxPercent),
                             LineTotal = CalculateLineTotal(lineRequest.Quantity, lineRequest.UnitPrice, lineRequest.DiscountPercent),
                             WarehouseCode = !string.IsNullOrEmpty(lineRequest.WarehouseCode) ? lineRequest.WarehouseCode : request.WarehouseCode,
                             UoMCode = lineRequest.UoMCode,
@@ -552,7 +552,7 @@ public class SalesOrderService : ISalesOrderService
 
                     // Same helper the credit check above ran on, so the total this order is refused
                     // or accepted on is the total it is stored with.
-                    var totals = CalculateSalesOrderTotals(request.Lines, request.DiscountPercent, request.Source);
+                    var totals = CalculateSalesOrderTotals(request.Lines, request.DiscountPercent);
                     order.SubTotal = totals.SubTotal;
                     order.TaxAmount = totals.TaxAmount;
                     order.DiscountAmount = totals.DiscountAmount;
@@ -816,7 +816,7 @@ public class SalesOrderService : ISalesOrderService
 
         foreach (var line in order.Lines)
         {
-            line.TaxPercent = ResolveLineTaxPercent(line.TaxPercent, order.Source);
+            line.TaxPercent = ResolveLineTaxPercent(line.TaxPercent);
 
             if (priceLookup.TryGetValue(line.ItemCode, out var price) && price > 0)
             {
@@ -977,7 +977,7 @@ public class SalesOrderService : ISalesOrderService
 
         foreach (var lineRequest in request.Lines)
         {
-            var taxPercent = ResolveLineTaxPercent(lineRequest.TaxPercent, order.Source);
+            var taxPercent = ResolveLineTaxPercent(lineRequest.TaxPercent);
             var lineTotal = lineRequest.Quantity * lineRequest.UnitPrice * (1 - lineRequest.DiscountPercent / 100);
             var lineTax = lineTotal * taxPercent / 100;
 
@@ -2158,6 +2158,129 @@ public class SalesOrderService : ISalesOrderService
         _context.SalesOrders.Attach(order);
     }
 
+    /// <summary>
+    /// Re-reads each posted order's SAP document and rewrites the local financial mirror from it,
+    /// including the per-line tax rate the local rows never carried.
+    /// </summary>
+    /// <remarks>
+    /// The header numbers come straight from SAP because SAP is the only place they are true: it
+    /// prices the tax from each item's own tax code, so a local recompute at the configured VAT
+    /// rate would be right only for an order whose lines are all standard-rated. The per-line rate
+    /// is then derived from those same header numbers rather than from configuration, so the lines
+    /// can never sum to something the header contradicts. An order SAP prices at zero tax keeps
+    /// zero-rate lines, which is the correct answer rather than a missing one.
+    /// </remarks>
+    public async Task<SalesOrderTaxRepairSummary> RepairSyncedSalesOrderTaxFromSapAsync(
+        IReadOnlyCollection<int> orderIds,
+        bool dryRun,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedOrderIds = orderIds.Distinct().ToList();
+        if (normalizedOrderIds.Count == 0)
+            return new SalesOrderTaxRepairSummary(0, 0, 0);
+
+        var orders = await _context.SalesOrders
+            .Include(order => order.Lines)
+            .Where(order => normalizedOrderIds.Contains(order.Id)
+                && order.IsSynced
+                && order.SAPDocEntry.HasValue
+                && order.SAPDocEntry.Value > 0)
+            .ToListAsync(cancellationToken);
+
+        var ordersRepaired = 0;
+        var linesRepaired = 0;
+        var unresolved = 0;
+
+        foreach (var order in orders)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            SAPSalesOrder? sapOrder;
+            try
+            {
+                sapOrder = await _sapClient.GetSalesOrderByDocEntryAsync(
+                    order.SAPDocEntry.GetValueOrDefault(),
+                    cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Could not read SAP document {DocEntry} for sales order {OrderNumber} while repairing its tax mirror.",
+                    order.SAPDocEntry,
+                    order.OrderNumber);
+                unresolved++;
+                continue;
+            }
+
+            if (sapOrder == null)
+            {
+                _logger.LogWarning(
+                    "SAP holds no document under DocEntry {DocEntry} for sales order {OrderNumber}; leaving its tax mirror untouched.",
+                    order.SAPDocEntry,
+                    order.OrderNumber);
+                unresolved++;
+                continue;
+            }
+
+            var headerChanged = ApplySapFinancialSnapshotToLocalOrder(order, sapOrder);
+            var orderLinesRepaired = ApplyEffectiveTaxPercentToZeroRatedLines(order);
+
+            if (!headerChanged && orderLinesRepaired == 0)
+                continue;
+
+            ordersRepaired++;
+            linesRepaired += orderLinesRepaired;
+        }
+
+        if (dryRun)
+        {
+            // Nothing is written, so the tracked edits must not survive into whatever else this
+            // scoped context is asked to save.
+            _context.ChangeTracker.Clear();
+        }
+        else if (ordersRepaired > 0)
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
+        return new SalesOrderTaxRepairSummary(ordersRepaired, linesRepaired, unresolved);
+    }
+
+    /// <summary>
+    /// Spreads the order's own effective tax rate across the lines that carry none, leaving any
+    /// line that already has a rate alone.
+    /// </summary>
+    private static int ApplyEffectiveTaxPercentToZeroRatedLines(SalesOrderEntity order)
+    {
+        if (order.Lines == null || order.Lines.Count == 0)
+            return 0;
+
+        if (order.SubTotal <= 0 || order.TaxAmount <= 0)
+            return 0;
+
+        var effectiveTaxPercent = Math.Round(order.TaxAmount / order.SubTotal * 100m, 3, MidpointRounding.AwayFromZero);
+        if (effectiveTaxPercent <= 0)
+            return 0;
+
+        var linesRepaired = 0;
+
+        foreach (var line in order.Lines)
+        {
+            if (line.TaxPercent > 0)
+                continue;
+
+            line.TaxPercent = effectiveTaxPercent;
+            linesRepaired++;
+        }
+
+        return linesRepaired;
+    }
+
     private async Task RefreshLocalSalesOrderSnapshotsFromSapAsync(
         IEnumerable<int> orderIds,
         CancellationToken cancellationToken)
@@ -2638,8 +2761,7 @@ public class SalesOrderService : ISalesOrderService
     /// </summary>
     private (decimal SubTotal, decimal TaxAmount, decimal DiscountAmount, decimal DocTotal) CalculateSalesOrderTotals(
         IEnumerable<CreateSalesOrderLineRequest> lines,
-        decimal headerDiscountPercent,
-        SalesOrderSource source)
+        decimal headerDiscountPercent)
     {
         decimal subTotal = 0;
         decimal taxAmount = 0;
@@ -2648,7 +2770,7 @@ public class SalesOrderService : ISalesOrderService
         {
             var lineTotal = CalculateLineTotal(line.Quantity, line.UnitPrice, line.DiscountPercent);
             subTotal += lineTotal;
-            taxAmount += lineTotal * ResolveLineTaxPercent(line.TaxPercent, source) / 100;
+            taxAmount += lineTotal * ResolveLineTaxPercent(line.TaxPercent) / 100;
         }
 
         var discountAmount = subTotal * headerDiscountPercent / 100;
@@ -2749,13 +2871,32 @@ public class SalesOrderService : ISalesOrderService
            && postgresException.SqlState == PostgresErrorCodes.UniqueViolation
            && postgresException.ConstraintName?.Contains("ClientRequestId", StringComparison.OrdinalIgnoreCase) == true;
 
-    private decimal ResolveLineTaxPercent(decimal requestedTaxPercent, SalesOrderSource source)
-    {
-        if (requestedTaxPercent > 0)
-            return requestedTaxPercent;
+    /// <summary>
+    /// The tax rate a line is stored with: whatever the caller asked for, or the configured VAT
+    /// rate when it asked for nothing.
+    /// </summary>
+    /// <remarks>
+    /// This used to substitute the configured rate for mobile orders only, which made every web
+    /// order's stored tax depend on the create form remembering to send a rate. It did not, so web
+    /// orders were persisted with zero-rate lines, a zero tax amount, and a document total equal to
+    /// their subtotal — understated against the SAP document, which prices tax from each item's own
+    /// tax code regardless of what we send. Making the fallback source-independent is what stops
+    /// that recurring; see BackfillWebOrderTaxHandler for the orders written before it did.
+    ///
+    /// The cost is that a request can no longer express "this line is genuinely zero-rated" by
+    /// sending 0 — it reads as "unset". That was already true for mobile, and no caller
+    /// distinguishes the two today: SAP owns the real rate, and this value is a local mirror.
+    /// </remarks>
+    private decimal ResolveLineTaxPercent(decimal requestedTaxPercent)
+        => ResolveLineTaxPercent(requestedTaxPercent, _defaultTaxPercent);
 
-        return source == SalesOrderSource.Mobile ? _defaultMobileTaxPercent : requestedTaxPercent;
-    }
+    /// <inheritdoc cref="ResolveLineTaxPercent(decimal)"/>
+    /// <remarks>
+    /// Exposed so the rule can be pinned without standing up the whole service, which is how it
+    /// went uncovered long enough to write a database full of zero-tax web orders.
+    /// </remarks>
+    public static decimal ResolveLineTaxPercent(decimal requestedTaxPercent, decimal defaultTaxPercent)
+        => requestedTaxPercent > 0 ? requestedTaxPercent : defaultTaxPercent;
 
     private static decimal NormalizeTaxPercent(decimal configuredVatRate)
         => configuredVatRate <= 1 ? configuredVatRate * 100m : configuredVatRate;
@@ -2944,7 +3085,7 @@ public class SalesOrderService : ISalesOrderService
 
             foreach (var line in order.Lines)
             {
-                line.TaxPercent = ResolveLineTaxPercent(line.TaxPercent, order.Source);
+                line.TaxPercent = ResolveLineTaxPercent(line.TaxPercent);
                 if (!priceMap.TryGetValue(line.ItemCode, out var unitPrice))
                 {
                     _logger.LogWarning(
