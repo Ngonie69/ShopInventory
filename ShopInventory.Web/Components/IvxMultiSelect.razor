@@ -12,41 +12,45 @@
    VAN008-019 that the report expands server-side, be entered here rather than
    needing a second free-text field beside the picker.
 
-   Styles live under the `ivx-ms-` prefix in wwwroot/css/item-volume.css, so
-   this component only renders correctly inside a `.ivx` page root. *@
+   Styles live under the `vcx-ms-` prefix in wwwroot/css/item-volume.css, so
+   this component only renders correctly inside a `.vcx` page root. The type
+   name still reads Ivx because the sheet's prefix was `ivx-` until 2026-08-05,
+   when it was renamed off invoices.css's — the classes moved, this name did
+   not. /reports/volume-conversions is the only caller; SalesAnalysisPicker is
+   the equivalent for the sales-analysis pages. *@
 
-<div class="ivx-ms @(isOpen ? "is-open" : "")" @onkeydown="OnKeyDown">
+<div class="vcx-ms @(isOpen ? "is-open" : "")" @onkeydown="OnKeyDown">
     <button type="button"
-            class="ivx-ms-btn @(Selected.Count > 0 ? "is-set" : "")"
+            class="vcx-ms-btn @(Selected.Count > 0 ? "is-set" : "")"
             @onclick="Toggle"
             disabled="@Disabled"
             aria-haspopup="listbox"
             aria-expanded="@isOpen"
             aria-label="@AriaLabel">
-        <i class="ph @Icon ivx-ms-icon" aria-hidden="true"></i>
-        <span class="ivx-ms-value">@TriggerLabel</span>
-        <i class="ph ph-caret-down ivx-ms-caret" aria-hidden="true"></i>
+        <i class="ph @Icon vcx-ms-icon" aria-hidden="true"></i>
+        <span class="vcx-ms-value">@TriggerLabel</span>
+        <i class="ph ph-caret-down vcx-ms-caret" aria-hidden="true"></i>
     </button>
 
     @if (isOpen)
     {
-        <div class="ivx-ms-catch" @onclick="Close"></div>
-        <div class="ivx-ms-menu" role="listbox" aria-multiselectable="true" aria-label="@AriaLabel">
-            <div class="ivx-ms-search">
-                <input class="ivx-input" type="search" placeholder="@SearchPlaceholder"
+        <div class="vcx-ms-catch" @onclick="Close"></div>
+        <div class="vcx-ms-menu" role="listbox" aria-multiselectable="true" aria-label="@AriaLabel">
+            <div class="vcx-ms-search">
+                <input class="vcx-input" type="search" placeholder="@SearchPlaceholder"
                        @bind="searchText" @bind:event="oninput" />
             </div>
 
-            <div class="ivx-ms-list">
+            <div class="vcx-ms-list">
                 @if (CanAddTypedValue)
                 {
                     var typed = TypedValue;
-                    <button type="button" class="ivx-ms-item" role="option" aria-selected="false"
+                    <button type="button" class="vcx-ms-item" role="option" aria-selected="false"
                             @onclick="@(() => ToggleValue(typed))">
-                        <span class="ivx-ms-box" aria-hidden="true"><i class="ph ph-plus"></i></span>
-                        <span class="ivx-ms-labels">
-                            <span class="ivx-ms-label">Add “@typed”</span>
-                            <span class="ivx-ms-sub">Not in the list — used as typed</span>
+                        <span class="vcx-ms-box" aria-hidden="true"><i class="ph ph-plus"></i></span>
+                        <span class="vcx-ms-labels">
+                            <span class="vcx-ms-label">Add “@typed”</span>
+                            <span class="vcx-ms-sub">Not in the list — used as typed</span>
                         </span>
                     </button>
                 }
@@ -56,40 +60,40 @@
                     var value = option.Value;
                     var isSelected = IsSelected(value);
                     <button type="button"
-                            class="ivx-ms-item @(isSelected ? "is-selected" : "")"
+                            class="vcx-ms-item @(isSelected ? "is-selected" : "")"
                             role="option" aria-selected="@isSelected"
                             @onclick="@(() => ToggleValue(value))">
-                        <span class="ivx-ms-box" aria-hidden="true"><i class="ph ph-check"></i></span>
-                        <span class="ivx-ms-labels">
-                            <span class="ivx-ms-label">@option.Label</span>
+                        <span class="vcx-ms-box" aria-hidden="true"><i class="ph ph-check"></i></span>
+                        <span class="vcx-ms-labels">
+                            <span class="vcx-ms-label">@option.Label</span>
                             @if (!string.IsNullOrWhiteSpace(option.Sub))
                             {
-                                <span class="ivx-ms-sub">@option.Sub</span>
+                                <span class="vcx-ms-sub">@option.Sub</span>
                             }
                         </span>
                         @if (!string.IsNullOrWhiteSpace(option.Flag))
                         {
-                            <span class="ivx-ms-flag">@option.Flag</span>
+                            <span class="vcx-ms-flag">@option.Flag</span>
                         }
                     </button>
                 }
 
                 @if (!VisibleOptions.Any() && !CanAddTypedValue)
                 {
-                    <div class="ivx-ms-empty">@(Options.Count == 0 ? EmptyText : "No matches")</div>
+                    <div class="vcx-ms-empty">@(Options.Count == 0 ? EmptyText : "No matches")</div>
                 }
             </div>
 
-            <div class="ivx-ms-foot">
-                <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-sm"
+            <div class="vcx-ms-foot">
+                <button type="button" class="vcx-btn vcx-btn-ghost vcx-btn-sm"
                         @onclick="SelectVisible" disabled="@(!VisibleOptions.Any())">
                     Select shown
                 </button>
-                <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-sm"
+                <button type="button" class="vcx-btn vcx-btn-ghost vcx-btn-sm"
                         @onclick="ClearAll" disabled="@(Selected.Count == 0)">
                     Clear
                 </button>
-                <span class="ivx-ms-count">@Selected.Count selected</span>
+                <span class="vcx-ms-count">@Selected.Count selected</span>
             </div>
         </div>
     }

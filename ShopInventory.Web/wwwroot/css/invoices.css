@@ -634,6 +634,15 @@
     white-space: nowrap;
 }
 
+/* `.ivx-table th` is a class and an element, so it out-specifies the bare
+   `.ivx-num` above and a numeric column's heading is left with the default left
+   alignment while its cells are right-aligned. The last column escapes it
+   through the `th:last-child` rule; every interior one — VAT, Qty, Price,
+   Disc % — needs the class spelled out on the header. */
+.ivx-table th.ivx-num {
+    text-align: right;
+}
+
 .ivx-table thead tr {
     background: linear-gradient(to right,
             transparent, var(--ivx-divider) 48px,

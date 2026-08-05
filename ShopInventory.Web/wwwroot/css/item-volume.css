@@ -1,16 +1,25 @@
 /* ==========================================================================
-   Item volume & customer revenue — Nocturne
+   Volume conversion factors — Nocturne
 
-   Three pages share this sheet, because they are one workflow: pick accounts,
-   items and a window at /reports/item-volume, read the same window as money at
-   /reports/customer-revenue, and maintain the factors that make the first of
-   those possible at /reports/volume-conversions.
+   One page, /reports/volume-conversions, plus the IvxMultiSelect component it
+   is the only caller of. /reports/item-volume and /reports/customer-revenue
+   were served from here once; they are SalesAnalysisReport now and carry their
+   own sheet, sales-analysis.css, under the `sla-` prefix.
+
+   **The prefix is `vcx-`, and it has to stay unique.** Every sheet App.razor
+   links is global — none is scoped to its page — so a prefix is the only thing
+   keeping one page's rules out of another's. This sheet used to say `ivx-`,
+   which is invoices.css's, and the two quietly overwrote each other for every
+   property both set: invoices' `.ivx-table` font size lost to this sheet's on
+   the Invoices page, and its `th:last-child` alignment leaked onto this one.
+   Renamed 2026-08-05. Before adding a prefix anywhere, grep the other sheets
+   for it.
 
    The palette, density scale and component vocabulary are order-fulfillment
    css's, unchanged, so a reader moving between the report pages stays inside
    one system.
 
-   Two things are specific to these pages.
+   Two things are specific to this page.
 
    The first is that a quantity here is not a number you can add up. A 100ml
    yoghurt and a 20L ice-cream tub are both "1", so the report's whole reason
@@ -19,9 +28,9 @@
    warn treatment rather than being rounded to zero and forgotten: the totals
    are honest about being a floor, and the page says how to fix it.
 
-   The second is the account and item pickers. Both are multi-selects over
-   several hundred options, so both are listboxes in markup rather than native
-   <select multiple>s — a native popup takes its background from the field, and
+   The second is the item picker. It is a multi-select over several hundred
+   options, so it is a listbox in markup rather than a native
+   <select multiple> — a native popup takes its background from the field, and
    these fields are the Nocturne wash, which the browser composites onto white
    and then refuses to darken. See .claude/skills/nocturne-dropdowns-and-dates.
 
@@ -34,62 +43,62 @@
    is two classes deep, winning regardless of load order.
    ========================================================================== */
 
-.ivx {
-    --ivx-bg: #f4f4f8;
-    --ivx-surface: #ffffff;
-    --ivx-field: #ffffff;
-    --ivx-ink: #1b1c26;
-    --ivx-ink-2: #35374a;
-    --ivx-mute: #4e5164;
-    --ivx-mute-2: #656879;
-    --ivx-mute-3: #7b7e8e;
-    --ivx-faint: #a0a2ae;
-    --ivx-placeholder: #9498a8;
-    --ivx-divider: rgba(27, 28, 38, .14);
-    --ivx-rowline: rgba(27, 28, 38, .09);
-    --ivx-hover: rgba(27, 28, 38, .04);
-    --ivx-press: rgba(27, 28, 38, .09);
-    --ivx-field-edge: #d4d6e2;
-    --ivx-field-edge-hi: #a9adc0;
-    --ivx-accent: #5f52c4;
-    --ivx-accent-rgb: 95, 82, 196;
+.vcx {
+    --vcx-bg: #f4f4f8;
+    --vcx-surface: #ffffff;
+    --vcx-field: #ffffff;
+    --vcx-ink: #1b1c26;
+    --vcx-ink-2: #35374a;
+    --vcx-mute: #4e5164;
+    --vcx-mute-2: #656879;
+    --vcx-mute-3: #7b7e8e;
+    --vcx-faint: #a0a2ae;
+    --vcx-placeholder: #9498a8;
+    --vcx-divider: rgba(27, 28, 38, .14);
+    --vcx-rowline: rgba(27, 28, 38, .09);
+    --vcx-hover: rgba(27, 28, 38, .04);
+    --vcx-press: rgba(27, 28, 38, .09);
+    --vcx-field-edge: #d4d6e2;
+    --vcx-field-edge-hi: #a9adc0;
+    --vcx-accent: #5f52c4;
+    --vcx-accent-rgb: 95, 82, 196;
     /* The accent's text-carrying step: on the dark ground the design uses a
        pale lavender; on paper the same role has to be the deep end of the
        ramp instead. */
-    --ivx-accent-text: #473d99;
-    --ivx-tag-bg: #e4e7f5;
-    --ivx-tag-ink: #3f424d;
-    --ivx-dot: #9397ab;
-    --ivx-dot-quiet: #b2b6ca;
-    --ivx-bad: #b3273c;
-    --ivx-bad-bg: #fdf0f2;
-    --ivx-bad-edge: #f0ccd3;
-    --ivx-warn: #8a5a05;
-    --ivx-warn-bg: #fdf6e8;
-    --ivx-warn-edge: #eeddb8;
-    --ivx-ok: #0b6b4f;
-    --ivx-ok-bg: #edf7f2;
-    --ivx-ok-edge: #c6e4d6;
-    --ivx-info-bg: #eef0fb;
-    --ivx-info-edge: #d3d7f0;
-    --ivx-track: rgba(27, 28, 38, .1);
-    --ivx-shadow-sm: 0 0 0 1px #e3e4ee, 0 1px 2px rgba(27, 28, 38, .05);
-    --ivx-shadow-pop: 0 12px 32px rgba(27, 28, 38, .16);
-    --ivx-scheme: light;
+    --vcx-accent-text: #473d99;
+    --vcx-tag-bg: #e4e7f5;
+    --vcx-tag-ink: #3f424d;
+    --vcx-dot: #9397ab;
+    --vcx-dot-quiet: #b2b6ca;
+    --vcx-bad: #b3273c;
+    --vcx-bad-bg: #fdf0f2;
+    --vcx-bad-edge: #f0ccd3;
+    --vcx-warn: #8a5a05;
+    --vcx-warn-bg: #fdf6e8;
+    --vcx-warn-edge: #eeddb8;
+    --vcx-ok: #0b6b4f;
+    --vcx-ok-bg: #edf7f2;
+    --vcx-ok-edge: #c6e4d6;
+    --vcx-info-bg: #eef0fb;
+    --vcx-info-edge: #d3d7f0;
+    --vcx-track: rgba(27, 28, 38, .1);
+    --vcx-shadow-sm: 0 0 0 1px #e3e4ee, 0 1px 2px rgba(27, 28, 38, .05);
+    --vcx-shadow-pop: 0 12px 32px rgba(27, 28, 38, .16);
+    --vcx-scheme: light;
     /* The select caret, whole: a var() inside the data URL's quoted string
        would not be substituted, so each theme carries the finished image. */
-    --ivx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --vcx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
     /* Nocturne's compact scale — density 0.70x. */
-    --ivx-s1: 2.8px;
-    --ivx-s2: 5.6px;
-    --ivx-s3: 8.4px;
-    --ivx-s4: 11.2px;
-    --ivx-s6: 16.8px;
-    --ivx-s8: 22.4px;
-    --ivx-r-sm: 4px;
-    --ivx-r-md: 8px;
-    --ivx-r-lg: 14px;
+    --vcx-s1: 2.8px;
+    --vcx-s2: 5.6px;
+    --vcx-s3: 8.4px;
+    --vcx-s4: 11.2px;
+    --vcx-s6: 16.8px;
+    --vcx-s8: 22.4px;
+    --vcx-r-sm: 4px;
+    --vcx-r-md: 8px;
+    --vcx-r-lg: 14px;
 
     /* NocturneDateField's own fallbacks, set from the page root so its closed
        field lines up with the inputs beside it. The calendar stays the shared
@@ -97,83 +106,83 @@
     --ndf-h: 32px;
     --ndf-fs: 14px;
 
-    color-scheme: var(--ivx-scheme);
+    color-scheme: var(--vcx-scheme);
 }
 
-.dark-theme .ivx {
-    --ivx-bg: #161826;
-    --ivx-surface: #232532;
-    --ivx-field: #232532;
-    --ivx-ink: #e9e9ed;
-    --ivx-ink-2: #aeaeb5;
-    --ivx-mute: #9999a1;
-    --ivx-mute-2: #87878f;
-    --ivx-mute-3: #72727d;
-    --ivx-faint: #5a5a66;
-    --ivx-placeholder: #6b6b77;
-    --ivx-divider: rgba(233, 233, 237, .16);
-    --ivx-rowline: rgba(233, 233, 237, .08);
-    --ivx-hover: rgba(233, 233, 237, .04);
-    --ivx-press: rgba(233, 233, 237, .1);
-    --ivx-field-edge: rgba(233, 233, 237, .16);
-    --ivx-field-edge-hi: rgba(233, 233, 237, .45);
-    --ivx-accent: #9184d9;
-    --ivx-accent-rgb: 145, 132, 217;
-    --ivx-accent-text: #d2cefd;
-    --ivx-tag-bg: #3f424d;
-    --ivx-tag-ink: #f3f5fe;
-    --ivx-dot: #b2b6ca;
-    --ivx-dot-quiet: #75798c;
-    --ivx-bad: #e8697d;
-    --ivx-bad-bg: #2f2028;
-    --ivx-bad-edge: #4a2c35;
-    --ivx-warn: #e0b062;
-    --ivx-warn-bg: #2c2418;
-    --ivx-warn-edge: #4a3c22;
-    --ivx-ok: #7fd8b4;
-    --ivx-ok-bg: #1b2c26;
-    --ivx-ok-edge: #2c4a3d;
-    --ivx-info-bg: #232538;
-    --ivx-info-edge: #383b57;
-    --ivx-track: rgba(233, 233, 237, .12);
-    --ivx-shadow-sm: 0 0 0 1px #3f424d;
-    --ivx-shadow-pop: 0 12px 32px rgba(0, 0, 0, .5);
-    --ivx-scheme: dark;
-    --ivx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%2387878f' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+.dark-theme .vcx {
+    --vcx-bg: #161826;
+    --vcx-surface: #232532;
+    --vcx-field: #232532;
+    --vcx-ink: #e9e9ed;
+    --vcx-ink-2: #aeaeb5;
+    --vcx-mute: #9999a1;
+    --vcx-mute-2: #87878f;
+    --vcx-mute-3: #72727d;
+    --vcx-faint: #5a5a66;
+    --vcx-placeholder: #6b6b77;
+    --vcx-divider: rgba(233, 233, 237, .16);
+    --vcx-rowline: rgba(233, 233, 237, .08);
+    --vcx-hover: rgba(233, 233, 237, .04);
+    --vcx-press: rgba(233, 233, 237, .1);
+    --vcx-field-edge: rgba(233, 233, 237, .16);
+    --vcx-field-edge-hi: rgba(233, 233, 237, .45);
+    --vcx-accent: #9184d9;
+    --vcx-accent-rgb: 145, 132, 217;
+    --vcx-accent-text: #d2cefd;
+    --vcx-tag-bg: #3f424d;
+    --vcx-tag-ink: #f3f5fe;
+    --vcx-dot: #b2b6ca;
+    --vcx-dot-quiet: #75798c;
+    --vcx-bad: #e8697d;
+    --vcx-bad-bg: #2f2028;
+    --vcx-bad-edge: #4a2c35;
+    --vcx-warn: #e0b062;
+    --vcx-warn-bg: #2c2418;
+    --vcx-warn-edge: #4a3c22;
+    --vcx-ok: #7fd8b4;
+    --vcx-ok-bg: #1b2c26;
+    --vcx-ok-edge: #2c4a3d;
+    --vcx-info-bg: #232538;
+    --vcx-info-edge: #383b57;
+    --vcx-track: rgba(233, 233, 237, .12);
+    --vcx-shadow-sm: 0 0 0 1px #3f424d;
+    --vcx-shadow-pop: 0 12px 32px rgba(0, 0, 0, .5);
+    --vcx-scheme: dark;
+    --vcx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%2387878f' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 /* ── Page ──────────────────────────────────────────────────────────────── */
 
-.ivx {
+.vcx {
     min-height: 100vh;
-    background: var(--ivx-bg);
-    color: var(--ivx-ink);
+    background: var(--vcx-bg);
+    color: var(--vcx-ink);
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 14px;
     line-height: 1.55;
     -webkit-font-smoothing: antialiased;
 }
 
-.ivx * {
+.vcx * {
     box-sizing: border-box;
 }
 
-.ivx :focus-visible {
-    outline: 2px solid var(--ivx-accent);
+.vcx :focus-visible {
+    outline: 2px solid var(--vcx-accent);
     outline-offset: 2px;
 }
 
-.ivx ::selection {
-    background: rgba(var(--ivx-accent-rgb), .3);
+.vcx ::selection {
+    background: rgba(var(--vcx-accent-rgb), .3);
 }
 
 /* Nocturne's signature: freestanding rules fade to transparent over 48px at
    each end. Box outlines and in-control separators stay solid. */
-.ivx-rule {
+.vcx-rule {
     height: 1px;
     background: linear-gradient(to right,
-            transparent, var(--ivx-divider) 48px,
-            var(--ivx-divider) calc(100% - 48px), transparent);
+            transparent, var(--vcx-divider) 48px,
+            var(--vcx-divider) calc(100% - 48px), transparent);
 }
 
 /* ── Header ────────────────────────────────────────────────────────────── */
@@ -181,26 +190,26 @@
    stays reachable while the report scrolls past. Opaque rather than frosted:
    a translucent bar only hides what passes beneath it while the compositor
    honours the blur, and software rendering or a reduced-transparency setting
-   drops it. --ivx-bg is the page's own ground, so this is indistinguishable
+   drops it. --vcx-bg is the page's own ground, so this is indistinguishable
    from the design at rest. */
 
-.ivx-head {
+.vcx-head {
     position: sticky;
     top: var(--kf-topbar-h, 74px);
     z-index: 30;
-    background: var(--ivx-bg);
+    background: var(--vcx-bg);
 }
 
-.ivx-shell {
+.vcx-shell {
     max-width: 1400px;
     margin: 0 auto;
-    padding: var(--ivx-s6) 32px;
+    padding: var(--vcx-s6) 32px;
     display: flex;
     align-items: flex-end;
-    gap: var(--ivx-s8);
+    gap: var(--vcx-s8);
 }
 
-.ivx-titles {
+.vcx-titles {
     display: flex;
     flex-direction: column;
     gap: 3px;
@@ -208,26 +217,26 @@
     min-width: 0;
 }
 
-.ivx-titles-row {
+.vcx-titles-row {
     display: flex;
     align-items: center;
-    gap: var(--ivx-s3);
+    gap: var(--vcx-s3);
 }
 
-.ivx-titles-row i {
+.vcx-titles-row i {
     font-size: 17px;
-    color: var(--ivx-accent);
+    color: var(--vcx-accent);
 }
 
-.ivx-kicker {
+.vcx-kicker {
     font-size: 10.5px;
     font-weight: 500;
     letter-spacing: .1em;
     text-transform: uppercase;
-    color: var(--ivx-mute-3);
+    color: var(--vcx-mute-3);
 }
 
-.ivx-title {
+.vcx-title {
     margin: 0;
     font-size: 21px;
     font-weight: 500;
@@ -235,58 +244,58 @@
     line-height: 1.2;
 }
 
-.ivx-sub {
+.vcx-sub {
     margin: 0;
     font-size: 12.5px;
-    color: var(--ivx-mute-2);
+    color: var(--vcx-mute-2);
     max-width: 78ch;
 }
 
-.ivx-head-actions {
+.vcx-head-actions {
     display: flex;
     align-items: center;
-    gap: var(--ivx-s3);
+    gap: var(--vcx-s3);
     flex: none;
 }
 
-.ivx-count {
+.vcx-count {
     font-size: 12px;
     font-variant-numeric: tabular-nums;
-    color: var(--ivx-mute-2);
+    color: var(--vcx-mute-2);
     white-space: nowrap;
 }
 
 /* ── Body ──────────────────────────────────────────────────────────────── */
 
-.ivx-body {
+.vcx-body {
     max-width: 1400px;
     margin: 0 auto;
-    padding: var(--ivx-s8) 32px 96px;
+    padding: var(--vcx-s8) 32px 96px;
     display: flex;
     flex-direction: column;
-    gap: var(--ivx-s6);
+    gap: var(--vcx-s6);
 }
 
 /* ── Tabs ──────────────────────────────────────────────────────────────── */
 /* The two reports read the same window, so each carries a link to the other
    rather than making the reader go back through the nav. */
 
-.ivx-tabs {
+.vcx-tabs {
     display: flex;
     align-items: center;
-    gap: var(--ivx-s2);
+    gap: var(--vcx-s2);
     flex-wrap: wrap;
 }
 
-.ivx .ivx-tab {
+.vcx .vcx-tab {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     height: 30px;
-    padding: 0 var(--ivx-s4);
+    padding: 0 var(--vcx-s4);
     font-size: 12.5px;
     font-weight: 500;
-    color: var(--ivx-mute-2);
+    color: var(--vcx-mute-2);
     background: transparent;
     border: 1px solid transparent;
     border-radius: 999px;
@@ -294,148 +303,148 @@
     transition: background-color .15s, color .15s, border-color .15s;
 }
 
-.ivx .ivx-tab:hover {
-    background: var(--ivx-hover);
-    color: var(--ivx-ink);
+.vcx .vcx-tab:hover {
+    background: var(--vcx-hover);
+    color: var(--vcx-ink);
 }
 
-.ivx .ivx-tab.is-current {
-    color: var(--ivx-accent-text);
-    background: rgba(var(--ivx-accent-rgb), .12);
-    border-color: rgba(var(--ivx-accent-rgb), .35);
+.vcx .vcx-tab.is-current {
+    color: var(--vcx-accent-text);
+    background: rgba(var(--vcx-accent-rgb), .12);
+    border-color: rgba(var(--vcx-accent-rgb), .35);
 }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
 /* Nocturne outlines its primary action rather than filling it. */
 
-.ivx .ivx-btn {
+.vcx .vcx-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
     height: 32px;
-    padding: var(--ivx-s2) calc(var(--ivx-s3) * 1.2);
+    padding: var(--vcx-s2) calc(var(--vcx-s3) * 1.2);
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 14px;
     font-weight: 500;
     line-height: 1.2;
-    color: var(--ivx-ink);
+    color: var(--vcx-ink);
     background: transparent;
     border: 1px solid transparent;
-    border-radius: var(--ivx-r-md);
+    border-radius: var(--vcx-r-md);
     cursor: pointer;
     text-decoration: none;
     white-space: nowrap;
     transition: background-color .15s, border-color .15s, color .15s;
 }
 
-.ivx .ivx-btn:disabled {
+.vcx .vcx-btn:disabled {
     opacity: .45;
     cursor: not-allowed;
 }
 
-.ivx .ivx-btn-primary {
-    color: var(--ivx-accent);
-    border-color: var(--ivx-accent);
+.vcx .vcx-btn-primary {
+    color: var(--vcx-accent);
+    border-color: var(--vcx-accent);
     letter-spacing: .02em;
 }
 
-.ivx .ivx-btn-primary:hover:not(:disabled) {
-    background: rgba(var(--ivx-accent-rgb), .12);
+.vcx .vcx-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--vcx-accent-rgb), .12);
 }
 
-.ivx .ivx-btn-primary:active:not(:disabled) {
-    background: rgba(var(--ivx-accent-rgb), .22);
+.vcx .vcx-btn-primary:active:not(:disabled) {
+    background: rgba(var(--vcx-accent-rgb), .22);
 }
 
-.ivx .ivx-btn-secondary {
-    border-color: var(--ivx-divider);
+.vcx .vcx-btn-secondary {
+    border-color: var(--vcx-divider);
 }
 
-.ivx .ivx-btn-secondary:hover:not(:disabled) {
-    background: var(--ivx-hover);
+.vcx .vcx-btn-secondary:hover:not(:disabled) {
+    background: var(--vcx-hover);
 }
 
-.ivx .ivx-btn-secondary:active:not(:disabled) {
-    background: var(--ivx-press);
+.vcx .vcx-btn-secondary:active:not(:disabled) {
+    background: var(--vcx-press);
 }
 
-.ivx .ivx-btn-ghost {
-    color: var(--ivx-accent);
-    padding-inline: var(--ivx-s1);
+.vcx .vcx-btn-ghost {
+    color: var(--vcx-accent);
+    padding-inline: var(--vcx-s1);
 }
 
-.ivx .ivx-btn-ghost:hover:not(:disabled) {
-    background: rgba(var(--ivx-accent-rgb), .1);
+.vcx .vcx-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--vcx-accent-rgb), .1);
 }
 
-.ivx .ivx-btn-danger {
-    color: var(--ivx-bad);
-    border-color: var(--ivx-bad-edge);
+.vcx .vcx-btn-danger {
+    color: var(--vcx-bad);
+    border-color: var(--vcx-bad-edge);
 }
 
-.ivx .ivx-btn-danger:hover:not(:disabled) {
-    background: var(--ivx-bad-bg);
+.vcx .vcx-btn-danger:hover:not(:disabled) {
+    background: var(--vcx-bad-bg);
 }
 
-.ivx .ivx-btn-sm {
+.vcx .vcx-btn-sm {
     height: 28px;
     font-size: 12.5px;
-    padding-inline: var(--ivx-s3);
+    padding-inline: var(--vcx-s3);
 }
 
 /* ── Figures ───────────────────────────────────────────────────────────── */
 
-.ivx-figures {
+.vcx-figures {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: var(--ivx-s4);
+    gap: var(--vcx-s4);
 }
 
-.ivx-figure {
+.vcx-figure {
     display: flex;
     align-items: center;
-    gap: var(--ivx-s4);
-    padding: var(--ivx-s4) var(--ivx-s6);
-    background: var(--ivx-surface);
-    border-radius: var(--ivx-r-md);
-    box-shadow: var(--ivx-shadow-sm);
+    gap: var(--vcx-s4);
+    padding: var(--vcx-s4) var(--vcx-s6);
+    background: var(--vcx-surface);
+    border-radius: var(--vcx-r-md);
+    box-shadow: var(--vcx-shadow-sm);
     min-width: 0;
 }
 
-.ivx-figure-mark {
+.vcx-figure-mark {
     width: 34px;
     height: 34px;
     flex: none;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: var(--ivx-r-md);
-    background: rgba(var(--ivx-accent-rgb), .1);
-    color: var(--ivx-accent);
+    border-radius: var(--vcx-r-md);
+    background: rgba(var(--vcx-accent-rgb), .1);
+    color: var(--vcx-accent);
     font-size: 16px;
 }
 
-.ivx-figure-mark.is-quiet {
-    background: var(--ivx-hover);
-    color: var(--ivx-mute);
+.vcx-figure-mark.is-quiet {
+    background: var(--vcx-hover);
+    color: var(--vcx-mute);
 }
 
-.ivx-figure-mark.is-warn {
-    background: var(--ivx-warn-bg);
-    color: var(--ivx-warn);
+.vcx-figure-mark.is-warn {
+    background: var(--vcx-warn-bg);
+    color: var(--vcx-warn);
 }
 
-.ivx-figure-mark.is-ok {
-    background: var(--ivx-ok-bg);
-    color: var(--ivx-ok);
+.vcx-figure-mark.is-ok {
+    background: var(--vcx-ok-bg);
+    color: var(--vcx-ok);
 }
 
-.ivx-figure-text {
+.vcx-figure-text {
     min-width: 0;
 }
 
-.ivx-figure-value {
+.vcx-figure-value {
     font-size: 19px;
     font-weight: 500;
     line-height: 1.15;
@@ -444,141 +453,141 @@
 
 /* A money pair is roughly twice the glyph count of a count, so it steps down
    rather than wrapping under its own label. */
-.ivx-figure-value.is-money {
+.vcx-figure-value.is-money {
     font-size: 15px;
     line-height: 1.3;
 }
 
-.ivx-figure-value.is-warn {
-    color: var(--ivx-warn);
+.vcx-figure-value.is-warn {
+    color: var(--vcx-warn);
 }
 
-.ivx-figure-unit {
+.vcx-figure-unit {
     font-size: 12px;
     font-weight: 400;
-    color: var(--ivx-mute-3);
+    color: var(--vcx-mute-3);
     margin-left: 3px;
 }
 
-.ivx-figure-label {
+.vcx-figure-label {
     font-size: 11px;
     letter-spacing: .08em;
     text-transform: uppercase;
-    color: var(--ivx-mute-3);
+    color: var(--vcx-mute-3);
 }
 
-.ivx-figure-note {
+.vcx-figure-note {
     font-size: 11.5px;
-    color: var(--ivx-mute-2);
+    color: var(--vcx-mute-2);
 }
 
 /* ── Filters ───────────────────────────────────────────────────────────── */
 
-.ivx-filters {
+.vcx-filters {
     display: flex;
     align-items: flex-end;
-    gap: var(--ivx-s4);
+    gap: var(--vcx-s4);
     flex-wrap: wrap;
 }
 
-.ivx-field {
+.vcx-field {
     min-width: 0;
 }
 
-.ivx-field > label {
+.vcx-field > label {
     display: block;
     font-size: 12px;
     margin-bottom: 5px;
-    color: var(--ivx-mute);
+    color: var(--vcx-mute);
 }
 
-.ivx-field-hint {
+.vcx-field-hint {
     display: block;
     margin-top: 4px;
     font-size: 11px;
-    color: var(--ivx-mute-3);
+    color: var(--vcx-mute-3);
 }
 
-.ivx .ivx-input {
+.vcx .vcx-input {
     width: 100%;
     min-height: 32px;
     padding: 5px 10px;
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 14px;
     line-height: 1.3;
-    color: var(--ivx-ink);
-    caret-color: var(--ivx-accent);
-    background: var(--ivx-field);
+    color: var(--vcx-ink);
+    caret-color: var(--vcx-accent);
+    background: var(--vcx-field);
     background-image: none;
-    border: 1px solid var(--ivx-field-edge);
-    border-radius: var(--ivx-r-md);
+    border: 1px solid var(--vcx-field-edge);
+    border-radius: var(--vcx-r-md);
     appearance: none;
     -webkit-appearance: none;
 }
 
-.ivx .ivx-input:hover {
-    border-color: var(--ivx-field-edge-hi);
+.vcx .vcx-input:hover {
+    border-color: var(--vcx-field-edge-hi);
 }
 
-.ivx .ivx-input:focus-visible {
-    border-color: var(--ivx-accent);
+.vcx .vcx-input:focus-visible {
+    border-color: var(--vcx-accent);
     outline-offset: 0;
 }
 
-.ivx .ivx-input::placeholder {
-    color: var(--ivx-placeholder);
+.vcx .vcx-input::placeholder {
+    color: var(--vcx-placeholder);
     opacity: 1;
-    -webkit-text-fill-color: var(--ivx-placeholder);
+    -webkit-text-fill-color: var(--vcx-placeholder);
 }
 
-.ivx .ivx-input:disabled {
+.vcx .vcx-input:disabled {
     opacity: .55;
     cursor: not-allowed;
 }
 
-.ivx .ivx-input-num {
+.vcx .vcx-input-num {
     font-variant-numeric: tabular-nums;
 }
 
-.ivx textarea.ivx-input {
+.vcx textarea.vcx-input {
     min-height: 62px;
     resize: vertical;
 }
 
-.ivx-select {
+.vcx-select {
     position: relative;
 }
 
-.ivx .ivx-select select.ivx-input {
+.vcx .vcx-select select.vcx-input {
     padding-right: 26px;
     cursor: pointer;
 }
 
 /* The popup of a native select takes its fill from the field, and a field the
    browser has composited onto white will not honour color-scheme afterwards.
-   --ivx-surface rather than --ivx-field because the popup needs a fill that is
+   --vcx-surface rather than --vcx-field because the popup needs a fill that is
    opaque in both themes. */
-.ivx .ivx-select select.ivx-input option,
-.ivx .ivx-select select.ivx-input optgroup {
-    color: var(--ivx-ink);
-    background-color: var(--ivx-surface);
+.vcx .vcx-select select.vcx-input option,
+.vcx .vcx-select select.vcx-input optgroup {
+    color: var(--vcx-ink);
+    background-color: var(--vcx-surface);
 }
 
-.ivx-select .ivx-caret {
+.vcx-select .vcx-caret {
     position: absolute;
     right: 9px;
     top: 50%;
     transform: translateY(-50%);
     width: 10px;
     height: 7px;
-    background: var(--ivx-caret) no-repeat center / contain;
+    background: var(--vcx-caret) no-repeat center / contain;
     pointer-events: none;
 }
 
-.ivx-filter-actions {
+.vcx-filter-actions {
     display: flex;
     align-items: center;
-    gap: var(--ivx-s2);
+    gap: var(--vcx-s2);
     margin-left: auto;
 }
 
@@ -587,64 +596,64 @@
    search row matters more than it looks — the item picker is several hundred
    options and scrolling to YOG143 is not a selection method. */
 
-.ivx-ms {
+.vcx-ms {
     position: relative;
     display: block;
 }
 
-.ivx .ivx-ms-btn {
+.vcx .vcx-ms-btn {
     display: inline-flex;
     align-items: center;
-    gap: var(--ivx-s2);
+    gap: var(--vcx-s2);
     width: 100%;
     min-height: 32px;
     padding: 5px 10px;
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 14px;
     line-height: 1.3;
-    color: var(--ivx-mute);
-    background: var(--ivx-field);
-    border: 1px solid var(--ivx-field-edge);
-    border-radius: var(--ivx-r-md);
+    color: var(--vcx-mute);
+    background: var(--vcx-field);
+    border: 1px solid var(--vcx-field-edge);
+    border-radius: var(--vcx-r-md);
     cursor: pointer;
     text-align: left;
     transition: border-color .15s, background-color .15s, color .15s;
 }
 
-.ivx .ivx-ms-btn:hover:not(:disabled) {
-    border-color: var(--ivx-field-edge-hi);
-    color: var(--ivx-ink);
+.vcx .vcx-ms-btn:hover:not(:disabled) {
+    border-color: var(--vcx-field-edge-hi);
+    color: var(--vcx-ink);
 }
 
-.ivx .ivx-ms-btn:disabled {
+.vcx .vcx-ms-btn:disabled {
     opacity: .55;
     cursor: not-allowed;
 }
 
 /* Open and chosen are different states and read differently: open is the
    accent ring, chosen is the accent ink that persists after the menu shuts. */
-.ivx-ms.is-open .ivx-ms-btn {
-    color: var(--ivx-ink);
-    border-color: var(--ivx-accent);
+.vcx-ms.is-open .vcx-ms-btn {
+    color: var(--vcx-ink);
+    border-color: var(--vcx-accent);
 }
 
-.ivx .ivx-ms-btn.is-set {
-    color: var(--ivx-accent-text);
+.vcx .vcx-ms-btn.is-set {
+    color: var(--vcx-accent-text);
 }
 
-.ivx-ms-icon {
+.vcx-ms-icon {
     flex: none;
     font-size: 13px;
-    color: var(--ivx-mute-3);
+    color: var(--vcx-mute-3);
     transition: color .15s;
 }
 
-.ivx .ivx-ms-btn.is-set .ivx-ms-icon,
-.ivx-ms.is-open .ivx-ms-icon {
-    color: var(--ivx-accent);
+.vcx .vcx-ms-btn.is-set .vcx-ms-icon,
+.vcx-ms.is-open .vcx-ms-icon {
+    color: var(--vcx-accent);
 }
 
-.ivx-ms-value {
+.vcx-ms-value {
     flex: 1;
     min-width: 0;
     overflow: hidden;
@@ -652,27 +661,27 @@
     text-overflow: ellipsis;
 }
 
-.ivx-ms-caret {
+.vcx-ms-caret {
     flex: none;
     font-size: 9px;
-    color: var(--ivx-mute-3);
+    color: var(--vcx-mute-3);
     transition: transform .18s ease, color .15s;
 }
 
-.ivx-ms.is-open .ivx-ms-caret {
+.vcx-ms.is-open .vcx-ms-caret {
     transform: rotate(180deg);
-    color: var(--ivx-accent);
+    color: var(--vcx-accent);
 }
 
 /* Outside-click target. A transparent sheet under the menu keeps the close
    entirely in Blazor — no document listener to register per render. */
-.ivx-ms-catch {
+.vcx-ms-catch {
     position: fixed;
     inset: 0;
     z-index: 60;
 }
 
-.ivx-ms-menu {
+.vcx-ms-menu {
     position: absolute;
     top: calc(100% + 6px);
     left: 0;
@@ -682,83 +691,83 @@
     max-width: 360px;
     display: flex;
     flex-direction: column;
-    border: 1px solid var(--ivx-divider);
-    border-radius: var(--ivx-r-lg);
-    background: var(--ivx-surface);
-    box-shadow: var(--ivx-shadow-pop);
-    animation: ivx-rise .14s ease-out;
+    border: 1px solid var(--vcx-divider);
+    border-radius: var(--vcx-r-lg);
+    background: var(--vcx-surface);
+    box-shadow: var(--vcx-shadow-pop);
+    animation: vcx-rise .14s ease-out;
     overflow: hidden;
 }
 
-@keyframes ivx-rise {
+@keyframes vcx-rise {
     from {
         opacity: 0;
         transform: translateY(-4px);
     }
 }
 
-.ivx-ms-search {
-    padding: var(--ivx-s2);
-    border-bottom: 1px solid var(--ivx-rowline);
+.vcx-ms-search {
+    padding: var(--vcx-s2);
+    border-bottom: 1px solid var(--vcx-rowline);
 }
 
-.ivx-ms-list {
+.vcx-ms-list {
     max-height: 288px;
     overflow-y: auto;
-    padding: var(--ivx-s2);
+    padding: var(--vcx-s2);
     display: flex;
     flex-direction: column;
     gap: 1px;
 }
 
-.ivx .ivx-ms-item {
+.vcx .vcx-ms-item {
     display: flex;
     align-items: center;
-    gap: var(--ivx-s3);
+    gap: var(--vcx-s3);
     width: 100%;
     padding: 6px 8px;
     font: inherit;
     font-size: 12.5px;
-    color: var(--ivx-mute);
+    color: var(--vcx-mute);
     background: transparent;
     border: 0;
-    border-radius: var(--ivx-r-sm);
+    border-radius: var(--vcx-r-sm);
     cursor: pointer;
     text-align: left;
     transition: background-color .12s, color .12s;
 }
 
-.ivx .ivx-ms-item:hover {
-    background: var(--ivx-hover);
-    color: var(--ivx-ink);
+.vcx .vcx-ms-item:hover {
+    background: var(--vcx-hover);
+    color: var(--vcx-ink);
 }
 
-.ivx .ivx-ms-item.is-selected {
-    color: var(--ivx-ink);
-    background: rgba(var(--ivx-accent-rgb), .12);
+.vcx .vcx-ms-item.is-selected {
+    color: var(--vcx-ink);
+    background: rgba(var(--vcx-accent-rgb), .12);
 }
 
-.ivx-ms-box {
+.vcx-ms-box {
     flex: none;
     width: 14px;
     height: 14px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid var(--ivx-field-edge-hi);
+    border: 1px solid var(--vcx-field-edge-hi);
     border-radius: 3px;
     font-size: 9px;
     color: transparent;
     transition: background-color .12s, border-color .12s, color .12s;
 }
 
-.ivx .ivx-ms-item.is-selected .ivx-ms-box {
-    background: var(--ivx-accent);
-    border-color: var(--ivx-accent);
+.vcx .vcx-ms-item.is-selected .vcx-ms-box {
+    background: var(--vcx-accent);
+    border-color: var(--vcx-accent);
     color: #ffffff;
 }
 
-.ivx-ms-labels {
+.vcx-ms-labels {
     flex: 1;
     min-width: 0;
     display: flex;
@@ -766,112 +775,112 @@
     gap: 0;
 }
 
-.ivx-ms-label {
+.vcx-ms-label {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.ivx-ms-sub {
+.vcx-ms-sub {
     font-size: 11px;
-    color: var(--ivx-mute-3);
+    color: var(--vcx-mute-3);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.ivx-ms-flag {
+.vcx-ms-flag {
     flex: none;
     font-size: 10px;
     letter-spacing: .04em;
     text-transform: uppercase;
-    color: var(--ivx-warn);
+    color: var(--vcx-warn);
 }
 
-.ivx-ms-foot {
+.vcx-ms-foot {
     display: flex;
     align-items: center;
-    gap: var(--ivx-s2);
-    padding: var(--ivx-s2) var(--ivx-s3);
-    border-top: 1px solid var(--ivx-rowline);
+    gap: var(--vcx-s2);
+    padding: var(--vcx-s2) var(--vcx-s3);
+    border-top: 1px solid var(--vcx-rowline);
 }
 
-.ivx-ms-count {
+.vcx-ms-count {
     margin-left: auto;
     font-size: 11px;
     font-variant-numeric: tabular-nums;
-    color: var(--ivx-mute-3);
+    color: var(--vcx-mute-3);
 }
 
-.ivx-ms-empty {
-    padding: var(--ivx-s4);
+.vcx-ms-empty {
+    padding: var(--vcx-s4);
     font-size: 12.5px;
-    color: var(--ivx-mute-3);
+    color: var(--vcx-mute-3);
     text-align: center;
 }
 
 /* ── Chips ─────────────────────────────────────────────────────────────── */
 
-.ivx-chips {
+.vcx-chips {
     display: flex;
     align-items: center;
-    gap: var(--ivx-s2);
+    gap: var(--vcx-s2);
     flex-wrap: wrap;
 }
 
-.ivx-chip {
+.vcx-chip {
     display: inline-flex;
     align-items: center;
     gap: 5px;
     padding: 2px 9px;
     font-size: 11.5px;
     font-variant-numeric: tabular-nums;
-    color: var(--ivx-tag-ink);
-    background: var(--ivx-tag-bg);
+    color: var(--vcx-tag-ink);
+    background: var(--vcx-tag-bg);
     border-radius: 999px;
 }
 
-.ivx .ivx-chip-x {
+.vcx .vcx-chip-x {
     display: inline-flex;
     padding: 0;
     font-size: 10px;
     line-height: 1;
-    color: var(--ivx-mute-2);
+    color: var(--vcx-mute-2);
     background: transparent;
     border: 0;
     cursor: pointer;
 }
 
-.ivx .ivx-chip-x:hover {
-    color: var(--ivx-bad);
+.vcx .vcx-chip-x:hover {
+    color: var(--vcx-bad);
 }
 
-.ivx-chip.is-warn {
-    color: var(--ivx-warn);
-    background: var(--ivx-warn-bg);
+.vcx-chip.is-warn {
+    color: var(--vcx-warn);
+    background: var(--vcx-warn-bg);
 }
 
 /* ── Card ──────────────────────────────────────────────────────────────── */
 
-.ivx-card {
+.vcx-card {
     display: flex;
     flex-direction: column;
-    background: var(--ivx-surface);
-    border-radius: var(--ivx-r-md);
-    box-shadow: var(--ivx-shadow-sm);
+    background: var(--vcx-surface);
+    border-radius: var(--vcx-r-md);
+    box-shadow: var(--vcx-shadow-sm);
     overflow: hidden;
 }
 
-.ivx-toolbar {
+.vcx-toolbar {
     display: flex;
     align-items: center;
-    gap: var(--ivx-s4);
-    padding: var(--ivx-s4) var(--ivx-s6);
+    gap: var(--vcx-s4);
+    padding: var(--vcx-s4) var(--vcx-s6);
     min-height: 54px;
     flex-wrap: wrap;
 }
 
-.ivx-toolbar-titles {
+.vcx-toolbar-titles {
     display: flex;
     flex-direction: column;
     gap: 1px;
@@ -879,51 +888,51 @@
     min-width: 0;
 }
 
-.ivx-toolbar-title {
+.vcx-toolbar-title {
     margin: 0;
     font-size: 14px;
     font-weight: 500;
 }
 
-.ivx-toolbar-sub {
+.vcx-toolbar-sub {
     margin: 0;
     font-size: 11.5px;
-    color: var(--ivx-mute-2);
+    color: var(--vcx-mute-2);
 }
 
-.ivx-toolbar-actions {
+.vcx-toolbar-actions {
     display: flex;
     align-items: center;
-    gap: var(--ivx-s2);
+    gap: var(--vcx-s2);
 }
 
 /* ── Disclosure list ───────────────────────────────────────────────────── */
 
-.ivx-groups {
+.vcx-groups {
     display: flex;
     flex-direction: column;
 }
 
-.ivx-group {
-    border-top: 1px solid var(--ivx-rowline);
+.vcx-group {
+    border-top: 1px solid var(--vcx-rowline);
 }
 
-.ivx-group:first-child {
+.vcx-group:first-child {
     border-top: 0;
 }
 
-.ivx-group.is-open {
-    box-shadow: inset 2px 0 0 var(--ivx-accent);
-    background: var(--ivx-hover);
+.vcx-group.is-open {
+    box-shadow: inset 2px 0 0 var(--vcx-accent);
+    background: var(--vcx-hover);
 }
 
-.ivx .ivx-grouphead {
+.vcx .vcx-grouphead {
     display: grid;
     grid-template-columns: 18px minmax(150px, 1.2fr) minmax(0, 2fr);
     align-items: center;
-    gap: var(--ivx-s4);
+    gap: var(--vcx-s4);
     width: 100%;
-    padding: var(--ivx-s3) var(--ivx-s6);
+    padding: var(--vcx-s3) var(--vcx-s6);
     font: inherit;
     color: inherit;
     background: transparent;
@@ -932,207 +941,215 @@
     text-align: left;
 }
 
-.ivx .ivx-grouphead:hover {
-    background: var(--ivx-hover);
+.vcx .vcx-grouphead:hover {
+    background: var(--vcx-hover);
 }
 
-.ivx-twist {
+.vcx-twist {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 18px;
     height: 18px;
-    color: var(--ivx-mute-3);
+    color: var(--vcx-mute-3);
     transition: transform .16s ease, color .16s;
 }
 
-.ivx-group.is-open .ivx-twist {
+.vcx-group.is-open .vcx-twist {
     transform: rotate(90deg);
-    color: var(--ivx-accent);
+    color: var(--vcx-accent);
 }
 
-.ivx-group-id {
+.vcx-group-id {
     display: flex;
     flex-direction: column;
     gap: 1px;
     min-width: 0;
 }
 
-.ivx-group-name {
+.vcx-group-name {
     font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.ivx-group-code {
+.vcx-group-code {
     font-size: 11px;
     letter-spacing: .02em;
-    color: var(--ivx-mute-3);
+    color: var(--vcx-mute-3);
 }
 
-.ivx-group-figs {
+.vcx-group-figs {
     display: flex;
     align-items: center;
-    gap: var(--ivx-s6);
+    gap: var(--vcx-s6);
     flex-wrap: wrap;
     justify-content: flex-end;
 }
 
-.ivx-kv {
+.vcx-kv {
     display: flex;
     flex-direction: column;
     gap: 0;
     min-width: 0;
 }
 
-.ivx-kv-label {
+.vcx-kv-label {
     font-size: 10px;
     letter-spacing: .08em;
     text-transform: uppercase;
-    color: var(--ivx-mute-3);
+    color: var(--vcx-mute-3);
     white-space: nowrap;
 }
 
-.ivx-kv-value {
+.vcx-kv-value {
     font-size: 13px;
     font-weight: 500;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
 
-.ivx-kv-value.is-warn {
-    color: var(--ivx-warn);
+.vcx-kv-value.is-warn {
+    color: var(--vcx-warn);
 }
 
-.ivx-kv-value.is-bad {
-    color: var(--ivx-bad);
+.vcx-kv-value.is-bad {
+    color: var(--vcx-bad);
 }
 
-.ivx-kv-value.is-quiet {
+.vcx-kv-value.is-quiet {
     font-weight: 400;
-    color: var(--ivx-mute-2);
+    color: var(--vcx-mute-2);
 }
 
-.ivx-group-body {
-    padding: 0 var(--ivx-s6) var(--ivx-s4) calc(var(--ivx-s6) + 18px + var(--ivx-s4));
+.vcx-group-body {
+    padding: 0 var(--vcx-s6) var(--vcx-s4) calc(var(--vcx-s6) + 18px + var(--vcx-s4));
 }
 
 /* ── Tables ────────────────────────────────────────────────────────────── */
 
-.ivx-tablewrap {
+.vcx-tablewrap {
     overflow-x: auto;
 }
 
-.ivx-table {
+.vcx-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 12.5px;
 }
 
-.ivx-table.is-wide {
+.vcx-table.is-wide {
     min-width: 1080px;
 }
 
-.ivx-table th {
+.vcx-table th {
     text-align: left;
     font-size: 10.5px;
     font-weight: 500;
     letter-spacing: .08em;
     text-transform: uppercase;
-    color: var(--ivx-mute);
-    padding: var(--ivx-s2);
+    color: var(--vcx-mute);
+    padding: var(--vcx-s2);
     white-space: nowrap;
 }
 
-.ivx-table td {
-    padding: var(--ivx-s2);
+.vcx-table td {
+    padding: var(--vcx-s2);
     vertical-align: middle;
 }
 
-.ivx-table th:first-child,
-.ivx-table td:first-child {
+.vcx-table th:first-child,
+.vcx-table td:first-child {
     padding-left: 0;
 }
 
 /* Row rules are painted as row-level strips so the end-fade spans the row
    rather than restarting in every cell. */
-.ivx-table thead tr {
+.vcx-table thead tr {
     background: linear-gradient(to right,
-            var(--ivx-divider), var(--ivx-divider) calc(100% - 24px),
+            var(--vcx-divider), var(--vcx-divider) calc(100% - 24px),
             transparent) no-repeat bottom / 100% 1px;
 }
 
-.ivx-table tbody tr {
+.vcx-table tbody tr {
     background: linear-gradient(to right,
-            var(--ivx-rowline), var(--ivx-rowline) calc(100% - 24px),
+            var(--vcx-rowline), var(--vcx-rowline) calc(100% - 24px),
             transparent) no-repeat bottom / 100% 1px;
 }
 
-.ivx-table tbody tr:last-child {
+.vcx-table tbody tr:last-child {
     background: none;
 }
 
-.ivx-table.is-padded th:first-child,
-.ivx-table.is-padded td:first-child {
-    padding-left: var(--ivx-s6);
+.vcx-table.is-padded th:first-child,
+.vcx-table.is-padded td:first-child {
+    padding-left: var(--vcx-s6);
 }
 
-.ivx-table.is-padded th:last-child,
-.ivx-table.is-padded td:last-child {
-    padding-right: var(--ivx-s6);
+.vcx-table.is-padded th:last-child,
+.vcx-table.is-padded td:last-child {
+    padding-right: var(--vcx-s6);
 }
 
-.ivx-num {
+.vcx-num {
     text-align: right;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
 
-.ivx-item {
+/* `.vcx-table th` is a class and an element, so it out-specifies the bare
+   `.vcx-num` above and a numeric column's heading is left with the default
+   left alignment while its cells are right-aligned. Spell the class out on
+   the header so the two edges line up. */
+.vcx-table th.vcx-num {
+    text-align: right;
+}
+
+.vcx-item {
     display: flex;
     flex-direction: column;
     gap: 1px;
     min-width: 170px;
 }
 
-.ivx-item-name {
+.vcx-item-name {
     font-weight: 500;
 }
 
-.ivx-item-code {
+.vcx-item-code {
     font-size: 11px;
     letter-spacing: .02em;
-    color: var(--ivx-mute-3);
+    color: var(--vcx-mute-3);
 }
 
-.ivx-money {
+.vcx-money {
     font-variant-numeric: tabular-nums;
 }
 
-.ivx-money.is-strong {
+.vcx-money.is-strong {
     font-weight: 500;
 }
 
-.ivx-money.is-credit {
-    color: var(--ivx-bad);
+.vcx-money.is-credit {
+    color: var(--vcx-bad);
 }
 
-.ivx-volume {
+.vcx-volume {
     font-variant-numeric: tabular-nums;
     font-weight: 500;
 }
 
-.ivx-volume.is-missing {
+.vcx-volume.is-missing {
     font-weight: 400;
-    color: var(--ivx-warn);
+    color: var(--vcx-warn);
 }
 
-.ivx-none {
-    color: var(--ivx-faint);
+.vcx-none {
+    color: var(--vcx-faint);
 }
 
-.ivx-doctype {
+.vcx-doctype {
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -1140,23 +1157,23 @@
     white-space: nowrap;
 }
 
-.ivx-dot {
+.vcx-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--ivx-dot);
+    background: var(--vcx-dot);
     flex: none;
 }
 
-.ivx-dot.is-credit {
-    background: var(--ivx-bad);
+.vcx-dot.is-credit {
+    background: var(--vcx-bad);
 }
 
-.ivx-dot.is-invoice {
-    background: var(--ivx-accent);
+.vcx-dot.is-invoice {
+    background: var(--vcx-accent);
 }
 
-.ivx-flag {
+.vcx-flag {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -1166,58 +1183,58 @@
     white-space: nowrap;
 }
 
-.ivx-flag.is-warn {
-    color: var(--ivx-warn);
-    background: var(--ivx-warn-bg);
-    border: 1px solid var(--ivx-warn-edge);
+.vcx-flag.is-warn {
+    color: var(--vcx-warn);
+    background: var(--vcx-warn-bg);
+    border: 1px solid var(--vcx-warn-edge);
 }
 
-.ivx-flag.is-ok {
-    color: var(--ivx-ok);
-    background: var(--ivx-ok-bg);
-    border: 1px solid var(--ivx-ok-edge);
+.vcx-flag.is-ok {
+    color: var(--vcx-ok);
+    background: var(--vcx-ok-bg);
+    border: 1px solid var(--vcx-ok-edge);
 }
 
-.ivx-flag.is-off {
-    color: var(--ivx-mute-2);
-    background: var(--ivx-hover);
-    border: 1px solid var(--ivx-divider);
+.vcx-flag.is-off {
+    color: var(--vcx-mute-2);
+    background: var(--vcx-hover);
+    border: 1px solid var(--vcx-divider);
 }
 
 /* ── Empty / loading ───────────────────────────────────────────────────── */
 
-.ivx-empty {
+.vcx-empty {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--ivx-s3);
-    padding: 56px var(--ivx-s6);
+    gap: var(--vcx-s3);
+    padding: 56px var(--vcx-s6);
     font-size: 13.5px;
     text-align: center;
 }
 
-.ivx-empty i {
+.vcx-empty i {
     font-size: 22px;
-    color: var(--ivx-accent);
+    color: var(--vcx-accent);
     opacity: .8;
 }
 
-.ivx-empty-sub {
+.vcx-empty-sub {
     font-size: 12.5px;
-    color: var(--ivx-mute-2);
+    color: var(--vcx-mute-2);
     max-width: 46ch;
 }
 
-.ivx-spinner {
+.vcx-spinner {
     width: 22px;
     height: 22px;
     border-radius: 50%;
-    border: 2px solid var(--ivx-track);
-    border-top-color: var(--ivx-accent);
-    animation: ivx-spin .8s linear infinite;
+    border: 2px solid var(--vcx-track);
+    border-top-color: var(--vcx-accent);
+    animation: vcx-spin .8s linear infinite;
 }
 
-@keyframes ivx-spin {
+@keyframes vcx-spin {
     to {
         transform: rotate(360deg);
     }
@@ -1225,157 +1242,157 @@
 
 /* ── Alerts ────────────────────────────────────────────────────────────── */
 
-.ivx-alert {
+.vcx-alert {
     display: flex;
     align-items: flex-start;
-    gap: var(--ivx-s3);
-    padding: var(--ivx-s3) var(--ivx-s4);
-    border-radius: var(--ivx-r-md);
-    background: var(--ivx-bad-bg);
-    border: 1px solid var(--ivx-bad-edge);
-    color: var(--ivx-bad);
+    gap: var(--vcx-s3);
+    padding: var(--vcx-s3) var(--vcx-s4);
+    border-radius: var(--vcx-r-md);
+    background: var(--vcx-bad-bg);
+    border: 1px solid var(--vcx-bad-edge);
+    color: var(--vcx-bad);
     font-size: 13px;
 }
 
-.ivx-alert-body {
+.vcx-alert-body {
     flex: 1;
     min-width: 0;
 }
 
-.ivx-alert-actions {
+.vcx-alert-actions {
     display: flex;
     align-items: center;
-    gap: var(--ivx-s2);
+    gap: var(--vcx-s2);
     flex: none;
 }
 
-.ivx-alert.is-info {
-    background: var(--ivx-info-bg);
-    border-color: var(--ivx-info-edge);
-    color: var(--ivx-mute);
+.vcx-alert.is-info {
+    background: var(--vcx-info-bg);
+    border-color: var(--vcx-info-edge);
+    color: var(--vcx-mute);
 }
 
-.ivx-alert.is-info i {
-    color: var(--ivx-accent);
+.vcx-alert.is-info i {
+    color: var(--vcx-accent);
 }
 
-.ivx-alert.is-warn {
-    background: var(--ivx-warn-bg);
-    border-color: var(--ivx-warn-edge);
-    color: var(--ivx-warn);
+.vcx-alert.is-warn {
+    background: var(--vcx-warn-bg);
+    border-color: var(--vcx-warn-edge);
+    color: var(--vcx-warn);
 }
 
-.ivx-alert.is-ok {
-    background: var(--ivx-ok-bg);
-    border-color: var(--ivx-ok-edge);
-    color: var(--ivx-ok);
+.vcx-alert.is-ok {
+    background: var(--vcx-ok-bg);
+    border-color: var(--vcx-ok-edge);
+    color: var(--vcx-ok);
 }
 
 /* ── Modal ─────────────────────────────────────────────────────────────── */
 /* The conversion editor. The scrim repeats no page-root class, so it inherits
-   nothing it has to undo — the tokens come from .ivx on the wrapper instead. */
+   nothing it has to undo — the tokens come from .vcx on the wrapper instead. */
 
-.ivx-scrim {
+.vcx-scrim {
     position: fixed;
     inset: 0;
     z-index: 1200;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: var(--ivx-s6);
+    padding: var(--vcx-s6);
     background: rgba(12, 13, 20, .55);
-    animation: ivx-fade .12s ease-out;
+    animation: vcx-fade .12s ease-out;
 }
 
-@keyframes ivx-fade {
+@keyframes vcx-fade {
     from {
         opacity: 0;
     }
 }
 
-.ivx-modal {
+.vcx-modal {
     width: 100%;
     max-width: 460px;
     max-height: min(88vh, 720px);
     display: flex;
     flex-direction: column;
     min-height: 0;
-    background: var(--ivx-surface);
-    color: var(--ivx-ink);
-    border-radius: var(--ivx-r-lg);
-    box-shadow: var(--ivx-shadow-pop);
+    background: var(--vcx-surface);
+    color: var(--vcx-ink);
+    border-radius: var(--vcx-r-lg);
+    box-shadow: var(--vcx-shadow-pop);
     overflow: hidden;
-    animation: ivx-rise .16s ease-out;
+    animation: vcx-rise .16s ease-out;
 }
 
 /* EditForm renders a <form> between the modal and its body, so the column has
    to be re-established on it or the footer drops below the fold. */
-.ivx-modal-form {
+.vcx-modal-form {
     display: flex;
     flex-direction: column;
     min-height: 0;
     flex: 1;
 }
 
-.ivx-modal-head {
+.vcx-modal-head {
     display: flex;
     align-items: center;
-    gap: var(--ivx-s3);
-    padding: var(--ivx-s4) var(--ivx-s6);
-    border-bottom: 1px solid var(--ivx-rowline);
+    gap: var(--vcx-s3);
+    padding: var(--vcx-s4) var(--vcx-s6);
+    border-bottom: 1px solid var(--vcx-rowline);
     flex: none;
 }
 
-.ivx-modal-title {
+.vcx-modal-title {
     margin: 0;
     font-size: 15px;
     font-weight: 500;
     margin-right: auto;
 }
 
-.ivx-modal-body {
-    padding: var(--ivx-s6);
+.vcx-modal-body {
+    padding: var(--vcx-s6);
     display: flex;
     flex-direction: column;
-    gap: var(--ivx-s4);
+    gap: var(--vcx-s4);
     overflow-y: auto;
     min-height: 0;
 }
 
-.ivx-modal-foot {
+.vcx-modal-foot {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: var(--ivx-s2);
-    padding: var(--ivx-s3) var(--ivx-s6);
-    border-top: 1px solid var(--ivx-rowline);
+    gap: var(--vcx-s2);
+    padding: var(--vcx-s3) var(--vcx-s6);
+    border-top: 1px solid var(--vcx-rowline);
     flex: none;
 }
 
-.ivx-validation {
+.vcx-validation {
     font-size: 12px;
-    color: var(--ivx-bad);
+    color: var(--vcx-bad);
 }
 
 /* ── Scrollbars ────────────────────────────────────────────────────────── */
 
-.ivx-ms-list::-webkit-scrollbar,
-.ivx-modal-body::-webkit-scrollbar,
-.ivx-tablewrap::-webkit-scrollbar {
+.vcx-ms-list::-webkit-scrollbar,
+.vcx-modal-body::-webkit-scrollbar,
+.vcx-tablewrap::-webkit-scrollbar {
     width: 8px;
     height: 8px;
 }
 
-.ivx-ms-list::-webkit-scrollbar-track,
-.ivx-modal-body::-webkit-scrollbar-track,
-.ivx-tablewrap::-webkit-scrollbar-track {
+.vcx-ms-list::-webkit-scrollbar-track,
+.vcx-modal-body::-webkit-scrollbar-track,
+.vcx-tablewrap::-webkit-scrollbar-track {
     background: transparent;
 }
 
-.ivx-ms-list::-webkit-scrollbar-thumb,
-.ivx-modal-body::-webkit-scrollbar-thumb,
-.ivx-tablewrap::-webkit-scrollbar-thumb {
-    background: var(--ivx-track);
+.vcx-ms-list::-webkit-scrollbar-thumb,
+.vcx-modal-body::-webkit-scrollbar-thumb,
+.vcx-tablewrap::-webkit-scrollbar-thumb {
+    background: var(--vcx-track);
     border-radius: 999px;
 }
 
@@ -1383,15 +1400,15 @@
 
 @media (prefers-reduced-motion: reduce) {
 
-    .ivx-spinner,
-    .ivx-ms-menu,
-    .ivx-modal,
-    .ivx-scrim {
+    .vcx-spinner,
+    .vcx-ms-menu,
+    .vcx-modal,
+    .vcx-scrim {
         animation: none;
     }
 
-    .ivx-ms.is-open .ivx-ms-caret,
-    .ivx-group.is-open .ivx-twist {
+    .vcx-ms.is-open .vcx-ms-caret,
+    .vcx-group.is-open .vcx-twist {
         transition: none;
     }
 }
@@ -1399,72 +1416,72 @@
 /* ── Narrow screens ───────────────────────────────────────────────────── */
 
 @media (max-width: 1180px) {
-    .ivx-figures {
+    .vcx-figures {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .ivx .ivx-grouphead {
+    .vcx .vcx-grouphead {
         grid-template-columns: 18px minmax(0, 1fr);
     }
 
-    .ivx-group-figs {
+    .vcx-group-figs {
         grid-column: 2 / -1;
         justify-content: flex-start;
-        margin-top: var(--ivx-s2);
-        gap: var(--ivx-s4);
+        margin-top: var(--vcx-s2);
+        gap: var(--vcx-s4);
     }
 }
 
 @media (max-width: 860px) {
 
-    .ivx-shell,
-    .ivx-body {
-        padding-left: var(--ivx-s6);
-        padding-right: var(--ivx-s6);
+    .vcx-shell,
+    .vcx-body {
+        padding-left: var(--vcx-s6);
+        padding-right: var(--vcx-s6);
     }
 
-    .ivx-shell {
+    .vcx-shell {
         flex-direction: column;
         align-items: stretch;
-        gap: var(--ivx-s4);
+        gap: var(--vcx-s4);
     }
 
-    .ivx-head-actions {
+    .vcx-head-actions {
         justify-content: space-between;
     }
 
-    .ivx-field {
+    .vcx-field {
         flex: 1 1 160px;
     }
 
-    .ivx-filter-actions {
+    .vcx-filter-actions {
         margin-left: 0;
         width: 100%;
         justify-content: flex-end;
     }
 
-    .ivx-group-body {
-        padding-left: var(--ivx-s6);
+    .vcx-group-body {
+        padding-left: var(--vcx-s6);
     }
 }
 
 @media (max-width: 700px) {
 
     /* Right-anchor the trailing picker so its menu cannot run off the edge. */
-    .ivx-filters .ivx-field:last-of-type .ivx-ms-menu {
+    .vcx-filters .vcx-field:last-of-type .vcx-ms-menu {
         left: auto;
         right: 0;
     }
 
     /* 16px is the smallest size iOS renders a focused field at without zooming. */
-    .ivx .ivx-input,
-    .ivx .ivx-ms-btn {
+    .vcx .vcx-input,
+    .vcx .vcx-ms-btn {
         font-size: 16px;
     }
 }
 
 @media (max-width: 600px) {
-    .ivx-figures {
+    .vcx-figures {
         grid-template-columns: 1fr;
     }
 }
