@@ -8297,6 +8297,116 @@ ORDER BY T1."ItemCode"
         return warehouses;
     }
 
+    /// <summary>
+    /// SAP's item groups (OITB). Small and static — a few dozen rows — but read through the same
+    /// paged walk as everything else, because a list that silently stops at the page size is the
+    /// failure mode this Service Layer is most prone to.
+    /// </summary>
+    public async Task<List<ItemGroupDto>> GetItemGroupsAsync(CancellationToken cancellationToken = default)
+    {
+        return await GetGroupsAsync(
+            "ItemGroups",
+            "$select=Number,GroupName&$orderby=Number",
+            element => new ItemGroupDto
+            {
+                Number = element.TryGetProperty("Number", out var number) && number.ValueKind == JsonValueKind.Number
+                    ? number.GetInt32()
+                    : 0,
+                GroupName = element.TryGetProperty("GroupName", out var name) ? name.GetString() : null
+            },
+            cancellationToken);
+    }
+
+    /// <summary>SAP's business partner groups (OCRG).</summary>
+    public async Task<List<BusinessPartnerGroupDto>> GetBusinessPartnerGroupsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return await GetGroupsAsync(
+            "BusinessPartnerGroups",
+            "$select=Code,Name&$orderby=Code",
+            element => new BusinessPartnerGroupDto
+            {
+                Code = element.TryGetProperty("Code", out var code) && code.ValueKind == JsonValueKind.Number
+                    ? code.GetInt32()
+                    : 0,
+                Name = element.TryGetProperty("Name", out var name) ? name.GetString() : null
+            },
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The walk both group lookups share. <c>Prefer: odata.maxpagesize</c> is not optional: without
+    /// it the Service Layer returns twenty rows and says nothing about the rest.
+    /// </summary>
+    private async Task<List<T>> GetGroupsAsync<T>(
+        string entitySet,
+        string query,
+        Func<JsonElement, T> parse,
+        CancellationToken cancellationToken)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var all = new List<T>();
+        const int pageSize = 500;
+        var skip = 0;
+
+        while (true)
+        {
+            var url = $"{entitySet}?{query}&$skip={skip}";
+
+            async Task<HttpResponseMessage> SendAsync()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                return await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            var response = await SendAsync();
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response = await SendAsync();
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get {EntitySet}: {StatusCode} - {Error}",
+                    entitySet, response.StatusCode, errorContent);
+                throw new Exception($"Failed to get {entitySet}: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            var page = new List<T>();
+            using (var doc = JsonDocument.Parse(content))
+            {
+                if (doc.RootElement.TryGetProperty("value", out var valueArray))
+                {
+                    page.AddRange(valueArray.EnumerateArray().Select(parse));
+                }
+            }
+
+            all.AddRange(page);
+
+            // A short page is the end of the list. An exactly-full one is not, whether or not the
+            // response bothered to carry a nextLink.
+            if (page.Count < pageSize)
+            {
+                break;
+            }
+
+            skip += page.Count;
+        }
+
+        _logger.LogInformation("Retrieved {Count} rows from {EntitySet}", all.Count, entitySet);
+        return all;
+    }
+
     private static bool IsInactive(JsonElement item)
     {
         if (!item.TryGetProperty("Inactive", out var inactive))

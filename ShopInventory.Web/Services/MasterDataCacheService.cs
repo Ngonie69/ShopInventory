@@ -21,6 +21,11 @@ public interface IMasterDataCacheService
     Task<List<ProductDto>> GetProductsAsync(bool forceRefresh = false, CancellationToken cancellationToken = default);
     Task<List<ProductDto>> GetProductsAsync(string warehouseCode, bool forceRefresh = false);
     Task<List<WarehouseDto>> GetWarehousesAsync(bool forceRefresh = false, CancellationToken cancellationToken = default);
+
+    // The group-name lookups. Both self-sync when their local table is empty, so a caller never
+    // has to order a sync before reading them.
+    Task<List<ItemGroupDto>> GetItemGroupsAsync(bool forceRefresh = false, CancellationToken cancellationToken = default);
+    Task<List<BusinessPartnerGroupDto>> GetBusinessPartnerGroupsAsync(bool forceRefresh = false, CancellationToken cancellationToken = default);
     Task<List<GLAccountDto>> GetGLAccountsAsync(bool forceRefresh = false);
     Task<List<CostCentreDto>> GetCostCentresAsync(bool forceRefresh = false, CancellationToken cancellationToken = default);
     Task<List<ItemPriceDto>> GetItemPricesAsync(bool forceRefresh = false);
@@ -58,6 +63,8 @@ public class MasterDataCacheService : IMasterDataCacheService
     private const string GLAccountsCacheKey = "GLAccounts";
     private const string CostCentresCacheKey = "CostCentres";
     private const string ItemPricesCacheKey = "ItemPrices";
+    private const string ItemGroupsCacheKey = "ItemGroups";
+    private const string BusinessPartnerGroupsCacheKey = "BusinessPartnerGroups";
 
     private static readonly TimeSpan SyncInterval = TimeSpan.FromHours(1);
 
@@ -261,6 +268,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                     existingProduct.Price = price;
                     existingProduct.DefaultWarehouse = apiProduct.DefaultWarehouse;
                     existingProduct.UoM = apiProduct.UoM;
+                    existingProduct.ItemsGroupCode = apiProduct.ItemsGroupCode;
                     existingProduct.LastSyncedAt = syncTime;
                     existingProduct.IsActive = true;
                     updatedCount++;
@@ -278,6 +286,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                         Price = price,
                         DefaultWarehouse = apiProduct.DefaultWarehouse,
                         UoM = apiProduct.UoM,
+                        ItemsGroupCode = apiProduct.ItemsGroupCode,
                         LastSyncedAt = syncTime,
                         IsActive = true
                     });
@@ -1368,6 +1377,201 @@ public class MasterDataCacheService : IMasterDataCacheService
             }
 
             return warehouses;
+        }
+        finally
+        {
+            loadLock.Release();
+        }
+    }
+
+    #endregion
+
+    #region Groups
+
+    // Two lookups that turn a group code on a master record into a name. Both are small and static
+    // — a few dozen rows apiece — so they are read from the local table and synced only when that
+    // table is empty or a refresh is asked for. Being new tables, they are empty on first deploy,
+    // and a report that needed a scheduled sync before its filter worked would look broken; the
+    // lazy sync on an empty table is what avoids that.
+
+    /// <summary>
+    /// SAP's item groups, by number. Syncs from the API when the local table is empty.
+    /// </summary>
+    public async Task<List<ItemGroupDto>> GetItemGroupsAsync(
+        bool forceRefresh = false,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        if (forceRefresh || !await db.CachedItemGroups.AnyAsync(cancellationToken))
+        {
+            await SyncItemGroupsFromApiAsync();
+        }
+
+        return await db.CachedItemGroups
+            .AsNoTracking()
+            .OrderBy(group => group.Number)
+            .Select(group => new ItemGroupDto { Number = group.Number, GroupName = group.GroupName })
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// SAP's business partner groups, by code. Syncs from the API when the local table is empty.
+    /// </summary>
+    public async Task<List<BusinessPartnerGroupDto>> GetBusinessPartnerGroupsAsync(
+        bool forceRefresh = false,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        if (forceRefresh || !await db.CachedBusinessPartnerGroups.AnyAsync(cancellationToken))
+        {
+            await SyncBusinessPartnerGroupsFromApiAsync();
+        }
+
+        return await db.CachedBusinessPartnerGroups
+            .AsNoTracking()
+            .OrderBy(group => group.Code)
+            .Select(group => new BusinessPartnerGroupDto { Code = group.Code, Name = group.Name })
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>Refreshes the cached item groups from the API. Returns the row count written.</summary>
+    public async Task<int> SyncItemGroupsFromApiAsync()
+    {
+        var loadLock = GetLoadLock(ItemGroupsCacheKey);
+        await loadLock.WaitAsync();
+
+        try
+        {
+            _logger.LogInformation("Syncing item groups from API to database...");
+
+            var response = await GetAuthenticatedJsonAsync<ItemGroupsResponse>("api/product/groups");
+            var apiGroups = response?.Groups ?? new List<ItemGroupDto>();
+
+            if (apiGroups.Count == 0)
+            {
+                _logger.LogWarning("No item groups received from API");
+                await UpdateSyncInfoAsync(null, ItemGroupsCacheKey, 0, false, "No item groups received");
+                return 0;
+            }
+
+            await using var db = await _dbContextFactory.CreateDbContextAsync();
+            var syncTime = DateTime.UtcNow;
+
+            var existing = await db.CachedItemGroups.ToDictionaryAsync(group => group.Number);
+
+            foreach (var apiGroup in apiGroups)
+            {
+                if (existing.TryGetValue(apiGroup.Number, out var row))
+                {
+                    row.GroupName = apiGroup.GroupName;
+                    row.LastSyncedAt = syncTime;
+                }
+                else
+                {
+                    db.CachedItemGroups.Add(new CachedItemGroup
+                    {
+                        Number = apiGroup.Number,
+                        GroupName = apiGroup.GroupName,
+                        LastSyncedAt = syncTime
+                    });
+                }
+            }
+
+            // A group deleted in SAP leaves rows pointing at it, so it is removed rather than kept:
+            // a filter offering a group nothing can be in is worse than one that is simply absent.
+            var apiNumbers = apiGroups.Select(group => group.Number).ToHashSet();
+            var stale = existing.Values.Where(row => !apiNumbers.Contains(row.Number)).ToList();
+            if (stale.Count > 0)
+            {
+                db.CachedItemGroups.RemoveRange(stale);
+            }
+
+            await db.SaveChangesAsync();
+            await UpdateSyncInfoAsync(db, ItemGroupsCacheKey, apiGroups.Count, true, null);
+
+            _logger.LogInformation("Item group sync complete: {Count} groups, {Stale} removed",
+                apiGroups.Count, stale.Count);
+
+            return apiGroups.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error syncing item groups from API");
+            await UpdateSyncInfoAsync(null, ItemGroupsCacheKey, 0, false, ex.Message);
+            return 0;
+        }
+        finally
+        {
+            loadLock.Release();
+        }
+    }
+
+    /// <summary>Refreshes the cached business partner groups from the API.</summary>
+    public async Task<int> SyncBusinessPartnerGroupsFromApiAsync()
+    {
+        var loadLock = GetLoadLock(BusinessPartnerGroupsCacheKey);
+        await loadLock.WaitAsync();
+
+        try
+        {
+            _logger.LogInformation("Syncing business partner groups from API to database...");
+
+            var response = await GetAuthenticatedJsonAsync<BusinessPartnerGroupsResponse>(
+                "api/businesspartner/groups");
+            var apiGroups = response?.Groups ?? new List<BusinessPartnerGroupDto>();
+
+            if (apiGroups.Count == 0)
+            {
+                _logger.LogWarning("No business partner groups received from API");
+                await UpdateSyncInfoAsync(null, BusinessPartnerGroupsCacheKey, 0, false, "No groups received");
+                return 0;
+            }
+
+            await using var db = await _dbContextFactory.CreateDbContextAsync();
+            var syncTime = DateTime.UtcNow;
+
+            var existing = await db.CachedBusinessPartnerGroups.ToDictionaryAsync(group => group.Code);
+
+            foreach (var apiGroup in apiGroups)
+            {
+                if (existing.TryGetValue(apiGroup.Code, out var row))
+                {
+                    row.Name = apiGroup.Name;
+                    row.LastSyncedAt = syncTime;
+                }
+                else
+                {
+                    db.CachedBusinessPartnerGroups.Add(new CachedBusinessPartnerGroup
+                    {
+                        Code = apiGroup.Code,
+                        Name = apiGroup.Name,
+                        LastSyncedAt = syncTime
+                    });
+                }
+            }
+
+            var apiCodes = apiGroups.Select(group => group.Code).ToHashSet();
+            var stale = existing.Values.Where(row => !apiCodes.Contains(row.Code)).ToList();
+            if (stale.Count > 0)
+            {
+                db.CachedBusinessPartnerGroups.RemoveRange(stale);
+            }
+
+            await db.SaveChangesAsync();
+            await UpdateSyncInfoAsync(db, BusinessPartnerGroupsCacheKey, apiGroups.Count, true, null);
+
+            _logger.LogInformation("Business partner group sync complete: {Count} groups, {Stale} removed",
+                apiGroups.Count, stale.Count);
+
+            return apiGroups.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error syncing business partner groups from API");
+            await UpdateSyncInfoAsync(null, BusinessPartnerGroupsCacheKey, 0, false, ex.Message);
+            return 0;
         }
         finally
         {

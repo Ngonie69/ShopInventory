@@ -1,6 +1,3 @@
-@using System.Globalization
-@using System.Text.RegularExpressions
-
 @* The business-partner and item picker on /reports/item-volume, drawn from
    Sales Analysis.dc.html.
 
@@ -11,8 +8,13 @@
 
    It is not IvxMultiSelect, which stays as it is for /reports/volume-conversions:
    this control carries the chosen codes as chips inside the closed control, and
-   it offers to expand a typed code range before you commit to it, so a reader
-   can see "BP0876–1188 · 34 codes" and decide. Those two are the whole design.
+   it offers to expand a code range before you commit to it, so a reader can see
+   "BP0876–1188 · 34 codes" and decide. Those two are the whole design.
+
+   A range can be written two ways — typed into the search box as "BP0876-1188",
+   or entered as a Code from / to pair, the form SAP's Sales Analysis asks for on
+   its Main and Secondary Selection. Both resolve to one CodeRange against the
+   options actually loaded, so neither can name a code that does not exist.
 
    Styles live under the `sla-pick-` prefix in wwwroot/css/sales-analysis.css, so
    this renders correctly only inside a `.sla` page root. *@
@@ -22,6 +24,21 @@
         @Label
         <span class="sla-pick-req @(Required ? "is-required" : "")">@(Required ? "required" : "optional")</span>
     </div>
+
+    @* SAP puts Group on the same row as the code range, as a peer criterion rather than something
+       buried in a popup, so it sits above the control here and stays readable while it is closed.
+       Outside the menu on purpose: a NocturneSelect inside one would be a popup within a popup,
+       with two veils fighting over the same outside click. *@
+    @if (GroupOptions.Count > 0)
+    {
+        <NocturneSelect Class="nsel-block sla-pick-group" TValue="string"
+                        Options="GroupSelectOptions" Value="@group"
+                        ValueChanged="@(value => OnGroupChanged(value))"
+                        Caption="@($"Narrow {Label.ToLowerInvariant()} by group")"
+                        AriaLabel="@($"{Label}: group")"
+                        Placeholder="All groups" Icon="ph ph-funnel"
+                        Disabled="@Disabled" />
+    }
 
     <div class="sla-pick-control @(Disabled ? "is-disabled" : "")"
          role="button" tabindex="0"
@@ -61,6 +78,30 @@
             <input class="sla-input sla-pick-search" type="search" placeholder="@SearchPlaceholder"
                    @bind="query" @bind:event="oninput" @onkeydown="OnSearchKeyDown" />
 
+            @* Either end may be left blank for an open range, so "from CRA001" and "up to VAN019"
+               are both sayable — the placeholders are the lowest and highest codes there are. *@
+            <div class="sla-pick-bounds">
+                <span class="sla-pick-bounds-label">Code from</span>
+                @* The two ends stay one row of their own: narrow, the label wraps above them
+                   rather than the pair breaking up around a stranded "to". *@
+                <div class="sla-pick-bounds-row">
+                    <input class="sla-input sla-pick-bound" type="text" placeholder="@LowestCode"
+                           aria-label="@($"{Label}: code from")"
+                           @bind="boundFrom" @bind:event="oninput" @onkeydown="OnBoundKeyDown" />
+                    <span class="sla-pick-bounds-to">to</span>
+                    <input class="sla-input sla-pick-bound" type="text" placeholder="@HighestCode"
+                           aria-label="@($"{Label}: code to")"
+                           @bind="boundTo" @bind:event="oninput" @onkeydown="OnBoundKeyDown" />
+                    @if (HasBounds)
+                    {
+                        <button type="button" class="sla-pick-bounds-x" @onclick="ClearBounds"
+                                aria-label="Clear the code range">
+                            <i class="ph ph-x" aria-hidden="true"></i>
+                        </button>
+                    }
+                </div>
+            </div>
+
             @if (Range is { } range)
             {
                 <button type="button" class="sla-pick-range" @onclick="ApplyRange">
@@ -76,6 +117,15 @@
                     <span class="sla-pick-range-label">Add “@typed”</span>
                     <span class="sla-pick-range-count">not in the list</span>
                 </button>
+            }
+            else if (HasBounds)
+            {
+                @* A range that matches nothing has to say so. Left silent it reads as a range of
+                   zero codes, and the reader runs the report believing it was applied. *@
+                <div class="sla-pick-bounds-none">
+                    <i class="ph ph-warning-circle" aria-hidden="true"></i>
+                    Nothing in the list falls in that range.
+                </div>
             }
 
             <div class="sla-pick-list">
@@ -96,7 +146,15 @@
 
                 @if (VisibleOptions.Count == 0)
                 {
-                    <div class="sla-pick-empty">@(Options.Count == 0 ? EmptyText : "No matches")</div>
+                    @* Three different emptinesses, and telling them apart is the whole point:
+                       nothing cached at all, a group with nothing in it, and a search that missed. *@
+                    <div class="sla-pick-empty">
+                        @(Options.Count == 0
+                            ? EmptyText
+                            : AvailableOptions.Count == 0
+                                ? "Nothing in that group"
+                                : "No matches")
+                    </div>
                 }
             </div>
 
@@ -116,9 +174,14 @@
 @code {
     /// <summary>
     /// One selectable row. <c>Flag</c> is an optional trailing note — "no factor" on an item
-    /// the volume report cannot convert.
+    /// the volume report cannot convert. <c>Group</c> is the master-record group this row belongs
+    /// to, matched as text against <see cref="GroupOption.Value"/>; null means it belongs to none
+    /// and so is out of every group narrowing.
     /// </summary>
-    public sealed record Option(string Value, string Name, string? Flag = null);
+    public sealed record Option(string Value, string Name, string? Flag = null, string? Group = null);
+
+    /// <summary>One row of the Group dropdown: the group's code, and the name to show for it.</summary>
+    public sealed record GroupOption(string Value, string Label);
 
     /// <summary>A code range the search box has resolved against <see cref="Options"/>.</summary>
     public sealed record CodeRange(string Label, IReadOnlyList<string> Codes);
@@ -136,6 +199,13 @@
     [Parameter] public string EmptyText { get; set; } = "Nothing to choose from";
     [Parameter] public bool Disabled { get; set; }
 
+    /// <summary>
+    /// The groups on offer in the Group dropdown. Empty hides the dropdown entirely, which is what
+    /// happens when SAP has no groups or the lookup has not synced yet — the picker still works,
+    /// it just cannot be narrowed.
+    /// </summary>
+    [Parameter] public IReadOnlyList<GroupOption> GroupOptions { get; set; } = Array.Empty<GroupOption>();
+
     /// <summary>Footer text when nothing is chosen and nothing has to be — the item picker's case.</summary>
     [Parameter] public string EmptyCountLabel { get; set; } = "Empty covers everything";
 
@@ -145,73 +215,118 @@
     /// <summary>Rows drawn at once; the search is how you reach the rest.</summary>
     [Parameter] public int MaxVisible { get; set; } = 200;
 
-    /// <summary>
-    /// "BP0876-1188", "van008 – 019", "VAN008 to 019" — a prefix, two numbers, and something
-    /// between them. The prefix may be written once or twice, and the numbers may be the wrong
-    /// way round.
-    /// </summary>
-    private static readonly Regex RangeRegex = new(
-        @"^(?<p1>[A-Za-z]*)\s*(?<n1>\d+)\s*(?:-|–|—|\.\.|to)\s*(?<p2>[A-Za-z]*)\s*(?<n2>\d+)$",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-    private static readonly Regex CodeRegex = new(
-        @"^(?<prefix>[A-Za-z]+)(?<number>\d+)$",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
     private bool isOpen;
     private string query = string.Empty;
+    private string boundFrom = string.Empty;
+    private string boundTo = string.Empty;
+
+    /// <summary>The chosen group's code, or empty for all of them.</summary>
+    private string group = string.Empty;
+
+    /// <summary>
+    /// The extremes of <see cref="AvailableOptions"/>, held as the from / to placeholders so the
+    /// fields show the shape of a real code rather than the word "from". Recomputed when the option
+    /// list is replaced or the group narrows it, since both change what the extremes are.
+    /// </summary>
+    private IReadOnlyList<Option>? placeholderSource;
+    private string placeholderGroup = string.Empty;
+    private string lowestCode = string.Empty;
+    private string highestCode = string.Empty;
 
     private bool IsOpen => isOpen && !Disabled;
 
+    private bool HasBounds => boundFrom.Trim().Length > 0 || boundTo.Trim().Length > 0;
+
+    private string LowestCode => lowestCode.Length > 0 ? lowestCode : "first code";
+    private string HighestCode => highestCode.Length > 0 ? highestCode : "last code";
+
     /// <summary>
-    /// The range the search box currently names, or null. Resolved against the options rather
-    /// than expanded arithmetically, so it never invents a code that does not exist.
+    /// What this picker is currently offering: every option, or only those in the chosen group.
+    ///
+    /// Everything downstream reads this rather than <see cref="Options"/> — the list, the counts,
+    /// the from / to placeholders and both range resolutions — which is what makes a group and a
+    /// code range compose the way SAP's do. Narrow to a group and "expand range" expands inside
+    /// that group, because the range never resolves against anything the picker is not offering.
     /// </summary>
-    private CodeRange? Range
+    private IReadOnlyList<Option> AvailableOptions =>
+        group.Length == 0
+            ? Options
+            : Options.Where(option => string.Equals(option.Group, group, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    private List<NocturneSelectOption<string>> GroupSelectOptions
     {
         get
         {
-            var match = RangeRegex.Match(query.Trim());
-            if (!match.Success)
+            var options = new List<NocturneSelectOption<string>>
             {
-                return null;
+                new(string.Empty, "All groups") { RuleAfter = true, IsUnset = true }
+            };
+
+            options.AddRange(GroupOptions.Select(option => new NocturneSelectOption<string>(option.Value, option.Label)));
+            return options;
+        }
+    }
+
+    /// <summary>
+    /// The range on offer: the one the search box names if it names one, and the Code from / to
+    /// pair otherwise. Either way it is resolved against the options rather than expanded
+    /// arithmetically, so it never invents a code that does not exist.
+    /// </summary>
+    private CodeRange? Range => TypedRange ?? BoundRange;
+
+    /// <summary>The range the search box currently names, or null.</summary>
+    private CodeRange? TypedRange =>
+        Resolve(SalesAnalysisCodeRange.FromWritten(query, AvailableOptions.Select(option => option.Value)));
+
+    /// <summary>
+    /// The range the Code from / to fields name, or null. Either end may be left blank for an
+    /// open range.
+    /// </summary>
+    private CodeRange? BoundRange =>
+        Resolve(SalesAnalysisCodeRange.FromBounds(
+            boundFrom, boundTo, AvailableOptions.Select(option => option.Value)));
+
+    private static CodeRange? Resolve(IReadOnlyList<string> hits) =>
+        hits.Count == 0 ? null : new CodeRange($"{hits[0]}–{hits[^1]}", hits);
+
+    private async Task OnGroupChanged(string? value)
+    {
+        group = value ?? string.Empty;
+
+        // The typed range and the bounds were written against the old list, and a range that
+        // silently means something else after a group change is worse than one that is cleared.
+        query = string.Empty;
+        ClearBounds();
+        RecomputePlaceholders();
+
+        await Task.CompletedTask;
+    }
+
+    protected override void OnParametersSet() => RecomputePlaceholders();
+
+    private void RecomputePlaceholders()
+    {
+        if (ReferenceEquals(placeholderSource, Options) && placeholderGroup == group)
+        {
+            return;
+        }
+
+        placeholderSource = Options;
+        placeholderGroup = group;
+        lowestCode = string.Empty;
+        highestCode = string.Empty;
+
+        foreach (var option in AvailableOptions)
+        {
+            if (lowestCode.Length == 0 || string.CompareOrdinal(option.Value, lowestCode) < 0)
+            {
+                lowestCode = option.Value;
             }
 
-            var prefix = match.Groups["p1"].Value is { Length: > 0 } first
-                ? first
-                : match.Groups["p2"].Value;
-
-            if (!int.TryParse(match.Groups["n1"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var start) ||
-                !int.TryParse(match.Groups["n2"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var end))
+            if (string.CompareOrdinal(option.Value, highestCode) > 0)
             {
-                return null;
+                highestCode = option.Value;
             }
-
-            if (end < start)
-            {
-                (start, end) = (end, start);
-            }
-
-            var hits = Options
-                .Select(option => new { option.Value, Parsed = CodeRegex.Match(option.Value) })
-                .Where(candidate => candidate.Parsed.Success)
-                .Where(candidate => prefix.Length == 0 || string.Equals(
-                    candidate.Parsed.Groups["prefix"].Value,
-                    prefix,
-                    StringComparison.OrdinalIgnoreCase))
-                .Select(candidate => new
-                {
-                    candidate.Value,
-                    Number = int.Parse(candidate.Parsed.Groups["number"].Value, CultureInfo.InvariantCulture)
-                })
-                .Where(candidate => candidate.Number >= start && candidate.Number <= end)
-                .OrderBy(candidate => candidate.Number)
-                .Select(candidate => candidate.Value)
-                .ToList();
-
-            return hits.Count == 0
-                ? null
-                : new CodeRange($"{hits[0]}–{hits[^1]}", hits);
         }
     }
 
@@ -242,17 +357,21 @@
     {
         get
         {
-            // While a range is on offer the list previews exactly what it would add.
-            if (Range is { } range)
+            var available = AvailableOptions;
+            var search = query.Trim();
+
+            // While a range is on offer the list previews exactly what it would add. The search
+            // box is the finer instrument, so whatever is in it decides the list and the from / to
+            // fields keep only their button.
+            if ((search.Length > 0 ? TypedRange : BoundRange) is { } range)
             {
                 var codes = range.Codes.ToHashSet(StringComparer.OrdinalIgnoreCase);
-                return Options.Where(option => codes.Contains(option.Value)).Take(MaxVisible).ToList();
+                return available.Where(option => codes.Contains(option.Value)).Take(MaxVisible).ToList();
             }
 
-            var search = query.Trim();
             var matches = string.IsNullOrEmpty(search)
-                ? Options
-                : Options.Where(option =>
+                ? available
+                : available.Where(option =>
                     option.Value.Contains(search, StringComparison.OrdinalIgnoreCase) ||
                     option.Name.Contains(search, StringComparison.OrdinalIgnoreCase));
 
@@ -265,11 +384,24 @@
         }
     }
 
-    private string CountLabel => Options.Count == 0
-        ? $"{Selected.Count} selected"
-        : Required || Selected.Count > 0
-            ? $"{Selected.Count} of {Options.Count} selected"
-            : EmptyCountLabel;
+    /// <summary>
+    /// The footer count, read against what the picker is offering. Under a group that is the
+    /// group's size, not the cache's — "3 of 41 selected" while narrowed, so the denominator
+    /// always names the list the reader is looking at.
+    /// </summary>
+    private string CountLabel
+    {
+        get
+        {
+            var available = AvailableOptions.Count;
+
+            return available == 0
+                ? $"{Selected.Count} selected"
+                : Required || Selected.Count > 0
+                    ? $"{Selected.Count} of {available} selected"
+                    : EmptyCountLabel;
+        }
+    }
 
     private bool IsSelected(string value) =>
         Selected.Any(selected => string.Equals(selected, value, StringComparison.OrdinalIgnoreCase));
@@ -283,6 +415,7 @@
 
         isOpen = !isOpen;
         query = string.Empty;
+        ClearBounds();
     }
 
     private void Close() => isOpen = false;
@@ -320,6 +453,21 @@
         }
     }
 
+    /// <summary>Enter in either bound applies the range, the same as Enter in the search box.</summary>
+    private async Task OnBoundKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await ApplyRange();
+        }
+    }
+
+    private void ClearBounds()
+    {
+        boundFrom = string.Empty;
+        boundTo = string.Empty;
+    }
+
     private Task ToggleValue(string value) => IsSelected(value) ? Remove(value) : Add(value);
 
     private async Task Add(string value)
@@ -350,6 +498,7 @@
         var next = Selected.ToList();
         next.AddRange(range.Codes.Where(code => !IsSelected(code)));
         query = string.Empty;
+        ClearBounds();
         await SelectedChanged.InvokeAsync(next);
     }
 

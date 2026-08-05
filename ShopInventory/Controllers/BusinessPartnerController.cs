@@ -9,6 +9,7 @@ using ShopInventory.Features.BusinessPartners.Queries.SearchBusinessPartners;
 using ShopInventory.Features.BusinessPartners.Queries.GetBusinessPartnerByCode;
 using ShopInventory.Features.BusinessPartners.Queries.GetBusinessPartnersByCodes;
 using ShopInventory.Features.BusinessPartners.Queries.GetPaymentTerms;
+using ShopInventory.Features.BusinessPartners.Queries.GetBusinessPartnerGroups;
 
 namespace ShopInventory.Controllers;
 
@@ -26,6 +27,17 @@ public class BusinessPartnerController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> GetBusinessPartners(CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetBusinessPartnersQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// SAP's business partner groups, so the group code cached against a partner can be named.
+    /// </summary>
+    [HttpGet("groups")]
+    [ProducesResponseType(typeof(BusinessPartnerGroupsListResponseDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetBusinessPartnerGroups(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetBusinessPartnerGroupsQuery(), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
