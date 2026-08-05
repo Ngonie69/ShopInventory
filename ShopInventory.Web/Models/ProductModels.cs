@@ -24,7 +24,29 @@ public class ProductDto
     public decimal Price { get; set; }
     public string? DefaultWarehouse { get; set; }
     public string? UoM { get; set; }
+
+    /// <summary>
+    /// SAP's standard item group (OITB), named by <see cref="ItemGroupDto.Number"/>. Mirrors the
+    /// API's <c>ProductDto.ItemsGroupCode</c> — nullability included, or the deserializer throws
+    /// and the page reports no data.
+    /// </summary>
+    public int? ItemsGroupCode { get; set; }
+
     public List<BatchDto>? Batches { get; set; }
+}
+
+/// <summary>One of SAP's item groups. Mirrors the API's <c>ItemGroupDto</c>.</summary>
+public class ItemGroupDto
+{
+    public int Number { get; set; }
+    public string? GroupName { get; set; }
+}
+
+/// <summary>Mirrors the API's <c>ItemGroupsListResponseDto</c>.</summary>
+public class ItemGroupsResponse
+{
+    public int Count { get; set; }
+    public List<ItemGroupDto>? Groups { get; set; }
 }
 
 public class BatchDto

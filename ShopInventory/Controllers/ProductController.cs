@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Products.Queries.GetAllProducts;
+using ShopInventory.Features.Products.Queries.GetItemGroups;
 using ShopInventory.Features.Products.Queries.GetPagedProductsInWarehouse;
 using ShopInventory.Features.Products.Queries.GetProductBatches;
 using ShopInventory.Features.Products.Queries.GetProductByCode;
@@ -25,6 +26,23 @@ public class ProductController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> GetAllProducts(CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetAllProductsQuery(), cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors)
+        );
+    }
+
+    /// <summary>
+    /// Gets SAP's item groups, so a group code on a product can be shown as a name
+    /// </summary>
+    [HttpGet("groups")]
+    [OutputCache(PolicyName = "master-data")]
+    [ProducesResponseType(typeof(ItemGroupsListResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetItemGroups(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetItemGroupsQuery(), cancellationToken);
 
         return result.Match(
             value => Ok(value),

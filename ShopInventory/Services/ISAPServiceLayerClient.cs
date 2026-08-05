@@ -259,6 +259,11 @@ public interface ISAPServiceLayerClient
     // Warehouse Operations
     Task<List<WarehouseDto>> GetWarehousesAsync(CancellationToken cancellationToken = default);
 
+    // Group Operations — the two lookups that turn a group code on a master record into a name.
+    // Both are small, static lists; the Web caches them rather than asking per page view.
+    Task<List<ItemGroupDto>> GetItemGroupsAsync(CancellationToken cancellationToken = default);
+    Task<List<BusinessPartnerGroupDto>> GetBusinessPartnerGroupsAsync(CancellationToken cancellationToken = default);
+
     // Business Partner Operations
     Task<List<BusinessPartnerDto>> GetBusinessPartnersAsync(CancellationToken cancellationToken = default);
     Task<List<BusinessPartnerDto>> GetBusinessPartnersByTypeAsync(string cardType, CancellationToken cancellationToken = default);

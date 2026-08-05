@@ -221,6 +221,7 @@
                     <div class="sla-pickers">
                         <SalesAnalysisPicker Label="Business partners" Required="true"
                                              Options="accountOptions" Selected="selectedAccounts"
+                                             GroupOptions="accountGroupOptions"
                                              SelectedChanged="OnAccountsChanged"
                                              Placeholder="Choose partners" Icon="ph-users-three"
                                              AriaLabel="Business partners"
@@ -231,6 +232,7 @@
 
                         <SalesAnalysisPicker Label="Items"
                                              Options="itemOptions" Selected="selectedItems"
+                                             GroupOptions="itemGroupOptions"
                                              SelectedChanged="OnItemsChanged"
                                              Placeholder="All items traded" Icon="ph-package"
                                              AriaLabel="Items"

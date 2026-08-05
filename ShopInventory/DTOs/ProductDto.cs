@@ -17,7 +17,16 @@ public class ProductDto
     public decimal Price { get; set; }
     public string? DefaultWarehouse { get; set; }
     public string? UoM { get; set; }
+
+    /// <summary>The <c>U_ItemGroup</c> user-defined field, not SAP's own item group.</summary>
     public string? Category { get; set; }
+
+    /// <summary>
+    /// SAP's standard item group (OITB), which <see cref="ItemGroupDto.Number"/> names. Distinct
+    /// from <see cref="Category"/>: this is the group Sales Analysis narrows an item selection by.
+    /// </summary>
+    public int? ItemsGroupCode { get; set; }
+
     public List<BatchDto>? Batches { get; set; }
 }
 

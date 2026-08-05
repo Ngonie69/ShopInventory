@@ -31,6 +31,13 @@ public class CachedProduct
     public string? UoM { get; set; }
 
     /// <summary>
+    /// SAP's standard item group (OITB), named by <see cref="CachedItemGroup"/>. Null on a product
+    /// synced before this column existed, and on one SAP holds no group for — either way it is out
+    /// of every group filter rather than silently in one.
+    /// </summary>
+    public int? ItemsGroupCode { get; set; }
+
+    /// <summary>
     /// When this product was last synced from SAP
     /// </summary>
     public DateTime LastSyncedAt { get; set; }
@@ -110,6 +117,42 @@ public class CachedBusinessPartner
     public string? Channel { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    public DateTime LastSyncedAt { get; set; }
+}
+
+/// <summary>
+/// Entity for storing cached item groups (OITB) from SAP — the names behind
+/// <see cref="CachedProduct.ItemsGroupCode"/>.
+/// </summary>
+/// <remarks>
+/// A few dozen rows that change about never, so this is cached rather than asked for per page
+/// view. It exists because a group filter listing bare numbers is not a filter anyone can use.
+/// </remarks>
+public class CachedItemGroup
+{
+    /// <summary>SAP's <c>ItemGroups.Number</c>.</summary>
+    [Key]
+    public int Number { get; set; }
+
+    [MaxLength(200)]
+    public string? GroupName { get; set; }
+
+    public DateTime LastSyncedAt { get; set; }
+}
+
+/// <summary>
+/// Entity for storing cached business partner groups (OCRG) from SAP — the names behind
+/// <see cref="CachedBusinessPartner.GroupCode"/>.
+/// </summary>
+public class CachedBusinessPartnerGroup
+{
+    /// <summary>SAP's <c>BusinessPartnerGroups.Code</c>.</summary>
+    [Key]
+    public int Code { get; set; }
+
+    [MaxLength(200)]
+    public string? Name { get; set; }
 
     public DateTime LastSyncedAt { get; set; }
 }

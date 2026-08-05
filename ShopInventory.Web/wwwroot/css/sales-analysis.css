@@ -664,6 +664,15 @@
     color: var(--sla-accent-text);
 }
 
+/* The Group dropdown, above the control it narrows. NocturneSelect carries its
+   own look; the only thing tuned here is its height and type size, so it and the
+   picker field below it read as one stack rather than two borrowed controls. See
+   the --nsel-* block in nocturne-select.css. */
+.sla .sla-pick-group {
+    --nsel-h: 34px;
+    --nsel-fs: 13px;
+}
+
 .sla-pick-control {
     display: flex;
     align-items: center;
