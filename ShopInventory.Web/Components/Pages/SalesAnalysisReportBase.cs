@@ -29,6 +29,12 @@ namespace ShopInventory.Web.Components.Pages;
 /// floored at zero. The API negates credit lines on the way in — see its handler — so everything
 /// here is a plain sum.
 /// </para>
+/// <para>
+/// Returnable crates are the one thing a reader can take back out of the window without re-running
+/// it. They move quantity and money like an item and are not one, and the filter is applied to the
+/// loaded result, so the toggle answers immediately and the pivot, the chart and the workbook are
+/// all read off the same filtered object — see <see cref="ItemVolumeSalesCrates"/>.
+/// </para>
 /// </remarks>
 public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
 {
@@ -70,7 +76,7 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         decimal SharePercent,
         bool IsConverted);
 
-    /// <summary>A run made in this session, so it can be picked up again from the rail.</summary>
+    /// <summary>A run made in this session, so it can be picked up again without retyping it.</summary>
     protected sealed record RecentRun(
         string Title,
         string Meta,
@@ -82,6 +88,40 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         IReadOnlyList<string> Accounts,
         IReadOnlyList<string> Items);
 
+    /// <summary>One coloured band of a bar, named and measured, for the hover card.</summary>
+    protected sealed record ChartBand(
+        string Code,
+        string Name,
+        decimal Value,
+        decimal SharePercent,
+        string Fill);
+
+    /// <summary>
+    /// Everything a reader can ask of a single bar. Built once per column per render rather than on
+    /// the hover itself: the card is plain markup revealed by CSS, so reading it costs no round trip
+    /// to the circuit and it opens on a keyboard focus as readily as on a pointer.
+    /// </summary>
+    protected sealed record ChartHover(
+        string Label,
+        string Span,
+        bool IsPartial,
+        decimal Total,
+        decimal WindowSharePercent,
+        int InvoiceCount,
+        int CreditNoteCount,
+        decimal NetQuantity,
+        IReadOnlyList<ChartBand> Bands,
+        decimal Other,
+        int OtherCount);
+
+    /// <summary>The window as it was loaded, before the crate filter.</summary>
+    private GetItemVolumeSalesReportResult? loadedReport;
+
+    /// <summary>
+    /// The window every figure on the page is read from — <see cref="loadedReport"/> with the crates
+    /// already taken out when they are being left out. One filtered result feeds the pivot, the
+    /// chart and the workbook, so none of the three can disagree about what was counted.
+    /// </summary>
     protected GetItemVolumeSalesReportResult? report;
     protected List<SalesAnalysisPicker.Option> accountOptions = new();
     protected List<SalesAnalysisPicker.Option> itemOptions = new();
@@ -100,6 +140,26 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     /// one of them and say so.
     /// </summary>
     protected bool readZig;
+
+    /// <summary>
+    /// Whether returnable crates count as items. On by default, so a report reads the same as it
+    /// always has until somebody says otherwise — see <see cref="ItemVolumeSalesCrates"/> for why
+    /// anyone would want them out.
+    /// </summary>
+    protected bool includeCrates = true;
+
+    /// <summary>
+    /// Whether the query is open for editing. Open before the first run — there is nothing else to
+    /// look at — and closed after one, where the run itself is the answer and the query becomes a
+    /// single line describing it.
+    /// </summary>
+    protected bool isEditingQuery = true;
+
+    /// <summary>Narrows the pivot on screen only. The total row stays the total of every row.</summary>
+    protected string tableFilter = string.Empty;
+
+    /// <summary>Hides rows that came to nothing over the whole window.</summary>
+    protected bool hideEmptyRows;
 
     protected bool isLoading;
     protected bool isExporting;
@@ -278,6 +338,30 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         InvalidateView();
     }
 
+    /// <summary>
+    /// Puts the crates in or takes them out. It re-reads the window already in hand rather than
+    /// asking SAP again — nothing about the request changes, only which of its lines are counted —
+    /// so the answer is on screen before the pointer leaves the control, run or no run.
+    /// </summary>
+    protected void SetIncludeCrates(bool include)
+    {
+        if (includeCrates == include)
+        {
+            return;
+        }
+
+        includeCrates = include;
+        ApplyCrateFilter();
+    }
+
+    protected void ToggleQueryEditor() => isEditingQuery = !isEditingQuery;
+
+    protected void OnTableFilterChanged(ChangeEventArgs args) =>
+        tableFilter = args.Value?.ToString() ?? string.Empty;
+
+    protected void OnHideEmptyChanged(ChangeEventArgs args) =>
+        hideEmptyRows = args.Value is bool value && value;
+
     protected void OnAccountsChanged(IReadOnlyList<string> accounts) => selectedAccounts = accounts;
 
     protected void OnItemsChanged(IReadOnlyList<string> items) => selectedItems = items;
@@ -287,10 +371,15 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         ApplyPreset(PeriodPreset.LastFourMonths);
         grouping = ItemVolumeSalesGrouping.Monthly;
         readZig = false;
+        includeCrates = true;
         selectedAccounts = new List<string>();
         selectedItems = new List<string>();
+        loadedReport = null;
         report = null;
         errorMessage = null;
+        tableFilter = string.Empty;
+        hideEmptyRows = false;
+        isEditingQuery = true;
         InvalidateView();
     }
 
@@ -330,14 +419,16 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
             result.SwitchFirst(
                 value =>
                 {
-                    report = value;
+                    loadedReport = value;
                     ranAtUtc = DateTime.UtcNow;
                     reportToDate = requestedTo?.Date ?? value.ToDateUtc.Date;
-                    InvalidateView();
+                    isEditingQuery = false;
+                    ApplyCrateFilter();
                     RememberRun();
                 },
                 error =>
                 {
+                    loadedReport = null;
                     report = null;
                     errorMessage = error.Description;
                     InvalidateView();
@@ -416,7 +507,11 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
 
         try
         {
-            var bytes = ExportService.ExportItemVolumeSalesReportToExcel(report, ReportName);
+            // The result handed over is already crate-filtered, so the workbook agrees with the
+            // screen — but a workbook outlives the page it came off, so the title has to say so.
+            var bytes = ExportService.ExportItemVolumeSalesReportToExcel(
+                report,
+                includeCrates ? ReportName : $"{ReportName} (crates excluded)");
             var base64 = Convert.ToBase64String(bytes);
             await JS.InvokeVoidAsync(
                 "downloadFile",
@@ -473,6 +568,55 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         cachedRows = null;
         cachedColumnTotals = null;
     }
+
+    /// <summary>
+    /// Re-reads the loaded window under the current crate setting. Cheap enough to run on a click:
+    /// it walks the result once and returns it untouched when no crate moved.
+    /// </summary>
+    private void ApplyCrateFilter()
+    {
+        report = loadedReport is null || includeCrates
+            ? loadedReport
+            : ItemVolumeSalesCrates.Exclude(loadedReport);
+
+        InvalidateView();
+    }
+
+    /// <summary>Crate codes that actually moved in the loaded window, whether or not they are counted.</summary>
+    protected List<string> CratesInWindow => loadedReport is null
+        ? new List<string>()
+        : ItemVolumeSalesCrates.CratesIn(loadedReport);
+
+    /// <summary>
+    /// The rows on screen. The filter and the hide-empty switch narrow what is shown and nothing
+    /// else — every total on the page stays the total of the whole window, because a figure that
+    /// quietly followed a search box would be a different report each time somebody typed.
+    /// </summary>
+    protected List<PivotRow> VisibleRows
+    {
+        get
+        {
+            var query = Rows.AsEnumerable();
+
+            if (hideEmptyRows)
+            {
+                query = query.Where(row => row.Total != 0);
+            }
+
+            var needle = tableFilter.Trim();
+
+            if (needle.Length > 0)
+            {
+                query = query.Where(row =>
+                    row.Name.Contains(needle, StringComparison.OrdinalIgnoreCase) ||
+                    row.Code.Contains(needle, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return query.ToList();
+        }
+    }
+
+    protected bool IsTableNarrowed => hideEmptyRows || tableFilter.Trim().Length > 0;
 
     /// <summary>
     /// The period columns. Every period of the window is drawn, including the ones nothing moved
@@ -618,6 +762,73 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         columnTotal <= 0 || cell <= 0 ? 0m : Math.Min(100m, cell / columnTotal * 100m);
 
     /// <summary>
+    /// Everything behind one bar, for the card that opens over it. A stacked bar can only ever show
+    /// proportions, so what a reader actually wants from it — what the period came to, what each
+    /// band is worth, how much of it is the tail the colours do not name, and how many documents
+    /// made it — has to be written out somewhere. This is that somewhere.
+    /// </summary>
+    protected ChartHover HoverFor(int index)
+    {
+        var columns = Columns;
+        var column = columns[index];
+        var total = ColumnTotals[index];
+        var chartRows = ChartRows;
+
+        var bands = chartRows
+            .Select((row, series) => new ChartBand(
+                row.Code,
+                row.Name,
+                row.Cells[index],
+                total == 0 ? 0m : row.Cells[index] / total * 100m,
+                SeriesFill(series)))
+            .Where(band => band.Value != 0)
+            .ToList();
+
+        var named = chartRows.Sum(row => row.Cells[index]);
+
+        // The tail the palette stopped naming: every row past the sixth, plus any row the chart
+        // never draws because it cannot be converted to volume.
+        var otherCount = Rows.Count(row => row.Cells[index] != 0) - bands.Count;
+
+        return new ChartHover(
+            column.Label,
+            SpanOf(column),
+            column.IsPartial,
+            total,
+            GrandTotal == 0 ? 0m : total / GrandTotal * 100m,
+            column.Period.InvoiceCount,
+            column.Period.CreditNoteCount,
+            column.Period.NetQuantity,
+            bands,
+            total - named,
+            Math.Max(0, otherCount));
+    }
+
+    /// <summary>
+    /// The dates a column actually covers, clipped to the window. A month column at either end of
+    /// the range is only part of a month, and the label alone does not say which part.
+    /// </summary>
+    private string SpanOf(PeriodColumn column)
+    {
+        if (report is null)
+        {
+            return string.Empty;
+        }
+
+        var from = column.Period.PeriodStartUtc.Date < report.FromDateUtc.Date
+            ? report.FromDateUtc.Date
+            : column.Period.PeriodStartUtc.Date;
+
+        var to = column.Period.PeriodEndUtc.Date > reportToDate
+            ? reportToDate
+            : column.Period.PeriodEndUtc.Date;
+
+        return from.Year == to.Year
+            ? $"{from:dd MMM} – {to:dd MMM yyyy}"
+            : $"{from:dd MMM yyyy} – {to:dd MMM yyyy}";
+    }
+
+    /// <summary>
     /// The stack's fills, from the Nocturne accent ramp. Six, because that is how many bands a
     /// 64px-wide bar can hold and still be read.
     /// </summary>
@@ -636,6 +847,14 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     // decimal separator is not a length, and the bar would silently collapse.
 
     protected string BarStyle(decimal columnTotal) => $"height:{Percent(BarPercent(columnTotal))}";
+
+    /// <summary>
+    /// Sits the hover card just above the bar it belongs to rather than at a fixed height, so the
+    /// card and the thing it describes are always next to each other. The bar's height is a
+    /// percentage of the plot, which is why this is the one bit of the card's geometry that is data.
+    /// </summary>
+    protected string HoverStyle(decimal columnTotal) =>
+        $"bottom:calc({Percent(BarPercent(columnTotal))} + 12px)";
 
     protected string SegmentStyle(decimal cell, decimal columnTotal, int series) =>
         $"height:{Percent(SegmentPercent(cell, columnTotal))};background:{SeriesFill(series)}";
@@ -769,6 +988,44 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
 
     protected string ReadySentence => $"{GroupLabel} · {PeriodSentence} · {PartnerSentence} · {ItemSentence}";
 
+    /// <summary>
+    /// The one line the closed query bar carries. Read off the result rather than the filter bar, so
+    /// it describes the figures underneath it and not whatever has been typed since.
+    /// </summary>
+    protected string SummaryLine
+    {
+        get
+        {
+            var parts = new List<string>
+            {
+                ReportGroupLabel,
+                ReportPeriodSentence,
+                ReportPartnerSentence,
+                ReportItemSentence
+            };
+
+            if (!IsVolume)
+            {
+                parts.Add(Currency);
+            }
+
+            if (!includeCrates)
+            {
+                parts.Add("crates excluded");
+            }
+
+            return string.Join(" · ", parts);
+        }
+    }
+
+    /// <summary>How many crate codes the toggle is currently keeping out of the figures.</summary>
+    protected string CrateSentence => CratesInWindow.Count switch
+    {
+        0 => "no crates moved in this window",
+        1 => "1 crate code moved in this window",
+        var count => $"{count} crate codes moved in this window"
+    };
+
     protected string RanAt => ranAtUtc == default
         ? string.Empty
         : IAuditService.ToCAT(ranAtUtc).ToString("dd MMM yyyy HH:mm 'CAT'", CultureInfo.InvariantCulture);
@@ -792,6 +1049,18 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     protected string FormatHeadline(decimal value) => IsVolume
         ? $"{value.ToString("N3", CultureInfo.InvariantCulture)} L"
         : $"{Currency} {value.ToString("N2", CultureInfo.InvariantCulture)}";
+
+    /// <summary>
+    /// The unit either side of a headline figure, so the figure can be set at its own size and the
+    /// unit kept quiet beside it. Volume trails its unit, money leads with it.
+    /// </summary>
+    protected string HeadlineLead => IsVolume ? string.Empty : Currency;
+
+    protected string HeadlineTrail => IsVolume ? "L" : string.Empty;
+
+    /// <summary>Units, not litres — what physically moved, whether or not it converts.</summary>
+    protected static string FormatQuantity(decimal value) =>
+        value.ToString("N2", CultureInfo.InvariantCulture);
 
     protected decimal CreditedBack => report is null
         ? 0m

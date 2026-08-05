@@ -7,14 +7,18 @@
 
 <PageTitle>@(IsVolume ? "Item Volume" : "Customer Revenue") - Shop Inventory</PageTitle>
 
-@* Sales Analysis.dc.html, carried by wwwroot/css/sales-analysis.css (linked from
-   App.razor) in both schemes.
+@* Item Volume Report.dc.html, carried by wwwroot/css/sales-analysis.css (linked
+   from App.razor) in both schemes.
 
-   Two reports, one page. The rail on the left is the report picker, and it
-   switches lens without re-asking SAP: the volume and the money come off the
+   Two reports, one page. The pills under the title are the report picker, and
+   they switch lens without re-asking SAP: the volume and the money come off the
    same invoice and credit-note lines, so this is one window read twice rather
    than two reports. Both routes reach this component, which is what lets the
    swap keep the result — see SalesAnalysisReportBase.
+
+   The query is a single line once it has been run. Before the first run there is
+   nothing else on the page, so it opens; after one, the run is the answer and
+   the query becomes a sentence describing it that can be reopened.
 
    The result is a pivot: entities down, periods across. That is the shape the
    design chose and it is the right one for the question these reports answer —
@@ -29,61 +33,15 @@
    with nothing on screen to explain why. *@
 
 <div class="sla">
+    <div class="sla-page">
 
-    <aside class="sla-rail">
-        <div class="sla-rail-mark">
-            <span class="sla-dot" aria-hidden="true"></span>
-            <span class="sla-kicker">Sales analysis</span>
-        </div>
-
-        <div class="sla-rail-group">
-            <div class="sla-rail-label">Report</div>
-            <button type="button" class="sla-lens @(IsVolume ? "is-on" : "")"
-                    aria-pressed="@IsVolume" @onclick="@(() => PickLens(ReportLens.Volume))">
-                <span class="sla-lens-name"><i class="ph ph-drop" aria-hidden="true"></i>Item volume</span>
-                <span class="sla-lens-sub">Invoiced less credited, converted to litres.</span>
-            </button>
-            <button type="button" class="sla-lens @(IsVolume ? "" : "is-on")"
-                    aria-pressed="@(!IsVolume)" @onclick="@(() => PickLens(ReportLens.Revenue))">
-                <span class="sla-lens-name"><i class="ph ph-currency-dollar" aria-hidden="true"></i>Customer revenue</span>
-                <span class="sla-lens-sub">Net of credit notes raised in the window.</span>
-            </button>
-        </div>
-
-        @if (recentRuns.Count > 0)
-        {
-            <div class="sla-rail-group">
-                <div class="sla-rail-label">Recent runs</div>
-                @foreach (var run in recentRuns)
-                {
-                    var recent = run;
-                    <button type="button" class="sla-recent" disabled="@isLoading"
-                            @onclick="@(() => LoadRecentRunAsync(recent))">
-                        <span class="sla-recent-title">@recent.Title</span>
-                        <span class="sla-recent-meta">@recent.Meta</span>
-                    </button>
-                }
-            </div>
-        }
-
-        <AuthorizeView Roles="Admin" Context="factorsCtx">
-            <Authorized>
-                <a class="sla-rail-link" href="/reports/volume-conversions">
-                    <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>Conversion factors
-                </a>
-            </Authorized>
-        </AuthorizeView>
-
-        <p class="sla-rail-note">
-            Figures come from posted invoices and credit notes only. Drafts are excluded.
-        </p>
-    </aside>
-
-    <main class="sla-main">
-
-        <div class="sla-head">
+        <header class="sla-head">
             <div class="sla-head-titles">
                 <span class="sla-glow" aria-hidden="true"></span>
+                <div class="sla-mark">
+                    <span class="sla-dot" aria-hidden="true"></span>
+                    <span class="sla-kicker">Sales analysis</span>
+                </div>
                 @if (IsVolume)
                 {
                     <h1 class="sla-title">Item volume</h1>
@@ -101,11 +59,39 @@
                     </p>
                 }
             </div>
-            <button type="button" class="sla-btn sla-btn-secondary" @onclick="ExportToExcelAsync"
-                    disabled="@(!CanExport)">
-                <i class="ph ph-file-xls" aria-hidden="true"></i>@(isExporting ? "Exporting…" : "Export Excel")
+            <div class="sla-head-actions">
+                <button type="button" class="sla-btn sla-btn-secondary" @onclick="ExportToExcelAsync"
+                        disabled="@(!CanExport)">
+                    <i class="ph ph-file-xls" aria-hidden="true"></i>@(isExporting ? "Exporting…" : "Export Excel")
+                </button>
+                @if (HasRun)
+                {
+                    <button type="button" class="sla-btn sla-btn-primary" @onclick="RunReportAsync" disabled="@(!CanRun)">
+                        <i class="ph ph-play" aria-hidden="true"></i>Run again
+                    </button>
+                }
+            </div>
+        </header>
+
+        <nav class="sla-lenses" aria-label="Report">
+            <button type="button" class="sla-lens @(IsVolume ? "is-on" : "")"
+                    aria-pressed="@IsVolume" @onclick="@(() => PickLens(ReportLens.Volume))">
+                <i class="ph ph-drop" aria-hidden="true"></i>Item volume
             </button>
-        </div>
+            <button type="button" class="sla-lens @(IsVolume ? "" : "is-on")"
+                    aria-pressed="@(!IsVolume)" @onclick="@(() => PickLens(ReportLens.Revenue))">
+                <i class="ph ph-currency-dollar" aria-hidden="true"></i>Customer revenue
+            </button>
+            @* The factors are their own screen — they are master data, not a lens on this window —
+               so the third pill leaves the page rather than swapping what is under it. *@
+            <AuthorizeView Roles="Admin" Context="factorsCtx">
+                <Authorized>
+                    <a class="sla-lens" href="/reports/volume-conversions">
+                        <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>Conversion factors
+                    </a>
+                </Authorized>
+            </AuthorizeView>
+        </nav>
 
         @if (!string.IsNullOrWhiteSpace(errorMessage))
         {
@@ -123,110 +109,170 @@
             </div>
         }
 
-        <section class="sla-filters">
+        <section class="sla-query @(isEditingQuery ? "is-open" : "")">
 
-            <div class="sla-filter-row">
-                <div class="sla-field">
-                    <div class="sla-field-label">Period</div>
-                    <div class="sla-field-row">
-                        <div class="sla-seg" role="group" aria-label="Period preset">
-                            <button type="button" class="sla-seg-opt @(preset == PeriodPreset.LastFourMonths ? "is-on" : "")"
-                                    aria-pressed="@(preset == PeriodPreset.LastFourMonths)"
-                                    @onclick="@(() => ApplyPreset(PeriodPreset.LastFourMonths))">Last 4 months</button>
-                            <button type="button" class="sla-seg-opt @(preset == PeriodPreset.QuarterToDate ? "is-on" : "")"
-                                    aria-pressed="@(preset == PeriodPreset.QuarterToDate)"
-                                    @onclick="@(() => ApplyPreset(PeriodPreset.QuarterToDate))">Quarter to date</button>
-                            <button type="button" class="sla-seg-opt @(preset == PeriodPreset.YearToDate ? "is-on" : "")"
-                                    aria-pressed="@(preset == PeriodPreset.YearToDate)"
-                                    @onclick="@(() => ApplyPreset(PeriodPreset.YearToDate))">Year to date</button>
-                        </div>
-                        <div class="sla-dates">
-                            <NocturneDateField Id="sla-from" Date="fromDate" DateChanged="OnFromDateChanged"
-                                               AriaLabel="From date" Disabled="@isLoading" />
-                            <span class="sla-dates-dash" aria-hidden="true">–</span>
-                            <NocturneDateField Id="sla-to" Date="toDate" DateChanged="OnToDateChanged"
-                                               AriaLabel="To date" Disabled="@isLoading" />
-                        </div>
-                    </div>
-                </div>
-
-                <div class="sla-field">
-                    <div class="sla-field-label">Group by</div>
-                    <div class="sla-seg" role="group" aria-label="Group by">
-                        <button type="button" class="sla-seg-opt @(grouping == ItemVolumeSalesGrouping.Monthly ? "is-on" : "")"
-                                aria-pressed="@(grouping == ItemVolumeSalesGrouping.Monthly)"
-                                @onclick="@(() => SetGrouping(ItemVolumeSalesGrouping.Monthly))">Monthly</button>
-                        <button type="button" class="sla-seg-opt @(grouping == ItemVolumeSalesGrouping.Quarterly ? "is-on" : "")"
-                                aria-pressed="@(grouping == ItemVolumeSalesGrouping.Quarterly)"
-                                @onclick="@(() => SetGrouping(ItemVolumeSalesGrouping.Quarterly))">Quarterly</button>
-                        <button type="button" class="sla-seg-opt @(grouping == ItemVolumeSalesGrouping.Total ? "is-on" : "")"
-                                aria-pressed="@(grouping == ItemVolumeSalesGrouping.Total)"
-                                @onclick="@(() => SetGrouping(ItemVolumeSalesGrouping.Total))">Total only</button>
-                    </div>
-                </div>
-
-                @if (!IsVolume)
+            <div class="sla-query-bar">
+                @if (HasRun)
                 {
-                    @* Money has two currencies here and no rate that would make one figure of
-                       them, so the pivot names the one it is reading. *@
-                    <div class="sla-field">
-                        <div class="sla-field-label">Currency</div>
-                        <div class="sla-seg" role="group" aria-label="Currency">
-                            <button type="button" class="sla-seg-opt @(readZig ? "" : "is-on")"
-                                    aria-pressed="@(!readZig)" @onclick="@(() => SetCurrency(false))">USD</button>
-                            <button type="button" class="sla-seg-opt @(readZig ? "is-on" : "")"
-                                    aria-pressed="@readZig" @onclick="@(() => SetCurrency(true))">ZiG</button>
-                        </div>
-                    </div>
+                    <i class="ph ph-check-circle sla-query-mark" aria-hidden="true"></i>
+                    <span class="sla-query-line">@SummaryLine</span>
+                    <span class="sla-query-ran">Run @RanAt</span>
                 }
-            </div>
-
-            <div class="sla-pickers">
-                <SalesAnalysisPicker Label="Business partners" Required="true"
-                                     Options="accountOptions" Selected="selectedAccounts"
-                                     SelectedChanged="OnAccountsChanged"
-                                     Placeholder="Choose partners" Icon="ph-users-three"
-                                     AriaLabel="Business partners"
-                                     SearchPlaceholder="Name, code, or a range like BP0876-1188"
-                                     Hint="Pick from the list, or type a code range like BP0876-1188 to expand it."
-                                     EmptyText="No cached partners"
-                                     Disabled="@(isLoading || isLoadingOptions)" />
-
-                <SalesAnalysisPicker Label="Items"
-                                     Options="itemOptions" Selected="selectedItems"
-                                     SelectedChanged="OnItemsChanged"
-                                     Placeholder="All items traded" Icon="ph-package"
-                                     AriaLabel="Items"
-                                     SearchPlaceholder="Code, name, or a range like VAN008-019"
-                                     Hint="Leave empty for everything traded, or expand a range like VAN008-019."
-                                     EmptyText="No cached products"
-                                     EmptyCountLabel="Empty covers every item traded"
-                                     Disabled="@(isLoading || isLoadingOptions)" />
-            </div>
-
-            <div class="sla-filter-foot">
-                @if (CanRun || selectedAccounts.Count > 0)
+                else if (CanRun || selectedAccounts.Count > 0)
                 {
-                    <span class="sla-ready is-ok">
-                        <i class="ph ph-check-circle" aria-hidden="true"></i>@ReadySentence
-                    </span>
+                    <i class="ph ph-check-circle sla-query-mark" aria-hidden="true"></i>
+                    <span class="sla-query-line">@ReadySentence</span>
                 }
                 else
                 {
-                    <span class="sla-ready">
-                        <i class="ph ph-circle-dashed" aria-hidden="true"></i>Pick at least one business partner to run this report.
-                    </span>
+                    <i class="ph ph-circle-dashed sla-query-mark is-idle" aria-hidden="true"></i>
+                    <span class="sla-query-line is-idle">Pick at least one business partner to run this report.</span>
                 }
-                <div class="sla-filter-actions">
-                    <button type="button" class="sla-btn sla-btn-ghost" @onclick="ResetFilters" disabled="@isLoading">
-                        Reset
+
+                <div class="sla-query-actions">
+                    <button type="button" class="sla-btn sla-btn-secondary sla-btn-sm" @onclick="ToggleQueryEditor">
+                        @(isEditingQuery ? "Close query" : "Edit query")
                     </button>
-                    <button type="button" class="sla-btn sla-btn-primary" @onclick="RunReportAsync" disabled="@(!CanRun)">
-                        <i class="ph ph-play" aria-hidden="true"></i>@(HasRun ? "Run again" : "Run report")
+                    <button type="button" class="sla-btn sla-btn-primary sla-btn-sm" @onclick="RunReportAsync"
+                            disabled="@(!CanRun)">
+                        @(HasRun ? "Run again" : "Run report")
                     </button>
                 </div>
             </div>
+
+            @if (isEditingQuery)
+            {
+                <div class="sla-query-body">
+
+                    <div class="sla-filter-row">
+                        <div class="sla-field">
+                            <div class="sla-field-label">Period</div>
+                            <div class="sla-field-row">
+                                <div class="sla-seg" role="group" aria-label="Period preset">
+                                    <button type="button" class="sla-seg-opt @(preset == PeriodPreset.LastFourMonths ? "is-on" : "")"
+                                            aria-pressed="@(preset == PeriodPreset.LastFourMonths)"
+                                            @onclick="@(() => ApplyPreset(PeriodPreset.LastFourMonths))">Last 4 months</button>
+                                    <button type="button" class="sla-seg-opt @(preset == PeriodPreset.QuarterToDate ? "is-on" : "")"
+                                            aria-pressed="@(preset == PeriodPreset.QuarterToDate)"
+                                            @onclick="@(() => ApplyPreset(PeriodPreset.QuarterToDate))">Quarter to date</button>
+                                    <button type="button" class="sla-seg-opt @(preset == PeriodPreset.YearToDate ? "is-on" : "")"
+                                            aria-pressed="@(preset == PeriodPreset.YearToDate)"
+                                            @onclick="@(() => ApplyPreset(PeriodPreset.YearToDate))">Year to date</button>
+                                </div>
+                                <div class="sla-dates">
+                                    <NocturneDateField Id="sla-from" Date="fromDate" DateChanged="OnFromDateChanged"
+                                                       AriaLabel="From date" Disabled="@isLoading" />
+                                    <span class="sla-dates-dash" aria-hidden="true">–</span>
+                                    <NocturneDateField Id="sla-to" Date="toDate" DateChanged="OnToDateChanged"
+                                                       AriaLabel="To date" Disabled="@isLoading" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="sla-field">
+                            <div class="sla-field-label">Group by</div>
+                            <div class="sla-seg" role="group" aria-label="Group by">
+                                <button type="button" class="sla-seg-opt @(grouping == ItemVolumeSalesGrouping.Monthly ? "is-on" : "")"
+                                        aria-pressed="@(grouping == ItemVolumeSalesGrouping.Monthly)"
+                                        @onclick="@(() => SetGrouping(ItemVolumeSalesGrouping.Monthly))">Monthly</button>
+                                <button type="button" class="sla-seg-opt @(grouping == ItemVolumeSalesGrouping.Quarterly ? "is-on" : "")"
+                                        aria-pressed="@(grouping == ItemVolumeSalesGrouping.Quarterly)"
+                                        @onclick="@(() => SetGrouping(ItemVolumeSalesGrouping.Quarterly))">Quarterly</button>
+                                <button type="button" class="sla-seg-opt @(grouping == ItemVolumeSalesGrouping.Total ? "is-on" : "")"
+                                        aria-pressed="@(grouping == ItemVolumeSalesGrouping.Total)"
+                                        @onclick="@(() => SetGrouping(ItemVolumeSalesGrouping.Total))">Total only</button>
+                            </div>
+                        </div>
+
+                        @* Crates are the one filter that does not need the query re-run: it re-reads the
+                           window already loaded, so the figures move on the click. *@
+                        <div class="sla-field">
+                            <div class="sla-field-label">Crates</div>
+                            <div class="sla-seg" role="group" aria-label="Crates">
+                                <button type="button" class="sla-seg-opt @(includeCrates ? "is-on" : "")"
+                                        aria-pressed="@includeCrates"
+                                        @onclick="@(() => SetIncludeCrates(true))">Included</button>
+                                <button type="button" class="sla-seg-opt @(includeCrates ? "" : "is-on")"
+                                        aria-pressed="@(!includeCrates)"
+                                        @onclick="@(() => SetIncludeCrates(false))">Excluded</button>
+                            </div>
+                            <div class="sla-field-hint"
+                                 title="@string.Join(", ", ItemVolumeSalesCrates.Codes)">
+                                @ItemVolumeSalesCrates.Codes[0]–@ItemVolumeSalesCrates.Codes[^1], returnable
+                            </div>
+                        </div>
+
+                        @if (!IsVolume)
+                        {
+                            @* Money has two currencies here and no rate that would make one figure of
+                               them, so the pivot names the one it is reading. *@
+                            <div class="sla-field">
+                                <div class="sla-field-label">Currency</div>
+                                <div class="sla-seg" role="group" aria-label="Currency">
+                                    <button type="button" class="sla-seg-opt @(readZig ? "" : "is-on")"
+                                            aria-pressed="@(!readZig)" @onclick="@(() => SetCurrency(false))">USD</button>
+                                    <button type="button" class="sla-seg-opt @(readZig ? "is-on" : "")"
+                                            aria-pressed="@readZig" @onclick="@(() => SetCurrency(true))">ZiG</button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="sla-pickers">
+                        <SalesAnalysisPicker Label="Business partners" Required="true"
+                                             Options="accountOptions" Selected="selectedAccounts"
+                                             SelectedChanged="OnAccountsChanged"
+                                             Placeholder="Choose partners" Icon="ph-users-three"
+                                             AriaLabel="Business partners"
+                                             SearchPlaceholder="Name, code, or a range like BP0876-1188"
+                                             Hint="Pick from the list, or type a code range like BP0876-1188 to expand it."
+                                             EmptyText="No cached partners"
+                                             Disabled="@(isLoading || isLoadingOptions)" />
+
+                        <SalesAnalysisPicker Label="Items"
+                                             Options="itemOptions" Selected="selectedItems"
+                                             SelectedChanged="OnItemsChanged"
+                                             Placeholder="All items traded" Icon="ph-package"
+                                             AriaLabel="Items"
+                                             SearchPlaceholder="Code, name, or a range like VAN008-019"
+                                             Hint="Leave empty for everything traded, or expand a range like VAN008-019."
+                                             EmptyText="No cached products"
+                                             EmptyCountLabel="Empty covers every item traded"
+                                             Disabled="@(isLoading || isLoadingOptions)" />
+                    </div>
+
+                    <div class="sla-query-foot">
+                        <span class="sla-query-note">
+                            Figures come from posted invoices and credit notes only. Drafts are excluded.
+                        </span>
+                        <button type="button" class="sla-btn sla-btn-ghost" @onclick="ResetFilters" disabled="@isLoading">
+                            Reset
+                        </button>
+                        <button type="button" class="sla-btn sla-btn-primary" @onclick="RunReportAsync" disabled="@(!CanRun)">
+                            <i class="ph ph-play" aria-hidden="true"></i>@(HasRun ? "Apply & run" : "Run report")
+                        </button>
+                    </div>
+                </div>
+            }
         </section>
+
+        @* Picking a previous run is a way of setting the query, so the list keeps the query's
+           company: always visible before the first run, and back whenever the query is reopened. *@
+        @if (recentRuns.Count > 0 && (!HasRun || isEditingQuery))
+        {
+            <div class="sla-recents">
+                <span class="sla-recents-label">Recent runs</span>
+                @foreach (var run in recentRuns)
+                {
+                    var recent = run;
+                    <button type="button" class="sla-recent" disabled="@isLoading"
+                            @onclick="@(() => LoadRecentRunAsync(recent))">
+                        <span class="sla-recent-title">@recent.Title</span>
+                        <span class="sla-recent-meta">@recent.Meta</span>
+                    </button>
+                }
+            </div>
+        }
 
         @if (isLoading)
         {
@@ -268,10 +314,18 @@
                                     : $"{ItemSentence} chosen, so everything else is left out.")
                             </span>
                         </li>
+                        <li>
+                            <i class="ph ph-dot-outline" aria-hidden="true"></i>
+                            <span>
+                                @(includeCrates
+                                    ? "Returnable crates counted as items."
+                                    : "Returnable crates left out of every figure.")
+                            </span>
+                        </li>
                     </ul>
                 </div>
                 <div class="sla-idle-art" aria-hidden="true">
-                    <div class="sla-rail-label">What you will get</div>
+                    <div class="sla-field-label">What you will get</div>
                     <div class="sla-idle-bars">
                         <span style="height:46%;background:var(--sla-series-4)"></span>
                         <span style="height:62%;background:var(--sla-series-3)"></span>
@@ -293,22 +347,11 @@
             var columns = Columns;
             var columnTotals = ColumnTotals;
             var rows = Rows;
+            var visibleRows = VisibleRows;
             var chartRows = ChartRows;
             var strongest = StrongestColumnIndex;
 
             <div class="sla-result">
-
-                <div class="sla-tags">
-                    <span class="sla-tag">@ReportGroupLabel</span>
-                    <span class="sla-tag">@ReportPeriodSentence</span>
-                    <span class="sla-tag">@ReportPartnerSentence</span>
-                    <span class="sla-tag">@ReportItemSentence</span>
-                    @if (!IsVolume)
-                    {
-                        <span class="sla-tag">@Currency</span>
-                    }
-                    <span class="sla-ran">Run @RanAt</span>
-                </div>
 
                 @if (IsVolume && report.ItemCodesWithoutFactor.Count > 0)
                 {
@@ -317,8 +360,19 @@
                         <div class="sla-alert-body">
                             <strong>The net volume below is a floor.</strong>
                             @report.ItemCodesWithoutFactor.Count item(s) moved in this window with no conversion
-                            factor, so their quantity is not in any volume figure here:
-                            @string.Join(", ", report.ItemCodesWithoutFactor.Take(24))@(report.ItemCodesWithoutFactor.Count > 24 ? ", …" : "")
+                            factor, so their quantity is not in any volume figure here.
+                            <div class="sla-codes">
+                                @foreach (var missing in report.ItemCodesWithoutFactor.Take(24))
+                                {
+                                    <span class="sla-code">@missing</span>
+                                }
+                                @if (report.ItemCodesWithoutFactor.Count > 24)
+                                {
+                                    <span class="sla-code is-more">
+                                        +@(report.ItemCodesWithoutFactor.Count - 24) more
+                                    </span>
+                                }
+                            </div>
                         </div>
                         <AuthorizeView Roles="Admin" Context="fixCtx">
                             <Authorized>
@@ -327,6 +381,23 @@
                                 </a>
                             </Authorized>
                         </AuthorizeView>
+                    </div>
+                }
+
+                @if (!includeCrates && CratesInWindow.Count > 0)
+                {
+                    <div class="sla-alert is-info">
+                        <i class="ph ph-package" aria-hidden="true"></i>
+                        <div class="sla-alert-body">
+                            Crates are out of every figure below —
+                            @string.Join(", ", CratesInWindow) moved in this window and
+                            @(CratesInWindow.Count == 1 ? "was" : "were") left uncounted. The invoice and credit-note
+                            counts still include the documents they moved on.
+                        </div>
+                        <button type="button" class="sla-btn sla-btn-secondary sla-btn-sm"
+                                @onclick="@(() => SetIncludeCrates(true))">
+                            Put them back
+                        </button>
                     </div>
                 }
 
@@ -345,7 +416,17 @@
                 <div class="sla-stats">
                     <article class="sla-stat">
                         <span class="sla-stat-label">@(IsVolume ? "Net volume" : "Net revenue")</span>
-                        <span class="sla-stat-value">@FormatHeadline(GrandTotal)</span>
+                        <span class="sla-stat-value">
+                            @if (HeadlineLead.Length > 0)
+                            {
+                                <span class="sla-stat-unit">@HeadlineLead</span>
+                            }
+                            @FormatValue(GrandTotal)
+                            @if (HeadlineTrail.Length > 0)
+                            {
+                                <span class="sla-stat-unit">@HeadlineTrail</span>
+                            }
+                        </span>
                         <span class="sla-stat-note">
                             @rows.Count @EntityPlural over @columns.Count @(columns.Count == 1 ? "period" : "periods")
                         </span>
@@ -371,7 +452,9 @@
                     <section class="sla-panel sla-chart">
                         <div class="sla-panel-head">
                             <h2 class="sla-panel-title">@(IsVolume ? "Volume by period" : "Revenue by period")</h2>
-                            <span class="sla-panel-sub">stacked by the largest @chartRows.Count @EntityPlural</span>
+                            <span class="sla-panel-sub">
+                                stacked by the largest @chartRows.Count @EntityPlural — hover a column for the detail
+                            </span>
                             <div class="sla-legend">
                                 @for (var series = 0; series < chartRows.Count; series++)
                                 {
@@ -398,16 +481,88 @@
                                     @for (var column = 0; column < columns.Count; column++)
                                     {
                                         var index = column;
+                                        var hover = HoverFor(index);
+
+                                        @* The whole column height is the hover target, not just the
+                                           filled part of it: a short bar is the one a reader most
+                                           wants to interrogate, and it is the hardest to point at.
+                                           tabindex makes the same card reachable from the keyboard. *@
                                         <div class="sla-bar-slot">
-                                            <div class="sla-bar @(columns[index].IsPartial ? "is-partial" : "")"
-                                                 style="@BarStyle(columnTotals[index])"
-                                                 title="@columns[index].Label · @FormatValue(columnTotals[index])">
-                                                @for (var series = 0; series < chartRows.Count; series++)
-                                                {
-                                                    var band = series;
-                                                    <span class="sla-band"
-                                                          style="@SegmentStyle(chartRows[band].Cells[index], columnTotals[index], band)"></span>
-                                                }
+                                            @* The native tooltip is the fallback for the phone
+                                               layout, which drops the card for want of room. *@
+                                            <div class="sla-bar-hit" tabindex="0"
+                                                 title="@hover.Label · @FormatHeadline(hover.Total)"
+                                                 aria-label="@hover.Label, @FormatHeadline(hover.Total)">
+                                                <div class="sla-bar @(columns[index].IsPartial ? "is-partial" : "")"
+                                                     style="@BarStyle(columnTotals[index])">
+                                                    @for (var series = 0; series < chartRows.Count; series++)
+                                                    {
+                                                        var band = series;
+                                                        <span class="sla-band"
+                                                              style="@SegmentStyle(chartRows[band].Cells[index], columnTotals[index], band)"></span>
+                                                    }
+                                                </div>
+
+                                                <div class="sla-hover" role="tooltip" style="@HoverStyle(columnTotals[index])">
+                                                    <div class="sla-hover-head">
+                                                        <span class="sla-hover-title">@hover.Label</span>
+                                                        @if (hover.IsPartial)
+                                                        {
+                                                            <span class="sla-hover-flag">partial</span>
+                                                        }
+                                                    </div>
+                                                    <div class="sla-hover-span">@hover.Span</div>
+                                                    <div class="sla-hover-total">@FormatHeadline(hover.Total)</div>
+                                                    <div class="sla-hover-meta">
+                                                        @FormatShare(hover.WindowSharePercent) of the window ·
+                                                        @hover.InvoiceCount.ToString("N0") invoice(s) ·
+                                                        @hover.CreditNoteCount.ToString("N0") credit note(s)
+                                                    </div>
+                                                    @if (IsVolume)
+                                                    {
+                                                        <div class="sla-hover-meta">
+                                                            @FormatQuantity(hover.NetQuantity) unit(s) moved, converted and not
+                                                        </div>
+                                                    }
+
+                                                    <div class="sla-hover-rows">
+                                                        @foreach (var band in hover.Bands)
+                                                        {
+                                                            <div class="sla-hover-row">
+                                                                <span class="sla-hover-dot" style="background:@band.Fill"
+                                                                      aria-hidden="true"></span>
+                                                                <span class="sla-hover-name" title="@band.Name">@band.Name</span>
+                                                                <span class="sla-hover-code">@band.Code</span>
+                                                                <span class="sla-hover-value @(band.Value < 0 ? "is-credit" : "")">
+                                                                    @FormatValue(band.Value)
+                                                                </span>
+                                                                <span class="sla-hover-pct">@FormatShare(band.SharePercent)</span>
+                                                            </div>
+                                                        }
+                                                        @if (hover.OtherCount > 0)
+                                                        {
+                                                            <div class="sla-hover-row is-other">
+                                                                <span class="sla-hover-dot" aria-hidden="true"></span>
+                                                                <span class="sla-hover-name">
+                                                                    @hover.OtherCount other @(hover.OtherCount == 1 ? EntityLabel.ToLowerInvariant() : EntityPlural)
+                                                                </span>
+                                                                <span class="sla-hover-code"></span>
+                                                                <span class="sla-hover-value @(hover.Other < 0 ? "is-credit" : "")">
+                                                                    @FormatValue(hover.Other)
+                                                                </span>
+                                                                <span class="sla-hover-pct">
+                                                                    @FormatShare(hover.Total == 0 ? 0m : hover.Other / hover.Total * 100m)
+                                                                </span>
+                                                            </div>
+                                                        }
+                                                        @if (hover.Bands.Count == 0 && hover.OtherCount == 0)
+                                                        {
+                                                            <div class="sla-hover-row is-other">
+                                                                <span class="sla-hover-name">Nothing moved in this period.</span>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     }
@@ -431,7 +586,22 @@
                 <section class="sla-panel sla-tablecard">
                     <div class="sla-panel-head">
                         <h2 class="sla-panel-title">@(IsVolume ? "Volume breakdown" : "Revenue breakdown")</h2>
-                        <span class="sla-panel-sub">@UnitNote</span>
+                        <span class="sla-panel-sub">
+                            @UnitNote@(IsTableNarrowed ? $" · showing {visibleRows.Count} of {rows.Count}" : string.Empty)
+                        </span>
+                        <div class="sla-table-tools">
+                            <label class="sla-check">
+                                <input type="checkbox" checked="@hideEmptyRows" @onchange="OnHideEmptyChanged" />
+                                Hide @EntityPlural with nothing in the window
+                            </label>
+                            <div class="sla-search">
+                                <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                                <input class="sla-input" type="search" value="@tableFilter"
+                                       @oninput="OnTableFilterChanged"
+                                       aria-label="Filter rows"
+                                       placeholder="@(IsVolume ? "Filter items or codes…" : "Filter partners or codes…")" />
+                            </div>
+                        </div>
                     </div>
 
                     @if (rows.Count == 0)
@@ -440,6 +610,14 @@
                             <i class="ph ph-file-dashed" aria-hidden="true"></i>
                             <strong>Nothing moved in this window</strong>
                             <span>Widen the date range, or check the partner and item selection.</span>
+                        </div>
+                    }
+                    else if (visibleRows.Count == 0)
+                    {
+                        <div class="sla-empty">
+                            <i class="ph ph-funnel" aria-hidden="true"></i>
+                            <strong>No @EntityPlural match that filter</strong>
+                            <span>@rows.Count @EntityPlural moved in this window — clear the filter to see them.</span>
                         </div>
                     }
                     else
@@ -458,7 +636,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach (var row in rows)
+                                    @foreach (var row in visibleRows)
                                     {
                                         <tr class="@(row.IsConverted ? "" : "is-unconverted")">
                                             <td>
@@ -491,6 +669,8 @@
                                             </td>
                                         </tr>
                                     }
+                                    @* The total row is the whole window's, filtered or not: a total that
+                                       followed the search box would be a different report per keystroke. *@
                                     <tr class="sla-total-row">
                                         <td>All @EntityPlural</td>
                                         @foreach (var total in columnTotals)
@@ -503,14 +683,14 @@
                                 </tbody>
                             </table>
                         </div>
+                    }
 
-                        @if (HasPartialColumn)
-                        {
-                            <p class="sla-footnote">
-                                Columns marked * are partial — the window ends on
-                                @(toDate?.ToString("dd MMM yyyy") ?? "the chosen date"), part-way through them.
-                            </p>
-                        }
+                    @if (HasPartialColumn)
+                    {
+                        <p class="sla-footnote">
+                            Columns marked * are partial — the window ends on
+                            @(toDate?.ToString("dd MMM yyyy") ?? "the chosen date"), part-way through them.
+                        </p>
                     }
                 </section>
             </div>
@@ -522,5 +702,5 @@
                 <i class="ph ph-check-circle" aria-hidden="true"></i>@toast
             </div>
         }
-    </main>
+    </div>
 </div>
