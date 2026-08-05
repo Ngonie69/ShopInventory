@@ -5573,31 +5573,19 @@ ORDER BY T0.""ItemCode""";
                     // Look through ItemPrices array to find the price for our price list
                     if (item.TryGetProperty("ItemPrices", out var itemPricesArray) && itemPricesArray.ValueKind == JsonValueKind.Array)
                     {
-                        foreach (var priceEntry in itemPricesArray.EnumerateArray())
+                        var resolved = ResolvePriceForList(itemPricesArray, priceListNum, itemCode);
+                        if (resolved is not null)
                         {
-                            var pl = priceEntry.TryGetProperty("PriceList", out var plProp) ? GetIntOrString(plProp) ?? -1 : -1;
-                            if (pl == priceListNum)
+                            prices.Add(new ItemPriceByListDto
                             {
-                                var price = priceEntry.TryGetProperty("Price", out var priceProp) ? GetDecimalOrNull(priceProp) : null;
-                                if (price is null || price <= 0)
-                                {
-                                    break;
-                                }
-
-                                var currency = priceEntry.TryGetProperty("Currency", out var currProp) ? currProp.GetString() : null;
-
-                                prices.Add(new ItemPriceByListDto
-                                {
-                                    ItemCode = itemCode,
-                                    ItemName = itemName,
-                                    ForeignName = foreignName,
-                                    Price = price.Value,
-                                    PriceListNum = priceListNum,
-                                    PriceListName = priceListName,
-                                    Currency = currency
-                                });
-                                break;
-                            }
+                                ItemCode = itemCode,
+                                ItemName = itemName,
+                                ForeignName = foreignName,
+                                Price = resolved.Value.Price,
+                                PriceListNum = priceListNum,
+                                PriceListName = priceListName,
+                                Currency = resolved.Value.Currency
+                            });
                         }
                     }
                 }
@@ -5609,6 +5597,115 @@ ORDER BY T0.""ItemCode""";
         }
 
         return (prices, nextLink);
+    }
+
+    /// <summary>
+    /// Finds the price an item carries on <paramref name="priceListNum"/>, looking past a
+    /// zero header row into the per-UoM prices nested beneath it.
+    /// </summary>
+    /// <remarks>
+    /// An item priced per unit of measure returns a zero (or absent) Price on the ItemPrices
+    /// entry itself and holds the real figure in UoMPrices. Reading only the header dropped
+    /// such an item from the result with no error, and the approval path then posted the line
+    /// to SAP at 0.00 — see the guard in SalesOrderService.EnsureOrderLinesArePriced.
+    ///
+    /// Where the nested rows disagree the item is deliberately left unpriced rather than
+    /// guessed at: this lookup is not told which UoM the order line uses, and a wrong price on
+    /// a posted document is worse than a blocked approval naming the item.
+    /// </remarks>
+    private (decimal Price, string? Currency)? ResolvePriceForList(
+        JsonElement itemPricesArray,
+        int priceListNum,
+        string itemCode)
+    {
+        var resolved = ResolveItemPriceForList(itemPricesArray, priceListNum, out var ambiguousCandidates);
+
+        if (resolved is null && ambiguousCandidates.Count > 1)
+        {
+            _logger.LogWarning(
+                "Item {ItemCode} has no price on the header of price list {PriceListNum} and its per-UoM prices disagree ({Prices}); leaving it unpriced rather than choosing one",
+                itemCode,
+                priceListNum,
+                string.Join(", ", ambiguousCandidates));
+        }
+
+        return resolved;
+    }
+
+    /// <summary>
+    /// The pure resolution the logging wrapper above delegates to. Reports the distinct per-UoM
+    /// prices it saw so the caller can say why an item came back unpriced.
+    /// </summary>
+    internal static (decimal Price, string? Currency)? ResolveItemPriceForList(
+        JsonElement itemPricesArray,
+        int priceListNum,
+        out IReadOnlyList<decimal> ambiguousCandidates)
+    {
+        ambiguousCandidates = [];
+        var uomCandidates = new List<(decimal Price, string? Currency)>();
+
+        foreach (var priceEntry in itemPricesArray.EnumerateArray())
+        {
+            var pl = priceEntry.TryGetProperty("PriceList", out var plProp) ? GetIntOrString(plProp) ?? -1 : -1;
+            if (pl != priceListNum)
+            {
+                continue;
+            }
+
+            var price = priceEntry.TryGetProperty("Price", out var priceProp) ? GetDecimalOrNull(priceProp) : null;
+            var currency = priceEntry.TryGetProperty("Currency", out var currProp) ? currProp.GetString() : null;
+
+            // A priced header wins outright; SAP applies it whatever the UoM.
+            if (price is > 0)
+            {
+                return (price.Value, currency);
+            }
+
+            if (!priceEntry.TryGetProperty("UoMPrices", out var uomPrices)
+                || uomPrices.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (var uomPrice in uomPrices.EnumerateArray())
+            {
+                // A UoM row may repeat the price list or inherit it from the entry it sits in.
+                var uomList = uomPrice.TryGetProperty("PriceList", out var uomListProp)
+                    ? GetIntOrString(uomListProp)
+                    : null;
+                if (uomList.HasValue && uomList.Value != priceListNum)
+                {
+                    continue;
+                }
+
+                var nestedPrice = uomPrice.TryGetProperty("Price", out var uomPriceProp)
+                    ? GetDecimalOrNull(uomPriceProp)
+                    : null;
+                if (nestedPrice is not > 0)
+                {
+                    continue;
+                }
+
+                var nestedCurrency = uomPrice.TryGetProperty("Currency", out var uomCurrProp)
+                    ? uomCurrProp.GetString()
+                    : currency;
+
+                uomCandidates.Add((nestedPrice.Value, nestedCurrency ?? currency));
+            }
+        }
+
+        var distinctPrices = uomCandidates
+            .Select(candidate => candidate.Price)
+            .Distinct()
+            .ToList();
+
+        if (distinctPrices.Count == 1)
+        {
+            return uomCandidates[0];
+        }
+
+        ambiguousCandidates = distinctPrices;
+        return null;
     }
 
     private async Task<List<ItemPriceByListDto>> ExecutePriceListQueryAsync(
@@ -5784,7 +5881,18 @@ ORDER BY T0.""ItemCode""";
         if (codes.Count == 0) return [];
 
         var businessPartner = await GetBusinessPartnerByCodeAsync(cardCode, cancellationToken);
-        var priceListNum = businessPartner?.PriceListNum ?? 1;
+
+        // Falling back to list 1 was silent and wrong. List 1 is the base list and carries 0.00 for
+        // a great many items, so a BP lookup that came back empty — an outage, a bad code — priced
+        // the whole order from a list the customer does not use and produced zeros that read as
+        // real prices. There is no safe default for "which list does this customer buy on".
+        if (businessPartner?.PriceListNum is not > 0)
+        {
+            throw new InvalidOperationException(
+                $"Cannot price items for customer {cardCode}: SAP did not return a price list for this business partner.");
+        }
+
+        var priceListNum = businessPartner.PriceListNum.Value;
 
         var prices = await GetItemPricesForPriceListAsync(priceListNum, codes, cancellationToken);
 
@@ -5835,7 +5943,11 @@ ORDER BY T0.""ItemCode""";
             while (true)
             {
                 var itemFilter = string.Join(" or ", batch.Select(code => $"ItemCode eq '{code}'"));
-                var url = $"Items?$select=ItemCode,ItemName,ForeignName,ItemPrices&$filter=ItemType eq 'itItems' and ({itemFilter})&$top={pageSize}&$skip={skip}";
+                // $orderby is not cosmetic: without it SAP is free to return these rows in any
+                // order, so which items land on which page changes between identical calls. Paired
+                // with the skip arithmetic below, an unordered page boundary is what lets one item
+                // vanish from one call and come back on the next.
+                var url = $"Items?$select=ItemCode,ItemName,ForeignName,ItemPrices&$filter=ItemType eq 'itItems' and ({itemFilter})&$orderby=ItemCode&$top={pageSize}&$skip={skip}";
                 var currentSession = _sessionId;
 
                 var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
@@ -5883,8 +5995,42 @@ ORDER BY T0.""ItemCode""";
                     break;
                 }
 
-                skip += pageSize;
+                // Advance by the rows SAP actually returned, not by the page size we asked for.
+                // These entities are large — an item carries ~100 ItemPrices rows — so SAP can cut
+                // a page short and still hand back a continuation link. Adding the full page size
+                // to skip then steps straight over every item in the gap, and they come back
+                // unpriced with no error anywhere. The full-catalogue scan above already advances
+                // by the row count; this path did not.
+                var rowsReturned = GetODataValueCount(content);
+                if (rowsReturned <= 0)
+                {
+                    _logger.LogWarning(
+                        "Targeted Items API lookup for price list {PriceListNum} returned an empty page with a continuation link at skip {Skip}; stopping rather than repeating the same page",
+                        priceListNum,
+                        skip);
+                    break;
+                }
+
+                skip += rowsReturned;
             }
+        }
+
+        // Anything the caller asked about that SAP did not return has no price as far as the rest
+        // of the system is concerned, and a sales order line for it would post at 0.00. Name them
+        // here, at the point the information is lost, rather than leaving the posting guard to be
+        // the first place anyone finds out.
+        var missingItemCodes = safeItemCodes
+            .Where(code => !prices.ContainsKey(code))
+            .ToList();
+
+        if (missingItemCodes.Count > 0)
+        {
+            _logger.LogWarning(
+                "Targeted Items API lookup returned no price on list {PriceListNum} for {MissingCount} of {RequestedCount} requested item(s): {MissingItemCodes}",
+                priceListNum,
+                missingItemCodes.Count,
+                safeItemCodes.Count,
+                string.Join(", ", missingItemCodes));
         }
 
         _logger.LogInformation(
