@@ -784,14 +784,18 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         return value == 0 ? "—" : FormatValue(value);
     }
 
-    protected string FormatValue(decimal value) => IsVolume
-        ? value.ToString("N3", CultureInfo.InvariantCulture)
-        : value.ToString("N2", CultureInfo.InvariantCulture);
+    /// <summary>
+    /// Both lenses read to two decimals. Volume once carried three, and across a pivot of
+    /// mostly-whole litres that third place was a column of noise on every figure. The report
+    /// itself now rounds to two, so this format is not hiding a longer number.
+    /// </summary>
+    protected static string FormatValue(decimal value) =>
+        value.ToString("N2", CultureInfo.InvariantCulture);
 
     /// <summary>The headline figure, carrying its unit — the only place the unit is spelled out.</summary>
     protected string FormatHeadline(decimal value) => IsVolume
-        ? $"{value.ToString("N3", CultureInfo.InvariantCulture)} L"
-        : $"{Currency} {value.ToString("N2", CultureInfo.InvariantCulture)}";
+        ? $"{FormatValue(value)} L"
+        : $"{Currency} {FormatValue(value)}";
 
     protected decimal CreditedBack => report is null
         ? 0m

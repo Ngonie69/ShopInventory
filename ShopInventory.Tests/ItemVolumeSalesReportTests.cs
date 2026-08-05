@@ -91,6 +91,32 @@ public sealed class ItemVolumeSalesReportTests : IDisposable
     }
 
     [Fact]
+    public async Task A_factor_with_a_long_tail_is_rounded_to_two_decimals_rather_than_cut_short()
+    {
+        // Factors are held to six decimals, so the product almost never lands on two. The
+        // report rounds it there rather than leaving a long figure for the screen and the
+        // spreadsheet to shorten differently — and rounds it rather than trimming it:
+        // 99 x 0.3333 is 32.9967, which is 33.00 and not 32.99.
+        await SeedFactorAsync("YOG143", 0.3333m);
+
+        var handler = CreateHandler(
+            invoices: [Invoice(1, 5006, "CIS006", "2026-07-04", ("YOG143", 100m, 250m))],
+            creditNotes: [CreditNote(9, 7006, "CIS006", "2026-07-18", ("YOG143", 1m, 2.5m))]);
+
+        var result = await handler.Handle(Query(), default);
+
+        var item = Assert.Single(result.Value.ItemTotals);
+        Assert.Equal(33.33m, item.InvoicedVolume);
+        Assert.Equal(0.33m, item.CreditedVolume);
+        Assert.Equal(33.00m, item.NetVolume);
+
+        // The detail is rounded on the same rule, so a line-by-line sum still reconciles.
+        Assert.Equal(
+            item.NetVolume,
+            result.Value.DocumentLines.Sum(line => line.Volume));
+    }
+
+    [Fact]
     public async Task An_item_with_no_factor_is_reported_unconverted_rather_than_as_zero_volume()
     {
         await SeedFactorAsync("YOG143", 0.6m);
