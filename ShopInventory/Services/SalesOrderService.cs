@@ -2263,33 +2263,40 @@ public class SalesOrderService : ISalesOrderService
         var linesRepaired = 0;
         var unresolved = 0;
 
+        // One read for the whole set rather than one per order. This repair is bulk by nature, and
+        // a Service Layer round-trip costs far more in the chance of a multi-second stall than in
+        // the rows it carries — so a hundred orders used to mean a hundred separate chances to
+        // stall. Only the header money is read: every field this repair applies lives there, and
+        // asking for DocumentLines is what makes an order document expensive to fetch.
+        IReadOnlyDictionary<int, SAPSalesOrder> sapOrdersByDocEntry;
+        try
+        {
+            sapOrdersByDocEntry = await _sapClient.GetSalesOrderFinancialsByDocEntriesAsync(
+                orders.Select(order => order.SAPDocEntry.GetValueOrDefault()),
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // A read that fails now takes the whole run with it, where a per-order read could leave
+            // some orders repaired and some not. That is the safer end of the trade: the transient
+            // retry has already been spent by the time this throws, the summary says plainly that
+            // nothing resolved, and the repair is re-runnable against the same order ids.
+            _logger.LogWarning(
+                ex,
+                "Could not read SAP documents for {OrderCount} sales order(s) while repairing their tax mirrors.",
+                orders.Count);
+            return new SalesOrderTaxRepairSummary(0, 0, orders.Count);
+        }
+
         foreach (var order in orders)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            SAPSalesOrder? sapOrder;
-            try
-            {
-                sapOrder = await _sapClient.GetSalesOrderByDocEntryAsync(
-                    order.SAPDocEntry.GetValueOrDefault(),
-                    cancellationToken);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "Could not read SAP document {DocEntry} for sales order {OrderNumber} while repairing its tax mirror.",
-                    order.SAPDocEntry,
-                    order.OrderNumber);
-                unresolved++;
-                continue;
-            }
-
-            if (sapOrder == null)
+            if (!sapOrdersByDocEntry.TryGetValue(order.SAPDocEntry.GetValueOrDefault(), out var sapOrder))
             {
                 _logger.LogWarning(
                     "SAP holds no document under DocEntry {DocEntry} for sales order {OrderNumber}; leaving its tax mirror untouched.",

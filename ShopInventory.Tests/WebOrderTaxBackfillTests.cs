@@ -263,9 +263,25 @@ public sealed class WebOrderTaxBackfillTests : IDisposable
     private SalesOrderService CreateSalesOrderService(SAPSalesOrder? sapOrder)
     {
         var sap = StubProxy.For<ISAPServiceLayerClient>((method, _) =>
-            method.Name == nameof(ISAPServiceLayerClient.GetSalesOrderByDocEntryAsync)
-                ? Task.FromResult(sapOrder)
-                : throw new InvalidOperationException($"Unexpected call to {method.Name}"));
+        {
+            // The repair reads every document it needs in one batch, so the stub answers the set
+            // read rather than the single one. A null sapOrder stands for a DocEntry SAP does not
+            // hold, which the batch expresses by that key simply being absent.
+            if (method.Name == nameof(ISAPServiceLayerClient.GetSalesOrderFinancialsByDocEntriesAsync))
+            {
+                IReadOnlyDictionary<int, SAPSalesOrder> resolved = sapOrder is null
+                    ? new Dictionary<int, SAPSalesOrder>()
+                    : new Dictionary<int, SAPSalesOrder> { [sapOrder.DocEntry] = sapOrder };
+                return Task.FromResult(resolved);
+            }
+
+            if (method.Name == nameof(ISAPServiceLayerClient.GetSalesOrderByDocEntryAsync))
+            {
+                return Task.FromResult(sapOrder);
+            }
+
+            throw new InvalidOperationException($"Unexpected call to {method.Name}");
+        });
 
         return new SalesOrderService(
             _context,

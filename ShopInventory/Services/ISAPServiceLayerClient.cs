@@ -136,6 +136,20 @@ public interface ISAPServiceLayerClient
     Task<Dictionary<string, Item>> GetItemsByCodesAsync(IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Reads the header financials of several sales orders by DocEntry, keyed by DocEntry.
+    /// </summary>
+    /// <remarks>
+    /// Only the money on the document header is populated — DocNum, DocCurrency, DocTotal, VatSum,
+    /// DiscountPercent and TotalDiscount. <c>DocumentLines</c> is deliberately not requested, so
+    /// this is not a substitute for <see cref="GetSalesOrderByDocEntryAsync"/> when the lines are
+    /// wanted; asking SAP for them is what makes an order document expensive. A DocEntry SAP does
+    /// not hold is absent from the result rather than being an error.
+    /// </remarks>
+    Task<IReadOnlyDictionary<int, SAPSalesOrder>> GetSalesOrderFinancialsByDocEntriesAsync(
+        IEnumerable<int> docEntries,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Resolves item names for the given codes, for display next to a bare item code.
     /// </summary>
     /// <remarks>

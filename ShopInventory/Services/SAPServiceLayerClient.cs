@@ -78,6 +78,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // URL, so this is bounded by URL length rather than by anything SAP-side.
     private const int OrderNumberProbeChunkSize = 25;
 
+    // How many DocEntries go into one `DocEntry eq N or ...` filter. Header-only rows are small
+    // enough that fifty of them stay well inside a single response worth waiting on.
+    private const int DocEntryProbeChunkSize = 50;
+
     // Same reasoning for a set of card codes ORed into one filter.
     private const int CustomerFilterChunkSize = 25;
 
@@ -13655,6 +13659,87 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
     /// $orderby — sorting on the UDF would make HANA materialise and order the matched set — so
     /// duplicates are resolved client-side by taking the highest DocEntry per order number.
     /// </remarks>
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<int, SAPSalesOrder>> GetSalesOrderFinancialsByDocEntriesAsync(
+        IEnumerable<int> docEntries,
+        CancellationToken cancellationToken = default)
+    {
+        var wanted = docEntries
+            .Where(docEntry => docEntry > 0)
+            .Distinct()
+            .ToList();
+
+        var resolved = new Dictionary<int, SAPSalesOrder>();
+        if (wanted.Count == 0)
+        {
+            return resolved;
+        }
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        foreach (var chunk in wanted.Chunk(DocEntryProbeChunkSize))
+        {
+            var filter = string.Join(" or ", chunk.Select(docEntry => $"DocEntry eq {docEntry}"));
+            var url = $"Orders?$filter=({filter})"
+                + $"&$top={chunk.Length}"
+                + "&$select=DocEntry,DocNum,DocCurrency,DocTotal,VatSum,DiscountPercent,TotalDiscount";
+
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={chunk.Length}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                return request;
+            }
+
+            var currentSession = _sessionId;
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read header financials for {chunk.Length} sales order(s) by DocEntry",
+                cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    "read sales order header financials by DocEntry after SAP re-authentication",
+                    cancellationToken);
+            }
+
+            using var responseOwner = response;
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError(
+                    "Failed to read sales order header financials by DocEntry: {StatusCode} - {Error}",
+                    response.StatusCode,
+                    errorContent);
+                throw new Exception($"Failed to read sales order header financials by DocEntry: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var matches = JsonSerializer.Deserialize<SAPResponse<SAPSalesOrder>>(content)?.Value ?? [];
+
+            foreach (var match in matches)
+            {
+                if (match.DocEntry > 0)
+                {
+                    resolved[match.DocEntry] = match;
+                }
+            }
+        }
+
+        return resolved;
+    }
+
     public async Task<IReadOnlyDictionary<string, SAPSalesOrder>> GetSalesOrdersByOrderNumbersAsync(
         IEnumerable<string> orderNumbers,
         CancellationToken cancellationToken = default)
