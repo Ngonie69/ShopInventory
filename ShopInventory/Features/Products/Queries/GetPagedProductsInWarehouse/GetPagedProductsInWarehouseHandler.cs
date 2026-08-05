@@ -150,7 +150,7 @@ public sealed class GetPagedProductsInWarehouseHandler(
             QuantityOnStock = item.QuantityOnStock,
             Price = price,
             DefaultWarehouse = item.DefaultWarehouse,
-            Category = item.ItemsGroupCode?.ToString(),
+            Category = item.U_ItemGroup,
             UoM = item.InventoryUOM,
             Batches = itemBatches.Select(MapToBatchDto).ToList()
         };

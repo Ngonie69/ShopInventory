@@ -17,6 +17,14 @@ public class ProductDto
     public decimal Price { get; set; }
     public string? DefaultWarehouse { get; set; }
     public string? UoM { get; set; }
+
+    /// <summary>
+    /// The item's category as SAP's user-defined <c>OITM.U_ItemGroup</c> text — never the
+    /// standard item group code (<c>ItemsGroupCode</c>/OITB), which is a number and means
+    /// something else entirely. Every handler that fills this must read the same field, or a
+    /// caller comparing Category across two endpoints compares two unrelated things.
+    /// Null where the handler does not supply it; absence is fine, a second meaning is not.
+    /// </summary>
     public string? Category { get; set; }
     public List<BatchDto>? Batches { get; set; }
 }
