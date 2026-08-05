@@ -1948,7 +1948,7 @@
         cachedWarehouses
             .Where(w => !string.IsNullOrWhiteSpace(w.WarehouseCode))
             .Select(w => new NocturneSelectOption<string>(
-                w.WarehouseCode, w.WarehouseName ?? w.WarehouseCode) { Hint = w.WarehouseCode });
+                w.WarehouseCode!, w.WarehouseName ?? w.WarehouseCode!) { Hint = w.WarehouseCode });
 
     private IEnumerable<NocturneSelectOption<string>> RequestApprovalOptions =>
         RequestStatusOptions

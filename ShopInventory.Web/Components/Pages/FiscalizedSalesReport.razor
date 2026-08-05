@@ -960,7 +960,8 @@
 
     private IEnumerable<NocturneSelectOption<string>> WarehouseFilterOptions =>
         warehouses
-            .Select(wh => new NocturneSelectOption<string>(wh.WarehouseCode, wh.WarehouseCode, "info"))
+            .Where(wh => !string.IsNullOrWhiteSpace(wh.WarehouseCode))
+            .Select(wh => new NocturneSelectOption<string>(wh.WarehouseCode!, wh.WarehouseCode!, "info"))
             .Prepend(NocturneSelectOption.All("All warehouses"));
 
     // The values are the strings "true" and "false" because the filter is bound

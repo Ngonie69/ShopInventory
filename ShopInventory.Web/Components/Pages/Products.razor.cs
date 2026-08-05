@@ -24,7 +24,9 @@ public partial class Products : IDisposable
         PageSizes.Select(size => new NocturneSelectOption<int>(size, size.ToString()));
 
     private IEnumerable<NocturneSelectOption<string>> WarehouseSelectOptions =>
-        warehouses.Select(w => new NocturneSelectOption<string>(w.WarehouseCode, w.DisplayName));
+        warehouses
+            .Where(w => !string.IsNullOrWhiteSpace(w.WarehouseCode))
+            .Select(w => new NocturneSelectOption<string>(w.WarehouseCode!, w.DisplayName));
 
     // Long enough that typing an item code does not fire a query per keystroke,
     // short enough that the list still feels like it is following the field.
