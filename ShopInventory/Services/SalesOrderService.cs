@@ -2721,28 +2721,45 @@ public class SalesOrderService : ISalesOrderService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        if (missingItemCodes.Count == 0)
+        {
+            return lineUomLookup;
+        }
+
+        // One call for every unresolved code rather than one per code. This runs inside order
+        // validation, and a Service Layer round-trip carries roughly a one-in-thirteen chance of
+        // stalling several seconds regardless of how little it asks for — so on a multi-line order
+        // the number of calls, not the size of any one of them, decided how long a save took.
+        Dictionary<string, Item> sapItems;
+        try
+        {
+            sapItems = await _sapClient.GetItemsByCodesAsync(missingItemCodes, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve sales order UoMs from SAP for {Count} items", missingItemCodes.Count);
+            return lineUomLookup;
+        }
+
         foreach (var itemCode in missingItemCodes)
         {
-            try
-            {
-                var item = await _sapClient.GetItemByCodeAsync(itemCode, cancellationToken);
-                var resolvedUomCode = NormalizeResolvedUomCode(item?.SalesUnit)
-                    ?? NormalizeResolvedUomCode(item?.InventoryUOM);
+            var resolvedUomCode = sapItems.TryGetValue(itemCode, out var item)
+                ? NormalizeResolvedUomCode(item.SalesUnit) ?? NormalizeResolvedUomCode(item.InventoryUOM)
+                : null;
 
-                if (string.IsNullOrWhiteSpace(resolvedUomCode))
-                {
-                    _logger.LogWarning(
-                        "Could not resolve a UoM code for sales order item {ItemCode} from local cache or SAP item master",
-                        itemCode);
-                    continue;
-                }
-
-                lineUomLookup[itemCode] = resolvedUomCode;
-            }
-            catch (Exception ex)
+            if (string.IsNullOrWhiteSpace(resolvedUomCode))
             {
-                _logger.LogWarning(ex, "Failed to resolve sales order UoM from SAP for item {ItemCode}", itemCode);
+                _logger.LogWarning(
+                    "Could not resolve a UoM code for sales order item {ItemCode} from local cache or SAP item master",
+                    itemCode);
+                continue;
             }
+
+            lineUomLookup[itemCode] = resolvedUomCode;
         }
 
         return lineUomLookup;
