@@ -19,106 +19,106 @@
    as unconverted; deleting is for a code that was entered wrongly and should
    never have had a factor at all. *@
 
-<div class="ivx">
+<div class="vcx">
 
-    <header class="ivx-head">
-        <div class="ivx-shell">
-            <div class="ivx-titles">
-                <span class="ivx-kicker">Reference data</span>
-                <div class="ivx-titles-row">
+    <header class="vcx-head">
+        <div class="vcx-shell">
+            <div class="vcx-titles">
+                <span class="vcx-kicker">Reference data</span>
+                <div class="vcx-titles-row">
                     <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>
-                    <h1 class="ivx-title">Volume conversion factors</h1>
+                    <h1 class="vcx-title">Volume conversion factors</h1>
                 </div>
-                <p class="ivx-sub">
+                <p class="vcx-sub">
                     The volume one sold unit of an item represents. The item volume report multiplies net quantity by
                     this factor; an item with no active factor is reported as unconverted rather than as zero.
                 </p>
             </div>
-            <div class="ivx-head-actions">
-                <span class="ivx-count">@activeCount active of @totalCount</span>
-                <button type="button" class="ivx-btn ivx-btn-primary" @onclick="OpenNew" disabled="@isLoading">
+            <div class="vcx-head-actions">
+                <span class="vcx-count">@activeCount active of @totalCount</span>
+                <button type="button" class="vcx-btn vcx-btn-primary" @onclick="OpenNew" disabled="@isLoading">
                     <i class="ph ph-plus" aria-hidden="true"></i>New factor
                 </button>
             </div>
         </div>
-        <div class="ivx-rule"></div>
+        <div class="vcx-rule"></div>
     </header>
 
-    <div class="ivx-body">
+    <div class="vcx-body">
 
-        <nav class="ivx-tabs" aria-label="Report views">
-            <a class="ivx-tab" href="/reports/item-volume">
+        <nav class="vcx-tabs" aria-label="Report views">
+            <a class="vcx-tab" href="/reports/item-volume">
                 <i class="ph ph-drop" aria-hidden="true"></i>Item volume
             </a>
-            <a class="ivx-tab" href="/reports/customer-revenue">
+            <a class="vcx-tab" href="/reports/customer-revenue">
                 <i class="ph ph-currency-dollar" aria-hidden="true"></i>Customer revenue
             </a>
-            <a class="ivx-tab is-current" href="/reports/volume-conversions">
+            <a class="vcx-tab is-current" href="/reports/volume-conversions">
                 <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>Conversion factors
             </a>
         </nav>
 
         @if (!string.IsNullOrWhiteSpace(errorMessage))
         {
-            <div class="ivx-alert" role="alert">
+            <div class="vcx-alert" role="alert">
                 <i class="ph ph-warning-octagon" aria-hidden="true"></i>
-                <div class="ivx-alert-body">@errorMessage</div>
+                <div class="vcx-alert-body">@errorMessage</div>
             </div>
         }
 
         @if (!string.IsNullOrWhiteSpace(successMessage))
         {
-            <div class="ivx-alert is-ok" role="status">
+            <div class="vcx-alert is-ok" role="status">
                 <i class="ph ph-check-circle" aria-hidden="true"></i>
-                <div class="ivx-alert-body">@successMessage</div>
+                <div class="vcx-alert-body">@successMessage</div>
             </div>
         }
 
-        <section class="ivx-filters">
-            <div class="ivx-field" style="width:300px">
-                <label for="ivx-conv-search">Search</label>
-                <input id="ivx-conv-search" class="ivx-input" type="search" placeholder="Item code or name"
+        <section class="vcx-filters">
+            <div class="vcx-field" style="width:300px">
+                <label for="vcx-conv-search">Search</label>
+                <input id="vcx-conv-search" class="vcx-input" type="search" placeholder="Item code or description"
                        @bind="searchText" @bind:event="oninput" disabled="@isLoading" />
             </div>
-            <div class="ivx-field" style="width:180px">
-                <label for="ivx-conv-status">Status</label>
-                <div class="ivx-select">
-                    <select id="ivx-conv-status" class="ivx-input" @bind="statusFilter" disabled="@isLoading">
+            <div class="vcx-field" style="width:180px">
+                <label for="vcx-conv-status">Status</label>
+                <div class="vcx-select">
+                    <select id="vcx-conv-status" class="vcx-input" @bind="statusFilter" disabled="@isLoading">
                         <option value="all">All factors</option>
                         <option value="active">Active only</option>
                         <option value="inactive">Retired only</option>
                     </select>
-                    <span class="ivx-caret" aria-hidden="true"></span>
+                    <span class="vcx-caret" aria-hidden="true"></span>
                 </div>
             </div>
-            <div class="ivx-filter-actions">
-                <button type="button" class="ivx-btn ivx-btn-secondary" @onclick="LoadAsync" disabled="@isLoading">
+            <div class="vcx-filter-actions">
+                <button type="button" class="vcx-btn vcx-btn-secondary" @onclick="LoadAsync" disabled="@isLoading">
                     <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>@(isLoading ? "Loading…" : "Refresh")
                 </button>
             </div>
         </section>
 
-        <section class="ivx-card">
-            <div class="ivx-toolbar">
-                <div class="ivx-toolbar-titles">
-                    <h2 class="ivx-toolbar-title">Factors</h2>
-                    <p class="ivx-toolbar-sub">@FilteredConversions.Count shown</p>
+        <section class="vcx-card">
+            <div class="vcx-toolbar">
+                <div class="vcx-toolbar-titles">
+                    <h2 class="vcx-toolbar-title">Factors</h2>
+                    <p class="vcx-toolbar-sub">@FilteredConversions.Count shown</p>
                 </div>
             </div>
 
             @if (isLoading)
             {
-                <div class="ivx-empty">
-                    <div class="ivx-spinner" aria-hidden="true"></div>
+                <div class="vcx-empty">
+                    <div class="vcx-spinner" aria-hidden="true"></div>
                     <strong>Loading factors</strong>
                 </div>
             }
             else if (FilteredConversions.Count == 0)
             {
-                <div class="ivx-empty">
+                <div class="vcx-empty">
                     <i class="ph ph-file-dashed" aria-hidden="true"></i>
                     <strong>Nothing to show</strong>
-                    <span class="ivx-empty-sub">
+                    <span class="vcx-empty-sub">
                         @(conversions.Count == 0
                             ? "No conversion factors have been loaded yet."
                             : "No factor matches the current search.")
@@ -127,16 +127,16 @@
             }
             else
             {
-                <div class="ivx-tablewrap">
-                    <table class="ivx-table is-padded">
+                <div class="vcx-tablewrap">
+                    <table class="vcx-table is-padded">
                         <thead>
                             <tr>
                                 <th>Item</th>
-                                <th class="ivx-num">Factor</th>
+                                <th class="vcx-num">Factor</th>
                                 <th>Status</th>
                                 <th>Notes</th>
                                 <th>Last updated</th>
-                                <th class="ivx-num">Actions</th>
+                                <th class="vcx-num">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -145,29 +145,36 @@
                                 var row = conversion;
                                 <tr>
                                     <td>
-                                        <div class="ivx-item">
-                                            <span class="ivx-item-name">@row.ItemCode</span>
-                                            @if (!string.IsNullOrWhiteSpace(row.ItemName))
+                                        @{
+                                            var description = DescriptionFor(row);
+                                        }
+                                        <div class="vcx-item">
+                                            <span class="vcx-item-name">@row.ItemCode</span>
+                                            @if (!string.IsNullOrWhiteSpace(description))
                                             {
-                                                <span class="ivx-item-code">@row.ItemName</span>
+                                                <span class="vcx-item-code">@description</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="vcx-item-code vcx-none">Not in the product cache</span>
                                             }
                                         </div>
                                     </td>
-                                    <td class="ivx-num ivx-volume">@row.VolumeFactor.ToString("0.######")</td>
+                                    <td class="vcx-num vcx-volume">@row.VolumeFactor.ToString("0.######")</td>
                                     <td>
                                         @if (row.IsActive)
                                         {
-                                            <span class="ivx-flag is-ok">Active</span>
+                                            <span class="vcx-flag is-ok">Active</span>
                                         }
                                         else
                                         {
-                                            <span class="ivx-flag is-off">Retired</span>
+                                            <span class="vcx-flag is-off">Retired</span>
                                         }
                                     </td>
                                     <td>
                                         @if (string.IsNullOrWhiteSpace(row.Notes))
                                         {
-                                            <span class="ivx-none">—</span>
+                                            <span class="vcx-none">—</span>
                                         }
                                         else
                                         {
@@ -177,22 +184,22 @@
                                     <td>
                                         @if (row.UpdatedAt.HasValue)
                                         {
-                                            <div class="ivx-item">
-                                                <span class="ivx-item-name">@FormatDate(row.UpdatedAt.Value)</span>
-                                                <span class="ivx-item-code">@(row.UpdatedBy ?? "unknown")</span>
+                                            <div class="vcx-item">
+                                                <span class="vcx-item-name">@FormatDate(row.UpdatedAt.Value)</span>
+                                                <span class="vcx-item-code">@(row.UpdatedBy ?? "unknown")</span>
                                             </div>
                                         }
                                         else
                                         {
-                                            <span class="ivx-none">—</span>
+                                            <span class="vcx-none">—</span>
                                         }
                                     </td>
-                                    <td class="ivx-num">
-                                        <button type="button" class="ivx-btn ivx-btn-secondary ivx-btn-sm"
+                                    <td class="vcx-num">
+                                        <button type="button" class="vcx-btn vcx-btn-secondary vcx-btn-sm"
                                                 @onclick="@(() => OpenEdit(row))">
                                             Edit
                                         </button>
-                                        <button type="button" class="ivx-btn ivx-btn-danger ivx-btn-sm"
+                                        <button type="button" class="vcx-btn vcx-btn-danger vcx-btn-sm"
                                                 @onclick="@(() => ConfirmDelete(row))">
                                             Delete
                                         </button>
@@ -205,8 +212,8 @@
 
                 @if (FilteredConversions.Count > MaxRows)
                 {
-                    <div class="ivx-toolbar">
-                        <p class="ivx-toolbar-sub">
+                    <div class="vcx-toolbar">
+                        <p class="vcx-toolbar-sub">
                             Showing the first @MaxRows of @FilteredConversions.Count. Search to narrow the list.
                         </p>
                     </div>
@@ -217,21 +224,21 @@
 
     @if (isEditorOpen)
     {
-        <div class="ivx-scrim" role="dialog" aria-modal="true" aria-label="Volume conversion factor">
-            <div class="ivx-modal">
-                <EditForm Model="editor" OnValidSubmit="SaveAsync" class="ivx-modal-form">
+        <div class="vcx-scrim" role="dialog" aria-modal="true" aria-label="Volume conversion factor">
+            <div class="vcx-modal">
+                <EditForm Model="editor" OnValidSubmit="SaveAsync" class="vcx-modal-form">
                     <DataAnnotationsValidator />
-                    <div class="ivx-modal-head">
-                        <h2 class="ivx-modal-title">@(isNewFactor ? "New conversion factor" : $"Edit {editor.ItemCode}")</h2>
-                        <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-sm" @onclick="CloseEditor"
+                    <div class="vcx-modal-head">
+                        <h2 class="vcx-modal-title">@(isNewFactor ? "New conversion factor" : $"Edit {editor.ItemCode}")</h2>
+                        <button type="button" class="vcx-btn vcx-btn-ghost vcx-btn-sm" @onclick="CloseEditor"
                                 aria-label="Close">
                             <i class="ph ph-x" aria-hidden="true"></i>
                         </button>
                     </div>
 
-                    <div class="ivx-modal-body">
-                        <div class="ivx-field">
-                            <label for="ivx-ed-code">Item code</label>
+                    <div class="vcx-modal-body">
+                        <div class="vcx-field">
+                            <label for="vcx-ed-code">Item code</label>
                             @if (isNewFactor)
                             {
                                 <IvxMultiSelect Options="unmappedItemOptions" Selected="editorItemCodes"
@@ -239,58 +246,58 @@
                                                 Icon="ph-cube" AriaLabel="Item code"
                                                 SearchPlaceholder="Search or type an item code"
                                                 EmptyText="No cached products" />
-                                <span class="ivx-field-hint">Only items without an active factor are listed. Any code
+                                <span class="vcx-field-hint">Only items without an active factor are listed. Any code
                                     can be typed in.</span>
                             }
                             else
                             {
-                                <input id="ivx-ed-code" class="ivx-input" value="@editor.ItemCode" readonly />
+                                <input id="vcx-ed-code" class="vcx-input" value="@editor.ItemCode" readonly />
                             }
                         </div>
 
-                        <div class="ivx-field">
-                            <label for="ivx-ed-name">Item name</label>
-                            <input id="ivx-ed-name" class="ivx-input" @bind="editor.ItemName"
+                        <div class="vcx-field">
+                            <label for="vcx-ed-name">Item name</label>
+                            <input id="vcx-ed-name" class="vcx-input" @bind="editor.ItemName"
                                    placeholder="Optional, for readability" maxlength="200" />
                         </div>
 
-                        <div class="ivx-field">
-                            <label for="ivx-ed-factor">Volume per unit</label>
-                            <input id="ivx-ed-factor" class="ivx-input ivx-input-num" type="number" step="0.000001"
+                        <div class="vcx-field">
+                            <label for="vcx-ed-factor">Volume per unit</label>
+                            <input id="vcx-ed-factor" class="vcx-input vcx-input-num" type="number" step="0.000001"
                                    min="0" @bind="editor.VolumeFactor" />
-                            <span class="ivx-field-hint">Litres one sold unit represents. A 500ml tub is 0.5; a 20L pail
+                            <span class="vcx-field-hint">Litres one sold unit represents. A 500ml tub is 0.5; a 20L pail
                                 is 20.</span>
                         </div>
 
-                        <div class="ivx-field">
-                            <label for="ivx-ed-notes">Notes</label>
-                            <textarea id="ivx-ed-notes" class="ivx-input" @bind="editor.Notes" maxlength="500"
+                        <div class="vcx-field">
+                            <label for="vcx-ed-notes">Notes</label>
+                            <textarea id="vcx-ed-notes" class="vcx-input" @bind="editor.Notes" maxlength="500"
                                       placeholder="Optional — where the factor came from"></textarea>
                         </div>
 
-                        <div class="ivx-field">
-                            <label for="ivx-ed-status">Status</label>
-                            <div class="ivx-select">
-                                <select id="ivx-ed-status" class="ivx-input" @bind="editor.IsActive">
+                        <div class="vcx-field">
+                            <label for="vcx-ed-status">Status</label>
+                            <div class="vcx-select">
+                                <select id="vcx-ed-status" class="vcx-input" @bind="editor.IsActive">
                                     <option value="true">Active — used by the report</option>
                                     <option value="false">Retired — item reported as unconverted</option>
                                 </select>
-                                <span class="ivx-caret" aria-hidden="true"></span>
+                                <span class="vcx-caret" aria-hidden="true"></span>
                             </div>
                         </div>
 
                         @if (!string.IsNullOrWhiteSpace(editorError))
                         {
-                            <div class="ivx-validation">@editorError</div>
+                            <div class="vcx-validation">@editorError</div>
                         }
                     </div>
 
-                    <div class="ivx-modal-foot">
-                        <button type="button" class="ivx-btn ivx-btn-secondary" @onclick="CloseEditor"
+                    <div class="vcx-modal-foot">
+                        <button type="button" class="vcx-btn vcx-btn-secondary" @onclick="CloseEditor"
                                 disabled="@isSaving">
                             Cancel
                         </button>
-                        <button type="submit" class="ivx-btn ivx-btn-primary" disabled="@isSaving">
+                        <button type="submit" class="vcx-btn vcx-btn-primary" disabled="@isSaving">
                             @(isSaving ? "Saving…" : "Save factor")
                         </button>
                     </div>
@@ -301,23 +308,23 @@
 
     @if (pendingDelete is not null)
     {
-        <div class="ivx-scrim" role="dialog" aria-modal="true" aria-label="Remove conversion factor">
-            <div class="ivx-modal" style="max-width:400px">
-                <div class="ivx-modal-head">
-                    <h2 class="ivx-modal-title">Remove @pendingDelete.ItemCode?</h2>
+        <div class="vcx-scrim" role="dialog" aria-modal="true" aria-label="Remove conversion factor">
+            <div class="vcx-modal" style="max-width:400px">
+                <div class="vcx-modal-head">
+                    <h2 class="vcx-modal-title">Remove @pendingDelete.ItemCode?</h2>
                 </div>
-                <div class="ivx-modal-body">
+                <div class="vcx-modal-body">
                     <p>
                         The item volume report will stop converting @pendingDelete.ItemCode and report its quantity as
                         unconverted. To keep the row and its history, retire it instead.
                     </p>
                 </div>
-                <div class="ivx-modal-foot">
-                    <button type="button" class="ivx-btn ivx-btn-secondary" @onclick="CancelDelete"
+                <div class="vcx-modal-foot">
+                    <button type="button" class="vcx-btn vcx-btn-secondary" @onclick="CancelDelete"
                             disabled="@isSaving">
                         Cancel
                     </button>
-                    <button type="button" class="ivx-btn ivx-btn-danger" @onclick="DeleteAsync" disabled="@isSaving">
+                    <button type="button" class="vcx-btn vcx-btn-danger" @onclick="DeleteAsync" disabled="@isSaving">
                         @(isSaving ? "Removing…" : "Remove factor")
                     </button>
                 </div>

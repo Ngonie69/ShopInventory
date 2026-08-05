@@ -33,6 +33,13 @@ public abstract class ItemVolumeConversionsBase : ComponentBase
     protected List<IvxMultiSelect.Option> unmappedItemOptions = new();
     protected IReadOnlyList<string> editorItemCodes = new List<string>();
 
+    /// <summary>
+    /// Item code to catalogue description, from the product cache. The seeded factors
+    /// carry a code and a number and nothing else, so most rows have no stored name
+    /// and the description has to be resolved for display.
+    /// </summary>
+    private Dictionary<string, string> cachedItemNames = new(StringComparer.OrdinalIgnoreCase);
+
     protected ConversionEditorModel editor = new();
     protected ItemVolumeConversionResult? pendingDelete;
 
@@ -67,9 +74,11 @@ public abstract class ItemVolumeConversionsBase : ComponentBase
             var search = searchText.Trim();
             if (!string.IsNullOrEmpty(search))
             {
+                // Searches the description the row actually shows, cached or stored, so
+                // typing what is on screen always finds the row.
                 filtered = filtered.Where(conversion =>
                     conversion.ItemCode.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                    (conversion.ItemName?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false));
+                    (DescriptionFor(conversion)?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false));
             }
 
             return filtered.ToList();
@@ -106,7 +115,7 @@ public abstract class ItemVolumeConversionsBase : ComponentBase
                     errorMessage = error.Description;
                 });
 
-            await LoadUnmappedItemsAsync();
+            await LoadCachedProductsAsync();
         }
         catch (Exception ex)
         {
@@ -120,11 +129,17 @@ public abstract class ItemVolumeConversionsBase : ComponentBase
     }
 
     /// <summary>
-    /// The "new factor" picker offers only the cached products that do not already
-    /// have a factor, so the common case — a product added since the last load —
-    /// is a pick rather than a search through everything.
+    /// One read of the product cache does two jobs: it names the rows in the table, and
+    /// it fills the "new factor" picker.
     /// </summary>
-    private async Task LoadUnmappedItemsAsync()
+    /// <remarks>
+    /// The descriptions are read over the whole cache, because a factor can outlive the
+    /// item it belongs to and a retired row still deserves its name. The picker is the
+    /// narrower list — active products that do not already have a factor — so the common
+    /// case, a product added since the last load, is a pick rather than a search through
+    /// everything.
+    /// </remarks>
+    private async Task LoadCachedProductsAsync()
     {
         try
         {
@@ -136,21 +151,44 @@ public abstract class ItemVolumeConversionsBase : ComponentBase
 
             var products = await db.CachedProducts
                 .AsNoTracking()
-                .Where(product => product.IsActive)
                 .OrderBy(product => product.ItemCode)
-                .Select(product => new { product.ItemCode, product.ItemName })
+                .Select(product => new { product.ItemCode, product.ItemName, product.IsActive })
                 .ToListAsync();
 
+            cachedItemNames = products
+                .Where(product => !string.IsNullOrWhiteSpace(product.ItemName))
+                .GroupBy(product => product.ItemCode, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.First().ItemName!.Trim(),
+                    StringComparer.OrdinalIgnoreCase);
+
             unmappedItemOptions = products
-                .Where(product => !mapped.Contains(product.ItemCode))
+                .Where(product => product.IsActive && !mapped.Contains(product.ItemCode))
                 .Select(product => new IvxMultiSelect.Option(product.ItemCode, product.ItemCode, product.ItemName))
                 .ToList();
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to load the unmapped item list for the volume conversion editor");
+            Logger.LogError(ex, "Failed to load the cached product list for the volume conversion screen");
+            cachedItemNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             unmappedItemOptions = new List<IvxMultiSelect.Option>();
         }
+    }
+
+    /// <summary>
+    /// The description to show for a factor: the one stored on the row if an
+    /// administrator typed one, otherwise the catalogue's. Null when neither exists —
+    /// a code that is not in the cache at all.
+    /// </summary>
+    protected string? DescriptionFor(ItemVolumeConversionResult conversion)
+    {
+        if (!string.IsNullOrWhiteSpace(conversion.ItemName))
+        {
+            return conversion.ItemName;
+        }
+
+        return cachedItemNames.TryGetValue(conversion.ItemCode, out var cached) ? cached : null;
     }
 
     protected void OpenNew()
@@ -173,7 +211,9 @@ public abstract class ItemVolumeConversionsBase : ComponentBase
         editor = new ConversionEditorModel
         {
             ItemCode = conversion.ItemCode,
-            ItemName = conversion.ItemName,
+            // Opens on the description the row is showing rather than on an empty box,
+            // which also means saving an old seeded row finally stores its name.
+            ItemName = DescriptionFor(conversion),
             VolumeFactor = conversion.VolumeFactor,
             Notes = conversion.Notes,
             IsActive = conversion.IsActive
