@@ -77,6 +77,37 @@ public class ReportExportService : IReportExportService
     private static readonly XLColor ExecutiveSoftAmber = XLColor.FromHtml("#FEF3C7");
     private static readonly XLColor ExecutiveSoftRose = XLColor.FromHtml("#FFE4E6");
     private static readonly XLColor ExecutiveSoftIndigo = XLColor.FromHtml("#E0E7FF");
+    private static readonly XLColor ReportSurface = XLColor.FromHtml("#ffffff");
+    private static readonly XLColor ReportBorder = XLColor.FromHtml("#d0d7e8");
+    private static readonly XLColor MutedText = XLColor.FromHtml("#616161");
+    private static readonly XLColor FaintText = XLColor.FromHtml("#9e9e9e");
+
+    /// <summary>
+    /// The typeface every workbook is written in. Matching the Office default keeps
+    /// the reports from rendering in a substitute font on a machine without it.
+    /// </summary>
+    private const string ReportFont = "Aptos";
+
+    // Number formats.
+    //
+    // Two things every money column here needs. Negatives are red and in brackets,
+    // because a credit note or a stock adjustment that reads "-1,204.00" in the same
+    // weight as the rest of the column is the figure people misread. And each format
+    // names its own currency: these reports pair a USD column with a ZiG one, and once
+    // the header row has scrolled away an unlabelled "#,##0.00" is unattributable.
+    private const string FormatUsd = "$#,##0.00;[Red]($#,##0.00)";
+    private const string FormatZig = "\"ZiG\" #,##0.00;[Red](\"ZiG\" #,##0.00)";
+    private const string FormatMoney = "#,##0.00;[Red](#,##0.00)";
+    private const string FormatQuantity = "#,##0.00";
+    private const string FormatVolume = "#,##0.000";
+    private const string FormatCount = "#,##0";
+    private const string FormatPercent = "0.0%";
+    private const string FormatDate = "dd MMM yyyy";
+    private const string FormatDayDate = "ddd, dd MMM yyyy";
+    private const string FormatTimestamp = "dd MMM yyyy HH:mm";
+
+    private const double MinColumnWidth = 9;
+    private const double MaxColumnWidth = 42;
 
     private static DateTime EnsureUtc(DateTime value) =>
         value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
@@ -95,30 +126,64 @@ public class ReportExportService : IReportExportService
             : 0;
 
     /// <summary>
+    /// Opens a workbook with the house font and fills in the document properties, so
+    /// the file carries its own identity once it has been mailed on and detached from
+    /// the download name.
+    /// </summary>
+    private static XLWorkbook NewWorkbook(string title)
+    {
+        var workbook = new XLWorkbook();
+        workbook.Style.Font.FontName = ReportFont;
+        workbook.Style.Font.FontSize = 10;
+        workbook.Properties.Title = title;
+        workbook.Properties.Subject = title;
+        workbook.Properties.Company = CompanyName;
+        workbook.Properties.Author = SystemName;
+        workbook.Properties.Created = CurrentCatNow();
+        return workbook;
+    }
+
+    /// <summary>
     /// Creates the professional report header on a worksheet and returns the next available row.
     /// </summary>
+    /// <remarks>
+    /// Rows 1 to 6 are the letterhead and row 7 is the first free row, which is the
+    /// contract every caller is written against \u2014 the band is restyled here rather
+    /// than re-laid-out.
+    /// </remarks>
     private static int WriteReportHeader(IXLWorksheet ws, string reportTitle, int colSpan, DateTime? fromDate = null, DateTime? toDate = null, string? subtitle = null)
     {
         var generatedAt = CurrentCatNow();
 
+        ApplySheetDefaults(ws);
+
+        // Accent rule across the top, then the letterhead on a white card. Reports are
+        // read on screen far more often than printed, and the sheet's own grid behind
+        // a styled band is the thing that makes an export look unfinished.
+        ws.Range(1, 1, 1, colSpan).Style.Fill.BackgroundColor = NavyBlue;
+        ws.Row(1).Height = 6;
+
+        var card = ws.Range(2, 1, 5, colSpan);
+        card.Style.Fill.BackgroundColor = ReportSurface;
+        card.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        card.Style.Border.OutsideBorderColor = ReportBorder;
+
         // Company name
-        ws.Range(1, 1, 1, colSpan).Merge();
-        ws.Cell(1, 1).Value = CompanyName;
-        ws.Cell(1, 1).Style.Font.Bold = true;
-        ws.Cell(1, 1).Style.Font.FontSize = 18;
-        ws.Cell(1, 1).Style.Font.FontColor = NavyBlue;
-        ws.Cell(1, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+        ws.Range(2, 1, 2, colSpan).Merge();
+        ws.Cell(2, 1).Value = CompanyName;
+        ws.Cell(2, 1).Style.Font.Bold = true;
+        ws.Cell(2, 1).Style.Font.FontSize = 16;
+        ws.Cell(2, 1).Style.Font.FontColor = NavyBlue;
+        ws.Cell(2, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+        ws.Cell(2, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        ws.Row(2).Height = 24;
 
         // System subtitle
-        ws.Range(2, 1, 2, colSpan).Merge();
-        ws.Cell(2, 1).Value = SystemName;
-        ws.Cell(2, 1).Style.Font.FontSize = 10;
-        ws.Cell(2, 1).Style.Font.FontColor = XLColor.FromHtml("#757575");
-        ws.Cell(2, 1).Style.Font.Italic = true;
-
-        // Thin navy line under header
-        ws.Range(2, 1, 2, colSpan).Style.Border.BottomBorder = XLBorderStyleValues.Medium;
-        ws.Range(2, 1, 2, colSpan).Style.Border.BottomBorderColor = NavyBlue;
+        ws.Range(3, 1, 3, colSpan).Merge();
+        ws.Cell(3, 1).Value = SystemName;
+        ws.Cell(3, 1).Style.Font.FontSize = 9;
+        ws.Cell(3, 1).Style.Font.FontColor = MutedText;
+        ws.Cell(3, 1).Style.Font.Italic = true;
 
         // Report title
         ws.Range(4, 1, 4, colSpan).Merge();
@@ -126,6 +191,8 @@ public class ReportExportService : IReportExportService
         ws.Cell(4, 1).Style.Font.Bold = true;
         ws.Cell(4, 1).Style.Font.FontSize = 14;
         ws.Cell(4, 1).Style.Font.FontColor = LightNavy;
+        ws.Cell(4, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        ws.Row(4).Height = 22;
 
         // Period / date line
         string dateLine;
@@ -138,11 +205,34 @@ public class ReportExportService : IReportExportService
 
         ws.Range(5, 1, 5, colSpan).Merge();
         ws.Cell(5, 1).Value = dateLine;
-        ws.Cell(5, 1).Style.Font.FontSize = 10;
-        ws.Cell(5, 1).Style.Font.FontColor = XLColor.FromHtml("#616161");
-        ws.Cell(5, 1).Style.Font.Italic = true;
+        ws.Cell(5, 1).Style.Font.FontSize = 9;
+        ws.Cell(5, 1).Style.Font.FontColor = MutedText;
+
+        // Spacer between the letterhead and whatever the sheet opens with.
+        ws.Range(6, 1, 6, colSpan).Style.Fill.BackgroundColor = AccentBlue;
+        ws.Row(6).Height = 6;
 
         return 7; // next available row
+    }
+
+    private static void ApplySheetDefaults(IXLWorksheet ws, XLColor? tabColor = null)
+    {
+        ws.ShowGridLines = false;
+        ws.Style.Font.FontName = ReportFont;
+        ws.Style.Font.FontSize = 10;
+        if (tabColor is not null) ws.TabColor = tabColor;
+    }
+
+    /// <summary>
+    /// Adds a coloured, defaulted sheet. Excel rejects a sheet name past 31 characters
+    /// with an exception rather than a truncation, so the trim happens here once
+    /// instead of at whichever call site next composes a name from report data.
+    /// </summary>
+    private static IXLWorksheet AddSheet(XLWorkbook workbook, string name, XLColor? tabColor = null)
+    {
+        var sheet = workbook.Worksheets.Add(name.Length > 31 ? name[..31] : name);
+        ApplySheetDefaults(sheet, tabColor ?? NavyBlue);
+        return sheet;
     }
 
     /// <summary>
@@ -150,22 +240,50 @@ public class ReportExportService : IReportExportService
     /// </summary>
     private static void WriteKpiCard(IXLWorksheet ws, int row, int col, string label, string value, XLColor? valueColor = null)
     {
+        StyleKpiCard(ws, row, col, label, valueColor);
         ws.Cell(row, col).Value = value;
+    }
+
+    /// <summary>
+    /// A KPI card holding a real number rather than a pre-formatted string, so the
+    /// headline figure can be pointed at by a formula and reads in the same format as
+    /// the column it summarises.
+    /// </summary>
+    private static void WriteKpiCard(IXLWorksheet ws, int row, int col, string label, decimal value, string numberFormat, XLColor? valueColor = null)
+    {
+        StyleKpiCard(ws, row, col, label, valueColor);
+        ws.Cell(row, col).Value = value;
+        ws.Cell(row, col).Style.NumberFormat.Format = numberFormat;
+    }
+
+    private static void StyleKpiCard(IXLWorksheet ws, int row, int col, string label, XLColor? valueColor)
+    {
         ws.Cell(row, col).Style.Font.Bold = true;
-        ws.Cell(row, col).Style.Font.FontSize = 16;
+        ws.Cell(row, col).Style.Font.FontSize = 15;
         ws.Cell(row, col).Style.Font.FontColor = valueColor ?? NavyBlue;
         ws.Cell(row, col).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, col).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        // The columns beneath are sized to the table, not to these cards, so a headline
+        // figure can be wider than the column it sits in. Shrink-to-fit scales it down
+        // instead of letting Excel render a numeric cell as ####.
+        ws.Cell(row, col).Style.Alignment.ShrinkToFit = true;
         ws.Cell(row, col).Style.Fill.BackgroundColor = KpiBackground;
         ws.Cell(row, col).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-        ws.Cell(row, col).Style.Border.OutsideBorderColor = MedGray;
+        ws.Cell(row, col).Style.Border.OutsideBorderColor = ReportBorder;
+        ws.Row(row).Height = 26;
 
         ws.Cell(row + 1, col).Value = label;
-        ws.Cell(row + 1, col).Style.Font.FontSize = 9;
-        ws.Cell(row + 1, col).Style.Font.FontColor = XLColor.FromHtml("#616161");
+        ws.Cell(row + 1, col).Style.Font.FontSize = 8;
+        ws.Cell(row + 1, col).Style.Font.FontColor = MutedText;
         ws.Cell(row + 1, col).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row + 1, col).Style.Alignment.Vertical = XLAlignmentVerticalValues.Top;
+        ws.Cell(row + 1, col).Style.Alignment.WrapText = true;
         ws.Cell(row + 1, col).Style.Fill.BackgroundColor = KpiBackground;
         ws.Cell(row + 1, col).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-        ws.Cell(row + 1, col).Style.Border.OutsideBorderColor = MedGray;
+        ws.Cell(row + 1, col).Style.Border.OutsideBorderColor = ReportBorder;
+        ws.Cell(row + 1, col).Style.Border.BottomBorder = XLBorderStyleValues.Medium;
+        ws.Cell(row + 1, col).Style.Border.BottomBorderColor = LightNavy;
+        ws.Row(row + 1).Height = 24;
     }
 
     /// <summary>
@@ -173,20 +291,32 @@ public class ReportExportService : IReportExportService
     /// </summary>
     private static void WriteKpiRow(IXLWorksheet ws, int row, string label, string value, bool highlight = false)
     {
+        StyleKpiRow(ws, row, label, highlight);
+        ws.Cell(row, 2).Value = value;
+    }
+
+    private static void WriteKpiRow(IXLWorksheet ws, int row, string label, decimal value, string numberFormat, bool highlight = false)
+    {
+        StyleKpiRow(ws, row, label, highlight);
+        ws.Cell(row, 2).Value = value;
+        ws.Cell(row, 2).Style.NumberFormat.Format = numberFormat;
+    }
+
+    private static void StyleKpiRow(IXLWorksheet ws, int row, string label, bool highlight)
+    {
         ws.Cell(row, 1).Value = label;
         ws.Cell(row, 1).Style.Font.Bold = true;
         ws.Cell(row, 1).Style.Font.FontSize = 10;
-        ws.Cell(row, 1).Style.Fill.BackgroundColor = KpiBackground;
+        ws.Cell(row, 1).Style.Fill.BackgroundColor = highlight ? TotalsBackground : KpiBackground;
         ws.Cell(row, 1).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-        ws.Cell(row, 1).Style.Border.OutsideBorderColor = MedGray;
+        ws.Cell(row, 1).Style.Border.OutsideBorderColor = ReportBorder;
         ws.Cell(row, 1).Style.Alignment.Indent = 1;
 
-        ws.Cell(row, 2).Value = value;
         ws.Cell(row, 2).Style.Font.FontSize = 11;
         ws.Cell(row, 2).Style.Font.Bold = highlight;
-        ws.Cell(row, 2).Style.Fill.BackgroundColor = KpiBackground;
+        ws.Cell(row, 2).Style.Fill.BackgroundColor = highlight ? TotalsBackground : KpiBackground;
         ws.Cell(row, 2).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-        ws.Cell(row, 2).Style.Border.OutsideBorderColor = MedGray;
+        ws.Cell(row, 2).Style.Border.OutsideBorderColor = ReportBorder;
         ws.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
         if (highlight) ws.Cell(row, 2).Style.Font.FontColor = NavyBlue;
     }
@@ -198,14 +328,20 @@ public class ReportExportService : IReportExportService
     {
         var headerRange = ws.Range(headerRow, 1, headerRow, lastCol);
         headerRange.Style.Font.Bold = true;
-        headerRange.Style.Font.FontSize = 10;
+        headerRange.Style.Font.FontSize = 9;
         headerRange.Style.Fill.BackgroundColor = NavyBlue;
         headerRange.Style.Font.FontColor = XLColor.White;
         headerRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         headerRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        // Headings wrap rather than widen. Without this a column is only ever as narrow
+        // as its own title, so "Suggested Order" sets the width of a column of 3-digit
+        // numbers.
+        headerRange.Style.Alignment.WrapText = true;
+        headerRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        headerRange.Style.Border.OutsideBorderColor = LightNavy;
         headerRange.Style.Border.BottomBorder = XLBorderStyleValues.Medium;
         headerRange.Style.Border.BottomBorderColor = XLColor.FromHtml("#0d47a1");
-        ws.Row(headerRow).Height = 22;
+        ws.Row(headerRow).Height = 30;
     }
 
     /// <summary>
@@ -220,12 +356,76 @@ public class ReportExportService : IReportExportService
         dataRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
         dataRange.Style.Border.OutsideBorderColor = BorderGray;
         dataRange.Style.Font.FontSize = 10;
+        dataRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
 
         for (int r = firstDataRow; r <= lastRow; r++)
         {
-            if ((r - firstDataRow) % 2 == 1)
-                ws.Range(r, 1, r, lastCol).Style.Fill.BackgroundColor = LightGray;
+            ws.Range(r, 1, r, lastCol).Style.Fill.BackgroundColor =
+                (r - firstDataRow) % 2 == 1 ? LightGray : ReportSurface;
         }
+    }
+
+    /// <summary>
+    /// Closes off a data table: stripes and borders the rows, hangs the filter
+    /// dropdowns off the header, and stands in a line of text when the query came back
+    /// empty. Returns the next free row.
+    /// </summary>
+    /// <remarks>
+    /// A sheet showing a header and then nothing reads as a broken export rather than
+    /// as a quiet week, and it is the version of the report that gets forwarded back
+    /// with a question attached.
+    /// </remarks>
+    private static int FinishTable(
+        IXLWorksheet ws,
+        int headerRow,
+        int firstDataRow,
+        int nextRow,
+        int lastCol,
+        string emptyMessage = "No records matched this report's filters.",
+        bool filter = true)
+    {
+        var lastDataRow = nextRow - 1;
+
+        if (lastDataRow < firstDataRow)
+        {
+            ws.Range(firstDataRow, 1, firstDataRow, lastCol).Merge();
+            ws.Cell(firstDataRow, 1).Value = emptyMessage;
+            ws.Cell(firstDataRow, 1).Style.Font.Italic = true;
+            ws.Cell(firstDataRow, 1).Style.Font.FontColor = MutedText;
+            ws.Cell(firstDataRow, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(firstDataRow, 1).Style.Fill.BackgroundColor = ReportSurface;
+            ws.Range(firstDataRow, 1, firstDataRow, lastCol).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            ws.Range(firstDataRow, 1, firstDataRow, lastCol).Style.Border.OutsideBorderColor = BorderGray;
+            ws.Row(firstDataRow).Height = 22;
+            return firstDataRow + 1;
+        }
+
+        StyleDataRows(ws, firstDataRow, lastDataRow, lastCol);
+
+        // Excel allows one filter per sheet, so a second table on the same sheet keeps
+        // the first one's dropdowns rather than throwing.
+        if (filter && !ws.AutoFilter.IsEnabled)
+        {
+            ws.Range(headerRow, 1, lastDataRow, lastCol).SetAutoFilter();
+        }
+
+        return nextRow;
+    }
+
+    /// <summary>
+    /// A rule-and-caption above a block, for the sheets that stack more than one.
+    /// </summary>
+    private static void WriteSectionTitle(IXLWorksheet ws, int row, int lastCol, string title)
+    {
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Value = title;
+        ws.Cell(row, 1).Style.Font.Bold = true;
+        ws.Cell(row, 1).Style.Font.FontSize = 11;
+        ws.Cell(row, 1).Style.Font.FontColor = LightNavy;
+        ws.Cell(row, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Bottom;
+        ws.Range(row, 1, row, lastCol).Style.Border.BottomBorder = XLBorderStyleValues.Thin;
+        ws.Range(row, 1, row, lastCol).Style.Border.BottomBorderColor = LightNavy;
+        ws.Row(row).Height = 20;
     }
 
     /// <summary>
@@ -242,6 +442,57 @@ public class ReportExportService : IReportExportService
         totalsRange.Style.Border.TopBorderColor = NavyBlue;
         totalsRange.Style.Border.BottomBorder = XLBorderStyleValues.Medium;
         totalsRange.Style.Border.BottomBorderColor = NavyBlue;
+        ws.Row(row).Height = 20;
+    }
+
+    /// <summary>
+    /// One totals row per currency, for the registers that carry more than one. A
+    /// single sum down a mixed column is not a number in any currency.
+    /// </summary>
+    private static int WriteCurrencyTotals<T>(
+        IXLWorksheet ws,
+        int row,
+        int lastCol,
+        int currencyColumn,
+        int labelColumn,
+        IEnumerable<IGrouping<string, T>> groups,
+        Action<IXLWorksheet, int, IGrouping<string, T>> writeAmounts)
+    {
+        foreach (var group in groups.OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            ws.Cell(row, labelColumn).Value = $"Total ({group.Count():N0})";
+            ws.Cell(row, labelColumn).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            ws.Cell(row, currencyColumn).Value = group.Key;
+            ws.Cell(row, currencyColumn).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            writeAmounts(ws, row, group);
+            StyleTotalsRow(ws, row, lastCol);
+            row++;
+        }
+
+        return row;
+    }
+
+    /// <summary>
+    /// Totals a column with SUBTOTAL rather than a figure computed in C#, so the total
+    /// follows the filter: narrow the table to one customer and the row underneath is
+    /// that customer's total instead of a number that no longer ties to anything on
+    /// screen.
+    /// </summary>
+    private static void WriteSubtotal(IXLWorksheet ws, int row, int col, int firstDataRow, int lastDataRow, string numberFormat)
+    {
+        var cell = ws.Cell(row, col);
+
+        if (lastDataRow >= firstDataRow)
+        {
+            var column = ToExcelColumnName(col);
+            cell.FormulaA1 = $"SUBTOTAL(109,{column}{firstDataRow}:{column}{lastDataRow})";
+        }
+        else
+        {
+            cell.Value = 0;
+        }
+
+        cell.Style.NumberFormat.Format = numberFormat;
     }
 
     /// <summary>
@@ -257,7 +508,7 @@ public class ReportExportService : IReportExportService
         ws.Range(row, 1, row, colSpan).Style.Border.TopBorderColor = BorderGray;
         ws.Cell(row, 1).Value = $"CONFIDENTIAL  \u2022  {CompanyName}  \u2022  {SystemName}  \u2022  Generated {generatedAt:dd MMM yyyy HH:mm} CAT";
         ws.Cell(row, 1).Style.Font.FontSize = 8;
-        ws.Cell(row, 1).Style.Font.FontColor = XLColor.FromHtml("#9e9e9e");
+        ws.Cell(row, 1).Style.Font.FontColor = FaintText;
         ws.Cell(row, 1).Style.Font.Italic = true;
         ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
     }
@@ -265,21 +516,74 @@ public class ReportExportService : IReportExportService
     /// <summary>
     /// Final adjustments: auto-fit columns, freeze header, page setup.
     /// </summary>
-    private static void FinalizeSheet(IXLWorksheet ws, int lastCol, int freezeRow = 0, bool landscape = false)
+    /// <remarks>
+    /// <paramref name="freezeRow"/> is the table's header row, so it doubles as the
+    /// point below which the column widths are measured. Fitting the whole sheet lets
+    /// a KPI card reading "$12,480,933.10" set the width of the "Rank" column beneath
+    /// it, which is most of why these sheets opened looking uneven.
+    /// </remarks>
+    /// <param name="fitFromRow">
+    /// Overrides where width measurement starts, for the sheets whose table should set
+    /// the column widths but whose header is not worth freezing.
+    /// </param>
+    private static void FinalizeSheet(IXLWorksheet ws, int lastCol, int freezeRow = 0, bool landscape = false, int fitFromRow = 0)
     {
-        ws.Columns(1, lastCol).AdjustToContents();
-        for (int c = 1; c <= lastCol; c++)
+        FitColumns(ws, lastCol, fitFromRow > 0 ? fitFromRow : freezeRow);
+
+        if (freezeRow > 0)
         {
-            if (ws.Column(c).Width > 40) ws.Column(c).Width = 40;
-            if (ws.Column(c).Width < 10) ws.Column(c).Width = 10;
+            ws.SheetView.FreezeRows(freezeRow);
+            // Page 2 of a printed register is unreadable without its headings.
+            ws.PageSetup.SetRowsToRepeatAtTop(freezeRow, freezeRow);
         }
-        if (freezeRow > 0) ws.SheetView.FreezeRows(freezeRow);
+
         ws.PageSetup.PageOrientation = landscape ? XLPageOrientation.Landscape : XLPageOrientation.Portrait;
+        ws.PageSetup.PaperSize = XLPaperSize.A4Paper;
         ws.PageSetup.FitToPages(1, 0);
-        ws.PageSetup.Margins.SetLeft(0.5);
-        ws.PageSetup.Margins.SetRight(0.5);
+        ws.PageSetup.Margins.SetLeft(0.4);
+        ws.PageSetup.Margins.SetRight(0.4);
         ws.PageSetup.Margins.SetTop(0.5);
         ws.PageSetup.Margins.SetBottom(0.5);
+        ApplyPrintHeaderFooter(ws);
+    }
+
+    /// <summary>
+    /// Sizes the columns from the table band down, then clamps them: wide enough that
+    /// a heading is legible, narrow enough that one long product description does not
+    /// push the money columns off the page.
+    /// </summary>
+    private static void FitColumns(IXLWorksheet ws, int lastCol, int fromRow)
+    {
+        var lastUsedRow = ws.LastRowUsed()?.RowNumber() ?? 0;
+
+        for (int c = 1; c <= lastCol; c++)
+        {
+            var column = ws.Column(c);
+
+            if (fromRow > 0 && lastUsedRow >= fromRow)
+                column.AdjustToContents(fromRow, lastUsedRow);
+            else
+                column.AdjustToContents();
+
+            if (column.Width > MaxColumnWidth) column.Width = MaxColumnWidth;
+            if (column.Width < MinColumnWidth) column.Width = MinColumnWidth;
+        }
+    }
+
+    /// <summary>
+    /// The printed page's own header and footer \u2014 the sheet body's footer row only
+    /// ever lands on the last page, so a loose page off a long register was otherwise
+    /// unattributable and unnumbered.
+    /// </summary>
+    private static void ApplyPrintHeaderFooter(IXLWorksheet ws)
+    {
+        ws.PageSetup.Header.Left.AddText(CompanyName);
+        ws.PageSetup.Header.Right.AddText(ws.Name);
+        ws.PageSetup.Footer.Left.AddText($"CONFIDENTIAL \u2022 {SystemName}");
+        ws.PageSetup.Footer.Right.AddText("Page ");
+        ws.PageSetup.Footer.Right.AddText(XLHFPredefinedText.PageNumber);
+        ws.PageSetup.Footer.Right.AddText(" of ");
+        ws.PageSetup.Footer.Right.AddText(XLHFPredefinedText.NumberOfPages);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -287,77 +591,79 @@ public class ReportExportService : IReportExportService
     // ═══════════════════════════════════════════════════════════════
     public byte[] ExportSalesSummaryToExcel(SalesSummaryReport report)
     {
-        using var workbook = new XLWorkbook();
+        using var workbook = NewWorkbook("Sales Summary Report");
 
         // ── Dashboard Sheet ──
-        var dash = workbook.Worksheets.Add("Sales Dashboard");
+        var dash = AddSheet(workbook, "Sales Dashboard");
         int row = WriteReportHeader(dash, "Sales Summary Report", 6, report.FromDate, report.ToDate);
 
-        WriteKpiCard(dash, row, 1, "Total Invoices", report.TotalInvoices.ToString("N0"));
-        WriteKpiCard(dash, row, 2, "Total Sales (USD)", $"${report.TotalSalesUSD:N2}");
-        WriteKpiCard(dash, row, 3, "Total Sales (ZIG)", $"ZIG {report.TotalSalesZIG:N2}");
-        WriteKpiCard(dash, row, 4, "VAT (USD)", $"${report.TotalVatUSD:N2}");
-        WriteKpiCard(dash, row, 5, "Avg Invoice (USD)", $"${report.AverageInvoiceValueUSD:N2}");
-        WriteKpiCard(dash, row, 6, "Unique Customers", report.UniqueCustomers.ToString("N0"));
+        WriteKpiCard(dash, row, 1, "Total Invoices", report.TotalInvoices, FormatCount);
+        WriteKpiCard(dash, row, 2, "Total Sales (USD)", report.TotalSalesUSD, FormatUsd);
+        WriteKpiCard(dash, row, 3, "Total Sales (ZiG)", report.TotalSalesZIG, FormatZig);
+        WriteKpiCard(dash, row, 4, "VAT (USD)", report.TotalVatUSD, FormatUsd);
+        WriteKpiCard(dash, row, 5, "Avg Invoice (USD)", report.AverageInvoiceValueUSD, FormatUsd);
+        WriteKpiCard(dash, row, 6, "Unique Customers", report.UniqueCustomers, FormatCount);
         row += 3;
 
-        if (report.SalesByCurrency.Any())
-        {
-            dash.Range(row, 1, row, 6).Merge();
-            dash.Cell(row, 1).Value = "SALES BY CURRENCY";
-            dash.Cell(row, 1).Style.Font.Bold = true;
-            dash.Cell(row, 1).Style.Font.FontSize = 11;
-            dash.Cell(row, 1).Style.Font.FontColor = LightNavy;
-            row++;
+        WriteSectionTitle(dash, row, 6, "SALES BY CURRENCY");
+        row++;
 
-            dash.Cell(row, 1).Value = "Currency"; dash.Cell(row, 2).Value = "Invoices";
-            dash.Cell(row, 3).Value = "Total Sales"; dash.Cell(row, 4).Value = "Total VAT";
-            StyleTableHeader(dash, row, 4);
+        dash.Cell(row, 1).Value = "Currency"; dash.Cell(row, 2).Value = "Invoices";
+        dash.Cell(row, 3).Value = "Total Sales"; dash.Cell(row, 4).Value = "Total VAT";
+        StyleTableHeader(dash, row, 4);
+        int currencyHeader = row;
+        row++;
+        int dataStart = row;
+        foreach (var curr in report.SalesByCurrency)
+        {
+            dash.Cell(row, 1).Value = curr.Currency;
+            dash.Cell(row, 2).Value = curr.InvoiceCount; dash.Cell(row, 2).Style.NumberFormat.Format = FormatCount;
+            dash.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            // Each row is a different currency, so the amounts carry no symbol and the
+            // column is deliberately left without a total.
+            dash.Cell(row, 3).Value = curr.TotalSales; dash.Cell(row, 3).Style.NumberFormat.Format = FormatMoney;
+            dash.Cell(row, 4).Value = curr.TotalVat; dash.Cell(row, 4).Style.NumberFormat.Format = FormatMoney;
             row++;
-            int dataStart = row;
-            foreach (var curr in report.SalesByCurrency)
-            {
-                dash.Cell(row, 1).Value = curr.Currency;
-                dash.Cell(row, 2).Value = curr.InvoiceCount;
-                dash.Cell(row, 3).Value = curr.TotalSales; dash.Cell(row, 3).Style.NumberFormat.Format = "#,##0.00";
-                dash.Cell(row, 4).Value = curr.TotalVat; dash.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
-                row++;
-            }
-            StyleDataRows(dash, dataStart, row - 1, 4);
         }
+        row = FinishTable(dash, currencyHeader, dataStart, row, 4, "No invoices were raised in this period.", filter: false);
 
         WriteFooter(dash, row, 6);
         FinalizeSheet(dash, 6, landscape: true);
 
         // ── Daily Breakdown Sheet ──
-        var daily = workbook.Worksheets.Add("Daily Sales");
+        var daily = AddSheet(workbook, "Daily Sales");
         int dRow = WriteReportHeader(daily, "Daily Sales Breakdown", 4, report.FromDate, report.ToDate);
 
         daily.Cell(dRow, 1).Value = "Date"; daily.Cell(dRow, 2).Value = "Invoices";
-        daily.Cell(dRow, 3).Value = "Sales (USD)"; daily.Cell(dRow, 4).Value = "Sales (ZIG)";
+        daily.Cell(dRow, 3).Value = "Sales (USD)"; daily.Cell(dRow, 4).Value = "Sales (ZiG)";
         StyleTableHeader(daily, dRow, 4);
         int freezeAt = dRow;
         dRow++;
         int dailyStart = dRow;
         foreach (var day in report.DailySales.OrderByDescending(d => d.Date))
         {
-            daily.Cell(dRow, 1).Value = day.Date.ToString("ddd, dd MMM yyyy");
+            // A real date, not its rendering: written as text the column cannot be
+            // sorted, filtered to a week or subtracted from anything.
+            daily.Cell(dRow, 1).Value = day.Date;
+            daily.Cell(dRow, 1).Style.NumberFormat.Format = FormatDayDate;
             daily.Cell(dRow, 2).Value = day.InvoiceCount;
+            daily.Cell(dRow, 2).Style.NumberFormat.Format = FormatCount;
             daily.Cell(dRow, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            daily.Cell(dRow, 3).Value = day.TotalSalesUSD; daily.Cell(dRow, 3).Style.NumberFormat.Format = "$#,##0.00";
-            daily.Cell(dRow, 4).Value = day.TotalSalesZIG; daily.Cell(dRow, 4).Style.NumberFormat.Format = "#,##0.00";
+            daily.Cell(dRow, 3).Value = day.TotalSalesUSD; daily.Cell(dRow, 3).Style.NumberFormat.Format = FormatUsd;
+            daily.Cell(dRow, 4).Value = day.TotalSalesZIG; daily.Cell(dRow, 4).Style.NumberFormat.Format = FormatZig;
             dRow++;
         }
-        StyleDataRows(daily, dailyStart, dRow - 1, 4);
+        int dailyLast = dRow - 1;
+        dRow = FinishTable(daily, freezeAt, dailyStart, dRow, 4, "No invoices were raised in this period.");
 
         daily.Cell(dRow, 1).Value = "TOTAL";
-        daily.Cell(dRow, 2).Value = report.TotalInvoices;
+        WriteSubtotal(daily, dRow, 2, dailyStart, dailyLast, FormatCount);
         daily.Cell(dRow, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-        daily.Cell(dRow, 3).Value = report.TotalSalesUSD; daily.Cell(dRow, 3).Style.NumberFormat.Format = "$#,##0.00";
-        daily.Cell(dRow, 4).Value = report.TotalSalesZIG; daily.Cell(dRow, 4).Style.NumberFormat.Format = "#,##0.00";
+        WriteSubtotal(daily, dRow, 3, dailyStart, dailyLast, FormatUsd);
+        WriteSubtotal(daily, dRow, 4, dailyStart, dailyLast, FormatZig);
         StyleTotalsRow(daily, dRow, 4);
 
-        WriteFooter(daily, dRow + 1, 4);
+        WriteFooter(daily, dRow, 4);
         FinalizeSheet(daily, 4, freezeAt);
 
         return WorkbookToBytes(workbook);
@@ -368,19 +674,19 @@ public class ReportExportService : IReportExportService
     // ═══════════════════════════════════════════════════════════════
     public byte[] ExportTopProductsToExcel(TopProductsReport report)
     {
-        using var workbook = new XLWorkbook();
-        var ws = workbook.Worksheets.Add("Top Products");
+        using var workbook = NewWorkbook("Top Products Report");
+        var ws = AddSheet(workbook, "Top Products");
         int row = WriteReportHeader(ws, "Top Products Report", 7, report.FromDate, report.ToDate);
 
-        WriteKpiCard(ws, row, 1, "Total Products Sold", report.TotalProductsSold.ToString("N0"));
-        WriteKpiCard(ws, row, 2, "Products Listed", report.TopProducts.Count.ToString("N0"));
-        WriteKpiCard(ws, row, 3, "Total Revenue (USD)", $"${report.TopProducts.Sum(p => p.TotalRevenueUSD):N2}");
-        WriteKpiCard(ws, row, 4, "Total Orders", report.TopProducts.Sum(p => p.TimesOrdered).ToString("N0"));
+        WriteKpiCard(ws, row, 1, "Total Products Sold", report.TotalProductsSold, FormatCount);
+        WriteKpiCard(ws, row, 2, "Products Listed", report.TopProducts.Count, FormatCount);
+        WriteKpiCard(ws, row, 3, "Total Revenue (USD)", report.TopProducts.Sum(p => p.TotalRevenueUSD), FormatUsd);
+        WriteKpiCard(ws, row, 4, "Total Orders", report.TopProducts.Sum(p => p.TimesOrdered), FormatCount);
         row += 3;
 
         ws.Cell(row, 1).Value = "Rank"; ws.Cell(row, 2).Value = "Item Code"; ws.Cell(row, 3).Value = "Product Name";
         ws.Cell(row, 4).Value = "Qty Sold"; ws.Cell(row, 5).Value = "Times Ordered";
-        ws.Cell(row, 6).Value = "Revenue (USD)"; ws.Cell(row, 7).Value = "Revenue (ZIG)";
+        ws.Cell(row, 6).Value = "Revenue (USD)"; ws.Cell(row, 7).Value = "Revenue (ZiG)";
         StyleTableHeader(ws, row, 7);
         int freezeAt = row;
         row++;
@@ -396,22 +702,23 @@ public class ReportExportService : IReportExportService
             }
             ws.Cell(row, 2).Value = p.ItemCode;
             ws.Cell(row, 3).Value = p.ItemName;
-            ws.Cell(row, 4).Value = p.TotalQuantitySold; ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0";
-            ws.Cell(row, 5).Value = p.TimesOrdered; ws.Cell(row, 5).Style.NumberFormat.Format = "#,##0";
-            ws.Cell(row, 6).Value = p.TotalRevenueUSD; ws.Cell(row, 6).Style.NumberFormat.Format = "$#,##0.00";
-            ws.Cell(row, 7).Value = p.TotalRevenueZIG; ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 4).Value = p.TotalQuantitySold; ws.Cell(row, 4).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 5).Value = p.TimesOrdered; ws.Cell(row, 5).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 6).Value = p.TotalRevenueUSD; ws.Cell(row, 6).Style.NumberFormat.Format = FormatUsd;
+            ws.Cell(row, 7).Value = p.TotalRevenueZIG; ws.Cell(row, 7).Style.NumberFormat.Format = FormatZig;
             row++;
         }
-        StyleDataRows(ws, dataStart, row - 1, 7);
+        int lastData = row - 1;
+        row = FinishTable(ws, freezeAt, dataStart, row, 7, "No products were sold in this period.");
 
         ws.Cell(row, 1).Value = "TOTAL";
-        ws.Cell(row, 4).Value = report.TopProducts.Sum(p => p.TotalQuantitySold); ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0";
-        ws.Cell(row, 5).Value = report.TopProducts.Sum(p => p.TimesOrdered); ws.Cell(row, 5).Style.NumberFormat.Format = "#,##0";
-        ws.Cell(row, 6).Value = report.TopProducts.Sum(p => p.TotalRevenueUSD); ws.Cell(row, 6).Style.NumberFormat.Format = "$#,##0.00";
-        ws.Cell(row, 7).Value = report.TopProducts.Sum(p => p.TotalRevenueZIG); ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+        WriteSubtotal(ws, row, 4, dataStart, lastData, FormatCount);
+        WriteSubtotal(ws, row, 5, dataStart, lastData, FormatCount);
+        WriteSubtotal(ws, row, 6, dataStart, lastData, FormatUsd);
+        WriteSubtotal(ws, row, 7, dataStart, lastData, FormatZig);
         StyleTotalsRow(ws, row, 7);
 
-        WriteFooter(ws, row + 1, 7);
+        WriteFooter(ws, row, 7);
         FinalizeSheet(ws, 7, freezeAt, landscape: true);
 
         return WorkbookToBytes(workbook);
@@ -422,21 +729,21 @@ public class ReportExportService : IReportExportService
     // ═══════════════════════════════════════════════════════════════
     public byte[] ExportStockSummaryToExcel(StockSummaryReport report)
     {
-        using var workbook = new XLWorkbook();
-        var ws = workbook.Worksheets.Add("Stock Summary");
+        using var workbook = NewWorkbook("Stock Summary Report");
+        var ws = AddSheet(workbook, "Stock Summary");
         int row = WriteReportHeader(ws, "Stock Summary Report", 6, subtitle: $"Report Date: {report.ReportDate:dd MMM yyyy}");
 
-        WriteKpiCard(ws, row, 1, "Total Products", report.TotalProducts.ToString("N0"));
-        WriteKpiCard(ws, row, 2, "In Stock", report.ProductsInStock.ToString("N0"), SuccessGreen);
-        WriteKpiCard(ws, row, 3, "Out of Stock", report.ProductsOutOfStock.ToString("N0"), DangerRed);
-        WriteKpiCard(ws, row, 4, "Below Reorder", report.ProductsBelowReorderLevel.ToString("N0"), WarningOrange);
-        WriteKpiCard(ws, row, 5, "Stock Value (USD)", $"${report.TotalStockValueUSD:N2}");
-        WriteKpiCard(ws, row, 6, "Stock Value (ZIG)", $"ZIG {report.TotalStockValueZIG:N2}");
+        WriteKpiCard(ws, row, 1, "Total Products", report.TotalProducts, FormatCount);
+        WriteKpiCard(ws, row, 2, "In Stock", report.ProductsInStock, FormatCount, SuccessGreen);
+        WriteKpiCard(ws, row, 3, "Out of Stock", report.ProductsOutOfStock, FormatCount, DangerRed);
+        WriteKpiCard(ws, row, 4, "Below Reorder", report.ProductsBelowReorderLevel, FormatCount, WarningOrange);
+        WriteKpiCard(ws, row, 5, "Stock Value (USD)", report.TotalStockValueUSD, FormatUsd);
+        WriteKpiCard(ws, row, 6, "Stock Value (ZiG)", report.TotalStockValueZIG, FormatZig);
         row += 3;
 
         ws.Cell(row, 1).Value = "Warehouse Code"; ws.Cell(row, 2).Value = "Warehouse Name";
         ws.Cell(row, 3).Value = "Products"; ws.Cell(row, 4).Value = "Total Qty";
-        ws.Cell(row, 5).Value = "Value (USD)"; ws.Cell(row, 6).Value = "Value (ZIG)";
+        ws.Cell(row, 5).Value = "Value (USD)"; ws.Cell(row, 6).Value = "Value (ZiG)";
         StyleTableHeader(ws, row, 6);
         int freezeAt = row;
         row++;
@@ -446,22 +753,25 @@ public class ReportExportService : IReportExportService
             ws.Cell(row, 1).Value = wh.WarehouseCode;
             ws.Cell(row, 1).Style.Font.Bold = true;
             ws.Cell(row, 2).Value = wh.WarehouseName;
-            ws.Cell(row, 3).Value = wh.ProductCount; ws.Cell(row, 3).Style.NumberFormat.Format = "#,##0";
-            ws.Cell(row, 4).Value = wh.TotalQuantity; ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0";
-            ws.Cell(row, 5).Value = wh.TotalValueUSD; ws.Cell(row, 5).Style.NumberFormat.Format = "$#,##0.00";
-            ws.Cell(row, 6).Value = wh.TotalValueZIG; ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 3).Value = wh.ProductCount; ws.Cell(row, 3).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 4).Value = wh.TotalQuantity; ws.Cell(row, 4).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 5).Value = wh.TotalValueUSD; ws.Cell(row, 5).Style.NumberFormat.Format = FormatUsd;
+            ws.Cell(row, 6).Value = wh.TotalValueZIG; ws.Cell(row, 6).Style.NumberFormat.Format = FormatZig;
             row++;
         }
-        StyleDataRows(ws, dataStart, row - 1, 6);
+        int lastData = row - 1;
+        row = FinishTable(ws, freezeAt, dataStart, row, 6, "No warehouse stock was returned for this snapshot.");
 
+        // Products are counted once per warehouse, so summing the column would
+        // double-count anything stocked in two of them: the report's own figure stands.
         ws.Cell(row, 1).Value = "TOTAL";
-        ws.Cell(row, 3).Value = report.TotalProducts; ws.Cell(row, 3).Style.NumberFormat.Format = "#,##0";
-        ws.Cell(row, 4).FormulaA1 = $"SUM(D{dataStart}:D{row - 1})"; ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0";
-        ws.Cell(row, 5).Value = report.TotalStockValueUSD; ws.Cell(row, 5).Style.NumberFormat.Format = "$#,##0.00";
-        ws.Cell(row, 6).Value = report.TotalStockValueZIG; ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+        ws.Cell(row, 3).Value = report.TotalProducts; ws.Cell(row, 3).Style.NumberFormat.Format = FormatCount;
+        WriteSubtotal(ws, row, 4, dataStart, lastData, FormatCount);
+        WriteSubtotal(ws, row, 5, dataStart, lastData, FormatUsd);
+        WriteSubtotal(ws, row, 6, dataStart, lastData, FormatZig);
         StyleTotalsRow(ws, row, 6);
 
-        WriteFooter(ws, row + 1, 6);
+        WriteFooter(ws, row, 6);
         FinalizeSheet(ws, 6, freezeAt, landscape: true);
 
         return WorkbookToBytes(workbook);
@@ -472,81 +782,85 @@ public class ReportExportService : IReportExportService
     // ═══════════════════════════════════════════════════════════════
     public byte[] ExportPaymentSummaryToExcel(PaymentSummaryReport report)
     {
-        using var workbook = new XLWorkbook();
+        using var workbook = NewWorkbook("Payment Summary Report");
 
         // ── Dashboard Sheet ──
-        var dash = workbook.Worksheets.Add("Payment Dashboard");
+        var dash = AddSheet(workbook, "Payment Dashboard");
         int row = WriteReportHeader(dash, "Payment Summary Report", 5, report.FromDate, report.ToDate);
 
-        WriteKpiCard(dash, row, 1, "Total Payments", report.TotalPayments.ToString("N0"));
-        WriteKpiCard(dash, row, 2, "Total (USD)", $"${report.TotalAmountUSD:N2}");
-        WriteKpiCard(dash, row, 3, "Total (ZIG)", $"ZIG {report.TotalAmountZIG:N2}");
+        WriteKpiCard(dash, row, 1, "Total Payments", report.TotalPayments, FormatCount);
+        WriteKpiCard(dash, row, 2, "Total (USD)", report.TotalAmountUSD, FormatUsd);
+        WriteKpiCard(dash, row, 3, "Total (ZiG)", report.TotalAmountZIG, FormatZig);
         row += 3;
 
-        dash.Range(row, 1, row, 5).Merge();
-        dash.Cell(row, 1).Value = "PAYMENT METHODS BREAKDOWN";
-        dash.Cell(row, 1).Style.Font.Bold = true;
-        dash.Cell(row, 1).Style.Font.FontSize = 11;
-        dash.Cell(row, 1).Style.Font.FontColor = LightNavy;
+        WriteSectionTitle(dash, row, 5, "PAYMENT METHODS BREAKDOWN");
         row++;
 
         dash.Cell(row, 1).Value = "Payment Method"; dash.Cell(row, 2).Value = "Count";
-        dash.Cell(row, 3).Value = "Amount (USD)"; dash.Cell(row, 4).Value = "Amount (ZIG)";
+        dash.Cell(row, 3).Value = "Amount (USD)"; dash.Cell(row, 4).Value = "Amount (ZiG)";
         dash.Cell(row, 5).Value = "% of Total";
         StyleTableHeader(dash, row, 5);
+        int methodHeader = row;
         row++;
         int dataStart = row;
         foreach (var m in report.PaymentsByMethod.OrderByDescending(x => x.TotalAmountUSD))
         {
             dash.Cell(row, 1).Value = m.PaymentMethod;
             dash.Cell(row, 1).Style.Font.Bold = true;
-            dash.Cell(row, 2).Value = m.PaymentCount; dash.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            dash.Cell(row, 3).Value = m.TotalAmountUSD; dash.Cell(row, 3).Style.NumberFormat.Format = "$#,##0.00";
-            dash.Cell(row, 4).Value = m.TotalAmountZIG; dash.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
-            dash.Cell(row, 5).Value = m.PercentageOfTotal / 100; dash.Cell(row, 5).Style.NumberFormat.Format = "0.0%";
+            dash.Cell(row, 2).Value = m.PaymentCount; dash.Cell(row, 2).Style.NumberFormat.Format = FormatCount;
+            dash.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            dash.Cell(row, 3).Value = m.TotalAmountUSD; dash.Cell(row, 3).Style.NumberFormat.Format = FormatUsd;
+            dash.Cell(row, 4).Value = m.TotalAmountZIG; dash.Cell(row, 4).Style.NumberFormat.Format = FormatZig;
+            dash.Cell(row, 5).Value = m.PercentageOfTotal / 100; dash.Cell(row, 5).Style.NumberFormat.Format = FormatPercent;
             dash.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             row++;
         }
-        StyleDataRows(dash, dataStart, row - 1, 5);
+        int lastMethod = row - 1;
+        row = FinishTable(dash, methodHeader, dataStart, row, 5, "No payments were received in this period.");
 
         dash.Cell(row, 1).Value = "TOTAL";
-        dash.Cell(row, 2).Value = report.TotalPayments; dash.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-        dash.Cell(row, 3).Value = report.TotalAmountUSD; dash.Cell(row, 3).Style.NumberFormat.Format = "$#,##0.00";
-        dash.Cell(row, 4).Value = report.TotalAmountZIG; dash.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
-        dash.Cell(row, 5).Value = 1.0; dash.Cell(row, 5).Style.NumberFormat.Format = "0.0%";
+        WriteSubtotal(dash, row, 2, dataStart, lastMethod, FormatCount);
+        dash.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        WriteSubtotal(dash, row, 3, dataStart, lastMethod, FormatUsd);
+        WriteSubtotal(dash, row, 4, dataStart, lastMethod, FormatZig);
+        WriteSubtotal(dash, row, 5, dataStart, lastMethod, FormatPercent);
         dash.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         StyleTotalsRow(dash, row, 5);
 
-        WriteFooter(dash, row + 1, 5);
-        FinalizeSheet(dash, 5, landscape: true);
+        WriteFooter(dash, row, 5);
+        FinalizeSheet(dash, 5, methodHeader, landscape: true);
 
         // ── Daily Payments Sheet ──
-        var daily = workbook.Worksheets.Add("Daily Payments");
+        var daily = AddSheet(workbook, "Daily Payments");
         int dRow = WriteReportHeader(daily, "Daily Payments Breakdown", 4, report.FromDate, report.ToDate);
 
         daily.Cell(dRow, 1).Value = "Date"; daily.Cell(dRow, 2).Value = "Count";
-        daily.Cell(dRow, 3).Value = "Amount (USD)"; daily.Cell(dRow, 4).Value = "Amount (ZIG)";
+        daily.Cell(dRow, 3).Value = "Amount (USD)"; daily.Cell(dRow, 4).Value = "Amount (ZiG)";
         StyleTableHeader(daily, dRow, 4);
         int freezeAt = dRow;
         dRow++;
         int dailyStart = dRow;
         foreach (var d in report.DailyPayments.OrderByDescending(d => d.Date))
         {
-            daily.Cell(dRow, 1).Value = d.Date.ToString("ddd, dd MMM yyyy");
-            daily.Cell(dRow, 2).Value = d.PaymentCount; daily.Cell(dRow, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            daily.Cell(dRow, 3).Value = d.TotalAmountUSD; daily.Cell(dRow, 3).Style.NumberFormat.Format = "$#,##0.00";
-            daily.Cell(dRow, 4).Value = d.TotalAmountZIG; daily.Cell(dRow, 4).Style.NumberFormat.Format = "#,##0.00";
+            daily.Cell(dRow, 1).Value = d.Date;
+            daily.Cell(dRow, 1).Style.NumberFormat.Format = FormatDayDate;
+            daily.Cell(dRow, 2).Value = d.PaymentCount; daily.Cell(dRow, 2).Style.NumberFormat.Format = FormatCount;
+            daily.Cell(dRow, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            daily.Cell(dRow, 3).Value = d.TotalAmountUSD; daily.Cell(dRow, 3).Style.NumberFormat.Format = FormatUsd;
+            daily.Cell(dRow, 4).Value = d.TotalAmountZIG; daily.Cell(dRow, 4).Style.NumberFormat.Format = FormatZig;
             dRow++;
         }
-        StyleDataRows(daily, dailyStart, dRow - 1, 4);
+        int lastDaily = dRow - 1;
+        dRow = FinishTable(daily, freezeAt, dailyStart, dRow, 4, "No payments were received in this period.");
 
         daily.Cell(dRow, 1).Value = "TOTAL";
-        daily.Cell(dRow, 2).Value = report.TotalPayments; daily.Cell(dRow, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-        daily.Cell(dRow, 3).Value = report.TotalAmountUSD; daily.Cell(dRow, 3).Style.NumberFormat.Format = "$#,##0.00";
-        daily.Cell(dRow, 4).Value = report.TotalAmountZIG; daily.Cell(dRow, 4).Style.NumberFormat.Format = "#,##0.00";
+        WriteSubtotal(daily, dRow, 2, dailyStart, lastDaily, FormatCount);
+        daily.Cell(dRow, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        WriteSubtotal(daily, dRow, 3, dailyStart, lastDaily, FormatUsd);
+        WriteSubtotal(daily, dRow, 4, dailyStart, lastDaily, FormatZig);
         StyleTotalsRow(daily, dRow, 4);
 
-        WriteFooter(daily, dRow + 1, 4);
+        WriteFooter(daily, dRow, 4);
         FinalizeSheet(daily, 4, freezeAt);
 
         return WorkbookToBytes(workbook);
@@ -557,19 +871,19 @@ public class ReportExportService : IReportExportService
     // ═══════════════════════════════════════════════════════════════
     public byte[] ExportTopCustomersToExcel(TopCustomersReport report)
     {
-        using var workbook = new XLWorkbook();
-        var ws = workbook.Worksheets.Add("Top Customers");
+        using var workbook = NewWorkbook("Top Customers Report");
+        var ws = AddSheet(workbook, "Top Customers");
         int row = WriteReportHeader(ws, "Top Customers Report", 8, report.FromDate, report.ToDate);
 
-        WriteKpiCard(ws, row, 1, "Total Customers", report.TotalCustomers.ToString("N0"));
-        WriteKpiCard(ws, row, 2, "Customers Listed", report.TopCustomers.Count.ToString("N0"));
-        WriteKpiCard(ws, row, 3, "Total Purchases (USD)", $"${report.TopCustomers.Sum(c => c.TotalPurchasesUSD):N2}");
-        WriteKpiCard(ws, row, 4, "Total Outstanding (USD)", $"${report.TopCustomers.Sum(c => c.OutstandingBalanceUSD):N2}", DangerRed);
+        WriteKpiCard(ws, row, 1, "Total Customers", report.TotalCustomers, FormatCount);
+        WriteKpiCard(ws, row, 2, "Customers Listed", report.TopCustomers.Count, FormatCount);
+        WriteKpiCard(ws, row, 3, "Total Purchases (USD)", report.TopCustomers.Sum(c => c.TotalPurchasesUSD), FormatUsd);
+        WriteKpiCard(ws, row, 4, "Total Outstanding (USD)", report.TopCustomers.Sum(c => c.OutstandingBalanceUSD), FormatUsd, DangerRed);
         row += 3;
 
         ws.Cell(row, 1).Value = "Rank"; ws.Cell(row, 2).Value = "Code"; ws.Cell(row, 3).Value = "Customer Name";
         ws.Cell(row, 4).Value = "Invoices"; ws.Cell(row, 5).Value = "Purchases (USD)";
-        ws.Cell(row, 6).Value = "Purchases (ZIG)"; ws.Cell(row, 7).Value = "Payments (USD)";
+        ws.Cell(row, 6).Value = "Purchases (ZiG)"; ws.Cell(row, 7).Value = "Payments (USD)";
         ws.Cell(row, 8).Value = "Balance (USD)";
         StyleTableHeader(ws, row, 8);
         int freezeAt = row;
@@ -581,11 +895,12 @@ public class ReportExportService : IReportExportService
             if (c.Rank <= 3) ws.Cell(row, 1).Style.Font.Bold = true;
             ws.Cell(row, 2).Value = c.CardCode;
             ws.Cell(row, 3).Value = c.CardName;
-            ws.Cell(row, 4).Value = c.InvoiceCount; ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 5).Value = c.TotalPurchasesUSD; ws.Cell(row, 5).Style.NumberFormat.Format = "$#,##0.00";
-            ws.Cell(row, 6).Value = c.TotalPurchasesZIG; ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
-            ws.Cell(row, 7).Value = c.TotalPaymentsUSD; ws.Cell(row, 7).Style.NumberFormat.Format = "$#,##0.00";
-            ws.Cell(row, 8).Value = c.OutstandingBalanceUSD; ws.Cell(row, 8).Style.NumberFormat.Format = "$#,##0.00";
+            ws.Cell(row, 4).Value = c.InvoiceCount; ws.Cell(row, 4).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 5).Value = c.TotalPurchasesUSD; ws.Cell(row, 5).Style.NumberFormat.Format = FormatUsd;
+            ws.Cell(row, 6).Value = c.TotalPurchasesZIG; ws.Cell(row, 6).Style.NumberFormat.Format = FormatZig;
+            ws.Cell(row, 7).Value = c.TotalPaymentsUSD; ws.Cell(row, 7).Style.NumberFormat.Format = FormatUsd;
+            ws.Cell(row, 8).Value = c.OutstandingBalanceUSD; ws.Cell(row, 8).Style.NumberFormat.Format = FormatUsd;
             if (c.OutstandingBalanceUSD > 0)
             {
                 ws.Cell(row, 8).Style.Font.FontColor = DangerRed;
@@ -597,17 +912,19 @@ public class ReportExportService : IReportExportService
             }
             row++;
         }
-        StyleDataRows(ws, dataStart, row - 1, 8);
+        int lastData = row - 1;
+        row = FinishTable(ws, freezeAt, dataStart, row, 8, "No customer purchases were recorded in this period.");
 
         ws.Cell(row, 1).Value = "TOTAL";
-        ws.Cell(row, 4).Value = report.TopCustomers.Sum(c => c.InvoiceCount); ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-        ws.Cell(row, 5).Value = report.TopCustomers.Sum(c => c.TotalPurchasesUSD); ws.Cell(row, 5).Style.NumberFormat.Format = "$#,##0.00";
-        ws.Cell(row, 6).Value = report.TopCustomers.Sum(c => c.TotalPurchasesZIG); ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
-        ws.Cell(row, 7).Value = report.TopCustomers.Sum(c => c.TotalPaymentsUSD); ws.Cell(row, 7).Style.NumberFormat.Format = "$#,##0.00";
-        ws.Cell(row, 8).Value = report.TopCustomers.Sum(c => c.OutstandingBalanceUSD); ws.Cell(row, 8).Style.NumberFormat.Format = "$#,##0.00";
+        WriteSubtotal(ws, row, 4, dataStart, lastData, FormatCount);
+        ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        WriteSubtotal(ws, row, 5, dataStart, lastData, FormatUsd);
+        WriteSubtotal(ws, row, 6, dataStart, lastData, FormatZig);
+        WriteSubtotal(ws, row, 7, dataStart, lastData, FormatUsd);
+        WriteSubtotal(ws, row, 8, dataStart, lastData, FormatUsd);
         StyleTotalsRow(ws, row, 8);
 
-        WriteFooter(ws, row + 1, 8);
+        WriteFooter(ws, row, 8);
         FinalizeSheet(ws, 8, freezeAt, landscape: true);
 
         return WorkbookToBytes(workbook);
@@ -618,13 +935,13 @@ public class ReportExportService : IReportExportService
     // ═══════════════════════════════════════════════════════════════
     public byte[] ExportLowStockAlertsToExcel(LowStockAlertReport report)
     {
-        using var workbook = new XLWorkbook();
-        var ws = workbook.Worksheets.Add("Low Stock Alerts");
+        using var workbook = NewWorkbook("Low Stock Alerts Report");
+        var ws = AddSheet(workbook, "Low Stock Alerts", DangerRed);
         int row = WriteReportHeader(ws, "Low Stock Alerts Report", 7, subtitle: $"Report Date: {report.ReportDate:dd MMM yyyy}");
 
-        WriteKpiCard(ws, row, 1, "Total Alerts", report.TotalAlerts.ToString("N0"));
-        WriteKpiCard(ws, row, 2, "Critical", report.CriticalCount.ToString("N0"), DangerRed);
-        WriteKpiCard(ws, row, 3, "Warning", report.WarningCount.ToString("N0"), WarningOrange);
+        WriteKpiCard(ws, row, 1, "Total Alerts", report.TotalAlerts, FormatCount);
+        WriteKpiCard(ws, row, 2, "Critical", report.CriticalCount, FormatCount, DangerRed);
+        WriteKpiCard(ws, row, 3, "Warning", report.WarningCount, FormatCount, WarningOrange);
         row += 3;
 
         ws.Cell(row, 1).Value = "Alert Level"; ws.Cell(row, 2).Value = "Item Code"; ws.Cell(row, 3).Value = "Item Name";
@@ -634,6 +951,11 @@ public class ReportExportService : IReportExportService
         int freezeAt = row;
         row++;
         int dataStart = row;
+        // Which rows are critical, so the badge fill can be painted after the row
+        // striping rather than under it.
+        var criticalRows = new List<int>();
+        var warningRows = new List<int>();
+
         foreach (var item in report.Items.OrderBy(i => i.AlertLevel == "Critical" ? 0 : 1).ThenBy(i => i.CurrentStock))
         {
             ws.Cell(row, 1).Value = item.AlertLevel.ToUpper();
@@ -642,27 +964,37 @@ public class ReportExportService : IReportExportService
             if (item.AlertLevel == "Critical")
             {
                 ws.Cell(row, 1).Style.Font.FontColor = XLColor.White;
-                ws.Cell(row, 1).Style.Fill.BackgroundColor = DangerRed;
+                criticalRows.Add(row);
             }
             else
             {
                 ws.Cell(row, 1).Style.Font.FontColor = XLColor.Black;
-                ws.Cell(row, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#fff3cd");
+                warningRows.Add(row);
             }
             ws.Cell(row, 2).Value = item.ItemCode;
             ws.Cell(row, 3).Value = item.ItemName;
             ws.Cell(row, 4).Value = item.WarehouseCode;
-            ws.Cell(row, 5).Value = item.CurrentStock; ws.Cell(row, 5).Style.NumberFormat.Format = "#,##0";
+            ws.Cell(row, 5).Value = item.CurrentStock; ws.Cell(row, 5).Style.NumberFormat.Format = FormatCount;
             ws.Cell(row, 5).Style.Font.Bold = true;
             if (item.CurrentStock <= 0) ws.Cell(row, 5).Style.Font.FontColor = DangerRed;
             else ws.Cell(row, 5).Style.Font.FontColor = WarningOrange;
-            ws.Cell(row, 6).Value = item.ReorderLevel; ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0";
-            ws.Cell(row, 7).Value = item.SuggestedReorderQty; ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0";
+            ws.Cell(row, 6).Value = item.ReorderLevel; ws.Cell(row, 6).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 7).Value = item.SuggestedReorderQty; ws.Cell(row, 7).Style.NumberFormat.Format = FormatCount;
             ws.Cell(row, 7).Style.Font.FontColor = XLColor.FromHtml("#1565c0");
             ws.Cell(row, 7).Style.Font.Bold = true;
             row++;
         }
-        StyleDataRows(ws, dataStart, row - 1, 7);
+        int lastData = row - 1;
+        row = FinishTable(ws, freezeAt, dataStart, row, 7, "No items are below their reorder level. Nothing to order.");
+
+        foreach (var criticalRow in criticalRows)
+            ws.Cell(criticalRow, 1).Style.Fill.BackgroundColor = DangerRed;
+        foreach (var warningRow in warningRows)
+            ws.Cell(warningRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#fff3cd");
+
+        ws.Cell(row, 1).Value = "TOTAL";
+        WriteSubtotal(ws, row, 7, dataStart, lastData, FormatCount);
+        StyleTotalsRow(ws, row, 7);
 
         WriteFooter(ws, row, 7);
         FinalizeSheet(ws, 7, freezeAt, landscape: true);
@@ -675,42 +1007,40 @@ public class ReportExportService : IReportExportService
     // ═══════════════════════════════════════════════════════════════
     public byte[] ExportOrderFulfillmentToExcel(OrderFulfillmentReport report)
     {
-        using var workbook = new XLWorkbook();
+        using var workbook = NewWorkbook("Sales Order vs Invoice Report");
 
         // ── Dashboard Sheet ──
-        var dash = workbook.Worksheets.Add("Invoice Dashboard");
+        var dash = AddSheet(workbook, "Invoice Dashboard");
         int row = WriteReportHeader(dash, "Sales Order vs Invoice Report", 4, report.FromDate, report.ToDate);
 
-        WriteKpiCard(dash, row, 1, "Total Orders", report.TotalOrders.ToString("N0"));
-        WriteKpiCard(dash, row, 2, "Invoice Rate", $"{report.FulfillmentRatePercent:N1}%", report.FulfillmentRatePercent >= 80 ? SuccessGreen : DangerRed);
-        WriteKpiCard(dash, row, 3, "Open Orders", report.OpenOrders.ToString("N0"), WarningOrange);
-        WriteKpiCard(dash, row, 4, "Pending Value (USD)", $"${report.TotalPendingValueUSD:N2}", DangerRed);
+        WriteKpiCard(dash, row, 1, "Total Orders", report.TotalOrders, FormatCount);
+        WriteKpiCard(dash, row, 2, "Invoice Rate", report.FulfillmentRatePercent / 100, FormatPercent, report.FulfillmentRatePercent >= 80 ? SuccessGreen : DangerRed);
+        WriteKpiCard(dash, row, 3, "Open Orders", report.OpenOrders, FormatCount, WarningOrange);
+        WriteKpiCard(dash, row, 4, "Pending Value (USD)", report.TotalPendingValueUSD, FormatUsd, DangerRed);
         row += 3;
 
-        dash.Range(row, 1, row, 4).Merge();
-        dash.Cell(row, 1).Value = "KEY METRICS";
-        dash.Cell(row, 1).Style.Font.Bold = true; dash.Cell(row, 1).Style.Font.FontSize = 11; dash.Cell(row, 1).Style.Font.FontColor = LightNavy;
+        WriteSectionTitle(dash, row, 4, "KEY METRICS");
         row++;
 
-        WriteKpiRow(dash, row, "Total Orders", report.TotalOrders.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Open Orders", report.OpenOrders.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Closed Orders", report.ClosedOrders.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Cancelled Orders", report.CancelledOrders.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Invoice Rate", $"{report.FulfillmentRatePercent:N1}%", true); row++;
-        WriteKpiRow(dash, row, "Total Order Value (USD)", $"${report.TotalOrderValueUSD:N2}", true); row++;
-        WriteKpiRow(dash, row, "Total Order Value (ZIG)", $"ZIG {report.TotalOrderValueZIG:N2}"); row++;
-        WriteKpiRow(dash, row, "Invoiced Value (USD)", $"${report.TotalDeliveredValueUSD:N2}"); row++;
-        WriteKpiRow(dash, row, "Pending Value (USD)", $"${report.TotalPendingValueUSD:N2}"); row++;
-        WriteKpiRow(dash, row, "Total Line Items", report.TotalLineItems.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Fully Invoiced Lines", report.FullyDeliveredLines.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Partially Invoiced Lines", report.PartiallyDeliveredLines.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Pending Invoice Lines", report.UndeliveredLines.ToString("N0")); row++;
+        WriteKpiRow(dash, row, "Total Orders", report.TotalOrders, FormatCount); row++;
+        WriteKpiRow(dash, row, "Open Orders", report.OpenOrders, FormatCount); row++;
+        WriteKpiRow(dash, row, "Closed Orders", report.ClosedOrders, FormatCount); row++;
+        WriteKpiRow(dash, row, "Cancelled Orders", report.CancelledOrders, FormatCount); row++;
+        WriteKpiRow(dash, row, "Invoice Rate", report.FulfillmentRatePercent / 100, FormatPercent, true); row++;
+        WriteKpiRow(dash, row, "Total Order Value (USD)", report.TotalOrderValueUSD, FormatUsd, true); row++;
+        WriteKpiRow(dash, row, "Total Order Value (ZiG)", report.TotalOrderValueZIG, FormatZig); row++;
+        WriteKpiRow(dash, row, "Invoiced Value (USD)", report.TotalDeliveredValueUSD, FormatUsd); row++;
+        WriteKpiRow(dash, row, "Pending Value (USD)", report.TotalPendingValueUSD, FormatUsd); row++;
+        WriteKpiRow(dash, row, "Total Line Items", report.TotalLineItems, FormatCount); row++;
+        WriteKpiRow(dash, row, "Fully Invoiced Lines", report.FullyDeliveredLines, FormatCount); row++;
+        WriteKpiRow(dash, row, "Partially Invoiced Lines", report.PartiallyDeliveredLines, FormatCount); row++;
+        WriteKpiRow(dash, row, "Pending Invoice Lines", report.UndeliveredLines, FormatCount); row++;
 
         WriteFooter(dash, row, 4);
         FinalizeSheet(dash, 4);
 
         // ── Orders Detail Sheet ──
-        var ws = workbook.Worksheets.Add("Order Details");
+        var ws = AddSheet(workbook, "Order Details");
         int oRow = WriteReportHeader(ws, "Order Details", 12, report.FromDate, report.ToDate);
 
         ws.Cell(oRow, 1).Value = "Order#"; ws.Cell(oRow, 2).Value = "Date"; ws.Cell(oRow, 3).Value = "Due Date";
@@ -724,18 +1054,25 @@ public class ReportExportService : IReportExportService
         foreach (var o in report.Orders)
         {
             ws.Cell(oRow, 1).Value = o.DocNum;
-            ws.Cell(oRow, 2).Value = o.OrderDate.ToString("dd MMM yyyy");
-            ws.Cell(oRow, 3).Value = o.DueDate.ToString("dd MMM yyyy");
+            ws.Cell(oRow, 2).Value = o.OrderDate;
+            ws.Cell(oRow, 2).Style.NumberFormat.Format = FormatDate;
+            ws.Cell(oRow, 3).Value = o.DueDate;
+            ws.Cell(oRow, 3).Style.NumberFormat.Format = FormatDate;
             ws.Cell(oRow, 4).Value = $"{o.CardName} ({o.CardCode})";
             ws.Cell(oRow, 5).Value = o.DocCurrency;
-            ws.Cell(oRow, 6).Value = o.OrderTotal; ws.Cell(oRow, 6).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(oRow, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            // Orders come in more than one currency, so the column carries no symbol
+            // and is deliberately left untotalled.
+            ws.Cell(oRow, 6).Value = o.OrderTotal; ws.Cell(oRow, 6).Style.NumberFormat.Format = FormatMoney;
             ws.Cell(oRow, 7).Value = o.Status;
             ws.Cell(oRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(oRow, 8).Value = o.TotalQuantityOrdered; ws.Cell(oRow, 8).Style.NumberFormat.Format = "#,##0";
-            ws.Cell(oRow, 9).Value = o.TotalQuantityDelivered; ws.Cell(oRow, 9).Style.NumberFormat.Format = "#,##0";
-            ws.Cell(oRow, 10).Value = o.TotalQuantityPending; ws.Cell(oRow, 10).Style.NumberFormat.Format = "#,##0";
-            ws.Cell(oRow, 11).Value = o.FulfillmentPercent / 100; ws.Cell(oRow, 11).Style.NumberFormat.Format = "0.0%";
+            ws.Cell(oRow, 8).Value = o.TotalQuantityOrdered; ws.Cell(oRow, 8).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(oRow, 9).Value = o.TotalQuantityDelivered; ws.Cell(oRow, 9).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(oRow, 10).Value = o.TotalQuantityPending; ws.Cell(oRow, 10).Style.NumberFormat.Format = FormatCount;
+            if (o.TotalQuantityPending > 0) ws.Cell(oRow, 10).Style.Font.FontColor = WarningOrange;
+            ws.Cell(oRow, 11).Value = o.FulfillmentPercent / 100; ws.Cell(oRow, 11).Style.NumberFormat.Format = FormatPercent;
             ws.Cell(oRow, 12).Value = o.IsOverdue ? $"YES ({o.DaysOverdue}d)" : "No";
+            ws.Cell(oRow, 12).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             if (o.IsOverdue)
             {
                 ws.Cell(oRow, 12).Style.Font.FontColor = DangerRed;
@@ -743,7 +1080,14 @@ public class ReportExportService : IReportExportService
             }
             oRow++;
         }
-        StyleDataRows(ws, dataStart, oRow - 1, 12);
+        int lastOrder = oRow - 1;
+        oRow = FinishTable(ws, freezeAt, dataStart, oRow, 12, "No sales orders fell in this period.");
+
+        ws.Cell(oRow, 1).Value = "TOTAL";
+        WriteSubtotal(ws, oRow, 8, dataStart, lastOrder, FormatCount);
+        WriteSubtotal(ws, oRow, 9, dataStart, lastOrder, FormatCount);
+        WriteSubtotal(ws, oRow, 10, dataStart, lastOrder, FormatCount);
+        StyleTotalsRow(ws, oRow, 12);
 
         WriteFooter(ws, oRow, 12);
         FinalizeSheet(ws, 12, freezeAt, landscape: true);
@@ -751,7 +1095,7 @@ public class ReportExportService : IReportExportService
         // ── Item Line Detail Sheet ──
         if (report.Orders.Any(order => order.Lines.Any()))
         {
-            var lws = workbook.Worksheets.Add("Item Lines");
+            var lws = AddSheet(workbook, "Item Lines");
             int lRow = WriteReportHeader(lws, "Item Invoice Lines", 16, report.FromDate, report.ToDate);
 
             lws.Cell(lRow, 1).Value = "Order#"; lws.Cell(lRow, 2).Value = "Date"; lws.Cell(lRow, 3).Value = "Customer";
@@ -770,21 +1114,22 @@ public class ReportExportService : IReportExportService
                 foreach (var line in order.Lines)
                 {
                     lws.Cell(lRow, 1).Value = order.DocNum;
-                    lws.Cell(lRow, 2).Value = order.OrderDate.ToString("dd MMM yyyy");
+                    lws.Cell(lRow, 2).Value = order.OrderDate;
+                    lws.Cell(lRow, 2).Style.NumberFormat.Format = FormatDate;
                     lws.Cell(lRow, 3).Value = $"{order.CardName} ({order.CardCode})";
                     lws.Cell(lRow, 4).Value = line.ItemCode;
                     lws.Cell(lRow, 5).Value = line.ItemDescription;
                     lws.Cell(lRow, 6).Value = line.WarehouseCode;
                     lws.Cell(lRow, 7).Value = line.LineStatus;
                     lws.Cell(lRow, 8).Value = line.InvoiceNumbers;
-                    lws.Cell(lRow, 9).Value = line.UnitPrice; lws.Cell(lRow, 9).Style.NumberFormat.Format = "#,##0.00";
-                    lws.Cell(lRow, 10).Value = line.QuantityOrdered; lws.Cell(lRow, 10).Style.NumberFormat.Format = "#,##0.00";
-                    lws.Cell(lRow, 11).Value = line.QuantityDelivered; lws.Cell(lRow, 11).Style.NumberFormat.Format = "#,##0.00";
-                    lws.Cell(lRow, 12).Value = line.QuantityPending; lws.Cell(lRow, 12).Style.NumberFormat.Format = "#,##0.00";
-                    lws.Cell(lRow, 13).Value = line.QuantityOrdered > 0 ? line.QuantityDelivered / line.QuantityOrdered : 0; lws.Cell(lRow, 13).Style.NumberFormat.Format = "0.0%";
-                    lws.Cell(lRow, 14).Value = line.LineTotal; lws.Cell(lRow, 14).Style.NumberFormat.Format = "#,##0.00";
-                    lws.Cell(lRow, 15).Value = line.InvoicedValue; lws.Cell(lRow, 15).Style.NumberFormat.Format = "#,##0.00";
-                    lws.Cell(lRow, 16).Value = CalculatePendingLineValue(line); lws.Cell(lRow, 16).Style.NumberFormat.Format = "#,##0.00";
+                    lws.Cell(lRow, 9).Value = line.UnitPrice; lws.Cell(lRow, 9).Style.NumberFormat.Format = FormatMoney;
+                    lws.Cell(lRow, 10).Value = line.QuantityOrdered; lws.Cell(lRow, 10).Style.NumberFormat.Format = FormatQuantity;
+                    lws.Cell(lRow, 11).Value = line.QuantityDelivered; lws.Cell(lRow, 11).Style.NumberFormat.Format = FormatQuantity;
+                    lws.Cell(lRow, 12).Value = line.QuantityPending; lws.Cell(lRow, 12).Style.NumberFormat.Format = FormatQuantity;
+                    lws.Cell(lRow, 13).Value = line.QuantityOrdered > 0 ? line.QuantityDelivered / line.QuantityOrdered : 0; lws.Cell(lRow, 13).Style.NumberFormat.Format = FormatPercent;
+                    lws.Cell(lRow, 14).Value = line.LineTotal; lws.Cell(lRow, 14).Style.NumberFormat.Format = FormatMoney;
+                    lws.Cell(lRow, 15).Value = line.InvoicedValue; lws.Cell(lRow, 15).Style.NumberFormat.Format = FormatMoney;
+                    lws.Cell(lRow, 16).Value = CalculatePendingLineValue(line); lws.Cell(lRow, 16).Style.NumberFormat.Format = FormatMoney;
                     if (line.QuantityPending > 0)
                     {
                         lws.Cell(lRow, 12).Style.Font.FontColor = WarningOrange;
@@ -794,7 +1139,17 @@ public class ReportExportService : IReportExportService
                 }
             }
 
-            StyleDataRows(lws, lineStart, lRow - 1, 16);
+            int lastLine = lRow - 1;
+            lRow = FinishTable(lws, lineFreeze, lineStart, lRow, 16, "No order lines fell in this period.");
+
+            // Line values are stated in each order's own currency, so only the
+            // quantity columns are summed here.
+            lws.Cell(lRow, 1).Value = "TOTAL";
+            WriteSubtotal(lws, lRow, 10, lineStart, lastLine, FormatQuantity);
+            WriteSubtotal(lws, lRow, 11, lineStart, lastLine, FormatQuantity);
+            WriteSubtotal(lws, lRow, 12, lineStart, lastLine, FormatQuantity);
+            StyleTotalsRow(lws, lRow, 16);
+
             WriteFooter(lws, lRow, 16);
             FinalizeSheet(lws, 16, lineFreeze, landscape: true);
         }
@@ -802,7 +1157,7 @@ public class ReportExportService : IReportExportService
         // ── By Customer Sheet ──
         if (report.FulfillmentByCustomer.Any())
         {
-            var cws = workbook.Worksheets.Add("By Customer");
+            var cws = AddSheet(workbook, "By Customer");
             int cRow = WriteReportHeader(cws, "Invoice by Customer", 8, report.FromDate, report.ToDate);
 
             cws.Cell(cRow, 1).Value = "Customer"; cws.Cell(cRow, 2).Value = "Code"; cws.Cell(cRow, 3).Value = "Total Orders";
@@ -816,25 +1171,34 @@ public class ReportExportService : IReportExportService
             {
                 cws.Cell(cRow, 1).Value = c.CardName;
                 cws.Cell(cRow, 2).Value = c.CardCode;
-                cws.Cell(cRow, 3).Value = c.TotalOrders; cws.Cell(cRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                cws.Cell(cRow, 4).Value = c.OpenOrders; cws.Cell(cRow, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                cws.Cell(cRow, 5).Value = c.ClosedOrders; cws.Cell(cRow, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                cws.Cell(cRow, 6).Value = c.TotalOrderValue; cws.Cell(cRow, 6).Style.NumberFormat.Format = "$#,##0.00";
-                cws.Cell(cRow, 7).Value = c.FulfillmentRatePercent / 100; cws.Cell(cRow, 7).Style.NumberFormat.Format = "0.0%";
+                cws.Cell(cRow, 3).Value = c.TotalOrders; cws.Cell(cRow, 3).Style.NumberFormat.Format = FormatCount;
+                cws.Cell(cRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                cws.Cell(cRow, 4).Value = c.OpenOrders; cws.Cell(cRow, 4).Style.NumberFormat.Format = FormatCount;
+                cws.Cell(cRow, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                cws.Cell(cRow, 5).Value = c.ClosedOrders; cws.Cell(cRow, 5).Style.NumberFormat.Format = FormatCount;
+                cws.Cell(cRow, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                cws.Cell(cRow, 6).Value = c.TotalOrderValue; cws.Cell(cRow, 6).Style.NumberFormat.Format = FormatUsd;
+                cws.Cell(cRow, 7).Value = c.FulfillmentRatePercent / 100; cws.Cell(cRow, 7).Style.NumberFormat.Format = FormatPercent;
                 cws.Cell(cRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                cws.Cell(cRow, 8).Value = c.TotalPendingValue; cws.Cell(cRow, 8).Style.NumberFormat.Format = "$#,##0.00";
+                cws.Cell(cRow, 8).Value = c.TotalPendingValue; cws.Cell(cRow, 8).Style.NumberFormat.Format = FormatUsd;
                 if (c.TotalPendingValue > 0) cws.Cell(cRow, 8).Style.Font.FontColor = DangerRed;
                 cRow++;
             }
-            StyleDataRows(cws, cStart, cRow - 1, 8);
+            int lastCustomer = cRow - 1;
+            cRow = FinishTable(cws, cFreeze, cStart, cRow, 8, "No customers had orders in this period.");
 
             cws.Cell(cRow, 1).Value = "TOTAL";
-            cws.Cell(cRow, 3).Value = report.FulfillmentByCustomer.Sum(c => c.TotalOrders); cws.Cell(cRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            cws.Cell(cRow, 6).Value = report.FulfillmentByCustomer.Sum(c => c.TotalOrderValue); cws.Cell(cRow, 6).Style.NumberFormat.Format = "$#,##0.00";
-            cws.Cell(cRow, 8).Value = report.FulfillmentByCustomer.Sum(c => c.TotalPendingValue); cws.Cell(cRow, 8).Style.NumberFormat.Format = "$#,##0.00";
+            WriteSubtotal(cws, cRow, 3, cStart, lastCustomer, FormatCount);
+            cws.Cell(cRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            WriteSubtotal(cws, cRow, 4, cStart, lastCustomer, FormatCount);
+            cws.Cell(cRow, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            WriteSubtotal(cws, cRow, 5, cStart, lastCustomer, FormatCount);
+            cws.Cell(cRow, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            WriteSubtotal(cws, cRow, 6, cStart, lastCustomer, FormatUsd);
+            WriteSubtotal(cws, cRow, 8, cStart, lastCustomer, FormatUsd);
             StyleTotalsRow(cws, cRow, 8);
 
-            WriteFooter(cws, cRow + 1, 8);
+            WriteFooter(cws, cRow, 8);
             FinalizeSheet(cws, 8, cFreeze, landscape: true);
         }
 
@@ -846,91 +1210,92 @@ public class ReportExportService : IReportExportService
     // ═══════════════════════════════════════════════════════════════
     public byte[] ExportCreditNoteSummaryToExcel(CreditNoteSummaryReport report)
     {
-        using var workbook = new XLWorkbook();
+        using var workbook = NewWorkbook("Credit Notes Summary Report");
 
-        var dash = workbook.Worksheets.Add("Credit Notes Dashboard");
+        var dash = AddSheet(workbook, "Credit Notes Dashboard");
         int row = WriteReportHeader(dash, "Credit Notes Summary Report", 5, report.FromDate, report.ToDate);
 
-        WriteKpiCard(dash, row, 1, "Total Credit Notes", report.TotalCreditNotes.ToString("N0"));
-        WriteKpiCard(dash, row, 2, "Total (USD)", $"${report.TotalCreditAmountUSD:N2}", DangerRed);
-        WriteKpiCard(dash, row, 3, "Total (ZIG)", $"ZIG {report.TotalCreditAmountZIG:N2}");
-        WriteKpiCard(dash, row, 4, "Avg Value (USD)", $"${report.AverageCreditNoteValueUSD:N2}");
-        WriteKpiCard(dash, row, 5, "Credit-to-Sales", $"{report.CreditToSalesRatioPercent:N1}%", report.CreditToSalesRatioPercent > 5 ? DangerRed : SuccessGreen);
+        WriteKpiCard(dash, row, 1, "Total Credit Notes", report.TotalCreditNotes, FormatCount);
+        WriteKpiCard(dash, row, 2, "Total (USD)", report.TotalCreditAmountUSD, FormatUsd, DangerRed);
+        WriteKpiCard(dash, row, 3, "Total (ZiG)", report.TotalCreditAmountZIG, FormatZig);
+        WriteKpiCard(dash, row, 4, "Avg Value (USD)", report.AverageCreditNoteValueUSD, FormatUsd);
+        WriteKpiCard(dash, row, 5, "Credit-to-Sales", report.CreditToSalesRatioPercent / 100, FormatPercent, report.CreditToSalesRatioPercent > 5 ? DangerRed : SuccessGreen);
         row += 3;
 
-        WriteKpiRow(dash, row, "Total Credit Notes", report.TotalCreditNotes.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Total Amount (USD)", $"${report.TotalCreditAmountUSD:N2}", true); row++;
-        WriteKpiRow(dash, row, "Total Amount (ZIG)", $"ZIG {report.TotalCreditAmountZIG:N2}"); row++;
-        WriteKpiRow(dash, row, "VAT (USD)", $"${report.TotalVatUSD:N2}"); row++;
-        WriteKpiRow(dash, row, "Avg Credit Note (USD)", $"${report.AverageCreditNoteValueUSD:N2}"); row++;
-        WriteKpiRow(dash, row, "Unique Customers", report.UniqueCustomers.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Credit-to-Sales Ratio", $"{report.CreditToSalesRatioPercent:N1}%", true); row++;
+        WriteKpiRow(dash, row, "Total Credit Notes", report.TotalCreditNotes, FormatCount); row++;
+        WriteKpiRow(dash, row, "Total Amount (USD)", report.TotalCreditAmountUSD, FormatUsd, true); row++;
+        WriteKpiRow(dash, row, "Total Amount (ZiG)", report.TotalCreditAmountZIG, FormatZig); row++;
+        WriteKpiRow(dash, row, "VAT (USD)", report.TotalVatUSD, FormatUsd); row++;
+        WriteKpiRow(dash, row, "Avg Credit Note (USD)", report.AverageCreditNoteValueUSD, FormatUsd); row++;
+        WriteKpiRow(dash, row, "Unique Customers", report.UniqueCustomers, FormatCount); row++;
+        WriteKpiRow(dash, row, "Credit-to-Sales Ratio", report.CreditToSalesRatioPercent / 100, FormatPercent, true); row++;
 
         WriteFooter(dash, row, 5);
         FinalizeSheet(dash, 5);
 
-        if (report.ByCustomer.Any())
-        {
-            var cws = workbook.Worksheets.Add("By Customer");
-            int cRow = WriteReportHeader(cws, "Credit Notes by Customer", 5, report.FromDate, report.ToDate);
+        var cws = AddSheet(workbook, "By Customer");
+        int cRow = WriteReportHeader(cws, "Credit Notes by Customer", 5, report.FromDate, report.ToDate);
 
-            cws.Cell(cRow, 1).Value = "Customer Code"; cws.Cell(cRow, 2).Value = "Customer Name"; cws.Cell(cRow, 3).Value = "Count";
-            cws.Cell(cRow, 4).Value = "Amount (USD)"; cws.Cell(cRow, 5).Value = "Amount (ZIG)";
-            StyleTableHeader(cws, cRow, 5);
-            int cFreeze = cRow;
+        cws.Cell(cRow, 1).Value = "Customer Code"; cws.Cell(cRow, 2).Value = "Customer Name"; cws.Cell(cRow, 3).Value = "Count";
+        cws.Cell(cRow, 4).Value = "Amount (USD)"; cws.Cell(cRow, 5).Value = "Amount (ZiG)";
+        StyleTableHeader(cws, cRow, 5);
+        int cFreeze = cRow;
+        cRow++;
+        int cStart = cRow;
+        foreach (var c in report.ByCustomer.OrderByDescending(x => x.TotalAmountUSD))
+        {
+            cws.Cell(cRow, 1).Value = c.CardCode;
+            cws.Cell(cRow, 2).Value = c.CardName;
+            cws.Cell(cRow, 3).Value = c.CreditNoteCount; cws.Cell(cRow, 3).Style.NumberFormat.Format = FormatCount;
+            cws.Cell(cRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            cws.Cell(cRow, 4).Value = c.TotalAmountUSD; cws.Cell(cRow, 4).Style.NumberFormat.Format = FormatUsd;
+            cws.Cell(cRow, 5).Value = c.TotalAmountZIG; cws.Cell(cRow, 5).Style.NumberFormat.Format = FormatZig;
             cRow++;
-            int cStart = cRow;
-            foreach (var c in report.ByCustomer.OrderByDescending(x => x.TotalAmountUSD))
-            {
-                cws.Cell(cRow, 1).Value = c.CardCode;
-                cws.Cell(cRow, 2).Value = c.CardName;
-                cws.Cell(cRow, 3).Value = c.CreditNoteCount; cws.Cell(cRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                cws.Cell(cRow, 4).Value = c.TotalAmountUSD; cws.Cell(cRow, 4).Style.NumberFormat.Format = "$#,##0.00";
-                cws.Cell(cRow, 5).Value = c.TotalAmountZIG; cws.Cell(cRow, 5).Style.NumberFormat.Format = "#,##0.00";
-                cRow++;
-            }
-            StyleDataRows(cws, cStart, cRow - 1, 5);
-
-            cws.Cell(cRow, 1).Value = "TOTAL";
-            cws.Cell(cRow, 3).Value = report.ByCustomer.Sum(c => c.CreditNoteCount); cws.Cell(cRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            cws.Cell(cRow, 4).Value = report.ByCustomer.Sum(c => c.TotalAmountUSD); cws.Cell(cRow, 4).Style.NumberFormat.Format = "$#,##0.00";
-            cws.Cell(cRow, 5).Value = report.ByCustomer.Sum(c => c.TotalAmountZIG); cws.Cell(cRow, 5).Style.NumberFormat.Format = "#,##0.00";
-            StyleTotalsRow(cws, cRow, 5);
-
-            WriteFooter(cws, cRow + 1, 5);
-            FinalizeSheet(cws, 5, cFreeze);
         }
+        int lastCustomer = cRow - 1;
+        cRow = FinishTable(cws, cFreeze, cStart, cRow, 5, "No credit notes were raised in this period.");
 
-        if (report.TopProductsReturned.Any())
+        cws.Cell(cRow, 1).Value = "TOTAL";
+        WriteSubtotal(cws, cRow, 3, cStart, lastCustomer, FormatCount);
+        cws.Cell(cRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        WriteSubtotal(cws, cRow, 4, cStart, lastCustomer, FormatUsd);
+        WriteSubtotal(cws, cRow, 5, cStart, lastCustomer, FormatZig);
+        StyleTotalsRow(cws, cRow, 5);
+
+        WriteFooter(cws, cRow, 5);
+        FinalizeSheet(cws, 5, cFreeze);
+
+        var pws = AddSheet(workbook, "Products Returned");
+        int pRow = WriteReportHeader(pws, "Top Products Returned", 5, report.FromDate, report.ToDate);
+
+        pws.Cell(pRow, 1).Value = "Item Code"; pws.Cell(pRow, 2).Value = "Product Name";
+        pws.Cell(pRow, 3).Value = "Qty Returned"; pws.Cell(pRow, 4).Value = "Value (USD)"; pws.Cell(pRow, 5).Value = "Times Returned";
+        StyleTableHeader(pws, pRow, 5);
+        int pFreeze = pRow;
+        pRow++;
+        int pStart = pRow;
+        foreach (var p in report.TopProductsReturned.OrderByDescending(x => x.TotalCreditAmountUSD))
         {
-            var pws = workbook.Worksheets.Add("Products Returned");
-            int pRow = WriteReportHeader(pws, "Top Products Returned", 5, report.FromDate, report.ToDate);
-
-            pws.Cell(pRow, 1).Value = "Item Code"; pws.Cell(pRow, 2).Value = "Product Name";
-            pws.Cell(pRow, 3).Value = "Qty Returned"; pws.Cell(pRow, 4).Value = "Value (USD)"; pws.Cell(pRow, 5).Value = "Times Returned";
-            StyleTableHeader(pws, pRow, 5);
-            int pFreeze = pRow;
+            pws.Cell(pRow, 1).Value = p.ItemCode;
+            pws.Cell(pRow, 2).Value = p.ItemName;
+            pws.Cell(pRow, 3).Value = p.TotalQuantityReturned; pws.Cell(pRow, 3).Style.NumberFormat.Format = FormatCount;
+            pws.Cell(pRow, 4).Value = p.TotalCreditAmountUSD; pws.Cell(pRow, 4).Style.NumberFormat.Format = FormatUsd;
+            pws.Cell(pRow, 5).Value = p.TimesReturned; pws.Cell(pRow, 5).Style.NumberFormat.Format = FormatCount;
+            pws.Cell(pRow, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             pRow++;
-            int pStart = pRow;
-            foreach (var p in report.TopProductsReturned.OrderByDescending(x => x.TotalCreditAmountUSD))
-            {
-                pws.Cell(pRow, 1).Value = p.ItemCode;
-                pws.Cell(pRow, 2).Value = p.ItemName;
-                pws.Cell(pRow, 3).Value = p.TotalQuantityReturned; pws.Cell(pRow, 3).Style.NumberFormat.Format = "#,##0";
-                pws.Cell(pRow, 4).Value = p.TotalCreditAmountUSD; pws.Cell(pRow, 4).Style.NumberFormat.Format = "$#,##0.00";
-                pws.Cell(pRow, 5).Value = p.TimesReturned;
-                pRow++;
-            }
-            StyleDataRows(pws, pStart, pRow - 1, 5);
-
-            pws.Cell(pRow, 1).Value = "TOTAL";
-            pws.Cell(pRow, 3).Value = report.TopProductsReturned.Sum(p => p.TotalQuantityReturned); pws.Cell(pRow, 3).Style.NumberFormat.Format = "#,##0";
-            pws.Cell(pRow, 4).Value = report.TopProductsReturned.Sum(p => p.TotalCreditAmountUSD); pws.Cell(pRow, 4).Style.NumberFormat.Format = "$#,##0.00";
-            StyleTotalsRow(pws, pRow, 5);
-
-            WriteFooter(pws, pRow + 1, 5);
-            FinalizeSheet(pws, 5, pFreeze);
         }
+        int lastProduct = pRow - 1;
+        pRow = FinishTable(pws, pFreeze, pStart, pRow, 5, "No products were returned in this period.");
+
+        pws.Cell(pRow, 1).Value = "TOTAL";
+        WriteSubtotal(pws, pRow, 3, pStart, lastProduct, FormatCount);
+        WriteSubtotal(pws, pRow, 4, pStart, lastProduct, FormatUsd);
+        WriteSubtotal(pws, pRow, 5, pStart, lastProduct, FormatCount);
+        pws.Cell(pRow, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        StyleTotalsRow(pws, pRow, 5);
+
+        WriteFooter(pws, pRow, 5);
+        FinalizeSheet(pws, 5, pFreeze);
 
         return WorkbookToBytes(workbook);
     }
@@ -940,97 +1305,101 @@ public class ReportExportService : IReportExportService
     // ═══════════════════════════════════════════════════════════════
     public byte[] ExportPurchaseOrderSummaryToExcel(PurchaseOrderSummaryReport report)
     {
-        using var workbook = new XLWorkbook();
+        using var workbook = NewWorkbook("Purchase Orders Summary Report");
 
-        var dash = workbook.Worksheets.Add("Purchasing Dashboard");
+        var dash = AddSheet(workbook, "Purchasing Dashboard");
         int row = WriteReportHeader(dash, "Purchase Orders Summary Report", 5, report.FromDate, report.ToDate);
 
-        WriteKpiCard(dash, row, 1, "Total POs", report.TotalPurchaseOrders.ToString("N0"));
-        WriteKpiCard(dash, row, 2, "Total Value (USD)", $"${report.TotalOrderValueUSD:N2}");
-        WriteKpiCard(dash, row, 3, "Open POs", report.OpenOrders.ToString("N0"), WarningOrange);
-        WriteKpiCard(dash, row, 4, "Pending Value (USD)", $"${report.TotalPendingValueUSD:N2}", DangerRed);
-        WriteKpiCard(dash, row, 5, "Unique Suppliers", report.UniqueSuppliers.ToString("N0"));
+        WriteKpiCard(dash, row, 1, "Total POs", report.TotalPurchaseOrders, FormatCount);
+        WriteKpiCard(dash, row, 2, "Total Value (USD)", report.TotalOrderValueUSD, FormatUsd);
+        WriteKpiCard(dash, row, 3, "Open POs", report.OpenOrders, FormatCount, WarningOrange);
+        WriteKpiCard(dash, row, 4, "Pending Value (USD)", report.TotalPendingValueUSD, FormatUsd, DangerRed);
+        WriteKpiCard(dash, row, 5, "Unique Suppliers", report.UniqueSuppliers, FormatCount);
         row += 3;
 
-        WriteKpiRow(dash, row, "Total Purchase Orders", report.TotalPurchaseOrders.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Open Orders", report.OpenOrders.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Closed Orders", report.ClosedOrders.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Cancelled Orders", report.CancelledOrders.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Total Value (USD)", $"${report.TotalOrderValueUSD:N2}", true); row++;
-        WriteKpiRow(dash, row, "Total Value (ZIG)", $"ZIG {report.TotalOrderValueZIG:N2}"); row++;
-        WriteKpiRow(dash, row, "Pending Value (USD)", $"${report.TotalPendingValueUSD:N2}"); row++;
-        WriteKpiRow(dash, row, "Avg Order Value (USD)", $"${report.AverageOrderValueUSD:N2}"); row++;
+        WriteKpiRow(dash, row, "Total Purchase Orders", report.TotalPurchaseOrders, FormatCount); row++;
+        WriteKpiRow(dash, row, "Open Orders", report.OpenOrders, FormatCount); row++;
+        WriteKpiRow(dash, row, "Closed Orders", report.ClosedOrders, FormatCount); row++;
+        WriteKpiRow(dash, row, "Cancelled Orders", report.CancelledOrders, FormatCount); row++;
+        WriteKpiRow(dash, row, "Total Value (USD)", report.TotalOrderValueUSD, FormatUsd, true); row++;
+        WriteKpiRow(dash, row, "Total Value (ZiG)", report.TotalOrderValueZIG, FormatZig); row++;
+        WriteKpiRow(dash, row, "Pending Value (USD)", report.TotalPendingValueUSD, FormatUsd); row++;
+        WriteKpiRow(dash, row, "Avg Order Value (USD)", report.AverageOrderValueUSD, FormatUsd); row++;
 
         WriteFooter(dash, row, 5);
         FinalizeSheet(dash, 5);
 
-        if (report.BySupplier.Any())
-        {
-            var sws = workbook.Worksheets.Add("By Supplier");
-            int sRow = WriteReportHeader(sws, "Purchase Orders by Supplier", 7, report.FromDate, report.ToDate);
+        var sws = AddSheet(workbook, "By Supplier");
+        int sRow = WriteReportHeader(sws, "Purchase Orders by Supplier", 7, report.FromDate, report.ToDate);
 
-            sws.Cell(sRow, 1).Value = "Supplier Code"; sws.Cell(sRow, 2).Value = "Supplier Name"; sws.Cell(sRow, 3).Value = "POs";
-            sws.Cell(sRow, 4).Value = "Total (USD)"; sws.Cell(sRow, 5).Value = "Total (ZIG)";
-            sws.Cell(sRow, 6).Value = "Open POs"; sws.Cell(sRow, 7).Value = "Pending (USD)";
-            StyleTableHeader(sws, sRow, 7);
-            int sFreeze = sRow;
+        sws.Cell(sRow, 1).Value = "Supplier Code"; sws.Cell(sRow, 2).Value = "Supplier Name"; sws.Cell(sRow, 3).Value = "POs";
+        sws.Cell(sRow, 4).Value = "Total (USD)"; sws.Cell(sRow, 5).Value = "Total (ZiG)";
+        sws.Cell(sRow, 6).Value = "Open POs"; sws.Cell(sRow, 7).Value = "Pending (USD)";
+        StyleTableHeader(sws, sRow, 7);
+        int sFreeze = sRow;
+        sRow++;
+        int sStart = sRow;
+        foreach (var s in report.BySupplier.OrderByDescending(x => x.TotalValueUSD))
+        {
+            sws.Cell(sRow, 1).Value = s.CardCode;
+            sws.Cell(sRow, 2).Value = s.CardName;
+            sws.Cell(sRow, 3).Value = s.OrderCount; sws.Cell(sRow, 3).Style.NumberFormat.Format = FormatCount;
+            sws.Cell(sRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            sws.Cell(sRow, 4).Value = s.TotalValueUSD; sws.Cell(sRow, 4).Style.NumberFormat.Format = FormatUsd;
+            sws.Cell(sRow, 5).Value = s.TotalValueZIG; sws.Cell(sRow, 5).Style.NumberFormat.Format = FormatZig;
+            sws.Cell(sRow, 6).Value = s.OpenOrders; sws.Cell(sRow, 6).Style.NumberFormat.Format = FormatCount;
+            sws.Cell(sRow, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            sws.Cell(sRow, 7).Value = s.PendingValueUSD; sws.Cell(sRow, 7).Style.NumberFormat.Format = FormatUsd;
+            if (s.PendingValueUSD > 0) sws.Cell(sRow, 7).Style.Font.FontColor = DangerRed;
             sRow++;
-            int sStart = sRow;
-            foreach (var s in report.BySupplier.OrderByDescending(x => x.TotalValueUSD))
-            {
-                sws.Cell(sRow, 1).Value = s.CardCode;
-                sws.Cell(sRow, 2).Value = s.CardName;
-                sws.Cell(sRow, 3).Value = s.OrderCount; sws.Cell(sRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                sws.Cell(sRow, 4).Value = s.TotalValueUSD; sws.Cell(sRow, 4).Style.NumberFormat.Format = "$#,##0.00";
-                sws.Cell(sRow, 5).Value = s.TotalValueZIG; sws.Cell(sRow, 5).Style.NumberFormat.Format = "#,##0.00";
-                sws.Cell(sRow, 6).Value = s.OpenOrders; sws.Cell(sRow, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                sws.Cell(sRow, 7).Value = s.PendingValueUSD; sws.Cell(sRow, 7).Style.NumberFormat.Format = "$#,##0.00";
-                if (s.PendingValueUSD > 0) sws.Cell(sRow, 7).Style.Font.FontColor = DangerRed;
-                sRow++;
-            }
-            StyleDataRows(sws, sStart, sRow - 1, 7);
-
-            sws.Cell(sRow, 1).Value = "TOTAL";
-            sws.Cell(sRow, 3).Value = report.BySupplier.Sum(s => s.OrderCount); sws.Cell(sRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            sws.Cell(sRow, 4).Value = report.BySupplier.Sum(s => s.TotalValueUSD); sws.Cell(sRow, 4).Style.NumberFormat.Format = "$#,##0.00";
-            sws.Cell(sRow, 5).Value = report.BySupplier.Sum(s => s.TotalValueZIG); sws.Cell(sRow, 5).Style.NumberFormat.Format = "#,##0.00";
-            sws.Cell(sRow, 7).Value = report.BySupplier.Sum(s => s.PendingValueUSD); sws.Cell(sRow, 7).Style.NumberFormat.Format = "$#,##0.00";
-            StyleTotalsRow(sws, sRow, 7);
-
-            WriteFooter(sws, sRow + 1, 7);
-            FinalizeSheet(sws, 7, sFreeze, landscape: true);
         }
+        int lastSupplier = sRow - 1;
+        sRow = FinishTable(sws, sFreeze, sStart, sRow, 7, "No purchase orders were raised in this period.");
 
-        if (report.TopProducts.Any())
+        sws.Cell(sRow, 1).Value = "TOTAL";
+        WriteSubtotal(sws, sRow, 3, sStart, lastSupplier, FormatCount);
+        sws.Cell(sRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        WriteSubtotal(sws, sRow, 4, sStart, lastSupplier, FormatUsd);
+        WriteSubtotal(sws, sRow, 5, sStart, lastSupplier, FormatZig);
+        WriteSubtotal(sws, sRow, 6, sStart, lastSupplier, FormatCount);
+        sws.Cell(sRow, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        WriteSubtotal(sws, sRow, 7, sStart, lastSupplier, FormatUsd);
+        StyleTotalsRow(sws, sRow, 7);
+
+        WriteFooter(sws, sRow, 7);
+        FinalizeSheet(sws, 7, sFreeze, landscape: true);
+
+        var pws = AddSheet(workbook, "Top Products");
+        int pRow = WriteReportHeader(pws, "Top Purchased Products", 5, report.FromDate, report.ToDate);
+
+        pws.Cell(pRow, 1).Value = "Item Code"; pws.Cell(pRow, 2).Value = "Product Name";
+        pws.Cell(pRow, 3).Value = "Qty Ordered"; pws.Cell(pRow, 4).Value = "Cost (USD)"; pws.Cell(pRow, 5).Value = "Times Ordered";
+        StyleTableHeader(pws, pRow, 5);
+        int pFreeze = pRow;
+        pRow++;
+        int pStart = pRow;
+        foreach (var p in report.TopProducts)
         {
-            var pws = workbook.Worksheets.Add("Top Products");
-            int pRow = WriteReportHeader(pws, "Top Purchased Products", 5, report.FromDate, report.ToDate);
-
-            pws.Cell(pRow, 1).Value = "Item Code"; pws.Cell(pRow, 2).Value = "Product Name";
-            pws.Cell(pRow, 3).Value = "Qty Ordered"; pws.Cell(pRow, 4).Value = "Cost (USD)"; pws.Cell(pRow, 5).Value = "Times Ordered";
-            StyleTableHeader(pws, pRow, 5);
-            int pFreeze = pRow;
+            pws.Cell(pRow, 1).Value = p.ItemCode;
+            pws.Cell(pRow, 2).Value = p.ItemName;
+            pws.Cell(pRow, 3).Value = p.TotalQuantityOrdered; pws.Cell(pRow, 3).Style.NumberFormat.Format = FormatCount;
+            pws.Cell(pRow, 4).Value = p.TotalCostUSD; pws.Cell(pRow, 4).Style.NumberFormat.Format = FormatUsd;
+            pws.Cell(pRow, 5).Value = p.TimesOrdered; pws.Cell(pRow, 5).Style.NumberFormat.Format = FormatCount;
+            pws.Cell(pRow, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             pRow++;
-            int pStart = pRow;
-            foreach (var p in report.TopProducts)
-            {
-                pws.Cell(pRow, 1).Value = p.ItemCode;
-                pws.Cell(pRow, 2).Value = p.ItemName;
-                pws.Cell(pRow, 3).Value = p.TotalQuantityOrdered; pws.Cell(pRow, 3).Style.NumberFormat.Format = "#,##0";
-                pws.Cell(pRow, 4).Value = p.TotalCostUSD; pws.Cell(pRow, 4).Style.NumberFormat.Format = "$#,##0.00";
-                pws.Cell(pRow, 5).Value = p.TimesOrdered;
-                pRow++;
-            }
-            StyleDataRows(pws, pStart, pRow - 1, 5);
-
-            pws.Cell(pRow, 1).Value = "TOTAL";
-            pws.Cell(pRow, 3).Value = report.TopProducts.Sum(p => p.TotalQuantityOrdered); pws.Cell(pRow, 3).Style.NumberFormat.Format = "#,##0";
-            pws.Cell(pRow, 4).Value = report.TopProducts.Sum(p => p.TotalCostUSD); pws.Cell(pRow, 4).Style.NumberFormat.Format = "$#,##0.00";
-            StyleTotalsRow(pws, pRow, 5);
-
-            WriteFooter(pws, pRow + 1, 5);
-            FinalizeSheet(pws, 5, pFreeze);
         }
+        int lastProduct = pRow - 1;
+        pRow = FinishTable(pws, pFreeze, pStart, pRow, 5, "No products were purchased in this period.");
+
+        pws.Cell(pRow, 1).Value = "TOTAL";
+        WriteSubtotal(pws, pRow, 3, pStart, lastProduct, FormatCount);
+        WriteSubtotal(pws, pRow, 4, pStart, lastProduct, FormatUsd);
+        WriteSubtotal(pws, pRow, 5, pStart, lastProduct, FormatCount);
+        pws.Cell(pRow, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        StyleTotalsRow(pws, pRow, 5);
+
+        WriteFooter(pws, pRow, 5);
+        FinalizeSheet(pws, 5, pFreeze);
 
         return WorkbookToBytes(workbook);
     }
@@ -1040,21 +1409,22 @@ public class ReportExportService : IReportExportService
     // ═══════════════════════════════════════════════════════════════
     public byte[] ExportReceivablesAgingToExcel(ReceivablesAgingReport report)
     {
-        using var workbook = new XLWorkbook();
+        using var workbook = NewWorkbook("Receivables Aging Report");
 
-        var ws = workbook.Worksheets.Add("Aging Summary");
+        var ws = AddSheet(workbook, "Aging Summary");
         int row = WriteReportHeader(ws, "Receivables Aging Report", 5, subtitle: $"Report Date: {report.ReportDate:dd MMM yyyy}");
 
-        WriteKpiCard(ws, row, 1, "Total Outstanding (USD)", $"${report.TotalOutstandingUSD:N2}", DangerRed);
-        WriteKpiCard(ws, row, 2, "Outstanding (ZIG)", $"ZIG {report.TotalOutstandingZIG:N2}");
-        WriteKpiCard(ws, row, 3, "Total Customers", report.TotalCustomers.ToString("N0"));
-        WriteKpiCard(ws, row, 4, "Current (0-30d)", $"${report.Current.AmountUSD:N2}", SuccessGreen);
-        WriteKpiCard(ws, row, 5, "Over 90 days", $"${report.Over90Days.AmountUSD:N2}", DangerRed);
+        WriteKpiCard(ws, row, 1, "Total Outstanding (USD)", report.TotalOutstandingUSD, FormatUsd, DangerRed);
+        WriteKpiCard(ws, row, 2, "Outstanding (ZiG)", report.TotalOutstandingZIG, FormatZig);
+        WriteKpiCard(ws, row, 3, "Total Customers", report.TotalCustomers, FormatCount);
+        WriteKpiCard(ws, row, 4, "Current (0-30d)", report.Current.AmountUSD, FormatUsd, SuccessGreen);
+        WriteKpiCard(ws, row, 5, "Over 90 days", report.Over90Days.AmountUSD, FormatUsd, DangerRed);
         row += 3;
 
         ws.Cell(row, 1).Value = "Aging Bucket"; ws.Cell(row, 2).Value = "Invoices";
-        ws.Cell(row, 3).Value = "Amount (USD)"; ws.Cell(row, 4).Value = "Amount (ZIG)"; ws.Cell(row, 5).Value = "% of Total";
+        ws.Cell(row, 3).Value = "Amount (USD)"; ws.Cell(row, 4).Value = "Amount (ZiG)"; ws.Cell(row, 5).Value = "% of Total";
         StyleTableHeader(ws, row, 5);
+        int bucketHeader = row;
         row++;
         int dataStart = row;
 
@@ -1062,10 +1432,11 @@ public class ReportExportService : IReportExportService
         {
             ws.Cell(row, 1).Value = label;
             if (color != null) { ws.Cell(row, 1).Style.Font.FontColor = color; ws.Cell(row, 1).Style.Font.Bold = true; }
-            ws.Cell(row, 2).Value = bucket.InvoiceCount; ws.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 3).Value = bucket.AmountUSD; ws.Cell(row, 3).Style.NumberFormat.Format = "$#,##0.00";
-            ws.Cell(row, 4).Value = bucket.AmountZIG; ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
-            ws.Cell(row, 5).Value = bucket.PercentOfTotal / 100; ws.Cell(row, 5).Style.NumberFormat.Format = "0.0%";
+            ws.Cell(row, 2).Value = bucket.InvoiceCount; ws.Cell(row, 2).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 3).Value = bucket.AmountUSD; ws.Cell(row, 3).Style.NumberFormat.Format = FormatUsd;
+            ws.Cell(row, 4).Value = bucket.AmountZIG; ws.Cell(row, 4).Style.NumberFormat.Format = FormatZig;
+            ws.Cell(row, 5).Value = bucket.PercentOfTotal / 100; ws.Cell(row, 5).Style.NumberFormat.Format = FormatPercent;
             ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             row++;
         }
@@ -1074,61 +1445,63 @@ public class ReportExportService : IReportExportService
         WriteBucket(report.Days31To60, "31\u201360 days", WarningOrange);
         WriteBucket(report.Days61To90, "61\u201390 days", WarningOrange);
         WriteBucket(report.Over90Days, "Over 90 days", DangerRed);
-        StyleDataRows(ws, dataStart, row - 1, 5);
+        int lastBucket = row - 1;
+        // Four fixed buckets in a deliberate order: filtering them would only hide one.
+        row = FinishTable(ws, bucketHeader, dataStart, row, 5, filter: false);
 
         ws.Cell(row, 1).Value = "TOTAL";
-        ws.Cell(row, 2).Value = report.Current.InvoiceCount + report.Days31To60.InvoiceCount + report.Days61To90.InvoiceCount + report.Over90Days.InvoiceCount;
+        WriteSubtotal(ws, row, 2, dataStart, lastBucket, FormatCount);
         ws.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-        ws.Cell(row, 3).Value = report.TotalOutstandingUSD; ws.Cell(row, 3).Style.NumberFormat.Format = "$#,##0.00";
-        ws.Cell(row, 4).Value = report.TotalOutstandingZIG; ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
-        ws.Cell(row, 5).Value = 1.0; ws.Cell(row, 5).Style.NumberFormat.Format = "0.0%"; ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        WriteSubtotal(ws, row, 3, dataStart, lastBucket, FormatUsd);
+        WriteSubtotal(ws, row, 4, dataStart, lastBucket, FormatZig);
+        WriteSubtotal(ws, row, 5, dataStart, lastBucket, FormatPercent);
+        ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         StyleTotalsRow(ws, row, 5);
 
-        WriteFooter(ws, row + 1, 5);
-        FinalizeSheet(ws, 5);
+        WriteFooter(ws, row, 5);
+        FinalizeSheet(ws, 5, bucketHeader);
 
-        if (report.CustomerAging.Any())
+        var cws = AddSheet(workbook, "Customer Aging Detail");
+        int cRow = WriteReportHeader(cws, "Customer Aging Detail", 8, subtitle: $"Report Date: {report.ReportDate:dd MMM yyyy}");
+
+        cws.Cell(cRow, 1).Value = "Customer Code"; cws.Cell(cRow, 2).Value = "Customer Name"; cws.Cell(cRow, 3).Value = "Total Owed (USD)";
+        cws.Cell(cRow, 4).Value = "Current (0\u201330)"; cws.Cell(cRow, 5).Value = "31\u201360 days"; cws.Cell(cRow, 6).Value = "61\u201390 days";
+        cws.Cell(cRow, 7).Value = "Over 90 days"; cws.Cell(cRow, 8).Value = "Invoices";
+        StyleTableHeader(cws, cRow, 8);
+        int cFreeze = cRow;
+        cRow++;
+        int cStart = cRow;
+        foreach (var c in report.CustomerAging.OrderByDescending(x => x.TotalOutstandingUSD))
         {
-            var cws = workbook.Worksheets.Add("Customer Aging Detail");
-            int cRow = WriteReportHeader(cws, "Customer Aging Detail", 8, subtitle: $"Report Date: {report.ReportDate:dd MMM yyyy}");
-
-            cws.Cell(cRow, 1).Value = "Customer Code"; cws.Cell(cRow, 2).Value = "Customer Name"; cws.Cell(cRow, 3).Value = "Total Owed (USD)";
-            cws.Cell(cRow, 4).Value = "Current (0\u201330)"; cws.Cell(cRow, 5).Value = "31\u201360 days"; cws.Cell(cRow, 6).Value = "61\u201390 days";
-            cws.Cell(cRow, 7).Value = "Over 90 days"; cws.Cell(cRow, 8).Value = "Invoices";
-            StyleTableHeader(cws, cRow, 8);
-            int cFreeze = cRow;
+            cws.Cell(cRow, 1).Value = c.CardCode;
+            cws.Cell(cRow, 2).Value = c.CardName;
+            cws.Cell(cRow, 3).Value = c.TotalOutstandingUSD; cws.Cell(cRow, 3).Style.NumberFormat.Format = FormatUsd;
+            cws.Cell(cRow, 3).Style.Font.Bold = true;
+            cws.Cell(cRow, 4).Value = c.CurrentUSD; cws.Cell(cRow, 4).Style.NumberFormat.Format = FormatUsd;
+            cws.Cell(cRow, 5).Value = c.Days31To60USD; cws.Cell(cRow, 5).Style.NumberFormat.Format = FormatUsd;
+            if (c.Days31To60USD > 0) cws.Cell(cRow, 5).Style.Font.FontColor = WarningOrange;
+            cws.Cell(cRow, 6).Value = c.Days61To90USD; cws.Cell(cRow, 6).Style.NumberFormat.Format = FormatUsd;
+            if (c.Days61To90USD > 0) cws.Cell(cRow, 6).Style.Font.FontColor = WarningOrange;
+            cws.Cell(cRow, 7).Value = c.Over90DaysUSD; cws.Cell(cRow, 7).Style.NumberFormat.Format = FormatUsd;
+            if (c.Over90DaysUSD > 0) { cws.Cell(cRow, 7).Style.Font.FontColor = DangerRed; cws.Cell(cRow, 7).Style.Font.Bold = true; }
+            cws.Cell(cRow, 8).Value = c.TotalInvoices; cws.Cell(cRow, 8).Style.NumberFormat.Format = FormatCount;
+            cws.Cell(cRow, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             cRow++;
-            int cStart = cRow;
-            foreach (var c in report.CustomerAging.OrderByDescending(x => x.TotalOutstandingUSD))
-            {
-                cws.Cell(cRow, 1).Value = c.CardCode;
-                cws.Cell(cRow, 2).Value = c.CardName;
-                cws.Cell(cRow, 3).Value = c.TotalOutstandingUSD; cws.Cell(cRow, 3).Style.NumberFormat.Format = "$#,##0.00";
-                cws.Cell(cRow, 3).Style.Font.Bold = true;
-                cws.Cell(cRow, 4).Value = c.CurrentUSD; cws.Cell(cRow, 4).Style.NumberFormat.Format = "$#,##0.00";
-                cws.Cell(cRow, 5).Value = c.Days31To60USD; cws.Cell(cRow, 5).Style.NumberFormat.Format = "$#,##0.00";
-                if (c.Days31To60USD > 0) cws.Cell(cRow, 5).Style.Font.FontColor = WarningOrange;
-                cws.Cell(cRow, 6).Value = c.Days61To90USD; cws.Cell(cRow, 6).Style.NumberFormat.Format = "$#,##0.00";
-                if (c.Days61To90USD > 0) cws.Cell(cRow, 6).Style.Font.FontColor = WarningOrange;
-                cws.Cell(cRow, 7).Value = c.Over90DaysUSD; cws.Cell(cRow, 7).Style.NumberFormat.Format = "$#,##0.00";
-                if (c.Over90DaysUSD > 0) { cws.Cell(cRow, 7).Style.Font.FontColor = DangerRed; cws.Cell(cRow, 7).Style.Font.Bold = true; }
-                cws.Cell(cRow, 8).Value = c.TotalInvoices; cws.Cell(cRow, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                cRow++;
-            }
-            StyleDataRows(cws, cStart, cRow - 1, 8);
-
-            cws.Cell(cRow, 1).Value = "TOTAL";
-            cws.Cell(cRow, 3).Value = report.CustomerAging.Sum(c => c.TotalOutstandingUSD); cws.Cell(cRow, 3).Style.NumberFormat.Format = "$#,##0.00";
-            cws.Cell(cRow, 4).Value = report.CustomerAging.Sum(c => c.CurrentUSD); cws.Cell(cRow, 4).Style.NumberFormat.Format = "$#,##0.00";
-            cws.Cell(cRow, 5).Value = report.CustomerAging.Sum(c => c.Days31To60USD); cws.Cell(cRow, 5).Style.NumberFormat.Format = "$#,##0.00";
-            cws.Cell(cRow, 6).Value = report.CustomerAging.Sum(c => c.Days61To90USD); cws.Cell(cRow, 6).Style.NumberFormat.Format = "$#,##0.00";
-            cws.Cell(cRow, 7).Value = report.CustomerAging.Sum(c => c.Over90DaysUSD); cws.Cell(cRow, 7).Style.NumberFormat.Format = "$#,##0.00";
-            cws.Cell(cRow, 8).Value = report.CustomerAging.Sum(c => c.TotalInvoices); cws.Cell(cRow, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            StyleTotalsRow(cws, cRow, 8);
-
-            WriteFooter(cws, cRow + 1, 8);
-            FinalizeSheet(cws, 8, cFreeze, landscape: true);
         }
+        int lastAging = cRow - 1;
+        cRow = FinishTable(cws, cFreeze, cStart, cRow, 8, "No customer has an outstanding balance.");
+
+        cws.Cell(cRow, 1).Value = "TOTAL";
+        for (int col = 3; col <= 7; col++)
+        {
+            WriteSubtotal(cws, cRow, col, cStart, lastAging, FormatUsd);
+        }
+        WriteSubtotal(cws, cRow, 8, cStart, lastAging, FormatCount);
+        cws.Cell(cRow, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        StyleTotalsRow(cws, cRow, 8);
+
+        WriteFooter(cws, cRow, 8);
+        FinalizeSheet(cws, 8, cFreeze, landscape: true);
 
         return WorkbookToBytes(workbook);
     }
@@ -1138,26 +1511,25 @@ public class ReportExportService : IReportExportService
     // ═══════════════════════════════════════════════════════════════
     public byte[] ExportProfitOverviewToExcel(ProfitOverviewReport report)
     {
-        using var workbook = new XLWorkbook();
+        using var workbook = NewWorkbook("Profit & Loss Overview");
 
-        var dash = workbook.Worksheets.Add("Profit & Loss");
+        var dash = AddSheet(workbook, "Profit & Loss");
         int row = WriteReportHeader(dash, "Profit & Loss Overview", 4, report.FromDate, report.ToDate);
 
-        WriteKpiCard(dash, row, 1, "Net Revenue (USD)", $"${report.NetRevenueUSD:N2}");
-        WriteKpiCard(dash, row, 2, "Gross Profit (USD)", $"${report.GrossProfitUSD:N2}", report.GrossProfitUSD >= 0 ? SuccessGreen : DangerRed);
-        WriteKpiCard(dash, row, 3, "Gross Margin", $"{report.GrossMarginPercent:N1}%", report.GrossMarginPercent >= 20 ? SuccessGreen : DangerRed);
-        WriteKpiCard(dash, row, 4, "Collection Rate", $"{report.CollectionRatePercent:N1}%");
+        WriteKpiCard(dash, row, 1, "Net Revenue (USD)", report.NetRevenueUSD, FormatUsd);
+        WriteKpiCard(dash, row, 2, "Gross Profit (USD)", report.GrossProfitUSD, FormatUsd, report.GrossProfitUSD >= 0 ? SuccessGreen : DangerRed);
+        WriteKpiCard(dash, row, 3, "Gross Margin", report.GrossMarginPercent / 100, FormatPercent, report.GrossMarginPercent >= 20 ? SuccessGreen : DangerRed);
+        WriteKpiCard(dash, row, 4, "Collection Rate", report.CollectionRatePercent / 100, FormatPercent);
         row += 3;
 
-        dash.Range(row, 1, row, 4).Merge();
-        dash.Cell(row, 1).Value = "INCOME STATEMENT";
-        dash.Cell(row, 1).Style.Font.Bold = true; dash.Cell(row, 1).Style.Font.FontSize = 12;
-        dash.Cell(row, 1).Style.Font.FontColor = LightNavy;
+        WriteSectionTitle(dash, row, 4, "INCOME STATEMENT");
         row++;
 
-        dash.Cell(row, 1).Value = ""; dash.Cell(row, 2).Value = "USD"; dash.Cell(row, 3).Value = "ZIG"; dash.Cell(row, 4).Value = "Notes";
+        dash.Cell(row, 1).Value = ""; dash.Cell(row, 2).Value = "USD"; dash.Cell(row, 3).Value = "ZiG"; dash.Cell(row, 4).Value = "Notes";
         StyleTableHeader(dash, row, 4);
+        int statementHeader = row;
         row++;
+        int statementStart = row;
 
         void PLRow(string label, decimal usd, decimal zig, string notes = "", bool bold = false, XLColor? color = null)
         {
@@ -1165,109 +1537,122 @@ public class ReportExportService : IReportExportService
             dash.Cell(row, 1).Style.Font.Bold = bold;
             if (!bold) dash.Cell(row, 1).Style.Alignment.Indent = 1;
 
-            dash.Cell(row, 2).Value = usd; dash.Cell(row, 2).Style.NumberFormat.Format = "$#,##0.00";
-            dash.Cell(row, 3).Value = zig; dash.Cell(row, 3).Style.NumberFormat.Format = "#,##0.00";
+            dash.Cell(row, 2).Value = usd; dash.Cell(row, 2).Style.NumberFormat.Format = FormatUsd;
+            dash.Cell(row, 3).Value = zig; dash.Cell(row, 3).Style.NumberFormat.Format = FormatZig;
             dash.Cell(row, 4).Value = notes;
             dash.Cell(row, 4).Style.Font.FontSize = 9;
-            dash.Cell(row, 4).Style.Font.FontColor = XLColor.FromHtml("#757575");
+            dash.Cell(row, 4).Style.Font.FontColor = MutedText;
 
             if (bold) { dash.Cell(row, 2).Style.Font.Bold = true; dash.Cell(row, 3).Style.Font.Bold = true; }
             if (color != null) dash.Cell(row, 2).Style.Font.FontColor = color;
             row++;
         }
 
-        PLRow("Gross Sales", report.TotalRevenueUSD, report.TotalRevenueZIG, $"{report.TotalInvoices} invoices");
-        PLRow("Less: Credit Notes", report.TotalCreditNotesUSD, report.TotalCreditNotesZIG, $"{report.TotalCreditNoteCount} credit notes", color: DangerRed);
+        PLRow("Gross Sales", report.TotalRevenueUSD, report.TotalRevenueZIG, $"{report.TotalInvoices:N0} invoices");
+        PLRow("Less: Credit Notes", report.TotalCreditNotesUSD, report.TotalCreditNotesZIG, $"{report.TotalCreditNoteCount:N0} credit notes", color: DangerRed);
 
         // Net Revenue highlight
+        var netRevenueRow = row;
         dash.Cell(row, 1).Value = "NET REVENUE";
-        dash.Range(row, 1, row, 4).Style.Font.Bold = true;
-        dash.Range(row, 1, row, 4).Style.Fill.BackgroundColor = AccentBlue;
-        dash.Cell(row, 2).Value = report.NetRevenueUSD; dash.Cell(row, 2).Style.NumberFormat.Format = "$#,##0.00";
-        dash.Cell(row, 3).Value = report.NetRevenueZIG; dash.Cell(row, 3).Style.NumberFormat.Format = "#,##0.00";
+        dash.Cell(row, 2).Value = report.NetRevenueUSD; dash.Cell(row, 2).Style.NumberFormat.Format = FormatUsd;
+        dash.Cell(row, 3).Value = report.NetRevenueZIG; dash.Cell(row, 3).Style.NumberFormat.Format = FormatZig;
         row++;
 
         PLRow("Less: Purchases (COGS)", report.TotalPurchaseCostUSD, report.TotalPurchaseCostZIG, "Cost of goods sold", color: DangerRed);
 
         // Gross Profit highlight
+        var grossProfitRow = row;
         dash.Cell(row, 1).Value = "GROSS PROFIT";
-        dash.Range(row, 1, row, 4).Style.Font.Bold = true;
-        dash.Range(row, 1, row, 4).Style.Fill.BackgroundColor = XLColor.FromHtml("#e8f5e9");
-        dash.Cell(row, 2).Value = report.GrossProfitUSD; dash.Cell(row, 2).Style.NumberFormat.Format = "$#,##0.00";
-        dash.Cell(row, 2).Style.Font.FontColor = report.GrossProfitUSD >= 0 ? SuccessGreen : DangerRed;
-        dash.Cell(row, 3).Value = report.GrossProfitZIG; dash.Cell(row, 3).Style.NumberFormat.Format = "#,##0.00";
+        dash.Cell(row, 2).Value = report.GrossProfitUSD; dash.Cell(row, 2).Style.NumberFormat.Format = FormatUsd;
+        dash.Cell(row, 3).Value = report.GrossProfitZIG; dash.Cell(row, 3).Style.NumberFormat.Format = FormatZig;
         dash.Cell(row, 4).Value = $"Margin: {report.GrossMarginPercent:N1}%";
         row++;
 
-        row++; // blank
-        PLRow("Payments Received", report.TotalCollectedUSD, report.TotalCollectedZIG, $"{report.TotalPayments} payments");
+        PLRow("Payments Received", report.TotalCollectedUSD, report.TotalCollectedZIG, $"{report.TotalPayments:N0} payments");
         PLRow("Outstanding Receivables", report.OutstandingReceivablesUSD, report.OutstandingReceivablesZIG, $"Collection Rate: {report.CollectionRatePercent:N1}%", color: DangerRed);
 
-        row++;
-        dash.Range(row, 1, row, 4).Merge();
-        dash.Cell(row, 1).Value = "OPERATING METRICS";
-        dash.Cell(row, 1).Style.Font.Bold = true; dash.Cell(row, 1).Style.Font.FontSize = 11;
-        dash.Cell(row, 1).Style.Font.FontColor = LightNavy;
-        row++;
-        WriteKpiRow(dash, row, "Total Invoices", report.TotalInvoices.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Total Credit Notes", report.TotalCreditNoteCount.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Total Payments", report.TotalPayments.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Unique Customers", report.UniqueCustomers.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Gross Margin %", $"{report.GrossMarginPercent:N1}%", true); row++;
-        WriteKpiRow(dash, row, "Collection Rate %", $"{report.CollectionRatePercent:N1}%", true); row++;
+        // A statement, not a list: the ordering is the meaning, so no filter and no
+        // totals row underneath the subtotals it already carries.
+        StyleDataRows(dash, statementStart, row - 1, 4);
+        dash.Range(statementStart, 2, row - 1, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
 
+        // The two subtotal bands are painted after the striping, which would otherwise
+        // have laid its alternating fill straight over them.
+        dash.Range(netRevenueRow, 1, netRevenueRow, 4).Style.Font.Bold = true;
+        dash.Range(netRevenueRow, 1, netRevenueRow, 4).Style.Fill.BackgroundColor = AccentBlue;
+        dash.Range(grossProfitRow, 1, grossProfitRow, 4).Style.Font.Bold = true;
+        dash.Range(grossProfitRow, 1, grossProfitRow, 4).Style.Fill.BackgroundColor = XLColor.FromHtml("#e8f5e9");
+        dash.Cell(grossProfitRow, 2).Style.Font.FontColor = report.GrossProfitUSD >= 0 ? SuccessGreen : DangerRed;
+        row++;
+
+        WriteSectionTitle(dash, row, 4, "OPERATING METRICS");
+        row++;
+        WriteKpiRow(dash, row, "Total Invoices", report.TotalInvoices, FormatCount); row++;
+        WriteKpiRow(dash, row, "Total Credit Notes", report.TotalCreditNoteCount, FormatCount); row++;
+        WriteKpiRow(dash, row, "Total Payments", report.TotalPayments, FormatCount); row++;
+        WriteKpiRow(dash, row, "Unique Customers", report.UniqueCustomers, FormatCount); row++;
+        WriteKpiRow(dash, row, "Gross Margin %", report.GrossMarginPercent / 100, FormatPercent, true); row++;
+        WriteKpiRow(dash, row, "Collection Rate %", report.CollectionRatePercent / 100, FormatPercent, true); row++;
+
+        // Fit the columns to the income statement, but do not freeze it: the whole
+        // sheet is a summary that reads top to bottom, so there is nothing to scroll
+        // a heading away from.
         WriteFooter(dash, row, 4);
-        FinalizeSheet(dash, 4);
+        FinalizeSheet(dash, 4, fitFromRow: statementHeader);
 
-        if (report.MonthlyBreakdown.Any())
+        var mws = AddSheet(workbook, "Monthly Breakdown");
+        int mRow = WriteReportHeader(mws, "Monthly Profit & Loss Breakdown", 8, report.FromDate, report.ToDate);
+
+        mws.Cell(mRow, 1).Value = "Month"; mws.Cell(mRow, 2).Value = "Sales (USD)"; mws.Cell(mRow, 3).Value = "Credit Notes";
+        mws.Cell(mRow, 4).Value = "Net Revenue"; mws.Cell(mRow, 5).Value = "Purchases"; mws.Cell(mRow, 6).Value = "Gross Profit";
+        mws.Cell(mRow, 7).Value = "Margin %"; mws.Cell(mRow, 8).Value = "Invoices";
+        StyleTableHeader(mws, mRow, 8);
+        int mFreeze = mRow;
+        mRow++;
+        int mStart = mRow;
+        foreach (var m in report.MonthlyBreakdown.OrderByDescending(x => x.Month))
         {
-            var mws = workbook.Worksheets.Add("Monthly Breakdown");
-            int mRow = WriteReportHeader(mws, "Monthly Profit & Loss Breakdown", 8, report.FromDate, report.ToDate);
+            var net = m.RevenueUSD - m.CreditNotesUSD;
+            var gp = net - m.PurchaseCostUSD;
+            var margin = net > 0 ? (gp / net * 100) : 0;
 
-            mws.Cell(mRow, 1).Value = "Month"; mws.Cell(mRow, 2).Value = "Sales (USD)"; mws.Cell(mRow, 3).Value = "Credit Notes";
-            mws.Cell(mRow, 4).Value = "Net Revenue"; mws.Cell(mRow, 5).Value = "Purchases"; mws.Cell(mRow, 6).Value = "Gross Profit";
-            mws.Cell(mRow, 7).Value = "Margin %"; mws.Cell(mRow, 8).Value = "Invoices";
-            StyleTableHeader(mws, mRow, 8);
-            int mFreeze = mRow;
-            mRow++;
-            int mStart = mRow;
-            foreach (var m in report.MonthlyBreakdown.OrderByDescending(x => x.Month))
-            {
-                var net = m.RevenueUSD - m.CreditNotesUSD;
-                var gp = net - m.PurchaseCostUSD;
-                var margin = net > 0 ? (gp / net * 100) : 0;
-
-                mws.Cell(mRow, 1).Value = m.Month; mws.Cell(mRow, 1).Style.Font.Bold = true;
-                mws.Cell(mRow, 2).Value = m.RevenueUSD; mws.Cell(mRow, 2).Style.NumberFormat.Format = "$#,##0.00";
-                mws.Cell(mRow, 3).Value = m.CreditNotesUSD; mws.Cell(mRow, 3).Style.NumberFormat.Format = "$#,##0.00";
-                if (m.CreditNotesUSD > 0) mws.Cell(mRow, 3).Style.Font.FontColor = DangerRed;
-                mws.Cell(mRow, 4).Value = net; mws.Cell(mRow, 4).Style.NumberFormat.Format = "$#,##0.00";
-                mws.Cell(mRow, 5).Value = m.PurchaseCostUSD; mws.Cell(mRow, 5).Style.NumberFormat.Format = "$#,##0.00";
-                mws.Cell(mRow, 6).Value = gp; mws.Cell(mRow, 6).Style.NumberFormat.Format = "$#,##0.00";
-                mws.Cell(mRow, 6).Style.Font.FontColor = gp >= 0 ? SuccessGreen : DangerRed;
-                mws.Cell(mRow, 6).Style.Font.Bold = true;
-                mws.Cell(mRow, 7).Value = margin / 100; mws.Cell(mRow, 7).Style.NumberFormat.Format = "0.0%";
-                mws.Cell(mRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                mws.Cell(mRow, 8).Value = m.InvoiceCount; mws.Cell(mRow, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                mRow++;
-            }
-            StyleDataRows(mws, mStart, mRow - 1, 8);
-
-            mws.Cell(mRow, 1).Value = "TOTAL";
-            mws.Cell(mRow, 2).Value = report.TotalRevenueUSD; mws.Cell(mRow, 2).Style.NumberFormat.Format = "$#,##0.00";
-            mws.Cell(mRow, 3).Value = report.TotalCreditNotesUSD; mws.Cell(mRow, 3).Style.NumberFormat.Format = "$#,##0.00";
-            mws.Cell(mRow, 4).Value = report.NetRevenueUSD; mws.Cell(mRow, 4).Style.NumberFormat.Format = "$#,##0.00";
-            mws.Cell(mRow, 5).Value = report.TotalPurchaseCostUSD; mws.Cell(mRow, 5).Style.NumberFormat.Format = "$#,##0.00";
-            mws.Cell(mRow, 6).Value = report.GrossProfitUSD; mws.Cell(mRow, 6).Style.NumberFormat.Format = "$#,##0.00";
-            var totalMargin = report.NetRevenueUSD > 0 ? report.GrossProfitUSD / report.NetRevenueUSD : 0;
-            mws.Cell(mRow, 7).Value = totalMargin; mws.Cell(mRow, 7).Style.NumberFormat.Format = "0.0%";
+            mws.Cell(mRow, 1).Value = m.Month; mws.Cell(mRow, 1).Style.Font.Bold = true;
+            mws.Cell(mRow, 2).Value = m.RevenueUSD; mws.Cell(mRow, 2).Style.NumberFormat.Format = FormatUsd;
+            mws.Cell(mRow, 3).Value = m.CreditNotesUSD; mws.Cell(mRow, 3).Style.NumberFormat.Format = FormatUsd;
+            if (m.CreditNotesUSD > 0) mws.Cell(mRow, 3).Style.Font.FontColor = DangerRed;
+            mws.Cell(mRow, 4).Value = net; mws.Cell(mRow, 4).Style.NumberFormat.Format = FormatUsd;
+            mws.Cell(mRow, 5).Value = m.PurchaseCostUSD; mws.Cell(mRow, 5).Style.NumberFormat.Format = FormatUsd;
+            mws.Cell(mRow, 6).Value = gp; mws.Cell(mRow, 6).Style.NumberFormat.Format = FormatUsd;
+            mws.Cell(mRow, 6).Style.Font.FontColor = gp >= 0 ? SuccessGreen : DangerRed;
+            mws.Cell(mRow, 6).Style.Font.Bold = true;
+            mws.Cell(mRow, 7).Value = margin / 100; mws.Cell(mRow, 7).Style.NumberFormat.Format = FormatPercent;
             mws.Cell(mRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            mws.Cell(mRow, 8).Value = report.TotalInvoices; mws.Cell(mRow, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            StyleTotalsRow(mws, mRow, 8);
-
-            WriteFooter(mws, mRow + 1, 8);
-            FinalizeSheet(mws, 8, mFreeze, landscape: true);
+            mws.Cell(mRow, 8).Value = m.InvoiceCount; mws.Cell(mRow, 8).Style.NumberFormat.Format = FormatCount;
+            mws.Cell(mRow, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            mRow++;
         }
+        int lastMonth = mRow - 1;
+        mRow = FinishTable(mws, mFreeze, mStart, mRow, 8, "No trading months fell in this period.");
+
+        mws.Cell(mRow, 1).Value = "TOTAL";
+        for (int col = 2; col <= 6; col++)
+        {
+            WriteSubtotal(mws, mRow, col, mStart, lastMonth, FormatUsd);
+        }
+        // Margin is a ratio of the two subtotals above it, not a sum of the monthly
+        // margins, so it is derived rather than SUBTOTALled — and it still follows the
+        // filter, because the cells it divides do.
+        var netCell = $"D{mRow}";
+        var profitCell = $"F{mRow}";
+        mws.Cell(mRow, 7).FormulaA1 = $"IF({netCell}=0,0,{profitCell}/{netCell})";
+        mws.Cell(mRow, 7).Style.NumberFormat.Format = FormatPercent;
+        mws.Cell(mRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        WriteSubtotal(mws, mRow, 8, mStart, lastMonth, FormatCount);
+        mws.Cell(mRow, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        StyleTotalsRow(mws, mRow, 8);
+
+        WriteFooter(mws, mRow, 8);
+        FinalizeSheet(mws, 8, mFreeze, landscape: true);
 
         return WorkbookToBytes(workbook);
     }
@@ -1277,15 +1662,15 @@ public class ReportExportService : IReportExportService
     // ═══════════════════════════════════════════════════════════════
     public byte[] ExportSlowMovingProductsToExcel(SlowMovingProductsReport report)
     {
-        using var workbook = new XLWorkbook();
-        var ws = workbook.Worksheets.Add("Slow Moving Products");
+        using var workbook = NewWorkbook("Slow Moving Products Report");
+        var ws = AddSheet(workbook, "Slow Moving Products", WarningOrange);
         int row = WriteReportHeader(ws, "Slow Moving Products Report", 6, report.FromDate, report.ToDate,
             $"Threshold: {report.DaysThreshold} days without sales");
 
         var totalValue = report.Products.Sum(p => p.StockValue);
-        WriteKpiCard(ws, row, 1, "Slow Moving Items", report.Products.Count.ToString("N0"));
-        WriteKpiCard(ws, row, 2, "Stock Value at Risk", $"${totalValue:N2}", DangerRed);
-        WriteKpiCard(ws, row, 3, "Threshold (days)", report.DaysThreshold.ToString("N0"));
+        WriteKpiCard(ws, row, 1, "Slow Moving Items", report.Products.Count, FormatCount);
+        WriteKpiCard(ws, row, 2, "Stock Value at Risk", totalValue, FormatUsd, DangerRed);
+        WriteKpiCard(ws, row, 3, "Threshold (days)", report.DaysThreshold, FormatCount);
         row += 3;
 
         ws.Cell(row, 1).Value = "Item Code"; ws.Cell(row, 2).Value = "Product Name"; ws.Cell(row, 3).Value = "Current Stock";
@@ -1298,23 +1683,36 @@ public class ReportExportService : IReportExportService
         {
             ws.Cell(row, 1).Value = p.ItemCode;
             ws.Cell(row, 2).Value = p.ItemName;
-            ws.Cell(row, 3).Value = p.CurrentStock; ws.Cell(row, 3).Style.NumberFormat.Format = "#,##0";
-            ws.Cell(row, 4).Value = p.LastSoldDate?.ToString("dd MMM yyyy") ?? "Never";
-            if (!p.LastSoldDate.HasValue) ws.Cell(row, 4).Style.Font.FontColor = DangerRed;
-            ws.Cell(row, 5).Value = p.DaysSinceLastSale; ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 3).Value = p.CurrentStock; ws.Cell(row, 3).Style.NumberFormat.Format = FormatCount;
+            // Dates sort as dates and the never-sold items collect after them, which is
+            // the order somebody sorting this column is looking for anyway.
+            if (p.LastSoldDate.HasValue)
+            {
+                ws.Cell(row, 4).Value = p.LastSoldDate.Value;
+                ws.Cell(row, 4).Style.NumberFormat.Format = FormatDate;
+            }
+            else
+            {
+                ws.Cell(row, 4).Value = "Never";
+                ws.Cell(row, 4).Style.Font.FontColor = DangerRed;
+                ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            }
+            ws.Cell(row, 5).Value = p.DaysSinceLastSale; ws.Cell(row, 5).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             if (p.DaysSinceLastSale > 90) { ws.Cell(row, 5).Style.Font.FontColor = DangerRed; ws.Cell(row, 5).Style.Font.Bold = true; }
             else if (p.DaysSinceLastSale > 60) ws.Cell(row, 5).Style.Font.FontColor = WarningOrange;
-            ws.Cell(row, 6).Value = p.StockValue; ws.Cell(row, 6).Style.NumberFormat.Format = "$#,##0.00";
+            ws.Cell(row, 6).Value = p.StockValue; ws.Cell(row, 6).Style.NumberFormat.Format = FormatUsd;
             row++;
         }
-        StyleDataRows(ws, dataStart, row - 1, 6);
+        int lastData = row - 1;
+        row = FinishTable(ws, freezeAt, dataStart, row, 6, "Every product has sold within the threshold. Nothing is slow-moving.");
 
         ws.Cell(row, 1).Value = "TOTAL";
-        ws.Cell(row, 3).Value = report.Products.Sum(p => p.CurrentStock); ws.Cell(row, 3).Style.NumberFormat.Format = "#,##0";
-        ws.Cell(row, 6).Value = totalValue; ws.Cell(row, 6).Style.NumberFormat.Format = "$#,##0.00";
+        WriteSubtotal(ws, row, 3, dataStart, lastData, FormatCount);
+        WriteSubtotal(ws, row, 6, dataStart, lastData, FormatUsd);
         StyleTotalsRow(ws, row, 6);
 
-        WriteFooter(ws, row + 1, 6);
+        WriteFooter(ws, row, 6);
         FinalizeSheet(ws, 6, freezeAt, landscape: true);
 
         return WorkbookToBytes(workbook);
@@ -1322,72 +1720,76 @@ public class ReportExportService : IReportExportService
 
     public byte[] ExportMerchandiserPurchaseOrderReportToExcel(GetMerchandiserPurchaseOrderReportResult report)
     {
-        using var workbook = new XLWorkbook();
+        using var workbook = NewWorkbook("Merchandiser Purchase Order Report");
 
-        var overview = workbook.Worksheets.Add("Overview");
+        var overview = AddSheet(workbook, "Overview");
         int row = WriteReportHeader(overview, "Merchandiser Purchase Order Report", 8, report.FromDate, report.ToDate);
 
-        WriteKpiCard(overview, row, 1, "Merchandisers", report.TotalMerchandisers.ToString("N0"));
-        WriteKpiCard(overview, row, 2, "Orders", report.TotalOrders.ToString("N0"));
-        WriteKpiCard(overview, row, 3, "With PO", report.OrdersWithAttachments.ToString("N0"), SuccessGreen);
-        WriteKpiCard(overview, row, 4, "Without PO", report.OrdersWithoutAttachments.ToString("N0"), WarningOrange);
-        WriteKpiCard(overview, row, 5, "Attachments", report.TotalAttachments.ToString("N0"));
-        WriteKpiCard(overview, row, 6, "Order Value", report.TotalOrderValue.ToString("N2"));
+        WriteKpiCard(overview, row, 1, "Merchandisers", report.TotalMerchandisers, FormatCount);
+        WriteKpiCard(overview, row, 2, "Orders", report.TotalOrders, FormatCount);
+        WriteKpiCard(overview, row, 3, "With PO", report.OrdersWithAttachments, FormatCount, SuccessGreen);
+        WriteKpiCard(overview, row, 4, "Without PO", report.OrdersWithoutAttachments, FormatCount, WarningOrange);
+        WriteKpiCard(overview, row, 5, "Attachments", report.TotalAttachments, FormatCount);
+        WriteKpiCard(overview, row, 6, "Order Value", report.TotalOrderValue, FormatMoney);
         row += 3;
 
-        overview.Range(row, 1, row, 8).Merge();
-        overview.Cell(row, 1).Value = "MERCHANDISER BREAKDOWN";
-        overview.Cell(row, 1).Style.Font.Bold = true;
-        overview.Cell(row, 1).Style.Font.FontSize = 11;
-        overview.Cell(row, 1).Style.Font.FontColor = LightNavy;
+        WriteSectionTitle(overview, row, 8, "MERCHANDISER BREAKDOWN");
         row++;
 
-        if (report.Merchandisers.Any())
-        {
-            overview.Cell(row, 1).Value = "Username";
-            overview.Cell(row, 2).Value = "Full Name";
-            overview.Cell(row, 3).Value = "Orders";
-            overview.Cell(row, 4).Value = "With PO";
-            overview.Cell(row, 5).Value = "Attachments";
-            overview.Cell(row, 6).Value = "Synced";
-            overview.Cell(row, 7).Value = "Total Value";
-            overview.Cell(row, 8).Value = "Latest Activity (CAT)";
-            StyleTableHeader(overview, row, 8);
-            int freezeAt = row;
-            row++;
-            int dataStart = row;
+        overview.Cell(row, 1).Value = "Username";
+        overview.Cell(row, 2).Value = "Full Name";
+        overview.Cell(row, 3).Value = "Orders";
+        overview.Cell(row, 4).Value = "With PO";
+        overview.Cell(row, 5).Value = "Attachments";
+        overview.Cell(row, 6).Value = "Synced";
+        overview.Cell(row, 7).Value = "Total Value";
+        overview.Cell(row, 8).Value = "Latest Activity (CAT)";
+        StyleTableHeader(overview, row, 8);
+        int freezeAt = row;
+        row++;
+        int dataStart = row;
 
-            foreach (var merchandiser in report.Merchandisers)
+        foreach (var merchandiser in report.Merchandisers)
+        {
+            overview.Cell(row, 1).Value = merchandiser.Username;
+            overview.Cell(row, 2).Value = merchandiser.FullName;
+            overview.Cell(row, 3).Value = merchandiser.OrderCount;
+            overview.Cell(row, 4).Value = merchandiser.OrdersWithAttachments;
+            overview.Cell(row, 5).Value = merchandiser.AttachmentCount;
+            overview.Cell(row, 6).Value = merchandiser.SyncedOrders;
+            overview.Range(row, 3, row, 6).Style.NumberFormat.Format = FormatCount;
+            overview.Range(row, 3, row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            overview.Cell(row, 7).Value = merchandiser.TotalOrderValue;
+            overview.Cell(row, 7).Style.NumberFormat.Format = FormatMoney;
+            if (merchandiser.LatestOrderCreatedAtUtc.HasValue)
             {
-                overview.Cell(row, 1).Value = merchandiser.Username;
-                overview.Cell(row, 2).Value = merchandiser.FullName;
-                overview.Cell(row, 3).Value = merchandiser.OrderCount;
-                overview.Cell(row, 4).Value = merchandiser.OrdersWithAttachments;
-                overview.Cell(row, 5).Value = merchandiser.AttachmentCount;
-                overview.Cell(row, 6).Value = merchandiser.SyncedOrders;
-                overview.Cell(row, 7).Value = merchandiser.TotalOrderValue;
-                overview.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
-                overview.Cell(row, 8).Value = merchandiser.LatestOrderCreatedAtUtc.HasValue
-                    ? FormatCatDateTime(merchandiser.LatestOrderCreatedAtUtc.Value)
-                    : "Not available";
-                row++;
+                overview.Cell(row, 8).Value = IAuditService.ToCAT(EnsureUtc(merchandiser.LatestOrderCreatedAtUtc.Value));
+                overview.Cell(row, 8).Style.NumberFormat.Format = FormatTimestamp;
             }
-
-            StyleDataRows(overview, dataStart, row - 1, 8);
-            WriteFooter(overview, row, 8);
-            FinalizeSheet(overview, 8, freezeAt, landscape: true);
+            else
+            {
+                overview.Cell(row, 8).Value = "Not available";
+                overview.Cell(row, 8).Style.Font.FontColor = MutedText;
+            }
+            row++;
         }
-        else
+
+        int lastMerchandiser = row - 1;
+        row = FinishTable(overview, freezeAt, dataStart, row, 8, "No merchandiser activity matched the selected filters.");
+
+        overview.Cell(row, 1).Value = "TOTAL";
+        for (int col = 3; col <= 6; col++)
         {
-            overview.Range(row, 1, row, 8).Merge();
-            overview.Cell(row, 1).Value = "No merchandiser activity matched the selected filters.";
-            overview.Cell(row, 1).Style.Font.Italic = true;
-            overview.Cell(row, 1).Style.Font.FontColor = XLColor.FromHtml("#616161");
-            WriteFooter(overview, row + 1, 8);
-            FinalizeSheet(overview, 8, landscape: true);
+            WriteSubtotal(overview, row, col, dataStart, lastMerchandiser, FormatCount);
+            overview.Cell(row, col).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         }
+        WriteSubtotal(overview, row, 7, dataStart, lastMerchandiser, FormatMoney);
+        StyleTotalsRow(overview, row, 8);
 
-        var ordersSheet = workbook.Worksheets.Add("Orders");
+        WriteFooter(overview, row, 8);
+        FinalizeSheet(overview, 8, freezeAt, landscape: true);
+
+        var ordersSheet = AddSheet(workbook, "Orders");
         int orderRow = WriteReportHeader(ordersSheet, "Merchandiser Order Register", 16, report.FromDate, report.ToDate);
         ordersSheet.Cell(orderRow, 1).Value = "Order #";
         ordersSheet.Cell(orderRow, 2).Value = "Attachment Ref";
@@ -1409,47 +1811,58 @@ public class ReportExportService : IReportExportService
         int ordersFreeze = orderRow;
         orderRow++;
 
-        if (report.Orders.Any())
+        int ordersStart = orderRow;
+        foreach (var order in report.Orders)
         {
-            int ordersStart = orderRow;
-            foreach (var order in report.Orders)
-            {
-                ordersSheet.Cell(orderRow, 1).Value = order.OrderNumber;
-                ordersSheet.Cell(orderRow, 2).Value = order.AttachmentReference;
-                ordersSheet.Cell(orderRow, 3).Value = FormatCatDateTime(order.CreatedAtUtc);
-                ordersSheet.Cell(orderRow, 4).Value = FormatCatDate(order.OrderDateUtc);
-                ordersSheet.Cell(orderRow, 5).Value = $"{order.MerchandiserFullName} ({order.MerchandiserUsername})";
-                ordersSheet.Cell(orderRow, 6).Value = order.CardCode;
-                ordersSheet.Cell(orderRow, 7).Value = order.CardName ?? string.Empty;
-                ordersSheet.Cell(orderRow, 8).Value = order.SapDocNum?.ToString() ?? "Pending";
-                ordersSheet.Cell(orderRow, 9).Value = order.SapDocEntry?.ToString() ?? "Not synced";
-                ordersSheet.Cell(orderRow, 10).Value = order.StatusLabel;
-                ordersSheet.Cell(orderRow, 11).Value = order.IsSynced ? "Yes" : "No";
-                ordersSheet.Cell(orderRow, 12).Value = order.AttachmentCount;
-                ordersSheet.Cell(orderRow, 13).Value = order.Currency ?? string.Empty;
-                ordersSheet.Cell(orderRow, 14).Value = order.DocTotal;
-                ordersSheet.Cell(orderRow, 14).Style.NumberFormat.Format = "#,##0.00";
-                ordersSheet.Cell(orderRow, 15).Value = order.ItemCount;
-                ordersSheet.Cell(orderRow, 16).Value = order.TotalQuantity;
-                ordersSheet.Cell(orderRow, 16).Style.NumberFormat.Format = "#,##0.00";
-                row++;
-                orderRow++;
-            }
+            ordersSheet.Cell(orderRow, 1).Value = order.OrderNumber;
+            ordersSheet.Cell(orderRow, 2).Value = order.AttachmentReference;
+            ordersSheet.Cell(orderRow, 3).Value = IAuditService.ToCAT(EnsureUtc(order.CreatedAtUtc));
+            ordersSheet.Cell(orderRow, 3).Style.NumberFormat.Format = FormatTimestamp;
+            ordersSheet.Cell(orderRow, 4).Value = IAuditService.ToCAT(EnsureUtc(order.OrderDateUtc)).Date;
+            ordersSheet.Cell(orderRow, 4).Style.NumberFormat.Format = FormatDate;
+            ordersSheet.Cell(orderRow, 5).Value = $"{order.MerchandiserFullName} ({order.MerchandiserUsername})";
+            ordersSheet.Cell(orderRow, 6).Value = order.CardCode;
+            ordersSheet.Cell(orderRow, 7).Value = order.CardName ?? string.Empty;
+            ordersSheet.Cell(orderRow, 8).Value = order.SapDocNum?.ToString() ?? "Pending";
+            ordersSheet.Cell(orderRow, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ordersSheet.Cell(orderRow, 9).Value = order.SapDocEntry?.ToString() ?? "Not synced";
+            ordersSheet.Cell(orderRow, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ordersSheet.Cell(orderRow, 10).Value = order.StatusLabel;
+            ordersSheet.Cell(orderRow, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ordersSheet.Cell(orderRow, 11).Value = order.IsSynced ? "Yes" : "No";
+            ordersSheet.Cell(orderRow, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            if (!order.IsSynced) ordersSheet.Cell(orderRow, 11).Style.Font.FontColor = WarningOrange;
+            ordersSheet.Cell(orderRow, 12).Value = order.AttachmentCount;
+            ordersSheet.Cell(orderRow, 12).Style.NumberFormat.Format = FormatCount;
+            ordersSheet.Cell(orderRow, 12).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            if (order.AttachmentCount == 0) ordersSheet.Cell(orderRow, 12).Style.Font.FontColor = WarningOrange;
+            ordersSheet.Cell(orderRow, 13).Value = order.Currency ?? string.Empty;
+            ordersSheet.Cell(orderRow, 13).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ordersSheet.Cell(orderRow, 14).Value = order.DocTotal;
+            ordersSheet.Cell(orderRow, 14).Style.NumberFormat.Format = FormatMoney;
+            ordersSheet.Cell(orderRow, 15).Value = order.ItemCount;
+            ordersSheet.Cell(orderRow, 15).Style.NumberFormat.Format = FormatCount;
+            ordersSheet.Cell(orderRow, 15).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ordersSheet.Cell(orderRow, 16).Value = order.TotalQuantity;
+            ordersSheet.Cell(orderRow, 16).Style.NumberFormat.Format = FormatQuantity;
+            orderRow++;
+        }
 
-            StyleDataRows(ordersSheet, ordersStart, orderRow - 1, 16);
-        }
-        else
-        {
-            ordersSheet.Range(orderRow, 1, orderRow, 16).Merge();
-            ordersSheet.Cell(orderRow, 1).Value = "No orders matched the selected filters.";
-            ordersSheet.Cell(orderRow, 1).Style.Font.Italic = true;
-            ordersSheet.Cell(orderRow, 1).Style.Font.FontColor = XLColor.FromHtml("#616161");
-        }
+        int lastOrder = orderRow - 1;
+        orderRow = FinishTable(ordersSheet, ordersFreeze, ordersStart, orderRow, 16, "No orders matched the selected filters.");
+
+        ordersSheet.Cell(orderRow, 1).Value = "TOTAL";
+        WriteSubtotal(ordersSheet, orderRow, 12, ordersStart, lastOrder, FormatCount);
+        ordersSheet.Cell(orderRow, 12).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        WriteSubtotal(ordersSheet, orderRow, 15, ordersStart, lastOrder, FormatCount);
+        ordersSheet.Cell(orderRow, 15).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        WriteSubtotal(ordersSheet, orderRow, 16, ordersStart, lastOrder, FormatQuantity);
+        StyleTotalsRow(ordersSheet, orderRow, 16);
 
         WriteFooter(ordersSheet, orderRow, 16);
         FinalizeSheet(ordersSheet, 16, ordersFreeze, landscape: true);
 
-        var attachmentsSheet = workbook.Worksheets.Add("Attachments");
+        var attachmentsSheet = AddSheet(workbook, "Attachments");
         int attachmentRow = WriteReportHeader(attachmentsSheet, "Uploaded Purchase Orders", 11, report.FromDate, report.ToDate);
         attachmentsSheet.Cell(attachmentRow, 1).Value = "Order #";
         attachmentsSheet.Cell(attachmentRow, 2).Value = "SAP Doc #";
@@ -1480,39 +1893,38 @@ public class ReportExportService : IReportExportService
             }))
             .ToList();
 
-        if (attachmentDetails.Any())
+        int attachmentsStart = attachmentRow;
+        foreach (var detail in attachmentDetails)
         {
-            int attachmentsStart = attachmentRow;
-            foreach (var detail in attachmentDetails)
-            {
-                attachmentsSheet.Cell(attachmentRow, 1).Value = detail.OrderNumber;
-                attachmentsSheet.Cell(attachmentRow, 2).Value = detail.SapDocNum?.ToString() ?? "Pending";
-                attachmentsSheet.Cell(attachmentRow, 3).Value = detail.AttachmentReference;
-                attachmentsSheet.Cell(attachmentRow, 4).Value = $"{detail.MerchandiserFullName} ({detail.MerchandiserUsername})";
-                attachmentsSheet.Cell(attachmentRow, 5).Value = $"{detail.CardCode} - {detail.CardName}";
-                attachmentsSheet.Cell(attachmentRow, 6).Value = detail.Attachment.FileName;
-                attachmentsSheet.Cell(attachmentRow, 7).Value = detail.Attachment.MimeType ?? string.Empty;
-                attachmentsSheet.Cell(attachmentRow, 8).Value = detail.Attachment.FileSizeBytes;
-                attachmentsSheet.Cell(attachmentRow, 9).Value = FormatCatDateTime(detail.Attachment.UploadedAtUtc);
-                attachmentsSheet.Cell(attachmentRow, 10).Value = detail.Attachment.UploadedByUsername ?? string.Empty;
-                attachmentsSheet.Cell(attachmentRow, 11).Value = detail.Attachment.Description ?? string.Empty;
-                attachmentRow++;
-            }
+            attachmentsSheet.Cell(attachmentRow, 1).Value = detail.OrderNumber;
+            attachmentsSheet.Cell(attachmentRow, 2).Value = detail.SapDocNum?.ToString() ?? "Pending";
+            attachmentsSheet.Cell(attachmentRow, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            attachmentsSheet.Cell(attachmentRow, 3).Value = detail.AttachmentReference;
+            attachmentsSheet.Cell(attachmentRow, 4).Value = $"{detail.MerchandiserFullName} ({detail.MerchandiserUsername})";
+            attachmentsSheet.Cell(attachmentRow, 5).Value = $"{detail.CardCode} - {detail.CardName}";
+            attachmentsSheet.Cell(attachmentRow, 6).Value = detail.Attachment.FileName;
+            attachmentsSheet.Cell(attachmentRow, 7).Value = detail.Attachment.MimeType ?? string.Empty;
+            attachmentsSheet.Cell(attachmentRow, 8).Value = detail.Attachment.FileSizeBytes;
+            attachmentsSheet.Cell(attachmentRow, 8).Style.NumberFormat.Format = FormatCount;
+            attachmentsSheet.Cell(attachmentRow, 9).Value = IAuditService.ToCAT(EnsureUtc(detail.Attachment.UploadedAtUtc));
+            attachmentsSheet.Cell(attachmentRow, 9).Style.NumberFormat.Format = FormatTimestamp;
+            attachmentsSheet.Cell(attachmentRow, 10).Value = detail.Attachment.UploadedByUsername ?? string.Empty;
+            attachmentsSheet.Cell(attachmentRow, 11).Value = detail.Attachment.Description ?? string.Empty;
+            attachmentRow++;
+        }
 
-            StyleDataRows(attachmentsSheet, attachmentsStart, attachmentRow - 1, 11);
-        }
-        else
-        {
-            attachmentsSheet.Range(attachmentRow, 1, attachmentRow, 11).Merge();
-            attachmentsSheet.Cell(attachmentRow, 1).Value = "No uploaded purchase-order attachments were returned for this report.";
-            attachmentsSheet.Cell(attachmentRow, 1).Style.Font.Italic = true;
-            attachmentsSheet.Cell(attachmentRow, 1).Style.Font.FontColor = XLColor.FromHtml("#616161");
-        }
+        int lastAttachment = attachmentRow - 1;
+        attachmentRow = FinishTable(attachmentsSheet, attachmentsFreeze, attachmentsStart, attachmentRow, 11,
+            "No uploaded purchase-order attachments were returned for this report.");
+
+        attachmentsSheet.Cell(attachmentRow, 1).Value = "TOTAL";
+        WriteSubtotal(attachmentsSheet, attachmentRow, 8, attachmentsStart, lastAttachment, FormatCount);
+        StyleTotalsRow(attachmentsSheet, attachmentRow, 11);
 
         WriteFooter(attachmentsSheet, attachmentRow, 11);
         FinalizeSheet(attachmentsSheet, 11, attachmentsFreeze, landscape: true);
 
-        var linesSheet = workbook.Worksheets.Add("Order Lines");
+        var linesSheet = AddSheet(workbook, "Order Lines");
         int lineRow = WriteReportHeader(linesSheet, "Merchandiser Order Lines", 12, report.FromDate, report.ToDate);
         linesSheet.Cell(lineRow, 1).Value = "Order #";
         linesSheet.Cell(lineRow, 2).Value = "SAP Doc #";
@@ -1544,38 +1956,37 @@ public class ReportExportService : IReportExportService
             }))
             .ToList();
 
-        if (lineDetails.Any())
+        int linesStart = lineRow;
+        foreach (var detail in lineDetails)
         {
-            int linesStart = lineRow;
-            foreach (var detail in lineDetails)
-            {
-                linesSheet.Cell(lineRow, 1).Value = detail.OrderNumber;
-                linesSheet.Cell(lineRow, 2).Value = detail.SapDocNum?.ToString() ?? "Pending";
-                linesSheet.Cell(lineRow, 3).Value = detail.AttachmentReference;
-                linesSheet.Cell(lineRow, 4).Value = $"{detail.MerchandiserFullName} ({detail.MerchandiserUsername})";
-                linesSheet.Cell(lineRow, 5).Value = $"{detail.CardCode} - {detail.CardName}";
-                linesSheet.Cell(lineRow, 6).Value = detail.Line.LineNum;
-                linesSheet.Cell(lineRow, 7).Value = detail.Line.ItemCode;
-                linesSheet.Cell(lineRow, 8).Value = detail.Line.ItemDescription ?? string.Empty;
-                linesSheet.Cell(lineRow, 9).Value = detail.Line.Quantity;
-                linesSheet.Cell(lineRow, 9).Style.NumberFormat.Format = "#,##0.00";
-                linesSheet.Cell(lineRow, 10).Value = detail.Line.QuantityFulfilled;
-                linesSheet.Cell(lineRow, 10).Style.NumberFormat.Format = "#,##0.00";
-                linesSheet.Cell(lineRow, 11).Value = detail.Line.WarehouseCode ?? string.Empty;
-                linesSheet.Cell(lineRow, 12).Value = detail.Line.LineTotal;
-                linesSheet.Cell(lineRow, 12).Style.NumberFormat.Format = "#,##0.00";
-                lineRow++;
-            }
+            linesSheet.Cell(lineRow, 1).Value = detail.OrderNumber;
+            linesSheet.Cell(lineRow, 2).Value = detail.SapDocNum?.ToString() ?? "Pending";
+            linesSheet.Cell(lineRow, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            linesSheet.Cell(lineRow, 3).Value = detail.AttachmentReference;
+            linesSheet.Cell(lineRow, 4).Value = $"{detail.MerchandiserFullName} ({detail.MerchandiserUsername})";
+            linesSheet.Cell(lineRow, 5).Value = $"{detail.CardCode} - {detail.CardName}";
+            linesSheet.Cell(lineRow, 6).Value = detail.Line.LineNum;
+            linesSheet.Cell(lineRow, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            linesSheet.Cell(lineRow, 7).Value = detail.Line.ItemCode;
+            linesSheet.Cell(lineRow, 8).Value = detail.Line.ItemDescription ?? string.Empty;
+            linesSheet.Cell(lineRow, 9).Value = detail.Line.Quantity;
+            linesSheet.Cell(lineRow, 9).Style.NumberFormat.Format = FormatQuantity;
+            linesSheet.Cell(lineRow, 10).Value = detail.Line.QuantityFulfilled;
+            linesSheet.Cell(lineRow, 10).Style.NumberFormat.Format = FormatQuantity;
+            linesSheet.Cell(lineRow, 11).Value = detail.Line.WarehouseCode ?? string.Empty;
+            linesSheet.Cell(lineRow, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            linesSheet.Cell(lineRow, 12).Value = detail.Line.LineTotal;
+            linesSheet.Cell(lineRow, 12).Style.NumberFormat.Format = FormatMoney;
+            lineRow++;
+        }
 
-            StyleDataRows(linesSheet, linesStart, lineRow - 1, 12);
-        }
-        else
-        {
-            linesSheet.Range(lineRow, 1, lineRow, 12).Merge();
-            linesSheet.Cell(lineRow, 1).Value = "No line items were returned for this report.";
-            linesSheet.Cell(lineRow, 1).Style.Font.Italic = true;
-            linesSheet.Cell(lineRow, 1).Style.Font.FontColor = XLColor.FromHtml("#616161");
-        }
+        int lastLine = lineRow - 1;
+        lineRow = FinishTable(linesSheet, linesFreeze, linesStart, lineRow, 12, "No line items were returned for this report.");
+
+        linesSheet.Cell(lineRow, 1).Value = "TOTAL";
+        WriteSubtotal(linesSheet, lineRow, 9, linesStart, lastLine, FormatQuantity);
+        WriteSubtotal(linesSheet, lineRow, 10, linesStart, lastLine, FormatQuantity);
+        StyleTotalsRow(linesSheet, lineRow, 12);
 
         WriteFooter(linesSheet, lineRow, 12);
         FinalizeSheet(linesSheet, 12, linesFreeze, landscape: true);
@@ -1773,8 +2184,12 @@ public class ReportExportService : IReportExportService
 
     private static void PodApplyDefaults(IXLWorksheet ws)
     {
-        ws.Style.Font.FontName = "Aptos";
+        ws.Style.Font.FontName = ReportFont;
         ws.Style.Font.FontSize = 10;
+        // The sheet's own grid showing through a styled table is the detail that makes
+        // an export look like a data dump rather than a report.
+        ws.ShowGridLines = false;
+        ws.TabColor = PodNavy;
     }
 
     private static int PodTitleBar(IXLWorksheet ws, string title, int lastCol, DateTime now)
@@ -1939,7 +2354,7 @@ public class ReportExportService : IReportExportService
         cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
     }
 
-    private static void PodFinalize(IXLWorksheet ws, int lastCol, int freezeRow = 0, int freezeCol = 0)
+    private static void PodFinalize(IXLWorksheet ws, int lastCol, int freezeRow = 0, int freezeCol = 0, int filterLastRow = 0)
     {
         ws.Columns(1, lastCol).AdjustToContents();
         for (int columnIndex = 1; columnIndex <= lastCol; columnIndex++)
@@ -1950,12 +2365,25 @@ public class ReportExportService : IReportExportService
 
         if (freezeRow > 0) ws.SheetView.FreezeRows(freezeRow);
         if (freezeCol > 0) ws.SheetView.FreezeColumns(freezeCol);
+
+        if (freezeRow > 0 && filterLastRow > freezeRow && !ws.AutoFilter.IsEnabled)
+        {
+            ws.Range(freezeRow, 1, filterLastRow, lastCol).SetAutoFilter();
+        }
+
+        if (freezeRow > 0)
+        {
+            ws.PageSetup.SetRowsToRepeatAtTop(freezeRow, freezeRow);
+        }
+
         ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
+        ws.PageSetup.PaperSize = XLPaperSize.A4Paper;
         ws.PageSetup.FitToPages(1, 0);
         ws.PageSetup.Margins.SetLeft(0.4);
         ws.PageSetup.Margins.SetRight(0.4);
         ws.PageSetup.Margins.SetTop(0.4);
         ws.PageSetup.Margins.SetBottom(0.4);
+        ApplyPrintHeaderFooter(ws);
     }
 
     private static string FormatPodReportPeriod(PodUploadStatusReport report)
@@ -2149,7 +2577,7 @@ public class ReportExportService : IReportExportService
 
     public byte[] ExportPodUploadStatusToExcel(PodUploadStatusReport report)
     {
-        using var workbook = new XLWorkbook();
+        using var workbook = NewWorkbook("POD Upload Status Report");
         var now = CurrentCatNow();
         var periodText = FormatPodReportPeriod(report);
         var reportItems = ApplyPodReportingScope(report).Items;
@@ -2225,7 +2653,7 @@ public class ReportExportService : IReportExportService
                 ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 ws.Cell(row, 2).Value = item.CardName ?? "-";
                 ws.Cell(row, 3).Value = item.CardCode ?? "-";
-                ws.Cell(row, 4).Value = FormatExcelDate(item.DocDate);
+                WriteDateCell(ws.Cell(row, 4), item.DocDate);
                 ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 ws.Cell(row, 5).Value = FormatPodGeneratedLocationDisplay(item);
                 ws.Cell(row, 5).Style.Font.FontColor = PodTextMuted;
@@ -2247,6 +2675,7 @@ public class ReportExportService : IReportExportService
                 rowIndex++;
             }
 
+            var podLastDataRow = row - 1;
             PodSummaryRow(ws, row, lastCol);
             ws.Cell(row, 1).Value = "TOTAL";
             ws.Cell(row, 2).Value = $"{pending.Count:N0} invoices";
@@ -2264,7 +2693,7 @@ public class ReportExportService : IReportExportService
             ws.Cell(row, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
 
             PodDisclaimerRow(ws, row + 2, lastCol, now);
-            PodFinalize(ws, lastCol, headerRow, 2);
+            PodFinalize(ws, lastCol, headerRow, 2, podLastDataRow);
             ws.Column(1).Width = 12;
             ws.Column(2).Width = 38;
             ws.Column(3).Width = 12;
@@ -2353,6 +2782,7 @@ public class ReportExportService : IReportExportService
                 rowIndex++;
             }
 
+            var podLastDataRow = row - 1;
             PodSummaryRow(ws, row, lastCol);
             ws.Cell(row, 1).Value = "SUMMARY";
             ws.Cell(row, 2).Value = uploadsByUser.Sum(group => group.UploadedInvoices);
@@ -2372,7 +2802,7 @@ public class ReportExportService : IReportExportService
                 : $"{uploadsByUser.Count:N0} uploaders";
 
             PodDisclaimerRow(ws, row + 2, lastCol, now);
-            PodFinalize(ws, lastCol, headerRow, 1);
+            PodFinalize(ws, lastCol, headerRow, 1, podLastDataRow);
             ws.Column(1).Width = 28;
             ws.Column(2).Width = 16;
             ws.Column(3).Width = 12;
@@ -2440,7 +2870,7 @@ public class ReportExportService : IReportExportService
                 ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 ws.Cell(row, 2).Value = item.CardName ?? "-";
                 ws.Cell(row, 3).Value = item.CardCode ?? "-";
-                ws.Cell(row, 4).Value = FormatExcelDate(item.DocDate);
+                WriteDateCell(ws.Cell(row, 4), item.DocDate);
                 ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 ws.Cell(row, 5).Value = FormatPodGeneratedLocationDisplay(item);
                 ws.Cell(row, 5).Style.Font.FontColor = PodTextMuted;
@@ -2464,6 +2894,7 @@ public class ReportExportService : IReportExportService
                 rowIndex++;
             }
 
+            var podLastDataRow = row - 1;
             PodSummaryRow(ws, row, lastCol);
             ws.Cell(row, 1).Value = "TOTAL";
             ws.Cell(row, 2).Value = $"{uploaded.Count:N0} invoices";
@@ -2481,7 +2912,7 @@ public class ReportExportService : IReportExportService
             ws.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
 
             PodDisclaimerRow(ws, row + 2, lastCol, now);
-            PodFinalize(ws, lastCol, headerRow, 2);
+            PodFinalize(ws, lastCol, headerRow, 2, podLastDataRow);
             ws.Column(1).Width = 12;
             ws.Column(2).Width = 38;
             ws.Column(3).Width = 12;
@@ -2561,7 +2992,7 @@ public class ReportExportService : IReportExportService
             ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 2).Value = item.CardName ?? "-";
             ws.Cell(row, 3).Value = item.CardCode ?? "-";
-            ws.Cell(row, 4).Value = FormatExcelDate(item.DocDate);
+            WriteDateCell(ws.Cell(row, 4), item.DocDate);
             ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 5).Value = FormatPodGeneratedLocationDisplay(item);
             ws.Cell(row, 5).Style.Font.FontColor = PodTextMuted;
@@ -2604,6 +3035,7 @@ public class ReportExportService : IReportExportService
             rowIndex++;
         }
 
+        var podLastDataRow = row - 1;
         PodSummaryRow(ws, row, lastCol);
         ws.Cell(row, 1).Value = "SUMMARY";
         ws.Cell(row, 2).Value = $"{totalInvoices:N0} invoices";
@@ -2626,7 +3058,7 @@ public class ReportExportService : IReportExportService
         ws.Cell(row, 12).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
 
         PodDisclaimerRow(ws, row + 2, lastCol, now);
-        PodFinalize(ws, lastCol, headerRow, 2);
+        PodFinalize(ws, lastCol, headerRow, 2, podLastDataRow);
         ws.Column(1).Width = 12;
         ws.Column(2).Width = 38;
         ws.Column(3).Width = 12;
@@ -2726,7 +3158,7 @@ public class ReportExportService : IReportExportService
 
     public byte[] ExportTimesheetReportToExcel(TimesheetReportResponse report, DateTime? fromDate = null, DateTime? toDate = null)
     {
-        using var workbook = new XLWorkbook();
+        using var workbook = NewWorkbook("Timesheet Report");
         var now = DateTime.UtcNow.AddHours(2); // CAT
 
         BuildTimesheetOverviewSheet(workbook, report, fromDate, toDate, now);
@@ -2739,8 +3171,10 @@ public class ReportExportService : IReportExportService
 
     private static void TsApplyDefaults(IXLWorksheet ws)
     {
-        ws.Style.Font.FontName = "Aptos";
+        ws.Style.Font.FontName = ReportFont;
         ws.Style.Font.FontSize = 10;
+        ws.ShowGridLines = false;
+        ws.TabColor = TsNavy;
     }
 
     private static int TsTitleBar(IXLWorksheet ws, string title, int lastCol, DateTime now)
@@ -2843,12 +3277,17 @@ public class ReportExportService : IReportExportService
         }
         if (freezeRow > 0) ws.SheetView.FreezeRows(freezeRow);
         if (freezeCol > 0) ws.SheetView.FreezeColumns(freezeCol);
+        // No autofilter here: these sheets stack several tables under one title bar and
+        // Excel allows one filter per sheet, so it would attach to whichever table came
+        // first and silently mislead about the rest.
         ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
+        ws.PageSetup.PaperSize = XLPaperSize.A4Paper;
         ws.PageSetup.FitToPages(1, 0);
         ws.PageSetup.Margins.SetLeft(0.4);
         ws.PageSetup.Margins.SetRight(0.4);
         ws.PageSetup.Margins.SetTop(0.4);
         ws.PageSetup.Margins.SetBottom(0.4);
+        ApplyPrintHeaderFooter(ws);
     }
 
     private static void TsSectionTitle(IXLWorksheet ws, int row, int lastCol, string title)
@@ -3026,8 +3465,11 @@ public class ReportExportService : IReportExportService
             foreach (var day in dailyTotals)
             {
                 TsDataRow(ws, row, lastCol, idx % 2 == 1);
-                ws.Cell(row, 1).Value = day.Date.ToString("dd MMM yyyy");
-                ws.Cell(row, 2).Value = day.Date.ToString("ddd");
+                // A real date, so the column sorts chronologically and filters to a week.
+                ws.Cell(row, 1).Value = day.Date;
+                ws.Cell(row, 1).Style.NumberFormat.Format = FormatDate;
+                ws.Cell(row, 2).Value = day.Date;
+                ws.Cell(row, 2).Style.NumberFormat.Format = "ddd";
                 if (day.Date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
                     ws.Cell(row, 2).Style.Font.FontColor = TsOrange;
                 ws.Cell(row, 3).Value = day.Visits;
@@ -3125,8 +3567,11 @@ public class ReportExportService : IReportExportService
         foreach (var day in user.DailySummaries.OrderByDescending(d => d.Date))
         {
             TsDataRow(ws, row, lastCol, idx % 2 == 1);
-            ws.Cell(row, 1).Value = day.Date.ToString("dd MMM yyyy");
-            ws.Cell(row, 2).Value = day.Date.ToString("ddd");
+            // A real date, so the column sorts chronologically and filters to a week.
+            ws.Cell(row, 1).Value = day.Date;
+            ws.Cell(row, 1).Style.NumberFormat.Format = FormatDate;
+            ws.Cell(row, 2).Value = day.Date;
+            ws.Cell(row, 2).Style.NumberFormat.Format = "ddd";
             if (day.Date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
                 ws.Cell(row, 2).Style.Font.FontColor = TsOrange;
             ws.Cell(row, 3).Value = day.VisitCount;
@@ -3222,10 +3667,33 @@ public class ReportExportService : IReportExportService
 
     private static DateTime ToCatExcel(DateTime utc) => utc.AddHours(2);
 
-    private static string FormatExcelDate(string? dateStr)
+    private static bool TryParseReportDate(string? dateText, out DateTime parsed)
     {
-        if (string.IsNullOrEmpty(dateStr)) return "";
-        return DateTime.TryParse(dateStr, out var dt) ? dt.ToString("dd MMM yyyy") : dateStr;
+        // Invariant first: these arrive from SAP as yyyy-MM-dd, and a machine set to a
+        // day-first locale would otherwise read 2026-03-04 correctly but 03/04/2026
+        // as the wrong day.
+        if (DateTime.TryParse(dateText, CultureInfo.InvariantCulture, DateTimeStyles.None, out parsed))
+            return true;
+
+        return DateTime.TryParse(dateText, out parsed);
+    }
+
+    /// <summary>
+    /// Writes a date that reached us as a string into a real date cell, so the column
+    /// sorts chronologically and can be filtered to a range. Text that will not parse
+    /// is kept verbatim rather than dropped — a value we cannot read is still evidence.
+    /// </summary>
+    private static void WriteDateCell(IXLCell cell, string? dateText, string format = FormatDate)
+    {
+        if (TryParseReportDate(dateText, out var parsed))
+        {
+            cell.Value = parsed.Date;
+            cell.Style.NumberFormat.Format = format;
+        }
+        else
+        {
+            cell.Value = dateText ?? string.Empty;
+        }
     }
 
     private static byte[] WorkbookToBytes(XLWorkbook workbook)
@@ -3251,9 +3719,9 @@ public class ReportExportService : IReportExportService
     /// </remarks>
     public byte[] ExportItemVolumeSalesReportToExcel(GetItemVolumeSalesReportResult report, string title)
     {
-        using var workbook = new XLWorkbook();
+        using var workbook = NewWorkbook(title);
 
-        var itemsSheet = workbook.Worksheets.Add("Items");
+        var itemsSheet = AddSheet(workbook, "Items");
         const int itemCols = 12;
         var row = WriteReportHeader(
             itemsSheet,
@@ -3262,12 +3730,12 @@ public class ReportExportService : IReportExportService
             report.FromDateUtc,
             report.ToDateUtc);
 
-        WriteKpiCard(itemsSheet, row, 1, "Net Volume", report.Summary.NetVolume.ToString("N3"));
-        WriteKpiCard(itemsSheet, row, 3, "Net Quantity", report.Summary.NetQuantity.ToString("N2"));
-        WriteKpiCard(itemsSheet, row, 5, "Net Revenue USD", report.Summary.NetRevenueUsd.ToString("N2"));
-        WriteKpiCard(itemsSheet, row, 7, "Net Revenue ZiG", report.Summary.NetRevenueZig.ToString("N2"));
-        WriteKpiCard(itemsSheet, row, 9, "Invoices", report.Summary.InvoiceCount.ToString("N0"));
-        WriteKpiCard(itemsSheet, row, 11, "Credit Notes", report.Summary.CreditNoteCount.ToString("N0"), WarningOrange);
+        WriteKpiCard(itemsSheet, row, 1, "Net Volume", report.Summary.NetVolume, FormatVolume);
+        WriteKpiCard(itemsSheet, row, 2, "Net Quantity", report.Summary.NetQuantity, FormatQuantity);
+        WriteKpiCard(itemsSheet, row, 3, "Net Revenue USD", report.Summary.NetRevenueUsd, FormatUsd);
+        WriteKpiCard(itemsSheet, row, 4, "Net Revenue ZiG", report.Summary.NetRevenueZig, FormatZig);
+        WriteKpiCard(itemsSheet, row, 5, "Invoices", report.Summary.InvoiceCount, FormatCount);
+        WriteKpiCard(itemsSheet, row, 6, "Credit Notes", report.Summary.CreditNoteCount, FormatCount, WarningOrange);
         row += 3;
 
         if (report.Summary.ItemsWithoutFactorCount > 0)
@@ -3283,6 +3751,7 @@ public class ReportExportService : IReportExportService
             row += 2;
         }
 
+        var itemsHeader = row;
         row = WriteItemVolumeTable(
             itemsSheet,
             row,
@@ -3291,7 +3760,7 @@ public class ReportExportService : IReportExportService
                 "Net Volume", "Invoiced USD", "Invoiced ZiG", "Credited USD", "Credited ZiG", "Net Revenue USD"
             ]);
 
-        var isAlt = false;
+        var itemsStart = row;
         foreach (var item in report.ItemTotals)
         {
             itemsSheet.Cell(row, 1).Value = item.ItemCode;
@@ -3302,12 +3771,13 @@ public class ReportExportService : IReportExportService
                 itemsSheet.Cell(row, 3).Value = item.VolumeFactor!.Value;
                 itemsSheet.Cell(row, 3).Style.NumberFormat.Format = "#,##0.######";
                 itemsSheet.Cell(row, 7).Value = item.NetVolume;
-                itemsSheet.Cell(row, 7).Style.NumberFormat.Format = "#,##0.000";
+                itemsSheet.Cell(row, 7).Style.NumberFormat.Format = FormatVolume;
             }
             else
             {
                 itemsSheet.Cell(row, 3).Value = "no factor";
                 itemsSheet.Cell(row, 3).Style.Font.FontColor = WarningOrange;
+                itemsSheet.Cell(row, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
             }
 
             itemsSheet.Cell(row, 4).Value = item.InvoicedQuantity;
@@ -3319,15 +3789,35 @@ public class ReportExportService : IReportExportService
             itemsSheet.Cell(row, 11).Value = item.CreditedSalesZig;
             itemsSheet.Cell(row, 12).Value = item.NetRevenueUsd;
 
-            itemsSheet.Range(row, 4, row, 6).Style.NumberFormat.Format = "#,##0.00";
-            itemsSheet.Range(row, 8, row, 12).Style.NumberFormat.Format = "#,##0.00";
+            itemsSheet.Range(row, 4, row, 6).Style.NumberFormat.Format = FormatQuantity;
+            itemsSheet.Cell(row, 8).Style.NumberFormat.Format = FormatUsd;
+            itemsSheet.Cell(row, 9).Style.NumberFormat.Format = FormatZig;
+            itemsSheet.Cell(row, 10).Style.NumberFormat.Format = FormatUsd;
+            itemsSheet.Cell(row, 11).Style.NumberFormat.Format = FormatZig;
+            itemsSheet.Cell(row, 12).Style.NumberFormat.Format = FormatUsd;
 
-            FinishItemVolumeRow(itemsSheet, row, itemCols, isAlt);
-            isAlt = !isAlt;
             row++;
         }
 
-        var partnersSheet = workbook.Worksheets.Add("Business Partners");
+        var itemsLast = row - 1;
+        row = FinishTable(itemsSheet, itemsHeader, itemsStart, row, itemCols, "No item sales fell in this period.");
+
+        itemsSheet.Cell(row, 1).Value = "TOTAL";
+        WriteSubtotal(itemsSheet, row, 4, itemsStart, itemsLast, FormatQuantity);
+        WriteSubtotal(itemsSheet, row, 5, itemsStart, itemsLast, FormatQuantity);
+        WriteSubtotal(itemsSheet, row, 6, itemsStart, itemsLast, FormatQuantity);
+        WriteSubtotal(itemsSheet, row, 7, itemsStart, itemsLast, FormatVolume);
+        WriteSubtotal(itemsSheet, row, 8, itemsStart, itemsLast, FormatUsd);
+        WriteSubtotal(itemsSheet, row, 9, itemsStart, itemsLast, FormatZig);
+        WriteSubtotal(itemsSheet, row, 10, itemsStart, itemsLast, FormatUsd);
+        WriteSubtotal(itemsSheet, row, 11, itemsStart, itemsLast, FormatZig);
+        WriteSubtotal(itemsSheet, row, 12, itemsStart, itemsLast, FormatUsd);
+        StyleTotalsRow(itemsSheet, row, itemCols);
+
+        WriteFooter(itemsSheet, row, itemCols);
+        FinalizeSheet(itemsSheet, itemCols, itemsHeader, landscape: true);
+
+        var partnersSheet = AddSheet(workbook, "Business Partners");
         const int partnerCols = 11;
         row = WriteReportHeader(
             partnersSheet,
@@ -3336,6 +3826,7 @@ public class ReportExportService : IReportExportService
             report.FromDateUtc,
             report.ToDateUtc);
 
+        var partnersHeader = row;
         row = WriteItemVolumeTable(
             partnersSheet,
             row,
@@ -3344,7 +3835,7 @@ public class ReportExportService : IReportExportService
                 "Net Qty", "Net Volume", "Net Revenue USD", "Net Revenue ZiG", "Items Without Factor"
             ]);
 
-        isAlt = false;
+        var partnersStart = row;
         foreach (var account in report.AccountTotals
             .OrderByDescending(account => account.NetRevenueUsd + account.NetRevenueZig)
             .ThenBy(account => account.CardCode, StringComparer.OrdinalIgnoreCase))
@@ -3361,21 +3852,43 @@ public class ReportExportService : IReportExportService
             partnersSheet.Cell(row, 10).Value = account.NetRevenueZig;
             partnersSheet.Cell(row, 11).Value = account.ItemsWithoutFactorCount;
 
-            partnersSheet.Range(row, 5, row, 7).Style.NumberFormat.Format = "#,##0.00";
-            partnersSheet.Cell(row, 8).Style.NumberFormat.Format = "#,##0.000";
-            partnersSheet.Range(row, 9, row, 10).Style.NumberFormat.Format = "#,##0.00";
+            partnersSheet.Range(row, 3, row, 4).Style.NumberFormat.Format = FormatCount;
+            partnersSheet.Range(row, 3, row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            partnersSheet.Range(row, 5, row, 7).Style.NumberFormat.Format = FormatQuantity;
+            partnersSheet.Cell(row, 8).Style.NumberFormat.Format = FormatVolume;
+            partnersSheet.Cell(row, 9).Style.NumberFormat.Format = FormatUsd;
+            partnersSheet.Cell(row, 10).Style.NumberFormat.Format = FormatZig;
+            partnersSheet.Cell(row, 11).Style.NumberFormat.Format = FormatCount;
+            partnersSheet.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
             if (account.ItemsWithoutFactorCount > 0)
             {
                 partnersSheet.Cell(row, 11).Style.Font.FontColor = WarningOrange;
             }
 
-            FinishItemVolumeRow(partnersSheet, row, partnerCols, isAlt);
-            isAlt = !isAlt;
             row++;
         }
 
-        var periodsSheet = workbook.Worksheets.Add("Periods");
+        var partnersLast = row - 1;
+        row = FinishTable(partnersSheet, partnersHeader, partnersStart, row, partnerCols, "No business partners traded in this period.");
+
+        partnersSheet.Cell(row, 1).Value = "TOTAL";
+        WriteSubtotal(partnersSheet, row, 3, partnersStart, partnersLast, FormatCount);
+        partnersSheet.Cell(row, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        WriteSubtotal(partnersSheet, row, 4, partnersStart, partnersLast, FormatCount);
+        partnersSheet.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        WriteSubtotal(partnersSheet, row, 5, partnersStart, partnersLast, FormatQuantity);
+        WriteSubtotal(partnersSheet, row, 6, partnersStart, partnersLast, FormatQuantity);
+        WriteSubtotal(partnersSheet, row, 7, partnersStart, partnersLast, FormatQuantity);
+        WriteSubtotal(partnersSheet, row, 8, partnersStart, partnersLast, FormatVolume);
+        WriteSubtotal(partnersSheet, row, 9, partnersStart, partnersLast, FormatUsd);
+        WriteSubtotal(partnersSheet, row, 10, partnersStart, partnersLast, FormatZig);
+        StyleTotalsRow(partnersSheet, row, partnerCols);
+
+        WriteFooter(partnersSheet, row, partnerCols);
+        FinalizeSheet(partnersSheet, partnerCols, partnersHeader, landscape: true);
+
+        var periodsSheet = AddSheet(workbook, "Periods");
         const int periodCols = 7;
         row = WriteReportHeader(
             periodsSheet,
@@ -3384,33 +3897,50 @@ public class ReportExportService : IReportExportService
             report.FromDateUtc,
             report.ToDateUtc);
 
+        var periodsHeader = row;
         row = WriteItemVolumeTable(
             periodsSheet,
             row,
             ["Period", "Starts", "Invoices", "Credit Notes", "Net Qty", "Net Volume", "Net Revenue USD"]);
 
-        isAlt = false;
+        var periodsStart = row;
         foreach (var period in report.Periods.OrderBy(period => period.PeriodStartUtc))
         {
             periodsSheet.Cell(row, 1).Value = period.Label;
             periodsSheet.Cell(row, 2).Value = period.PeriodStartUtc;
-            periodsSheet.Cell(row, 2).Style.NumberFormat.Format = "dd MMM yyyy";
+            periodsSheet.Cell(row, 2).Style.NumberFormat.Format = FormatDate;
             periodsSheet.Cell(row, 3).Value = period.InvoiceCount;
             periodsSheet.Cell(row, 4).Value = period.CreditNoteCount;
             periodsSheet.Cell(row, 5).Value = period.NetQuantity;
             periodsSheet.Cell(row, 6).Value = period.NetVolume;
             periodsSheet.Cell(row, 7).Value = period.NetRevenueUsd;
 
-            periodsSheet.Cell(row, 5).Style.NumberFormat.Format = "#,##0.00";
-            periodsSheet.Cell(row, 6).Style.NumberFormat.Format = "#,##0.000";
-            periodsSheet.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+            periodsSheet.Range(row, 3, row, 4).Style.NumberFormat.Format = FormatCount;
+            periodsSheet.Range(row, 3, row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            periodsSheet.Cell(row, 5).Style.NumberFormat.Format = FormatQuantity;
+            periodsSheet.Cell(row, 6).Style.NumberFormat.Format = FormatVolume;
+            periodsSheet.Cell(row, 7).Style.NumberFormat.Format = FormatUsd;
 
-            FinishItemVolumeRow(periodsSheet, row, periodCols, isAlt);
-            isAlt = !isAlt;
             row++;
         }
 
-        var linesSheet = workbook.Worksheets.Add("Document Lines");
+        var periodsLast = row - 1;
+        row = FinishTable(periodsSheet, periodsHeader, periodsStart, row, periodCols, "No periods fell in this report's range.");
+
+        periodsSheet.Cell(row, 1).Value = "TOTAL";
+        WriteSubtotal(periodsSheet, row, 3, periodsStart, periodsLast, FormatCount);
+        periodsSheet.Cell(row, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        WriteSubtotal(periodsSheet, row, 4, periodsStart, periodsLast, FormatCount);
+        periodsSheet.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        WriteSubtotal(periodsSheet, row, 5, periodsStart, periodsLast, FormatQuantity);
+        WriteSubtotal(periodsSheet, row, 6, periodsStart, periodsLast, FormatVolume);
+        WriteSubtotal(periodsSheet, row, 7, periodsStart, periodsLast, FormatUsd);
+        StyleTotalsRow(periodsSheet, row, periodCols);
+
+        WriteFooter(periodsSheet, row, periodCols);
+        FinalizeSheet(periodsSheet, periodCols, periodsHeader);
+
+        var linesSheet = AddSheet(workbook, "Document Lines");
         const int lineCols = 11;
         row = WriteReportHeader(
             linesSheet,
@@ -3419,6 +3949,7 @@ public class ReportExportService : IReportExportService
             report.FromDateUtc,
             report.ToDateUtc);
 
+        var linesHeader = row;
         row = WriteItemVolumeTable(
             linesSheet,
             row,
@@ -3427,45 +3958,52 @@ public class ReportExportService : IReportExportService
                 "Quantity", "Factor", "Volume", "Line Amount"
             ]);
 
-        isAlt = false;
+        var linesStart = row;
         foreach (var line in report.DocumentLines)
         {
             linesSheet.Cell(row, 1).Value = line.DocumentDateUtc;
-            linesSheet.Cell(row, 1).Style.NumberFormat.Format = "dd MMM yyyy";
+            linesSheet.Cell(row, 1).Style.NumberFormat.Format = FormatDate;
             linesSheet.Cell(row, 2).Value = line.DocumentType;
+            linesSheet.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             linesSheet.Cell(row, 3).Value = line.DocumentNumber;
             linesSheet.Cell(row, 4).Value = line.CardCode;
             linesSheet.Cell(row, 5).Value = line.CardName;
             linesSheet.Cell(row, 6).Value = line.ItemCode;
             linesSheet.Cell(row, 7).Value = line.ItemName;
             linesSheet.Cell(row, 8).Value = line.Quantity;
-            linesSheet.Cell(row, 8).Style.NumberFormat.Format = "#,##0.00";
+            linesSheet.Cell(row, 8).Style.NumberFormat.Format = FormatQuantity;
 
             if (line.VolumeFactor.HasValue)
             {
                 linesSheet.Cell(row, 9).Value = line.VolumeFactor.Value;
                 linesSheet.Cell(row, 9).Style.NumberFormat.Format = "#,##0.######";
                 linesSheet.Cell(row, 10).Value = line.Volume;
-                linesSheet.Cell(row, 10).Style.NumberFormat.Format = "#,##0.000";
+                linesSheet.Cell(row, 10).Style.NumberFormat.Format = FormatVolume;
             }
 
             linesSheet.Cell(row, 11).Value = line.LineAmount;
-            linesSheet.Cell(row, 11).Style.NumberFormat.Format = $"\"{line.Currency}\" #,##0.00";
+            linesSheet.Cell(row, 11).Style.NumberFormat.Format = $"\"{line.Currency}\" #,##0.00;[Red](\"{line.Currency}\" #,##0.00)";
 
             if (string.Equals(line.DocumentType, "Credit Note", StringComparison.OrdinalIgnoreCase))
             {
                 linesSheet.Cell(row, 2).Style.Font.FontColor = DangerRed;
             }
 
-            FinishItemVolumeRow(linesSheet, row, lineCols, isAlt);
-            isAlt = !isAlt;
             row++;
         }
 
-        foreach (var sheet in workbook.Worksheets)
-        {
-            sheet.Columns().AdjustToContents();
-        }
+        var linesLast = row - 1;
+        row = FinishTable(linesSheet, linesHeader, linesStart, row, lineCols, "No document lines fell in this period.");
+
+        // Quantity and volume only: the amounts on this sheet are each stated in their
+        // own document's currency, which is why the column names one per cell.
+        linesSheet.Cell(row, 1).Value = "TOTAL";
+        WriteSubtotal(linesSheet, row, 8, linesStart, linesLast, FormatQuantity);
+        WriteSubtotal(linesSheet, row, 10, linesStart, linesLast, FormatVolume);
+        StyleTotalsRow(linesSheet, row, lineCols);
+
+        WriteFooter(linesSheet, row, lineCols);
+        FinalizeSheet(linesSheet, lineCols, linesHeader, landscape: true);
 
         return WorkbookToBytes(workbook);
     }
@@ -3475,34 +4013,16 @@ public class ReportExportService : IReportExportService
         for (var i = 0; i < headers.Length; i++)
         {
             ws.Cell(row, i + 1).Value = headers[i];
-            ws.Cell(row, i + 1).Style.Font.Bold = true;
-            ws.Cell(row, i + 1).Style.Font.FontColor = XLColor.White;
-            ws.Cell(row, i + 1).Style.Fill.BackgroundColor = NavyBlue;
-            ws.Cell(row, i + 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, i + 1).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
         }
 
+        StyleTableHeader(ws, row, headers.Length);
         return row + 1;
-    }
-
-    private static void FinishItemVolumeRow(IXLWorksheet ws, int row, int cols, bool isAlt)
-    {
-        if (isAlt)
-        {
-            ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = LightGray;
-        }
-
-        for (var col = 1; col <= cols; col++)
-        {
-            ws.Cell(row, col).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-        }
     }
 
     public byte[] ExportAccountSalesPaymentReportToExcel(GetAccountSalesPaymentReportResult report)
     {
-        using var workbook = new XLWorkbook();
+        using var workbook = NewWorkbook("Account Sales & Payment Report");
 
-        workbook.Style.Font.FontName = "Aptos";
         workbook.Style.Font.FontColor = ExecutiveTextPrimary;
 
         var logoPath = ResolveExecutiveLogoPath();
@@ -4638,12 +5158,19 @@ public class ReportExportService : IReportExportService
             ws.SheetView.FreezeColumns(freezeCol);
         }
 
+        if (freezeRow > 0)
+        {
+            ws.PageSetup.SetRowsToRepeatAtTop(freezeRow, freezeRow);
+        }
+
         ws.PageSetup.PageOrientation = landscape ? XLPageOrientation.Landscape : XLPageOrientation.Portrait;
+        ws.PageSetup.PaperSize = XLPaperSize.A4Paper;
         ws.PageSetup.FitToPages(1, 0);
         ws.PageSetup.Margins.SetLeft(0.35);
         ws.PageSetup.Margins.SetRight(0.35);
         ws.PageSetup.Margins.SetTop(0.45);
         ws.PageSetup.Margins.SetBottom(0.45);
+        ApplyPrintHeaderFooter(ws);
     }
 
     private static void WriteExecutiveFooter(IXLWorksheet ws, int row, int colSpan)
@@ -5277,79 +5804,79 @@ public class ReportExportService : IReportExportService
 
     public byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null)
     {
-        using var workbook = new XLWorkbook();
-        var ws = workbook.Worksheets.Add("Desktop Sales");
-        const int cols = 9;
+        using var workbook = NewWorkbook("Desktop Sales Report");
+        var ws = AddSheet(workbook, "Desktop Sales");
+        const int cols = 11;
 
         var row = WriteReportHeader(ws, "Desktop Sales Report", cols, fromDate, toDate);
 
         // KPI cards
         if (report != null)
         {
-            WriteKpiCard(ws, row, 1, "Total Sales", report.TotalSalesCount.ToString());
-            WriteKpiCard(ws, row, 3, "Total Amount", report.TotalSalesAmount.ToString("N2"));
-            WriteKpiCard(ws, row, 5, "Total VAT", report.TotalVatAmount.ToString("N2"));
-            WriteKpiCard(ws, row, 7, "Posted", report.PostedInvoiceCount.ToString(), SuccessGreen);
+            WriteKpiCard(ws, row, 1, "Total Sales", report.TotalSalesCount, FormatCount);
+            WriteKpiCard(ws, row, 2, "Total Amount", report.TotalSalesAmount, FormatMoney);
+            WriteKpiCard(ws, row, 3, "Total VAT", report.TotalVatAmount, FormatMoney);
+            WriteKpiCard(ws, row, 4, "Posted", report.PostedInvoiceCount, FormatCount, SuccessGreen);
             row += 3;
         }
 
-        // Column headers
-        var headers = new[] { "Reference", "Customer", "Card Code", "Warehouse", "Amount", "VAT", "Paid", "Fiscal Status", "Consolidation" };
+        // Column headers. Date and Currency were both missing: the report is
+        // date-ranged and the amounts are not all in one currency, so without them a
+        // row could not be placed in time or read as an amount.
+        var headers = new[] { "Date", "Reference", "Customer", "Card Code", "Warehouse", "Currency", "Amount", "VAT", "Paid", "Fiscal Status", "Consolidation" };
         for (int i = 0; i < headers.Length; i++)
         {
             ws.Cell(row, i + 1).Value = headers[i];
-            ws.Cell(row, i + 1).Style.Font.Bold = true;
-            ws.Cell(row, i + 1).Style.Font.FontColor = XLColor.White;
-            ws.Cell(row, i + 1).Style.Fill.BackgroundColor = NavyBlue;
-            ws.Cell(row, i + 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, i + 1).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
         }
+        StyleTableHeader(ws, row, cols);
+        var headerRow = row;
         row++;
 
         // Data rows
-        var isAlt = false;
-        foreach (var sale in sales)
+        var dataStart = row;
+        foreach (var sale in sales.OrderBy(s => s.DocDate).ThenBy(s => s.ExternalReferenceId, StringComparer.OrdinalIgnoreCase))
         {
-            ws.Cell(row, 1).Value = sale.ExternalReferenceId;
-            ws.Cell(row, 2).Value = sale.CardName ?? sale.CardCode;
-            ws.Cell(row, 3).Value = sale.CardCode;
-            ws.Cell(row, 4).Value = sale.WarehouseCode;
-            ws.Cell(row, 5).Value = sale.TotalAmount;
-            ws.Cell(row, 5).Style.NumberFormat.Format = "#,##0.00";
-            ws.Cell(row, 6).Value = sale.VatAmount;
-            ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
-            ws.Cell(row, 7).Value = sale.AmountPaid;
-            ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
-            ws.Cell(row, 8).Value = sale.FiscalizationStatus;
-            ws.Cell(row, 9).Value = sale.ConsolidationStatus;
-
-            if (isAlt)
-            {
-                ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = LightGray;
-            }
-
-            for (int c = 1; c <= cols; c++)
-                ws.Cell(row, c).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-
-            isAlt = !isAlt;
+            ws.Cell(row, 1).Value = sale.DocDate;
+            ws.Cell(row, 1).Style.NumberFormat.Format = FormatDate;
+            ws.Cell(row, 2).Value = sale.ExternalReferenceId;
+            ws.Cell(row, 3).Value = sale.CardName ?? sale.CardCode;
+            ws.Cell(row, 4).Value = sale.CardCode;
+            ws.Cell(row, 5).Value = sale.WarehouseCode;
+            ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 6).Value = sale.Currency;
+            ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 7).Value = sale.TotalAmount;
+            ws.Cell(row, 8).Value = sale.VatAmount;
+            ws.Cell(row, 9).Value = sale.AmountPaid;
+            ws.Range(row, 7, row, 9).Style.NumberFormat.Format = FormatMoney;
+            ws.Cell(row, 10).Value = sale.FiscalizationStatus;
+            ws.Cell(row, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 11).Value = sale.ConsolidationStatus;
+            ws.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             row++;
         }
 
-        // Totals row
-        ws.Cell(row, 1).Value = "TOTALS";
-        ws.Cell(row, 1).Style.Font.Bold = true;
-        ws.Cell(row, 5).Value = sales.Sum(s => s.TotalAmount);
-        ws.Cell(row, 5).Style.NumberFormat.Format = "#,##0.00";
-        ws.Cell(row, 5).Style.Font.Bold = true;
-        ws.Cell(row, 6).Value = sales.Sum(s => s.VatAmount);
-        ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
-        ws.Cell(row, 6).Style.Font.Bold = true;
-        ws.Cell(row, 7).Value = sales.Sum(s => s.AmountPaid);
-        ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
-        ws.Cell(row, 7).Style.Font.Bold = true;
-        ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = TotalsBackground;
+        row = FinishTable(ws, headerRow, dataStart, row, cols, "No desktop sales fell in this period.");
 
-        ws.Columns().AdjustToContents();
+        // One totals row per currency. Desktop sales arrive in both USD and ZWG, so a
+        // single sum down the Amount column would add two currencies together.
+        row = WriteCurrencyTotals(
+            ws,
+            row,
+            cols,
+            currencyColumn: 6,
+            labelColumn: 5,
+            sales.GroupBy(sale => string.IsNullOrWhiteSpace(sale.Currency) ? "-" : sale.Currency.Trim()),
+            (sheet, totalRow, group) =>
+            {
+                sheet.Cell(totalRow, 7).Value = group.Sum(sale => sale.TotalAmount);
+                sheet.Cell(totalRow, 8).Value = group.Sum(sale => sale.VatAmount);
+                sheet.Cell(totalRow, 9).Value = group.Sum(sale => sale.AmountPaid);
+                sheet.Range(totalRow, 7, totalRow, 9).Style.NumberFormat.Format = FormatMoney;
+            });
+
+        WriteFooter(ws, row - 1, cols);
+        FinalizeSheet(ws, cols, headerRow, landscape: true);
         return WorkbookToBytes(workbook);
     }
 
@@ -5357,9 +5884,9 @@ public class ReportExportService : IReportExportService
 
     public byte[] ExportLocalStockToExcel(LocalStockResultDto stock)
     {
-        using var workbook = new XLWorkbook();
-        var ws = workbook.Worksheets.Add("Local Stock");
-        const int cols = 7;
+        using var workbook = NewWorkbook("Local Stock Snapshot");
+        var ws = AddSheet(workbook, "Local Stock");
+        const int cols = 8;
 
         var row = WriteReportHeader(ws, "Local Stock Snapshot", cols,
             subtitle: $"Warehouse: {stock.WarehouseCode}  |  Date: {stock.SnapshotDate:dd MMM yyyy}  |  Status: {stock.SnapshotStatus}");
@@ -5368,52 +5895,48 @@ public class ReportExportService : IReportExportService
         var inStock = stock.Items.Count(i => i.AvailableQuantity > 0);
         var outOfStock = stock.Items.Count(i => i.AvailableQuantity <= 0);
         var adjusted = stock.Items.Count(i => i.TransferAdjustment != 0);
-        WriteKpiCard(ws, row, 1, "Total Items", stock.Items.Count.ToString());
-        WriteKpiCard(ws, row, 3, "In Stock", inStock.ToString(), SuccessGreen);
-        WriteKpiCard(ws, row, 5, "Out of Stock", outOfStock.ToString(), outOfStock > 0 ? DangerRed : SuccessGreen);
-        WriteKpiCard(ws, row, 7, "Transfer Adjusted", adjusted.ToString());
+        WriteKpiCard(ws, row, 1, "Total Items", stock.Items.Count, FormatCount);
+        WriteKpiCard(ws, row, 2, "In Stock", inStock, FormatCount, SuccessGreen);
+        WriteKpiCard(ws, row, 3, "Out of Stock", outOfStock, FormatCount, outOfStock > 0 ? DangerRed : SuccessGreen);
+        WriteKpiCard(ws, row, 4, "Transfer Adjusted", adjusted, FormatCount);
         row += 3;
 
-        // Column headers
-        var headers = new[] { "Item Code", "Description", "Available Qty", "Original Qty", "Adjustment", "Batches", "Warehouse" };
+        // Column headers. The batch rows used to be interleaved into the item rows,
+        // which made the sheet unsortable and unfilterable and left the batch
+        // quantities sitting in the item quantity columns where a SUM would
+        // double-count them. Batches now get their own row type, flagged in column 1.
+        var headers = new[] { "Row", "Item Code", "Description", "Available Qty", "Original Qty", "Adjustment", "Batches", "Warehouse" };
         for (int i = 0; i < headers.Length; i++)
         {
             ws.Cell(row, i + 1).Value = headers[i];
-            ws.Cell(row, i + 1).Style.Font.Bold = true;
-            ws.Cell(row, i + 1).Style.Font.FontColor = XLColor.White;
-            ws.Cell(row, i + 1).Style.Fill.BackgroundColor = NavyBlue;
-            ws.Cell(row, i + 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, i + 1).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
         }
+        StyleTableHeader(ws, row, cols);
+        var headerRow = row;
         row++;
 
         // Data rows
-        var isAlt = false;
+        var dataStart = row;
         foreach (var item in stock.Items)
         {
-            ws.Cell(row, 1).Value = item.ItemCode;
-            ws.Cell(row, 1).Style.Font.Bold = true;
-            ws.Cell(row, 2).Value = item.ItemDescription ?? "";
-            ws.Cell(row, 3).Value = item.AvailableQuantity;
-            ws.Cell(row, 3).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 1).Value = "Item";
+            ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 2).Value = item.ItemCode;
+            ws.Cell(row, 2).Style.Font.Bold = true;
+            ws.Cell(row, 3).Value = item.ItemDescription ?? "";
+            ws.Cell(row, 4).Value = item.AvailableQuantity;
+            ws.Cell(row, 4).Style.NumberFormat.Format = FormatQuantity;
             if (item.AvailableQuantity <= 0)
-                ws.Cell(row, 3).Style.Font.FontColor = DangerRed;
-            ws.Cell(row, 4).Value = item.OriginalQuantity;
-            ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
-            ws.Cell(row, 5).Value = item.TransferAdjustment;
-            ws.Cell(row, 5).Style.NumberFormat.Format = "+#,##0.00;-#,##0.00;0.00";
-            if (item.TransferAdjustment > 0) ws.Cell(row, 5).Style.Font.FontColor = SuccessGreen;
-            else if (item.TransferAdjustment < 0) ws.Cell(row, 5).Style.Font.FontColor = DangerRed;
-            ws.Cell(row, 6).Value = item.Batches.Count;
-            ws.Cell(row, 7).Value = item.WarehouseCode;
-
-            if (isAlt)
-                ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = LightGray;
-
-            for (int c = 1; c <= cols; c++)
-                ws.Cell(row, c).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-
-            isAlt = !isAlt;
+                ws.Cell(row, 4).Style.Font.FontColor = DangerRed;
+            ws.Cell(row, 5).Value = item.OriginalQuantity;
+            ws.Cell(row, 5).Style.NumberFormat.Format = FormatQuantity;
+            ws.Cell(row, 6).Value = item.TransferAdjustment;
+            ws.Cell(row, 6).Style.NumberFormat.Format = "+#,##0.00;[Red]-#,##0.00;0.00";
+            if (item.TransferAdjustment > 0) ws.Cell(row, 6).Style.Font.FontColor = SuccessGreen;
+            ws.Cell(row, 7).Value = item.Batches.Count;
+            ws.Cell(row, 7).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 8).Value = item.WarehouseCode;
+            ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             row++;
 
             // Batch detail rows
@@ -5421,24 +5944,42 @@ public class ReportExportService : IReportExportService
             {
                 foreach (var batch in item.Batches.OrderBy(b => b.ExpiryDate))
                 {
-                    ws.Cell(row, 1).Value = "";
-                    ws.Cell(row, 2).Value = $"  Batch: {batch.BatchNumber ?? "N/A"}" +
-                        (batch.ExpiryDate.HasValue ? $" — Expires: {batch.ExpiryDate.Value:dd MMM yyyy}" : "");
-                    ws.Cell(row, 2).Style.Font.FontSize = 9;
-                    ws.Cell(row, 2).Style.Font.FontColor = XLColor.FromHtml("#616161");
-                    ws.Cell(row, 3).Value = batch.AvailableQuantity;
-                    ws.Cell(row, 3).Style.NumberFormat.Format = "#,##0.00";
-                    ws.Cell(row, 3).Style.Font.FontSize = 9;
-                    ws.Cell(row, 4).Value = batch.OriginalQuantity;
-                    ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
-                    ws.Cell(row, 4).Style.Font.FontSize = 9;
-                    ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = AccentBlue;
+                    ws.Cell(row, 1).Value = "Batch";
+                    ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                    ws.Cell(row, 2).Value = item.ItemCode;
+                    ws.Cell(row, 3).Value = $"Batch {batch.BatchNumber ?? "N/A"}" +
+                        (batch.ExpiryDate.HasValue ? $" — expires {batch.ExpiryDate.Value:dd MMM yyyy}" : "");
+                    ws.Cell(row, 3).Style.Alignment.Indent = 1;
+                    ws.Cell(row, 4).Value = batch.AvailableQuantity;
+                    ws.Cell(row, 4).Style.NumberFormat.Format = FormatQuantity;
+                    ws.Cell(row, 5).Value = batch.OriginalQuantity;
+                    ws.Cell(row, 5).Style.NumberFormat.Format = FormatQuantity;
+                    ws.Cell(row, 8).Value = item.WarehouseCode;
+                    ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                    ws.Range(row, 1, row, cols).Style.Font.FontSize = 9;
+                    ws.Range(row, 1, row, cols).Style.Font.FontColor = MutedText;
                     row++;
                 }
             }
         }
 
-        ws.Columns().AdjustToContents();
+        var lastData = row - 1;
+        row = FinishTable(ws, headerRow, dataStart, row, cols, "This warehouse snapshot returned no stock.");
+
+        // Filter the Row column to "Item" before reading these: unfiltered they count
+        // each batched item twice, which is exactly why SUBTOTAL is used here.
+        ws.Cell(row, 1).Value = "TOTAL";
+        ws.Cell(row, 3).Value = "Filter Row = Item for an item-level total";
+        ws.Cell(row, 3).Style.Font.Italic = true;
+        ws.Cell(row, 3).Style.Font.FontSize = 8;
+        WriteSubtotal(ws, row, 4, dataStart, lastData, FormatQuantity);
+        WriteSubtotal(ws, row, 5, dataStart, lastData, FormatQuantity);
+        WriteSubtotal(ws, row, 7, dataStart, lastData, FormatCount);
+        ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        StyleTotalsRow(ws, row, cols);
+
+        WriteFooter(ws, row, cols);
+        FinalizeSheet(ws, cols, headerRow, landscape: true);
         return WorkbookToBytes(workbook);
     }
 
@@ -5449,19 +5990,17 @@ public class ReportExportService : IReportExportService
     /// </summary>
     public byte[] ExportMobileOrdersToExcel(IReadOnlyCollection<SalesOrderDto> orders, string title)
     {
-        using var workbook = new XLWorkbook();
-        // Excel rejects a sheet name past 31 characters.
-        var sheetName = title.Length > 31 ? title[..31] : title;
-        var ws = workbook.Worksheets.Add(sheetName);
+        using var workbook = NewWorkbook(title);
+        var ws = AddSheet(workbook, title);
         const int cols = 14;
 
         var row = WriteReportHeader(ws, title, cols, subtitle: $"Orders listed: {orders.Count:N0}");
 
-        WriteKpiCard(ws, row, 1, "Orders", orders.Count.ToString("N0"));
-        WriteKpiCard(ws, row, 3, "Draft", orders.Count(order => order.Status == SalesOrderStatus.Draft).ToString("N0"));
-        WriteKpiCard(ws, row, 5, "Pending", orders.Count(order => order.Status == SalesOrderStatus.Pending).ToString("N0"), WarningOrange);
-        WriteKpiCard(ws, row, 7, "Approved", orders.Count(order => order.Status == SalesOrderStatus.Approved).ToString("N0"), SuccessGreen);
-        WriteKpiCard(ws, row, 9, "Not In SAP", orders.Count(order => !order.IsSynced).ToString("N0"));
+        WriteKpiCard(ws, row, 1, "Orders", orders.Count, FormatCount);
+        WriteKpiCard(ws, row, 2, "Draft", orders.Count(order => order.Status == SalesOrderStatus.Draft), FormatCount);
+        WriteKpiCard(ws, row, 3, "Pending", orders.Count(order => order.Status == SalesOrderStatus.Pending), FormatCount, WarningOrange);
+        WriteKpiCard(ws, row, 4, "Approved", orders.Count(order => order.Status == SalesOrderStatus.Approved), FormatCount, SuccessGreen);
+        WriteKpiCard(ws, row, 5, "Not In SAP", orders.Count(order => !order.IsSynced), FormatCount);
         row += 3;
 
         var headers = new[]
@@ -5473,15 +6012,12 @@ public class ReportExportService : IReportExportService
         for (var i = 0; i < headers.Length; i++)
         {
             ws.Cell(row, i + 1).Value = headers[i];
-            ws.Cell(row, i + 1).Style.Font.Bold = true;
-            ws.Cell(row, i + 1).Style.Font.FontColor = XLColor.White;
-            ws.Cell(row, i + 1).Style.Fill.BackgroundColor = NavyBlue;
-            ws.Cell(row, i + 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, i + 1).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
         }
+        StyleTableHeader(ws, row, cols);
+        var headerRow = row;
         row++;
 
-        var isAlt = false;
+        var dataStart = row;
         foreach (var order in orders)
         {
             ws.Cell(row, 1).Value = order.OrderNumber;
@@ -5489,78 +6025,72 @@ public class ReportExportService : IReportExportService
             ws.Cell(row, 2).Value = order.CardName ?? string.Empty;
             ws.Cell(row, 3).Value = order.CardCode ?? string.Empty;
             ws.Cell(row, 4).Value = order.Lines?.Count ?? 0;
+            ws.Cell(row, 4).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 5).Value = string.IsNullOrWhiteSpace(order.DeviceInfo) ? "Not captured" : order.DeviceInfo.Trim();
             ws.Cell(row, 6).Value = order.IsSynced ? "Synced" : "Queued";
+            ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             if (!order.IsSynced)
                 ws.Cell(row, 6).Style.Font.FontColor = WarningOrange;
 
             ws.Cell(row, 7).Value = order.OrderDate;
-            ws.Cell(row, 7).Style.NumberFormat.Format = "dd MMM yyyy";
-            ws.Cell(row, 8).Value = FormatCatDateTime(order.CreatedAt);
+            ws.Cell(row, 7).Style.NumberFormat.Format = FormatDate;
+            // The capture timestamp is a real instant in CAT, not its rendering, so the
+            // column can be sorted and a submission window read off it.
+            ws.Cell(row, 8).Value = IAuditService.ToCAT(EnsureUtc(order.CreatedAt));
+            ws.Cell(row, 8).Style.NumberFormat.Format = FormatTimestamp;
 
+            // Left blank rather than filled with a dash: a placeholder in a date column
+            // makes the whole column text and stops it sorting.
             if (order.DeliveryDate.HasValue)
             {
                 ws.Cell(row, 9).Value = order.DeliveryDate.Value;
-                ws.Cell(row, 9).Style.NumberFormat.Format = "dd MMM yyyy";
-            }
-            else
-            {
-                ws.Cell(row, 9).Value = "-";
+                ws.Cell(row, 9).Style.NumberFormat.Format = FormatDate;
             }
 
             ws.Cell(row, 10).Value = order.Status.ToString();
+            ws.Cell(row, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 10).Style.Font.FontColor = order.Status switch
             {
                 SalesOrderStatus.Approved or SalesOrderStatus.Fulfilled or SalesOrderStatus.Invoiced => SuccessGreen,
                 SalesOrderStatus.Pending or SalesOrderStatus.PartiallyFulfilled => WarningOrange,
                 SalesOrderStatus.Cancelled or SalesOrderStatus.Rejected => DangerRed,
-                _ => XLColor.FromHtml("#616161")
+                _ => MutedText
             };
 
             ws.Cell(row, 11).Value = order.Currency ?? string.Empty;
+            ws.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 12).Value = order.DocTotal;
-            ws.Cell(row, 12).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 12).Style.NumberFormat.Format = FormatMoney;
             ws.Cell(row, 13).Value = order.SAPDocNum.HasValue
                 ? order.SAPDocNum.Value.ToString(CultureInfo.InvariantCulture)
                 : order.Status == SalesOrderStatus.Approved ? "Pending" : "-";
+            ws.Cell(row, 13).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 14).Value = order.Latitude.HasValue && order.Longitude.HasValue
                 ? $"{order.Latitude.Value.ToString("F6", CultureInfo.InvariantCulture)}, {order.Longitude.Value.ToString("F6", CultureInfo.InvariantCulture)}"
                 : "-";
-
-            if (isAlt)
-                ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = LightGray;
-
-            for (var c = 1; c <= cols; c++)
-                ws.Cell(row, c).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-
-            isAlt = !isAlt;
             row++;
         }
+
+        row = FinishTable(ws, headerRow, dataStart, row, cols, "No mobile orders matched this queue's filters.");
 
         // One totals row per currency. Mobile orders come in USD and ZWG, so a
         // single sum down the Total column would add two currencies together.
-        var currencyTotals = orders
-            .GroupBy(order => string.IsNullOrWhiteSpace(order.Currency) ? "-" : order.Currency!.Trim())
-            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase);
+        row = WriteCurrencyTotals(
+            ws,
+            row,
+            cols,
+            currencyColumn: 11,
+            labelColumn: 10,
+            orders.GroupBy(order => string.IsNullOrWhiteSpace(order.Currency) ? "-" : order.Currency!.Trim()),
+            (sheet, totalRow, group) =>
+            {
+                sheet.Cell(totalRow, 12).Value = group.Sum(order => order.DocTotal);
+                sheet.Cell(totalRow, 12).Style.NumberFormat.Format = FormatMoney;
+            });
 
-        foreach (var currencyTotal in currencyTotals)
-        {
-            ws.Cell(row, 10).Value = $"Total ({currencyTotal.Count():N0})";
-            ws.Cell(row, 10).Style.Font.Bold = true;
-            ws.Cell(row, 11).Value = currencyTotal.Key;
-            ws.Cell(row, 11).Style.Font.Bold = true;
-            ws.Cell(row, 12).Value = currencyTotal.Sum(order => order.DocTotal);
-            ws.Cell(row, 12).Style.Font.Bold = true;
-            ws.Cell(row, 12).Style.NumberFormat.Format = "#,##0.00";
-            ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = TotalsBackground;
-
-            for (var c = 1; c <= cols; c++)
-                ws.Cell(row, c).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-
-            row++;
-        }
-
-        ws.Columns().AdjustToContents();
+        WriteFooter(ws, row - 1, cols);
+        FinalizeSheet(ws, cols, headerRow, landscape: true);
         return WorkbookToBytes(workbook);
     }
 }
