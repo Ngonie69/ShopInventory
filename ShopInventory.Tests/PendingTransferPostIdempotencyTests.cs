@@ -113,6 +113,31 @@ public sealed class PendingTransferPostIdempotencyTests : IDisposable
         Assert.Equal(1, succeeding.TransfersCreated);
     }
 
+    [Fact]
+    public async Task A_failed_post_still_records_when_it_was_attempted()
+    {
+        var pending = await GivenApprovedTransferAsync();
+        Assert.Null(pending.LastAttemptedAtUtc);
+
+        var before = DateTime.UtcNow;
+        var failing = new BlockingSapClient { Failure = new InvalidOperationException("SAP said no") };
+        failing.ReleaseSap.SetResult();
+
+        var result = await BuildPoster(_context, failing, BuildStore()).PostAsync(pending, Poster);
+        Assert.True(result.IsError);
+
+        // "Failed to post" already says an attempt happened; only the stamp says when, which is
+        // what separates a failure someone is still working on from one nobody has touched for a
+        // week. Read through a fresh context so this proves the column was written, not tracked.
+        await using var verify = NewContext();
+        var stored = await verify.PendingInventoryTransfers
+            .AsNoTracking()
+            .FirstAsync(item => item.Id == pending.Id);
+
+        Assert.NotNull(stored.LastAttemptedAtUtc);
+        Assert.InRange(stored.LastAttemptedAtUtc.Value, before, DateTime.UtcNow);
+    }
+
     private async Task<PendingInventoryTransferEntity> GivenApprovedTransferAsync()
     {
         var pending = new PendingInventoryTransferEntity

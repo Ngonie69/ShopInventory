@@ -127,6 +127,11 @@ public sealed class PendingInventoryTransferPoster(
         Guid postedByUserId,
         CancellationToken cancellationToken)
     {
+        // Stamped before anything can fail. Every path out of here saves the entity, so this
+        // costs no extra round trip, and an attempt that dies mid-flight still leaves the mark
+        // that someone tried — the outcome is recorded separately in Status and LastError.
+        pending.LastAttemptedAtUtc = DateTime.UtcNow;
+
         CreateInventoryTransferRequest payload;
         try
         {

@@ -60,6 +60,7 @@ public static class PendingInventoryTransferMapper
             SapDocEntry = pending.SapDocEntry,
             SapDocNum = pending.SapDocNum,
             PostedAtUtc = pending.PostedAtUtc,
+            LastAttemptedAtUtc = pending.LastAttemptedAtUtc,
             LastError = pending.LastError,
             ApprovalRequestId = pending.ApprovalRequestId
         };

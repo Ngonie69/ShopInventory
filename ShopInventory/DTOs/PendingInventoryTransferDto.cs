@@ -32,6 +32,10 @@ public class PendingInventoryTransferDto
     public int? SapDocEntry { get; set; }
     public int? SapDocNum { get; set; }
     public DateTime? PostedAtUtc { get; set; }
+
+    /// <summary>When a post to SAP was last started, whatever came of it. Null if never tried.</summary>
+    public DateTime? LastAttemptedAtUtc { get; set; }
+
     public string? LastError { get; set; }
 
     public Guid? ApprovalRequestId { get; set; }

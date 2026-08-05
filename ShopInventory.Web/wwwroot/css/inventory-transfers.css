@@ -1372,6 +1372,18 @@
 
 .itx-busy small {
     color: rgba(255, 255, 255, .7);
+    max-width: 32rem;
+}
+
+/* The count that proves the attempt is still running. Tabular figures so the seconds
+   ticking over do not shift the line's width. */
+.itx-busy-clock {
+    margin-top: .35rem;
+    padding: .3rem .7rem;
+    border: 1px solid rgba(255, 255, 255, .22);
+    border-radius: 999px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .01em;
 }
 
 /* ── Responsive ─────────────────────────────────────────────────────────── */
