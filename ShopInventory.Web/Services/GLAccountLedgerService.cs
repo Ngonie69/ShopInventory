@@ -42,6 +42,11 @@ public class GLAccountLedgerService(
             Uri.EscapeDataString(accountCode))
             + $"?fromDate={fromDate:yyyy-MM-dd}&toDate={toDate:yyyy-MM-dd}";
 
+        // The account code arrives from the /gl-accounts/{Code} route, so a caller picks it, not
+        // us. Escaped once here for every log line below rather than at each of them, because the
+        // one that gets forgotten later is the hole.
+        var accountCodeForLog = ApiErrorResponse.SanitizeIdentifierForLog(accountCode);
+
         try
         {
             using var response = await httpClient.GetAsync(url, cancellationToken);
@@ -51,9 +56,9 @@ public class GLAccountLedgerService(
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 logger.LogError(
                     "Failed to read the G/L ledger for {AccountCode}. Status: {StatusCode}, Error: {Error}",
-                    accountCode,
+                    accountCodeForLog,
                     response.StatusCode,
-                    errorContent);
+                    ApiErrorResponse.SanitizeForLog(errorContent));
 
                 throw new InvalidOperationException(ApiErrorResponse.GetFriendlyMessage(
                     response.StatusCode,
@@ -74,7 +79,7 @@ public class GLAccountLedgerService(
                 logger.LogError(
                     ex,
                     "The G/L ledger response for {AccountCode} did not match the expected shape",
-                    accountCode);
+                    accountCodeForLog);
                 throw new InvalidOperationException(
                     "We couldn't read the transactions the server sent back. Please contact support if this continues.");
             }
@@ -91,14 +96,14 @@ public class GLAccountLedgerService(
             logger.LogWarning(
                 ex,
                 "The G/L ledger for {AccountCode} exceeded the {TimeoutSeconds}s API budget",
-                accountCode,
+                accountCodeForLog,
                 httpClient.Timeout.TotalSeconds);
             throw new InvalidOperationException(
                 "This account has more transactions than we could read in time. Try a shorter date range.");
         }
         catch (Exception ex) when (ex is not InvalidOperationException)
         {
-            logger.LogError(ex, "Error reading the G/L ledger for {AccountCode}", accountCode);
+            logger.LogError(ex, "Error reading the G/L ledger for {AccountCode}", accountCodeForLog);
             throw new InvalidOperationException(ApiErrorResponse.GetFriendlyMessage(
                 ex,
                 "We couldn't load this account's transactions right now. Please try again."));
