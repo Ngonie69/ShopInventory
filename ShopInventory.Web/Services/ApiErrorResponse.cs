@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace ShopInventory.Web.Services;
@@ -10,6 +11,35 @@ internal static partial class ApiErrorResponse
     private const int MaxLogBodyLength = 4000;
     private const int MaxLogIdentifierLength = 64;
     private const string RedactedValue = "[REDACTED]";
+
+    private static readonly JsonSerializerOptions LogJsonOptions = new()
+    {
+        WriteIndented = false
+    };
+
+    /// <summary>
+    /// Key-name fragments whose value is a secret, for the JSON path in <see cref="SanitizeForLog"/>.
+    /// </summary>
+    /// <remarks>
+    /// Matched as substrings and case-insensitively, so <c>refreshToken</c> and <c>X-Api_Key</c> are
+    /// both caught. Kept in step with the plain-text <see cref="SensitiveAssignmentRegex"/>, which is
+    /// why the hyphen form is spelled out separately — that regex's <c>api[_-]?key</c> already covers
+    /// it, and a body should not be redacted differently for arriving as JSON.
+    /// </remarks>
+    private static readonly string[] SensitiveNameFragments =
+    [
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "api_key",
+        "api-key",
+        "apikey",
+        "authorization",
+        "cookie",
+        "session",
+        "jwt"
+    ];
 
     private static readonly HashSet<string> GenericProblemTitles = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -112,6 +142,34 @@ internal static partial class ApiErrorResponse
         return EnsureSentenceTerminates(NormalizeSentenceStart(candidate));
     }
 
+    /// <summary>
+    /// Redacts the secrets out of an API response body before it is written to a log.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// JSON first, because JSON is the shape the API actually answers with. The plain-text regex
+    /// wants the key touching the colon, so the quote in <c>"token":"abc"</c> defeats it and the
+    /// value reaches the log whole — and an authentication error body, which is the one most likely
+    /// to carry a token, is exactly that shape. Redacting by key name has no such blind spot, and it
+    /// reaches into nested objects and arrays that no single regex would.
+    /// </para>
+    /// <para>
+    /// The regex stays on as the fallback, for the bodies that are not JSON at all: a bare string, an
+    /// HTML error page, a transport message with a query string in it.
+    /// </para>
+    /// <para>
+    /// This mirrors <c>ShopInventory.Common.Security.SensitiveDataSanitizer</c> rather than calling
+    /// it, because ShopInventory.Web does not reference the API project — the same reason the DTOs on
+    /// both sides are hand-mirrored. The two are meant to stay alike; change them together.
+    /// </para>
+    /// <para>
+    /// A JSON body comes back reformatted onto one line, because it is reserialized rather than
+    /// patched in place. Line breaks inside a string value survive as the escapes they already were,
+    /// and the plain-text path leaves its input alone — a non-JSON body is expected to be multi-line
+    /// and read as one block. See <see cref="SanitizeIdentifierForLog"/> for why a caller-supplied
+    /// identifier is the one thing that does get its line breaks taken out.
+    /// </para>
+    /// </remarks>
     public static string SanitizeForLog(string? responseContent)
     {
         if (string.IsNullOrWhiteSpace(responseContent))
@@ -119,18 +177,92 @@ internal static partial class ApiErrorResponse
             return string.Empty;
         }
 
-        var sanitized = SensitiveAssignmentRegex().Replace(responseContent.Trim(), match =>
-        {
-            var prefix = match.Groups[1].Value;
-            return $"{prefix}{RedactedValue}";
-        });
-
-        sanitized = BearerTokenRegex().Replace(sanitized, $"Bearer {RedactedValue}");
+        var trimmedContent = responseContent.Trim();
+        var sanitized = TryRedactJsonBody(trimmedContent) ?? RedactPlainText(trimmedContent);
 
         return sanitized.Length <= MaxLogBodyLength
             ? sanitized
             : sanitized[..MaxLogBodyLength] + "... [truncated]";
     }
+
+    /// <returns>
+    /// The redacted body, or <see langword="null"/> if this content is not JSON and the caller should
+    /// fall back to the plain-text path.
+    /// </returns>
+    private static string? TryRedactJsonBody(string trimmedContent)
+    {
+        if (!LooksLikeJson(trimmedContent))
+        {
+            return null;
+        }
+
+        try
+        {
+            var node = JsonNode.Parse(trimmedContent);
+            if (node is null)
+            {
+                return null;
+            }
+
+            RedactJsonNode(node);
+            return node.ToJsonString(LogJsonOptions);
+        }
+        catch (JsonException)
+        {
+            // A body that opens with a brace but does not parse — truncated, or an error page with a
+            // stray one in it — is still worth logging, so hand it to the regex instead of dropping
+            // it. Returning it unredacted is what we are here to prevent.
+            return null;
+        }
+    }
+
+    private static void RedactJsonNode(JsonNode node)
+    {
+        if (node is JsonObject jsonObject)
+        {
+            // Materialised first: assigning through the indexer mutates the collection being walked.
+            foreach (var property in jsonObject.ToList())
+            {
+                if (IsSensitiveName(property.Key))
+                {
+                    // Replaces the whole subtree, so {"token":{"value":"..."}} goes with it.
+                    jsonObject[property.Key] = RedactedValue;
+                }
+                else if (property.Value is not null)
+                {
+                    RedactJsonNode(property.Value);
+                }
+            }
+
+            return;
+        }
+
+        if (node is JsonArray jsonArray)
+        {
+            foreach (var item in jsonArray)
+            {
+                if (item is not null)
+                {
+                    RedactJsonNode(item);
+                }
+            }
+        }
+    }
+
+    private static string RedactPlainText(string value)
+    {
+        var redacted = SensitiveAssignmentRegex().Replace(value, match =>
+        {
+            var prefix = match.Groups[1].Value;
+            return $"{prefix}{RedactedValue}";
+        });
+
+        return BearerTokenRegex().Replace(redacted, $"Bearer {RedactedValue}");
+    }
+
+    private static bool IsSensitiveName(string name)
+        => SensitiveNameFragments.Any(fragment =>
+            name.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Makes a caller-supplied identifier — an account code, a document number, anything that
