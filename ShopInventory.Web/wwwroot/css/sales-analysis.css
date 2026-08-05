@@ -1,15 +1,19 @@
 /* ==========================================================================
    Sales analysis — Nocturne
 
-   Imported from `Sales Analysis.dc.html` in the claude.ai design project
-   4e68cd41-a497-4b10-828b-871beba0c0e3. It dresses one page reached by two
-   routes — /reports/item-volume and /reports/customer-revenue — because the
-   design is one page: the rail on the left is the report picker.
+   Imported from `Item Volume Report.dc.html` in the claude.ai design project
+   4926a6ee-be80-40ac-a2fb-58d6ffe4ed70, which supersedes the rail layout this
+   sheet first carried from `Sales Analysis.dc.html`. It dresses one page reached
+   by two routes — /reports/item-volume and /reports/customer-revenue — because
+   the design is one page: the pills under the title are the report picker.
 
-   The rail is the design's own, not the app's chrome. The app's sidebar and top
-   bar are still outside this sheet, carried by nocturne-shell.css; what the
-   design puts at 268px here is a second, page-level column holding the lens
-   picker, this session's runs, and the note about what the figures are made of.
+   The design draws the whole app; only the content column is built here. The
+   sidebar and top bar are the app's own, carried by nocturne-shell.css.
+
+   The query is the structural idea of this design. It states itself in one line
+   once it has been run and opens back up on a click, which is what buys the room
+   the rail used to take — the figures start a screen higher, and the thing a
+   reader came for is the first thing under the title.
 
    Palette and spacing come from nocturne-tokens.css — the block below aliases
    them rather than restating them, so a colour is corrected in one place for the
@@ -28,7 +32,7 @@
    weight this system allows, and every class is namespaced for the reason
    `.btn-primary` cannot be: Bootstrap already owns that name.
 
-   Two departures from the design, both because of what the data actually is:
+   Four departures from the design, all because of what the data actually is:
 
    - The design's money is one currency. This company's is two, and there is no
      rate on the document that would make one figure of them, so the revenue
@@ -38,6 +42,17 @@
      such a row is kept, dashed rather than zeroed, and marked `no factor`: its
      quantity is real, and a table that dropped it would be short with nothing on
      screen to explain why.
+   - The design's third pill swaps the conversion factors in under the same
+     title. They are master data rather than a lens on this window, and they
+     already have a screen of their own, so the pill is a link out to it.
+   - The design's mock always has a result. A page that has not been run yet
+     needs something to be, so the idle panel and the running state are kept from
+     the sheet's first import.
+
+   The pivot is a real `<table>`, not the design's CSS grid — same figure in the
+   same place, but a screen reader is told it is a table and a column heading is
+   a column heading. The grid's sticky heading is kept: the wrap scrolls in both
+   directions and `thead th` sticks to its top.
 
    This sheet does not dress /reports/volume-conversions, which is still on
    item-volume.css with IvxMultiSelect.
@@ -120,14 +135,23 @@
     --ndf-h: 34px;
     --ndf-fs: 13.5px;
 
-    display: grid;
-    grid-template-columns: 268px minmax(0, 1fr);
-    align-items: start;
     min-height: 100%;
+    padding: 26px 34px 72px;
     color: var(--sla-ink);
     font-size: 15px;
     line-height: 1.55;
     color-scheme: var(--sla-scheme);
+}
+
+/* The design holds the content to 1180px rather than letting a pivot stretch to
+   whatever the window is: past that the eye loses the row it is reading on the
+   way from the name to the total. */
+.sla-page {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    max-width: 1180px;
+    min-width: 0;
 }
 
 .dark-theme .sla {
@@ -147,170 +171,12 @@
     margin: 0;
 }
 
-/* ── The rail ─────────────────────────────────────────────────────────────
-   The right edge is a Nocturne rule: it fades out at both ends rather than
-   stopping cleanly, which is why it is a gradient and not a border. */
-
-.sla-rail {
-    position: sticky;
-    top: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 26px;
-    padding: 26px 20px 32px;
-    background: linear-gradient(to bottom,
-        transparent, var(--sla-divider) 48px,
-        var(--sla-divider) calc(100% - 48px), transparent) no-repeat right / 1px 100%;
-}
-
-.sla-rail-mark {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-}
-
-.sla-dot {
-    width: 7px;
-    height: 7px;
-    flex: none;
-    border-radius: 50%;
-    background: var(--sla-accent);
-    box-shadow: 0 0 0 4px rgba(var(--sla-accent-rgb), .18);
-}
-
-.sla-kicker {
-    font-size: 11px;
-    letter-spacing: .14em;
-    text-transform: uppercase;
-    color: var(--sla-mute-2);
-}
-
-.sla-rail-group {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.sla-rail-label {
-    font-size: 10.5px;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-    color: var(--sla-mute-3);
-}
-
-.sla .sla-lens {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-    padding: 10px 11px;
-    border: 1px solid transparent;
-    border-radius: var(--sla-r-md);
-    background: transparent;
-    color: var(--sla-ink);
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-}
-
-.sla .sla-lens:hover {
-    border-color: rgba(var(--sla-accent-rgb), .55);
-}
-
-.sla .sla-lens.is-on {
-    border-color: var(--sla-accent);
-    background: rgba(var(--sla-accent-rgb), .12);
-    box-shadow: 0 0 22px -8px rgba(var(--sla-accent-rgb), .6);
-}
-
-.sla-lens-name {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    font-weight: 500;
-}
-
-.sla-lens-name i {
-    font-size: 15px;
-    color: var(--sla-accent);
-}
-
-.sla-lens-sub {
-    font-size: 11.5px;
-    line-height: 1.45;
-    text-wrap: pretty;
-    color: var(--sla-mute-2);
-}
-
-.sla .sla-recent {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 3px;
-    padding: 8px 9px;
-    border: 0;
-    border-radius: var(--sla-r-md);
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-}
-
-.sla .sla-recent:hover {
-    background: var(--sla-hover);
-}
-
-.sla .sla-recent:disabled {
-    opacity: .5;
-    cursor: not-allowed;
-}
-
-.sla-recent-title {
-    font-size: 13px;
-}
-
-.sla-recent-meta {
-    font-size: 11px;
-    color: var(--sla-mute-3);
-}
-
-.sla-rail-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 12.5px;
-    text-decoration: none;
-    color: var(--sla-accent-text);
-}
-
-.sla-rail-link:hover {
-    text-decoration: underline;
-    text-underline-offset: 3px;
-}
-
-.sla-rail-note {
-    margin: auto 0 0;
-    font-size: 11px;
-    line-height: 1.5;
-    color: var(--sla-faint);
-}
-
-/* ── The main column ─────────────────────────────────────────────────────── */
-
-.sla-main {
-    display: flex;
-    flex-direction: column;
-    gap: 22px;
-    min-width: 0;
-    padding: 30px 40px 56px;
-}
+/* ── The head ───────────────────────────────────────────── */
 
 .sla-head {
     display: flex;
     align-items: flex-start;
-    gap: 32px;
+    gap: 24px;
 }
 
 .sla-head-titles {
@@ -330,9 +196,33 @@
     background: radial-gradient(60% 60% at 30% 40%, rgba(var(--sla-accent-rgb), .13), transparent 70%);
 }
 
+.sla-mark {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 8px;
+}
+
+.sla-dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--sla-accent);
+    box-shadow: 0 0 0 4px rgba(var(--sla-accent-rgb), .18);
+}
+
+.sla-kicker {
+    font-size: 10px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--sla-accent-text);
+}
+
 .sla-title {
     position: relative;
-    font-size: 29px;
+    font-size: 32px;
     margin: 0 0 6px;
 }
 
@@ -344,6 +234,104 @@
     line-height: 1.6;
     text-wrap: pretty;
     color: var(--sla-mute-2);
+}
+
+.sla-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    margin-left: auto;
+}
+
+/* ── The lens pills ────────────────────────────────────────── */
+
+.sla-lenses {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin-top: -4px;
+}
+
+.sla .sla-lens {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 13px;
+    border: 0;
+    border-radius: var(--sla-r-md);
+    background: transparent;
+    color: var(--sla-mute-2);
+    font: inherit;
+    font-size: 13.5px;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.sla .sla-lens i {
+    font-size: 15px;
+}
+
+.sla .sla-lens:hover:not(.is-on) {
+    background: var(--sla-hover);
+    color: var(--sla-ink);
+}
+
+.sla .sla-lens.is-on {
+    color: var(--sla-accent-text);
+    background: rgba(var(--sla-accent-rgb), .12);
+    box-shadow: inset 0 0 0 1px var(--sla-accent);
+}
+
+/* ── This session’s runs ─────────────────────────────────────── */
+
+.sla-recents {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.sla-recents-label {
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--sla-mute-3);
+}
+
+.sla .sla-recent {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 5px 11px;
+    border: 1px solid var(--sla-divider);
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.sla .sla-recent:hover:not(:disabled) {
+    background: var(--sla-hover);
+    border-color: var(--sla-field-edge-hi);
+}
+
+.sla .sla-recent:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+.sla-recent-title {
+    font-size: 12.5px;
+}
+
+.sla-recent-meta {
+    font-size: 11px;
+    color: var(--sla-mute-3);
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
@@ -385,7 +373,6 @@
 .sla .sla-btn-secondary {
     border-color: var(--sla-divider);
     flex: none;
-    margin-left: auto;
 }
 
 .sla .sla-btn-secondary:hover:not(:disabled) {
@@ -461,20 +448,92 @@
     font-weight: 500;
 }
 
-/* ── The filter card ─────────────────────────────────────────────────────── */
+.sla-codes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 8px;
+}
 
-.sla-filters {
+.sla-code {
+    padding: 1px 7px;
+    border-radius: 6px;
+    background: var(--sla-hover);
+    box-shadow: inset 0 0 0 1px var(--sla-divider);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.sla-code.is-more {
+    color: var(--sla-mute-3);
+}
+
+/* ── The query ──────────────────────────────────────────── */
+
+.sla-query {
     position: relative;
     z-index: 5;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    padding: 18px 20px 16px;
     border-radius: var(--sla-r-lg);
+    background: var(--sla-surface);
+    box-shadow: 0 0 0 1px var(--sla-divider);
+}
+
+/* Open, the card takes the accent wash the design gives the filter panel; shut,
+   it is a plain strip, because shut it is a caption rather than a control. */
+.sla-query.is-open {
     background:
         radial-gradient(110% 90% at 0% 0%, rgba(var(--sla-accent-rgb), .08), transparent 62%),
         var(--sla-surface);
-    box-shadow: 0 0 0 1px var(--sla-divider);
+}
+
+.sla-query-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 16px;
+}
+
+.sla-query-mark {
+    flex: none;
+    font-size: 16px;
+    color: var(--sla-accent);
+}
+
+.sla-query-mark.is-idle {
+    color: var(--sla-faint);
+}
+
+.sla-query-line {
+    min-width: 0;
+    font-size: 13.5px;
+    color: var(--sla-ink-2);
+}
+
+.sla-query-line.is-idle {
+    color: var(--sla-mute-2);
+}
+
+.sla-query-ran {
+    font-size: 11.5px;
+    color: var(--sla-faint);
+}
+
+.sla-query-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.sla-query-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 14px 16px 18px;
+    background: linear-gradient(to right,
+        transparent, var(--sla-divider) 24px,
+        var(--sla-divider) calc(100% - 24px), transparent) no-repeat top / 100% 1px;
 }
 
 .sla-filter-row {
@@ -484,9 +543,13 @@
     gap: 22px;
 }
 
+/* flex-start, not the default stretch: a field whose hint is wider than its
+   control would otherwise pull the segmented control out to the hint's width and
+   leave it half empty. */
 .sla-field {
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
     gap: 7px;
     min-width: 0;
 }
@@ -496,6 +559,12 @@
     letter-spacing: .1em;
     text-transform: uppercase;
     color: var(--sla-mute-2);
+}
+
+.sla-field-hint {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--sla-faint);
 }
 
 .sla-field-row {
@@ -548,46 +617,18 @@
     box-shadow: inset 0 0 0 1px var(--sla-accent);
 }
 
-/* — the ready line — */
-
-.sla-filter-foot {
+.sla-query-foot {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 14px;
-    padding-top: 12px;
-    background: linear-gradient(to right,
-        transparent, var(--sla-divider) 32px,
-        var(--sla-divider) calc(100% - 32px), transparent) no-repeat top / 100% 1px;
+    gap: 10px;
 }
 
-.sla-ready {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    min-width: 0;
-    font-size: 12.5px;
-    color: var(--sla-mute-2);
-}
-
-.sla-ready i {
-    flex: none;
-    font-size: 15px;
+.sla-query-note {
+    flex: 1;
+    min-width: 220px;
+    font-size: 11.5px;
     color: var(--sla-faint);
-}
-
-.sla-ready.is-ok {
-    color: var(--sla-accent-text);
-}
-
-.sla-ready.is-ok i {
-    color: var(--sla-accent);
-}
-
-.sla-filter-actions {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-left: auto;
 }
 
 /* ── The pickers ─────────────────────────────────────────────────────────── */
@@ -1041,61 +1082,54 @@
     to { opacity: 1; transform: none; }
 }
 
-.sla-tags {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    color: var(--sla-mute-2);
-}
-
-.sla-tag {
-    display: inline-flex;
-    align-items: center;
-    padding: 3px 10px;
-    border-radius: 6px;
-    background: var(--sla-hover);
-    box-shadow: inset 0 0 0 1px var(--sla-divider);
-    font-size: 11px;
-    letter-spacing: .02em;
-}
-
-.sla-ran {
-    margin-left: auto;
-    font-size: 11.5px;
-    color: var(--sla-faint);
-}
-
 .sla-stats {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 14px;
+    padding: 4px 0 2px;
 }
 
 .sla-stat {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 14px 16px;
-    border-radius: var(--sla-r-md);
-    background: var(--sla-surface);
-    box-shadow: 0 0 0 1px var(--sla-divider);
+    gap: 8px;
+    min-width: 0;
+    padding: 2px 24px;
+}
+
+.sla-stat:first-child {
+    padding-left: 0;
+}
+
+.sla-stat:last-child {
+    padding-right: 0;
+}
+
+.sla-stat + .sla-stat {
+    box-shadow: inset 1px 0 0 var(--sla-divider);
 }
 
 .sla-stat-label {
-    font-size: 10.5px;
-    letter-spacing: .1em;
+    font-size: 10px;
+    letter-spacing: .13em;
     text-transform: uppercase;
     color: var(--sla-mute-3);
 }
 
 .sla-stat-value {
-    font-size: 26px;
+    font-size: 34px;
     font-weight: 500;
+    letter-spacing: -.02em;
     font-variant-numeric: tabular-nums;
-    line-height: 1.15;
+    line-height: 1.05;
     overflow-wrap: anywhere;
+}
+
+/* The unit is not the figure. It rides along at the reading size so the eye
+   lands on the number and picks up the litres or the currency after it. */
+.sla-stat-unit {
+    font-size: 18px;
+    font-weight: 400;
+    color: var(--sla-mute-3);
 }
 
 .sla-stat-value.is-credit {
@@ -1103,7 +1137,7 @@
 }
 
 .sla-stat-note {
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--sla-mute-3);
 }
 
@@ -1138,6 +1172,60 @@
     flex-wrap: wrap;
     gap: 12px;
     margin-left: auto;
+}
+
+/* ── Narrowing the pivot ─────────────────────────────────────── */
+
+.sla-table-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+}
+
+.sla-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    color: var(--sla-mute-2);
+    cursor: pointer;
+}
+
+/* Same restoration as the picker's rows below, for the same reason: app.css
+   strips the tick glyph off every `.dark-theme input`, so a ticked box and an
+   unticked one are the same grey square. (0,2,1) wins regardless of load order. */
+.sla .sla-check input[type="checkbox"] {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    appearance: auto;
+    -webkit-appearance: checkbox;
+    background-color: initial;
+    accent-color: var(--sla-box);
+    cursor: pointer;
+}
+
+.sla-search {
+    position: relative;
+}
+
+.sla-search > i {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+    color: var(--sla-mute-3);
+    pointer-events: none;
+}
+
+.sla .sla-search .sla-input {
+    width: 232px;
+    padding-left: 30px;
+    background: var(--sla-field-bg);
 }
 
 .sla-legend-item {
@@ -1201,13 +1289,33 @@
     justify-content: center;
 }
 
+/* The hover target is the whole column, not the filled part of it. A short bar
+   is the one a reader most wants to interrogate and the hardest to point at, and
+   a column that only answers where it happens to be tall is a column that
+   answers the questions nobody had. */
+.sla-bar-hit {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    width: 64px;
+    max-width: 82%;
+    height: 100%;
+    border-radius: 4px;
+}
+
+.sla-bar-hit:hover,
+.sla-bar-hit:focus-visible {
+    outline: none;
+    background: rgba(var(--sla-accent-rgb), .07);
+}
+
 /* column-reverse so the first series sits at the foot of the stack, where the
    legend reads it. */
 .sla-bar {
     display: flex;
     flex-direction: column-reverse;
-    width: 64px;
-    max-width: 82%;
+    width: 100%;
     border-radius: 3px;
     overflow: hidden;
 }
@@ -1219,6 +1327,165 @@
 .sla-band {
     display: block;
     width: 100%;
+}
+
+/* ── The hover card ──────────────────────────────────────────
+
+   A stacked bar can only ever show proportion. What the period came to, what
+   each band is actually worth, how much of it is the tail the palette stopped
+   naming, and how many documents made it — all of that has to be written down
+   somewhere, and this is where.
+
+   The card is markup revealed by CSS rather than state on the circuit: on Blazor
+   Server a hover that had to make a round trip would arrive after the pointer
+   had moved on. `pointer-events: none` keeps it from stealing the hover that
+   opened it, and `visibility` rather than `display` is what lets it fade. It
+   sits just above its own bar by an inline `bottom` — see HoverStyle. */
+
+/* The card is centred by a negative margin rather than by `translateX(-50%)`, so
+   `transform` carries nothing but the entrance nudge. Two things want that
+   property at once — placing the card and moving it — and folding both into it
+   costs four rules that have to keep agreeing about the placement: the resting
+   state, the open state, and an override of each per end column. Splitting them
+   leaves two independent declarations and half the rules. The margin is a fixed
+   px because the width is; a percentage margin would resolve against the bar. */
+.sla-hover {
+    position: absolute;
+    left: 50%;
+    margin-left: -134px;
+    z-index: 20;
+    box-sizing: border-box;
+    width: 268px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 11px 13px 10px;
+    border-radius: var(--sla-r-md);
+    background: var(--sla-surface);
+    box-shadow: var(--sla-shadow-pop), 0 0 0 1px var(--sla-divider);
+    text-align: left;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(4px);
+    transition: opacity .12s ease, transform .12s ease;
+}
+
+.sla-bar-hit:hover .sla-hover,
+.sla-bar-hit:focus-visible .sla-hover {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+/* The end columns pin their card to the inside, or a twelve-month window would
+   hang the first and last ones off the panel. */
+.sla-bar-slot:first-child .sla-hover {
+    left: 0;
+    margin-left: 0;
+}
+
+.sla-bar-slot:last-child .sla-hover {
+    left: auto;
+    right: 0;
+    margin-left: 0;
+}
+
+.sla-hover-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.sla-hover-title {
+    font-size: 13.5px;
+    font-weight: 500;
+}
+
+.sla-hover-flag {
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(var(--sla-fam-warn-rgb), .16);
+    color: var(--sla-fam-warn);
+    font-size: 10px;
+}
+
+.sla-hover-span {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--sla-faint);
+}
+
+.sla-hover-total {
+    margin-top: 3px;
+    font-size: 19px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+}
+
+.sla-hover-meta {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--sla-mute-3);
+}
+
+.sla-hover-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: 7px;
+    padding-top: 8px;
+    background: linear-gradient(to right,
+        transparent, var(--sla-divider) 16px,
+        var(--sla-divider) calc(100% - 16px), transparent) no-repeat top / 100% 1px;
+}
+
+.sla-hover-row {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr) auto auto 42px;
+    align-items: center;
+    gap: 7px;
+    font-size: 11.5px;
+}
+
+.sla-hover-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: var(--sla-track);
+}
+
+.sla-hover-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--sla-ink-2);
+}
+
+.sla-hover-code {
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--sla-faint);
+}
+
+.sla-hover-value {
+    font-variant-numeric: tabular-nums;
+}
+
+.sla-hover-value.is-credit {
+    color: var(--sla-fam-bad);
+}
+
+.sla-hover-pct {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--sla-mute-3);
+}
+
+.sla-hover-row.is-other .sla-hover-name {
+    color: var(--sla-mute-3);
 }
 
 .sla-plot-labels {
@@ -1250,8 +1517,14 @@
 
 /* — the pivot — */
 
+/* The wrap is the scrollport in both directions, which is what lets `thead th`
+   stick: a heading that scrolls away takes the only thing telling a reader which
+   month a column is. The cap is a viewport fraction so it shrinks with the
+   window rather than pinning a laptop to a fixed slab. */
 .sla-tablewrap {
-    overflow-x: auto;
+    overflow: auto;
+    max-height: min(68vh, 720px);
+    overscroll-behavior: contain;
 }
 
 .sla-table {
@@ -1277,12 +1550,15 @@
     vertical-align: middle;
 }
 
-/* Row rules as row-level strips, so the Nocturne end-fade spans the row rather
-   than restarting in every cell. */
-.sla-table thead tr {
-    background: linear-gradient(to right,
-        transparent, var(--sla-divider) 48px,
-        var(--sla-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+/* The heading rule is a shadow rather than the row-level gradient the body uses:
+   a sticky cell carries its own background, and a gradient painted on the row
+   underneath it would scroll away with the row. */
+.sla-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--sla-surface);
+    box-shadow: inset 0 -1px 0 var(--sla-divider);
 }
 
 .sla-table tbody tr {
@@ -1378,8 +1654,18 @@
     color: var(--sla-mute-3);
 }
 
+/* The total sticks to the foot for the same reason the heading sticks to the
+   head: a pivot long enough to scroll is one where the total has left the
+   screen exactly when a reader wants to check a row against it. */
 .sla-total-row td {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
     font-weight: 500;
+    background:
+        linear-gradient(rgba(var(--sla-accent-rgb), .07), rgba(var(--sla-accent-rgb), .07)),
+        var(--sla-surface);
+    box-shadow: inset 0 1px 0 rgba(var(--sla-accent-rgb), .3);
 }
 
 .sla-total-row .is-grand {
@@ -1453,31 +1739,11 @@
     .sla-idle-art {
         display: none;
     }
-
-    .sla-stats {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
 }
 
 @media (max-width: 960px) {
     .sla {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
-    /* The rail becomes a strip above the report rather than a column beside it,
-       so the lens picker stays the first thing on the page. */
-    .sla-rail {
-        position: static;
-        padding: 20px 20px 0;
-        background: none;
-    }
-
-    .sla-main {
         padding: 20px 20px 48px;
-    }
-
-    .sla-stats {
-        grid-template-columns: minmax(0, 1fr);
     }
 
     .sla-head {
@@ -1485,7 +1751,39 @@
         gap: 14px;
     }
 
-    .sla .sla-btn-secondary {
+    .sla-head-actions {
         margin-left: 0;
+    }
+
+    /* The three figures stack rather than shrink: at a third of a phone the
+       headline wraps mid-number, which is worse than any amount of scrolling. */
+    .sla-stats {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 18px;
+    }
+
+    .sla-stat {
+        padding: 0;
+    }
+
+    .sla-stat + .sla-stat {
+        padding-top: 16px;
+        box-shadow: inset 0 1px 0 var(--sla-divider);
+    }
+
+    .sla-table-tools {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .sla .sla-search,
+    .sla .sla-search .sla-input {
+        width: 100%;
+    }
+
+    /* A card wider than the plot would be pinned off both edges, so on a phone
+       the columns keep their native tooltip and drop the card. */
+    .sla-hover {
+        display: none;
     }
 }
