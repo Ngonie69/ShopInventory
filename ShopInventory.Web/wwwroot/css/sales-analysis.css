@@ -1,0 +1,1491 @@
+/* ==========================================================================
+   Sales analysis — Nocturne
+
+   Imported from `Sales Analysis.dc.html` in the claude.ai design project
+   4e68cd41-a497-4b10-828b-871beba0c0e3. It dresses one page reached by two
+   routes — /reports/item-volume and /reports/customer-revenue — because the
+   design is one page: the rail on the left is the report picker.
+
+   The rail is the design's own, not the app's chrome. The app's sidebar and top
+   bar are still outside this sheet, carried by nocturne-shell.css; what the
+   design puts at 268px here is a second, page-level column holding the lens
+   picker, this session's runs, and the note about what the figures are made of.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for the
+   whole system. Light is the base and `.dark-theme` the override, both stated
+   there in the order App.razor's pre-paint script stamps the class in, so
+   neither scheme flashes. The one thing this sheet holds values for is the
+   chart's six series fills, which have to run the accent ramp in opposite
+   directions per scheme and so cannot be an alias.
+
+   Rules live here rather than in an inline Razor <style> block for the reason
+   the sibling sheets give: app.css carries global `.dark-theme input` rules at
+   (0,1,1) that would otherwise repaint every field #1e293b, so each control
+   carries a class and each control selector is two classes deep, winning
+   regardless of load order. Headings are pinned to Nocturne's 500 because
+   Bootstrap's global `h1-h6 { font-weight: 600 }` would bolden them past the
+   weight this system allows, and every class is namespaced for the reason
+   `.btn-primary` cannot be: Bootstrap already owns that name.
+
+   Two departures from the design, both because of what the data actually is:
+
+   - The design's money is one currency. This company's is two, and there is no
+     rate on the document that would make one figure of them, so the revenue
+     lens carries a currency segment beside "Group by" and the pivot names the
+     currency it is reading. Adding them would be the only dishonest option.
+   - The design has no cell for an item that cannot be converted to volume. Here
+     such a row is kept, dashed rather than zeroed, and marked `no factor`: its
+     quantity is real, and a table that dropped it would be short with nothing on
+     screen to explain why.
+
+   This sheet does not dress /reports/volume-conversions, which is still on
+   item-volume.css with IvxMultiSelect.
+   ========================================================================== */
+
+.sla {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --sla-bg: var(--noct-bg);
+    --sla-surface: var(--noct-surface);
+    --sla-wash: var(--noct-wash);
+    --sla-ink: var(--noct-ink);
+    --sla-ink-2: var(--noct-ink-2);
+    --sla-mute: var(--noct-mute);
+    --sla-mute-2: var(--noct-mute-2);
+    --sla-mute-3: var(--noct-mute-3);
+    --sla-faint: var(--noct-faint);
+    --sla-placeholder: var(--noct-placeholder);
+    --sla-divider: var(--noct-divider);
+    --sla-rule: var(--noct-rule);
+    --sla-hover: var(--noct-hover);
+    --sla-press: var(--noct-press);
+    --sla-field-bg: var(--noct-field-bg);
+    --sla-field-edge: var(--noct-field-edge);
+    --sla-field-edge-hi: var(--noct-field-edge-hi);
+    --sla-accent: var(--noct-accent);
+    --sla-accent-rgb: var(--noct-accent-rgb);
+    --sla-accent-text: var(--noct-accent-text);
+    --sla-box: var(--noct-box);
+    --sla-on-box: var(--noct-on-box);
+    --sla-thumb: var(--noct-thumb);
+    --sla-warn-bg: var(--noct-warn-bg);
+    --sla-warn-edge: var(--noct-warn-edge);
+    --sla-warn-ink: var(--noct-warn-ink);
+    --sla-shadow-pop: var(--noct-shadow-pop);
+    --sla-scheme: var(--noct-scheme);
+
+    --sla-fam-neutral: var(--noct-fam-neutral);
+    --sla-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --sla-fam-accent: var(--noct-fam-accent);
+    --sla-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --sla-fam-info: var(--noct-fam-info);
+    --sla-fam-info-rgb: var(--noct-fam-info-rgb);
+    --sla-fam-warn: var(--noct-fam-warn);
+    --sla-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --sla-fam-bad: var(--noct-fam-bad);
+    --sla-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --sla-s1: var(--noct-s1);
+    --sla-s2: var(--noct-s2);
+    --sla-s3: var(--noct-s3);
+    --sla-s4: var(--noct-s4);
+    --sla-s6: var(--noct-s6);
+    --sla-s8: var(--noct-s8);
+    --sla-r-sm: var(--noct-r-sm);
+    --sla-r-md: var(--noct-r-md);
+    --sla-r-lg: var(--noct-r-lg);
+
+    /* This page's own, because the system does not name them.
+       The six series fills run the accent ramp away from the ground: pale
+       lavenders on the dark scheme, deep ones on paper. That is why they are
+       values and not aliases — the same token would have to mean opposite ends
+       of the ramp in the two schemes.
+       The share meter's track is a recess rather than any surface the system
+       names, and the chip is an accent film rather than an accent fill, so its
+       ink can stay the accent's text step in both schemes. */
+    --sla-series-1: #5f52c4;
+    --sla-series-2: #796cbf;
+    --sla-series-3: #8f83d0;
+    --sla-series-4: #a89ee0;
+    --sla-series-5: #c1baec;
+    --sla-series-6: #d8d3f5;
+    --sla-track: rgba(var(--sla-fam-neutral-rgb), .22);
+    --sla-chip-bg: rgba(var(--sla-accent-rgb), .14);
+    --sla-chip-ink: var(--sla-accent-text);
+
+    /* NocturneDateField's own fallbacks, set from the page root so its closed
+       field lines up with the segments beside it. The calendar stays the shared
+       one; see wwwroot/css/nocturne-date-field.css. */
+    --ndf-h: 34px;
+    --ndf-fs: 13.5px;
+
+    display: grid;
+    grid-template-columns: 268px minmax(0, 1fr);
+    align-items: start;
+    min-height: 100%;
+    color: var(--sla-ink);
+    font-size: 15px;
+    line-height: 1.55;
+    color-scheme: var(--sla-scheme);
+}
+
+.dark-theme .sla {
+    --sla-series-1: #b5abfc;
+    --sla-series-2: #968ae0;
+    --sla-series-3: #796cbf;
+    --sla-series-4: #5d5294;
+    --sla-series-5: #423a6a;
+    --sla-series-6: #332e52;
+}
+
+.sla h1,
+.sla h2 {
+    font-weight: 500;
+    letter-spacing: -.015em;
+    line-height: 1.12;
+    margin: 0;
+}
+
+/* ── The rail ─────────────────────────────────────────────────────────────
+   The right edge is a Nocturne rule: it fades out at both ends rather than
+   stopping cleanly, which is why it is a gradient and not a border. */
+
+.sla-rail {
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+    padding: 26px 20px 32px;
+    background: linear-gradient(to bottom,
+        transparent, var(--sla-divider) 48px,
+        var(--sla-divider) calc(100% - 48px), transparent) no-repeat right / 1px 100%;
+}
+
+.sla-rail-mark {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.sla-dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--sla-accent);
+    box-shadow: 0 0 0 4px rgba(var(--sla-accent-rgb), .18);
+}
+
+.sla-kicker {
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--sla-mute-2);
+}
+
+.sla-rail-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sla-rail-label {
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--sla-mute-3);
+}
+
+.sla .sla-lens {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 10px 11px;
+    border: 1px solid transparent;
+    border-radius: var(--sla-r-md);
+    background: transparent;
+    color: var(--sla-ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.sla .sla-lens:hover {
+    border-color: rgba(var(--sla-accent-rgb), .55);
+}
+
+.sla .sla-lens.is-on {
+    border-color: var(--sla-accent);
+    background: rgba(var(--sla-accent-rgb), .12);
+    box-shadow: 0 0 22px -8px rgba(var(--sla-accent-rgb), .6);
+}
+
+.sla-lens-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.sla-lens-name i {
+    font-size: 15px;
+    color: var(--sla-accent);
+}
+
+.sla-lens-sub {
+    font-size: 11.5px;
+    line-height: 1.45;
+    text-wrap: pretty;
+    color: var(--sla-mute-2);
+}
+
+.sla .sla-recent {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    padding: 8px 9px;
+    border: 0;
+    border-radius: var(--sla-r-md);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.sla .sla-recent:hover {
+    background: var(--sla-hover);
+}
+
+.sla .sla-recent:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+.sla-recent-title {
+    font-size: 13px;
+}
+
+.sla-recent-meta {
+    font-size: 11px;
+    color: var(--sla-mute-3);
+}
+
+.sla-rail-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    text-decoration: none;
+    color: var(--sla-accent-text);
+}
+
+.sla-rail-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.sla-rail-note {
+    margin: auto 0 0;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--sla-faint);
+}
+
+/* ── The main column ─────────────────────────────────────────────────────── */
+
+.sla-main {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    min-width: 0;
+    padding: 30px 40px 56px;
+}
+
+.sla-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 32px;
+}
+
+.sla-head-titles {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+}
+
+/* The accent bloom behind the title. Decorative, so it never takes a click. */
+.sla-glow {
+    position: absolute;
+    left: -40px;
+    top: -40px;
+    width: 320px;
+    height: 160px;
+    pointer-events: none;
+    background: radial-gradient(60% 60% at 30% 40%, rgba(var(--sla-accent-rgb), .13), transparent 70%);
+}
+
+.sla-title {
+    position: relative;
+    font-size: 29px;
+    margin: 0 0 6px;
+}
+
+.sla-sub {
+    position: relative;
+    margin: 0;
+    max-width: 56ch;
+    font-size: 13.5px;
+    line-height: 1.6;
+    text-wrap: pretty;
+    color: var(--sla-mute-2);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.sla .sla-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 7px 13px;
+    border: 1px solid transparent;
+    border-radius: var(--sla-r-md);
+    background: transparent;
+    color: var(--sla-ink);
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    white-space: nowrap;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.sla .sla-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.sla .sla-btn-primary {
+    color: var(--sla-accent-text);
+    border-color: var(--sla-accent);
+    padding-inline: 14px;
+}
+
+.sla .sla-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--sla-accent-rgb), .12);
+}
+
+.sla .sla-btn-secondary {
+    border-color: var(--sla-divider);
+    flex: none;
+    margin-left: auto;
+}
+
+.sla .sla-btn-secondary:hover:not(:disabled) {
+    background: var(--sla-hover);
+}
+
+.sla .sla-btn-ghost {
+    color: var(--sla-accent-text);
+    padding-inline: var(--sla-s2);
+}
+
+.sla .sla-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--sla-accent-rgb), .1);
+}
+
+.sla .sla-btn-sm {
+    font-size: 12.5px;
+    padding: 5px 10px;
+    margin-left: 0;
+}
+
+.sla .sla-btn i {
+    font-size: 15px;
+}
+
+/* ── Notices ─────────────────────────────────────────────────────────────── */
+
+.sla-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 11px 14px;
+    border: 1px solid rgba(var(--sla-fam-bad-rgb), .35);
+    border-radius: var(--sla-r-md);
+    background: rgba(var(--sla-fam-bad-rgb), .1);
+    color: var(--sla-ink);
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.sla-alert > i {
+    flex: none;
+    margin-top: 1px;
+    font-size: 16px;
+    color: var(--sla-fam-bad);
+}
+
+.sla-alert.is-info {
+    border-color: rgba(var(--sla-fam-info-rgb), .35);
+    background: rgba(var(--sla-fam-info-rgb), .1);
+}
+
+.sla-alert.is-info > i {
+    color: var(--sla-fam-info);
+}
+
+.sla-alert.is-warn {
+    border-color: var(--sla-warn-edge);
+    background: var(--sla-warn-bg);
+    color: var(--sla-warn-ink);
+}
+
+.sla-alert.is-warn > i {
+    color: var(--sla-fam-warn);
+}
+
+.sla-alert-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.sla-alert-body strong {
+    font-weight: 500;
+}
+
+/* ── The filter card ─────────────────────────────────────────────────────── */
+
+.sla-filters {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 18px 20px 16px;
+    border-radius: var(--sla-r-lg);
+    background:
+        radial-gradient(110% 90% at 0% 0%, rgba(var(--sla-accent-rgb), .08), transparent 62%),
+        var(--sla-surface);
+    box-shadow: 0 0 0 1px var(--sla-divider);
+}
+
+.sla-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 22px;
+}
+
+.sla-field {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-width: 0;
+}
+
+.sla-field-label {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--sla-mute-2);
+}
+
+.sla-field-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.sla-dates {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.sla-dates-dash {
+    color: var(--sla-mute-3);
+}
+
+/* — the segmented control — */
+
+.sla-seg {
+    display: inline-flex;
+    overflow: hidden;
+    border: 1px solid var(--sla-divider);
+    border-radius: var(--sla-r-md);
+}
+
+.sla .sla-seg-opt {
+    padding: 7px 12px;
+    border: 0;
+    background: transparent;
+    color: var(--sla-ink);
+    font: inherit;
+    font-size: 13px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.sla .sla-seg-opt + .sla-seg-opt {
+    border-left: 1px solid var(--sla-divider);
+}
+
+.sla .sla-seg-opt:hover:not(.is-on) {
+    background: var(--sla-hover);
+}
+
+.sla .sla-seg-opt.is-on {
+    color: var(--sla-accent-text);
+    box-shadow: inset 0 0 0 1px var(--sla-accent);
+}
+
+/* — the ready line — */
+
+.sla-filter-foot {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding-top: 12px;
+    background: linear-gradient(to right,
+        transparent, var(--sla-divider) 32px,
+        var(--sla-divider) calc(100% - 32px), transparent) no-repeat top / 100% 1px;
+}
+
+.sla-ready {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--sla-mute-2);
+}
+
+.sla-ready i {
+    flex: none;
+    font-size: 15px;
+    color: var(--sla-faint);
+}
+
+.sla-ready.is-ok {
+    color: var(--sla-accent-text);
+}
+
+.sla-ready.is-ok i {
+    color: var(--sla-accent);
+}
+
+.sla-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+/* ── The pickers ─────────────────────────────────────────────────────────── */
+
+.sla-pickers {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: 18px;
+}
+
+.sla-pick {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-width: 0;
+}
+
+.sla-pick-label {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--sla-mute-2);
+}
+
+.sla-pick-req {
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--sla-faint);
+}
+
+.sla-pick-req.is-required {
+    color: var(--sla-accent-text);
+}
+
+.sla-pick-control {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 38px;
+    padding: 5px 10px;
+    border: 1px solid var(--sla-field-edge);
+    border-radius: var(--sla-r-md);
+    background: var(--sla-field-bg);
+    cursor: pointer;
+}
+
+.sla-pick-control:hover {
+    border-color: var(--sla-field-edge-hi);
+}
+
+.sla-pick.is-open .sla-pick-control {
+    border-color: var(--sla-accent);
+}
+
+.sla-pick-control.is-disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.sla-pick-icon {
+    flex: none;
+    font-size: 15px;
+    color: var(--sla-mute-3);
+}
+
+.sla-pick-caret {
+    flex: none;
+    font-size: 13px;
+    color: var(--sla-mute-3);
+    transition: transform .15s ease;
+}
+
+.sla-pick.is-open .sla-pick-caret {
+    transform: rotate(180deg);
+}
+
+.sla-pick-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    flex: 1;
+    min-width: 0;
+}
+
+.sla-pick-placeholder {
+    font-size: 14px;
+    color: var(--sla-placeholder);
+}
+
+.sla-pick-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 4px 2px 8px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    background: var(--sla-chip-bg);
+    color: var(--sla-chip-ink);
+}
+
+.sla-pick-chip-x {
+    display: inline-flex;
+    padding: 1px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.sla-pick-chip-x:hover {
+    background: rgba(var(--sla-accent-rgb), .2);
+}
+
+.sla-pick-chip-x i {
+    font-size: 11px;
+}
+
+.sla-pick-more {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border: 1px solid var(--sla-divider);
+    border-radius: 6px;
+    font-size: 12.5px;
+    color: var(--sla-mute-2);
+}
+
+.sla-pick-hint {
+    font-size: 11px;
+    color: var(--sla-faint);
+}
+
+/* The catch layer is what closes the panel on an outside click. It sits under
+   the panel and over everything else, so a click anywhere but inside the panel
+   lands on it. */
+.sla-pick-catch {
+    position: fixed;
+    inset: 0;
+    z-index: 29;
+}
+
+.sla-pick-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 30;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border-radius: var(--sla-r-md);
+    background: var(--sla-surface);
+    box-shadow: var(--sla-shadow-pop);
+}
+
+.sla .sla-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 9px;
+    border: 1px solid var(--sla-field-edge);
+    border-radius: var(--sla-r-md);
+    background: var(--sla-surface);
+    color: var(--sla-ink);
+    caret-color: var(--sla-accent);
+    font: inherit;
+    font-size: 13px;
+}
+
+.sla .sla-input::placeholder {
+    color: var(--sla-placeholder);
+}
+
+.sla .sla-input:focus-visible {
+    outline: none;
+    border-color: var(--sla-accent);
+}
+
+.sla .sla-pick-range {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 9px;
+    border: 1px solid var(--sla-accent);
+    border-radius: 6px;
+    background: rgba(var(--sla-accent-rgb), .12);
+    color: var(--sla-ink);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.sla .sla-pick-range:hover {
+    background: rgba(var(--sla-accent-rgb), .2);
+}
+
+.sla-pick-range > i {
+    flex: none;
+    font-size: 15px;
+    color: var(--sla-accent);
+}
+
+.sla-pick-range-label {
+    flex: 1;
+    min-width: 0;
+}
+
+.sla-pick-range-count {
+    flex: none;
+    font-size: 11.5px;
+    color: var(--sla-accent-text);
+}
+
+.sla-pick-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    max-height: 212px;
+    overflow-y: auto;
+}
+
+.sla .sla-pick-opt {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 7px;
+    border-radius: 6px;
+    font-size: 13.5px;
+    cursor: pointer;
+}
+
+.sla .sla-pick-opt:hover {
+    background: var(--sla-hover);
+}
+
+/* app.css's iOS fix at ~3192 sets `appearance: none` and a flat #1e293b fill on
+   every `.dark-theme input`, and that reaches checkboxes too: the tick glyph is
+   stripped and a ticked row looks exactly like an unticked one. `accent-color`
+   alone does not bring it back — the glyph is gone, not miscoloured — so the
+   native appearance has to be restored as well. (0,2,1) wins regardless of load
+   order. Same recipe as merchandiser.css; see its note. */
+.sla .sla-pick-opt input[type="checkbox"] {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    appearance: auto;
+    -webkit-appearance: checkbox;
+    background-color: initial;
+    accent-color: var(--sla-box);
+    cursor: pointer;
+}
+
+.sla-pick-opt-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sla-pick-opt-flag {
+    flex: none;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(var(--sla-fam-warn-rgb), .16);
+    color: var(--sla-fam-warn);
+    font-size: 10.5px;
+}
+
+.sla-pick-opt-code {
+    flex: none;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--sla-faint);
+}
+
+.sla-pick-empty {
+    padding: 12px 7px;
+    font-size: 12.5px;
+    color: var(--sla-mute-3);
+}
+
+.sla-pick-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 4px 2px;
+    background: linear-gradient(to right,
+        transparent, var(--sla-divider) 24px,
+        var(--sla-divider) calc(100% - 24px), transparent) no-repeat top / 100% 1px;
+}
+
+.sla-pick-count {
+    font-size: 11px;
+    color: var(--sla-faint);
+}
+
+.sla-pick-foot-actions {
+    display: flex;
+    gap: 2px;
+}
+
+.sla-pick-foot .sla-btn {
+    font-size: 12px;
+}
+
+/* ── Panels: idle, running, result ───────────────────────────────────────── */
+
+.sla-panel {
+    border-radius: var(--sla-r-lg);
+    background: var(--sla-surface);
+    box-shadow: 0 0 0 1px var(--sla-divider);
+}
+
+.sla-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 44px 24px;
+}
+
+.sla-sweep {
+    width: 180px;
+    height: 2px;
+    border-radius: 2px;
+    overflow: hidden;
+    background: var(--sla-track);
+}
+
+.sla-sweep span {
+    display: block;
+    width: 30%;
+    height: 100%;
+    background: var(--sla-accent);
+    animation: sla-sweep 1s linear infinite;
+}
+
+@keyframes sla-sweep {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(340%); }
+}
+
+.sla-state-title {
+    font-size: 14px;
+}
+
+.sla-state-sub {
+    font-size: 12.5px;
+    color: var(--sla-mute-3);
+}
+
+.sla-idle {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+    align-items: center;
+    gap: 40px;
+    padding: 26px 24px;
+}
+
+.sla-idle-text {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.sla-idle-title {
+    font-size: 17px;
+}
+
+.sla-checklist {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.sla-checklist li {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    font-size: 13.5px;
+    color: var(--sla-mute-2);
+}
+
+.sla-checklist li.is-done {
+    color: var(--sla-ink);
+}
+
+.sla-checklist i {
+    flex: none;
+    margin-top: 3px;
+    font-size: 14px;
+}
+
+.sla-checklist li.is-done i {
+    color: var(--sla-accent);
+}
+
+.sla-quiet {
+    color: var(--sla-mute-2);
+}
+
+.sla-idle-art {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    opacity: .32;
+    pointer-events: none;
+}
+
+.sla-idle-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    height: 74px;
+}
+
+.sla-idle-bars span {
+    flex: 1;
+    border-radius: 3px;
+}
+
+.sla-idle-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.sla-idle-lines span {
+    height: 7px;
+    border-radius: 4px;
+    background: var(--sla-track);
+}
+
+/* ── The result ──────────────────────────────────────────────────────────── */
+
+.sla-result {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    animation: sla-in .3s ease both;
+}
+
+@keyframes sla-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+}
+
+.sla-tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--sla-mute-2);
+}
+
+.sla-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 6px;
+    background: var(--sla-hover);
+    box-shadow: inset 0 0 0 1px var(--sla-divider);
+    font-size: 11px;
+    letter-spacing: .02em;
+}
+
+.sla-ran {
+    margin-left: auto;
+    font-size: 11.5px;
+    color: var(--sla-faint);
+}
+
+.sla-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.sla-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px 16px;
+    border-radius: var(--sla-r-md);
+    background: var(--sla-surface);
+    box-shadow: 0 0 0 1px var(--sla-divider);
+}
+
+.sla-stat-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--sla-mute-3);
+}
+
+.sla-stat-value {
+    font-size: 26px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+}
+
+.sla-stat-value.is-credit {
+    color: var(--sla-fam-bad);
+}
+
+.sla-stat-note {
+    font-size: 11.5px;
+    color: var(--sla-mute-3);
+}
+
+/* — the chart — */
+
+.sla-chart,
+.sla-tablecard {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 18px 20px 14px;
+}
+
+.sla-panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.sla-panel-title {
+    font-size: 15px;
+}
+
+.sla-panel-sub {
+    font-size: 11.5px;
+    color: var(--sla-mute-3);
+}
+
+.sla-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-left: auto;
+}
+
+.sla-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--sla-mute-2);
+}
+
+.sla-legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+}
+
+.sla-plot {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 0 10px;
+}
+
+.sla-plot-axis,
+.sla-plot-area {
+    position: relative;
+    height: 196px;
+}
+
+.sla-tick {
+    position: absolute;
+    right: 0;
+    transform: translateY(-50%);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--sla-faint);
+}
+
+.sla-gridline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--sla-rule);
+}
+
+.sla-bars {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+.sla-bar-slot {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+}
+
+/* column-reverse so the first series sits at the foot of the stack, where the
+   legend reads it. */
+.sla-bar {
+    display: flex;
+    flex-direction: column-reverse;
+    width: 64px;
+    max-width: 82%;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.sla-bar.is-partial {
+    opacity: .62;
+}
+
+.sla-band {
+    display: block;
+    width: 100%;
+}
+
+.sla-plot-labels {
+    display: flex;
+    gap: 10px;
+    padding-top: 9px;
+}
+
+.sla-plot-label {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    text-align: center;
+}
+
+.sla-plot-label-name {
+    font-size: 11.5px;
+    color: var(--sla-ink-2);
+}
+
+.sla-plot-label-value {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--sla-faint);
+}
+
+/* — the pivot — */
+
+.sla-tablewrap {
+    overflow-x: auto;
+}
+
+.sla-table {
+    width: 100%;
+    min-width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.sla-table th {
+    padding: var(--sla-s2);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    text-align: left;
+    white-space: nowrap;
+    color: var(--sla-mute-2);
+}
+
+.sla-table td {
+    padding: var(--sla-s2);
+    vertical-align: middle;
+}
+
+/* Row rules as row-level strips, so the Nocturne end-fade spans the row rather
+   than restarting in every cell. */
+.sla-table thead tr {
+    background: linear-gradient(to right,
+        transparent, var(--sla-divider) 48px,
+        var(--sla-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.sla-table tbody tr {
+    background: linear-gradient(to right,
+        transparent, var(--sla-rule) 48px,
+        var(--sla-rule) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.sla-table tbody tr:hover {
+    background:
+        linear-gradient(var(--sla-hover), var(--sla-hover)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--sla-rule) 48px,
+            var(--sla-rule) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.sla-th-entity {
+    min-width: 180px;
+}
+
+.sla-th-share {
+    width: 104px;
+}
+
+.sla-table .sla-num {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.sla-table .is-strong {
+    font-weight: 500;
+}
+
+.sla-table .is-credit {
+    color: var(--sla-fam-bad);
+}
+
+.sla-entity {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+}
+
+.sla-entity-name {
+    min-width: 0;
+}
+
+.sla-entity-code {
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--sla-faint);
+}
+
+.sla-flag {
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(var(--sla-fam-warn-rgb), .16);
+    color: var(--sla-fam-warn);
+    font-size: 10.5px;
+    white-space: nowrap;
+}
+
+.sla-table tr.is-unconverted td {
+    color: var(--sla-mute-3);
+}
+
+.sla-share {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sla-share-track {
+    flex: 1;
+    height: 4px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--sla-track);
+}
+
+.sla-share-bar {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--sla-accent);
+}
+
+.sla-share-pct {
+    flex: none;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--sla-mute-3);
+}
+
+.sla-total-row td {
+    font-weight: 500;
+}
+
+.sla-total-row .is-grand {
+    color: var(--sla-accent-text);
+}
+
+.sla-footnote {
+    margin: 0;
+    padding: 4px 0 8px;
+    font-size: 11.5px;
+    color: var(--sla-faint);
+}
+
+.sla-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 36px 20px;
+    text-align: center;
+    color: var(--sla-mute-2);
+}
+
+.sla-empty i {
+    font-size: 24px;
+    color: var(--sla-faint);
+}
+
+.sla-empty strong {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--sla-ink);
+}
+
+.sla-empty span {
+    font-size: 12.5px;
+}
+
+/* ── The toast ───────────────────────────────────────────────────────────── */
+
+.sla-toast {
+    position: fixed;
+    right: 28px;
+    bottom: 24px;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 11px 15px;
+    border-radius: var(--sla-r-md);
+    background: var(--sla-surface);
+    box-shadow: var(--sla-shadow-pop);
+    font-size: 13px;
+    cursor: pointer;
+    animation: sla-in .2s ease both;
+}
+
+.sla-toast i {
+    font-size: 16px;
+    color: var(--sla-accent);
+}
+
+/* ── Narrow ──────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+    .sla-pickers,
+    .sla-idle {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sla-idle-art {
+        display: none;
+    }
+
+    .sla-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 960px) {
+    .sla {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    /* The rail becomes a strip above the report rather than a column beside it,
+       so the lens picker stays the first thing on the page. */
+    .sla-rail {
+        position: static;
+        padding: 20px 20px 0;
+        background: none;
+    }
+
+    .sla-main {
+        padding: 20px 20px 48px;
+    }
+
+    .sla-stats {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sla-head {
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .sla .sla-btn-secondary {
+        margin-left: 0;
+    }
+}

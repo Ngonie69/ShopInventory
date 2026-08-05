@@ -78,10 +78,14 @@
     <link rel="stylesheet" href="@Assets["css/purchase-forms.css"]" />
     <link rel="stylesheet" href="@Assets["css/pods.css"]" />
     <link rel="stylesheet" href="@Assets["css/order-fulfillment.css"]" />
-    @* The item volume / customer revenue pair and the conversion-factor screen
-       they depend on. Derived from order-fulfillment.css above and sharing its
-       palette — see that sheet's header. *@
+    @* The conversion-factor screen the volume report depends on. Derived from
+       order-fulfillment.css above and sharing its palette — see that sheet's
+       header. It kept this sheet when the two reports moved to the one below. *@
     <link rel="stylesheet" href="@Assets["css/item-volume.css"]" />
+    @* Imported from Sales Analysis.dc.html: the item volume and customer revenue
+       reports, which are one page reached by two routes. Aliases the palette in
+       nocturne-tokens.css rather than restating it. *@
+    <link rel="stylesheet" href="@Assets["css/sales-analysis.css"]" />
     @* Sibling of business-partners.css, sharing its palette: the audit trail is
        the same page shape. See that file's header for what the sharing costs. *@
     <link rel="stylesheet" href="@Assets["css/audit-trail.css"]" />

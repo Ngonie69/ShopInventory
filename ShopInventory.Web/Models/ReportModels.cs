@@ -684,7 +684,7 @@ public class NotificationModel
             {
                 if (!string.IsNullOrWhiteSpace(pair.Value))
                 {
-                    facts.Add(new NotificationDetailFact(HumaniseKey(pair.Key), pair.Value));
+                    facts.Add(new NotificationDetailFact(HumaniseKey(pair.Key), FormatValue(pair.Key, pair.Value)));
                 }
             }
         }
@@ -701,6 +701,23 @@ public class NotificationModel
     /// </summary>
     public static string FormatTimestamp(DateTime timestamp) =>
         DateTime.SpecifyKind(timestamp, DateTimeKind.Utc).ToLocalTime().ToString("d MMM yyyy, HH:mm");
+
+    // Money fields are serialised straight off the SAP double, so a doc total
+    // arrives as "1152.366600000000000" and would be shown raw. Round the amount
+    // keys to 2dp; anything unparseable is left exactly as the producer sent it.
+    private static string FormatValue(string key, string value)
+    {
+        if (!key.EndsWith("Total", StringComparison.OrdinalIgnoreCase) &&
+            !key.EndsWith("Amount", StringComparison.OrdinalIgnoreCase) &&
+            !key.EndsWith("Sum", StringComparison.OrdinalIgnoreCase))
+        {
+            return value;
+        }
+
+        return decimal.TryParse(value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var amount)
+            ? amount.ToString("N2", System.Globalization.CultureInfo.CurrentCulture)
+            : value;
+    }
 
     // Data keys are the producer's camelCase field names — see
     // NotificationDataKeys — so they are spaced and sentence-cased rather than

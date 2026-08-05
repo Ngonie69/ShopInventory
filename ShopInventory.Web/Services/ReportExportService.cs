@@ -1007,202 +1007,1003 @@ public class ReportExportService : IReportExportService
     // ═══════════════════════════════════════════════════════════════
     public byte[] ExportOrderFulfillmentToExcel(OrderFulfillmentReport report)
     {
-        using var workbook = NewWorkbook("Sales Order vs Invoice Report");
+        using var workbook = new XLWorkbook();
+        var layout = new FulfillmentWorkbookLayout();
 
-        // ── Dashboard Sheet ──
-        var dash = AddSheet(workbook, "Invoice Dashboard");
-        int row = WriteReportHeader(dash, "Sales Order vs Invoice Report", 4, report.FromDate, report.ToDate);
+        WriteFulfillmentOverviewSheet(workbook, report, layout);
+        WriteFulfillmentOrdersSheet(workbook, report);
+        WriteFulfillmentLinesSheet(workbook, report);
+        WriteFulfillmentCustomerSheet(workbook, report, layout);
+        WriteFulfillmentDailySheet(workbook, report, layout);
+        WriteFulfillmentNavigation(workbook, layout);
+        SetFulfillmentWorkbookProperties(workbook, report);
 
-        WriteKpiCard(dash, row, 1, "Total Orders", report.TotalOrders, FormatCount);
-        WriteKpiCard(dash, row, 2, "Invoice Rate", report.FulfillmentRatePercent / 100, FormatPercent, report.FulfillmentRatePercent >= 80 ? SuccessGreen : DangerRed);
-        WriteKpiCard(dash, row, 3, "Open Orders", report.OpenOrders, FormatCount, WarningOrange);
-        WriteKpiCard(dash, row, 4, "Pending Value (USD)", report.TotalPendingValueUSD, FormatUsd, DangerRed);
-        row += 3;
+        workbook.Worksheets.First().SetTabActive();
+        return AddFulfillmentCharts(WorkbookToBytes(workbook), layout);
+    }
 
-        WriteSectionTitle(dash, row, 4, "KEY METRICS");
+    /// <summary>
+    /// Ranges the fulfilment workbook needs after the sheets are written: the navigation strip is
+    /// filled once every sheet exists, and the charts are injected into the saved package.
+    /// </summary>
+    private sealed class FulfillmentWorkbookLayout
+    {
+        public IXLWorksheet? Overview { get; set; }
+        public int NavigationRow { get; set; }
+        public int ChartTopRow { get; set; }
+        public int ChartBottomRow { get; set; }
+        public int CustomerHeaderRow { get; set; }
+        public int CustomerFirstRow { get; set; }
+        public int CustomerLastRow { get; set; }
+        public int DailyHeaderRow { get; set; }
+        public int DailyFirstRow { get; set; }
+        public int DailyLastRow { get; set; }
+
+        public bool HasCustomerChart => CustomerLastRow >= CustomerFirstRow && CustomerFirstRow > 0;
+        public bool HasDailyChart => DailyLastRow >= DailyFirstRow && DailyFirstRow > 0;
+    }
+
+    private static void WriteFulfillmentOverviewSheet(XLWorkbook workbook, OrderFulfillmentReport report, FulfillmentWorkbookLayout layout)
+    {
+        const int lastCol = 12;
+        var ws = workbook.Worksheets.Add("Overview");
+        ConfigureExecutiveSheet(ws, lastCol, ExecutiveIndigo);
+
+        int row = WriteBrandBanner(
+            ws,
+            "Sales Order vs Invoice",
+            "Order coverage, invoiced value and the pending exposure behind it",
+            report.FromDate,
+            report.ToDate,
+            lastCol,
+            ExecutiveRoyalBlue);
+
+        var invoicedRate = report.FulfillmentRatePercent;
+        var openShare = CalculateExecutivePercent(report.OpenOrders, report.TotalOrders);
+        var lineCoverage = CalculateExecutivePercent(report.FullyDeliveredLines, report.TotalLineItems);
+        var pendingShare = CalculateExecutivePercent(report.TotalPendingValueUSD, report.TotalOrderValueUSD);
+
+        WriteExecutiveKpiCard(ws, row, 1, 3, ExecutiveRoyalBlue,
+            "ORDERS IN WINDOW", report.TotalOrders.ToString("N0"),
+            $"{report.ClosedOrders:N0} closed  |  {report.CancelledOrders:N0} cancelled",
+            $"Average order value USD {report.AverageOrderValueUSD:N2}.",
+            report.TotalOrders, "#,##0");
+
+        WriteExecutiveKpiCard(ws, row, 4, 6, invoicedRate >= 80m ? ExecutiveEmerald : invoicedRate >= 50m ? ExecutiveAmber : ExecutiveRose,
+            "INVOICE RATE", FormatExecutivePercent(invoicedRate),
+            $"{report.FullyDeliveredLines:N0} of {report.TotalLineItems:N0} lines fully invoiced",
+            $"Line coverage {FormatExecutivePercent(lineCoverage)} across all order lines.",
+            invoicedRate / 100m, "0.00%");
+
+        WriteExecutiveKpiCard(ws, row, 7, 9, ExecutiveAmber,
+            "OPEN ORDERS", report.OpenOrders.ToString("N0"),
+            $"{FormatExecutivePercent(openShare)} of orders raised",
+            $"{report.PartiallyDeliveredLines:N0} lines part-invoiced, {report.UndeliveredLines:N0} not started.",
+            report.OpenOrders, "#,##0");
+
+        WriteExecutiveKpiCard(ws, row, 10, 12, report.TotalPendingValueUSD > 0 ? ExecutiveRose : ExecutiveEmerald,
+            "PENDING VALUE", $"USD {report.TotalPendingValueUSD:N2}",
+            $"ZiG {report.TotalPendingValueZIG:N2}",
+            $"{FormatExecutivePercent(pendingShare)} of ordered value is still to be invoiced.",
+            report.TotalPendingValueUSD, "\"USD \"#,##0.00");
+
+        row += 6;
+
+        // Filled by WriteFulfillmentNavigation once every sheet it links to exists.
+        layout.Overview = ws;
+        layout.NavigationRow = row;
+        row += 2;
+
+        WriteExecutiveCallout(ws, row, lastCol, "WHAT THIS SHOWS",
+            $"{report.TotalOrders:N0} sales orders worth USD {report.TotalOrderValueUSD:N2} were raised between " +
+            $"{report.FromDate:dd MMM yyyy} and {report.ToDate:dd MMM yyyy}. USD {report.TotalDeliveredValueUSD:N2} has been invoiced " +
+            $"and USD {report.TotalPendingValueUSD:N2} remains open across {report.OpenOrders:N0} orders. " +
+            "Use Order Details for the order-level position, Item Lines for what is still owed per item, and By Customer for exposure by account.");
+        row += 4;
+
+        WriteExecutiveSectionHeader(ws, row, lastCol, "Order pipeline", "Where the orders raised in this window currently sit", ExecutiveRoyalBlue);
+        row += 2;
+
+        var pipeline = new (string Label, int Count, XLColor Accent)[]
+        {
+            ("Closed / fully invoiced", report.ClosedOrders, ExecutiveEmerald),
+            ("Open / awaiting invoice", report.OpenOrders, ExecutiveAmber),
+            ("Cancelled", report.CancelledOrders, ExecutiveRose)
+        };
+
+        ws.Cell(row, 1).Value = "Pipeline stage";
+        ws.Cell(row, 5).Value = "Orders";
+        ws.Cell(row, 7).Value = "Share";
+        ws.Cell(row, 9).Value = "Distribution";
+        ws.Range(row, 1, row, 4).Merge();
+        ws.Range(row, 5, row, 6).Merge();
+        ws.Range(row, 7, row, 8).Merge();
+        ws.Range(row, 9, row, lastCol).Merge();
+        StyleExecutiveTableHeader(ws, row, lastCol, ExecutiveIndigo);
         row++;
 
-        WriteKpiRow(dash, row, "Total Orders", report.TotalOrders, FormatCount); row++;
-        WriteKpiRow(dash, row, "Open Orders", report.OpenOrders, FormatCount); row++;
-        WriteKpiRow(dash, row, "Closed Orders", report.ClosedOrders, FormatCount); row++;
-        WriteKpiRow(dash, row, "Cancelled Orders", report.CancelledOrders, FormatCount); row++;
-        WriteKpiRow(dash, row, "Invoice Rate", report.FulfillmentRatePercent / 100, FormatPercent, true); row++;
-        WriteKpiRow(dash, row, "Total Order Value (USD)", report.TotalOrderValueUSD, FormatUsd, true); row++;
-        WriteKpiRow(dash, row, "Total Order Value (ZiG)", report.TotalOrderValueZIG, FormatZig); row++;
-        WriteKpiRow(dash, row, "Invoiced Value (USD)", report.TotalDeliveredValueUSD, FormatUsd); row++;
-        WriteKpiRow(dash, row, "Pending Value (USD)", report.TotalPendingValueUSD, FormatUsd); row++;
-        WriteKpiRow(dash, row, "Total Line Items", report.TotalLineItems, FormatCount); row++;
-        WriteKpiRow(dash, row, "Fully Invoiced Lines", report.FullyDeliveredLines, FormatCount); row++;
-        WriteKpiRow(dash, row, "Partially Invoiced Lines", report.PartiallyDeliveredLines, FormatCount); row++;
-        WriteKpiRow(dash, row, "Pending Invoice Lines", report.UndeliveredLines, FormatCount); row++;
+        int pipelineStart = row;
+        var pipelineMax = pipeline.Max(p => p.Count);
+        foreach (var stage in pipeline)
+        {
+            ws.Range(row, 1, row, 4).Merge();
+            ws.Cell(row, 1).Value = stage.Label;
+            ws.Cell(row, 1).Style.Alignment.Indent = 1;
 
-        WriteFooter(dash, row, 4);
-        FinalizeSheet(dash, 4);
+            ws.Range(row, 5, row, 6).Merge();
+            ws.Cell(row, 5).Value = stage.Count;
+            ws.Cell(row, 5).Style.NumberFormat.Format = "#,##0";
+            ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 5).Style.Font.Bold = true;
 
-        // ── Orders Detail Sheet ──
-        var ws = AddSheet(workbook, "Order Details");
-        int oRow = WriteReportHeader(ws, "Order Details", 12, report.FromDate, report.ToDate);
+            ws.Range(row, 7, row, 8).Merge();
+            ws.Cell(row, 7).Value = CalculateExecutivePercent(stage.Count, report.TotalOrders) / 100m;
+            ws.Cell(row, 7).Style.NumberFormat.Format = "0.0%";
+            ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-        ws.Cell(oRow, 1).Value = "Order#"; ws.Cell(oRow, 2).Value = "Date"; ws.Cell(oRow, 3).Value = "Due Date";
-        ws.Cell(oRow, 4).Value = "Customer"; ws.Cell(oRow, 5).Value = "Currency"; ws.Cell(oRow, 6).Value = "Total";
-        ws.Cell(oRow, 7).Value = "Status"; ws.Cell(oRow, 8).Value = "Qty Ordered"; ws.Cell(oRow, 9).Value = "Qty Invoiced";
-        ws.Cell(oRow, 10).Value = "Qty Pending"; ws.Cell(oRow, 11).Value = "Invoice %"; ws.Cell(oRow, 12).Value = "Overdue";
-        StyleTableHeader(ws, oRow, 12);
-        int freezeAt = oRow;
-        oRow++;
-        int dataStart = oRow;
+            ws.Range(row, 9, row, lastCol).Merge();
+            ws.Cell(row, 9).Value = BuildExecutiveSignalBar(stage.Count, pipelineMax, 18);
+            ws.Cell(row, 9).Style.Font.FontColor = stage.Accent;
+            ws.Cell(row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+            row++;
+        }
+        StyleExecutiveTableRows(ws, pipelineStart, row - 1, lastCol);
+        row += 2;
+
+        WriteExecutiveSectionHeader(ws, row, lastCol, "Value and line coverage", "Ordered against invoiced, in both currencies", ExecutiveCyan);
+        row += 2;
+
+        ws.Range(row, 1, row, 6).Merge(); ws.Cell(row, 1).Value = "Measure";
+        ws.Range(row, 7, row, 9).Merge(); ws.Cell(row, 7).Value = "USD";
+        ws.Range(row, 10, row, lastCol).Merge(); ws.Cell(row, 10).Value = "ZiG";
+        StyleExecutiveTableHeader(ws, row, lastCol, ExecutiveIndigo);
+        row++;
+
+        int valueStart = row;
+        void ValueLine(string label, decimal usd, decimal? zig, bool emphasise = false)
+        {
+            ws.Range(row, 1, row, 6).Merge();
+            ws.Cell(row, 1).Value = label;
+            ws.Cell(row, 1).Style.Alignment.Indent = 1;
+            ws.Cell(row, 1).Style.Font.Bold = emphasise;
+
+            ws.Range(row, 7, row, 9).Merge();
+            ws.Cell(row, 7).Value = usd;
+            ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            ws.Cell(row, 7).Style.Font.Bold = emphasise;
+
+            ws.Range(row, 10, row, lastCol).Merge();
+            if (zig.HasValue)
+            {
+                ws.Cell(row, 10).Value = zig.Value;
+                ws.Cell(row, 10).Style.NumberFormat.Format = "#,##0.00";
+            }
+            else
+            {
+                ws.Cell(row, 10).Value = "—";
+                ws.Cell(row, 10).Style.Font.FontColor = ExecutiveTextMuted;
+            }
+            ws.Cell(row, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            ws.Cell(row, 10).Style.Font.Bold = emphasise;
+            row++;
+        }
+
+        ValueLine("Ordered value", report.TotalOrderValueUSD, report.TotalOrderValueZIG, true);
+        ValueLine("Invoiced value", report.TotalDeliveredValueUSD, report.TotalDeliveredValueZIG);
+        ValueLine("Pending value", report.TotalPendingValueUSD, report.TotalPendingValueZIG, true);
+        ValueLine("Average order value", report.AverageOrderValueUSD, null);
+        StyleExecutiveTableRows(ws, valueStart, row - 1, lastCol);
+
+        ws.Cell(valueStart + 2, 7).Style.Font.FontColor = report.TotalPendingValueUSD > 0 ? ExecutiveRose : ExecutiveEmerald;
+        ws.Cell(valueStart + 2, 10).Style.Font.FontColor = report.TotalPendingValueZIG > 0 ? ExecutiveRose : ExecutiveEmerald;
+        row += 2;
+
+        WriteExecutiveSectionHeader(ws, row, lastCol, "Line status mix", "Every order line raised in the window", ExecutiveEmerald);
+        row += 2;
+
+        var lineMix = new (string Label, int Count, XLColor Accent)[]
+        {
+            ("Fully invoiced lines", report.FullyDeliveredLines, ExecutiveEmerald),
+            ("Partially invoiced lines", report.PartiallyDeliveredLines, ExecutiveAmber),
+            ("Not yet invoiced lines", report.UndeliveredLines, ExecutiveRose)
+        };
+
+        ws.Range(row, 1, row, 6).Merge(); ws.Cell(row, 1).Value = "Line status";
+        ws.Range(row, 7, row, 9).Merge(); ws.Cell(row, 7).Value = "Lines";
+        ws.Range(row, 10, row, lastCol).Merge(); ws.Cell(row, 10).Value = "Share of lines";
+        StyleExecutiveTableHeader(ws, row, lastCol, ExecutiveIndigo);
+        row++;
+
+        int mixStart = row;
+        foreach (var mix in lineMix)
+        {
+            ws.Range(row, 1, row, 6).Merge();
+            ws.Cell(row, 1).Value = mix.Label;
+            ws.Cell(row, 1).Style.Alignment.Indent = 1;
+
+            ws.Range(row, 7, row, 9).Merge();
+            ws.Cell(row, 7).Value = mix.Count;
+            ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0";
+            ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            ws.Cell(row, 7).Style.Font.Bold = true;
+            ws.Cell(row, 7).Style.Font.FontColor = mix.Accent;
+
+            ws.Range(row, 10, row, lastCol).Merge();
+            ws.Cell(row, 10).Value = CalculateExecutivePercent(mix.Count, report.TotalLineItems) / 100m;
+            ws.Cell(row, 10).Style.NumberFormat.Format = "0.0%";
+            ws.Cell(row, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            row++;
+        }
+        StyleExecutiveTableRows(ws, mixStart, row - 1, lastCol);
+
+        ws.Cell(row, 1).Value = $"Total lines: {report.TotalLineItems:N0}";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = ExecutiveTextSecondary;
+        row += 3;
+
+        var priorityOrders = report.Orders
+            .Select(o => (Order: o, Pending: o.Lines.Sum(CalculatePendingLineValue)))
+            .Where(x => x.Pending > 0 && !x.Order.Status.Contains("Cancel", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(x => x.Pending)
+            .Take(5)
+            .ToList();
+
+        if (priorityOrders.Count > 0)
+        {
+            WriteExecutiveSectionHeader(ws, row, lastCol, "Chase list", "The five open orders carrying the largest uninvoiced value", ExecutiveRose);
+            row += 2;
+
+            ws.Range(row, 1, row, 2).Merge(); ws.Cell(row, 1).Value = "Order #";
+            ws.Range(row, 3, row, 6).Merge(); ws.Cell(row, 3).Value = "Customer";
+            ws.Range(row, 7, row, 8).Merge(); ws.Cell(row, 7).Value = "Due";
+            ws.Range(row, 9, row, 10).Merge(); ws.Cell(row, 9).Value = "Pending Value";
+            ws.Range(row, 11, row, lastCol).Merge(); ws.Cell(row, 11).Value = "Invoice %";
+            StyleExecutiveTableHeader(ws, row, lastCol, ExecutiveIndigo);
+            row++;
+
+            int priorityStart = row;
+            foreach (var (order, pending) in priorityOrders)
+            {
+                ws.Range(row, 1, row, 2).Merge();
+                ws.Cell(row, 1).Value = order.DocNum;
+                ws.Cell(row, 1).Style.NumberFormat.Format = "0";
+                ws.Cell(row, 1).Style.Font.Bold = true;
+                ws.Cell(row, 1).Style.Alignment.Indent = 1;
+
+                ws.Range(row, 3, row, 6).Merge();
+                ws.Cell(row, 3).Value = order.CardName;
+
+                ws.Range(row, 7, row, 8).Merge();
+                SetExecutiveDateCell(ws.Cell(row, 7), order.DueDate);
+                if (order.IsOverdue)
+                {
+                    ws.Cell(row, 7).Style.Font.Bold = true;
+                    ws.Cell(row, 7).Style.Font.FontColor = ExecutiveRose;
+                }
+
+                ws.Range(row, 9, row, 10).Merge();
+                ws.Cell(row, 9).Value = pending;
+                ws.Cell(row, 9).Style.NumberFormat.Format = "#,##0.00";
+                ws.Cell(row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+                ws.Cell(row, 9).Style.Font.Bold = true;
+
+                ws.Range(row, 11, row, lastCol).Merge();
+                SetExecutiveCoverageCell(ws.Cell(row, 11), order.FulfillmentPercent);
+                row++;
+            }
+            StyleExecutiveTableRows(ws, priorityStart, row - 1, lastCol, preserveExistingFill: true);
+            row += 2;
+        }
+
+        if (report.FulfillmentByCustomer.Any() || report.DailyFulfillment.Any())
+        {
+            WriteExecutiveSectionHeader(ws, row, lastCol, "Charts", "Live Excel charts driven by the detail sheets in this workbook", ExecutiveCyan);
+            row += 2;
+
+            bool twoCharts = report.FulfillmentByCustomer.Any() && report.DailyFulfillment.Any();
+            layout.ChartTopRow = row;
+            layout.ChartBottomRow = row + 17;
+
+            if (report.DailyFulfillment.Any())
+            {
+                WriteExecutiveChartContainer(ws, row, 1, layout.ChartBottomRow, twoCharts ? 6 : lastCol,
+                    "ORDERED VS INVOICED BY DAY",
+                    "Quantity raised against quantity invoiced, from the Daily Trend sheet.",
+                    ExecutiveRoyalBlue);
+            }
+
+            if (report.FulfillmentByCustomer.Any())
+            {
+                WriteExecutiveChartContainer(ws, row, twoCharts ? 7 : 1, layout.ChartBottomRow, lastCol,
+                    "TOP CUSTOMERS: ORDERED VS PENDING",
+                    "The ten largest accounts by ordered value, from the By Customer sheet.",
+                    ExecutiveRose);
+            }
+
+            row = layout.ChartBottomRow + 1;
+        }
+
+        WriteExecutiveFooter(ws, row + 1, lastCol);
+        FinalizeExecutiveSheet(ws, lastCol, landscape: true);
+        ws.Columns(1, lastCol).Width = 11.5;
+        ApplyFulfillmentPrintSetup(ws, repeatRow: 0);
+    }
+
+    private static void WriteFulfillmentOrdersSheet(XLWorkbook workbook, OrderFulfillmentReport report)
+    {
+        const int lastCol = 13;
+        var ws = workbook.Worksheets.Add("Order Details");
+        ConfigureExecutiveSheet(ws, lastCol, ExecutiveRoyalBlue);
+
+        int row = WriteBrandBanner(
+            ws,
+            "Order Details",
+            $"{report.Orders.Count:N0} sales orders, newest first, with invoiced and pending quantities",
+            report.FromDate,
+            report.ToDate,
+            lastCol,
+            ExecutiveRoyalBlue);
+
+        string[] headers =
+        {
+            "Order #", "Order Date", "Due Date", "Customer", "Code", "Currency", "Order Total",
+            "Status", "Qty Ordered", "Qty Invoiced", "Qty Pending", "Invoice %", "Ageing"
+        };
+        for (int c = 0; c < headers.Length; c++) ws.Cell(row, c + 1).Value = headers[c];
+        StyleExecutiveTableHeader(ws, row, lastCol, ExecutiveIndigo);
+        int headerRow = row;
+        row++;
+
+        int dataStart = row;
         foreach (var o in report.Orders)
         {
-            ws.Cell(oRow, 1).Value = o.DocNum;
-            ws.Cell(oRow, 2).Value = o.OrderDate;
-            ws.Cell(oRow, 2).Style.NumberFormat.Format = FormatDate;
-            ws.Cell(oRow, 3).Value = o.DueDate;
-            ws.Cell(oRow, 3).Style.NumberFormat.Format = FormatDate;
-            ws.Cell(oRow, 4).Value = $"{o.CardName} ({o.CardCode})";
-            ws.Cell(oRow, 5).Value = o.DocCurrency;
-            ws.Cell(oRow, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            // Orders come in more than one currency, so the column carries no symbol
-            // and is deliberately left untotalled.
-            ws.Cell(oRow, 6).Value = o.OrderTotal; ws.Cell(oRow, 6).Style.NumberFormat.Format = FormatMoney;
-            ws.Cell(oRow, 7).Value = o.Status;
-            ws.Cell(oRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(oRow, 8).Value = o.TotalQuantityOrdered; ws.Cell(oRow, 8).Style.NumberFormat.Format = FormatCount;
-            ws.Cell(oRow, 9).Value = o.TotalQuantityDelivered; ws.Cell(oRow, 9).Style.NumberFormat.Format = FormatCount;
-            ws.Cell(oRow, 10).Value = o.TotalQuantityPending; ws.Cell(oRow, 10).Style.NumberFormat.Format = FormatCount;
-            if (o.TotalQuantityPending > 0) ws.Cell(oRow, 10).Style.Font.FontColor = WarningOrange;
-            ws.Cell(oRow, 11).Value = o.FulfillmentPercent / 100; ws.Cell(oRow, 11).Style.NumberFormat.Format = FormatPercent;
-            ws.Cell(oRow, 12).Value = o.IsOverdue ? $"YES ({o.DaysOverdue}d)" : "No";
-            ws.Cell(oRow, 12).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 1).Value = o.DocNum;
+            ws.Cell(row, 1).Style.NumberFormat.Format = "0";
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+
+            SetExecutiveDateCell(ws.Cell(row, 2), o.OrderDate);
+            SetExecutiveDateCell(ws.Cell(row, 3), o.DueDate);
+
+            ws.Cell(row, 4).Value = o.CardName;
+            ws.Cell(row, 5).Value = o.CardCode;
+            ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 5).Style.Font.FontColor = ExecutiveTextSecondary;
+
+            ws.Cell(row, 6).Value = o.DocCurrency;
+            ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+            ws.Cell(row, 7).Value = o.OrderTotal;
+            ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+
+            ws.Cell(row, 8).Value = o.Status;
+            ApplyFulfillmentStatusBadge(ws.Cell(row, 8));
+
+            ws.Cell(row, 9).Value = o.TotalQuantityOrdered;
+            ws.Cell(row, 10).Value = o.TotalQuantityDelivered;
+            ws.Cell(row, 11).Value = o.TotalQuantityPending;
+            ws.Range(row, 9, row, 11).Style.NumberFormat.Format = "#,##0.00";
+            ws.Range(row, 9, row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            if (o.TotalQuantityPending > 0)
+            {
+                ws.Cell(row, 11).Style.Font.Bold = true;
+                ws.Cell(row, 11).Style.Font.FontColor = ExecutiveAmber;
+            }
+
+            SetExecutiveCoverageCell(ws.Cell(row, 12), o.FulfillmentPercent);
+
+            ws.Cell(row, 13).Value = o.IsOverdue ? $"{o.DaysOverdue:N0} days overdue" : "On time";
+            ws.Cell(row, 13).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             if (o.IsOverdue)
             {
-                ws.Cell(oRow, 12).Style.Font.FontColor = DangerRed;
-                ws.Cell(oRow, 12).Style.Font.Bold = true;
+                ws.Cell(row, 13).Style.Font.Bold = true;
+                ws.Cell(row, 13).Style.Font.FontColor = ExecutiveRose;
             }
-            oRow++;
-        }
-        int lastOrder = oRow - 1;
-        oRow = FinishTable(ws, freezeAt, dataStart, oRow, 12, "No sales orders fell in this period.");
-
-        ws.Cell(oRow, 1).Value = "TOTAL";
-        WriteSubtotal(ws, oRow, 8, dataStart, lastOrder, FormatCount);
-        WriteSubtotal(ws, oRow, 9, dataStart, lastOrder, FormatCount);
-        WriteSubtotal(ws, oRow, 10, dataStart, lastOrder, FormatCount);
-        StyleTotalsRow(ws, oRow, 12);
-
-        WriteFooter(ws, oRow, 12);
-        FinalizeSheet(ws, 12, freezeAt, landscape: true);
-
-        // ── Item Line Detail Sheet ──
-        if (report.Orders.Any(order => order.Lines.Any()))
-        {
-            var lws = AddSheet(workbook, "Item Lines");
-            int lRow = WriteReportHeader(lws, "Item Invoice Lines", 16, report.FromDate, report.ToDate);
-
-            lws.Cell(lRow, 1).Value = "Order#"; lws.Cell(lRow, 2).Value = "Date"; lws.Cell(lRow, 3).Value = "Customer";
-            lws.Cell(lRow, 4).Value = "Item Code"; lws.Cell(lRow, 5).Value = "Description"; lws.Cell(lRow, 6).Value = "Warehouse";
-            lws.Cell(lRow, 7).Value = "Status"; lws.Cell(lRow, 8).Value = "Invoice(s)"; lws.Cell(lRow, 9).Value = "Unit Price";
-            lws.Cell(lRow, 10).Value = "Qty Ordered"; lws.Cell(lRow, 11).Value = "Qty Invoiced"; lws.Cell(lRow, 12).Value = "Qty Pending";
-            lws.Cell(lRow, 13).Value = "Fulfil %"; lws.Cell(lRow, 14).Value = "Ordered Value"; lws.Cell(lRow, 15).Value = "Invoiced Value";
-            lws.Cell(lRow, 16).Value = "Pending Value";
-            StyleTableHeader(lws, lRow, 16);
-            int lineFreeze = lRow;
-            lRow++;
-            int lineStart = lRow;
-
-            foreach (var order in report.Orders)
+            else
             {
-                foreach (var line in order.Lines)
+                ws.Cell(row, 13).Style.Font.FontColor = ExecutiveTextMuted;
+            }
+
+            row++;
+        }
+
+        if (row == dataStart)
+        {
+            WriteExecutiveEmptyState(ws, row, lastCol, "No sales orders fall inside this period.");
+            row++;
+        }
+        else
+        {
+            StyleExecutiveTableRows(ws, dataStart, row - 1, lastCol, preserveExistingFill: true);
+            ws.Range(headerRow, 1, row - 1, lastCol).SetAutoFilter();
+
+            ws.Cell(row, 1).Value = "TOTAL";
+            ws.Range(row, 1, row, 6).Merge();
+            ws.Cell(row, 7).Value = report.Orders.Sum(o => o.OrderTotal);
+            ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+            var totalOrdered = report.Orders.Sum(o => o.TotalQuantityOrdered);
+            var totalInvoiced = report.Orders.Sum(o => o.TotalQuantityDelivered);
+            ws.Cell(row, 9).Value = totalOrdered;
+            ws.Cell(row, 10).Value = totalInvoiced;
+            ws.Cell(row, 11).Value = report.Orders.Sum(o => o.TotalQuantityPending);
+            ws.Range(row, 9, row, 11).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 12).Value = CalculateExecutivePercent(totalInvoiced, totalOrdered) / 100m;
+            ws.Cell(row, 12).Style.NumberFormat.Format = "0.0%";
+            StyleExecutiveTotalsRow(ws, row, lastCol);
+        }
+
+        WriteExecutiveFooter(ws, row + 2, lastCol);
+        FinalizeExecutiveSheet(ws, lastCol, headerRow, 1, landscape: true);
+        PadColumnsForAutoFilter(ws, lastCol);
+        ApplyFulfillmentPrintSetup(ws, headerRow);
+    }
+
+    private static void WriteFulfillmentLinesSheet(XLWorkbook workbook, OrderFulfillmentReport report)
+    {
+        if (!report.Orders.Any(order => order.Lines.Any())) return;
+
+        const int lastCol = 16;
+        var ws = workbook.Worksheets.Add("Item Lines");
+        ConfigureExecutiveSheet(ws, lastCol, ExecutiveCyan);
+
+        int lineCount = report.Orders.Sum(o => o.Lines.Count);
+        int row = WriteBrandBanner(
+            ws,
+            "Item Lines",
+            $"{lineCount:N0} order lines with the invoice numbers that satisfied them",
+            report.FromDate,
+            report.ToDate,
+            lastCol,
+            ExecutiveCyan);
+
+        string[] headers =
+        {
+            "Order #", "Order Date", "Customer", "Item Code", "Description", "Warehouse", "Line Status",
+            "Invoice(s)", "Unit Price", "Qty Ordered", "Qty Invoiced", "Qty Pending", "Invoice %",
+            "Ordered Value", "Invoiced Value", "Pending Value"
+        };
+        for (int c = 0; c < headers.Length; c++) ws.Cell(row, c + 1).Value = headers[c];
+        StyleExecutiveTableHeader(ws, row, lastCol, ExecutiveIndigo);
+        int headerRow = row;
+        row++;
+
+        int dataStart = row;
+        decimal orderedValue = 0, invoicedValue = 0, pendingValue = 0;
+        foreach (var order in report.Orders)
+        {
+            foreach (var line in order.Lines)
+            {
+                var pending = CalculatePendingLineValue(line);
+                orderedValue += line.LineTotal;
+                invoicedValue += line.InvoicedValue;
+                pendingValue += pending;
+
+                ws.Cell(row, 1).Value = order.DocNum;
+                ws.Cell(row, 1).Style.NumberFormat.Format = "0";
+                ws.Cell(row, 1).Style.Font.Bold = true;
+                SetExecutiveDateCell(ws.Cell(row, 2), order.OrderDate);
+                ws.Cell(row, 3).Value = order.CardName;
+                ws.Cell(row, 4).Value = line.ItemCode;
+                ws.Cell(row, 4).Style.Font.Bold = true;
+                ws.Cell(row, 5).Value = line.ItemDescription;
+                ws.Cell(row, 6).Value = line.WarehouseCode;
+                ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                ws.Cell(row, 7).Value = line.LineStatus;
+                ApplyFulfillmentStatusBadge(ws.Cell(row, 7));
+
+                ws.Cell(row, 8).Value = string.IsNullOrWhiteSpace(line.InvoiceNumbers) ? "—" : line.InvoiceNumbers;
+                ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                if (string.IsNullOrWhiteSpace(line.InvoiceNumbers)) ws.Cell(row, 8).Style.Font.FontColor = ExecutiveTextMuted;
+
+                ws.Cell(row, 9).Value = line.UnitPrice;
+                ws.Cell(row, 9).Style.NumberFormat.Format = "#,##0.00";
+
+                ws.Cell(row, 10).Value = line.QuantityOrdered;
+                ws.Cell(row, 11).Value = line.QuantityDelivered;
+                ws.Cell(row, 12).Value = line.QuantityPending;
+                ws.Range(row, 10, row, 12).Style.NumberFormat.Format = "#,##0.00";
+                ws.Range(row, 10, row, 12).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+                SetExecutiveCoverageCell(
+                    ws.Cell(row, 13),
+                    line.QuantityOrdered > 0 ? Math.Round(line.QuantityDelivered / line.QuantityOrdered * 100m, 2) : 0m);
+
+                ws.Cell(row, 14).Value = line.LineTotal;
+                ws.Cell(row, 15).Value = line.InvoicedValue;
+                ws.Cell(row, 16).Value = pending;
+                ws.Range(row, 14, row, 16).Style.NumberFormat.Format = "#,##0.00";
+
+                if (line.QuantityPending > 0)
                 {
-                    lws.Cell(lRow, 1).Value = order.DocNum;
-                    lws.Cell(lRow, 2).Value = order.OrderDate;
-                    lws.Cell(lRow, 2).Style.NumberFormat.Format = FormatDate;
-                    lws.Cell(lRow, 3).Value = $"{order.CardName} ({order.CardCode})";
-                    lws.Cell(lRow, 4).Value = line.ItemCode;
-                    lws.Cell(lRow, 5).Value = line.ItemDescription;
-                    lws.Cell(lRow, 6).Value = line.WarehouseCode;
-                    lws.Cell(lRow, 7).Value = line.LineStatus;
-                    lws.Cell(lRow, 8).Value = line.InvoiceNumbers;
-                    lws.Cell(lRow, 9).Value = line.UnitPrice; lws.Cell(lRow, 9).Style.NumberFormat.Format = FormatMoney;
-                    lws.Cell(lRow, 10).Value = line.QuantityOrdered; lws.Cell(lRow, 10).Style.NumberFormat.Format = FormatQuantity;
-                    lws.Cell(lRow, 11).Value = line.QuantityDelivered; lws.Cell(lRow, 11).Style.NumberFormat.Format = FormatQuantity;
-                    lws.Cell(lRow, 12).Value = line.QuantityPending; lws.Cell(lRow, 12).Style.NumberFormat.Format = FormatQuantity;
-                    lws.Cell(lRow, 13).Value = line.QuantityOrdered > 0 ? line.QuantityDelivered / line.QuantityOrdered : 0; lws.Cell(lRow, 13).Style.NumberFormat.Format = FormatPercent;
-                    lws.Cell(lRow, 14).Value = line.LineTotal; lws.Cell(lRow, 14).Style.NumberFormat.Format = FormatMoney;
-                    lws.Cell(lRow, 15).Value = line.InvoicedValue; lws.Cell(lRow, 15).Style.NumberFormat.Format = FormatMoney;
-                    lws.Cell(lRow, 16).Value = CalculatePendingLineValue(line); lws.Cell(lRow, 16).Style.NumberFormat.Format = FormatMoney;
-                    if (line.QuantityPending > 0)
-                    {
-                        lws.Cell(lRow, 12).Style.Font.FontColor = WarningOrange;
-                        lws.Cell(lRow, 16).Style.Font.FontColor = DangerRed;
-                    }
-                    lRow++;
+                    ws.Cell(row, 12).Style.Font.Bold = true;
+                    ws.Cell(row, 12).Style.Font.FontColor = ExecutiveAmber;
+                    ws.Cell(row, 16).Style.Font.Bold = true;
+                    ws.Cell(row, 16).Style.Font.FontColor = ExecutiveRose;
                 }
+
+                row++;
             }
-
-            int lastLine = lRow - 1;
-            lRow = FinishTable(lws, lineFreeze, lineStart, lRow, 16, "No order lines fell in this period.");
-
-            // Line values are stated in each order's own currency, so only the
-            // quantity columns are summed here.
-            lws.Cell(lRow, 1).Value = "TOTAL";
-            WriteSubtotal(lws, lRow, 10, lineStart, lastLine, FormatQuantity);
-            WriteSubtotal(lws, lRow, 11, lineStart, lastLine, FormatQuantity);
-            WriteSubtotal(lws, lRow, 12, lineStart, lastLine, FormatQuantity);
-            StyleTotalsRow(lws, lRow, 16);
-
-            WriteFooter(lws, lRow, 16);
-            FinalizeSheet(lws, 16, lineFreeze, landscape: true);
         }
 
-        // ── By Customer Sheet ──
-        if (report.FulfillmentByCustomer.Any())
+        StyleExecutiveTableRows(ws, dataStart, row - 1, lastCol, preserveExistingFill: true);
+        ws.Range(headerRow, 1, row - 1, lastCol).SetAutoFilter();
+
+        ws.Range(row, 1, row, 9).Merge();
+        ws.Cell(row, 1).Value = "TOTAL";
+        ws.Cell(row, 14).Value = orderedValue;
+        ws.Cell(row, 15).Value = invoicedValue;
+        ws.Cell(row, 16).Value = pendingValue;
+        ws.Range(row, 14, row, 16).Style.NumberFormat.Format = "#,##0.00";
+        StyleExecutiveTotalsRow(ws, row, lastCol);
+
+        WriteExecutiveFooter(ws, row + 2, lastCol);
+        FinalizeExecutiveSheet(ws, lastCol, headerRow, 1, landscape: true);
+        PadColumnsForAutoFilter(ws, lastCol);
+        ApplyFulfillmentPrintSetup(ws, headerRow);
+    }
+
+    private static void WriteFulfillmentCustomerSheet(XLWorkbook workbook, OrderFulfillmentReport report, FulfillmentWorkbookLayout layout)
+    {
+        if (!report.FulfillmentByCustomer.Any()) return;
+
+        const int lastCol = 8;
+        var ws = workbook.Worksheets.Add("By Customer");
+        ConfigureExecutiveSheet(ws, lastCol, ExecutiveEmerald);
+
+        int row = WriteBrandBanner(
+            ws,
+            "Invoice Coverage by Customer",
+            "Ranked by ordered value, so the largest pending exposure reads first",
+            report.FromDate,
+            report.ToDate,
+            lastCol,
+            ExecutiveEmerald);
+
+        string[] headers = { "Customer", "Code", "Orders", "Open", "Closed", "Order Value (USD)", "Invoice %", "Pending Value (USD)" };
+        for (int c = 0; c < headers.Length; c++) ws.Cell(row, c + 1).Value = headers[c];
+        StyleExecutiveTableHeader(ws, row, lastCol, ExecutiveIndigo);
+        int headerRow = row;
+        row++;
+
+        int dataStart = row;
+        foreach (var c in report.FulfillmentByCustomer.OrderByDescending(x => x.TotalOrderValue))
         {
-            var cws = AddSheet(workbook, "By Customer");
-            int cRow = WriteReportHeader(cws, "Invoice by Customer", 8, report.FromDate, report.ToDate);
+            ws.Cell(row, 1).Value = c.CardName;
+            ws.Cell(row, 2).Value = c.CardCode;
+            ws.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 2).Style.Font.FontColor = ExecutiveTextSecondary;
 
-            cws.Cell(cRow, 1).Value = "Customer"; cws.Cell(cRow, 2).Value = "Code"; cws.Cell(cRow, 3).Value = "Total Orders";
-            cws.Cell(cRow, 4).Value = "Pending Invoice"; cws.Cell(cRow, 5).Value = "Fully Invoiced"; cws.Cell(cRow, 6).Value = "Order Value (USD)";
-            cws.Cell(cRow, 7).Value = "Invoice %"; cws.Cell(cRow, 8).Value = "Pending Value (USD)";
-            StyleTableHeader(cws, cRow, 8);
-            int cFreeze = cRow;
-            cRow++;
-            int cStart = cRow;
-            foreach (var c in report.FulfillmentByCustomer.OrderByDescending(x => x.TotalOrderValue))
+            ws.Cell(row, 3).Value = c.TotalOrders;
+            ws.Cell(row, 4).Value = c.OpenOrders;
+            ws.Cell(row, 5).Value = c.ClosedOrders;
+            ws.Range(row, 3, row, 5).Style.NumberFormat.Format = "#,##0";
+            ws.Range(row, 3, row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            if (c.OpenOrders > 0) ws.Cell(row, 4).Style.Font.FontColor = ExecutiveAmber;
+
+            ws.Cell(row, 6).Value = c.TotalOrderValue;
+            ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+
+            SetExecutiveCoverageCell(ws.Cell(row, 7), c.FulfillmentRatePercent);
+
+            ws.Cell(row, 8).Value = c.TotalPendingValue;
+            ws.Cell(row, 8).Style.NumberFormat.Format = "#,##0.00";
+            if (c.TotalPendingValue > 0)
             {
-                cws.Cell(cRow, 1).Value = c.CardName;
-                cws.Cell(cRow, 2).Value = c.CardCode;
-                cws.Cell(cRow, 3).Value = c.TotalOrders; cws.Cell(cRow, 3).Style.NumberFormat.Format = FormatCount;
-                cws.Cell(cRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                cws.Cell(cRow, 4).Value = c.OpenOrders; cws.Cell(cRow, 4).Style.NumberFormat.Format = FormatCount;
-                cws.Cell(cRow, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                cws.Cell(cRow, 5).Value = c.ClosedOrders; cws.Cell(cRow, 5).Style.NumberFormat.Format = FormatCount;
-                cws.Cell(cRow, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                cws.Cell(cRow, 6).Value = c.TotalOrderValue; cws.Cell(cRow, 6).Style.NumberFormat.Format = FormatUsd;
-                cws.Cell(cRow, 7).Value = c.FulfillmentRatePercent / 100; cws.Cell(cRow, 7).Style.NumberFormat.Format = FormatPercent;
-                cws.Cell(cRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                cws.Cell(cRow, 8).Value = c.TotalPendingValue; cws.Cell(cRow, 8).Style.NumberFormat.Format = FormatUsd;
-                if (c.TotalPendingValue > 0) cws.Cell(cRow, 8).Style.Font.FontColor = DangerRed;
-                cRow++;
+                ws.Cell(row, 8).Style.Font.Bold = true;
+                ws.Cell(row, 8).Style.Font.FontColor = ExecutiveRose;
             }
-            int lastCustomer = cRow - 1;
-            cRow = FinishTable(cws, cFreeze, cStart, cRow, 8, "No customers had orders in this period.");
+            row++;
+        }
+        StyleExecutiveTableRows(ws, dataStart, row - 1, lastCol, preserveExistingFill: true);
+        ws.Range(headerRow, 1, row - 1, lastCol).SetAutoFilter();
 
-            cws.Cell(cRow, 1).Value = "TOTAL";
-            WriteSubtotal(cws, cRow, 3, cStart, lastCustomer, FormatCount);
-            cws.Cell(cRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            WriteSubtotal(cws, cRow, 4, cStart, lastCustomer, FormatCount);
-            cws.Cell(cRow, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            WriteSubtotal(cws, cRow, 5, cStart, lastCustomer, FormatCount);
-            cws.Cell(cRow, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            WriteSubtotal(cws, cRow, 6, cStart, lastCustomer, FormatUsd);
-            WriteSubtotal(cws, cRow, 8, cStart, lastCustomer, FormatUsd);
-            StyleTotalsRow(cws, cRow, 8);
+        layout.CustomerHeaderRow = headerRow;
+        layout.CustomerFirstRow = dataStart;
+        layout.CustomerLastRow = Math.Min(row - 1, dataStart + 9);
 
-            WriteFooter(cws, cRow, 8);
-            FinalizeSheet(cws, 8, cFreeze, landscape: true);
+        ws.Range(row, 1, row, 2).Merge();
+        ws.Cell(row, 1).Value = "TOTAL";
+        ws.Cell(row, 3).Value = report.FulfillmentByCustomer.Sum(c => c.TotalOrders);
+        ws.Cell(row, 4).Value = report.FulfillmentByCustomer.Sum(c => c.OpenOrders);
+        ws.Cell(row, 5).Value = report.FulfillmentByCustomer.Sum(c => c.ClosedOrders);
+        ws.Range(row, 3, row, 5).Style.NumberFormat.Format = "#,##0";
+        ws.Range(row, 3, row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        var customerOrderValue = report.FulfillmentByCustomer.Sum(c => c.TotalOrderValue);
+        var customerPendingValue = report.FulfillmentByCustomer.Sum(c => c.TotalPendingValue);
+        ws.Cell(row, 6).Value = customerOrderValue;
+        ws.Cell(row, 7).Value = CalculateExecutivePercent(customerOrderValue - customerPendingValue, customerOrderValue) / 100m;
+        ws.Cell(row, 7).Style.NumberFormat.Format = "0.0%";
+        ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+        ws.Cell(row, 8).Value = customerPendingValue;
+        ws.Range(row, 6, row, 6).Style.NumberFormat.Format = "#,##0.00";
+        ws.Range(row, 8, row, 8).Style.NumberFormat.Format = "#,##0.00";
+        StyleExecutiveTotalsRow(ws, row, lastCol);
+
+        WriteExecutiveFooter(ws, row + 2, lastCol);
+        FinalizeExecutiveSheet(ws, lastCol, headerRow, 1, landscape: true);
+        PadColumnsForAutoFilter(ws, lastCol);
+        ApplyFulfillmentPrintSetup(ws, headerRow);
+    }
+
+    private static void WriteFulfillmentDailySheet(XLWorkbook workbook, OrderFulfillmentReport report, FulfillmentWorkbookLayout layout)
+    {
+        if (!report.DailyFulfillment.Any()) return;
+
+        const int lastCol = 7;
+        var ws = workbook.Worksheets.Add("Daily Trend");
+        ConfigureExecutiveSheet(ws, lastCol, ExecutiveAmber);
+
+        int row = WriteBrandBanner(
+            ws,
+            "Daily Trend",
+            "Orders raised and closed each day, with the quantity actually invoiced",
+            report.FromDate,
+            report.ToDate,
+            lastCol,
+            ExecutiveAmber);
+
+        string[] headers = { "Date", "Orders Placed", "Orders Closed", "Order Value (USD)", "Qty Ordered", "Qty Invoiced", "Invoice %" };
+        for (int c = 0; c < headers.Length; c++) ws.Cell(row, c + 1).Value = headers[c];
+        StyleExecutiveTableHeader(ws, row, lastCol, ExecutiveIndigo);
+        int headerRow = row;
+        row++;
+
+        int dataStart = row;
+        foreach (var day in report.DailyFulfillment.OrderBy(d => d.Date))
+        {
+            ws.Cell(row, 1).Value = day.Date;
+            ws.Cell(row, 1).Style.NumberFormat.Format = "ddd, dd MMM yyyy";
+
+            ws.Cell(row, 2).Value = day.OrdersPlaced;
+            ws.Cell(row, 3).Value = day.OrdersClosed;
+            ws.Range(row, 2, row, 3).Style.NumberFormat.Format = "#,##0";
+            ws.Range(row, 2, row, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+            ws.Cell(row, 4).Value = day.OrderValueUSD;
+            ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
+
+            ws.Cell(row, 5).Value = day.QuantityOrdered;
+            ws.Cell(row, 6).Value = day.QuantityDelivered;
+            ws.Range(row, 5, row, 6).Style.NumberFormat.Format = "#,##0.00";
+            ws.Range(row, 5, row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+            SetExecutiveCoverageCell(
+                ws.Cell(row, 7),
+                day.QuantityOrdered > 0 ? Math.Round(day.QuantityDelivered / day.QuantityOrdered * 100m, 2) : 0m);
+            row++;
+        }
+        StyleExecutiveTableRows(ws, dataStart, row - 1, lastCol, preserveExistingFill: true);
+
+        layout.DailyHeaderRow = headerRow;
+        layout.DailyFirstRow = dataStart;
+        layout.DailyLastRow = row - 1;
+
+        ws.Cell(row, 1).Value = "TOTAL";
+        ws.Cell(row, 2).Value = report.DailyFulfillment.Sum(d => d.OrdersPlaced);
+        ws.Cell(row, 3).Value = report.DailyFulfillment.Sum(d => d.OrdersClosed);
+        ws.Range(row, 2, row, 3).Style.NumberFormat.Format = "#,##0";
+        ws.Range(row, 2, row, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, 4).Value = report.DailyFulfillment.Sum(d => d.OrderValueUSD);
+        ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
+        ws.Cell(row, 5).Value = report.DailyFulfillment.Sum(d => d.QuantityOrdered);
+        ws.Cell(row, 6).Value = report.DailyFulfillment.Sum(d => d.QuantityDelivered);
+        ws.Range(row, 5, row, 6).Style.NumberFormat.Format = "#,##0.00";
+        StyleExecutiveTotalsRow(ws, row, lastCol);
+
+        WriteExecutiveFooter(ws, row + 2, lastCol);
+        FinalizeExecutiveSheet(ws, lastCol, headerRow);
+        ApplyFulfillmentPrintSetup(ws, headerRow);
+    }
+
+    /// <summary>
+    /// Branded banner used by the executive-styled workbooks that are not tied to a specific report result type.
+    /// </summary>
+    private static int WriteBrandBanner(
+        IXLWorksheet ws,
+        string title,
+        string subtitle,
+        DateTime? fromDate,
+        DateTime? toDate,
+        int lastCol,
+        XLColor accentColor)
+    {
+        var generatedAt = CurrentCatNow();
+
+        ws.Range(1, 1, 1, lastCol).Style.Fill.BackgroundColor = accentColor;
+        ws.Row(1).Height = 6;
+
+        ws.Range(2, 1, 6, lastCol).Style.Fill.BackgroundColor = ExecutiveSurface;
+        ws.Range(2, 1, 6, lastCol).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        ws.Range(2, 1, 6, lastCol).Style.Border.OutsideBorderColor = ExecutiveBorder;
+
+        ws.Range(2, 1, 2, lastCol).Merge();
+        ws.Cell(2, 1).Value = CompanyName;
+        ws.Cell(2, 1).Style.Font.Bold = true;
+        ws.Cell(2, 1).Style.Font.FontSize = 9;
+        ws.Cell(2, 1).Style.Font.FontColor = ExecutiveTextMuted;
+        ws.Row(2).Height = 16;
+
+        ws.Range(3, 1, 3, lastCol).Merge();
+        ws.Cell(3, 1).Value = title;
+        ws.Cell(3, 1).Style.Font.Bold = true;
+        ws.Cell(3, 1).Style.Font.FontSize = 20;
+        ws.Cell(3, 1).Style.Font.FontColor = ExecutiveTextPrimary;
+        ws.Row(3).Height = 28;
+
+        ws.Range(4, 1, 4, lastCol).Merge();
+        ws.Cell(4, 1).Value = subtitle;
+        ws.Cell(4, 1).Style.Font.FontSize = 10;
+        ws.Cell(4, 1).Style.Font.FontColor = ExecutiveTextSecondary;
+        ws.Row(4).Height = 18;
+
+        var period = fromDate.HasValue && toDate.HasValue
+            ? $"Period {fromDate.Value:dd MMM yyyy} to {toDate.Value:dd MMM yyyy}"
+            : "All dates";
+
+        ws.Range(5, 1, 5, lastCol).Merge();
+        ws.Cell(5, 1).Value = $"{period}  |  {SystemName}  |  Generated {generatedAt:dd MMM yyyy HH:mm} CAT";
+        ws.Cell(5, 1).Style.Font.FontSize = 9;
+        ws.Cell(5, 1).Style.Font.FontColor = ExecutiveTextMuted;
+        ws.Row(5).Height = 16;
+
+        ws.Range(6, 1, 6, lastCol).Style.Fill.BackgroundColor = ExecutiveSection;
+        ws.Row(6).Height = 4;
+
+        return 8;
+    }
+
+    /// <summary>
+    /// Fills the Overview navigation strip. Runs after every sheet exists so each link has a target.
+    /// </summary>
+    private static void WriteFulfillmentNavigation(XLWorkbook workbook, FulfillmentWorkbookLayout layout)
+    {
+        var ws = layout.Overview;
+        if (ws is null || layout.NavigationRow <= 0) return;
+
+        const int lastCol = 12;
+        int row = layout.NavigationRow;
+
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Value = "IN THIS WORKBOOK";
+        ws.Cell(row, 1).Style.Font.Bold = true;
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.FontColor = ExecutiveTextMuted;
+        row++;
+
+        var targets = workbook.Worksheets
+            .Where(sheet => !string.Equals(sheet.Name, ws.Name, StringComparison.OrdinalIgnoreCase))
+            .Take(4)
+            .ToList();
+
+        int width = Math.Max(1, lastCol / Math.Max(1, targets.Count));
+        for (int index = 0; index < targets.Count; index++)
+        {
+            int startCol = (index * width) + 1;
+            int endCol = index == targets.Count - 1 ? lastCol : startCol + width - 1;
+
+            ws.Range(row, startCol, row, endCol).Merge();
+            var cell = ws.Cell(row, startCol);
+            cell.Value = $"→  {targets[index].Name}";
+            cell.SetHyperlink(new XLHyperlink(targets[index].Cell(1, 1)));
+            cell.Style.Font.Bold = true;
+            cell.Style.Font.FontSize = 10;
+            cell.Style.Font.FontColor = ExecutiveRoyalBlue;
+            cell.Style.Font.Underline = XLFontUnderlineValues.None;
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftBlue;
+            cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            cell.Style.Border.OutsideBorderColor = ExecutiveBorder;
+        }
+        ws.Row(row).Height = 20;
+    }
+
+    private static void SetFulfillmentWorkbookProperties(XLWorkbook workbook, OrderFulfillmentReport report)
+    {
+        workbook.Properties.Title = "Sales Order vs Invoice";
+        workbook.Properties.Subject = $"Order coverage {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}";
+        workbook.Properties.Company = CompanyName;
+        workbook.Properties.Author = SystemName;
+        workbook.Properties.Category = "Sales reporting";
+        workbook.Properties.Keywords = "sales orders, invoices, fulfilment, pending value";
+        workbook.Properties.Comments = "Confidential management report generated by the Shop Inventory Management System.";
+    }
+
+    /// <summary>
+    /// Repeats the table header on every printed page and stamps a page footer.
+    /// </summary>
+    private static void ApplyFulfillmentPrintSetup(IXLWorksheet ws, int repeatRow)
+    {
+        if (repeatRow > 0)
+        {
+            ws.PageSetup.SetRowsToRepeatAtTop(repeatRow, repeatRow);
         }
 
-        return WorkbookToBytes(workbook);
+        ws.PageSetup.Footer.Left.AddText(CompanyName, XLHFOccurrence.AllPages);
+        ws.PageSetup.Footer.Right.AddText("Page ", XLHFOccurrence.AllPages);
+        ws.PageSetup.Footer.Right.AddText(XLHFPredefinedText.PageNumber, XLHFOccurrence.AllPages);
+        ws.PageSetup.Footer.Right.AddText(" of ", XLHFOccurrence.AllPages);
+        ws.PageSetup.Footer.Right.AddText(XLHFPredefinedText.NumberOfPages, XLHFOccurrence.AllPages);
+    }
+
+    /// <summary>
+    /// Injects the native Excel charts that the Overview sheet reserved space for.
+    /// </summary>
+    private static byte[] AddFulfillmentCharts(byte[] workbookBytes, FulfillmentWorkbookLayout layout)
+    {
+        if (layout.ChartTopRow <= 0 || (!layout.HasDailyChart && !layout.HasCustomerChart))
+        {
+            return workbookBytes;
+        }
+
+        bool twoCharts = layout.HasDailyChart && layout.HasCustomerChart;
+
+        // The container reserves two rows for its title and caption; the chart sits below them.
+        int fromRow = layout.ChartTopRow + 1;
+        int toRow = layout.ChartBottomRow;
+
+        using var stream = new MemoryStream();
+        stream.Write(workbookBytes, 0, workbookBytes.Length);
+        stream.Position = 0;
+
+        using (var document = SpreadsheetDocument.Open(stream, true))
+        {
+            if (layout.HasDailyChart)
+            {
+                AddExecutiveClusteredColumnChart(
+                    document,
+                    targetSheetName: "Overview",
+                    chartName: "Ordered vs invoiced by day",
+                    sourceSheetName: "Daily Trend",
+                    headerRow: layout.DailyHeaderRow,
+                    categoryColumn: 1,
+                    dataStartRow: layout.DailyFirstRow,
+                    dataEndRow: layout.DailyLastRow,
+                    seriesColumns: new[] { 5, 6 },
+                    seriesColors: new[] { "2563EB", "10B981" },
+                    fromColumn: 0,
+                    fromRow: fromRow,
+                    toColumn: twoCharts ? 6 : 12,
+                    toRow: toRow);
+            }
+
+            if (layout.HasCustomerChart)
+            {
+                AddExecutiveClusteredColumnChart(
+                    document,
+                    targetSheetName: "Overview",
+                    chartName: "Top customers ordered vs pending",
+                    sourceSheetName: "By Customer",
+                    headerRow: layout.CustomerHeaderRow,
+                    categoryColumn: 1,
+                    dataStartRow: layout.CustomerFirstRow,
+                    dataEndRow: layout.CustomerLastRow,
+                    seriesColumns: new[] { 6, 8 },
+                    seriesColors: new[] { "2563EB", "F43F5E" },
+                    fromColumn: twoCharts ? 6 : 0,
+                    fromRow: fromRow,
+                    toColumn: 12,
+                    toRow: toRow);
+            }
+        }
+
+        return stream.ToArray();
+    }
+
+    /// <summary>
+    /// Auto-fit leaves no room for the AutoFilter arrow, which then covers the header caption.
+    /// </summary>
+    private static void PadColumnsForAutoFilter(IXLWorksheet ws, int lastCol)
+    {
+        for (var col = 1; col <= lastCol; col++)
+        {
+            ws.Column(col).Width = Math.Min(38, ws.Column(col).Width + 3);
+        }
+    }
+
+    private static void SetExecutiveDateCell(IXLCell cell, DateTime value)
+    {
+        cell.Value = value.Date;
+        cell.Style.NumberFormat.Format = "dd MMM yyyy";
+        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+    }
+
+    /// <summary>
+    /// Writes an invoice-coverage percentage with a traffic-light band.
+    /// </summary>
+    private static void SetExecutiveCoverageCell(IXLCell cell, decimal percentValue)
+    {
+        cell.Value = percentValue / 100m;
+        cell.Style.NumberFormat.Format = "0.0%";
+        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        cell.Style.Font.Bold = true;
+        cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        cell.Style.Border.OutsideBorderColor = ExecutiveBorder;
+
+        if (percentValue >= 99.5m)
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftEmerald;
+            cell.Style.Font.FontColor = ExecutiveEmerald;
+        }
+        else if (percentValue >= 50m)
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftAmber;
+            cell.Style.Font.FontColor = ExecutiveAmber;
+        }
+        else
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftRose;
+            cell.Style.Font.FontColor = ExecutiveRose;
+        }
+    }
+
+    /// <summary>
+    /// Order and line status pill colouring for the fulfilment workbook.
+    /// </summary>
+    private static void ApplyFulfillmentStatusBadge(IXLCell cell)
+    {
+        var status = cell.GetString().Trim().ToUpperInvariant();
+
+        cell.Style.Font.Bold = true;
+        cell.Style.Font.FontSize = 9;
+        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        cell.Style.Border.OutsideBorderColor = ExecutiveBorder;
+
+        if (status.Contains("CANCEL"))
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftRose;
+            cell.Style.Font.FontColor = ExecutiveRose;
+        }
+        else if (status.Contains("CLOSED") || status.Contains("FULLY") || status.Contains("INVOICED") && !status.Contains("NOT") && !status.Contains("PART"))
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftEmerald;
+            cell.Style.Font.FontColor = ExecutiveEmerald;
+        }
+        else if (status.Contains("PART"))
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftAmber;
+            cell.Style.Font.FontColor = ExecutiveAmber;
+        }
+        else if (status.Contains("OPEN") || status.Contains("PENDING") || status.Contains("NOT"))
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftBlue;
+            cell.Style.Font.FontColor = ExecutiveRoyalBlue;
+        }
+        else
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftIndigo;
+            cell.Style.Font.FontColor = ExecutiveIndigo;
+        }
+    }
+
+    private static void StyleExecutiveTotalsRow(IXLWorksheet ws, int row, int lastCol)
+    {
+        var range = ws.Range(row, 1, row, lastCol);
+        range.Style.Font.Bold = true;
+        range.Style.Font.FontSize = 10;
+        range.Style.Font.FontColor = XLColor.White;
+        range.Style.Fill.BackgroundColor = ExecutiveIndigo;
+        range.Style.Border.TopBorder = XLBorderStyleValues.Thin;
+        range.Style.Border.TopBorderColor = ExecutiveIndigo;
+        ws.Row(row).Height = 22;
+        ws.Cell(row, 1).Style.Alignment.Indent = 1;
+    }
+
+    private static void WriteExecutiveEmptyState(IXLWorksheet ws, int row, int lastCol, string message)
+    {
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Value = message;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = ExecutiveTextSecondary;
+        ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, 1).Style.Fill.BackgroundColor = ExecutiveSurface;
+        ws.Cell(row, 1).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        ws.Cell(row, 1).Style.Border.OutsideBorderColor = ExecutiveBorder;
+        ws.Row(row).Height = 28;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -4898,7 +5699,9 @@ public class ReportExportService : IReportExportService
         string label,
         string primaryValue,
         string? secondaryValue,
-        string supportingText)
+        string supportingText,
+        decimal? primaryNumber = null,
+        string? primaryNumberFormat = null)
     {
         ws.Range(topRow, startCol, topRow + 4, endCol).Style.Fill.BackgroundColor = ExecutiveSurface;
         ws.Range(topRow, startCol, topRow + 4, endCol).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
@@ -4914,7 +5717,16 @@ public class ReportExportService : IReportExportService
         ws.Cell(topRow + 1, startCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
 
         ws.Range(topRow + 2, startCol, topRow + 2, endCol).Merge();
-        ws.Cell(topRow + 2, startCol).Value = primaryValue;
+        if (primaryNumber.HasValue)
+        {
+            // Numeric so Excel does not flag the card as a number stored as text.
+            ws.Cell(topRow + 2, startCol).Value = primaryNumber.Value;
+            ws.Cell(topRow + 2, startCol).Style.NumberFormat.Format = primaryNumberFormat ?? "#,##0";
+        }
+        else
+        {
+            ws.Cell(topRow + 2, startCol).Value = primaryValue;
+        }
         ws.Cell(topRow + 2, startCol).Style.Font.Bold = true;
         ws.Cell(topRow + 2, startCol).Style.Font.FontSize = 17;
         ws.Cell(topRow + 2, startCol).Style.Font.FontColor = ExecutiveTextPrimary;
@@ -5633,10 +6445,11 @@ public class ReportExportService : IReportExportService
             seriesText.Append(stringReference);
             series.Append(seriesText);
 
-            series.Append(new C.InvertIfNegative { Val = false });
+            // CT_BarSer order is idx, order, tx, spPr, invertIfNegative, ... — Excel rejects the file otherwise.
             series.Append(new C.ChartShapeProperties(
                 new A.SolidFill(new A.RgbColorModelHex { Val = seriesColors[index] }),
                 new A.Outline(new A.NoFill())));
+            series.Append(new C.InvertIfNegative { Val = false });
 
             var categoryAxisData = new C.CategoryAxisData();
             var categoryReference = new C.StringReference();
@@ -5677,6 +6490,13 @@ public class ReportExportService : IReportExportService
         categoryAxis.Append(new C.MajorTickMark { Val = C.TickMarkValues.None });
         categoryAxis.Append(new C.MinorTickMark { Val = C.TickMarkValues.None });
         categoryAxis.Append(new C.TickLabelPosition { Val = C.TickLabelPositionValues.NextTo });
+
+        // Angled, smaller category labels: date and customer names are too long to sit flat.
+        categoryAxis.Append(new C.TextProperties(
+            new A.BodyProperties { Rotation = -2700000, Vertical = A.TextVerticalValues.Horizontal },
+            new A.ListStyle(),
+            new A.Paragraph(new A.ParagraphProperties(new A.DefaultRunProperties { FontSize = 900 }))));
+
         categoryAxis.Append(new C.CrossingAxis { Val = valueAxisId });
         categoryAxis.Append(new C.Crosses { Val = C.CrossesValues.AutoZero });
         categoryAxis.Append(new C.AutoLabeled { Val = true });
@@ -5700,7 +6520,15 @@ public class ReportExportService : IReportExportService
         plotArea.Append(categoryAxis);
         plotArea.Append(valueAxis);
 
-        chart.Append(new C.Legend(new C.LegendPosition { Val = C.LegendPositionValues.Bottom }, new C.Layout()));
+        // Without an explicit overlay flag Excel draws the legend on top of the category labels.
+        chart.Append(new C.Legend(
+            new C.LegendPosition { Val = C.LegendPositionValues.Bottom },
+            new C.Layout(),
+            new C.Overlay { Val = false },
+            new C.TextProperties(
+                new A.BodyProperties(),
+                new A.ListStyle(),
+                new A.Paragraph(new A.ParagraphProperties(new A.DefaultRunProperties { FontSize = 900 })))));
         chart.Append(new C.PlotVisibleOnly { Val = true });
         chart.Append(new C.DisplayBlanksAs { Val = C.DisplayBlanksAsValues.Gap });
 
@@ -5728,7 +6556,30 @@ public class ReportExportService : IReportExportService
 
         var drawingsPart = worksheetPart.AddNewPart<DrawingsPart>();
         drawingsPart.WorksheetDrawing = new Xdr.WorksheetDrawing();
-        worksheetPart.Worksheet.Append(new DocumentFormat.OpenXml.Spreadsheet.Drawing { Id = worksheetPart.GetIdOfPart(drawingsPart) });
+
+        var drawing = new DocumentFormat.OpenXml.Spreadsheet.Drawing { Id = worksheetPart.GetIdOfPart(drawingsPart) };
+
+        // CT_Worksheet puts drawing ahead of these elements; appending past them makes Excel repair the file.
+        var successor = worksheetPart.Worksheet.ChildElements
+            .FirstOrDefault(element =>
+                element is DocumentFormat.OpenXml.Spreadsheet.LegacyDrawing
+                    or DocumentFormat.OpenXml.Spreadsheet.LegacyDrawingHeaderFooter
+                    or DocumentFormat.OpenXml.Spreadsheet.Picture
+                    or DocumentFormat.OpenXml.Spreadsheet.OleObjects
+                    or DocumentFormat.OpenXml.Spreadsheet.Controls
+                    or DocumentFormat.OpenXml.Spreadsheet.WebPublishItems
+                    or DocumentFormat.OpenXml.Spreadsheet.TableParts
+                    or DocumentFormat.OpenXml.Spreadsheet.WorksheetExtensionList);
+
+        if (successor is null)
+        {
+            worksheetPart.Worksheet.Append(drawing);
+        }
+        else
+        {
+            worksheetPart.Worksheet.InsertBefore(drawing, successor);
+        }
+
         worksheetPart.Worksheet.Save();
         return drawingsPart;
     }
