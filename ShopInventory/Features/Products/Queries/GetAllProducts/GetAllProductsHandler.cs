@@ -34,7 +34,8 @@ public sealed class GetAllProductsHandler(
                 ManagesBatches = item.ManageBatchNumbers == "tYES",
                 DefaultWarehouse = item.DefaultWarehouse,
                 UoM = item.SalesUnit ?? item.InventoryUOM,
-                Category = item.U_ItemGroup
+                Category = item.U_ItemGroup,
+                ItemsGroupCode = item.ItemsGroupCode
             }).ToList();
 
             logger.LogInformation("Retrieved {Count} products from SAP", products.Count);

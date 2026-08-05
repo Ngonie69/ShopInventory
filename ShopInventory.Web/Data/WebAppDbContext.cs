@@ -13,6 +13,8 @@ public class WebAppDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<CachedPrice> CachedPrices { get; set; }
     public DbSet<CachedBusinessPartner> CachedBusinessPartners { get; set; }
     public DbSet<CachedWarehouse> CachedWarehouses { get; set; }
+    public DbSet<CachedItemGroup> CachedItemGroups { get; set; }
+    public DbSet<CachedBusinessPartnerGroup> CachedBusinessPartnerGroups { get; set; }
     public DbSet<CachedGLAccount> CachedGLAccounts { get; set; }
     public DbSet<CachedCostCentre> CachedCostCentres { get; set; }
     public DbSet<CachedWarehouseStock> CachedWarehouseStocks { get; set; }
@@ -141,6 +143,31 @@ public class WebAppDbContext : DbContext, IDataProtectionKeyContext
             // Index for searching
             entity.HasIndex(e => e.WarehouseName);
             entity.HasIndex(e => e.IsActive);
+        });
+
+        // CachedItemGroup configuration — the names behind CachedProduct.ItemsGroupCode.
+        modelBuilder.Entity<CachedItemGroup>(entity =>
+        {
+            entity.ToTable("CachedItemGroups");
+            entity.HasKey(e => e.Number);
+
+            // SAP owns the group number, so EF must not try to generate one.
+            entity.Property(e => e.Number).ValueGeneratedNever();
+
+            entity.Property(e => e.GroupName).HasMaxLength(200);
+            entity.HasIndex(e => e.GroupName);
+        });
+
+        // CachedBusinessPartnerGroup configuration — the names behind CachedBusinessPartner.GroupCode.
+        modelBuilder.Entity<CachedBusinessPartnerGroup>(entity =>
+        {
+            entity.ToTable("CachedBusinessPartnerGroups");
+            entity.HasKey(e => e.Code);
+
+            entity.Property(e => e.Code).ValueGeneratedNever();
+
+            entity.Property(e => e.Name).HasMaxLength(200);
+            entity.HasIndex(e => e.Name);
         });
 
         // CachedGLAccount configuration

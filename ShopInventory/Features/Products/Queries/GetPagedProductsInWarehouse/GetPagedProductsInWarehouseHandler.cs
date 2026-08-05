@@ -151,6 +151,7 @@ public sealed class GetPagedProductsInWarehouseHandler(
             Price = price,
             DefaultWarehouse = item.DefaultWarehouse,
             Category = item.U_ItemGroup,
+            ItemsGroupCode = item.ItemsGroupCode,
             UoM = item.InventoryUOM,
             Batches = itemBatches.Select(MapToBatchDto).ToList()
         };

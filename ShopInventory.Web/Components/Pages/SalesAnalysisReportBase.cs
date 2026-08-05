@@ -45,6 +45,7 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     [Inject] protected IDbContextFactory<WebAppDbContext> DbContextFactory { get; set; } = default!;
     [Inject] protected NavigationManager Navigation { get; set; } = default!;
     [Inject] protected ILogger<SalesAnalysisReportBase> Logger { get; set; } = default!;
+    [Inject] protected IMasterDataCacheService MasterData { get; set; } = default!;
 
     /// <summary>Which face of the window is on screen.</summary>
     protected enum ReportLens
@@ -125,6 +126,14 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
     protected GetItemVolumeSalesReportResult? report;
     protected List<SalesAnalysisPicker.Option> accountOptions = new();
     protected List<SalesAnalysisPicker.Option> itemOptions = new();
+
+    /// <summary>
+    /// The groups each picker can be narrowed by — SAP's own, named. Empty where the lookup has
+    /// not synced or holds no group any cached row belongs to, and an empty list hides the
+    /// dropdown rather than offering one that can only ever empty the list.
+    /// </summary>
+    protected List<SalesAnalysisPicker.GroupOption> accountGroupOptions = new();
+    protected List<SalesAnalysisPicker.GroupOption> itemGroupOptions = new();
     protected IReadOnlyList<string> selectedAccounts = new List<string>();
     protected IReadOnlyList<string> selectedItems = new List<string>();
 
@@ -220,20 +229,21 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
                 .AsNoTracking()
                 .Where(partner => partner.IsActive)
                 .OrderBy(partner => partner.CardCode)
-                .Select(partner => new { partner.CardCode, partner.CardName })
+                .Select(partner => new { partner.CardCode, partner.CardName, partner.GroupCode })
                 .ToListAsync();
 
             accountOptions = partners
                 .Select(partner => new SalesAnalysisPicker.Option(
                     partner.CardCode,
-                    string.IsNullOrWhiteSpace(partner.CardName) ? partner.CardCode : partner.CardName))
+                    string.IsNullOrWhiteSpace(partner.CardName) ? partner.CardCode : partner.CardName,
+                    Group: SalesAnalysisGroups.Normalise(partner.GroupCode)))
                 .ToList();
 
             var products = await db.CachedProducts
                 .AsNoTracking()
                 .Where(product => product.IsActive)
                 .OrderBy(product => product.ItemCode)
-                .Select(product => new { product.ItemCode, product.ItemName })
+                .Select(product => new { product.ItemCode, product.ItemName, product.ItemsGroupCode })
                 .ToListAsync();
 
             var conversionResult = await Mediator.Send(new GetItemVolumeConversionsQuery(IncludeInactive: false));
@@ -252,13 +262,16 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
                 .Select(product => new SalesAnalysisPicker.Option(
                     product.ItemCode,
                     string.IsNullOrWhiteSpace(product.ItemName) ? product.ItemCode : product.ItemName,
-                    factorCodes.Contains(product.ItemCode) ? null : "no factor"))
+                    factorCodes.Contains(product.ItemCode) ? null : "no factor",
+                    SalesAnalysisGroups.Normalise(product.ItemsGroupCode)))
                 .ToList();
 
             if (accountOptions.Count == 0)
             {
                 optionsWarning = "No business partners are cached yet. Type the codes you need instead.";
             }
+
+            await LoadGroupOptionsAsync();
         }
         catch (Exception ex)
         {
@@ -268,6 +281,45 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
         finally
         {
             isLoadingOptions = false;
+        }
+    }
+
+    /// <summary>
+    /// Fills the two Group dropdowns from the cached lookups, and drops any group nothing in the
+    /// picker actually belongs to.
+    /// </summary>
+    /// <remarks>
+    /// A group with no members would be a filter that can only ever empty the list, and SAP has
+    /// plenty of them — groups kept for purchasing, or for partner types this report never sees.
+    /// The lookups are what supply the names; the options are what decide which names are worth
+    /// offering.
+    /// </remarks>
+    private async Task LoadGroupOptionsAsync()
+    {
+        try
+        {
+            var partnerGroups = await MasterData.GetBusinessPartnerGroupsAsync();
+            var itemGroups = await MasterData.GetItemGroupsAsync();
+
+            accountGroupOptions = SalesAnalysisGroups.BuildOptions(
+                accountOptions,
+                partnerGroups.Select(group => (
+                    Code: group.Code.ToString(CultureInfo.InvariantCulture),
+                    Name: group.Name)));
+
+            itemGroupOptions = SalesAnalysisGroups.BuildOptions(
+                itemOptions,
+                itemGroups.Select(group => (
+                    Code: group.Number.ToString(CultureInfo.InvariantCulture),
+                    Name: group.GroupName)));
+        }
+        catch (Exception ex)
+        {
+            // A missing lookup costs the dropdowns and nothing else, so the pickers are left to
+            // work without them rather than the whole page failing to load.
+            Logger.LogError(ex, "Failed to load the group lookups for the sales analysis report");
+            accountGroupOptions = new List<SalesAnalysisPicker.GroupOption>();
+            itemGroupOptions = new List<SalesAnalysisPicker.GroupOption>();
         }
     }
 

@@ -37,3 +37,24 @@ public class BusinessPartnerListResponse
     public int TotalCount { get; set; }
     public List<BusinessPartnerDto>? BusinessPartners { get; set; }
 }
+
+/// <summary>
+/// One of SAP's business partner groups. Mirrors the API's <c>BusinessPartnerGroupDto</c>.
+/// </summary>
+/// <remarks>
+/// <see cref="Code"/> is an int here and a string on <see cref="BusinessPartnerDto.GroupCode"/>,
+/// which is how SAP hands each of them over. Compare them as text after trimming, never by parsing
+/// one into the other.
+/// </remarks>
+public class BusinessPartnerGroupDto
+{
+    public int Code { get; set; }
+    public string? Name { get; set; }
+}
+
+/// <summary>Mirrors the API's <c>BusinessPartnerGroupsListResponseDto</c>.</summary>
+public class BusinessPartnerGroupsResponse
+{
+    public int Count { get; set; }
+    public List<BusinessPartnerGroupDto>? Groups { get; set; }
+}

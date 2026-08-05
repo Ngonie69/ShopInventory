@@ -19,13 +19,19 @@ public class ProductDto
     public string? UoM { get; set; }
 
     /// <summary>
-    /// The item's category as SAP's user-defined <c>OITM.U_ItemGroup</c> text — never the
-    /// standard item group code (<c>ItemsGroupCode</c>/OITB), which is a number and means
-    /// something else entirely. Every handler that fills this must read the same field, or a
+    /// The <c>U_ItemGroup</c> user-defined field, not SAP's own item group — that is
+    /// <see cref="ItemsGroupCode"/>. Every handler that fills this must read the same field, or a
     /// caller comparing Category across two endpoints compares two unrelated things.
     /// Null where the handler does not supply it; absence is fine, a second meaning is not.
     /// </summary>
     public string? Category { get; set; }
+
+    /// <summary>
+    /// SAP's standard item group (OITB), which <see cref="ItemGroupDto.Number"/> names. Distinct
+    /// from <see cref="Category"/>: this is the group Sales Analysis narrows an item selection by.
+    /// </summary>
+    public int? ItemsGroupCode { get; set; }
+
     public List<BatchDto>? Batches { get; set; }
 }
 
