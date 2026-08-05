@@ -4557,64 +4557,67 @@ public class ReportExportService : IReportExportService
             "Visual Overview",
             "These visuals keep the workbook desktop-safe while giving finance and operations a clean comparison view of period performance and top-account exposure.");
         visualsRow += 5;
+
+        const int visualsTrendFirstColumn = 1;
+        const int visualsTrendLastColumn = 7;
+        const int visualsAccountFirstColumn = 8;
+        const int visualsAccountLastColumn = 14;
+        var visualsFrameBottomRow = visualsRow + 16;
+
         WriteExecutiveChartContainer(
             visualsSheet,
             visualsRow,
-            1,
-            visualsRow + 16,
-            7,
+            visualsTrendFirstColumn,
+            visualsFrameBottomRow,
+            visualsTrendLastColumn,
             "PERIOD SALES VS COLLECTIONS",
             "USD comparison panel sourced from the Trend Analysis sheet.",
             ExecutiveRoyalBlue);
         WriteExecutiveChartContainer(
             visualsSheet,
             visualsRow,
-            8,
-            visualsRow + 16,
-            14,
+            visualsAccountFirstColumn,
+            visualsFrameBottomRow,
+            visualsAccountLastColumn,
             "TOP ACCOUNTS: SALES VS OUTSTANDING",
             "USD exposure panel sourced from the Customer Analysis sheet.",
             ExecutiveRose);
-        WriteExecutiveVisualSummary(
-            visualsSheet,
-            visualsRow + 3,
-            1,
-            7,
-            new[] { "Period", "Sales USD", "Payments USD", "Outstanding USD" },
-            previewPeriods
-                .Select(period => new[]
-                {
-                    period.Label,
-                    period.TotalSalesUsd.ToString("N2", CultureInfo.InvariantCulture),
-                    period.IncomingPaymentsUsd.ToString("N2", CultureInfo.InvariantCulture),
-                    (period.TotalSalesUsd - period.IncomingPaymentsUsd).ToString("N2", CultureInfo.InvariantCulture)
-                })
-                .ToList(),
-            currencyColumns: new HashSet<int> { 2, 3, 4 },
-            statusColumn: 0,
-            accentColor: ExecutiveRoyalBlue);
-        WriteExecutiveVisualSummary(
-            visualsSheet,
-            visualsRow + 3,
-            8,
-            14,
-            new[] { "Card Code", "Sales USD", "Outstanding USD", "Status" },
-            previewAccounts
-                .Select(account =>
-                {
-                    var outstandingUsd = account.TotalSalesUsd - account.IncomingPaymentsUsd;
-                    return new[]
-                    {
-                        account.CardCode,
-                        account.TotalSalesUsd.ToString("N2", CultureInfo.InvariantCulture),
-                        outstandingUsd.ToString("N2", CultureInfo.InvariantCulture),
-                        ResolveExecutiveCollectionStatus(outstandingUsd, account.TotalSalesZig - account.IncomingPaymentsZig, account.CollectionRatePercentUsd, account.CollectionRatePercentZig)
-                    };
-                })
-                .ToList(),
-            currencyColumns: new HashSet<int> { 2, 3 },
-            statusColumn: 4,
-            accentColor: ExecutiveRose);
+
+        // The frame body — everything below the frame's title and subtitle rows — is where
+        // AddExecutiveChartsToAccountSalesWorkbook anchors the native charts once the
+        // workbook has been saved. A chart floats over the cells it covers, so the summary
+        // tables only render when there is nothing to plot and the frame would otherwise
+        // be an empty box.
+        var visualsChartTopRow = visualsRow + 2;
+
+        if (!previewPeriods.Any())
+        {
+            WriteExecutiveVisualSummary(
+                visualsSheet,
+                visualsChartTopRow + 1,
+                visualsTrendFirstColumn,
+                visualsTrendLastColumn,
+                new[] { "Period", "Sales USD", "Payments USD", "Outstanding USD" },
+                Array.Empty<string[]>(),
+                currencyColumns: new HashSet<int> { 2, 3, 4 },
+                statusColumn: 0,
+                accentColor: ExecutiveRoyalBlue);
+        }
+
+        if (!previewAccounts.Any())
+        {
+            WriteExecutiveVisualSummary(
+                visualsSheet,
+                visualsChartTopRow + 1,
+                visualsAccountFirstColumn,
+                visualsAccountLastColumn,
+                new[] { "Card Code", "Sales USD", "Outstanding USD", "Status" },
+                Array.Empty<string[]>(),
+                currencyColumns: new HashSet<int> { 2, 3 },
+                statusColumn: 4,
+                accentColor: ExecutiveRose);
+        }
+
         WriteExecutiveFooter(visualsSheet, visualsRow + 18, 14);
         ApplyExecutiveColumnWidths(visualsSheet, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12);
         FinalizeExecutiveSheet(visualsSheet, 14, landscape: true);
@@ -4685,6 +4688,10 @@ public class ReportExportService : IReportExportService
 
         var trendDataStartRow = trendFreeze + 1;
         var trendDataEndRow = orderedPeriods.Any() ? trendRow - 1 : trendDataStartRow - 1;
+
+        // The Visuals frame is only seven columns wide, so the chart plots the same
+        // last eight periods the dashboard previews rather than every reporting bucket.
+        var trendChartDataStartRow = Math.Max(trendDataStartRow, trendDataEndRow - 7);
 
         ApplyExecutiveColumnWidths(trendSheet, 18, 15, 15, 11, 11, 11, 14, 14, 14, 12, 16, 14, 14, 14);
         WriteExecutiveFooter(trendSheet, trendRow + 1, 14);
@@ -5054,7 +5061,48 @@ public class ReportExportService : IReportExportService
         WriteExecutiveFooter(applicationSheet, applicationRow + 1, 12);
         FinalizeExecutiveSheet(applicationSheet, 12, freezeRow: applicationFreeze, landscape: true);
 
-        return WorkbookToBytes(workbook);
+        return AddExecutiveChartsToAccountSalesWorkbook(
+            WorkbookToBytes(workbook),
+            new ExecutiveChartPlacement(
+                HeaderRow: trendFreeze,
+                DataStartRow: trendChartDataStartRow,
+                DataEndRow: trendDataEndRow,
+                FirstColumn: visualsTrendFirstColumn,
+                LastColumn: visualsTrendLastColumn,
+                TopRow: visualsChartTopRow,
+                BottomRow: visualsFrameBottomRow),
+            new ExecutiveChartPlacement(
+                HeaderRow: accountFreeze,
+                DataStartRow: accountDataStartRow,
+                DataEndRow: accountChartDataEndRow,
+                FirstColumn: visualsAccountFirstColumn,
+                LastColumn: visualsAccountLastColumn,
+                TopRow: visualsChartTopRow,
+                BottomRow: visualsFrameBottomRow));
+    }
+
+    /// <summary>
+    /// Where one Visuals chart sits on the sheet, and which source rows fill it.
+    /// Rows and columns are one-based worksheet coordinates; the frame body spans
+    /// <see cref="TopRow"/>..<see cref="BottomRow"/> and <see cref="FirstColumn"/>..<see cref="LastColumn"/>.
+    /// </summary>
+    private readonly record struct ExecutiveChartPlacement(
+        int HeaderRow,
+        int DataStartRow,
+        int DataEndRow,
+        int FirstColumn,
+        int LastColumn,
+        int TopRow,
+        int BottomRow)
+    {
+        public bool HasData => DataEndRow >= DataStartRow;
+
+        // Anchor markers are zero-based and sit on cell edges, so the from marker lands on
+        // the frame's first cell and the to marker on the cell just past its last.
+        public int AnchorFromColumn => FirstColumn - 1;
+        public int AnchorFromRow => TopRow - 1;
+        public int AnchorToColumn => LastColumn;
+        public int AnchorToRow => BottomRow;
     }
 
     private static void ConfigureExecutiveSheet(IXLWorksheet ws, int lastCol, XLColor tabColor)
@@ -5801,16 +5849,17 @@ public class ReportExportService : IReportExportService
         }
     }
 
+    /// <summary>
+    /// Draws the two native charts that fill the frames on the Visuals sheet. ClosedXML
+    /// cannot write charts, so the workbook is saved first and reopened with the OpenXML
+    /// SDK to add them.
+    /// </summary>
     private static byte[] AddExecutiveChartsToAccountSalesWorkbook(
         byte[] workbookBytes,
-        int trendHeaderRow,
-        int trendDataStartRow,
-        int trendDataEndRow,
-        int accountHeaderRow,
-        int accountDataStartRow,
-        int accountDataEndRow)
+        ExecutiveChartPlacement trendPlacement,
+        ExecutiveChartPlacement accountPlacement)
     {
-        if (trendDataEndRow < trendDataStartRow && accountDataEndRow < accountDataStartRow)
+        if (!trendPlacement.HasData && !accountPlacement.HasData)
         {
             return workbookBytes;
         }
@@ -5821,42 +5870,42 @@ public class ReportExportService : IReportExportService
 
         using (var document = SpreadsheetDocument.Open(stream, true))
         {
-            if (trendDataEndRow >= trendDataStartRow)
+            if (trendPlacement.HasData)
             {
                 AddExecutiveClusteredColumnChart(
                     document,
                     targetSheetName: "Visuals",
                     chartName: "Period Sales Collections",
                     sourceSheetName: "Trend Analysis",
-                    headerRow: trendHeaderRow,
+                    headerRow: trendPlacement.HeaderRow,
                     categoryColumn: 1,
-                    dataStartRow: trendDataStartRow,
-                    dataEndRow: trendDataEndRow,
+                    dataStartRow: trendPlacement.DataStartRow,
+                    dataEndRow: trendPlacement.DataEndRow,
                     seriesColumns: new[] { 7, 8 },
                     seriesColors: new[] { "2563EB", "10B981" },
-                    fromColumn: 0,
-                    fromRow: 13,
-                    toColumn: 7,
-                    toRow: 29);
+                    fromColumn: trendPlacement.AnchorFromColumn,
+                    fromRow: trendPlacement.AnchorFromRow,
+                    toColumn: trendPlacement.AnchorToColumn,
+                    toRow: trendPlacement.AnchorToRow);
             }
 
-            if (accountDataEndRow >= accountDataStartRow)
+            if (accountPlacement.HasData)
             {
                 AddExecutiveClusteredColumnChart(
                     document,
                     targetSheetName: "Visuals",
                     chartName: "Top Accounts Sales Outstanding",
                     sourceSheetName: "Customer Analysis",
-                    headerRow: accountHeaderRow,
+                    headerRow: accountPlacement.HeaderRow,
                     categoryColumn: 1,
-                    dataStartRow: accountDataStartRow,
-                    dataEndRow: accountDataEndRow,
+                    dataStartRow: accountPlacement.DataStartRow,
+                    dataEndRow: accountPlacement.DataEndRow,
                     seriesColumns: new[] { 5, 7 },
                     seriesColors: new[] { "2563EB", "F43F5E" },
-                    fromColumn: 7,
-                    fromRow: 13,
-                    toColumn: 14,
-                    toRow: 29);
+                    fromColumn: accountPlacement.AnchorFromColumn,
+                    fromRow: accountPlacement.AnchorFromRow,
+                    toColumn: accountPlacement.AnchorToColumn,
+                    toRow: accountPlacement.AnchorToRow);
             }
         }
 
@@ -6065,6 +6114,7 @@ public class ReportExportService : IReportExportService
         var drawing = new DocumentFormat.OpenXml.Spreadsheet.Drawing { Id = worksheetPart.GetIdOfPart(drawingsPart) };
 
         // CT_Worksheet puts drawing ahead of these elements; appending past them makes Excel repair the file.
+        // ClosedXML ends every sheet with a <tableParts count="0"/>, so this is always reached.
         var successor = worksheetPart.Worksheet.ChildElements
             .FirstOrDefault(element =>
                 element is DocumentFormat.OpenXml.Spreadsheet.LegacyDrawing
