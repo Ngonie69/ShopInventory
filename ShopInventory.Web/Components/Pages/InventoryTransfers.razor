@@ -15,6 +15,7 @@
 @inject IJSRuntime JS
 @inject IWebHostEnvironment Env
 @rendermode InteractiveServer
+@implements IDisposable
 
 <PageTitle>Inventory Transfers - Shop Inventory</PageTitle>
 
@@ -35,6 +36,20 @@
         <div class="itx-spin" role="status" aria-label="Working"></div>
         <strong>@(isRejecting ? "Rejecting transfer request…" : "Approving transfer request…")</strong>
         <small>Please wait while the approval decision is processed</small>
+    </div>
+}
+else if (pendingActionTitle is not null)
+{
+    <div class="itx-busy">
+        <div class="itx-spin" role="status" aria-label="Working"></div>
+        <strong>@pendingActionTitle</strong>
+        <small>@pendingActionDetail</small>
+        @* The spinner is a CSS animation and keeps turning even after the circuit has dropped,
+           so the only thing here that proves the server is still working is a count the server
+           itself sends. If this stops climbing, the attempt is no longer being watched. *@
+        <small class="itx-busy-clock" aria-live="polite">
+            @FormatElapsed(pendingActionElapsedSeconds) elapsed · keep this page open until it finishes
+        </small>
     </div>
 }
 
@@ -706,7 +721,16 @@
                                                 <button type="button" class="itx-btn itx-btn-sm" disabled="@isDecidingPending"
                                                         title="Post this approved transfer to SAP"
                                                         @onclick="() => RetryPendingTransferAsync(pending)">
-                                                    <i class="bi bi-arrow-clockwise"></i> Post to SAP
+                                                    @if (pendingActionId == pending.Id)
+                                                    {
+                                                        <span class="itx-spin itx-spin-sm itx-spin-inline"></span>
+                                                        <span>Posting…</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="bi bi-arrow-clockwise"></i>
+                                                        <span>Post to SAP</span>
+                                                    }
                                                 </button>
                                             }
                                             else if (pending.Status == PendingTransferStatuses.AwaitingApproval && pending.CreatedByUserId == currentUserId)
@@ -814,6 +838,16 @@
                     <div>
                         <div class="k">SAP document</div>
                         <div class="v">#@selectedPendingTransfer.SapDocNum</div>
+                    </div>
+                }
+                @* Not shown once the document is in SAP: the document number above is the better
+                   answer there, and a posted transfer is nobody's open question. *@
+                @if (selectedPendingTransfer.LastAttemptedAtUtc.HasValue
+                     && selectedPendingTransfer.Status != PendingTransferStatuses.Posted)
+                {
+                    <div>
+                        <div class="k">Last post attempt</div>
+                        <div class="v">@selectedPendingTransfer.LastAttemptedAtUtc.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm")</div>
                     </div>
                 }
                 @if (!string.IsNullOrWhiteSpace(selectedPendingTransfer.Comments))
@@ -939,7 +973,16 @@
                 <button type="button" class="itx-btn itx-btn-primary" disabled="@isDecidingPending"
                         title="Post this approved transfer to SAP"
                         @onclick="() => RetryPendingTransferAsync(selectedPendingTransfer)">
-                    <i class="bi bi-arrow-clockwise"></i> Post to SAP
+                    @if (pendingActionId == selectedPendingTransfer.Id)
+                    {
+                        <span class="itx-spin itx-spin-sm itx-spin-inline"></span>
+                        <span>Posting to SAP…</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-arrow-clockwise"></i>
+                        <span>Post to SAP</span>
+                    }
                 </button>
             }
             <button type="button" class="itx-btn" @onclick="ClosePendingTransfer">Close</button>
@@ -1560,6 +1603,17 @@
     private string? pendingDecisionRemarks;
     private const string ApprovedDecision = "Approved";
     private const string RejectedDecision = "NotApproved";
+
+    // ── The held-draft action currently in flight ───────
+    // Posting re-checks stock in SAP and creates the document, which routinely runs for tens of
+    // seconds. Without this the only feedback was a greyed-out button, which looks the same as a
+    // button that did nothing at all, so there was no way to tell a slow post from a dead click.
+    private Guid? pendingActionId;
+    private string? pendingActionTitle;
+    private string? pendingActionDetail;
+    private DateTime pendingActionStartedUtc;
+    private int pendingActionElapsedSeconds;
+    private System.Threading.Timer? pendingActionTicker;
 
     // Item names for the lines of drafts opened this session, keyed by item code. The API resolves
     // descriptions from its own item table, which no sync populates, so in practice it returns the
@@ -2285,6 +2339,45 @@
     private static string DraftReference(PendingInventoryTransferDto pending) =>
         string.IsNullOrWhiteSpace(pending.DraftNumber) ? "—" : pending.DraftNumber;
 
+    /// <summary>
+    /// Puts the page into its working state for one held draft, and starts the clock that shows
+    /// the attempt is still running.
+    /// </summary>
+    private void BeginPendingAction(PendingInventoryTransferDto pending, string title, string detail)
+    {
+        pendingActionId = pending.Id;
+        pendingActionTitle = title;
+        pendingActionDetail = detail;
+        pendingActionStartedUtc = DateTime.UtcNow;
+        pendingActionElapsedSeconds = 0;
+
+        pendingActionTicker?.Dispose();
+        pendingActionTicker = new System.Threading.Timer(
+            _ =>
+            {
+                // Read off the clock rather than counting ticks: a busy server delivers them late,
+                // and a count that quietly runs slow is worse than no count at all.
+                pendingActionElapsedSeconds = (int)(DateTime.UtcNow - pendingActionStartedUtc).TotalSeconds;
+                // The callback runs off the renderer's thread, so the re-render has to be marshalled.
+                _ = InvokeAsync(StateHasChanged);
+            },
+            null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private void EndPendingAction()
+    {
+        pendingActionTicker?.Dispose();
+        pendingActionTicker = null;
+        pendingActionId = null;
+        pendingActionTitle = null;
+        pendingActionDetail = null;
+    }
+
+    private static string FormatElapsed(int seconds) =>
+        seconds < 60 ? $"{seconds}s" : $"{seconds / 60}m {seconds % 60:00}s";
+
+    public void Dispose() => pendingActionTicker?.Dispose();
+
     private async Task DecidePendingTransferAsync(PendingInventoryTransferDto pending, string decision)
     {
         if (isDecidingPending) return;
@@ -2292,6 +2385,16 @@
         isDecidingPending = true;
         errorMessage = null;
         successMessage = null;
+        // Approving the final stage posts the document, so this waits on SAP exactly as the
+        // explicit post does and needs the same visible sign that something is under way.
+        BeginPendingAction(
+            pending,
+            decision == ApprovedDecision
+                ? $"Approving {DraftReference(pending)}…"
+                : $"Rejecting {DraftReference(pending)}…",
+            decision == ApprovedDecision
+                ? "Recording the approval. If this is the last stage, the transfer is posted to SAP now."
+                : "Recording the rejection.");
         StateHasChanged();
         try
         {
@@ -2315,6 +2418,7 @@
         finally
         {
             isDecidingPending = false;
+            EndPendingAction();
             StateHasChanged();
         }
     }
@@ -2335,6 +2439,11 @@
         isDecidingPending = true;
         errorMessage = null;
         successMessage = null;
+        BeginPendingAction(
+            pending,
+            $"Posting {DraftReference(pending)} to SAP…",
+            $"Re-checking stock in {pending.FromWarehouse} and creating the document. " +
+            "A transfer with many lines can take a minute or more.");
         StateHasChanged();
         try
         {
@@ -2354,6 +2463,7 @@
         finally
         {
             isDecidingPending = false;
+            EndPendingAction();
             StateHasChanged();
         }
     }
@@ -2365,6 +2475,7 @@
         isDecidingPending = true;
         errorMessage = null;
         successMessage = null;
+        BeginPendingAction(pending, $"Withdrawing {DraftReference(pending)}…", "Cancelling the held draft.");
         StateHasChanged();
         try
         {
@@ -2384,6 +2495,7 @@
         finally
         {
             isDecidingPending = false;
+            EndPendingAction();
             StateHasChanged();
         }
     }

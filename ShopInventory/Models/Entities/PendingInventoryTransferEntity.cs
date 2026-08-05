@@ -88,6 +88,14 @@ public sealed class PendingInventoryTransferEntity
 
     public DateTime? DecidedAtUtc { get; set; }
 
+    /// <summary>
+    /// When a post to SAP was last started. Stamped before the attempt runs, not after it
+    /// resolves, so an attempt that timed out or crashed still leaves a record that it happened —
+    /// which is the case where knowing someone already tried matters most.
+    /// Null on records created before this was added, and on drafts nobody has tried to post.
+    /// </summary>
+    public DateTime? LastAttemptedAtUtc { get; set; }
+
     /// <summary>Populated when posting to SAP failed after the approval completed.</summary>
     [MaxLength(2000)]
     public string? LastError { get; set; }

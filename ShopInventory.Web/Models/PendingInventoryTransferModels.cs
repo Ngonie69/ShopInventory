@@ -62,6 +62,10 @@ public class PendingInventoryTransferDto
     [JsonPropertyName("postedAtUtc")]
     public DateTime? PostedAtUtc { get; set; }
 
+    /// <summary>When a post to SAP was last started, whatever came of it. Null if never tried.</summary>
+    [JsonPropertyName("lastAttemptedAtUtc")]
+    public DateTime? LastAttemptedAtUtc { get; set; }
+
     [JsonPropertyName("lastError")]
     public string? LastError { get; set; }
 
