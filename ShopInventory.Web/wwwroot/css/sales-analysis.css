@@ -806,6 +806,87 @@
     border-color: var(--sla-accent);
 }
 
+/* The Code from / to pair, the shape SAP's Sales Analysis asks a range in. The
+   two fields are `.sla-input` first so they cannot drift from the search box
+   above them; these rules only take them out of its full width, and they win on
+   source order at equal specificity. */
+.sla-pick-bounds {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 1px 1px 3px;
+}
+
+.sla-pick-bounds-label {
+    flex: none;
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--sla-mute-3);
+}
+
+/* The pair is one row of its own, so the only thing that can wrap is the label
+   above it. Without this the picker breaks up mid-pair on a phone: the second
+   field drops a line and leaves "to" and the clear button stranded on the ends
+   of two different rows. `flex-basis` is the width below which it goes second. */
+.sla-pick-bounds-row {
+    display: flex;
+    flex: 1 1 190px;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.sla .sla-pick-bound {
+    flex: 1;
+    width: auto;
+    min-width: 68px;
+    font-variant-numeric: tabular-nums;
+}
+
+.sla-pick-bounds-to {
+    flex: none;
+    font-size: 12px;
+    color: var(--sla-faint);
+}
+
+.sla .sla-pick-bounds-x {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--sla-mute-3);
+    font: inherit;
+    cursor: pointer;
+}
+
+.sla .sla-pick-bounds-x:hover {
+    background: var(--sla-hover);
+    color: var(--sla-ink);
+}
+
+.sla-pick-bounds-x i {
+    font-size: 12px;
+}
+
+.sla-pick-bounds-none {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 9px;
+    border-radius: 6px;
+    background: rgba(var(--sla-fam-warn-rgb), .12);
+    color: var(--sla-fam-warn);
+    font-size: 12.5px;
+}
+
 .sla .sla-pick-range {
     display: flex;
     align-items: center;
