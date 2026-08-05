@@ -1,0 +1,364 @@
+@using System.Globalization
+@using System.Text.RegularExpressions
+
+@* The business-partner and item picker on /reports/item-volume, drawn from
+   Sales Analysis.dc.html.
+
+   It is a listbox in markup rather than a native <select multiple>, for the
+   reasons IvxMultiSelect's header gives: a native popup takes its background
+   from the field, and a Nocturne field is a wash the browser composites onto
+   white and then refuses to darken. See .claude/skills/nocturne-dropdowns-and-dates.
+
+   It is not IvxMultiSelect, which stays as it is for /reports/volume-conversions:
+   this control carries the chosen codes as chips inside the closed control, and
+   it offers to expand a typed code range before you commit to it, so a reader
+   can see "BP0876–1188 · 34 codes" and decide. Those two are the whole design.
+
+   Styles live under the `sla-pick-` prefix in wwwroot/css/sales-analysis.css, so
+   this renders correctly only inside a `.sla` page root. *@
+
+<div class="sla-pick @(IsOpen ? "is-open" : "")" @onkeydown="OnKeyDown">
+    <div class="sla-pick-label">
+        @Label
+        <span class="sla-pick-req @(Required ? "is-required" : "")">@(Required ? "required" : "optional")</span>
+    </div>
+
+    <div class="sla-pick-control @(Disabled ? "is-disabled" : "")"
+         role="button" tabindex="0"
+         aria-haspopup="listbox" aria-expanded="@IsOpen" aria-label="@AriaLabel"
+         @onclick="Toggle" @onkeydown="OnControlKeyDown">
+        <i class="ph @Icon sla-pick-icon" aria-hidden="true"></i>
+        <div class="sla-pick-chips">
+            @if (Selected.Count == 0)
+            {
+                <span class="sla-pick-placeholder">@Placeholder</span>
+            }
+            @foreach (var value in Selected.Take(MaxChips))
+            {
+                var chip = value;
+                <span class="sla-pick-chip">
+                    @chip
+                    <span class="sla-pick-chip-x" role="button" aria-label="@($"Remove {chip}")"
+                          @onclick="@(() => Remove(chip))" @onclick:stopPropagation="true">
+                        <i class="ph ph-x" aria-hidden="true"></i>
+                    </span>
+                </span>
+            }
+            @if (Selected.Count > MaxChips)
+            {
+                <span class="sla-pick-more">+@(Selected.Count - MaxChips) more</span>
+            }
+        </div>
+        <i class="ph ph-caret-down sla-pick-caret" aria-hidden="true"></i>
+    </div>
+
+    <span class="sla-pick-hint">@Hint</span>
+
+    @if (IsOpen)
+    {
+        <div class="sla-pick-catch" @onclick="Close"></div>
+        <div class="sla-pick-menu" role="listbox" aria-multiselectable="true" aria-label="@AriaLabel">
+            <input class="sla-input sla-pick-search" type="search" placeholder="@SearchPlaceholder"
+                   @bind="query" @bind:event="oninput" @onkeydown="OnSearchKeyDown" />
+
+            @if (Range is { } range)
+            {
+                <button type="button" class="sla-pick-range" @onclick="ApplyRange">
+                    <i class="ph ph-brackets-round" aria-hidden="true"></i>
+                    <span class="sla-pick-range-label">Expand range @range.Label</span>
+                    <span class="sla-pick-range-count">@range.Codes.Count @(range.Codes.Count == 1 ? "code" : "codes")</span>
+                </button>
+            }
+            else if (TypedCode is { } typed)
+            {
+                <button type="button" class="sla-pick-range" @onclick="@(() => Add(typed))">
+                    <i class="ph ph-plus" aria-hidden="true"></i>
+                    <span class="sla-pick-range-label">Add “@typed”</span>
+                    <span class="sla-pick-range-count">not in the list</span>
+                </button>
+            }
+
+            <div class="sla-pick-list">
+                @foreach (var option in VisibleOptions)
+                {
+                    var value = option.Value;
+                    var isSelected = IsSelected(value);
+                    <label class="sla-pick-opt @(isSelected ? "is-selected" : "")" role="option" aria-selected="@isSelected">
+                        <input type="checkbox" checked="@isSelected" @onchange="@(() => ToggleValue(value))" />
+                        <span class="sla-pick-opt-name">@option.Name</span>
+                        @if (!string.IsNullOrWhiteSpace(option.Flag))
+                        {
+                            <span class="sla-pick-opt-flag">@option.Flag</span>
+                        }
+                        <span class="sla-pick-opt-code">@option.Value</span>
+                    </label>
+                }
+
+                @if (VisibleOptions.Count == 0)
+                {
+                    <div class="sla-pick-empty">@(Options.Count == 0 ? EmptyText : "No matches")</div>
+                }
+            </div>
+
+            <div class="sla-pick-foot">
+                <span class="sla-pick-count">@CountLabel</span>
+                <div class="sla-pick-foot-actions">
+                    <button type="button" class="sla-btn sla-btn-ghost" @onclick="SelectAllShown"
+                            disabled="@(VisibleOptions.Count == 0)">Select all</button>
+                    <button type="button" class="sla-btn sla-btn-ghost" @onclick="Clear"
+                            disabled="@(Selected.Count == 0)">Clear</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>
+    /// One selectable row. <c>Flag</c> is an optional trailing note — "no factor" on an item
+    /// the volume report cannot convert.
+    /// </summary>
+    public sealed record Option(string Value, string Name, string? Flag = null);
+
+    /// <summary>A code range the search box has resolved against <see cref="Options"/>.</summary>
+    public sealed record CodeRange(string Label, IReadOnlyList<string> Codes);
+
+    [Parameter] public IReadOnlyList<Option> Options { get; set; } = Array.Empty<Option>();
+    [Parameter] public IReadOnlyList<string> Selected { get; set; } = Array.Empty<string>();
+    [Parameter] public EventCallback<IReadOnlyList<string>> SelectedChanged { get; set; }
+    [Parameter] public string Label { get; set; } = "";
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "Choose";
+    [Parameter] public string Hint { get; set; } = "";
+    [Parameter] public string SearchPlaceholder { get; set; } = "Name, code, or a range";
+    [Parameter] public string Icon { get; set; } = "ph-list-checks";
+    [Parameter] public string? AriaLabel { get; set; }
+    [Parameter] public string EmptyText { get; set; } = "Nothing to choose from";
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Footer text when nothing is chosen and nothing has to be — the item picker's case.</summary>
+    [Parameter] public string EmptyCountLabel { get; set; } = "Empty covers everything";
+
+    /// <summary>Chips drawn in the closed control before the rest collapse into "+N more".</summary>
+    [Parameter] public int MaxChips { get; set; } = 3;
+
+    /// <summary>Rows drawn at once; the search is how you reach the rest.</summary>
+    [Parameter] public int MaxVisible { get; set; } = 200;
+
+    /// <summary>
+    /// "BP0876-1188", "van008 – 019", "VAN008 to 019" — a prefix, two numbers, and something
+    /// between them. The prefix may be written once or twice, and the numbers may be the wrong
+    /// way round.
+    /// </summary>
+    private static readonly Regex RangeRegex = new(
+        @"^(?<p1>[A-Za-z]*)\s*(?<n1>\d+)\s*(?:-|–|—|\.\.|to)\s*(?<p2>[A-Za-z]*)\s*(?<n2>\d+)$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static readonly Regex CodeRegex = new(
+        @"^(?<prefix>[A-Za-z]+)(?<number>\d+)$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private bool isOpen;
+    private string query = string.Empty;
+
+    private bool IsOpen => isOpen && !Disabled;
+
+    /// <summary>
+    /// The range the search box currently names, or null. Resolved against the options rather
+    /// than expanded arithmetically, so it never invents a code that does not exist.
+    /// </summary>
+    private CodeRange? Range
+    {
+        get
+        {
+            var match = RangeRegex.Match(query.Trim());
+            if (!match.Success)
+            {
+                return null;
+            }
+
+            var prefix = match.Groups["p1"].Value is { Length: > 0 } first
+                ? first
+                : match.Groups["p2"].Value;
+
+            if (!int.TryParse(match.Groups["n1"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var start) ||
+                !int.TryParse(match.Groups["n2"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var end))
+            {
+                return null;
+            }
+
+            if (end < start)
+            {
+                (start, end) = (end, start);
+            }
+
+            var hits = Options
+                .Select(option => new { option.Value, Parsed = CodeRegex.Match(option.Value) })
+                .Where(candidate => candidate.Parsed.Success)
+                .Where(candidate => prefix.Length == 0 || string.Equals(
+                    candidate.Parsed.Groups["prefix"].Value,
+                    prefix,
+                    StringComparison.OrdinalIgnoreCase))
+                .Select(candidate => new
+                {
+                    candidate.Value,
+                    Number = int.Parse(candidate.Parsed.Groups["number"].Value, CultureInfo.InvariantCulture)
+                })
+                .Where(candidate => candidate.Number >= start && candidate.Number <= end)
+                .OrderBy(candidate => candidate.Number)
+                .Select(candidate => candidate.Value)
+                .ToList();
+
+            return hits.Count == 0
+                ? null
+                : new CodeRange($"{hits[0]}–{hits[^1]}", hits);
+        }
+    }
+
+    /// <summary>
+    /// What the reader typed, when it is a single code that is not in the list and not already
+    /// chosen. A partner missing from the local cache is entered this way rather than needing a
+    /// free-text field beside the picker.
+    /// </summary>
+    private string? TypedCode
+    {
+        get
+        {
+            var typed = query.Trim().ToUpperInvariant();
+
+            if (typed.Length == 0 ||
+                typed.Contains(' ') ||
+                Options.Any(option => string.Equals(option.Value, typed, StringComparison.OrdinalIgnoreCase)) ||
+                IsSelected(typed))
+            {
+                return null;
+            }
+
+            return typed;
+        }
+    }
+
+    private List<Option> VisibleOptions
+    {
+        get
+        {
+            // While a range is on offer the list previews exactly what it would add.
+            if (Range is { } range)
+            {
+                var codes = range.Codes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                return Options.Where(option => codes.Contains(option.Value)).Take(MaxVisible).ToList();
+            }
+
+            var search = query.Trim();
+            var matches = string.IsNullOrEmpty(search)
+                ? Options
+                : Options.Where(option =>
+                    option.Value.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                    option.Name.Contains(search, StringComparison.OrdinalIgnoreCase));
+
+            // Chosen rows are pinned so a long list never hides them behind two hundred others.
+            return matches
+                .OrderByDescending(option => IsSelected(option.Value))
+                .ThenBy(option => option.Value, StringComparer.OrdinalIgnoreCase)
+                .Take(MaxVisible)
+                .ToList();
+        }
+    }
+
+    private string CountLabel => Options.Count == 0
+        ? $"{Selected.Count} selected"
+        : Required || Selected.Count > 0
+            ? $"{Selected.Count} of {Options.Count} selected"
+            : EmptyCountLabel;
+
+    private bool IsSelected(string value) =>
+        Selected.Any(selected => string.Equals(selected, value, StringComparison.OrdinalIgnoreCase));
+
+    private void Toggle()
+    {
+        if (Disabled)
+        {
+            return;
+        }
+
+        isOpen = !isOpen;
+        query = string.Empty;
+    }
+
+    private void Close() => isOpen = false;
+
+    private void OnKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            isOpen = false;
+        }
+    }
+
+    private void OnControlKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key is "Enter" or " ")
+        {
+            Toggle();
+        }
+    }
+
+    private async Task OnSearchKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key != "Enter")
+        {
+            return;
+        }
+
+        if (Range is not null)
+        {
+            await ApplyRange();
+        }
+        else if (TypedCode is { } typed)
+        {
+            await Add(typed);
+        }
+    }
+
+    private Task ToggleValue(string value) => IsSelected(value) ? Remove(value) : Add(value);
+
+    private async Task Add(string value)
+    {
+        var next = Selected.ToList();
+        next.Add(value);
+        // Adding leaves the box ready for the next code rather than still filtered to this one.
+        query = string.Empty;
+        await SelectedChanged.InvokeAsync(next);
+    }
+
+    private async Task Remove(string value)
+    {
+        var next = Selected
+            .Where(selected => !string.Equals(selected, value, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        await SelectedChanged.InvokeAsync(next);
+    }
+
+    private async Task ApplyRange()
+    {
+        if (Range is not { } range)
+        {
+            return;
+        }
+
+        var next = Selected.ToList();
+        next.AddRange(range.Codes.Where(code => !IsSelected(code)));
+        query = string.Empty;
+        await SelectedChanged.InvokeAsync(next);
+    }
+
+    private async Task SelectAllShown()
+    {
+        var next = Selected.ToList();
+        next.AddRange(VisibleOptions.Select(option => option.Value).Where(value => !IsSelected(value)));
+        await SelectedChanged.InvokeAsync(next);
+    }
+
+    private async Task Clear() => await SelectedChanged.InvokeAsync(new List<string>());
+}

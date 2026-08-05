@@ -281,6 +281,92 @@ public sealed class ItemVolumeSalesReportTests : IDisposable
             result.Value.DocumentLines.Sum(line => line.Quantity));
     }
 
+    [Fact]
+    public async Task Quarterly_folds_three_months_into_one_period_without_losing_the_credits()
+    {
+        await SeedFactorAsync("YOG143", 0.6m);
+
+        var handler = CreateHandler(
+            invoices:
+            [
+                Invoice(1, 5020, "CIS006", "2026-02-10", ("YOG143", 100m, 250m)),
+                Invoice(2, 5021, "CIS006", "2026-07-04", ("YOG143", 50m, 125m))
+            ],
+            creditNotes: [CreditNote(9, 7020, "CIS006", "2026-03-05", ("YOG143", 10m, 25m))]);
+
+        var result = await handler.Handle(
+            Query(grouping: ItemVolumeSalesGrouping.Quarterly, from: "2026-01-01", to: "2026-08-05"),
+            default);
+
+        Assert.Equal(
+            ["Q1 2026", "Q2 2026", "Q3 2026"],
+            result.Value.Periods.Select(period => period.Label));
+
+        var first = result.Value.Periods[0];
+        Assert.Equal(90m, first.NetQuantity);
+        Assert.Equal(54m, first.NetVolume);
+        Assert.Equal(225m, first.NetRevenueUsd);
+
+        // Nothing moved in Q2, but the quarter is still a column: dropping it would make the
+        // row stop adding up across the window.
+        Assert.Equal(0m, result.Value.Periods[1].NetVolume);
+        Assert.Equal(30m, result.Value.Periods[2].NetVolume);
+    }
+
+    [Fact]
+    public async Task Total_reports_the_whole_window_as_one_period_starting_where_it_was_asked_for()
+    {
+        await SeedFactorAsync("YOG143", 0.6m);
+
+        var handler = CreateHandler(
+            invoices:
+            [
+                Invoice(1, 5030, "CIS006", "2026-02-10", ("YOG143", 100m, 250m)),
+                Invoice(2, 5031, "CIS006", "2026-07-04", ("YOG143", 50m, 125m))
+            ],
+            creditNotes: [CreditNote(9, 7030, "CIS006", "2026-03-05", ("YOG143", 10m, 25m))]);
+
+        var result = await handler.Handle(
+            Query(grouping: ItemVolumeSalesGrouping.Total, from: "2026-01-15", to: "2026-08-05"),
+            default);
+
+        var period = Assert.Single(result.Value.Periods);
+        Assert.Equal("15 Jan 2026 - 05 Aug 2026", period.Label);
+        Assert.Equal(new DateTime(2026, 1, 15), period.PeriodStartUtc);
+        Assert.Equal(new DateTime(2026, 8, 5), period.PeriodEndUtc);
+        Assert.Equal(140m, period.NetQuantity);
+        Assert.Equal(84m, period.NetVolume);
+        Assert.Equal(result.Value.Summary.NetVolume, period.NetVolume);
+
+        // Every line of a Total run belongs to that one period, so the detail label is the
+        // window rather than each line's own date.
+        Assert.All(result.Value.DocumentLines, line => Assert.Equal(period.Label, line.PeriodLabel));
+    }
+
+    [Fact]
+    public async Task A_periods_own_item_breakdown_is_netted_too()
+    {
+        // The pivot on /reports/item-volume reads its cells out of Periods[].Accounts[].Items[],
+        // not out of the period's own totals, so those have to carry the credit as well.
+        await SeedFactorAsync("YOG143", 0.6m);
+
+        var handler = CreateHandler(
+            invoices: [Invoice(1, 5040, "CIS006", "2026-02-10", ("YOG143", 100m, 250m))],
+            creditNotes: [CreditNote(9, 7040, "CIS006", "2026-03-05", ("YOG143", 10m, 25m))]);
+
+        var result = await handler.Handle(
+            Query(grouping: ItemVolumeSalesGrouping.Quarterly, from: "2026-01-01", to: "2026-03-31"),
+            default);
+
+        var account = Assert.Single(Assert.Single(result.Value.Periods).Accounts);
+        var item = Assert.Single(account.Items);
+
+        Assert.Equal(90m, item.NetQuantity);
+        Assert.Equal(54m, item.NetVolume);
+        Assert.Equal(225m, item.NetRevenueUsd);
+        Assert.Equal(225m, account.NetRevenueUsd);
+    }
+
     private async Task SeedFactorAsync(string itemCode, decimal factor, bool isActive = true)
     {
         _context.ItemVolumeConversions.Add(new ItemVolumeConversionEntity
@@ -296,10 +382,12 @@ public sealed class ItemVolumeSalesReportTests : IDisposable
     private static GetItemVolumeSalesReportQuery Query(
         IReadOnlyList<string>? accountCodes = null,
         IReadOnlyList<string>? itemCodes = null,
-        ItemVolumeSalesGrouping grouping = ItemVolumeSalesGrouping.Monthly) =>
+        ItemVolumeSalesGrouping grouping = ItemVolumeSalesGrouping.Monthly,
+        string? from = null,
+        string? to = null) =>
         new(
-            DateTime.Parse(From),
-            DateTime.Parse(To),
+            DateTime.Parse(from ?? From),
+            DateTime.Parse(to ?? To),
             grouping,
             accountCodes ?? ["CIS006"],
             itemCodes ?? []);
