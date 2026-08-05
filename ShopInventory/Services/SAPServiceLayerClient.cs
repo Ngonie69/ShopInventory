@@ -2745,7 +2745,11 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         while (hasMore)
         {
             // Get items that are inventory items (sales items)
-            var endpoint = $"Items?$select=ItemCode,ItemName,BarCode,ItemType,ManageBatchNumbers,DefaultWarehouse,SalesUnit,U_ItemGroup&$filter=ItemType eq 'itItems' and Valid eq 'tYES'&$orderby=ItemCode&$top={pageSize}&$skip={skip}";
+            // ItemsGroupCode is asked for explicitly: leave it out and SAP simply omits it, the
+            // property deserializes as null on every row, and everything downstream reads "no
+            // group" rather than an error — which is how the Sales Analysis group filter came to
+            // narrow against a column that was empty for every product.
+            var endpoint = $"Items?$select=ItemCode,ItemName,BarCode,ItemType,ItemsGroupCode,ManageBatchNumbers,DefaultWarehouse,SalesUnit,U_ItemGroup&$filter=ItemType eq 'itItems' and Valid eq 'tYES'&$orderby=ItemCode&$top={pageSize}&$skip={skip}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -2979,7 +2983,7 @@ ORDER BY T0.""ItemCode""";
         {
             var safeItemCodes = batch.Select(SanitizeODataValue).ToList();
             var itemFilter = string.Join(" or ", safeItemCodes.Select(code => $"ItemCode eq '{code}'"));
-            var endpoint = "Items?$select=ItemCode,ItemName,BarCode,ItemType,ManageBatchNumbers,DefaultWarehouse,SalesUnit,InventoryUOM,U_ItemGroup,QuantityOnStock,QuantityOrderedFromVendors,QuantityOrderedByCustomers"
+            var endpoint = "Items?$select=ItemCode,ItemName,BarCode,ItemType,ItemsGroupCode,ManageBatchNumbers,DefaultWarehouse,SalesUnit,InventoryUOM,U_ItemGroup,QuantityOnStock,QuantityOrderedFromVendors,QuantityOrderedByCustomers"
                 + $"&$filter=ItemType eq 'itItems' and Valid eq 'tYES' and ({itemFilter})"
                 + $"&$top={batch.Length}";
 

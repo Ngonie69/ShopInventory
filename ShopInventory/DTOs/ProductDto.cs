@@ -18,7 +18,12 @@ public class ProductDto
     public string? DefaultWarehouse { get; set; }
     public string? UoM { get; set; }
 
-    /// <summary>The <c>U_ItemGroup</c> user-defined field, not SAP's own item group.</summary>
+    /// <summary>
+    /// The <c>U_ItemGroup</c> user-defined field, not SAP's own item group — that is
+    /// <see cref="ItemsGroupCode"/>. Every handler that fills this must read the same field, or a
+    /// caller comparing Category across two endpoints compares two unrelated things.
+    /// Null where the handler does not supply it; absence is fine, a second meaning is not.
+    /// </summary>
     public string? Category { get; set; }
 
     /// <summary>
