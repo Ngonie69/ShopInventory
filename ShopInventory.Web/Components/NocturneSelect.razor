@@ -93,7 +93,10 @@
 </div>
 
 @code {
-    [Parameter, EditorRequired] public IEnumerable<NocturneSelectOption<TValue>> Options { get; set; } = [];
+    // The interface rather than the class so a page's
+    // NocturneSelectOption<string> list binds to a string? field without
+    // CS8620 — see INocturneSelectOption.
+    [Parameter, EditorRequired] public IEnumerable<INocturneSelectOption<TValue>> Options { get; set; } = [];
 
     [Parameter] public TValue? Value { get; set; }
     [Parameter] public EventCallback<TValue?> ValueChanged { get; set; }
@@ -133,19 +136,19 @@
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? Extra { get; set; }
 
-    private List<NocturneSelectOption<TValue>> _items = [];
+    private List<INocturneSelectOption<TValue>> _items = [];
     private ElementReference[] _itemRefs = [];
     private bool _open;
     private int _active = -1;
     private bool _focusPending;
 
-    private NocturneSelectOption<TValue>? _current;
+    private INocturneSelectOption<TValue>? _current;
 
     private bool HasValue => _current is not null && !_current.IsUnset && !IsEmpty(_current.Value);
 
     protected override void OnParametersSet()
     {
-        _items = Options as List<NocturneSelectOption<TValue>> ?? Options.ToList();
+        _items = Options as List<INocturneSelectOption<TValue>> ?? Options.ToList();
         if (_itemRefs.Length != _items.Count)
         {
             _itemRefs = new ElementReference[_items.Count];
@@ -262,7 +265,7 @@
         }
     }
 
-    private async Task Pick(NocturneSelectOption<TValue> option)
+    private async Task Pick(INocturneSelectOption<TValue> option)
     {
         _open = false;
         if (Matches(option.Value))

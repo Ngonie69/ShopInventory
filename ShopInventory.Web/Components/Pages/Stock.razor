@@ -346,8 +346,10 @@
     ];
 
     private IEnumerable<NocturneSelectOption<string>> WarehouseSelectOptions =>
-        warehouses.Select(w => new NocturneSelectOption<string>(
-            w.WarehouseCode, w.WarehouseName ?? w.WarehouseCode) { Hint = w.WarehouseCode });
+        warehouses
+            .Where(w => !string.IsNullOrWhiteSpace(w.WarehouseCode))
+            .Select(w => new NocturneSelectOption<string>(
+                w.WarehouseCode!, w.WarehouseName ?? w.WarehouseCode!) { Hint = w.WarehouseCode });
 
     private List<WarehouseDto> warehouses = new();
     private List<StockQuantityDto> stockItems = new();

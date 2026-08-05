@@ -397,8 +397,10 @@
     private List<WarehouseDto> warehouses = new();
 
     private IEnumerable<NocturneSelectOption<string>> WarehouseSelectOptions =>
-        warehouses.Select(wh => new NocturneSelectOption<string>(
-            wh.WarehouseCode, wh.WarehouseName ?? wh.WarehouseCode) { Hint = wh.WarehouseCode });
+        warehouses
+            .Where(wh => !string.IsNullOrWhiteSpace(wh.WarehouseCode))
+            .Select(wh => new NocturneSelectOption<string>(
+                wh.WarehouseCode!, wh.WarehouseName ?? wh.WarehouseCode!) { Hint = wh.WarehouseCode });
     private LocalStockResultDto? stockResult;
     private HashSet<string> expandedItems = new();
     private StockFetchProgressModel? fetchProgress;

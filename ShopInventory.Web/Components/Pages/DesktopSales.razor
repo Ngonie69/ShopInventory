@@ -579,7 +579,8 @@
 
     private IEnumerable<NocturneSelectOption<string>> WarehouseFilterOptions =>
         warehouses
-            .Select(w => new NocturneSelectOption<string>(w.WarehouseCode, w.WarehouseCode, "info"))
+            .Where(w => !string.IsNullOrWhiteSpace(w.WarehouseCode))
+            .Select(w => new NocturneSelectOption<string>(w.WarehouseCode!, w.WarehouseCode!, "info"))
             .Prepend(NocturneSelectOption.All("All warehouses"));
 
     private static readonly NocturneSelectOption<string>[] ConsolidationFilterOptions =

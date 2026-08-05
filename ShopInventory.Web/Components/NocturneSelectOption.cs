@@ -1,6 +1,28 @@
 namespace ShopInventory.Web.Components;
 
 /// <summary>
+/// The read-only face of <see cref="NocturneSelectOption{TValue}"/>, which is
+/// what <see cref="NocturneSelect{TValue}"/> takes.
+/// </summary>
+/// <remarks>
+/// It exists for the <c>out</c>: a page that builds
+/// <c>NocturneSelectOption&lt;string&gt;</c> rows almost always binds them to a
+/// <c>string?</c> field, and the closed generic class alone makes those two
+/// different types — every such call site warned CS8620. Covariance closes the
+/// gap once, here, instead of at each page.
+/// </remarks>
+public interface INocturneSelectOption<out TValue>
+{
+    TValue Value { get; }
+    string Label { get; }
+    string? Family { get; }
+    string? Hint { get; }
+    bool Disabled { get; }
+    bool IsUnset { get; }
+    bool RuleAfter { get; }
+}
+
+/// <summary>
 /// One row in a <see cref="NocturneSelect{TValue}"/> menu.
 /// </summary>
 /// <remarks>
@@ -8,7 +30,7 @@ namespace ShopInventory.Web.Components;
 /// in three parallel switches over the same statuses, the label and the colour
 /// drift apart the first time a status is added.
 /// </remarks>
-public sealed class NocturneSelectOption<TValue>
+public sealed class NocturneSelectOption<TValue> : INocturneSelectOption<TValue>
 {
     public NocturneSelectOption(TValue value, string label, string? family = null)
     {
