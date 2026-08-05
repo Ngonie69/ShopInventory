@@ -592,7 +592,12 @@ public sealed class GetItemVolumeSalesReportHandler(
         return dateUtc.AddDays(-offset);
     }
 
-    private static decimal RoundVolume(decimal value) => Math.Round(value, 3, MidpointRounding.AwayFromZero);
+    /// <summary>
+    /// Volume is rounded to two decimals here, where the factor is applied, rather than left long
+    /// and rounded by whatever renders it. Every total downstream is a plain sum of these, so the
+    /// figure on screen is the figure itself and a column adds up to its own total exactly.
+    /// </summary>
+    private static decimal RoundVolume(decimal value) => Math.Round(value, 2, MidpointRounding.AwayFromZero);
 
     private static DateTime NormalizeDate(DateTime value) =>
         (value.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(value, DateTimeKind.Utc) : value.ToUniversalTime()).Date;

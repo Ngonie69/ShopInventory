@@ -99,7 +99,9 @@ public class ReportExportService : IReportExportService
     private const string FormatZig = "\"ZiG\" #,##0.00;[Red](\"ZiG\" #,##0.00)";
     private const string FormatMoney = "#,##0.00;[Red](#,##0.00)";
     private const string FormatQuantity = "#,##0.00";
-    private const string FormatVolume = "#,##0.000";
+    // Two decimals, matching the screen. The report rounds volume to two where the
+    // conversion factor is applied, so this format hides nothing.
+    private const string FormatVolume = "#,##0.00";
     private const string FormatCount = "#,##0";
     private const string FormatPercent = "0.0%";
     private const string FormatDate = "dd MMM yyyy";
