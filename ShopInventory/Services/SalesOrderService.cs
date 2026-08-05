@@ -75,7 +75,11 @@ public class SalesOrderService : ISalesOrderService
         {
             var sapOrder = await _sapClient.GetSalesOrderByDocEntryAsync(id, cancellationToken);
             if (sapOrder != null)
-                return MapFromSAP(sapOrder);
+            {
+                var sapDto = MapFromSAP(sapOrder);
+                await ApplyLocalAuditTrailAsync(sapDto, cancellationToken);
+                return sapDto;
+            }
         }
         catch (Exception ex)
         {
@@ -1661,6 +1665,10 @@ public class SalesOrderService : ISalesOrderService
             return;
         }
 
+        // Runs before the credit gate because an unpriced line understates DocTotal, so credit
+        // would wave the order through on a total that is not the real one.
+        EnsureOrderLinesArePriced(order);
+
         // The authoritative gate: every route into SAP passes here, and by this point the order
         // carries its real prices — a mobile order is priced after capture, so this is the first
         // moment its true value is known. It sits after the already-linked check on purpose, so
@@ -2890,6 +2898,50 @@ public class SalesOrderService : ISalesOrderService
             string.Equals(cardCode.Trim(), cardName.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Refuses to post an order carrying a line SAP would accept at 0.00.
+    /// </summary>
+    /// <remarks>
+    /// The SAP payload sends UnitPrice on every line, and a zero is a number like any other —
+    /// SAP takes it and does not fall back to its own pricing, so an item the price lookup
+    /// failed to resolve goes onto a real customer document free of charge. The pricing pass in
+    /// PopulateLivePricesAsync deliberately continues past an item it cannot price, so that a
+    /// pricing outage does not strand approvals; this is where that decision stops being safe.
+    ///
+    /// Posting is the right place for it rather than create: mobile orders arrive with 0.00 on
+    /// every line by design and are priced afterwards.
+    /// </remarks>
+    private void EnsureOrderLinesArePriced(SalesOrderEntity order)
+    {
+        var unpricedItems = FindUnpricedItemCodes(order);
+
+        if (unpricedItems.Count == 0)
+        {
+            return;
+        }
+
+        _logger.LogError(
+            "Refusing to post sales order {OrderNumber} (BP: {CardCode}) to SAP: {UnpricedCount} item(s) have no unit price — {ItemCodes}",
+            order.OrderNumber,
+            order.CardCode,
+            unpricedItems.Count,
+            string.Join(", ", unpricedItems));
+
+        throw new InvalidOperationException(
+            $"Sales order {order.OrderNumber} cannot be posted to SAP because no price could be found for {string.Join(", ", unpricedItems)}. " +
+            "Check the item's price on the customer's price list in SAP, then approve the order again.");
+    }
+
+    /// <summary>
+    /// The item codes on an order that carry no unit price. Empty means the order is safe to post.
+    /// </summary>
+    internal static IReadOnlyList<string> FindUnpricedItemCodes(SalesOrderEntity order)
+        => (order.Lines ?? [])
+            .Where(line => line.UnitPrice <= 0)
+            .Select(line => string.IsNullOrWhiteSpace(line.ItemCode) ? "<unknown item>" : line.ItemCode)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
     private async Task EnsureOrderHasValidQuantitiesAsync(SalesOrderEntity order, string operation, CancellationToken cancellationToken)
     {
         var validationErrors = new List<string>();
@@ -3048,6 +3100,57 @@ public class SalesOrderService : ISalesOrderService
             "bost_Close" => SalesOrderStatus.Fulfilled,
             _ => SalesOrderStatus.Draft
         };
+    }
+
+    /// <summary>
+    /// Puts the local audit trail back onto a DTO built from SAP.
+    /// </summary>
+    /// <remarks>
+    /// SAP holds no record of which app user raised or approved a document, so a DTO built by
+    /// MapFromSAP has an empty "created by" — which read to users as the originator being
+    /// unknown, when it was only unqueried. The local row is the authority on that, and on the
+    /// order number the app issued (SAP carries it as U_OrderNumber); the SAP document stays the
+    /// authority on everything else, so nothing else is overwritten here.
+    /// </remarks>
+    private async Task ApplyLocalAuditTrailAsync(SalesOrderDto dto, CancellationToken cancellationToken)
+    {
+        if (dto.SAPDocEntry is not > 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var localOrder = await _context.SalesOrders
+                .AsNoTracking()
+                .Include(o => o.CreatedByUser)
+                .Include(o => o.ApprovedByUser)
+                .FirstOrDefaultAsync(o => o.SAPDocEntry == dto.SAPDocEntry, cancellationToken);
+
+            if (localOrder == null)
+            {
+                // A document raised directly in SAP has no local counterpart. Blank is correct here.
+                return;
+            }
+
+            dto.OrderNumber = localOrder.OrderNumber;
+            dto.CreatedByUserId = localOrder.CreatedByUserId;
+            dto.CreatedByUserName = localOrder.CreatedByUser?.Username;
+            dto.ApprovedByUserId = localOrder.ApprovedByUserId;
+            dto.ApprovedByUserName = localOrder.ApprovedByUser?.Username;
+            dto.ApprovedDate = localOrder.ApprovedDate;
+            dto.CreatedAt = localOrder.CreatedAt;
+            dto.Source = localOrder.Source;
+        }
+        catch (Exception ex)
+        {
+            // The document itself came back from SAP; losing the originator's name is not a
+            // reason to fail the whole read.
+            _logger.LogWarning(
+                ex,
+                "Failed to attach the local audit trail to sales order DocEntry {DocEntry}",
+                dto.SAPDocEntry);
+        }
     }
 
     private static SalesOrderDto MapFromSAP(SAPSalesOrder sap)
