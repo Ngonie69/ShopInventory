@@ -14,5 +14,8 @@ public static partial class Errors
 
         public static Error SapError(string message) =>
             Error.Failure("GLAccount.SapError", message);
+
+        public static readonly Error InvalidDateRange =
+            Error.Validation("GLAccount.InvalidDateRange", "The ledger start date cannot be after the end date.");
     }
 }

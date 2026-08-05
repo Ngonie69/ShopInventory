@@ -1,0 +1,447 @@
+@page "/gl-accounts/{Code}"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
+@attribute [Authorize(Roles = UserRoles.CatalogueRoles)]
+@inject IGLAccountLedgerService LedgerService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>@(ledger?.AccountCode ?? Code) Ledger - Shop Inventory</PageTitle>
+
+@* Styles live in wwwroot/css/operations.css (linked from App.razor), shared with
+   the other operational pages — see that file's header. `ops` is the scope;
+   `ops-glled` is this page's own half of it, and it is a small half: a ledger is
+   the sheet's existing hero, figures, filter row and table. *@
+
+<div class="ops ops-glled">
+
+    <div class="ops-hero">
+        <div class="ops-hero-text">
+            <div class="ops-kicker">Master data &middot; Ledger</div>
+            <h1>@Code@(string.IsNullOrWhiteSpace(ledger?.AccountName) ? "" : $" — {ledger!.AccountName}")</h1>
+            <p>
+                Every journal line posted to this account in the period, with the balance it carries.
+                Read-only, and read straight from SAP's journal rather than from any local cache.
+            </p>
+        </div>
+        <div class="ops-hero-actions">
+            @if (ledger is not null)
+            {
+                <span class="ops-count">As at @ledger.ToDate.ToString("dd MMM yyyy")</span>
+            }
+            <button type="button" class="ops-btn ops-btn-ghost" @onclick="BackToAccounts">
+                <i class="ph ph-arrow-left" aria-hidden="true"></i>
+                <span>All accounts</span>
+            </button>
+        </div>
+    </div>
+
+    @if (errorMessage is not null)
+    {
+        <div class="ops-msg ops-fam-bad" role="alert">
+            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+            <div class="ops-msg-body">@errorMessage</div>
+        </div>
+    }
+
+    @* The reconciliation, stated loudly and only when it has something to say. The same
+       debits-less-credits sum feeds the customer statement's opening balance, which is known to run
+       light on at least one account — so on this page, where SAP publishes an independent figure to
+       check against, a disagreement is the most useful thing on the screen. *@
+    @if (ledger is not null && !ledger.IsReconciled)
+    {
+        <div class="ops-msg ops-fam-warn" role="status">
+            <i class="ph ph-warning-circle" aria-hidden="true"></i>
+            <div class="ops-msg-body">
+                SAP would not give up this account's own balance, so the totals below could not be
+                checked against it. The lines themselves are unaffected.
+            </div>
+        </div>
+    }
+    else if (ledger is not null && ledger.ReconciliationDifference != 0)
+    {
+        <div class="ops-msg ops-fam-bad" role="alert">
+            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+            <div class="ops-msg-body">
+                <strong>These figures do not agree with SAP.</strong>
+                SAP reports a balance of @Money(ledger.SapBalance) for this account; summing every
+                journal line up to today gives @Money(ledger.ComputedBalanceToday), a difference of
+                @Money(Math.Abs(ledger.ReconciliationDifference)).
+                Treat the balances below as unreliable until that is explained — the individual lines
+                are read directly from the journal and are not in question.
+            </div>
+        </div>
+    }
+
+    @if (ledger is not null && ledger.IsTruncated)
+    {
+        <div class="ops-msg ops-fam-warn" role="status">
+            <i class="ph ph-warning" aria-hidden="true"></i>
+            <div class="ops-msg-body">
+                This period holds more than @ledger.LineLimit.ToString("N0") lines and only the first
+                @ledger.LineLimit.ToString("N0") were read, so the closing balance below stops short
+                of the period end. Narrow the date range to see the rest.
+            </div>
+        </div>
+    }
+
+    @if (ledger is not null)
+    {
+        <div class="ops-figures">
+            <div class="ops-figure ops-fam-accent">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Opening balance</div>
+                <div class="ops-figure-num">@Money(ledger.OpeningBalance)</div>
+                <div class="ops-figure-sub">Before @ledger.FromDate.ToString("dd MMM yyyy")</div>
+            </div>
+            <div class="ops-figure ops-fam-info">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Debits</div>
+                <div class="ops-figure-num">@Money(ledger.TotalDebits)</div>
+                <div class="ops-figure-sub">@ledger.Lines.Count.ToString("N0") line@(ledger.Lines.Count == 1 ? "" : "s") in the period</div>
+            </div>
+            <div class="ops-figure ops-fam-neutral">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Credits</div>
+                <div class="ops-figure-num">@Money(ledger.TotalCredits)</div>
+                <div class="ops-figure-sub">Movement @Money(ledger.TotalDebits - ledger.TotalCredits)</div>
+            </div>
+            <div class="ops-figure ops-fam-accent">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Closing balance</div>
+                <div class="ops-figure-num">@Money(ledger.ClosingBalance)</div>
+                <div class="ops-figure-sub">As at @ledger.ToDate.ToString("dd MMM yyyy")</div>
+            </div>
+            @* The reconciliation card. It carries good or bad because unlike every other figure here
+               this one genuinely is a pass or a fail. *@
+            <div class="ops-figure @ReconciliationFamily">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>SAP balance</div>
+                <div class="ops-figure-num">@Money(ledger.SapBalance)</div>
+                <div class="ops-figure-sub">@ReconciliationNote</div>
+            </div>
+        </div>
+    }
+
+    <section class="ops-panel">
+        <div class="ops-panel-head">
+            <h2><i class="ph ph-list-bullets" aria-hidden="true"></i>Transactions</h2>
+            @if (ledger is not null)
+            {
+                <span class="ops-count">
+                    @ledger.Lines.Count.ToString("N0")
+                    line@(ledger.Lines.Count == 1 ? "" : "s")
+                </span>
+            }
+        </div>
+
+        <div class="ops-filters">
+            @* Not <label>s: NocturneDateField renders a button and a popup, and a label would
+               swallow the clicks. *@
+            <div class="ops-field">
+                <span class="ops-label">From</span>
+                <NocturneDateField Id="glled-from" Date="fromDate" DateChanged="OnFromDateChanged"
+                                   AriaLabel="From date" />
+            </div>
+            <div class="ops-field">
+                <span class="ops-label">To</span>
+                <NocturneDateField Id="glled-to" Date="toDate" DateChanged="OnToDateChanged"
+                                   AriaLabel="To date" />
+            </div>
+            <div class="ops-filter-actions">
+                <button type="button" class="ops-btn ops-btn-primary" @onclick="LoadLedger" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="ops-spin"></span>
+                        <span>Loading&hellip;</span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                        <span>Refresh</span>
+                    }
+                </button>
+                <button type="button" class="ops-btn ops-btn-ghost" @onclick="ResetToThisMonth" disabled="@isLoading">
+                    <i class="ph ph-x-circle" aria-hidden="true"></i>This month
+                </button>
+            </div>
+        </div>
+
+        @if (dateRangeWarning is not null)
+        {
+            <p class="ops-hint">@dateRangeWarning</p>
+        }
+
+        @if (isLoading)
+        {
+            <div class="ops-loading">
+                <span class="ops-spin ops-spin-lg"></span>
+                <p>Reading the journal&hellip;</p>
+            </div>
+        }
+        else if (ledger is null)
+        {
+            <div class="ops-empty">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <h3>Could not load the ledger</h3>
+                <p>@(errorMessage ?? "Something went wrong reading this account.")</p>
+                <div class="ops-empty-actions">
+                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="LoadLedger">Try again</button>
+                </div>
+            </div>
+        }
+        else if (ledger.Lines.Count == 0)
+        {
+            <div class="ops-empty">
+                <i class="ph ph-info" aria-hidden="true"></i>
+                <h3>Nothing posted in this period</h3>
+                <p>
+                    The account carried @Money(ledger.OpeningBalance) into
+                    @ledger.FromDate.ToString("dd MMM yyyy") and nothing moved it before
+                    @ledger.ToDate.ToString("dd MMM yyyy"). Try a wider range.
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="ops-scroll">
+                @* Deliberately not sortable, unlike its four sibling tables. The Balance column is a
+                   running total, so it only means anything in posting order — a click that reordered
+                   the rows would leave every figure in that column wrong while still looking sound. *@
+                <table class="ops-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Document</th>
+                            <th>Type</th>
+                            <th>Partner</th>
+                            <th>Details</th>
+                            <th class="ops-mid">Offset</th>
+                            <th class="ops-num">Debit</th>
+                            <th class="ops-num">Credit</th>
+                            <th class="ops-num">Balance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var line in pagedLines)
+                        {
+                            <tr>
+                                <td>@line.Date.ToString("dd MMM yyyy")</td>
+                                <td>
+                                    <span class="ops-code">@line.DocumentNumber</span>
+                                    <div class="ops-sub">Journal @line.TransactionNumber</div>
+                                </td>
+                                <td>
+                                    <span class="ops-badge @OriginFamily(line.OriginCode)">@line.OriginCode</span>
+                                    <div class="ops-sub">@line.DocumentType</div>
+                                </td>
+                                <td>
+                                    @if (string.IsNullOrWhiteSpace(line.PartnerCode))
+                                    {
+                                        <span class="ops-sub">&mdash;</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="ops-code">@line.PartnerCode</span>
+                                    }
+                                </td>
+                                <td class="ops-name">
+                                    @line.Description
+                                    @if (!string.IsNullOrWhiteSpace(line.CreatedBy))
+                                    {
+                                        <div class="ops-sub">Posted by @line.CreatedBy</div>
+                                    }
+                                </td>
+                                <td class="ops-mid">
+                                    @if (string.IsNullOrWhiteSpace(line.OffsetAccount))
+                                    {
+                                        <span class="ops-sub">&mdash;</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="ops-unit">@line.OffsetAccount</span>
+                                    }
+                                </td>
+                                @* A debit is not good and a credit is not bad — on a ledger they are
+                                   just the two sides, so neither cell takes a family. *@
+                                <td class="ops-num">
+                                    <span class="ops-qty">@(line.Debit == 0 ? "" : Money(line.Debit))</span>
+                                </td>
+                                <td class="ops-num">
+                                    <span class="ops-qty">@(line.Credit == 0 ? "" : Money(line.Credit))</span>
+                                </td>
+                                <td class="ops-num">
+                                    <span class="ops-qty @(line.Balance < 0 ? "ops-fam-bad" : "")">
+                                        @Money(line.Balance)
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (totalPages > 1)
+            {
+                <div class="ops-foot">
+                    <span class="ops-foot-info">Page @currentPage of @totalPages</span>
+                    <div class="ops-pages">
+                        <button type="button" class="ops-step" disabled="@(currentPage <= 1)" @onclick="PreviousPage">
+                            <i class="ph ph-caret-left" aria-hidden="true"></i>Previous
+                        </button>
+                        <span class="ops-page-now">@currentPage</span>
+                        <button type="button" class="ops-step" disabled="@(currentPage >= totalPages)" @onclick="NextPage">
+                            Next<i class="ph ph-caret-right" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    [Parameter] public string Code { get; set; } = string.Empty;
+
+    private GLAccountLedgerResponse? ledger;
+    private bool isLoading = true;
+    private string? errorMessage;
+    private string? dateRangeWarning;
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+
+    private int currentPage = 1;
+    private const int PageSize = 50;
+
+    private int totalPages => ledger is null
+        ? 0
+        : (int)Math.Ceiling((double)ledger.Lines.Count / PageSize);
+
+    private IEnumerable<GLAccountLedgerLine> pagedLines => ledger is null
+        ? []
+        : ledger.Lines.Skip((currentPage - 1) * PageSize).Take(PageSize);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Defaulted here rather than in the field initialisers so following a link to a different
+        // account keeps whatever range the user was already looking at.
+        if (fromDate is null || toDate is null)
+        {
+            ResetDates();
+        }
+
+        await LoadLedger();
+    }
+
+    private void ResetDates()
+    {
+        var today = DateTime.Today;
+        fromDate = new DateTime(today.Year, today.Month, 1);
+        toDate = today;
+    }
+
+    private async Task LoadLedger()
+    {
+        if (string.IsNullOrWhiteSpace(Code))
+        {
+            return;
+        }
+
+        if (fromDate is null || toDate is null)
+        {
+            dateRangeWarning = "Pick both a start and an end date.";
+            return;
+        }
+
+        if (fromDate > toDate)
+        {
+            // Caught here as well as in the API so the correction is immediate and costs no round
+            // trip to SAP.
+            dateRangeWarning = "The start date is after the end date, so there is nothing to show.";
+            return;
+        }
+
+        isLoading = true;
+        errorMessage = null;
+        dateRangeWarning = null;
+
+        try
+        {
+            ledger = await LedgerService.GetLedgerAsync(Code, fromDate.Value, toDate.Value);
+            currentPage = 1;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            ledger = null;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OnFromDateChanged(DateTime? value)
+    {
+        fromDate = value;
+        await LoadLedger();
+    }
+
+    private async Task OnToDateChanged(DateTime? value)
+    {
+        toDate = value;
+        await LoadLedger();
+    }
+
+    private async Task ResetToThisMonth()
+    {
+        ResetDates();
+        await LoadLedger();
+    }
+
+    private void BackToAccounts() => Navigation.NavigateTo("/gl-accounts");
+
+    private void PreviousPage()
+    {
+        if (currentPage > 1)
+        {
+            currentPage--;
+        }
+    }
+
+    private void NextPage()
+    {
+        if (currentPage < totalPages)
+        {
+            currentPage++;
+        }
+    }
+
+    private static string Money(decimal value) => value.ToString("N2");
+
+    private string ReconciliationFamily => ledger switch
+    {
+        null => "ops-fam-neutral",
+        { IsReconciled: false } => "ops-fam-warn",
+        { ReconciliationDifference: 0 } => "ops-fam-good",
+        _ => "ops-fam-bad"
+    };
+
+    private string ReconciliationNote => ledger switch
+    {
+        null => "",
+        { IsReconciled: false } => "Could not be checked",
+        { ReconciliationDifference: 0 } => "Agrees with the journal",
+        var l => $"{Money(Math.Abs(l.ReconciliationDifference))} "
+                 + (l.ReconciliationDifference > 0 ? "more than the journal" : "less than the journal")
+    };
+
+    // The badge hue follows what the document does to the account rather than the document's own
+    // name, so a ledger scans the same way the statement does: money in, money out, correction.
+    private static string OriginFamily(string originCode) => originCode switch
+    {
+        "IN" or "PU" or "GR" => "ops-fam-info",
+        "RC" or "PS" => "ops-fam-good",
+        "CN" or "PC" or "RT" or "GS" => "ops-fam-warn",
+        "JE" or "OB" => "ops-fam-accent",
+        _ => "ops-fam-neutral"
+    };
+}
