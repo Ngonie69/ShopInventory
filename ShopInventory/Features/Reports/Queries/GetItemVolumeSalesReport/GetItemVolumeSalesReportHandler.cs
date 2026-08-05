@@ -89,7 +89,7 @@ public sealed class GetItemVolumeSalesReportHandler(
             var itemTotals = BuildItemResults(lines, factors, itemNames);
             var accountTotals = BuildAccountResults(accountCodes, accountNames, lines, factors, itemNames);
             var periods = BuildPeriodResults(fromDateUtc, toDateUtc, request.Grouping, accountNames, lines, factors, itemNames);
-            var documentLines = BuildDocumentLineResults(request.Grouping, lines, factors);
+            var documentLines = BuildDocumentLineResults(request.Grouping, fromDateUtc, toDateUtc, lines, factors);
 
             var itemCodesWithoutFactor = itemTotals
                 .Where(item => !item.HasVolumeFactor)
@@ -382,6 +382,8 @@ public sealed class GetItemVolumeSalesReportHandler(
 
     private static List<ItemVolumeSalesDocumentLineResult> BuildDocumentLineResults(
         ItemVolumeSalesGrouping grouping,
+        DateTime fromDateUtc,
+        DateTime toDateUtc,
         IReadOnlyList<ItemVolumeSalesLineSnapshot> lines,
         IReadOnlyDictionary<string, decimal> factors)
     {
@@ -392,7 +394,7 @@ public sealed class GetItemVolumeSalesReportHandler(
 
                 return new ItemVolumeSalesDocumentLineResult
                 {
-                    PeriodLabel = BuildDetailPeriodLabel(line.DocumentDateUtc, grouping),
+                    PeriodLabel = BuildDetailPeriodLabel(line.DocumentDateUtc, fromDateUtc, toDateUtc, grouping),
                     DocumentType = line.IsCreditNote ? "Credit Note" : "Invoice",
                     DocumentDateUtc = line.DocumentDateUtc,
                     DocumentNumber = line.DocumentNumber,
@@ -503,6 +505,13 @@ public sealed class GetItemVolumeSalesReportHandler(
         DateTime toDateUtc,
         ItemVolumeSalesGrouping grouping)
     {
+        // Total is the window itself, so it is not walked: its one period starts where the
+        // caller asked rather than at the head of a calendar month or quarter.
+        if (grouping == ItemVolumeSalesGrouping.Total)
+        {
+            return [(fromDateUtc.Date, toDateUtc.Date, BuildWindowLabel(fromDateUtc, toDateUtc))];
+        }
+
         var periods = new List<(DateTime Start, DateTime End, string Label)>();
         var cursor = GetPeriodStart(fromDateUtc, grouping);
 
@@ -515,6 +524,7 @@ public sealed class GetItemVolumeSalesReportHandler(
             {
                 ItemVolumeSalesGrouping.Weekly => cursor.AddDays(7),
                 ItemVolumeSalesGrouping.Monthly => cursor.AddMonths(1),
+                ItemVolumeSalesGrouping.Quarterly => cursor.AddMonths(3),
                 _ => cursor.AddDays(1)
             };
         }
@@ -526,6 +536,14 @@ public sealed class GetItemVolumeSalesReportHandler(
     {
         ItemVolumeSalesGrouping.Weekly => GetStartOfWeek(dateUtc.Date),
         ItemVolumeSalesGrouping.Monthly => new DateTime(dateUtc.Year, dateUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc),
+        ItemVolumeSalesGrouping.Quarterly => new DateTime(
+            dateUtc.Year,
+            (((dateUtc.Month - 1) / 3) * 3) + 1,
+            1,
+            0,
+            0,
+            0,
+            DateTimeKind.Utc),
         _ => dateUtc.Date
     };
 
@@ -533,6 +551,7 @@ public sealed class GetItemVolumeSalesReportHandler(
     {
         ItemVolumeSalesGrouping.Weekly => periodStart.AddDays(6),
         ItemVolumeSalesGrouping.Monthly => periodStart.AddMonths(1).AddDays(-1),
+        ItemVolumeSalesGrouping.Quarterly => periodStart.AddMonths(3).AddDays(-1),
         _ => periodStart
     };
 
@@ -540,11 +559,29 @@ public sealed class GetItemVolumeSalesReportHandler(
     {
         ItemVolumeSalesGrouping.Weekly => $"{start:dd MMM yyyy} - {end:dd MMM yyyy}",
         ItemVolumeSalesGrouping.Monthly => start.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
+        ItemVolumeSalesGrouping.Quarterly => string.Create(
+            CultureInfo.InvariantCulture,
+            $"Q{((start.Month - 1) / 3) + 1} {start.Year}"),
         _ => start.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)
     };
 
-    private static string BuildDetailPeriodLabel(DateTime dateUtc, ItemVolumeSalesGrouping grouping)
+    private static string BuildWindowLabel(DateTime fromDateUtc, DateTime toDateUtc) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"{fromDateUtc:dd MMM yyyy} - {toDateUtc:dd MMM yyyy}");
+
+    private static string BuildDetailPeriodLabel(
+        DateTime dateUtc,
+        DateTime fromDateUtc,
+        DateTime toDateUtc,
+        ItemVolumeSalesGrouping grouping)
     {
+        // Every line of a Total run belongs to the one period, so the label is the window
+        // rather than the line's own date.
+        if (grouping == ItemVolumeSalesGrouping.Total)
+        {
+            return BuildWindowLabel(fromDateUtc, toDateUtc);
+        }
+
         var periodStart = GetPeriodStart(NormalizeDate(dateUtc), grouping);
         return BuildPeriodLabel(periodStart, GetPeriodEnd(periodStart, grouping), grouping);
     }

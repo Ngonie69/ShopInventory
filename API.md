@@ -1490,7 +1490,7 @@ same invoice and credit-note lines, so one call serves both.
 | Parameter | Notes |
 |-----------|-------|
 | `fromDate`, `toDate` | Default to the last 30 days. Both invoices and credit notes are selected on their own `DocDate`. |
-| `grouping` | `Daily`, `Weekly` or `Monthly`. Default `Monthly`. |
+| `grouping` | `Daily`, `Weekly`, `Monthly`, `Quarterly` or `Total`. Default `Monthly`. `Total` returns the whole window as one period, starting on `fromDate` rather than at the head of a calendar period. |
 | `accountCodes` | Repeatable. Required. A `PREFIX001-019` token is expanded into its members. |
 | `itemCodes` | Repeatable. Empty means every item the selected accounts traded. |
 
