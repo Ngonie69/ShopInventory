@@ -123,6 +123,19 @@ public interface ISAPServiceLayerClient
     Task<Item?> GetItemByCodeAsync(string itemCode, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Reads several items from the item master in one round-trip per batch, keyed by item code.
+    /// </summary>
+    /// <remarks>
+    /// Same resolution semantics as <see cref="GetItemByCodeAsync"/> — no item type or validity
+    /// filter — so a set of codes resolves to exactly what reading them one at a time would, and
+    /// shares that method's cache in both directions. Codes the item master does not hold are
+    /// absent from the result rather than being an error. Prefer this wherever more than one code
+    /// is known up front: each sequential Service Layer call carries its own chance of a
+    /// multi-second stall, so the round-trip count is what a caller feels, not the row count.
+    /// </remarks>
+    Task<Dictionary<string, Item>> GetItemsByCodesAsync(IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Resolves item names for the given codes, for display next to a bare item code.
     /// </summary>
     /// <remarks>

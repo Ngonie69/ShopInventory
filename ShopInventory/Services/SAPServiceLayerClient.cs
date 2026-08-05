@@ -46,6 +46,9 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private const string CostCentresCacheKey = "SAP_CostCentres";
     private const string CurrenciesCacheKey = "SAP_Currencies";
     private const string PaymentTermsCacheKeyPrefix = "SAP_PaymentTerms_";
+    // How many item codes go into one `ItemCode eq ... or ...` filter. Forty keeps the URL well
+    // inside the Service Layer's limit while collapsing a typical document's lines into one call.
+    private const int ItemCodeBatchSize = 40;
     private const string ItemCacheKeyPrefix = "SAP_Item_";
     private const string ItemNameCacheKeyPrefix = "SAP_ItemName_";
 
@@ -2808,7 +2811,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         // Get unique item codes from batches
         var itemCodes = batches.Select(b => b.ItemCode).Where(c => !string.IsNullOrEmpty(c)).Distinct().ToList();
 
-        return await GetItemsByCodesAsync(itemCodes!, cancellationToken);
+        return await GetStockItemsByCodesAsync(itemCodes!, cancellationToken);
     }
 
     public async Task<(List<Item> Items, bool HasMore)> GetPagedItemsInWarehouseAsync(
@@ -2834,7 +2837,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var hasMore = skip + pageItemCodes.Count < itemCodes.Count;
 
-        var items = await GetItemsByCodesAsync(pageItemCodes, cancellationToken);
+        var items = await GetStockItemsByCodesAsync(pageItemCodes, cancellationToken);
         return (items, hasMore);
     }
 
@@ -2943,7 +2946,16 @@ ORDER BY T0.""ItemCode""";
     private static string BuildWarehouseItemCodesCacheKey(string warehouseCode)
         => WarehouseItemCodesCacheKeyPrefix + warehouseCode.Trim().ToUpperInvariant();
 
-    private async Task<List<Item>> GetItemsByCodesAsync(
+    /// <summary>
+    /// Reads valid inventory items by code, with the stock quantities the warehouse paths bind.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="GetItemsByCodesAsync"/>: this one restricts to
+    /// <c>ItemType eq 'itItems' and Valid eq 'tYES'</c>, so it answers "which of these codes are
+    /// live inventory items" rather than "read these codes". Callers resolving master data for a
+    /// code the user already named want the other one, or an inactive item silently goes missing.
+    /// </remarks>
+    private async Task<List<Item>> GetStockItemsByCodesAsync(
         IEnumerable<string> itemCodes,
         CancellationToken cancellationToken)
     {
@@ -2963,27 +2975,32 @@ ORDER BY T0.""ItemCode""";
         var currentSession = _sessionId;
         var itemsByCode = new Dictionary<string, Item>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var batch in codes.Chunk(40))
+        foreach (var batch in codes.Chunk(ItemCodeBatchSize))
         {
             var safeItemCodes = batch.Select(SanitizeODataValue).ToList();
             var itemFilter = string.Join(" or ", safeItemCodes.Select(code => $"ItemCode eq '{code}'"));
             var endpoint = "Items?$select=ItemCode,ItemName,BarCode,ItemType,ManageBatchNumbers,DefaultWarehouse,SalesUnit,InventoryUOM,U_ItemGroup,QuantityOnStock,QuantityOrderedFromVendors,QuantityOrderedByCustomers"
-                + $"&$filter=ItemType eq 'itItems' and Valid eq 'tYES' and ({itemFilter})";
+                + $"&$filter=ItemType eq 'itItems' and Valid eq 'tYES' and ({itemFilter})"
+                + $"&$top={batch.Length}";
 
-            var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            // Asking for forty codes is not asking for forty rows: without an explicit page size the
+            // Service Layer answers with its default twenty and says nothing about the rest, so half
+            // of every full batch used to go missing as though SAP did not hold those items.
+            HttpRequestMessage CreateBatchRequest()
+            {
+                var batchRequest = new HttpRequestMessage(HttpMethod.Get, endpoint);
+                batchRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                batchRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                batchRequest.Headers.Add("Prefer", $"odata.maxpagesize={batch.Length}");
+                return batchRequest;
+            }
 
-            var response = await _httpClient.SendAsync(request, cancellationToken);
+            var response = await _httpClient.SendAsync(CreateBatchRequest(), cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                request = new HttpRequestMessage(HttpMethod.Get, endpoint);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                response = await _httpClient.SendAsync(request, cancellationToken);
+                response = await _httpClient.SendAsync(CreateBatchRequest(), cancellationToken);
             }
 
             if (!response.IsSuccessStatusCode)
@@ -3172,6 +3189,115 @@ ORDER BY T0.""ItemCode""";
         }
 
         return item;
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<string, Item>> GetItemsByCodesAsync(
+        IEnumerable<string> itemCodes,
+        CancellationToken cancellationToken = default)
+    {
+        var itemsByCode = new Dictionary<string, Item>(StringComparer.OrdinalIgnoreCase);
+
+        var codes = itemCodes
+            .Select(UomQuantityValidation.NormalizeItemCode)
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (codes.Count == 0)
+        {
+            return itemsByCode;
+        }
+
+        // Shares GetItemByCodeAsync's entries, so a document whose items were read one at a time
+        // earlier in the request costs nothing here, and what this reads is there for later.
+        var uncachedCodes = new List<string>();
+        foreach (var code in codes)
+        {
+            if (_memoryCache.TryGetValue($"{ItemCacheKeyPrefix}{code}", out Item? cachedItem) && cachedItem is not null)
+            {
+                itemsByCode[code] = cachedItem;
+            }
+            else
+            {
+                uncachedCodes.Add(code);
+            }
+        }
+
+        if (uncachedCodes.Count == 0)
+        {
+            return itemsByCode;
+        }
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        foreach (var batch in uncachedCodes.Chunk(ItemCodeBatchSize))
+        {
+            var itemFilter = string.Join(
+                " or ",
+                batch.Select(code => $"ItemCode eq '{SanitizeODataValue(code)}'"));
+            var endpoint = $"Items?{ItemSelect}&$filter=({itemFilter})&$top={batch.Length}";
+
+            HttpRequestMessage CreateBatchRequest()
+            {
+                var batchRequest = new HttpRequestMessage(HttpMethod.Get, endpoint);
+                batchRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                batchRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                batchRequest.Headers.Add("Prefer", $"odata.maxpagesize={batch.Length}");
+                return batchRequest;
+            }
+
+            try
+            {
+                var response = await _httpClient.SendAsync(CreateBatchRequest(), cancellationToken);
+
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    await HandleAuthFailureAsync(currentSession, cancellationToken);
+                    response = await _httpClient.SendAsync(CreateBatchRequest(), cancellationToken);
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                    _logger.LogWarning(
+                        "Failed to read {Count} items by code: {StatusCode} - {Error}",
+                        batch.Length,
+                        response.StatusCode,
+                        errorContent);
+                    continue;
+                }
+
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                var result = JsonSerializer.Deserialize<SAPResponse<Item>>(content);
+
+                foreach (var item in result?.Value ?? [])
+                {
+                    if (string.IsNullOrWhiteSpace(item.ItemCode))
+                    {
+                        continue;
+                    }
+
+                    itemsByCode[item.ItemCode] = item;
+                    _memoryCache.Set($"{ItemCacheKeyPrefix}{item.ItemCode}", item, ItemCacheLifetime);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // A batch that fails leaves its codes unresolved rather than failing the caller:
+                // this reads master data callers treat as best-effort, and the per-code path it
+                // replaced degraded the same way.
+                _logger.LogWarning(ex, "Failed to read a batch of {Count} items by code", batch.Length);
+            }
+        }
+
+        return itemsByCode;
     }
 
     /// <inheritdoc />
@@ -13156,7 +13282,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
     {
         try
         {
-            var items = await GetItemsByCodesAsync(itemCodes, cancellationToken);
+            var items = await GetStockItemsByCodesAsync(itemCodes, cancellationToken);
             return items
                 .Where(item => !string.IsNullOrWhiteSpace(item.ItemCode))
                 .GroupBy(item => item.ItemCode!, StringComparer.OrdinalIgnoreCase)
