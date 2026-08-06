@@ -1,0 +1,1112 @@
+/* ==========================================================================
+   Operations Dashboard — Nocturne
+
+   The administrator's dashboard at /dashboard, built from
+   `Operations Dashboard.dc.html`. The page it dresses is the one PR #195
+   shipped — health, then what is stuck, then what is waiting on a decision,
+   then who is doing what — so this sheet is a restyle and a regrouping, not a
+   new set of figures.
+
+   Why its own sheet rather than more of dashboard.css: `.dsh` is shared with
+   the sales-rep dashboard at the same route, and this design changes the
+   shapes rather than the colours — a health *banner* instead of a figure card,
+   two grades of card in the waiting row, a segmented filter over the failure
+   table. Restyling `.dsh` would have restyled a page this design says nothing
+   about. `.ops` was already taken by operations.css (the operations console),
+   hence `.opd` — see [[ivx-namespace-shared-by-two-sheets]] for what a
+   duplicated prefix does.
+
+   Palette and spacing come from nocturne-tokens.css; the block below aliases
+   them rather than restating them, so a colour is corrected once for the whole
+   system. There is therefore no `.dark-theme` block here: the canonical tokens
+   flip at the root and every alias resolves against whichever scheme is in
+   force.
+
+   Two things this page holds that the design draws but does not explain:
+
+   - **Accent means "this wants you", not "this is the third card".** The
+     design shows the waiting row as three permanently accented cards, drawn in
+     a state where all three carry work (7 blocked, 2 stranded, 99 without
+     2FA). Rendered against a clean system those same cards would shout at an
+     administrator about nothing. `.is-clear` returns a settled card to the
+     plain surface, and `.is-risk` takes it the other way when the count has
+     turned into a real failure. Colour never carries it alone: every card
+     states its condition in words, which is the rule StatCard's Tone/ToneNote
+     pair was added for.
+   - **The header is opaque.** The design paints it 88% + `backdrop-filter`.
+     A sticky bar's job is to hide what scrolls beneath it, and the blur is an
+     effect the compositor is free to skip — where it does, the hero's title
+     reads straight through the bar. Same fix the other six Nocturne headers
+     took: paint the page's own ground, drop the blur. `@supports` is not a
+     usable guard, because it reports true in exactly those environments.
+
+   Rules live here rather than an inline Razor <style> block for the reason the
+   other page sheets give: an inline block renders after the head stylesheets
+   and would beat them, and app.css's global `.dark-theme input/select/button`
+   rules have to be out-specified — so every control selector below is two
+   classes deep. Headings are pinned to Nocturne's 500 against Bootstrap's
+   global 600.
+   ========================================================================== */
+
+.opd {
+    /* Palette from nocturne-tokens.css; see that file for why these are
+       aliases rather than values, and which sheets share them. */
+    --opd-bg: var(--noct-bg);
+    --opd-surface: var(--noct-surface);
+    --opd-sunken: var(--noct-bg);
+    --opd-ink: var(--noct-ink);
+    --opd-ink-2: var(--noct-ink-2);
+    --opd-mute: var(--noct-mute);
+    --opd-mute-2: var(--noct-mute-2);
+    --opd-mute-3: var(--noct-mute-3);
+    --opd-faint: var(--noct-faint);
+    --opd-divider: var(--noct-divider);
+    --opd-rule: var(--noct-rule);
+    --opd-hover: var(--noct-hover);
+    --opd-press: var(--noct-press);
+    --opd-edge: var(--noct-field-edge);
+    --opd-edge-hi: var(--noct-field-edge-hi);
+    --opd-accent: var(--noct-accent);
+    --opd-accent-rgb: var(--noct-accent-rgb);
+    --opd-accent-text: var(--noct-accent-text);
+    --opd-scheme: var(--noct-scheme);
+
+    /* Families — the health banner, every card that can turn into work, and
+       the failure tags take one. */
+    --opd-fam-neutral: var(--noct-fam-neutral);
+    --opd-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --opd-fam-good: var(--noct-fam-good);
+    --opd-fam-good-rgb: var(--noct-fam-good-rgb);
+    --opd-fam-warn: var(--noct-fam-warn);
+    --opd-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --opd-fam-bad: var(--noct-fam-bad);
+    --opd-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --opd-s1: var(--noct-s1);
+    --opd-s2: var(--noct-s2);
+    --opd-s3: var(--noct-s3);
+    --opd-s4: var(--noct-s4);
+    --opd-s6: var(--noct-s6);
+    --opd-s8: var(--noct-s8);
+    --opd-r-sm: var(--noct-r-sm);
+    --opd-r-md: var(--noct-r-md);
+    --opd-r-lg: var(--noct-r-lg);
+
+    color-scheme: var(--opd-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.opd {
+    min-height: 100vh;
+    background: var(--opd-bg);
+    color: var(--opd-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.opd * {
+    box-sizing: border-box;
+}
+
+.opd :focus-visible {
+    outline: 2px solid var(--opd-accent);
+    outline-offset: 2px;
+}
+
+.opd ::selection {
+    background: rgba(var(--opd-accent-rgb), .3);
+}
+
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. */
+.opd h1,
+.opd h2,
+.opd h3 {
+    margin: 0;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+}
+
+.opd a {
+    text-decoration: none;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Sticky, and therefore opaque — see the note at the top of the file. */
+
+.opd-head {
+    position: sticky;
+    /* Below the app's own top bar, not the viewport top — the design draws its
+       own chrome, but only this page's content region is built. The height is
+       nocturne-shell.css's token (54px today); the 74px is the fallback every
+       other Nocturne page header carries, so all of them move together. */
+    top: var(--kf-topbar-h, 74px);
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s6);
+    padding: var(--opd-s4) 32px;
+    background: var(--opd-bg);
+    border-bottom: 1px solid var(--opd-rule);
+}
+
+.opd-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s3);
+    font-size: 12.5px;
+    color: var(--opd-mute-2);
+}
+
+.opd-crumb-sep {
+    color: var(--opd-faint);
+}
+
+.opd-crumb-now {
+    color: var(--opd-ink);
+}
+
+.opd-head-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s4);
+    flex-wrap: wrap;
+}
+
+/* When the figures on screen were read. The page never polls, so this is also
+   how old they are. */
+.opd-stamp {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--opd-mute-2);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.opd-stamp-dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--opd-accent);
+}
+
+/* Still reading: the dot pulses rather than the stamp changing colour, so the
+   two states differ in motion as well as in words. */
+.opd-stamp.is-reading .opd-stamp-dot {
+    animation: opd-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes opd-pulse {
+    50% {
+        opacity: .25;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .opd-stamp.is-reading .opd-stamp-dot {
+        animation: none;
+        opacity: .5;
+    }
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.opd .opd-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: 0 13px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--opd-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--opd-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.opd .opd-btn:disabled {
+    opacity: .45;
+    cursor: progress;
+}
+
+.opd .opd-btn-primary {
+    color: var(--opd-accent-text);
+    border-color: var(--opd-accent);
+}
+
+.opd .opd-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--opd-accent-rgb), .12);
+}
+
+.opd .opd-btn-primary:active:not(:disabled) {
+    background: rgba(var(--opd-accent-rgb), .22);
+}
+
+.opd .opd-btn-quiet {
+    color: var(--opd-mute);
+    border-color: var(--opd-divider);
+}
+
+.opd .opd-btn-quiet:hover:not(:disabled) {
+    color: var(--opd-ink);
+    border-color: var(--opd-edge-hi);
+    background: var(--opd-hover);
+}
+
+.opd-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--opd-accent-text);
+    white-space: nowrap;
+    transition: color .15s;
+}
+
+.opd-link:hover {
+    color: var(--opd-accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.opd-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border-radius: 50%;
+    border: 2px solid rgba(var(--opd-accent-rgb), .3);
+    border-top-color: var(--opd-accent);
+    animation: opd-spin .7s linear infinite;
+}
+
+@keyframes opd-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .opd-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.opd-body {
+    max-width: 1480px;
+    padding: 32px 32px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--opd-s8);
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.opd-hero {
+    display: flex;
+    align-items: flex-end;
+    gap: 32px;
+    flex-wrap: wrap;
+}
+
+.opd-hero-titles {
+    flex: 1;
+    min-width: 340px;
+}
+
+.opd-kicker {
+    margin-bottom: var(--opd-s4);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--opd-accent-text);
+}
+
+/* Rooted: app.css's `.dark-theme h1…h6` and `.dark-theme p` are (0,1,1) and
+   would recolour the hero out of the page's own palette in dark. */
+.opd .opd-title {
+    margin: 0 0 var(--opd-s4);
+    font-size: 38px;
+    line-height: 1.08;
+    letter-spacing: -.025em;
+    color: var(--opd-ink);
+}
+
+.opd .opd-sub {
+    margin: 0;
+    max-width: 56ch;
+    font-size: 14px;
+    color: var(--opd-mute-2);
+    text-wrap: pretty;
+}
+
+.opd-date {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--opd-s3);
+    padding: var(--opd-s3) 14px;
+    border-radius: var(--opd-r-md);
+    border: 1px solid var(--opd-divider);
+    font-size: 12.5px;
+    color: var(--opd-mute);
+    white-space: nowrap;
+}
+
+.opd-date svg {
+    color: var(--opd-accent);
+}
+
+/* ── Health ────────────────────────────────────────────────────────────── */
+/* Health leads the page: everything below it is only worth reading if the
+   system behind it is actually up. It is a banner rather than a figure card
+   because it is not a number and does not belong in a row of them.
+
+   The wash runs left-to-right out of the family's own hue, and the same hue
+   paints the 3px edge — so the banner says which of the three states it is in
+   before the word is read, and the word says it for anyone the hue does not
+   reach. */
+
+.opd-health {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s8);
+    flex-wrap: wrap;
+    padding: var(--opd-s6) var(--opd-s8);
+    border-radius: var(--opd-r-lg);
+    background:
+        linear-gradient(90deg,
+            rgba(var(--opd-fam-rgb, var(--opd-accent-rgb)), .22),
+            var(--opd-surface) 55%,
+            var(--opd-surface));
+    box-shadow:
+        inset 3px 0 0 var(--opd-fam, var(--opd-accent)),
+        inset 0 0 0 1px var(--opd-rule);
+}
+
+.opd-health.is-ok {
+    --opd-fam: var(--opd-fam-good);
+    --opd-fam-rgb: var(--opd-fam-good-rgb);
+}
+
+.opd-health.is-bad {
+    --opd-fam: var(--opd-fam-bad);
+    --opd-fam-rgb: var(--opd-fam-bad-rgb);
+}
+
+/* Not read yet — neither good nor bad, and it must not look like either. */
+.opd-health.is-unknown {
+    --opd-fam: var(--opd-fam-neutral);
+    --opd-fam-rgb: var(--opd-fam-neutral-rgb);
+}
+
+.opd-health-icon {
+    flex: none;
+    display: grid;
+    place-items: center;
+    color: var(--opd-fam, var(--opd-accent));
+}
+
+.opd-health-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.opd-health-state {
+    font-size: 19px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    color: var(--opd-ink);
+}
+
+.opd-health-note {
+    font-size: 12.5px;
+    color: var(--opd-mute-2);
+    text-wrap: pretty;
+}
+
+.opd-health-rail {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s8);
+}
+
+.opd-rail-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+}
+
+.opd-rail-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--opd-mute-3);
+}
+
+.opd-rail-value {
+    font-size: 15px;
+    color: var(--opd-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.opd-rail-sep {
+    width: 1px;
+    height: 30px;
+    background: var(--opd-divider);
+}
+
+/* ── Section bands ─────────────────────────────────────────────────────── */
+/* A label, a rule that fades out to the right, and sometimes a link. Nocturne's
+   freestanding rules fade rather than stopping cleanly. */
+
+.opd-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--opd-s4);
+}
+
+.opd-band {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s4);
+}
+
+.opd-band-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--opd-mute-2);
+    white-space: nowrap;
+}
+
+.opd-band-rule {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(to right, var(--opd-divider), transparent);
+}
+
+/* ── Waiting on you ────────────────────────────────────────────────────── */
+/* Three cards that can carry work, and a stacked pair that reports two queues
+   which are usually empty and are not worth a card each when they are. */
+
+.opd-calls {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--opd-s4);
+    align-items: stretch;
+}
+
+.opd-call {
+    display: flex;
+    flex-direction: column;
+    gap: var(--opd-s3);
+    padding: var(--opd-s6);
+    border-radius: var(--opd-r-md);
+    color: var(--opd-ink);
+    background:
+        linear-gradient(165deg,
+            rgba(var(--opd-fam-rgb, var(--opd-accent-rgb)), .2),
+            var(--opd-surface) 62%);
+    box-shadow: inset 0 0 0 1px rgba(var(--opd-fam-rgb, var(--opd-accent-rgb)), .35);
+    transition: box-shadow .15s, background-color .15s;
+}
+
+a.opd-call:hover {
+    box-shadow: inset 0 0 0 1px var(--opd-fam, var(--opd-accent));
+}
+
+/* A count that has turned into a failure rather than a queue. */
+.opd-call.is-risk {
+    --opd-fam: var(--opd-fam-bad);
+    --opd-fam-rgb: var(--opd-fam-bad-rgb);
+}
+
+/* Nothing waiting: the card drops back to the plain surface so the accent keeps
+   meaning "this wants you". */
+.opd-call.is-clear {
+    background: var(--opd-surface);
+    box-shadow: inset 0 0 0 1px var(--opd-rule);
+}
+
+.opd-call-top {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s3);
+}
+
+/* The one short accent mark on the card — solid, per Nocturne, where the long
+   rules fade. */
+.opd-call-mark {
+    width: 14px;
+    height: 2px;
+    flex: none;
+    background: var(--opd-fam, var(--opd-accent));
+}
+
+.opd-call.is-clear .opd-call-mark {
+    background: var(--opd-faint);
+}
+
+.opd-call-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--opd-mute);
+}
+
+.opd-call-glyph {
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    color: var(--opd-fam, var(--opd-accent));
+}
+
+.opd-call.is-clear .opd-call-glyph {
+    color: var(--opd-mute-3);
+}
+
+.opd-call-value {
+    font-size: 38px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--opd-ink-2);
+}
+
+.opd-call.is-clear .opd-call-value {
+    color: var(--opd-mute-2);
+}
+
+.opd-call-what {
+    font-size: 12.5px;
+    color: var(--opd-mute-2);
+    text-wrap: pretty;
+}
+
+/* The condition in words. Never colour alone — this line is why the wash above
+   it is allowed to exist. */
+.opd-call-foot {
+    margin-top: auto;
+    padding-top: var(--opd-s3);
+    border-top: 1px solid var(--opd-rule);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--opd-accent-text);
+}
+
+.opd-call.is-risk .opd-call-foot {
+    color: var(--opd-fam-bad);
+}
+
+.opd-call.is-clear .opd-call-foot {
+    color: var(--opd-mute-2);
+}
+
+.opd-quiet-stack {
+    display: grid;
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: var(--opd-s4);
+}
+
+.opd-quiet {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s4);
+    padding: var(--opd-s4) var(--opd-s6);
+    border-radius: var(--opd-r-md);
+    color: var(--opd-ink);
+    background: var(--opd-surface);
+    box-shadow: inset 0 0 0 1px var(--opd-rule);
+    transition: background-color .15s, box-shadow .15s;
+}
+
+a.opd-quiet:hover {
+    background: var(--opd-hover);
+    box-shadow: inset 0 0 0 1px var(--opd-divider);
+}
+
+/* A quiet tile that has stopped being quiet takes the warn family — it is a
+   queue that has aged, not a failure. */
+.opd-quiet.is-watch {
+    box-shadow: inset 0 0 0 1px rgba(var(--opd-fam-warn-rgb), .35);
+}
+
+.opd-quiet-value {
+    font-size: 24px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--opd-mute-2);
+}
+
+.opd-quiet.is-watch .opd-quiet-value {
+    color: var(--opd-fam-warn);
+}
+
+.opd-quiet-body {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.3;
+    min-width: 0;
+}
+
+.opd-quiet-label {
+    font-size: 12.5px;
+}
+
+.opd-quiet-note {
+    font-size: 11.5px;
+    color: var(--opd-mute-2);
+}
+
+.opd-quiet-glyph {
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    color: var(--opd-mute-3);
+}
+
+.opd-quiet.is-watch .opd-quiet-glyph {
+    color: var(--opd-fam-warn);
+}
+
+/* ── Today so far ──────────────────────────────────────────────────────── */
+
+.opd-today {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--opd-s4);
+}
+
+.opd-fig {
+    display: flex;
+    flex-direction: column;
+    gap: var(--opd-s3);
+    padding: var(--opd-s6);
+    border-radius: var(--opd-r-md);
+    background: var(--opd-surface);
+    box-shadow: inset 0 0 0 1px var(--opd-rule);
+}
+
+.opd-fig-top {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s3);
+}
+
+.opd-fig-mark {
+    width: 14px;
+    height: 2px;
+    flex: none;
+    background: var(--opd-faint);
+}
+
+.opd-fig-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--opd-mute-2);
+}
+
+.opd-fig-glyph {
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    color: var(--opd-mute-3);
+}
+
+.opd-fig-line {
+    display: flex;
+    align-items: baseline;
+    gap: var(--opd-s4);
+    flex-wrap: wrap;
+}
+
+.opd-fig-value {
+    font-size: 32px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.opd-fig-amount {
+    font-size: 12.5px;
+    color: var(--opd-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.opd-fig-foot {
+    margin-top: auto;
+    padding-top: var(--opd-s3);
+    border-top: 1px solid var(--opd-rule);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--opd-mute-2);
+}
+
+/* The trend glyph carries the direction; the text beside it says it too. */
+.opd-fig-trend {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--opd-mute-2);
+}
+
+.opd-fig-trend svg {
+    color: var(--opd-accent-text);
+}
+
+/* ── Panels ────────────────────────────────────────────────────────────── */
+
+.opd-panels {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--opd-s4);
+    align-items: start;
+}
+
+.opd-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--opd-s4);
+    padding: var(--opd-s6);
+    border-radius: var(--opd-r-md);
+    background: var(--opd-surface);
+    box-shadow: inset 0 0 0 1px var(--opd-rule);
+}
+
+.opd-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s4);
+    flex-wrap: wrap;
+}
+
+.opd .opd-panel-title {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--opd-ink);
+}
+
+.opd-panel-note {
+    font-size: 12px;
+    color: var(--opd-mute-3);
+}
+
+.opd-panel-head .opd-link {
+    margin-left: auto;
+}
+
+/* ── The family filter ─────────────────────────────────────────────────── */
+/* Nocturne's segmented choice, on native buttons. The options come from the
+   clusters actually on screen rather than a fixed list of families, so the
+   control can never offer a filter that empties the table. */
+
+.opd-seg {
+    align-self: flex-start;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    padding: 3px;
+    border-radius: var(--opd-r-md);
+    background: var(--opd-sunken);
+    box-shadow: inset 0 0 0 1px var(--opd-rule);
+}
+
+.opd .opd-seg-opt {
+    height: 24px;
+    padding: 0 11px;
+    display: grid;
+    place-items: center;
+    font: inherit;
+    font-size: 12px;
+    color: var(--opd-mute);
+    background: transparent;
+    border: 0;
+    border-radius: var(--opd-r-sm);
+    cursor: pointer;
+    transition: background-color .15s, color .15s, box-shadow .15s;
+}
+
+.opd .opd-seg-opt:hover:not(.is-on) {
+    background: var(--opd-hover);
+    color: var(--opd-ink);
+}
+
+.opd .opd-seg-opt.is-on {
+    color: var(--opd-accent-text);
+    background: rgba(var(--opd-accent-rgb), .12);
+    box-shadow: inset 0 0 0 1px rgba(var(--opd-accent-rgb), .32);
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────── */
+/* Row rules are painted as row-level strips so Nocturne's end-fade spans the
+   row rather than restarting at each cell. */
+
+.opd-scroll {
+    overflow-x: auto;
+}
+
+.opd-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 13.5px;
+}
+
+/* Rooted, and `background` stated rather than left off: app.css carries a
+   global `.dark-theme table thead th { background: #0f172a; color: #94a3b8 }`
+   at (0,1,2), which beats a bare `.opd-table th` and paints a slab of another
+   page's navy across the header — in dark only. */
+.opd .opd-table thead th {
+    padding: var(--opd-s2) var(--opd-s3);
+    background: transparent;
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--opd-mute-3);
+    white-space: nowrap;
+}
+
+.opd-table thead tr {
+    background: linear-gradient(to right,
+            var(--opd-divider), var(--opd-divider) calc(100% - 48px), transparent)
+        no-repeat bottom / 100% 1px;
+}
+
+.opd-table td {
+    padding: var(--opd-s3);
+    vertical-align: top;
+    color: var(--opd-ink);
+}
+
+.opd-table tbody tr {
+    background: linear-gradient(to right,
+            var(--opd-rule), var(--opd-rule) calc(100% - 48px), transparent)
+        no-repeat bottom / 100% 1px;
+}
+
+.opd-table th:first-child,
+.opd-table td:first-child {
+    padding-left: 0;
+}
+
+.opd-table th:last-child,
+.opd-table td:last-child {
+    padding-right: 0;
+}
+
+.opd-name {
+    text-wrap: pretty;
+}
+
+.opd-guide {
+    font-size: 12.5px;
+    color: var(--opd-mute-2);
+    text-wrap: pretty;
+}
+
+.opd-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.opd-when {
+    font-size: 12.5px;
+    color: var(--opd-mute-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.opd-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 9px;
+    border-radius: 6px;
+    font-size: 11px;
+    white-space: nowrap;
+    color: var(--opd-ink);
+    background: rgba(var(--opd-fam-neutral-rgb), .2);
+}
+
+.opd-tag-ok {
+    color: var(--opd-fam-good);
+    background: rgba(var(--opd-fam-good-rgb), .14);
+}
+
+.opd-tag-bad {
+    color: var(--opd-fam-bad);
+    background: rgba(var(--opd-fam-bad-rgb), .14);
+}
+
+/* ── Quick actions ─────────────────────────────────────────────────────── */
+
+.opd-acts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--opd-s4);
+}
+
+.opd-act {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s4);
+    padding: 14px var(--opd-s6);
+    border-radius: var(--opd-r-md);
+    color: var(--opd-ink);
+    background: var(--opd-surface);
+    box-shadow: inset 0 0 0 1px var(--opd-rule);
+    transition: background-color .15s, box-shadow .15s;
+}
+
+.opd-act:hover {
+    background: var(--opd-hover);
+    box-shadow: inset 0 0 0 1px rgba(var(--opd-accent-rgb), .45);
+}
+
+.opd-act-glyph {
+    flex: none;
+    display: grid;
+    place-items: center;
+    color: var(--opd-accent-text);
+}
+
+.opd-act-body {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.35;
+    min-width: 0;
+}
+
+.opd-act-title {
+    font-size: 13.5px;
+}
+
+.opd-act-note {
+    font-size: 12px;
+    color: var(--opd-mute-2);
+}
+
+.opd-act-chev {
+    margin-left: auto;
+    flex: none;
+    display: grid;
+    place-items: center;
+    color: var(--opd-faint);
+}
+
+/* ── Loading, empty and failure states ─────────────────────────────────── */
+/* Figures read "—" until their numbers are in, rather than showing a zero that
+   is about to jump — a zero here would read as "nothing is failing", which is
+   the opposite of not knowing yet. */
+
+.opd-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--opd-s3);
+    padding: var(--opd-s8) 0;
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--opd-mute-2);
+}
+
+/* ── Narrow ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1280px) {
+    .opd-calls {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .opd-panels {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .opd-acts {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 900px) {
+    .opd-head,
+    .opd-body {
+        padding-inline: 20px;
+    }
+
+    .opd-health-rail {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .opd-rail-item {
+        align-items: flex-start;
+    }
+
+    .opd-today {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
+    .opd-head {
+        flex-wrap: wrap;
+        gap: var(--opd-s3);
+    }
+
+    .opd-head-meta {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .opd-title {
+        font-size: 30px;
+    }
+
+    .opd-hero-titles {
+        min-width: 0;
+    }
+
+    .opd-calls,
+    .opd-today,
+    .opd-acts {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .opd-health-rail {
+        gap: var(--opd-s4);
+    }
+}
