@@ -43,6 +43,19 @@ public interface IPushNotificationService
     Task<int> SendToRoleAsync(string role, string title, string body, Dictionary<string, string>? data = null, CancellationToken ct = default);
 
     /// <summary>
+    /// Wake the app on every device in a role and hand it a payload, with nothing shown to whoever
+    /// is holding the phone.
+    /// </summary>
+    /// <remarks>
+    /// For a signal the app acts on rather than something a person is meant to read — a catalogue
+    /// that needs refreshing, say. On Android a message carrying a notification block is handed to
+    /// the system tray while the app is backgrounded and the app itself is never woken; a data-only
+    /// message is delivered to the background handler instead, so this is both quieter and more
+    /// likely to be acted on than the alert it replaces.
+    /// </remarks>
+    Task<int> SendSilentDataToRoleAsync(string role, Dictionary<string, string> data, CancellationToken ct = default);
+
+    /// <summary>
     /// Send push notification to all registered devices
     /// </summary>
     Task<int> SendToAllAsync(string title, string body, Dictionary<string, string>? data = null, CancellationToken ct = default);
@@ -211,14 +224,24 @@ public class PushNotificationService : IPushNotificationService
 
     public async Task<int> SendToRoleAsync(string role, string title, string body, Dictionary<string, string>? data = null, CancellationToken ct = default)
     {
-        var tokens = await _context.PushDeviceRegistrations
+        var tokens = await RoleTokensAsync(role, ct);
+
+        return await SendToTokensAsync(tokens, title, body, data, ct);
+    }
+
+    public async Task<int> SendSilentDataToRoleAsync(string role, Dictionary<string, string> data, CancellationToken ct = default)
+    {
+        var tokens = await RoleTokensAsync(role, ct);
+
+        return await SendToTokensAsync(tokens, notification: null, data, $"silent data push to {role}", ct);
+    }
+
+    private Task<List<string>> RoleTokensAsync(string role, CancellationToken ct) =>
+        _context.PushDeviceRegistrations
             .AsNoTracking()
             .Where(d => d.User != null && d.User.Role == role && !d.IsRevoked)
             .Select(d => d.DeviceToken)
             .ToListAsync(ct);
-
-        return await SendToTokensAsync(tokens, title, body, data, ct);
-    }
 
     public async Task<int> SendToAllAsync(string title, string body, Dictionary<string, string>? data = null, CancellationToken ct = default)
     {
@@ -246,7 +269,20 @@ public class PushNotificationService : IPushNotificationService
         }
     }
 
-    private async Task<int> SendToTokensAsync(List<string> tokens, string title, string body, Dictionary<string, string>? data, CancellationToken ct)
+    private Task<int> SendToTokensAsync(List<string> tokens, string title, string body, Dictionary<string, string>? data, CancellationToken ct) =>
+        SendToTokensAsync(
+            tokens,
+            new FirebaseAdmin.Messaging.Notification { Title = title, Body = body },
+            data,
+            title,
+            ct);
+
+    private async Task<int> SendToTokensAsync(
+        List<string> tokens,
+        FirebaseAdmin.Messaging.Notification? notification,
+        Dictionary<string, string>? data,
+        string logLabel,
+        CancellationToken ct)
     {
         if (tokens.Count == 0)
         {
@@ -260,12 +296,6 @@ public class PushNotificationService : IPushNotificationService
             return 0;
         }
 
-        var notification = new FirebaseAdmin.Messaging.Notification
-        {
-            Title = title,
-            Body = body
-        };
-
         var sent = 0;
         var revokedTokens = new List<string>();
 
@@ -277,23 +307,30 @@ public class PushNotificationService : IPushNotificationService
                 Tokens = batch.ToList(),
                 Notification = notification,
                 Data = data,
-                Android = new AndroidConfig
-                {
-                    Priority = Priority.High,
-                    Notification = new AndroidNotification
+                // A silent message carries no tray entry and makes no sound: the platform config
+                // has to leave those out too, and iOS additionally needs content-available before
+                // it will wake a backgrounded app for a payload nobody is shown.
+                Android = notification is null
+                    ? new AndroidConfig { Priority = Priority.High }
+                    : new AndroidConfig
                     {
-                        ClickAction = "OPEN_NOTIFICATION",
-                        Sound = "default"
-                    }
-                },
-                Apns = new ApnsConfig
-                {
-                    Aps = new Aps
+                        Priority = Priority.High,
+                        Notification = new AndroidNotification
+                        {
+                            ClickAction = "OPEN_NOTIFICATION",
+                            Sound = "default"
+                        }
+                    },
+                Apns = notification is null
+                    ? new ApnsConfig { Aps = new Aps { ContentAvailable = true } }
+                    : new ApnsConfig
                     {
-                        Sound = "default",
-                        Badge = 1
+                        Aps = new Aps
+                        {
+                            Sound = "default",
+                            Badge = 1
+                        }
                     }
-                }
             };
 
             try
@@ -340,7 +377,7 @@ public class PushNotificationService : IPushNotificationService
                 .ExecuteUpdateAsync(s => s.SetProperty(d => d.LastActiveAt, DateTime.UtcNow), ct);
         }
 
-        _logger.LogInformation("Push notification sent: {Sent}/{Total} devices. Title: {Title}", sent, tokens.Count, title);
+        _logger.LogInformation("Push notification sent: {Sent}/{Total} devices. Title: {Title}", sent, tokens.Count, logLabel);
         return sent;
     }
 

@@ -286,6 +286,11 @@ public class NotificationService : INotificationService
         var isDriver = NotificationAudienceRules.HasAnyRole(normalizedRoles, ["Driver"]);
         var hasUsername = !string.IsNullOrWhiteSpace(username);
         var hasRoles = normalizedRoles.Length > 0;
+        // A merchandiser is answerable for the orders they submitted and is shown those; a
+        // notification addressed to nobody in particular is not theirs to read. Kept in step with
+        // GetBroadcastAudienceRoles, which drops the same roles from every broadcast audience — the
+        // two disagreeing is what put a stock-control alert on their phones.
+        var receivesBroadcasts = NotificationAudienceRules.ReceivesBroadcasts(normalizedRoles);
         var canSeeSystemNotifications = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.SystemAudienceRoles);
         var canSeeSecurityNotifications = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.SecurityAudienceRoles);
         var canSeeSalesBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.SalesAudienceRoles);
@@ -296,7 +301,6 @@ public class NotificationService : INotificationService
         var canSeePodBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.PodAudienceRoles);
         var canSeeAppVersionNotifications = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.AppVersionAudienceRoles);
         var canSeeLabBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.LabAudienceRoles);
-        var canSeeProductCatalogBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.CatalogueAudienceRoles);
         var canSeeDashboardRoutes = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.DashboardAudienceRoles);
         var canSeeSalesOrderRoutes = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.SalesOrderPageAudienceRoles);
         var canSeeSalesOrderEditRoutes = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.SalesOrderEditAudienceRoles);
@@ -337,7 +341,7 @@ public class NotificationService : INotificationService
                                      n.EntityType == "AppVersion"))) ||
                                 (((hasUsername && n.TargetUsername == username) ||
                                     (hasRoles && n.TargetRole != null && normalizedRoles.Contains(n.TargetRole)) ||
-                                    (n.TargetUsername == null && n.TargetRole == null)) &&
+                                    (receivesBroadcasts && n.TargetUsername == null && n.TargetRole == null)) &&
                                  ((canSeeSystemNotifications && NotificationAudienceRules.SystemBroadcastCategories.Contains(n.Category)) ||
                                     (canSeeSecurityNotifications && NotificationAudienceRules.SecurityBroadcastCategories.Contains(n.Category)) ||
                                     (canSeeSalesBroadcasts && NotificationAudienceRules.SalesBroadcastCategories.Contains(n.Category)) ||
@@ -347,8 +351,7 @@ public class NotificationService : INotificationService
                                     (canSeePurchasingBroadcasts && NotificationAudienceRules.PurchasingBroadcastCategories.Contains(n.Category)) ||
                                     (canSeePodBroadcasts && NotificationAudienceRules.PodBroadcastCategories.Contains(n.Category)) ||
                                     (canSeeAppVersionNotifications && NotificationAudienceRules.AppVersionBroadcastCategories.Contains(n.Category)) ||
-                                    (canSeeLabBroadcasts && NotificationAudienceRules.LabBroadcastCategories.Contains(n.Category)) ||
-                                    (canSeeProductCatalogBroadcasts && NotificationAudienceRules.ProductCatalogBroadcastCategories.Contains(n.Category)))))
+                                    (canSeeLabBroadcasts && NotificationAudienceRules.LabBroadcastCategories.Contains(n.Category)))))
             .Where(n =>
                                 (hasUsername && n.TargetUsername == username && n.Category == "TransferApproval") ||
                                 (isDriver &&

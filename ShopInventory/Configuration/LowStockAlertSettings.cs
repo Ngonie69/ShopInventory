@@ -1,3 +1,5 @@
+using ShopInventory.Services;
+
 namespace ShopInventory.Configuration;
 
 /// <summary>
@@ -25,10 +27,11 @@ public sealed class LowStockAlertSettings
     public string ReviewTimeCAT { get; set; } = "07:30";
 
     /// <summary>
-    /// Stock at or below this counts as low. Matches the low-stock report's own default so the
-    /// notification and the report agree on what they are counting.
+    /// Stock at or below this counts as low. Taken from the low-stock report's own default rather
+    /// than repeated, so the notification and the report cannot drift apart on what they count.
+    /// Half of it is the line between a warning and a critical alert.
     /// </summary>
-    public decimal ReorderThreshold { get; set; } = 10m;
+    public decimal ReorderThreshold { get; set; } = ReportService.DefaultReorderThreshold;
 
     /// <summary>
     /// Limits the sweep to one warehouse. Null sweeps every active warehouse.

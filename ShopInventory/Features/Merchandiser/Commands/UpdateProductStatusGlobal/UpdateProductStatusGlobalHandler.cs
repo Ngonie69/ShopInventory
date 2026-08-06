@@ -22,8 +22,21 @@ public sealed class UpdateProductStatusGlobalHandler(
 
         var now = DateTime.UtcNow;
 
-        var rowsAffected = await context.MerchandiserProducts
-            .Where(mp => command.Request.ItemCodes.Contains(mp.ItemCode))
+        // Only the rows this actually flips. The update used to match on item code alone, so setting
+        // an item to the status it already holds still counted as work done, restamped UpdatedBy on
+        // records nobody had touched, and published a catalogue change that pushed
+        // "Item X was deactivated" to every merchandiser's phone again. Any bulk operation that
+        // swept an already-inactive item up with the rest re-announced it. A no-op is not news.
+        var pendingChanges = context.MerchandiserProducts
+            .Where(mp => command.Request.ItemCodes.Contains(mp.ItemCode) &&
+                         mp.IsActive != command.Request.IsActive);
+
+        var changedItemCodes = await pendingChanges
+            .Select(mp => mp.ItemCode)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var rowsAffected = await pendingChanges
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(mp => mp.IsActive, command.Request.IsActive)
                 .SetProperty(mp => mp.UpdatedAt, now)
@@ -34,11 +47,11 @@ public sealed class UpdateProductStatusGlobalHandler(
             rowsAffected, command.Request.IsActive ? "active" : "inactive",
             string.Join(", ", command.Request.ItemCodes));
 
-        if (rowsAffected > 0)
+        if (changedItemCodes.Count > 0)
         {
             await publisher.Publish(
                 new ProductCatalogChangedEvent(
-                    command.Request.ItemCodes
+                    changedItemCodes
                         .Where(code => !string.IsNullOrWhiteSpace(code))
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .ToList(),

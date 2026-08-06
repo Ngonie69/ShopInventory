@@ -38,6 +38,13 @@ public class ReportService : IReportService
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly IMemoryCache _memoryCache;
     private readonly ILogger<ReportService> _logger;
+    /// <summary>
+    /// Stock at or below this counts as low when the caller does not say otherwise.
+    /// <see cref="Configuration.LowStockAlertSettings.ReorderThreshold"/> starts here too, so the
+    /// morning sweep and the report on the Reports page count the same thing.
+    /// </summary>
+    public const decimal DefaultReorderThreshold = 10m;
+
     private static readonly TimeSpan ReportDataCacheDuration = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan ReportResultCacheDuration = TimeSpan.FromMinutes(2);
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> CacheLoadLocks = new(StringComparer.Ordinal);
@@ -1040,14 +1047,37 @@ ORDER BY T0."CardName"
     }
 
     /// <summary>
-    /// Get low stock alerts from SAP (parallelized)
+    /// Item/warehouse lines at or below the reorder threshold, at every active warehouse or at one.
     /// </summary>
+    /// <remarks>
+    /// Scoped to lines the warehouse actually handles. SAP keeps an OITW row for every item in
+    /// every warehouse whether or not that warehouse has ever seen the item, so "on hand is below
+    /// the threshold" describes very nearly the whole product list at very nearly every location —
+    /// swept across the vans this counted 490,580 lines and called 490,100 of them critical. Only
+    /// 480 lines in the company had any stock on them at all; the rest were items a van has never
+    /// carried, each reported as critically out of stock.
+    ///
+    /// So a line has to show that the warehouse handles the item before its quantity means
+    /// anything. Nothing on hand, nothing committed to a customer and nothing on order is not a
+    /// shortage — nobody is being failed by an empty bin for something that location does not
+    /// carry, and no amount of replenishment is called for. What is left is the real thing: stock
+    /// that has run down, and stock at zero with customers waiting on it.
+    ///
+    /// This scopes what is *reported*, not what is fetched — the stock query behind it still reads
+    /// every row, which is why the caller allows minutes for it.
+    /// </remarks>
     public async Task<LowStockAlertReportDto> GetLowStockAlertsAsync(string? warehouseCode = null, decimal? reorderThreshold = null, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Generating low stock alerts from SAP for warehouse {Warehouse}", warehouseCode ?? "all");
 
-        var threshold = reorderThreshold ?? 10m;
+        var threshold = reorderThreshold ?? DefaultReorderThreshold;
+        // Half the threshold, matching what NotificationService.CreateLowStockAlertAsync calls
+        // critical, so the report and the notification raised from it cannot disagree. This was a
+        // hardcoded 5, which tracked the default threshold of 10 by coincidence and nothing else:
+        // lower the threshold to 3 and every line came out critical.
+        var criticalLevel = threshold / 2m;
         var allItems = new System.Collections.Concurrent.ConcurrentBag<LowStockItemDto>();
+        var unstockedLines = 0;
 
         var warehouses = await GetCachedWarehousesAsync(cancellationToken);
         var targetWarehouses = warehouses.Where(w => w.IsActive).ToList();
@@ -1066,8 +1096,16 @@ ORDER BY T0."CardName"
                 var stockItems = await GetCachedStockQuantitiesInWarehouseAsync(
                     wh.WarehouseCode!, cancellationToken);
 
+                var unstockedHere = 0;
+
                 foreach (var s in stockItems.Where(s => s.InStock < threshold && s.InStock >= 0))
                 {
+                    if (!WarehouseHandlesItem(s))
+                    {
+                        unstockedHere++;
+                        continue;
+                    }
+
                     allItems.Add(new LowStockItemDto
                     {
                         ItemCode = s.ItemCode ?? "Unknown",
@@ -1075,11 +1113,13 @@ ORDER BY T0."CardName"
                         WarehouseCode = wh.WarehouseCode ?? "Unknown",
                         CurrentStock = s.InStock,
                         ReorderLevel = threshold,
-                        MinimumStock = 5,
-                        AlertLevel = s.InStock <= 0 ? "Critical" : s.InStock < 5 ? "Critical" : "Warning",
+                        MinimumStock = criticalLevel,
+                        AlertLevel = s.InStock <= 0 || s.InStock < criticalLevel ? "Critical" : "Warning",
                         SuggestedReorderQty = Math.Max(threshold * 2 - s.InStock, 0)
                     });
                 }
+
+                Interlocked.Add(ref unstockedLines, unstockedHere);
             }
             catch (Exception ex)
             {
@@ -1095,15 +1135,32 @@ ORDER BY T0."CardName"
 
         var items = allItems.OrderBy(i => i.CurrentStock).ToList();
 
+        _logger.LogInformation(
+            "Low stock alerts across {WarehouseCount} warehouse(s): {AlertCount} line(s) at or below {Threshold}, " +
+            "{UnstockedCount} line(s) left out as not handled by the warehouse",
+            targetWarehouses.Count,
+            items.Count,
+            threshold,
+            unstockedLines);
+
         return new LowStockAlertReportDto
         {
             ReportDate = DateTime.UtcNow,
             TotalAlerts = items.Count,
             CriticalCount = items.Count(i => i.AlertLevel == "Critical"),
             WarningCount = items.Count(i => i.AlertLevel == "Warning"),
+            UnstockedLinesIgnored = unstockedLines,
             Items = items
         };
     }
+
+    /// <summary>
+    /// Whether a warehouse handles an item at all: something on hand, something committed to a
+    /// customer, or something on order. A row of three zeroes is SAP's placeholder for a pairing
+    /// that has never happened, not a stockout.
+    /// </summary>
+    private static bool WarehouseHandlesItem(StockQuantityDto stock) =>
+        stock.InStock != 0 || stock.Committed != 0 || stock.Ordered != 0;
 
     /// <summary>
     /// Get payment summary from SAP incoming payments
