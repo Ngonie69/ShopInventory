@@ -22,12 +22,18 @@ public sealed class GetCustomerStatementHandler(
     internal const string OpeningBalanceQueryCode = "STMT_OPENING_BALANCE";
     internal const string LedgerQueryCode = "STMT_LEDGER_ROWS";
 
+    // The table names are quoted because that is how SAP stores them. It rewrites `FROM OJDT` to
+    // `FROM "OJDT"`, so an unquoted statement never compares equal to the one SAP holds, and
+    // EnsureSqlQueryAsync PATCHes on every cold call. That matters more than one wasted write: the
+    // execution immediately after a PATCH is pathologically slow — repeatedly over 25s here against
+    // 0.3s warm — and a timeout invalidates the verification memo, so the next call PATCHes and
+    // stalls again. Quoting them keeps the stored text byte-identical and the query simply warm.
     internal const string OpeningBalanceSql = """
 SELECT
     SUM(T1."Debit") AS "TotalDebit",
     SUM(T1."Credit") AS "TotalCredit"
-FROM OJDT T0
-INNER JOIN JDT1 T1
+FROM "OJDT" T0
+INNER JOIN "JDT1" T1
     ON T0."TransId" = T1."TransId"
 WHERE T1."ShortName" = :cardCode
   AND T0."RefDate" < :fromDate
@@ -51,8 +57,8 @@ SELECT
     T1."FCDebit" AS "DebitFC",
     T1."FCCredit" AS "CreditFC",
     T1."FCCurrency" AS "Currency"
-FROM OJDT T0
-INNER JOIN JDT1 T1
+FROM "OJDT" T0
+INNER JOIN "JDT1" T1
     ON T0."TransId" = T1."TransId"
 WHERE T1."ShortName" = :cardCode
   AND T0."RefDate" >= :fromDate
