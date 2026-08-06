@@ -1,0 +1,457 @@
+@* The business-partner selector on /reports/order-fulfillment.
+
+   A listbox in markup rather than a native <select multiple>, for the reason the
+   nocturne-dropdowns-and-dates skill gives: a native popup takes its background
+   from the field, and a Nocturne field is a wash the browser composites onto
+   white and then refuses to darken.
+
+   Two ways of naming a span of partners, both resolved against the codes the
+   cache actually holds so neither can name one that does not exist: typed into
+   the search box as "BP0876-1188", or entered as the Code from / to pair SAP's
+   own selection criteria ask for. That resolution is SalesAnalysisCodeRange's,
+   shared with the picker on /reports/item-volume.
+
+   Not SalesAnalysisPicker itself: that control's rules are `sla-pick-` prefixed
+   and read `--sla-*` tokens set on a `.sla` page root, so it renders unstyled
+   anywhere else. This is the same two ideas drawn on this page's own tokens and
+   its existing menu vocabulary. Styles live under `ofx-pick-` in
+   wwwroot/css/order-fulfillment.css, so this renders correctly only inside an
+   `.ofx` page root.
+
+   A sales rep gets the same control in single mode: they cannot read across
+   customers, so their report is one partner's and the list is only how they
+   find it. *@
+
+<div class="ofx-pick @(IsOpen ? "is-open" : null)" @onkeydown="OnKeyDown">
+    <div class="ofx-pick-control @(Invalid ? "is-bad" : null) @(Disabled ? "is-disabled" : null)"
+         role="button" tabindex="0"
+         aria-haspopup="listbox" aria-expanded="@(IsOpen ? "true" : "false")" aria-label="@AriaLabel"
+         @onclick="Toggle" @onkeydown="OnControlKeyDown">
+        <div class="ofx-pick-chips">
+            @if (Selected.Count == 0)
+            {
+                <span class="ofx-pick-placeholder">@Placeholder</span>
+            }
+            else if (SingleSelect)
+            {
+                <span class="ofx-pick-one">@Describe(Selected[0])</span>
+            }
+            else
+            {
+                @foreach (var code in Selected.Take(MaxChips))
+                {
+                    var chip = code;
+                    <span class="ofx-pick-chip">
+                        @chip
+                        <span class="ofx-pick-chip-x" role="button" aria-label="@($"Remove {chip}")"
+                              @onclick="@(() => RemoveAsync(chip))" @onclick:stopPropagation="true">
+                            <i class="ph ph-x" aria-hidden="true"></i>
+                        </span>
+                    </span>
+                }
+                @if (Selected.Count > MaxChips)
+                {
+                    <span class="ofx-pick-more">+@(Selected.Count - MaxChips) more</span>
+                }
+            }
+        </div>
+        <i class="ph ph-caret-down ofx-pick-caret" aria-hidden="true"></i>
+    </div>
+
+    @if (IsOpen)
+    {
+        var shown = BuildVisible();
+
+        <div class="ofx-pick-catch" @onclick="Close"></div>
+        <div class="ofx-pick-menu" role="listbox" aria-multiselectable="@(SingleSelect ? "false" : "true")"
+             aria-label="@AriaLabel">
+            <input class="ofx-input ofx-pick-search" type="search" autocomplete="off"
+                   placeholder="@(SingleSelect ? "Code or name" : "Code, name, or a range")"
+                   aria-label="Search business partners"
+                   @bind="query" @bind:event="oninput" @onkeydown="OnSearchKeyDown" />
+
+            @if (!SingleSelect)
+            {
+                @* Either end may be left blank for an open range, so "from CRA001" and "up to
+                   VAN019" are both sayable — the placeholders are the lowest and highest codes
+                   the list currently holds. *@
+                <div class="ofx-pick-bounds">
+                    <span class="ofx-pick-bounds-label">Code from</span>
+                    <div class="ofx-pick-bounds-row">
+                        <input class="ofx-input ofx-pick-bound" type="text" placeholder="@LowestCode"
+                               aria-label="Business partner code from"
+                               @bind="boundFrom" @bind:event="oninput" @onkeydown="OnBoundKeyDown" />
+                        <span class="ofx-pick-bounds-to">to</span>
+                        <input class="ofx-input ofx-pick-bound" type="text" placeholder="@HighestCode"
+                               aria-label="Business partner code to"
+                               @bind="boundTo" @bind:event="oninput" @onkeydown="OnBoundKeyDown" />
+                        @if (HasBounds)
+                        {
+                            <button type="button" class="ofx-pick-bounds-x" @onclick="ClearBounds"
+                                    aria-label="Clear the code range">
+                                <i class="ph ph-x" aria-hidden="true"></i>
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                @if (Range is { } range)
+                {
+                    <button type="button" class="ofx-pick-range" @onclick="ApplyRangeAsync">
+                        <i class="ph ph-brackets-round" aria-hidden="true"></i>
+                        <span class="ofx-pick-range-label">Add range @range.Label</span>
+                        <span class="ofx-pick-range-count">@range.Codes.Count @(range.Codes.Count == 1 ? "code" : "codes")</span>
+                    </button>
+                }
+                else if (HasBounds)
+                {
+                    @* A range that matches nothing has to say so. Left silent it reads as a range
+                       of zero codes, and the reader runs the report believing it was applied. *@
+                    <div class="ofx-pick-none">
+                        <i class="ph ph-warning-circle" aria-hidden="true"></i>
+                        Nothing in the list falls in that range.
+                    </div>
+                }
+            }
+
+            <div class="ofx-pick-list">
+                @foreach (var option in shown.Rows)
+                {
+                    var value = option.Value;
+                    var isSelected = IsSelected(value);
+
+                    if (SingleSelect)
+                    {
+                        <button type="button" class="ofx-pick-opt is-one @(isSelected ? "is-selected" : null)"
+                                role="option" aria-selected="@isSelected"
+                                @onclick="@(() => ChooseOneAsync(value))">
+                            <span class="ofx-pick-opt-text">
+                                <span class="ofx-pick-opt-name">@option.Name</span>
+                                <span class="ofx-pick-opt-code">@option.Value</span>
+                            </span>
+                            @if (!string.IsNullOrWhiteSpace(option.Note))
+                            {
+                                <span class="ofx-pick-opt-note">@option.Note</span>
+                            }
+                        </button>
+                    }
+                    else
+                    {
+                        <label class="ofx-pick-opt @(isSelected ? "is-selected" : null)"
+                               role="option" aria-selected="@isSelected">
+                            <input type="checkbox" checked="@isSelected" @onchange="@(() => ToggleValueAsync(value))" />
+                            <span class="ofx-pick-opt-text">
+                                <span class="ofx-pick-opt-name">@option.Name</span>
+                                <span class="ofx-pick-opt-code">@option.Value</span>
+                            </span>
+                            @if (!string.IsNullOrWhiteSpace(option.Note))
+                            {
+                                <span class="ofx-pick-opt-note">@option.Note</span>
+                            }
+                        </label>
+                    }
+                }
+
+                @if (shown.Rows.Count == 0)
+                {
+                    @* Three different emptinesses, and telling them apart is the whole point:
+                       nothing cached at all, a group with nothing in it, and a search that missed. *@
+                    <div class="ofx-pick-empty">
+                        @(Options.Count == 0
+                            ? EmptyText
+                            : HasGroup ? "No partner in that group" : "No partner matches that search")
+                    </div>
+                }
+                else if (shown.Total > shown.Rows.Count)
+                {
+                    <div class="ofx-pick-empty">
+                        Showing @shown.Rows.Count.ToString("N0") of @shown.Total.ToString("N0") — search to narrow.
+                    </div>
+                }
+            </div>
+
+            <div class="ofx-pick-foot">
+                <span class="ofx-pick-count">@CountLabel</span>
+                @if (!SingleSelect)
+                {
+                    <div class="ofx-pick-foot-actions">
+                        <button type="button" class="ofx-btn ofx-btn-ghost ofx-btn-sm" @onclick="SelectAllShownAsync"
+                                disabled="@(shown.Rows.Count == 0)">Select all</button>
+                        <button type="button" class="ofx-btn ofx-btn-ghost ofx-btn-sm" @onclick="ClearAsync"
+                                disabled="@(Selected.Count == 0)">Clear</button>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>
+    /// One selectable partner. <c>Note</c> is the trailing annotation — the partner's currency —
+    /// and <c>Group</c> is the SAP business partner group it belongs to, matched as text; null
+    /// means it belongs to none and so is outside every group narrowing.
+    /// </summary>
+    public sealed record Option(string Value, string Name, string? Note = null, string? Group = null);
+
+    /// <summary>A code range resolved against the codes on offer.</summary>
+    private sealed record CodeRange(string Label, IReadOnlyList<string> Codes);
+
+    /// <summary>Every partner on offer, already narrowed to the chosen group by the caller.</summary>
+    [Parameter] public IReadOnlyList<Option> Options { get; set; } = Array.Empty<Option>();
+
+    [Parameter] public IReadOnlyList<string> Selected { get; set; } = Array.Empty<string>();
+    [Parameter] public EventCallback<IReadOnlyList<string>> SelectedChanged { get; set; }
+
+    /// <summary>
+    /// True for a sales rep: the report is one partner's, so choosing replaces rather than adds and
+    /// neither the code range nor "Select all" is offered.
+    /// </summary>
+    [Parameter] public bool SingleSelect { get; set; }
+
+    /// <summary>Set while a group narrows <see cref="Options"/>, so an empty list can say why.</summary>
+    [Parameter] public bool HasGroup { get; set; }
+
+    [Parameter] public string Placeholder { get; set; } = "All customers";
+    [Parameter] public string EmptyText { get; set; } = "No customers cached";
+    [Parameter] public string? AriaLabel { get; set; } = "Business partners";
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool Invalid { get; set; }
+
+    /// <summary>Chips drawn in the closed control before the rest collapse into "+N more".</summary>
+    [Parameter] public int MaxChips { get; set; } = 3;
+
+    /// <summary>Rows drawn at once; the search and the group are how you reach the rest.</summary>
+    [Parameter] public int MaxVisible { get; set; } = 200;
+
+    private bool isOpen;
+    private string query = string.Empty;
+    private string boundFrom = string.Empty;
+    private string boundTo = string.Empty;
+
+    /// <summary>
+    /// The extremes of <see cref="Options"/>, held as the from / to placeholders so the fields show
+    /// the shape of a real code rather than the word "from". Recomputed only when the list is
+    /// replaced, which is what a change of group does.
+    /// </summary>
+    private IReadOnlyList<Option>? placeholderSource;
+    private string lowestCode = string.Empty;
+    private string highestCode = string.Empty;
+
+    private bool IsOpen => isOpen && !Disabled;
+
+    private bool HasBounds => boundFrom.Trim().Length > 0 || boundTo.Trim().Length > 0;
+
+    private string LowestCode => lowestCode.Length > 0 ? lowestCode : "first code";
+    private string HighestCode => highestCode.Length > 0 ? highestCode : "last code";
+
+    private string Describe(string code)
+    {
+        var option = Options.FirstOrDefault(candidate =>
+            string.Equals(candidate.Value, code, StringComparison.OrdinalIgnoreCase));
+
+        return option is null ? code : $"{option.Value} — {option.Name}";
+    }
+
+    /// <summary>The range on offer: the search box's if it names one, the from / to pair's otherwise.</summary>
+    private CodeRange? Range => TypedRange ?? BoundRange;
+
+    private CodeRange? TypedRange =>
+        Resolve(SalesAnalysisCodeRange.FromWritten(query, Options.Select(option => option.Value)));
+
+    private CodeRange? BoundRange =>
+        Resolve(SalesAnalysisCodeRange.FromBounds(boundFrom, boundTo, Options.Select(option => option.Value)));
+
+    private static CodeRange? Resolve(IReadOnlyList<string> hits) =>
+        hits.Count == 0 ? null : new CodeRange($"{hits[0]}–{hits[^1]}", hits);
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(placeholderSource, Options))
+        {
+            return;
+        }
+
+        placeholderSource = Options;
+        lowestCode = string.Empty;
+        highestCode = string.Empty;
+
+        foreach (var option in Options)
+        {
+            if (lowestCode.Length == 0 || string.CompareOrdinal(option.Value, lowestCode) < 0)
+            {
+                lowestCode = option.Value;
+            }
+
+            if (string.CompareOrdinal(option.Value, highestCode) > 0)
+            {
+                highestCode = option.Value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The rows the search and any pending range leave, and how many there were before the cap.
+    /// Built once per render and passed down rather than read as a property: the partner cache runs
+    /// to thousands of rows, and the menu needs the list, its length and its emptiness.
+    /// </summary>
+    private (List<Option> Rows, int Total) BuildVisible()
+    {
+        var search = query.Trim();
+
+        // While a range is on offer the list previews exactly what it would add. The search box is
+        // the finer instrument, so whatever is in it decides the list and the from / to fields keep
+        // only their button.
+        if (!SingleSelect && (search.Length > 0 ? TypedRange : BoundRange) is { } range)
+        {
+            var codes = range.Codes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var inRange = Options.Where(option => codes.Contains(option.Value)).ToList();
+            return (inRange.Take(MaxVisible).ToList(), inRange.Count);
+        }
+
+        var matches = search.Length == 0
+            ? Options
+            : Options.Where(option =>
+                option.Value.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                option.Name.Contains(search, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+        // Chosen rows are pinned so a long list never hides them behind two hundred others.
+        var rows = matches
+            .OrderByDescending(option => IsSelected(option.Value))
+            .ThenBy(option => option.Value, StringComparer.OrdinalIgnoreCase)
+            .Take(MaxVisible)
+            .ToList();
+
+        return (rows, matches.Count);
+    }
+
+    /// <summary>
+    /// The footer count, read against what the picker is offering. Under a group that is the
+    /// group's size, not the cache's, so the denominator always names the list being looked at.
+    /// </summary>
+    private string CountLabel =>
+        Options.Count == 0
+            ? $"{Selected.Count} selected"
+            : SingleSelect
+                ? $"{Options.Count:N0} to choose from"
+                : Selected.Count > 0
+                    ? $"{Selected.Count:N0} of {Options.Count:N0} selected"
+                    : HasGroup ? "The whole group" : "Empty covers every customer";
+
+    private bool IsSelected(string value) =>
+        Selected.Any(selected => string.Equals(selected, value, StringComparison.OrdinalIgnoreCase));
+
+    private void Toggle()
+    {
+        if (Disabled)
+        {
+            return;
+        }
+
+        isOpen = !isOpen;
+        query = string.Empty;
+        ClearBounds();
+    }
+
+    private void Close() => isOpen = false;
+
+    private void OnKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            isOpen = false;
+        }
+    }
+
+    private void OnControlKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key is "Enter" or " ")
+        {
+            Toggle();
+        }
+    }
+
+    private async Task OnSearchKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key != "Enter" || SingleSelect)
+        {
+            return;
+        }
+
+        if (Range is not null)
+        {
+            await ApplyRangeAsync();
+        }
+    }
+
+    /// <summary>Enter in either bound applies the range, the same as Enter in the search box.</summary>
+    private async Task OnBoundKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await ApplyRangeAsync();
+        }
+    }
+
+    private void ClearBounds()
+    {
+        boundFrom = string.Empty;
+        boundTo = string.Empty;
+    }
+
+    private Task ToggleValueAsync(string value) => IsSelected(value) ? RemoveAsync(value) : AddAsync(value);
+
+    private async Task AddAsync(string value)
+    {
+        var next = Selected.ToList();
+        next.Add(value);
+        // Adding leaves the box ready for the next code rather than still filtered to this one.
+        query = string.Empty;
+        await SelectedChanged.InvokeAsync(next);
+    }
+
+    private async Task RemoveAsync(string value)
+    {
+        var next = Selected
+            .Where(selected => !string.Equals(selected, value, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        await SelectedChanged.InvokeAsync(next);
+    }
+
+    /// <summary>A rep's pick replaces rather than adds, and closes: there is only ever one.</summary>
+    private async Task ChooseOneAsync(string value)
+    {
+        isOpen = false;
+        query = string.Empty;
+        await SelectedChanged.InvokeAsync(new List<string> { value });
+    }
+
+    private async Task ApplyRangeAsync()
+    {
+        if (Range is not { } range)
+        {
+            return;
+        }
+
+        var next = Selected.ToList();
+        next.AddRange(range.Codes.Where(code => !IsSelected(code)));
+        query = string.Empty;
+        ClearBounds();
+        await SelectedChanged.InvokeAsync(next);
+    }
+
+    /// <summary>
+    /// Adds what the list is showing, which under a search or a range is exactly what the reader
+    /// can see — never the rows the cap left off the end of it.
+    /// </summary>
+    private async Task SelectAllShownAsync()
+    {
+        var next = Selected.ToList();
+        next.AddRange(BuildVisible().Rows.Select(option => option.Value).Where(value => !IsSelected(value)));
+        await SelectedChanged.InvokeAsync(next);
+    }
+
+    private async Task ClearAsync() => await SelectedChanged.InvokeAsync(new List<string>());
+}

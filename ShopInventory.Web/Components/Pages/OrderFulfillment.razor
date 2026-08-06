@@ -1,4 +1,5 @@
 @page "/reports/order-fulfillment"
+@using System.Globalization
 @attribute [Authorize(Roles = UserRoles.OrderFulfillmentReportRoles)]
 @inject IReportService ReportService
 @inject IReportExportService ExportService
@@ -12,9 +13,9 @@
     var filteredOrders = GetFilteredOrders().ToList();
     var displayedOrders = filteredOrders.Take(MaxDisplayedOrders).ToList();
     var filteredTotals = CalculateLineTotals(GetFilteredLines().ToList());
-    // Filtered once per render rather than once per read: the partner cache runs to thousands of
-    // rows and the list needs its count, its head and its emptiness.
-    var matchingCustomers = showCustomerList ? MatchingCustomers.ToList() : [];
+    // Narrowed once per render rather than once per read: the group runs over the whole partner
+    // cache, and the picker needs the list it is offering as well as the size of it.
+    var availablePartners = AvailablePartners;
 }
 
 <PageTitle>Sales Order vs Invoice - Shop Inventory</PageTitle>
@@ -28,10 +29,18 @@
    font: it is the control's whole label, so a font that fails to load would
    leave every order looking like a dead row.
 
-   The customer combo is a text input over a filtered list rather than a
-   NocturneSelect: the cache holds thousands of partners, so this is a search
-   rather than a choice. It is the control the create-order form already uses,
-   so a rep meets one interaction in both places. *@
+   The partner scope is two controls rather than one, the pair SAP's own report
+   selection asks for: a group, and the partners inside it — named one by one or
+   as a Code from / to range. Neither reaches the statement SAP runs. The four
+   report statements are constant text with the date range bound, so one query
+   object serves every range; a partner set is a different length every time it
+   is asked for, and pushing it into the text would leave a permanent OUQR row
+   behind per distinct selection. So the window is read once and narrowed here,
+   figures and all — see Components/OrderFulfillmentScope.cs.
+
+   A sales rep is the exception and stays scoped at the API: they cannot read
+   across customers, so their one partner binds as :cardCode and SAP never
+   returns anybody else's orders to this circuit in the first place. *@
 
 <div class="ofx">
 
@@ -46,19 +55,19 @@
                 <p class="ofx-sub">@Standfirst</p>
             </div>
             <div class="ofx-head-actions">
-                @if (report is not null)
+                @if (scoped is not null)
                 {
                     <span class="ofx-count">
-                        @if (reportCustomer is not null)
+                        @if (ScopeLabel is { } who)
                         {
-                            <span class="ofx-count-who">@reportCustomer.CardName</span>
+                            <span class="ofx-count-who">@who</span>
                             <span aria-hidden="true"> &middot; </span>
                         }
-                        @report.TotalOrders.ToString("N0") orders
+                        @scoped.TotalOrders.ToString("N0") orders
                     </span>
                 }
                 <button type="button" class="ofx-btn ofx-btn-secondary" @onclick="ExportToExcelAsync"
-                        disabled="@(isLoading || isExporting || report is null)">
+                        disabled="@(isLoading || isExporting || scoped is null)">
                     <i class="ph ph-file-xls" aria-hidden="true"></i>@(isExporting ? "Exporting…" : "Export Excel")
                 </button>
             </div>
@@ -77,11 +86,21 @@
         }
 
         <section class="ofx-filters">
-            @* Not a <label>: the field carries a clear button and a result list, and a label
-               would forward stray clicks on either back to the input. *@
-            <div class="ofx-field ofx-field-customer">
+            @* The group is a criterion in its own right, not only a way of finding one partner:
+               chosen alone it means the whole group, which is the reading SAP's selection has. *@
+            <div class="ofx-field ofx-field-group">
+                <label for="ofx-f-group">Partner group</label>
+                <NocturneSelect TValue="string" Id="ofx-f-group" Class="nsel-block" Options="groupSelectOptions"
+                                Value="selectedGroup" ValueChanged="@(code => OnGroupChanged(code))"
+                                Disabled="@(isLoading || isLoadingCustomers)"
+                                Caption="Narrow to one SAP business partner group"
+                                AriaLabel="Business partner group" />
+            </div>
+            @* Not a <label>: the picker carries a menu with its own search and range inputs, and a
+               label would forward stray clicks on any of them back to the control. *@
+            <div class="ofx-field ofx-field-partners">
                 <span class="ofx-field-label">
-                    Customer
+                    @(requiresCustomer ? "Customer" : "Business partners")
                     @if (requiresCustomer)
                     {
                         <span class="ofx-req" aria-hidden="true">*</span>
@@ -91,53 +110,16 @@
                         <span class="ofx-field-hint">optional</span>
                     }
                 </span>
-                <div class="ofx-combo">
-                    <input class="ofx-input @(customerError ? "is-bad" : null)" type="search" autocomplete="off"
-                           placeholder="@(isLoadingCustomers ? "Loading customers…" : "Search by code or name…")"
-                           @bind="customerSearch" @bind:event="oninput" @bind:after="OnCustomerSearchChanged"
-                           @onfocus="() => showCustomerList = true" @onblur="OnCustomerBlurAsync"
-                           disabled="@(isLoading || isLoadingCustomers)" aria-label="Customer" />
-                    @if (selectedCustomer is not null)
-                    {
-                        <button type="button" class="ofx-combo-clear" @onclick="ClearCustomer"
-                                title="Clear customer" aria-label="Clear customer" disabled="@isLoading">
-                            <i class="ph ph-x" aria-hidden="true"></i>
-                        </button>
-                    }
-                    @if (showCustomerList)
-                    {
-                        <div class="ofx-drop">
-                            @if (matchingCustomers.Count == 0)
-                            {
-                                <div class="ofx-drop-empty">No customers match that search.</div>
-                            }
-                            else
-                            {
-                                @foreach (var partner in matchingCustomers.Take(MaxListedCustomers))
-                                {
-                                    <button type="button" class="ofx-drop-i"
-                                            @onmousedown:preventDefault="true"
-                                            @onmousedown="() => SelectCustomer(partner)">
-                                        <span class="ofx-drop-text">
-                                            <span class="ofx-drop-name">@partner.CardName</span>
-                                            <span class="ofx-drop-code">@partner.CardCode</span>
-                                        </span>
-                                        @if (!string.IsNullOrWhiteSpace(partner.Currency))
-                                        {
-                                            <span class="ofx-drop-note">@partner.Currency</span>
-                                        }
-                                    </button>
-                                }
-                                @if (matchingCustomers.Count > MaxListedCustomers)
-                                {
-                                    <div class="ofx-drop-empty">
-                                        @matchingCustomers.Count.ToString("N0") match &mdash; type more to narrow.
-                                    </div>
-                                }
-                            }
-                        </div>
-                    }
-                </div>
+                <OrderFulfillmentPartnerPicker Options="availablePartners"
+                                               Selected="selectedPartners"
+                                               SelectedChanged="OnPartnersChanged"
+                                               SingleSelect="requiresCustomer"
+                                               HasGroup="@(selectedGroup.Length > 0)"
+                                               Placeholder="@PartnerPlaceholder"
+                                               EmptyText="@(isLoadingCustomers ? "Loading customers…" : "No customers cached")"
+                                               AriaLabel="@(requiresCustomer ? "Customer" : "Business partners")"
+                                               Invalid="customerError"
+                                               Disabled="@(isLoading || isLoadingCustomers)" />
             </div>
             @* The labels stay siblings rather than wrappers: NocturneDateField carries a calendar
                button and a popup, and a label around them would swallow their clicks. The Id lands
@@ -195,7 +177,7 @@
         {
             <section class="ofx-card">
                 <div class="ofx-empty">
-                    @if (requiresCustomer && selectedCustomer is null)
+                    @if (requiresCustomer && selectedPartners.Count == 0)
                     {
                         <i class="ph ph-user-focus" aria-hidden="true"></i>
                         <strong>Choose a customer</strong>
@@ -210,13 +192,17 @@
                 </div>
             </section>
         }
-        else if (report is null || report.TotalOrders == 0)
+        else if (scoped is null || scoped.TotalOrders == 0)
         {
             <section class="ofx-card">
                 <div class="ofx-empty">
                     <i class="ph ph-tray" aria-hidden="true"></i>
-                    <strong>@(reportCustomer is null ? "No orders in this period" : $"No orders for {reportCustomer.CardName} in this period")</strong>
-                    <span class="ofx-empty-sub">Try a wider date range or clear the filters.</span>
+                    <strong>@(ScopeLabel is { } who ? $"No orders for {who} in this period" : "No orders in this period")</strong>
+                    <span class="ofx-empty-sub">
+                        @(ScopeLabel is null
+                            ? "Try a wider date range or clear the filters."
+                            : "Try a wider date range, another group, or clear the partner selection.")
+                    </span>
                 </div>
             </section>
         }
@@ -226,47 +212,47 @@
                 <div class="ofx-figure">
                     <span class="ofx-figure-mark" aria-hidden="true"><i class="ph ph-receipt"></i></span>
                     <div class="ofx-figure-text">
-                        <div class="ofx-figure-value">@report.TotalOrders.ToString("N0")</div>
+                        <div class="ofx-figure-value">@scoped.TotalOrders.ToString("N0")</div>
                         <div class="ofx-figure-label">Total orders</div>
-                        <div class="ofx-figure-note">@report.OpenOrders.ToString("N0") open, @report.ClosedOrders.ToString("N0") closed</div>
+                        <div class="ofx-figure-note">@scoped.OpenOrders.ToString("N0") open, @scoped.ClosedOrders.ToString("N0") closed</div>
                     </div>
                 </div>
                 <div class="ofx-figure">
                     <span class="ofx-figure-mark" aria-hidden="true"><i class="ph ph-check-circle"></i></span>
                     <div class="ofx-figure-text">
-                        <div class="ofx-figure-value">@report.FulfillmentRatePercent.ToString("N1")%</div>
+                        <div class="ofx-figure-value">@scoped.FulfillmentRatePercent.ToString("N1")%</div>
                         <div class="ofx-figure-label">Invoice rate</div>
-                        <div class="ofx-figure-note">@report.FullyDeliveredLines.ToString("N0") invoiced lines</div>
+                        <div class="ofx-figure-note">@scoped.FullyDeliveredLines.ToString("N0") invoiced lines</div>
                     </div>
                 </div>
                 <div class="ofx-figure">
                     <span class="ofx-figure-mark is-quiet" aria-hidden="true"><i class="ph ph-stack"></i></span>
                     <div class="ofx-figure-text">
-                        <div class="ofx-figure-value">@report.Orders.Sum(order => order.TotalQuantityOrdered).ToString("N2")</div>
+                        <div class="ofx-figure-value">@scoped.Orders.Sum(order => order.TotalQuantityOrdered).ToString("N2")</div>
                         <div class="ofx-figure-label">Quantity ordered</div>
-                        <div class="ofx-figure-note">@report.Orders.Sum(order => order.TotalQuantityDelivered).ToString("N2") invoiced</div>
+                        <div class="ofx-figure-note">@scoped.Orders.Sum(order => order.TotalQuantityDelivered).ToString("N2") invoiced</div>
                     </div>
                 </div>
                 <div class="ofx-figure">
                     <span class="ofx-figure-mark is-warn" aria-hidden="true"><i class="ph ph-hourglass-medium"></i></span>
                     <div class="ofx-figure-text">
-                        <div class="ofx-figure-value is-warn">@report.Orders.Sum(order => order.TotalQuantityPending).ToString("N2")</div>
+                        <div class="ofx-figure-value is-warn">@scoped.Orders.Sum(order => order.TotalQuantityPending).ToString("N2")</div>
                         <div class="ofx-figure-label">Quantity pending</div>
-                        <div class="ofx-figure-note">@report.UndeliveredLines.ToString("N0") pending lines</div>
+                        <div class="ofx-figure-note">@scoped.UndeliveredLines.ToString("N0") pending lines</div>
                     </div>
                 </div>
                 <div class="ofx-figure">
                     <span class="ofx-figure-mark is-quiet" aria-hidden="true"><i class="ph ph-currency-circle-dollar"></i></span>
                     <div class="ofx-figure-text">
-                        <div class="ofx-figure-value is-money">@FormatMoneyPair(report.TotalOrderValueUSD, report.TotalOrderValueZIG)</div>
+                        <div class="ofx-figure-value is-money">@FormatMoneyPair(scoped.TotalOrderValueUSD, scoped.TotalOrderValueZIG)</div>
                         <div class="ofx-figure-label">Total order value</div>
-                        <div class="ofx-figure-note">Invoiced @FormatMoneyPair(report.TotalDeliveredValueUSD, report.TotalDeliveredValueZIG)</div>
+                        <div class="ofx-figure-note">Invoiced @FormatMoneyPair(scoped.TotalDeliveredValueUSD, scoped.TotalDeliveredValueZIG)</div>
                     </div>
                 </div>
                 <div class="ofx-figure">
                     <span class="ofx-figure-mark is-warn" aria-hidden="true"><i class="ph ph-clock-countdown"></i></span>
                     <div class="ofx-figure-text">
-                        <div class="ofx-figure-value is-money is-warn">@FormatMoneyPair(report.TotalPendingValueUSD, report.TotalPendingValueZIG)</div>
+                        <div class="ofx-figure-value is-money is-warn">@FormatMoneyPair(scoped.TotalPendingValueUSD, scoped.TotalPendingValueZIG)</div>
                         <div class="ofx-figure-label">Pending value</div>
                         <div class="ofx-figure-note">Based on pending line quantities</div>
                     </div>
@@ -464,9 +450,6 @@
 @code {
     private const int MaxDisplayedOrders = 200;
 
-    /// <summary>Enough of a search's matches to choose from without scrolling past the field.</summary>
-    private const int MaxListedCustomers = 12;
-
     private readonly HashSet<int> expandedOrders = new();
 
     private DateTime? fromDate;
@@ -478,12 +461,28 @@
     private bool isLoading;
     private bool isExporting;
     private bool hasLoaded;
+
+    /// <summary>The report as the API sent it. Nothing on the page reads this directly.</summary>
     private OrderFulfillmentReport? report;
 
-    private List<BusinessPartnerDto> customers = new();
-    private BusinessPartnerDto? selectedCustomer;
-    private string? customerSearch;
-    private bool showCustomerList;
+    /// <summary>
+    /// The same report narrowed to the chosen partners, which is what the page renders and what the
+    /// export writes. Held rather than recomputed per render: narrowing rebuilds every total over
+    /// every line, which is work per selection, not work per frame.
+    /// </summary>
+    private OrderFulfillmentReport? scoped;
+
+    /// <summary>
+    /// The partner <see cref="report"/> was scoped to at the API, or null when it was read for
+    /// every customer. A selection the load does not cover cannot be narrowed to — it has to be
+    /// read again.
+    /// </summary>
+    private string? loadedCardCode;
+
+    private List<OrderFulfillmentPartnerPicker.Option> partnerOptions = new();
+    private List<NocturneSelectOption<string>> groupSelectOptions = new();
+    private string selectedGroup = string.Empty;
+    private IReadOnlyList<string> selectedPartners = Array.Empty<string>();
     private bool isLoadingCustomers = true;
     private bool customerError;
 
@@ -493,51 +492,57 @@
     /// </summary>
     private bool requiresCustomer;
 
-    /// <summary>The partner the loaded report was actually run for, which the filters can move off.</summary>
-    private BusinessPartnerDto? reportCustomer;
-
     private bool HasSelectedRange => fromDate.HasValue && toDate.HasValue;
 
-    private bool CanLoad => HasSelectedRange && (!requiresCustomer || selectedCustomer is not null);
+    private bool CanLoad => HasSelectedRange && (!requiresCustomer || selectedPartners.Count == 1);
 
     private string PrimaryActionLabel => hasLoaded ? "Refresh report" : "Load report";
+
+    private string PartnerPlaceholder => requiresCustomer ? "Choose a customer" : "All customers";
+
+    /// <summary>What the picker offers: every cached partner, or only the chosen group's.</summary>
+    private List<OrderFulfillmentPartnerPicker.Option> AvailablePartners =>
+        selectedGroup.Length == 0
+            ? partnerOptions
+            : partnerOptions
+                .Where(partner => string.Equals(partner.Group, selectedGroup, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+    /// <summary>The partners the report is for, or null for every one of them.</summary>
+    private IReadOnlyCollection<string>? ScopeCardCodes =>
+        OrderFulfillmentScope.Resolve(partnerOptions, selectedGroup, selectedPartners);
+
+    /// <summary>
+    /// Names the selection beside the order count and in the empty state, or null where the report
+    /// covers every customer and there is nothing to name.
+    /// </summary>
+    private string? ScopeLabel
+    {
+        get
+        {
+            if (selectedPartners.Count == 1)
+            {
+                var one = partnerOptions.FirstOrDefault(partner =>
+                    string.Equals(partner.Value, selectedPartners[0], StringComparison.OrdinalIgnoreCase));
+
+                return one?.Name ?? selectedPartners[0];
+            }
+
+            if (selectedPartners.Count > 1)
+            {
+                return $"{selectedPartners.Count:N0} partners";
+            }
+
+            return selectedGroup.Length == 0 ? null : GroupName(selectedGroup);
+        }
+    }
+
+    private string GroupName(string code) =>
+        groupSelectOptions.FirstOrDefault(option => option.Value == code)?.Label ?? $"Group {code}";
 
     private string Standfirst => requiresCustomer
         ? "Ordered, invoiced and pending quantities for one customer's orders over the selected period."
         : "Ordered, invoiced and pending quantities with line values for the selected period.";
-
-    private IEnumerable<BusinessPartnerDto> MatchingCustomers
-    {
-        get
-        {
-            // Everything on an empty search, not the first page of it: the list shows a head and
-            // the count of what it is a head of, so an untyped field says how much is behind it.
-            if (string.IsNullOrWhiteSpace(customerSearch))
-                return customers;
-
-            return customers.Where(partner =>
-                Matches(partner.CardCode, customerSearch)
-                || Matches(partner.CardName, customerSearch));
-        }
-    }
-
-    private string SelectedCustomerLabel =>
-        selectedCustomer is null ? string.Empty : $"{selectedCustomer.CardCode} — {selectedCustomer.CardName}";
-
-    /// <summary>
-    /// Typing over a chosen customer un-chooses them. Without this the field could read as one
-    /// search while the report ran on the partner picked before it.
-    /// </summary>
-    private void OnCustomerSearchChanged()
-    {
-        showCustomerList = true;
-
-        if (selectedCustomer is not null && customerSearch != SelectedCustomerLabel)
-        {
-            selectedCustomer = null;
-            ClearLoadedReport();
-        }
-    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -546,7 +551,17 @@
 
         try
         {
-            customers = await CacheService.GetBusinessPartnersAsync();
+            var customers = await CacheService.GetBusinessPartnersAsync();
+
+            partnerOptions = customers
+                .Where(partner => !string.IsNullOrWhiteSpace(partner.CardCode))
+                .Select(partner => new OrderFulfillmentPartnerPicker.Option(
+                    partner.CardCode!,
+                    string.IsNullOrWhiteSpace(partner.CardName) ? partner.CardCode! : partner.CardName!,
+                    partner.Currency,
+                    SalesAnalysisGroups.Normalise(partner.GroupCode)))
+                .OrderBy(option => option.Value, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
         catch (Exception ex)
         {
@@ -557,38 +572,90 @@
         {
             isLoadingCustomers = false;
         }
+
+        await LoadGroupOptionsAsync();
     }
 
-    private void SelectCustomer(BusinessPartnerDto partner)
+    /// <summary>
+    /// Fills the Partner group dropdown, dropping any group no cached partner belongs to.
+    /// </summary>
+    /// <remarks>
+    /// A group with no member here would be a criterion that can only ever empty the report, and
+    /// SAP has plenty of them — groups kept for purchasing, or for partner types this report never
+    /// sees. The rule is <see cref="SalesAnalysisGroups"/>'s, shared with /reports/item-volume.
+    /// A missing lookup costs the dropdown and nothing else: the picker still lists every partner.
+    /// </remarks>
+    private async Task LoadGroupOptionsAsync()
     {
-        selectedCustomer = partner;
-        customerSearch = SelectedCustomerLabel;
-        showCustomerList = false;
+        var options = new List<NocturneSelectOption<string>> { NocturneSelectOption.All("All groups") };
+
+        try
+        {
+            var groups = await CacheService.GetBusinessPartnerGroupsAsync();
+
+            options.AddRange(SalesAnalysisGroups
+                .BuildOptions(
+                    partnerOptions.Select(option => option.Group),
+                    groups.Select(group => (
+                        Code: group.Code.ToString(CultureInfo.InvariantCulture),
+                        Name: group.Name)))
+                .Select(group => new NocturneSelectOption<string>(group.Value, group.Label)));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load the business partner groups for the sales order vs invoice report");
+        }
+
+        groupSelectOptions = options;
+    }
+
+    private void OnGroupChanged(string? code)
+    {
+        selectedGroup = code ?? string.Empty;
+        OnScopeChanged();
+    }
+
+    private void OnPartnersChanged(IReadOnlyList<string> next)
+    {
+        selectedPartners = next;
         customerError = false;
-        ClearLoadedReport();
+        OnScopeChanged();
     }
 
-    private void ClearCustomer()
+    /// <summary>
+    /// Re-narrows the loaded report to the new selection, or throws it away when the load cannot
+    /// cover it.
+    /// </summary>
+    /// <remarks>
+    /// A report read for every customer covers any selection, so the usual case is a re-narrowing
+    /// with no SAP read at all — which is the point of narrowing here rather than in the statement.
+    /// One read for a single partner covers only that partner, and showing it under a wider
+    /// selection would report that partner's orders as everybody's.
+    /// </remarks>
+    private void OnScopeChanged()
     {
-        selectedCustomer = null;
-        customerSearch = null;
-        showCustomerList = false;
-        customerError = false;
-        ClearLoadedReport();
+        var stillCovered = loadedCardCode is null
+            || (selectedPartners.Count == 1
+                && string.Equals(selectedPartners[0], loadedCardCode, StringComparison.OrdinalIgnoreCase));
+
+        if (report is not null && !stillCovered)
+        {
+            ClearLoadedReport();
+            return;
+        }
+
+        ApplyScope();
     }
 
-    // Mirrors the create-order form: picking is a mousedown with the default prevented, so the
-    // list survives long enough to be clicked; this only catches a blur that lands elsewhere.
-    private async Task OnCustomerBlurAsync()
+    private void ApplyScope()
     {
-        await Task.Delay(200);
-        showCustomerList = false;
-        StateHasChanged();
+        scoped = report is null ? null : OrderFulfillmentScope.Narrow(report, ScopeCardCodes);
+        expandedOrders.Clear();
     }
 
     private async Task LoadReportAsync()
     {
-        if (requiresCustomer && selectedCustomer is null)
+        if (requiresCustomer && selectedPartners.Count != 1)
         {
             customerError = true;
             errorMessage = "Choose the customer to report on.";
@@ -611,16 +678,22 @@
         errorMessage = null;
         customerError = false;
         report = null;
+        scoped = null;
         hasLoaded = false;
         expandedOrders.Clear();
 
-        var customer = selectedCustomer;
+        // One partner is asked of SAP directly — the statement takes a bound :cardCode and reads
+        // nobody else's orders. That is what keeps a rep's report both fast and inside what they
+        // are allowed to see. Anything wider is read for the window and narrowed on the page.
+        var scopeCodes = ScopeCardCodes;
+        var cardCode = scopeCodes is { Count: 1 } ? scopeCodes.First() : null;
 
         try
         {
             report = await ReportService.GetOrderFulfillmentAsync(
-                fromDate.Value.Date, toDate.Value.Date, customer?.CardCode);
-            reportCustomer = customer;
+                fromDate.Value.Date, toDate.Value.Date, cardCode);
+            loadedCardCode = cardCode;
+            ApplyScope();
             hasLoaded = true;
         }
         catch (Exception ex)
@@ -675,8 +748,8 @@
         fromDate = null;
         searchText = string.Empty;
         lineStatusFilter = "All";
-        selectedCustomer = null;
-        customerSearch = null;
+        selectedGroup = string.Empty;
+        selectedPartners = Array.Empty<string>();
         customerError = false;
         ClearLoadedReport();
         return Task.CompletedTask;
@@ -691,15 +764,21 @@
     private void ClearLoadedReport()
     {
         report = null;
-        reportCustomer = null;
+        scoped = null;
+        loadedCardCode = null;
         hasLoaded = false;
         errorMessage = null;
         expandedOrders.Clear();
     }
 
+    /// <summary>
+    /// Exports what is on screen, not what was loaded: the workbook's own KPI cards are the six
+    /// figures across the top of the page, and a workbook that answered for every customer while
+    /// the page it was taken from showed one group would be read as the group's.
+    /// </summary>
     private async Task ExportToExcelAsync()
     {
-        if (report is null)
+        if (scoped is null)
             return;
 
         isExporting = true;
@@ -707,11 +786,10 @@
 
         try
         {
-            var bytes = ExportService.ExportOrderFulfillmentToExcel(report);
-            var scope = reportCustomer is null ? string.Empty : $"{SanitiseForFileName(reportCustomer.CardCode)}_";
+            var bytes = ExportService.ExportOrderFulfillmentToExcel(scoped);
             await JS.InvokeVoidAsync(
                 "downloadFile",
-                $"Sales_Order_vs_Invoice_{scope}{DateTime.UtcNow:yyyyMMdd_HHmm}.xlsx",
+                $"Sales_Order_vs_Invoice_{ScopeFileNameSegment}{DateTime.UtcNow:yyyyMMdd_HHmm}.xlsx",
                 Convert.ToBase64String(bytes));
         }
         catch (Exception ex)
@@ -724,9 +802,26 @@
         }
     }
 
+    /// <summary>Names the selection in the download, where there is one short enough to name.</summary>
+    private string ScopeFileNameSegment
+    {
+        get
+        {
+            if (selectedPartners.Count == 1)
+                return $"{SanitiseForFileName(selectedPartners[0])}_";
+
+            if (selectedPartners.Count > 1)
+                return $"{selectedPartners.Count}_partners_";
+
+            return selectedGroup.Length == 0
+                ? string.Empty
+                : $"{SanitiseForFileName(GroupName(selectedGroup))}_";
+        }
+    }
+
     private IEnumerable<FulfillmentLineRow> GetFilteredLines()
     {
-        var rows = report?.Orders
+        var rows = scoped?.Orders
             .SelectMany(order => order.Lines.Select(line => new FulfillmentLineRow(order, line)))
             ?? Enumerable.Empty<FulfillmentLineRow>();
 
@@ -750,7 +845,7 @@
 
     private IEnumerable<OrderFulfillmentItem> GetFilteredOrders()
     {
-        var orders = report?.Orders.AsEnumerable() ?? Enumerable.Empty<OrderFulfillmentItem>();
+        var orders = scoped?.Orders.AsEnumerable() ?? Enumerable.Empty<OrderFulfillmentItem>();
 
         if (lineStatusFilter != "All")
         {
