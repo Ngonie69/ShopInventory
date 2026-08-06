@@ -794,7 +794,7 @@ else if (pendingActionTitle is not null)
     <div class="itx-drawer">
         <div class="itx-drawer-head">
             <div style="flex:1;min-width:0;">
-                <div class="itx-kicker">Draft transfer</div>
+                <div class="itx-kicker">@(IsPostedToSap(selectedPendingTransfer) ? "Posted transfer" : "Draft transfer")</div>
                 <h5>@DraftReference(selectedPendingTransfer)</h5>
                 <div class="itx-drawer-route">
                     <span class="itx-wh src">@selectedPendingTransfer.FromWarehouse</span>
@@ -966,7 +966,7 @@ else if (pendingActionTitle is not null)
             <button type="button" class="itx-btn itx-btn-primary"
                     disabled="@(isPrinting || isLoadingPendingDetail)"
                     @onclick="() => PrintPendingTransferDraft(selectedPendingTransfer)">
-                <i class="bi bi-printer"></i> Print Draft
+                <i class="bi bi-printer"></i> @(IsPostedToSap(selectedPendingTransfer) ? "Print Transfer" : "Print Draft")
             </button>
             @if (selectedPendingTransfer.Status is PendingTransferStatuses.Approved or PendingTransferStatuses.PostFailed)
             {
@@ -2765,11 +2765,20 @@ else if (pendingActionTitle is not null)
     }
 
     /// <summary>
-    /// Print sheet for a held transfer. It carries a DRAFT watermark because the stock has not
-    /// moved: nothing posts to SAP until every approval stage signs off.
+    /// True once the held transfer has actually reached SAP. The sheet below drops its draft
+    /// markings in that case: the stock has moved and a real document exists.
+    /// </summary>
+    private static bool IsPostedToSap(PendingInventoryTransferDto pending) =>
+        pending.Status == PendingTransferStatuses.Posted && pending.SapDocNum.HasValue;
+
+    /// <summary>
+    /// Print sheet for a held transfer. It carries a DRAFT watermark while the stock has not
+    /// moved: nothing posts to SAP until every approval stage signs off. Once the transfer is
+    /// posted the same sheet prints as the posted document, keyed to its SAP document number.
     /// </summary>
     private string BuildPendingTransferDraftHtml(PendingInventoryTransferDto pending)
     {
+        var posted = IsPostedToSap(pending);
         var lines = pending.Lines;
         var rows = new StringBuilder();
         var lineNumber = 1;
@@ -2805,6 +2814,19 @@ else if (pendingActionTitle is not null)
         var printedAt = IAuditService.ToCAT(DateTime.UtcNow).ToString("dd MMM yyyy HH:mm");
         var submitted = pending.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm");
         var draftNumber = Html(DraftReference(pending));
+        var docTitle = posted
+            ? $"Inventory Transfer {draftNumber}"
+            : $"Draft Inventory Transfer {draftNumber}";
+        var heading = posted ? "Inventory Transfer" : "Inventory Transfer &mdash; Draft";
+        var badge = posted
+            ? $"<span class='badge posted'>POSTED TO SAP &#35;{pending.SapDocNum}</span>"
+            : "<span class='badge'>NOT POSTED TO SAP</span>";
+        var watermark = posted ? string.Empty : "<div class=\"watermark\">DRAFT</div>";
+        var notice = posted
+            ? $"<div class='notice posted'>Posted to SAP as inventory transfer &#35;{pending.SapDocNum}. "
+              + "The stock has moved; this sheet is a copy of the posted document.</div>"
+            : "<div class='notice'>This is a draft. No stock has moved and no document exists in SAP. "
+              + "It becomes an inventory transfer only once every approval stage above has been approved.</div>";
         var logoDataUri = GetBrandLogoDataUri();
         var logo = logoDataUri == null
             ? string.Empty
@@ -2815,7 +2837,7 @@ else if (pendingActionTitle is not null)
             <html>
             <head>
                 <meta charset="utf-8">
-                <title>Draft Inventory Transfer {{draftNumber}}</title>
+                <title>{{docTitle}}</title>
                 <style>
                     @page { size: A4; margin: 14mm; }
                     body { font-family: Arial, Helvetica, sans-serif; color: #111827; font-size: 12px; margin: 0;
@@ -2830,6 +2852,7 @@ else if (pendingActionTitle is not null)
                     .doc-no { font-size: 18px; font-weight: 700; text-align: right; }
                     .badge { display: inline-block; border: 1px solid #b45309; color: #b45309; border-radius: 3px;
                              padding: 2px 8px; font-size: 11px; font-weight: 700; letter-spacing: .5px; }
+                    .badge.posted { border-color: #047857; color: #047857; }
                     .route { display: flex; align-items: center; gap: 16px; border: 1px solid #d1d5db;
                              padding: 12px; margin-bottom: 16px; }
                     .route .leg { flex: 1; text-align: center; }
@@ -2848,6 +2871,7 @@ else if (pendingActionTitle is not null)
                     .sig { flex: 1; border-top: 1px solid #111827; padding-top: 6px; font-size: 11px; }
                     .notice { border: 1px solid #b45309; background: #fffbeb; color: #92400e; padding: 10px;
                               margin-top: 18px; font-size: 11px; }
+                    .notice.posted { border-color: #047857; background: #ecfdf5; color: #065f46; }
                     .foot { margin-top: 24px; font-size: 10px; color: #6b7280; text-align: center; }
 
                     /* Sits behind the content on every printed page. print-color-adjust keeps the
@@ -2860,15 +2884,15 @@ else if (pendingActionTitle is not null)
                 </style>
             </head>
             <body>
-                <div class="watermark">DRAFT</div>
+                {{watermark}}
 
                 <div class="head">
                     <div class="brand">
                         {{logo}}
                         <div>
                             <div class="company">{{Html(AppSettings.CompanyName)}}</div>
-                            <h1>Inventory Transfer &mdash; Draft</h1>
-                            <span class="badge">NOT POSTED TO SAP</span>
+                            <h1>{{heading}}</h1>
+                            {{badge}}
                         </div>
                     </div>
                     <div class="doc-no">
@@ -2924,10 +2948,7 @@ else if (pendingActionTitle is not null)
                     <div class="sig">Received by (name / signature / date)</div>
                 </div>
 
-                <div class="notice">
-                    This is a draft. No stock has moved and no document exists in SAP. It becomes an
-                    inventory transfer only once every approval stage above has been approved.
-                </div>
+                {{notice}}
 
                 <div class="foot">Printed {{printedAt}} CAT</div>
             </body>
