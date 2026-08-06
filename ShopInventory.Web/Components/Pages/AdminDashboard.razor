@@ -1,0 +1,294 @@
+@* The administrator's dashboard, rendered by Home at /dashboard.
+
+   It replaces a page that reported a cashier's day — invoices raised, payments
+   taken, "Create invoice" as the primary action — to whoever opened it. That
+   was the right page when every office role shared this route. It is not an
+   administrator's page, so this one asks the four questions an administrator
+   actually opens a dashboard for: is the system up, what is stuck, what is
+   waiting on a decision, and who is doing what.
+
+   Trading stays, demoted to the last row: still worth a glance, but no longer
+   what the page is about. The Manager dashboard picks it up properly.
+
+   Shares wwwroot/css/dashboard.css with the sales-rep dashboard at the same
+   route — same header, hero, stat, panel and button rules. *@
+
+<div class="dsh">
+
+    <header class="dsh-head">
+        <div class="dsh-head-inner">
+            <nav class="dsh-crumbs" aria-label="Breadcrumb">
+                <span>System</span>
+                <span class="dsh-crumb-sep" aria-hidden="true">/</span>
+                <span class="dsh-crumb-now" aria-current="page">Operations</span>
+            </nav>
+
+            <div class="dsh-head-meta">
+                <span class="dsh-synced">
+                    <span class="dsh-synced-dot" aria-hidden="true"></span>
+                    @if (loadedAt is { } stamp)
+                    {
+                        @($"Read at {stamp:HH:mm}")
+                    }
+                    else
+                    {
+                        @("Reading…")
+                    }
+                </span>
+
+                <a class="dsh-btn dsh-btn-primary dsh-btn-lg" href="/exception-center">
+                    <DashIcon Name="warning" Size="15" />
+                    Exception centre
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <div class="dsh-body">
+
+        <section class="dsh-hero">
+            <div>
+                <div class="dsh-kicker">Operations</div>
+                <h1>@GreetingText, @DisplayName</h1>
+                <p>
+                    What the system is doing, what is stuck, and what is waiting on you.
+                    Figures are read once when the page opens.
+                </p>
+            </div>
+            <div class="dsh-date">
+                <DashIcon Name="calendar" Size="14" />
+                <span>@DateTime.Now.ToString("dddd d MMMM yyyy")</span>
+            </div>
+        </section>
+
+        @* Health leads: everything below it is only worth reading if the
+           system behind it is actually up. *@
+        <section class="dsh-stats" aria-label="System health">
+            <StatCard Label="System"
+                      Value="@HealthValue"
+                      ValueLabel="API and its dependencies"
+                      Tone="@HealthTone"
+                      ToneNote="@HealthNote"
+                      Icon="heartbeat"
+                      IsLead="true" />
+            <StatCard Label="Blocked"
+                      Value="@Figure(blockedCount)"
+                      ValueLabel="Exceptions needing a decision"
+                      Tone="@BlockedTone"
+                      ToneNote="@BlockedNote"
+                      Icon="warning" />
+            <StatCard Label="Retries"
+                      Value="@Figure(retryOverdueCount)"
+                      ValueLabel="Overdue a retry"
+                      Amount="@(stalledCount is null ? null : stalledCount.Value.ToString("N0"))"
+                      AmountLabel="Stalled"
+                      Tone="@RetryTone"
+                      ToneNote="@RetryNote"
+                      Icon="clock" />
+        </section>
+
+        <section class="dsh-stats" aria-label="Work waiting on a decision">
+            @* No unit total here. The figure this card used to carry summed
+               TotalQuantity across transfers measured in crates, kilograms and
+               eaches, which was never a number. The note says what the count
+               covers instead, because every per-warehouse read needs a
+               warehouse code and this one is asked without one. *@
+            <StatCard Label="Transfers"
+                      Value="@Figure(pendingTransferCount)"
+                      ValueLabel="Awaiting approval"
+                      ToneNote="Across all warehouses"
+                      Icon="swap" />
+            <StatCard Label="Failed posts"
+                      Value="@Figure(postFailedCount)"
+                      ValueLabel="Approved but not in SAP"
+                      Tone="@PostFailedTone"
+                      ToneNote="@PostFailedNote"
+                      Icon="plug" />
+            <StatCard Label="People"
+                      Value="@Figure(activeUsers)"
+                      ValueLabel="Active today"
+                      Amount="@(totalActions is null ? null : totalActions.Value.ToString("N0"))"
+                      AmountLabel="Actions"
+                      Tone="@ActivityTone"
+                      ToneNote="@ActivityNote"
+                      Icon="users" />
+        </section>
+
+        <section class="dsh-stats" aria-label="Security and trading">
+            <StatCard Label="Accounts"
+                      Value="@Figure(lockedUsers)"
+                      ValueLabel="Locked out"
+                      Tone="@SecurityTone"
+                      ToneNote="@SecurityNote"
+                      Icon="shield" />
+            <StatCard Label="Invoices"
+                      Value="@Figure(todayInvoiceCount)"
+                      ValueLabel="Raised today"
+                      Trend="@invoiceTrend.Text"
+                      Direction="@invoiceTrend.Direction"
+                      Amount="@FormatMoney(invoiceTotal)"
+                      AmountLabel="Total value"
+                      Icon="receipt" />
+            <StatCard Label="Payments"
+                      Value="@Figure(todayPaymentCount)"
+                      ValueLabel="Received today"
+                      Trend="@paymentTrend.Text"
+                      Direction="@paymentTrend.Direction"
+                      Amount="@FormatMoney(paymentTotal)"
+                      AmountLabel="Total received"
+                      Icon="card" />
+        </section>
+
+        <section class="dsh-panels" aria-label="What is failing and who is working">
+
+            @* The clusters carry a Guidance string that says what to do about
+               each family of failure. That is the column worth the width. *@
+            <section class="dsh-panel" aria-labelledby="clusters-heading">
+                <header class="dsh-panel-head">
+                    <span class="dsh-panel-icon">
+                        <DashIcon Name="warning" Size="15" />
+                    </span>
+                    <h2 id="clusters-heading">What is failing</h2>
+                    <a class="dsh-panel-link" href="/exception-center">
+                        View all
+                        <DashIcon Name="chevron" Size="13" />
+                    </a>
+                </header>
+
+                @if (isLoadingExceptions)
+                {
+                    <div class="dsh-state" role="status">
+                        <span class="dsh-spin" aria-hidden="true"></span>
+                        <span>Loading failures&#8230;</span>
+                    </div>
+                }
+                else if (clusters is { Count: > 0 })
+                {
+                    <div class="dsh-scroll">
+                        <table class="dsh-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Failure</th>
+                                    <th scope="col">Family</th>
+                                    <th scope="col" class="dsh-th-money">Count</th>
+                                    <th scope="col">What to do</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var cluster in clusters)
+                                {
+                                    <tr>
+                                        <td class="dsh-name" title="@cluster.SampleError">@cluster.Label</td>
+                                        <td><span class="dsh-tag">@cluster.Family</span></td>
+                                        <td class="dsh-money">@cluster.Count.ToString("N0")</td>
+                                        <td class="dsh-name" title="@cluster.Guidance">@cluster.Guidance</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else if (exceptionsUnavailable)
+                {
+                    <div class="dsh-state">Exception centre unavailable</div>
+                }
+                else
+                {
+                    <div class="dsh-state">Nothing is failing</div>
+                }
+            </section>
+
+            <section class="dsh-panel" aria-labelledby="activity-heading">
+                <header class="dsh-panel-head">
+                    <span class="dsh-panel-icon">
+                        <DashIcon Name="list-check" Size="15" />
+                    </span>
+                    <h2 id="activity-heading">Recent activity</h2>
+                    <a class="dsh-panel-link" href="/user-activity">
+                        View all
+                        <DashIcon Name="chevron" Size="13" />
+                    </a>
+                </header>
+
+                @if (isLoadingActivity)
+                {
+                    <div class="dsh-state" role="status">
+                        <span class="dsh-spin" aria-hidden="true"></span>
+                        <span>Loading activity&#8230;</span>
+                    </div>
+                }
+                else if (recentActivity is { Count: > 0 })
+                {
+                    <div class="dsh-scroll">
+                        <table class="dsh-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">User</th>
+                                    <th scope="col">Action</th>
+                                    <th scope="col">Time</th>
+                                    <th scope="col">Result</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var entry in recentActivity)
+                                {
+                                    <tr>
+                                        <td class="dsh-name" title="@entry.Username">@entry.Username</td>
+                                        <td class="dsh-name" title="@ActivityDetail(entry)">@entry.Action</td>
+                                        <td class="dsh-when">@entry.Timestamp.ToLocalTime().ToString("dd MMM HH:mm")</td>
+                                        <td>
+                                            <span class="dsh-tag @(entry.IsSuccess ? "dsh-tag-ok" : null)">
+                                                @(entry.IsSuccess ? "OK" : "Failed")
+                                            </span>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="dsh-state">No recent activity</div>
+                }
+            </section>
+
+        </section>
+
+        <section class="dsh-panel" aria-labelledby="admin-actions-heading">
+            <header class="dsh-panel-head">
+                <span class="dsh-panel-icon">
+                    <DashIcon Name="bolt" Size="15" />
+                </span>
+                <h2 id="admin-actions-heading">Quick actions</h2>
+            </header>
+            <div class="dsh-quick">
+                <QuickAction Title="Exception centre"
+                             Description="Retry and assign what failed"
+                             Href="/exception-center"
+                             Icon="warning" />
+                <QuickAction Title="Users"
+                             Description="Accounts, roles and warehouses"
+                             Href="/user-management"
+                             Icon="users" />
+                <QuickAction Title="Sync status"
+                             Description="Check the cached data"
+                             Href="/sync-status"
+                             Icon="database" />
+                <QuickAction Title="Approvals"
+                             Description="Stages and templates"
+                             Href="/approval-process/setup"
+                             Icon="clipboard-check" />
+                <QuickAction Title="Backups"
+                             Description="Database snapshots"
+                             Href="/backups"
+                             Icon="shield" />
+                <QuickAction Title="Settings"
+                             Description="Company and SAP configuration"
+                             Href="/settings"
+                             Icon="gauge" />
+            </div>
+        </section>
+
+    </div>
+</div>

@@ -1,4 +1,5 @@
 @using System.Security.Claims
+@using ShopInventory.Web.Common
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject IGlobalSearchService GlobalSearchService
@@ -13,7 +14,11 @@
             <i class="ph ph-list" aria-hidden="true"></i>
         </button>
 
-        <a class="kf-topbar__brand" href="/dashboard" aria-label="Kefalos dashboard">
+        @* The logo goes home, and home is per-role: only an Admin and a sales
+           rep have a dashboard, so anyone else would land on a page they
+           cannot open. RoleLandingRoutes is the same chain the sign-in page
+           uses. *@
+        <a class="kf-topbar__brand" href="@HomeHref" aria-label="Kefalos home">
             <BrandLogo />
         </a>
     </div>
@@ -158,6 +163,13 @@
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    /// <summary>
+    /// Where the brand takes this user. Falls back to the dashboard until the
+    /// authentication state has resolved, which is what it always was.
+    /// </summary>
+    private string HomeHref =>
+        _user is null ? RoleLandingRoutes.Dashboard : RoleLandingRoutes.For(_user);
 
     private string NotificationLabel =>
         UnreadCount > 0 ? $"Notifications, {UnreadCount} unread" : "Notifications";

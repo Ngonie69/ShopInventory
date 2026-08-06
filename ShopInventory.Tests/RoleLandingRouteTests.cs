@@ -15,9 +15,11 @@ public sealed class RoleLandingRouteTests
     [InlineData(UserRoles.PodOperator, "/pod-dashboard")]
     [InlineData(UserRoles.SalesRep, "/dashboard")]
     [InlineData(UserRoles.Admin, "/dashboard")]
-    [InlineData(UserRoles.Cashier, "/dashboard")]
-    [InlineData(UserRoles.Manager, "/dashboard")]
-    [InlineData(UserRoles.StockController, "/dashboard")]
+    // These three shared the dashboard until it narrowed to an administrator's
+    // page, and land on the page they work from until each has its own.
+    [InlineData(UserRoles.Cashier, "/invoices")]
+    [InlineData(UserRoles.Manager, "/reports")]
+    [InlineData(UserRoles.StockController, "/inventory-transfers")]
     [InlineData(UserRoles.Driver, "/pods")]
     [InlineData("Operator", "/pods")]
     [InlineData(UserRoles.Merchandiser, "/mobile-drafts")]
@@ -44,7 +46,7 @@ public sealed class RoleLandingRouteTests
 
     /// <summary>
     /// A sales rep resolves to the dashboard route, which Home serves with the
-    /// sales-rep dashboard rather than the cashier one.
+    /// sales-rep dashboard rather than the administrator's one.
     /// </summary>
     [Fact]
     public void Sales_rep_lands_on_the_dashboard_route()
@@ -53,15 +55,30 @@ public sealed class RoleLandingRouteTests
     }
 
     /// <summary>
-    /// An administrator carrying a single-purpose role keeps the dashboard —
-    /// the two roles that are checked against Admin.
+    /// An administrator carrying a narrower role keeps the dashboard, whether
+    /// that role is checked against Admin explicitly or resolved after it.
     /// </summary>
     [Theory]
     [InlineData(UserRoles.Lab)]
     [InlineData(UserRoles.DepotController)]
+    [InlineData(UserRoles.Cashier)]
+    [InlineData(UserRoles.StockController)]
+    [InlineData(UserRoles.Manager)]
     public void An_admin_holding_a_narrow_role_still_lands_on_the_dashboard(string role)
     {
         Assert.Equal(RoleLandingRoutes.Dashboard, RoleLandingRoutes.For(Principal(UserRoles.Admin, role)));
+    }
+
+    /// <summary>
+    /// A sales rep is resolved before the re-homed roles, so a rep who also
+    /// carries one of them keeps their own workspace.
+    /// </summary>
+    [Theory]
+    [InlineData(UserRoles.Cashier)]
+    [InlineData(UserRoles.Manager)]
+    public void A_sales_rep_holding_a_re_homed_role_keeps_the_dashboard(string role)
+    {
+        Assert.Equal(RoleLandingRoutes.Dashboard, RoleLandingRoutes.For(Principal(UserRoles.SalesRep, role)));
     }
 
     [Theory]
