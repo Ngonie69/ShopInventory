@@ -123,8 +123,11 @@
     /// <summary>
     /// Extra classes on the wrapper. The ones the sheet defines are
     /// <c>nsel-sm</c> and <c>nsel-lg</c> for height, <c>nsel-end</c> to
-    /// right-anchor the menu, <c>nsel-auto</c> to drop the minimum width, and
-    /// <c>nsel-bs</c> to fit a Bootstrap <c>.form-select</c> row.
+    /// right-anchor the menu, <c>nsel-up</c> to hang it above the trigger —
+    /// which anything in a card's footer needs, or the card's
+    /// <c>overflow: hidden</c> clips the menu away — <c>nsel-auto</c> to drop
+    /// the minimum width, and <c>nsel-bs</c> to fit a Bootstrap
+    /// <c>.form-select</c> row.
     /// </summary>
     [Parameter] public string? Class { get; set; }
 
