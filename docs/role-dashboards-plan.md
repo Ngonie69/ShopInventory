@@ -19,11 +19,17 @@ their own and flips their landing route to it.
 
 ## Which roles get a dashboard
 
-**Build one for:** Cashier, StockController (shared with DepotController),
-Manager.
+**Build one for:** Cashier, StockController, Manager.
 
 **Already have one:** Admin (`/dashboard`), SalesRep (`/dashboard`, served by
-`SalesRepDashboard`), PodOperator (`/pod-dashboard`).
+`SalesRepDashboard`), DepotController (`/dashboard`, served by
+`DepotDashboard`), PodOperator (`/pod-dashboard`).
+
+> DepotController was originally planned here as a second reader of the stock
+> dashboard. It got its own page first (#192), which settles the question: the
+> stock dashboard is StockController's alone, and `DepotDashboard` is the
+> nearer model to copy from since it already solves warehouse scoping off the
+> `warehouse` claims.
 
 **Do not build one for:** Driver (`/pods`), Merchandiser (`/mobile-drafts`),
 Lab (`/lab/batch-status`), MerchandiserPurchaseOrderViewer
@@ -113,16 +119,19 @@ Notes:
 
 ---
 
-## Phase 2 — Stock controller (and depot controller)
+## Phase 2 — Stock controller
 
 **Route** `/stock-dashboard` ·
-`[Authorize(Roles = "Admin,StockController,DepotController")]` · prefix `stkd-`
+`[Authorize(Roles = "Admin,StockController")]` · prefix `stkd-`
 
-Both roles are warehouse-scoped (`UserRoles.RequiresWarehouseAssignment`) and
-both work the transfer queue, so one page serves them. Resolve the warehouse
-with `DefaultWarehouseResolver.Resolve` from the user's `warehouse` claims; if
-more than one is assigned, put a picker in the header and key the whole page
-off it.
+The role is warehouse-scoped (`UserRoles.RequiresWarehouseAssignment`).
+Resolve the warehouse with `DefaultWarehouseResolver.Resolve` from the user's
+`warehouse` claims; if more than one is assigned, put a picker in the header
+and key the whole page off it.
+
+`DepotDashboard` already does exactly this scoping for the depot role — read it
+before writing this page rather than solving the claims-to-warehouse problem a
+second time.
 
 | Band | Card / panel | Source |
 |---|---|---|
@@ -148,10 +157,9 @@ Two rules this page must not break:
 Post-failed transfers earn a card of their own: a disconnect during posting can
 strand a document with no error and no retry, and nothing surfaces that today.
 
-**Ship with:** `RoleLandingRoutes` StockController **and** DepotController →
-`/stock-dashboard`; two `RoleLandingRouteTests` rows updated (note the existing
-`An_admin_holding_a_narrow_role_still_lands_on_the_dashboard` test covers
-DepotController — it must keep passing).
+**Ship with:** `RoleLandingRoutes` StockController → `/stock-dashboard`; its
+`RoleLandingRouteTests` row updated. DepotController is not touched — it lands
+on `/dashboard` and Home draws `DepotDashboard` there.
 
 ---
 
@@ -224,13 +232,17 @@ worth carrying over.
 ## Open questions
 
 1. **Do Nocturne designs already exist** for a cashier, stock or manager
-   dashboard in the design projects? The three existing dashboards were all
+   dashboard in the design projects? The four existing dashboards were all
    imported from `.dc.html` designs. Check before drawing anything by hand —
    the chrome is already built and concepts there are alternatives, not a spec.
-2. **DepotController** — share the stock dashboard as proposed, or leave them on
-   `/inventory-transfers`?
-3. **Cashier cards marked "confirm"** — does a fiscalization-failure figure and
+2. **Cashier cards marked "confirm"** — does a fiscalization-failure figure and
    an open-invoices figure exist behind the Web's services, or do they need API
    work? This changes the Phase 1 estimate.
-4. **Nav label** — every role's link reads "Dashboard", or each reads its own
+3. **Nav label** — every role's link reads "Dashboard", or each reads its own
    ("Till", "Stock", "Oversight")?
+4. **Where the new dashboards live.** `/dashboard` now serves three pages by
+   role from inside Home, while POD has its own route. Phases 1–3 assume
+   separate routes; the alternative is to keep adding branches to Home. Separate
+   routes still look right — Home is a switch, not a host — but the split is now
+   a decision rather than an accident, and Phase 0's `DashboardRoutes` set has
+   to agree with whichever way it goes.

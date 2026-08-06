@@ -23,7 +23,7 @@ public sealed class RoleLandingRouteTests
     [InlineData(UserRoles.Driver, "/pods")]
     [InlineData("Operator", "/pods")]
     [InlineData(UserRoles.Merchandiser, "/mobile-drafts")]
-    [InlineData(UserRoles.DepotController, "/inventory-transfers")]
+    [InlineData(UserRoles.DepotController, "/dashboard")]
     [InlineData(UserRoles.Lab, "/lab/batch-status")]
     [InlineData(UserRoles.MerchandiserPurchaseOrderViewer, "/reports/merchandiser-purchase-orders")]
     public void Each_role_lands_on_its_own_page(string role, string expected)
@@ -45,18 +45,25 @@ public sealed class RoleLandingRouteTests
     }
 
     /// <summary>
-    /// A sales rep resolves to the dashboard route, which Home serves with the
-    /// sales-rep dashboard rather than the administrator's one.
+    /// Three roles resolve to the one dashboard route, which Home serves with a
+    /// different page for each: the sales-rep workspace, the depot workspace and
+    /// the administrator's one. Cashier is deliberately not among them any
+    /// more — see <see cref="Each_role_lands_on_its_own_page"/>.
     /// </summary>
-    [Fact]
-    public void Sales_rep_lands_on_the_dashboard_route()
+    [Theory]
+    [InlineData(UserRoles.SalesRep)]
+    [InlineData(UserRoles.DepotController)]
+    [InlineData(UserRoles.Admin)]
+    public void The_dashboard_route_is_shared(string role)
     {
-        Assert.Equal(RoleLandingRoutes.Dashboard, RoleLandingRoutes.For(UserRoles.SalesRep));
+        Assert.Equal(RoleLandingRoutes.Dashboard, RoleLandingRoutes.For(role));
     }
 
     /// <summary>
-    /// An administrator carrying a narrower role keeps the dashboard, whether
-    /// that role is checked against Admin explicitly or resolved after it.
+    /// An administrator carrying a narrower role keeps the dashboard, by any of
+    /// the three routes to that answer: Lab is still checked against Admin
+    /// explicitly, the depot role lands there on its own, and the re-homed
+    /// three are resolved after Admin.
     /// </summary>
     [Theory]
     [InlineData(UserRoles.Lab)]

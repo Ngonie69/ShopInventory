@@ -3,6 +3,7 @@ using System.Globalization;
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Sap;
 using ShopInventory.DTOs;
 using ShopInventory.Services;
 
@@ -525,103 +526,28 @@ WHERE T1."ShortName" = :cardCode
         };
     }
 
-    private static (string OriginCode, string DocumentType) MapOrigin(int transType)
-    {
-        return transType switch
-        {
-            -2 => ("OB", "Opening Balance"),
-            13 => ("IN", "A/R Invoice"),
-            14 => ("CN", "A/R Credit Memo"),
-            24 => ("RC", "Incoming Payment"),
-            30 => ("JE", "Journal Entry"),
-            // "PS", not "PY" — this column exists to be read against SAP's own Account Balance
-            // window, and that is the abbreviation it prints for an outgoing payment. ABS006's June
-            // 2026 statement carries three, two of them a petty-cash payment and its reversal.
-            46 => ("PS", "Outgoing Payment"),
-            _ => (transType.ToString(CultureInfo.InvariantCulture), $"Transaction {transType}")
-        };
-    }
+    // The row readers, the bound-date format and the TransType map are shared with the G/L account
+    // ledger, which is the same OJDT/JDT1 read keyed on the account rather than the partner. They
+    // live in ShopInventory.Common.Sap so the two cannot drift — the yyyyMMdd date in particular
+    // costs a whole statement's dates when it is got wrong, and it is not visible from the output.
+    private static (string OriginCode, string DocumentType) MapOrigin(int transType) =>
+        SapJournalOrigin.Map(transType);
 
-    /// <summary>
-    /// SAP accepts a bound date as <c>yyyy-MM-dd</c>. Its own <c>TO_DATE</c> is rejected by the
-    /// SQLQueries validator, so the column is compared against the bare parameter instead.
-    /// </summary>
-    private static string FormatSqlDate(DateTime date) =>
-        date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    private static string FormatSqlDate(DateTime date) => SapSqlRow.FormatDate(date);
 
     private static string? GetString(IReadOnlyDictionary<string, object?> row, string key) =>
-        row.TryGetValue(key, out var value) ? value?.ToString() : null;
+        SapSqlRow.GetString(row, key);
 
-    private static int GetInt32(IReadOnlyDictionary<string, object?> row, string key)
-    {
-        if (!row.TryGetValue(key, out var value) || value is null)
-        {
-            return 0;
-        }
+    private static int GetInt32(IReadOnlyDictionary<string, object?> row, string key) =>
+        SapSqlRow.GetInt32(row, key);
 
-        return value switch
-        {
-            int intValue => intValue,
-            long longValue => (int)longValue,
-            decimal decimalValue => decimal.ToInt32(decimalValue),
-            _ when int.TryParse(value.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed) => parsed,
-            _ => 0
-        };
-    }
+    private static decimal GetDecimal(IReadOnlyDictionary<string, object?> row, string key) =>
+        SapSqlRow.GetDecimal(row, key);
 
-    private static decimal GetDecimal(IReadOnlyDictionary<string, object?> row, string key)
-    {
-        if (!row.TryGetValue(key, out var value) || value is null)
-        {
-            return 0m;
-        }
+    private static DateTime GetDateTime(IReadOnlyDictionary<string, object?> row, string key) =>
+        SapSqlRow.GetDateTime(row, key);
 
-        return value switch
-        {
-            decimal decimalValue => decimalValue,
-            int intValue => intValue,
-            long longValue => longValue,
-            double doubleValue => Convert.ToDecimal(doubleValue, CultureInfo.InvariantCulture),
-            _ when decimal.TryParse(value.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed) => parsed,
-            _ when decimal.TryParse(value.ToString(), NumberStyles.Any, CultureInfo.CurrentCulture, out var fallback) => fallback,
-            _ => 0m
-        };
-    }
-
-    private static DateTime GetDateTime(IReadOnlyDictionary<string, object?> row, string key)
-    {
-        if (!row.TryGetValue(key, out var value) || value is null)
-        {
-            return DateTime.MinValue;
-        }
-
-        if (value is DateTime dateTime)
-        {
-            return dateTime;
-        }
-
-        var text = value.ToString();
-
-        // SAP returns dates from SQLQueries as yyyyMMdd — "20200821", not "2020-08-21". General
-        // parsing rejects that outright, so every statement line came back as DateTime.MinValue and
-        // rendered as 01/01/0001, with the posting-date sort silently degrading to a no-op.
-        if (DateTime.TryParseExact(text, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var compact))
-        {
-            return compact.Date;
-        }
-
-        return DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed)
-            ? parsed.Date
-            : DateTime.MinValue;
-    }
-
-    /// <summary>
-    /// Distinguishes "SAP gave no due date" from the <see cref="DateTime.MinValue"/> the row readers
-    /// return for a missing or unparseable cell, so an absent date ages as unknown rather than as
-    /// two thousand years overdue.
-    /// </summary>
-    private static DateTime? ToNullableDate(DateTime value) =>
-        value == DateTime.MinValue ? null : value;
+    private static DateTime? ToNullableDate(DateTime value) => SapSqlRow.ToNullableDate(value);
 
     private static int CalculateDaysOverdue(DateTime? dueDate, DateTime asAtDate)
     {

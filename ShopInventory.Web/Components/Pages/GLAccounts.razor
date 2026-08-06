@@ -181,6 +181,7 @@
                                 Balance @SortMark(nameof(GLAccountDto.Balance))
                             </th>
                             <th class="ops-mid">Status</th>
+                            <th class="ops-mid">Ledger</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -206,6 +207,15 @@
                                     <span class="ops-badge @(account.IsActive ? "ops-fam-good" : "ops-fam-neutral")">
                                         @(account.IsActive ? "Active" : "Inactive")
                                     </span>
+                                </td>
+                                @* A real link rather than a click handler on the <tr>: a whole-row
+                                   handler is not reachable by keyboard and cannot be opened in a new
+                                   tab, and comparing two accounts side by side is the obvious thing
+                                   to want from this page. *@
+                                <td class="ops-mid">
+                                    <a class="ops-link" href="@($"/gl-accounts/{Uri.EscapeDataString(account.Code ?? string.Empty)}")">
+                                        Transactions<i class="ph ph-caret-right" aria-hidden="true"></i>
+                                    </a>
                                 </td>
                             </tr>
                         }

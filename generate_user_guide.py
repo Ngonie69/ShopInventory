@@ -1010,7 +1010,7 @@ add_table(
         ['Cashier', 'Sales, Payments, Inventory, Customers, Reports, PODs', 'Create invoices, quotations, credit notes; record payments; manage PODs'],
         ['Manager', 'Purchasing, Reports, User Activity, Inventory, Customers', 'Create purchase orders; view reports, user activity; manage products'],
         ['StockController', 'Inventory, Transfers, Products, Customers, Reports', 'Monitor stock; create transfer requests; manage inventory'],
-        ['DepotController', 'Transfers, Local Stock', 'Process transfers for assigned warehouses; review local stock'],
+        ['DepotController', 'Depot Dashboard, Transfers, Local Stock', 'Process transfers for assigned warehouses; review local stock'],
         ['PodOperator', 'POD Dashboard, Proof of Delivery, POD Report', 'Upload proof of delivery attachments; view personal upload stats'],
         ['Customer', 'Customer Portal only', 'View invoices, statements, payments, PODs; submit support tickets'],
     ]

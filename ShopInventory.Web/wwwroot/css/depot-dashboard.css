@@ -1,0 +1,1325 @@
+/* ==========================================================================
+   Depot Dashboard — Nocturne
+
+   The depot controller's landing page, at the same /dashboard route the cashier
+   and sales-rep dashboards use. Derived from sales-rep-dashboard.css, which is
+   the sibling this page shares its *shape* with — a greeting header carrying a
+   range control and the entry actions, a row of four figures, a 1.9fr/1fr split
+   with a chart over a document queue on the left and the follow-up panels
+   stacked on the right, closing on three workflow cards.
+
+   Palette and spacing come from nocturne-tokens.css; the block below aliases
+   them rather than restating them, so a colour is corrected once for the whole
+   system. (sales-rep-dashboard.css predates that extraction and still carries
+   its own copy — do not copy it forward.) There is therefore no `.dark-theme`
+   block here: the canonical tokens flip at the root and every alias resolves
+   against whichever scheme is in force.
+
+   What this page has that its sibling does not, and why it needs its own sheet:
+
+   - **A chart that reads in two directions.** Stock arriving at a depot and
+     stock leaving it are not one series with a sign, so the plot has a mid
+     baseline: inbound documents rise from it, outbound documents hang below.
+     Position carries the direction and hue only reinforces it, which is what
+     lets the two share one scale and stay comparable day to day.
+   - **Two document families with different fates.** A transfer request is
+     someone asking this depot for stock; a held draft is this depot's own
+     transfer waiting on an approval or a failed post. They read as one "needs
+     you" column but they are counted, coloured and linked separately.
+
+   Rules live here rather than an inline Razor <style> block for the reason the
+   other page sheets give: an inline block renders after the head stylesheets
+   and would beat them, and app.css's global `.dark-theme input/select/button`
+   rules have to be out-specified — so every control selector below is two
+   classes deep. Headings are pinned to Nocturne's 500 against Bootstrap's
+   global 600.
+   ========================================================================== */
+
+.dpd {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --dpd-bg: var(--noct-bg);
+    --dpd-surface: var(--noct-surface);
+    --dpd-sunken: var(--noct-bg);
+    --dpd-ink: var(--noct-ink);
+    --dpd-ink-2: var(--noct-ink-2);
+    --dpd-mute: var(--noct-mute);
+    --dpd-mute-2: var(--noct-mute-2);
+    --dpd-mute-3: var(--noct-mute-3);
+    --dpd-faint: var(--noct-faint);
+    --dpd-divider: var(--noct-divider);
+    --dpd-rule: var(--noct-rule);
+    --dpd-hover: var(--noct-hover);
+    --dpd-press: var(--noct-press);
+    --dpd-edge: var(--noct-field-edge);
+    --dpd-edge-hi: var(--noct-field-edge-hi);
+    --dpd-accent: var(--noct-accent);
+    --dpd-accent-rgb: var(--noct-accent-rgb);
+    --dpd-accent-text: var(--noct-accent-text);
+    --dpd-shadow-pop: var(--noct-shadow-pop);
+    --dpd-scheme: var(--noct-scheme);
+
+    /* Families — the direction chips, the snapshot status, the stock meter and
+       every count that can turn into a problem take one. */
+    --dpd-fam-neutral: var(--noct-fam-neutral);
+    --dpd-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --dpd-fam-accent: var(--noct-fam-accent);
+    --dpd-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --dpd-fam-info: var(--noct-fam-info);
+    --dpd-fam-info-rgb: var(--noct-fam-info-rgb);
+    --dpd-fam-good: var(--noct-fam-good);
+    --dpd-fam-good-rgb: var(--noct-fam-good-rgb);
+    --dpd-fam-warn: var(--noct-fam-warn);
+    --dpd-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --dpd-fam-bad: var(--noct-fam-bad);
+    --dpd-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --dpd-s1: var(--noct-s1);
+    --dpd-s2: var(--noct-s2);
+    --dpd-s3: var(--noct-s3);
+    --dpd-s4: var(--noct-s4);
+    --dpd-s6: var(--noct-s6);
+    --dpd-s8: var(--noct-s8);
+    --dpd-r-sm: var(--noct-r-sm);
+    --dpd-r-md: var(--noct-r-md);
+    --dpd-r-lg: 10px;
+
+    /* This page's own. The two chart hues are the accent (in) and the info
+       family (out): they hold apart in hue as well as in position, so a
+       screenshot of one day still says which way the stock went. The ramp
+       steps are the same hue thinned against the card surface, which is why
+       they need no second scheme — the mix happens against whichever surface
+       is in force. */
+    --dpd-in: var(--dpd-accent);
+    --dpd-in-soft: rgba(var(--dpd-accent-rgb), .55);
+    --dpd-out: var(--dpd-fam-info);
+    --dpd-out-soft: rgba(var(--dpd-fam-info-rgb), .55);
+    --dpd-track: rgba(var(--dpd-fam-neutral-rgb), .16);
+
+    /* The movement queue's five columns, declared once so the header strip and
+       every row cannot drift. */
+    --dpd-move-cols: 96px 92px minmax(0, 1fr) 68px 74px;
+
+    color-scheme: var(--dpd-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.dpd {
+    min-height: 100vh;
+    background: var(--dpd-bg);
+    color: var(--dpd-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.dpd * {
+    box-sizing: border-box;
+}
+
+.dpd :focus-visible {
+    outline: 2px solid var(--dpd-accent);
+    outline-offset: 2px;
+}
+
+.dpd ::selection {
+    background: rgba(var(--dpd-accent-rgb), .3);
+}
+
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. */
+.dpd h1,
+.dpd h2,
+.dpd h3 {
+    margin: 0;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+}
+
+.dpd a {
+    text-decoration: none;
+}
+
+/* Nocturne's signature: freestanding rules fade to transparent over 48px at
+   each end. Box outlines and in-panel separators stay solid. */
+.dpd-rule {
+    height: 1px;
+    background: linear-gradient(to right,
+            transparent, var(--dpd-divider) 48px,
+            var(--dpd-divider) calc(100% - 48px), transparent);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Not sticky: the dashboard is one screenful of panels rather than a long
+   scroll, so nothing needs pinning — which also keeps the title clear of the
+   translucent-header problem the list pages have to solve. */
+
+.dpd-shell {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--dpd-s6) 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--dpd-s8);
+}
+
+.dpd-titles {
+    margin-right: auto;
+    min-width: 0;
+}
+
+.dpd-kicker {
+    margin-bottom: var(--dpd-s2);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--dpd-accent-text);
+}
+
+.dpd-title {
+    margin: 0 0 5px;
+    font-size: 26px;
+    line-height: 1.1;
+    letter-spacing: -.02em;
+    color: var(--dpd-ink);
+}
+
+.dpd-sub {
+    margin: 0;
+    max-width: 62ch;
+    font-size: 13px;
+    color: var(--dpd-mute-2);
+    text-wrap: pretty;
+}
+
+.dpd-head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--dpd-s3);
+    flex-wrap: wrap;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.dpd-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--dpd-s6) 32px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--dpd-s6);
+}
+
+/* The depot strip: which warehouse every figure below is about, and when it
+   was read. The page never polls, so the stamp is also how old the figures
+   are. */
+.dpd-scope {
+    display: flex;
+    align-items: center;
+    gap: var(--dpd-s3);
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--dpd-mute-2);
+}
+
+.dpd-scope-depot {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    color: var(--dpd-accent-text);
+    background: rgba(var(--dpd-accent-rgb), .12);
+    box-shadow: inset 0 0 0 1px rgba(var(--dpd-accent-rgb), .32);
+    font-size: 11.5px;
+    font-weight: 500;
+}
+
+.dpd-scope-depot i {
+    font-size: 13px;
+}
+
+.dpd-scope-sep {
+    color: var(--dpd-faint);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.dpd .dpd-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: 0 13px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--dpd-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--dpd-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.dpd .dpd-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.dpd .dpd-btn i {
+    font-size: 15px;
+    line-height: 1;
+}
+
+.dpd .dpd-btn-primary {
+    color: var(--dpd-accent-text);
+    border-color: var(--dpd-accent);
+}
+
+.dpd .dpd-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--dpd-accent-rgb), .12);
+}
+
+.dpd .dpd-btn-primary:active:not(:disabled) {
+    background: rgba(var(--dpd-accent-rgb), .22);
+}
+
+.dpd .dpd-btn-quiet {
+    color: var(--dpd-mute);
+    border-color: var(--dpd-divider);
+}
+
+.dpd .dpd-btn-quiet:hover:not(:disabled) {
+    color: var(--dpd-ink);
+    border-color: var(--dpd-edge-hi);
+    background: var(--dpd-hover);
+}
+
+.dpd .dpd-btn-block {
+    width: 100%;
+    height: 30px;
+}
+
+.dpd-link {
+    font-size: 12px;
+    color: var(--dpd-accent-text);
+    transition: color .15s;
+}
+
+.dpd-link:hover {
+    color: var(--dpd-accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+/* The refresh button's spinner, and the one the panels show while loading. */
+.dpd-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border-radius: 50%;
+    border: 2px solid rgba(var(--dpd-accent-rgb), .3);
+    border-top-color: var(--dpd-accent);
+    animation: dpd-spin .7s linear infinite;
+}
+
+@keyframes dpd-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dpd-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* The range control — Nocturne's segmented choice, on native buttons. */
+
+.dpd-seg {
+    display: flex;
+    gap: 3px;
+    padding: 3px;
+    border-radius: var(--dpd-r-md);
+    background: var(--dpd-surface);
+    box-shadow: inset 0 0 0 1px var(--dpd-rule);
+}
+
+.dpd .dpd-seg-opt {
+    height: 24px;
+    padding: 0 11px;
+    display: grid;
+    place-items: center;
+    font: inherit;
+    font-size: 12px;
+    color: var(--dpd-mute);
+    background: transparent;
+    border: 0;
+    border-radius: var(--dpd-r-sm);
+    cursor: pointer;
+    transition: background-color .15s, color .15s, box-shadow .15s;
+}
+
+.dpd .dpd-seg-opt:hover:not(.is-on):not(:disabled) {
+    background: var(--dpd-hover);
+    color: var(--dpd-ink);
+}
+
+.dpd .dpd-seg-opt:disabled {
+    opacity: .45;
+    cursor: progress;
+}
+
+.dpd .dpd-seg-opt.is-on {
+    color: var(--dpd-accent-text);
+    background: rgba(var(--dpd-accent-rgb), .12);
+    box-shadow: inset 0 0 0 1px rgba(var(--dpd-accent-rgb), .32);
+}
+
+/* ── Cards ─────────────────────────────────────────────────────────────── */
+/* On a dark ground elevation is an edge plus the surface step, never a stack
+   of shadows — so every panel is one inset hairline. */
+
+.dpd-card {
+    padding: var(--dpd-s6);
+    border-radius: var(--dpd-r-lg);
+    background: var(--dpd-surface);
+    box-shadow: inset 0 0 0 1px var(--dpd-rule);
+}
+
+.dpd-card-head {
+    display: flex;
+    align-items: center;
+    gap: var(--dpd-s3);
+    min-height: 22px;
+}
+
+.dpd-card-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--dpd-ink);
+}
+
+.dpd-card-note {
+    margin-left: auto;
+    font-size: 11.5px;
+    color: var(--dpd-mute-2);
+    white-space: nowrap;
+}
+
+.dpd-card-sub {
+    display: block;
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--dpd-mute-2);
+}
+
+/* ── Figures ───────────────────────────────────────────────────────────── */
+
+.dpd-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--dpd-s4);
+}
+
+.dpd-kpi {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 14px 15px;
+    border-radius: var(--dpd-r-lg);
+    background: var(--dpd-surface);
+    box-shadow: inset 0 0 0 1px var(--dpd-rule);
+}
+
+/* A figure that has turned into work washes its own corner, the way
+   local-stock.css marks its out-of-stock tile. */
+.dpd-kpi.is-risk {
+    background:
+        linear-gradient(155deg, rgba(var(--dpd-fam-bad-rgb), .12), transparent 62%),
+        var(--dpd-surface);
+}
+
+.dpd-kpi.is-watch {
+    background:
+        linear-gradient(155deg, rgba(var(--dpd-fam-warn-rgb), .12), transparent 62%),
+        var(--dpd-surface);
+}
+
+.dpd-kpi-top {
+    display: flex;
+    align-items: center;
+    gap: var(--dpd-s3);
+}
+
+.dpd-kpi-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--dpd-mute-2);
+}
+
+.dpd-kpi-top i {
+    margin-left: auto;
+    font-size: 15px;
+    color: var(--dpd-mute-2);
+}
+
+.dpd-kpi.is-risk .dpd-kpi-top i {
+    color: var(--dpd-fam-bad);
+}
+
+.dpd-kpi.is-watch .dpd-kpi-top i {
+    color: var(--dpd-fam-warn);
+}
+
+.dpd-kpi-fig {
+    display: flex;
+    align-items: baseline;
+    gap: var(--dpd-s3);
+}
+
+.dpd-kpi-value {
+    font-size: 26px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.dpd-kpi-unit {
+    font-size: 12px;
+    color: var(--dpd-mute-2);
+}
+
+.dpd-kpi-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--dpd-s3);
+    font-size: 11.5px;
+    color: var(--dpd-mute-2);
+    min-height: 18px;
+}
+
+/* The in/out pair as it appears under a figure: a dot in each direction's hue
+   and the count beside it. */
+.dpd-flow {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-variant-numeric: tabular-nums;
+}
+
+.dpd-flow::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    background: var(--dpd-in);
+}
+
+.dpd-flow.is-out::before {
+    background: var(--dpd-out);
+}
+
+/* ── The split ─────────────────────────────────────────────────────────── */
+
+.dpd-split {
+    display: grid;
+    grid-template-columns: 1.9fr minmax(0, 1fr);
+    gap: var(--dpd-s6);
+    align-items: start;
+}
+
+.dpd-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dpd-s6);
+    min-width: 0;
+}
+
+/* ── Movement chart ────────────────────────────────────────────────────── */
+
+.dpd-chart-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--dpd-s4);
+    margin-bottom: 18px;
+}
+
+.dpd-chart-total {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--dpd-s4);
+    white-space: nowrap;
+}
+
+.dpd-chart-legend {
+    display: flex;
+    align-items: center;
+    gap: var(--dpd-s4);
+    font-size: 11.5px;
+    color: var(--dpd-mute-2);
+}
+
+/* The plot reads in two directions from a mid baseline: inbound rises,
+   outbound hangs. The 40px gutter is the y-axis, and the gridlines stop 40px
+   short of the right edge so they read as a scale rather than a border. */
+.dpd-plot {
+    position: relative;
+    height: 188px;
+    display: flex;
+    align-items: stretch;
+    gap: 7px;
+    padding-left: 40px;
+}
+
+.dpd-gridline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg,
+            var(--dpd-rule),
+            var(--dpd-rule) calc(100% - 40px),
+            transparent);
+}
+
+.dpd-gridline.is-top {
+    top: 0;
+}
+
+.dpd-gridline.is-foot {
+    bottom: 0;
+}
+
+/* The mid line is the one figures are read against, so it is the divider
+   weight rather than the rule weight. */
+.dpd-baseline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    background: var(--dpd-divider);
+}
+
+.dpd-ytick {
+    position: absolute;
+    left: 0;
+    font-size: 10.5px;
+    color: var(--dpd-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.dpd-ytick.is-top {
+    top: -6px;
+}
+
+.dpd-ytick.is-mid {
+    top: calc(50% - 8px);
+}
+
+.dpd-ytick.is-foot {
+    bottom: -6px;
+}
+
+/* The column is the hit area rather than the bar: a one-document day is a
+   short stub and nobody can hover that. It stretches the plot's full height
+   and lights a band on hover, which doubles as the focus affordance. */
+.dpd-barcol {
+    position: relative;
+    flex: 1;
+    min-width: 2px;
+    display: flex;
+    flex-direction: column;
+    outline: none;
+}
+
+.dpd-barcol::before {
+    content: "";
+    position: absolute;
+    inset: -4px -3px;
+    border-radius: var(--dpd-r-sm);
+    background: transparent;
+    transition: background .12s ease;
+}
+
+.dpd-barcol:hover::before,
+.dpd-barcol:focus::before {
+    background: var(--dpd-hover);
+}
+
+/* Hovered columns rise above their neighbours so the read-out cannot be
+   clipped by the bar that follows it. */
+.dpd-barcol:hover,
+.dpd-barcol:focus {
+    z-index: 2;
+}
+
+/* Two halves of equal height, one growing up from the mid line and one down,
+   so a day with three in and three out draws symmetrically. Each holds off the
+   mid line by 3px: without the gap a day that moved stock both ways draws one
+   unbroken block and the baseline disappears behind it, which is the whole
+   reading this chart exists for. A bar's percentage height resolves against the
+   half's content box, so the gap costs the scale nothing. */
+.dpd-half {
+    position: relative;
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
+.dpd-half.is-up {
+    align-items: flex-end;
+    padding-bottom: 3px;
+}
+
+.dpd-half.is-down {
+    padding-top: 3px;
+}
+
+.dpd-bar {
+    width: 100%;
+    background: var(--dpd-in-soft);
+}
+
+.dpd-half.is-up .dpd-bar {
+    border-radius: 3px 3px 0 0;
+}
+
+.dpd-half.is-down .dpd-bar {
+    border-radius: 0 0 3px 3px;
+    background: var(--dpd-out-soft);
+}
+
+/* The last column is today, which is the one being worked, so it alone takes
+   the full-strength hue. */
+.dpd-barcol.is-today .dpd-half.is-up .dpd-bar {
+    background: var(--dpd-in);
+}
+
+.dpd-barcol.is-today .dpd-half.is-down .dpd-bar {
+    background: var(--dpd-out);
+}
+
+/* The read-out: a heading, the two counts and a note. A column near either end
+   pins its card to that edge, since a centred one would hang past the card. */
+.dpd-tip {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: var(--dpd-s2) var(--dpd-s3);
+    border: 1px solid var(--dpd-edge);
+    border-radius: var(--dpd-r-md);
+    background: var(--dpd-surface);
+    box-shadow: var(--dpd-shadow-pop);
+    white-space: nowrap;
+    text-align: left;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .12s ease, visibility .12s ease;
+}
+
+.dpd-barcol:hover .dpd-tip,
+.dpd-barcol:focus .dpd-tip {
+    opacity: 1;
+    visibility: visible;
+}
+
+.dpd-tip.is-start {
+    left: 0;
+    transform: translate(0, -50%);
+}
+
+.dpd-tip.is-end {
+    left: auto;
+    right: 0;
+    transform: translate(0, -50%);
+}
+
+.dpd-tip-head {
+    font-size: 10.5px;
+    color: var(--dpd-mute-2);
+}
+
+.dpd-tip-value {
+    display: flex;
+    align-items: center;
+    gap: var(--dpd-s3);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--dpd-ink);
+}
+
+.dpd-tip-note {
+    font-size: 10.5px;
+    color: var(--dpd-mute-3);
+}
+
+.dpd-xaxis {
+    display: flex;
+    margin-top: 7px;
+    padding-left: 40px;
+    font-size: 10.5px;
+    color: var(--dpd-mute-2);
+}
+
+.dpd-xaxis span {
+    flex: 1;
+}
+
+.dpd-xaxis span:nth-child(2) {
+    text-align: center;
+}
+
+.dpd-xaxis span:last-child {
+    text-align: right;
+}
+
+/* ── Recent movements ──────────────────────────────────────────────────── */
+
+.dpd-moves-head {
+    display: grid;
+    grid-template-columns: var(--dpd-move-cols);
+    gap: 10px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--dpd-rule);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--dpd-mute-2);
+}
+
+.dpd-move {
+    display: grid;
+    grid-template-columns: var(--dpd-move-cols);
+    gap: 10px;
+    align-items: center;
+    padding: 10px 8px;
+    margin: 0 -8px;
+    border-bottom: 1px solid var(--dpd-rule);
+    border-radius: var(--dpd-r-sm);
+    font-size: 12.5px;
+    color: var(--dpd-ink);
+}
+
+.dpd-move:last-child {
+    border-bottom: 0;
+}
+
+.dpd-move-id {
+    color: var(--dpd-accent-text);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dpd-move-party {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dpd-move-lines,
+.dpd-move-date {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--dpd-mute-2);
+}
+
+/* Row labels, carried for the card layout below 860px — the treatment
+   local-stock.css gives its own grid when the header strip goes away. */
+.dpd-rl {
+    display: none;
+}
+
+/* The direction chip. In and out take the chart's two hues so the queue and
+   the plot above it read as one thing; a document this depot neither sent nor
+   received — which SAP can return when the header warehouses are blank and
+   only the lines carry them — reads neutral. */
+.dpd-dir {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 20px;
+    padding: 0 8px;
+    border-radius: var(--dpd-r-sm);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--dpd-fam-neutral);
+    background: rgba(var(--dpd-fam-neutral-rgb), .12);
+    box-shadow: inset 0 0 0 1px rgba(var(--dpd-fam-neutral-rgb), .3);
+}
+
+.dpd-dir i {
+    font-size: 12px;
+}
+
+.dpd-dir.is-in {
+    color: var(--dpd-accent-text);
+    background: rgba(var(--dpd-accent-rgb), .12);
+    box-shadow: inset 0 0 0 1px rgba(var(--dpd-accent-rgb), .3);
+}
+
+.dpd-dir.is-out {
+    color: var(--dpd-fam-info);
+    background: rgba(var(--dpd-fam-info-rgb), .12);
+    box-shadow: inset 0 0 0 1px rgba(var(--dpd-fam-info-rgb), .3);
+}
+
+/* ── Follow-up queues ──────────────────────────────────────────────────── */
+
+.dpd-queues,
+.dpd-stock,
+.dpd-supply {
+    display: flex;
+    flex-direction: column;
+}
+
+.dpd-queues {
+    gap: 11px;
+    margin-top: 11px;
+}
+
+.dpd-stock {
+    gap: 13px;
+    margin-top: 13px;
+}
+
+.dpd-supply {
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.dpd-queue {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 10px 11px;
+    border-radius: var(--dpd-r-md);
+    background: var(--dpd-sunken);
+    box-shadow: inset 0 0 0 1px var(--dpd-rule);
+    color: var(--dpd-ink);
+    transition: background-color .15s, box-shadow .15s;
+}
+
+.dpd-queue:hover {
+    background: var(--dpd-hover);
+    box-shadow: inset 0 0 0 1px var(--dpd-divider);
+}
+
+.dpd-queue-icon {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--dpd-r-md);
+    background: rgba(var(--dpd-accent-rgb), .12);
+    color: var(--dpd-accent-text);
+    font-size: 15px;
+}
+
+.dpd-queue-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dpd-queue-label {
+    font-size: 12.5px;
+    font-weight: 500;
+}
+
+.dpd-queue-note {
+    font-size: 11.5px;
+    color: var(--dpd-mute-2);
+}
+
+.dpd-queue-count {
+    font-size: 17px;
+    font-weight: 500;
+    color: var(--dpd-accent-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.dpd-queue > .ph-caret-right {
+    font-size: 13px;
+    color: var(--dpd-mute-2);
+}
+
+/* A queue that has gone wrong rather than merely filled up: a failed post is
+   stock that never moved and nobody was told. */
+.dpd-queue.is-risk .dpd-queue-icon {
+    background: rgba(var(--dpd-fam-bad-rgb), .14);
+    color: var(--dpd-fam-bad);
+}
+
+.dpd-queue.is-risk .dpd-queue-count {
+    color: var(--dpd-fam-bad);
+}
+
+.dpd-queue.is-clear .dpd-queue-icon {
+    background: rgba(var(--dpd-fam-good-rgb), .14);
+    color: var(--dpd-fam-good);
+}
+
+.dpd-queue.is-clear .dpd-queue-count {
+    color: var(--dpd-fam-good);
+}
+
+/* ── Depot stock ───────────────────────────────────────────────────────── */
+
+.dpd-stock-fig {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+.dpd-stock-value {
+    font-size: 30px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.dpd-stock-value small {
+    font-size: 16px;
+    color: var(--dpd-mute-2);
+}
+
+.dpd-stock-cap {
+    padding-bottom: 3px;
+    font-size: 11.5px;
+    color: var(--dpd-mute-2);
+}
+
+.dpd-meter {
+    display: flex;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--dpd-track);
+    overflow: hidden;
+}
+
+.dpd-meter-good {
+    background: var(--dpd-fam-good);
+}
+
+.dpd-meter-low {
+    background: var(--dpd-fam-warn);
+}
+
+.dpd-meter-out {
+    background: var(--dpd-fam-bad);
+}
+
+.dpd-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.dpd-legend-row {
+    display: flex;
+    align-items: center;
+    gap: var(--dpd-s3);
+    font-size: 11.5px;
+    color: var(--dpd-mute-2);
+}
+
+.dpd-legend-dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 2px;
+    background: var(--dpd-fam-good);
+}
+
+.dpd-legend-row.is-low .dpd-legend-dot {
+    background: var(--dpd-fam-warn);
+}
+
+.dpd-legend-row.is-out .dpd-legend-dot {
+    background: var(--dpd-fam-bad);
+}
+
+.dpd-legend-row span:last-child {
+    margin-left: auto;
+    color: var(--dpd-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.dpd-legend-row.is-out span:last-child {
+    color: var(--dpd-fam-bad);
+}
+
+/* The snapshot's own state — it is a fetch that can be stale, incomplete or
+   missing, and every figure in this panel inherits that. */
+.dpd-snap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--dpd-fam-good);
+    white-space: nowrap;
+}
+
+.dpd-snap.is-warn {
+    color: var(--dpd-fam-warn);
+}
+
+.dpd-snap.is-bad {
+    color: var(--dpd-fam-bad);
+}
+
+.dpd-snap-dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+/* ── Incoming supply ───────────────────────────────────────────────────── */
+
+.dpd-supply-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--dpd-s3);
+    font-size: 12.5px;
+}
+
+.dpd-supply-id {
+    color: var(--dpd-accent-text);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.dpd-supply-from {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--dpd-mute);
+}
+
+.dpd-supply-age {
+    font-size: 11.5px;
+    color: var(--dpd-mute-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ── Workflow ──────────────────────────────────────────────────────────── */
+
+.dpd-steps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--dpd-s4);
+}
+
+.dpd-step {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: var(--dpd-s4) var(--dpd-s6) 15px;
+    border-radius: var(--dpd-r-lg);
+    background: var(--dpd-surface);
+    box-shadow: inset 0 0 0 1px var(--dpd-rule);
+}
+
+/* The one short accent mark on the page — solid, per Nocturne, where the long
+   rules fade. */
+.dpd-step::before {
+    content: "";
+    position: absolute;
+    left: 16px;
+    top: 0;
+    width: 34px;
+    height: 2px;
+    background: var(--dpd-accent);
+}
+
+.dpd-step-n {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--dpd-mute-2);
+}
+
+.dpd-step-title {
+    font-size: 13.5px;
+    font-weight: 500;
+}
+
+.dpd-step-body {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--dpd-mute-2);
+    text-wrap: pretty;
+}
+
+.dpd-step .dpd-link {
+    margin-top: 3px;
+}
+
+/* ── Loading, empty and failure states ─────────────────────────────────── */
+/* Figures read "—" until their numbers are in, rather than showing a zero that
+   is about to jump. */
+
+.dpd-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--dpd-s3);
+    padding: var(--dpd-s8) 0;
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--dpd-mute-2);
+}
+
+.dpd-empty-stack {
+    flex-direction: column;
+    gap: var(--dpd-s3);
+}
+
+.dpd-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--dpd-s3);
+    padding: var(--dpd-s3) var(--dpd-s4);
+    border-radius: var(--dpd-r-md);
+    background: rgba(var(--dpd-fam-warn-rgb), .12);
+    box-shadow: inset 0 0 0 1px rgba(var(--dpd-fam-warn-rgb), .35);
+    color: var(--dpd-fam-warn);
+    font-size: 12.5px;
+}
+
+.dpd-alert i {
+    font-size: 16px;
+    line-height: 1.35;
+}
+
+/* ── Narrow ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+    .dpd-split {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .dpd-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dpd-steps {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 860px) {
+    .dpd-shell,
+    .dpd-body {
+        padding-inline: 20px;
+    }
+
+    .dpd-shell {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--dpd-s4);
+    }
+
+    .dpd-head-actions {
+        justify-content: flex-start;
+    }
+
+    /* The queue stops being a grid row and becomes a labelled card, the same
+       treatment sales-rep-dashboard.css gives its order list — with the two
+       bare numbers taking their column heading with them. */
+    .dpd-moves-head {
+        display: none;
+    }
+
+    .dpd-rl {
+        display: inline;
+        margin-right: 4px;
+        font-size: 10.5px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--dpd-faint);
+    }
+
+    .dpd-move {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 4px 10px;
+        padding: 11px 8px;
+    }
+
+    .dpd-move-id {
+        grid-column: 1;
+    }
+
+    .dpd-move-dir {
+        grid-column: 2;
+        grid-row: 1;
+        justify-self: end;
+    }
+
+    .dpd-move-party {
+        grid-column: 1 / -1;
+        color: var(--dpd-ink);
+    }
+
+    .dpd-move-lines {
+        grid-column: 1;
+        text-align: left;
+    }
+
+    .dpd-move-date {
+        grid-column: 2;
+    }
+}
+
+@media (max-width: 560px) {
+    .dpd-kpis {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .dpd-chart-head {
+        flex-direction: column;
+        gap: var(--dpd-s2);
+    }
+
+    .dpd-chart-total {
+        margin-left: 0;
+    }
+}

@@ -19,9 +19,10 @@ public static class RoleLandingRoutes
     public const string Fallback = "/security";
 
     /// <summary>
-    /// The dashboard route. It serves two different pages: Home renders the
-    /// sales-rep dashboard for a SalesRep and the administrator's one for an
-    /// Admin, so a rep signing in arrives at their own workspace.
+    /// The dashboard route. It serves three different pages: Home renders the
+    /// sales-rep dashboard for a SalesRep, the depot one for a DepotController
+    /// and the administrator's one for an Admin, so each of those roles signing
+    /// in arrives at their own workspace.
     /// </summary>
     public const string Dashboard = "/dashboard";
 
@@ -36,9 +37,10 @@ public static class RoleLandingRoutes
     {
         ArgumentNullException.ThrowIfNull(isInRole);
 
-        // Lab and DepotController are checked against Admin because an
-        // administrator carrying one of those roles should still land on the
-        // dashboard rather than in a single-purpose workspace.
+        // Lab is checked against Admin because an administrator carrying it
+        // should still land on the dashboard rather than in a single-purpose
+        // workspace. A depot controller needs no such guard any more: they land
+        // on the dashboard too, and Home decides which of the three it draws.
         if (isInRole(UserRoles.Lab) && !isInRole(UserRoles.Admin))
         {
             return "/lab/batch-status";
@@ -67,12 +69,11 @@ public static class RoleLandingRoutes
             return "/mobile-drafts";
         }
 
-        if (isInRole(UserRoles.DepotController) && !isInRole(UserRoles.Admin))
-        {
-            return "/inventory-transfers";
-        }
-
-        if (isInRole(UserRoles.Admin) || isInRole(UserRoles.SalesRep))
+        // The three roles the dashboard route still serves, each with a page of
+        // its own that Home picks between.
+        if (isInRole(UserRoles.Admin) ||
+            isInRole(UserRoles.SalesRep) ||
+            isInRole(UserRoles.DepotController))
         {
             return Dashboard;
         }

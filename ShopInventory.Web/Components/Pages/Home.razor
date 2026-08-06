@@ -9,12 +9,13 @@
 @inject IAuditService AuditService
 @rendermode InteractiveServer
 
-<PageTitle>@(isSalesRep ? "Sales Dashboard - Kefalos Cheese" : "Dashboard - Kefalos Cheese")</PageTitle>
+<PageTitle>@PageHeading</PageTitle>
 
-@* /dashboard serves two workspaces, and this page is only the switch between
-   them: a rep sees their own orders and accounts, an administrator sees the
-   state of the system. Each dashboard owns its own component and its own
-   loading, so neither carries the other's services.
+@* /dashboard serves three workspaces, and this page is only the switch
+   between them: a rep sees their own orders and accounts, a depot controller
+   sees the depot they run, an administrator sees the state of the system.
+   Each dashboard owns its own component and its own loading, so none of them
+   carries another's services.
 
    The roles that used to share this route — Cashier, StockController and
    Manager — now land on the page they work from, and will get workspaces of
@@ -24,6 +25,10 @@
 @if (isSalesRep)
 {
     <SalesRepDashboard DisplayName="@GreetingName" />
+}
+else if (isDepotController)
+{
+    <DepotDashboard DisplayName="@GreetingName" />
 }
 else
 {
@@ -35,8 +40,16 @@ else
     private Task<AuthenticationState>? AuthTask { get; set; }
 
     private bool isSalesRep;
+    private bool isDepotController;
     private string currentUsername = "there";
     private bool _initialized;
+
+    private string PageHeading => (isSalesRep, isDepotController) switch
+    {
+        (true, _) => "Sales Dashboard - Kefalos Cheese",
+        (_, true) => "Depot Dashboard - Kefalos Cheese",
+        _ => "Dashboard - Kefalos Cheese"
+    };
 
     /// <summary>
     /// The first name to greet by, taken from the username. An address local
@@ -83,15 +96,24 @@ else
             return;
         }
 
-        isSalesRep = user.IsInRole("SalesRep");
+        isSalesRep = user.IsInRole(UserRoles.SalesRep);
+
+        // An administrator carrying the depot role keeps the administrator's
+        // dashboard, the same reading RoleLandingRoutes takes of a narrow role
+        // held alongside Admin.
+        isDepotController = user.IsInRole(UserRoles.DepotController) && !user.IsInRole(UserRoles.Admin);
 
         if (!_initialized)
         {
             _initialized = true;
-            await AuditService.LogAsync(
-                AuditActions.ViewDashboard,
-                isSalesRep ? "SalesRepDashboard" : "AdminDashboard",
-                null);
+
+            // All three dashboards are components with their own reads; this
+            // page holds none of their loading.
+            var page = isSalesRep ? "SalesRepDashboard"
+                : isDepotController ? "DepotDashboard"
+                : "AdminDashboard";
+
+            await AuditService.LogAsync(AuditActions.ViewDashboard, page, null);
         }
     }
 }
