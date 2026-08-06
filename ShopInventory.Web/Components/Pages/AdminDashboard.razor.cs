@@ -84,6 +84,15 @@ public partial class AdminDashboard
     private List<AuditLog>? recentActivity;
     private bool isLoadingActivity = true;
 
+    /// <summary>
+    /// The failure family the clusters panel is filtered to, or null for all of
+    /// them. Held here rather than derived, because the filter has to survive a
+    /// refresh landing underneath it.
+    /// </summary>
+    private string? familyFilter;
+
+    private bool isRefreshing;
+
     private bool _initialized;
 
     protected override async Task OnInitializedAsync()
@@ -109,6 +118,35 @@ public partial class AdminDashboard
         // Stamped once every read has landed, so the header's time describes
         // the whole page rather than whichever call returned first.
         loadedAt = DateTime.Now;
+    }
+
+    /// <summary>
+    /// Reads every figure again. The page does not poll — the header states
+    /// when it last read, and this is how that stamp is moved on.
+    ///
+    /// The panels are put back into their loading state first, so a slow read
+    /// shows a spinner rather than leaving yesterday's rows on screen looking
+    /// current. The family filter is deliberately kept: it is the reader's
+    /// choice, not part of the data.
+    /// </summary>
+    private async Task RefreshAsync()
+    {
+        if (isRefreshing) return;
+
+        isRefreshing = true;
+        loadedAt = null;
+        isLoadingExceptions = true;
+        isLoadingActivity = true;
+        exceptionsUnavailable = false;
+
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            isRefreshing = false;
+        }
     }
 
     private async Task LoadHealthAsync()
@@ -331,9 +369,112 @@ public partial class AdminDashboard
 
     private string HealthValue => Health.Value;
 
-    private StatTone HealthTone => healthStatus is null
-        ? StatTone.Neutral
-        : Health.IsHealthy ? StatTone.Ok : StatTone.Critical;
+    /// <summary>
+    /// The banner's sentence. The word itself comes from
+    /// <see cref="SystemHealthSummary"/>; this only puts it in one.
+    /// </summary>
+    private string HealthHeadline => healthStatus is null
+        ? "Reading system health"
+        : $"System {HealthValue.ToLowerInvariant()}";
+
+    /// <summary>
+    /// Which family the banner paints in. Nothing read yet is neither good news
+    /// nor bad, and must not be dressed as either.
+    /// </summary>
+    private string HealthStateClass => healthStatus is null
+        ? "is-unknown"
+        : Health.IsHealthy ? "is-ok" : "is-bad";
+
+    /// <summary>
+    /// The retry rail reads as a condition rather than a count, because the
+    /// count beside it — Stalled — is the one worth a number.
+    /// </summary>
+    private string RetriesRail => retryOverdueCount switch
+    {
+        null => "—",
+        0 => "Normal",
+        _ => $"{retryOverdueCount:N0} overdue"
+    };
+
+    /// <summary>
+    /// The lock-out line under the accounts card, which leads with the standing
+    /// 2FA exposure instead. A lock-out is today's incident; the design foots
+    /// the card with it for that reason.
+    /// </summary>
+    private string? LockoutNote => lockedUsers switch
+    {
+        null => null,
+        0 => "0 locked out today",
+        1 => "1 locked out today",
+        _ => $"{lockedUsers:N0} locked out today"
+    };
+
+    /// <summary>
+    /// What the people who signed in today actually did. The design names them
+    /// instead, but no read returns the day's roll of users — only this count.
+    /// </summary>
+    private string? ActionsNote => totalActions switch
+    {
+        null => null,
+        _ when failedActions is > 0 => $"{totalActions:N0} actions, {failedActions:N0} failed",
+        _ => $"{totalActions:N0} actions"
+    };
+
+    /// <summary>
+    /// The families present in the clusters on screen, in the order the
+    /// exception centre ranked them. Taken from the data rather than a fixed
+    /// list, so the filter cannot offer a choice that empties the table.
+    /// </summary>
+    private IReadOnlyList<string> Families => clusters is null
+        ? []
+        : clusters
+            .Select(cluster => cluster.Family)
+            .Where(family => !string.IsNullOrWhiteSpace(family))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private List<ExceptionCenterClusterModel>? VisibleClusters => familyFilter is null
+        ? clusters
+        : clusters?
+            .Where(cluster => string.Equals(cluster.Family, familyFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+    /// <summary>
+    /// How many failures the panel is reporting — the sum of the clusters
+    /// shown, not the number of rows, because one row can stand for twenty
+    /// failures.
+    /// </summary>
+    private int? ClusterTotal => VisibleClusters is null or { Count: 0 }
+        ? null
+        : VisibleClusters.Sum(cluster => cluster.Count);
+
+    private void SetFamily(string? family) => familyFilter = family;
+
+    /// <summary>
+    /// ARIA takes the two lowercase strings, not .NET's "True"/"False".
+    /// </summary>
+    private static string Pressed(bool isOn) => isOn ? "true" : "false";
+
+    /// <summary>
+    /// The card's grade. Accent is reserved for a card that actually wants the
+    /// administrator: a settled one falls back to the plain surface, so the
+    /// wash keeps meaning something. Colour never carries the state alone —
+    /// each card states its condition in words beneath the figure.
+    /// </summary>
+    private static string? ToneClass(StatTone tone) => tone switch
+    {
+        StatTone.Critical => "is-risk",
+        StatTone.Ok => "is-clear",
+        StatTone.Warn => null,
+        _ => "is-clear"
+    };
+
+    private static string TrendIcon(int direction) => direction switch
+    {
+        > 0 => "arrow-up",
+        < 0 => "arrow-down",
+        _ => "flat"
+    };
 
     private string? HealthNote
     {
@@ -379,14 +520,6 @@ public partial class AdminDashboard
         }
     }
 
-    private StatTone RetryTone => retryOverdueCount switch
-    {
-        null => StatTone.Neutral,
-        0 when stalledCount is 0 => StatTone.Ok,
-        0 => StatTone.Neutral,
-        _ => StatTone.Warn
-    };
-
     private string? RetryNote => retryOverdueCount switch
     {
         null => null,
@@ -409,12 +542,6 @@ public partial class AdminDashboard
         _ => "Stranded, need a retry"
     };
 
-    private StatTone ActivityTone =>
-        failedActions is null or 0 ? StatTone.Neutral : StatTone.Warn;
-
-    private string? ActivityNote =>
-        failedActions is null or 0 ? null : $"{failedActions:N0} failed";
-
     private StatTone SecurityTone => lockedUsers switch
     {
         null => StatTone.Neutral,
@@ -422,20 +549,6 @@ public partial class AdminDashboard
         _ when usersWithoutTwoFactor > 0 => StatTone.Warn,
         _ => StatTone.Ok
     };
-
-    private string? SecurityNote
-    {
-        get
-        {
-            if (lockedUsers is null) return null;
-
-            return usersWithoutTwoFactor switch
-            {
-                null or 0 => lockedUsers > 0 ? "Locked out of the app" : "All accounts open, 2FA everywhere",
-                _ => $"{usersWithoutTwoFactor:N0} without 2FA"
-            };
-        }
-    }
 
     /// <summary>Coarse age, because the card has room for two words.</summary>
     private static string DescribeAge(TimeSpan age) => age switch
