@@ -74,6 +74,14 @@ public class IdempotencyMiddleware
             // guard also outranks this one: the dictionary here is per-process, so it cannot see a
             // duplicate that landed on another instance, and it treats a failed attempt as done.
             "POST /api/salesorder",
+            // CreateInvoiceHandler acquires from IIdempotencyRequestStore under "invoices.create",
+            // keyed on U_Van_saleorder or else ClientRequestId, and completes with the real
+            // InvoiceCreatedResponseDto — so a retry learns the DocEntry and DocNum of the invoice
+            // that exists. Replaying here instead returned the remembered 201 with a bare "duplicate
+            // request" body: a success status carrying something the caller cannot deserialise into
+            // the document it asked for. The handler always has a key to work with, because the
+            // keyless branch below refuses this endpoint outright.
+            "POST /api/invoice",
     };
 
     // The same, for routes whose path carries a variable segment. Matched on both ends because that
