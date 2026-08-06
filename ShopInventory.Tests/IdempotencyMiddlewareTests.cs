@@ -89,9 +89,9 @@ public class IdempotencyMiddlewareTests
             NullLogger<IdempotencyMiddleware>.Instance);
 
         var key = $"client-error-{Guid.NewGuid():N}";
-        var first = CreateContext(key, "/api/invoice");
+        var first = CreateContext(key, "/api/creditnote");
         await middleware.InvokeAsync(first);
-        var retry = CreateContext(key, "/api/invoice");
+        var retry = CreateContext(key, "/api/creditnote");
         await middleware.InvokeAsync(retry);
 
         Assert.Equal(failureStatusCode, first.Response.StatusCode);
@@ -114,8 +114,8 @@ public class IdempotencyMiddlewareTests
             NullLogger<IdempotencyMiddleware>.Instance);
 
         var key = $"success-{Guid.NewGuid():N}";
-        await middleware.InvokeAsync(CreateContext(key, "/api/invoice"));
-        var retry = CreateContext(key, "/api/invoice");
+        await middleware.InvokeAsync(CreateContext(key, "/api/creditnote"));
+        var retry = CreateContext(key, "/api/creditnote");
         await middleware.InvokeAsync(retry);
 
         Assert.Equal(StatusCodes.Status201Created, retry.Response.StatusCode);
@@ -181,6 +181,9 @@ public class IdempotencyMiddlewareTests
     // SalesOrderService.CreateAsync looks the ClientRequestId up before inserting, and again when
     // the unique index rejects a racing insert, returning the existing order both times.
     [InlineData("/api/salesorder")]
+    // CreateInvoiceHandler completes its store entry with the InvoiceCreatedResponseDto, so the
+    // retry gets the DocEntry and DocNum rather than the remembered status code and a bare message.
+    [InlineData("/api/invoice")]
     public async Task Handler_owned_endpoints_are_not_replayed_by_this_middleware(string path)
     {
         // These handlers persist their own key and replay the real document. This middleware only
@@ -233,11 +236,12 @@ public class IdempotencyMiddlewareTests
 
     [Theory]
     [InlineData("/api/invoice/2148037/fiscalize")]
-    [InlineData("/api/invoice")]
     public async Task Sibling_invoice_routes_keep_the_middleware_guard(string path)
     {
         // "POST /api/invoice/" + "/pod" must not widen into a prefix rule over the whole invoice
-        // controller: everything else under it still relies on this middleware.
+        // controller: everything else under it still relies on this middleware. The create route
+        // itself is no longer the witness for that — it owns its replay, and moved to the theory
+        // above — so fiscalize carries it: a sub-route under the same prefix, owning nothing.
         var calls = 0;
         var middleware = new IdempotencyMiddleware(
             context =>
@@ -257,9 +261,10 @@ public class IdempotencyMiddlewareTests
         Assert.Equal(1, calls);
     }
 
-    // Defaults to an endpoint this middleware still guards. /api/salesorder is not one: its handler
-    // dedupes on ClientRequestId against a unique index and replays the real order.
-    private static DefaultHttpContext CreateContext(string? key, string path = "/api/invoice")
+    // Defaults to an endpoint this middleware still guards, so the tests above describe its own
+    // behaviour rather than some endpoint's ownership. /api/salesorder and /api/invoice are not
+    // ones: both handlers persist their own key and replay the real document.
+    private static DefaultHttpContext CreateContext(string? key, string path = "/api/creditnote")
     {
         var context = new DefaultHttpContext();
         context.Request.Method = HttpMethods.Post;
