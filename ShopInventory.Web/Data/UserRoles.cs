@@ -80,7 +80,7 @@ public static class UserRoles
     /// link's href is resolved per role through <c>RoleLandingRoutes.For</c>,
     /// so this list and that chain have to agree.
     /// </summary>
-    public const string DashboardNavRoles = "Admin,SalesRep,DepotController,Cashier";
+    public const string DashboardNavRoles = "Admin,SalesRep,DepotController,Cashier,StockController";
     public const string CatalogueRoles = "Admin,Cashier,StockController,Manager";
     public const string InsightsRoles = "Admin,Cashier,StockController,Manager";
     public const string SystemRoles = "Admin,Cashier,StockController,Manager";

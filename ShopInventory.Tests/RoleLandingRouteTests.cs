@@ -16,10 +16,10 @@ public sealed class RoleLandingRouteTests
     [InlineData(UserRoles.SalesRep, "/dashboard")]
     [InlineData(UserRoles.Admin, "/dashboard")]
     [InlineData(UserRoles.Cashier, "/cashier-dashboard")]
-    // These two shared the dashboard until it narrowed to an administrator's
-    // page, and land on the page they work from until each has its own.
+    [InlineData(UserRoles.StockController, "/stock-dashboard")]
+    // The manager shared the dashboard until it narrowed to an administrator's
+    // page, and lands on the page they work from until they have their own.
     [InlineData(UserRoles.Manager, "/reports")]
-    [InlineData(UserRoles.StockController, "/inventory-transfers")]
     [InlineData(UserRoles.Driver, "/pods")]
     [InlineData("Operator", "/pods")]
     [InlineData(UserRoles.Merchandiser, "/mobile-drafts")]
@@ -98,7 +98,12 @@ public sealed class RoleLandingRouteTests
     [Fact]
     public void Every_overview_nav_role_lands_on_a_dashboard()
     {
-        var dashboards = new[] { RoleLandingRoutes.Dashboard, RoleLandingRoutes.CashierDashboard };
+        var dashboards = new[]
+        {
+            RoleLandingRoutes.Dashboard,
+            RoleLandingRoutes.CashierDashboard,
+            RoleLandingRoutes.StockDashboard
+        };
 
         foreach (var role in UserRoles.DashboardNavRoles.Split(','))
         {

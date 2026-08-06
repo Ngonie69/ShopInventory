@@ -35,6 +35,9 @@ public static class RoleLandingRoutes
     /// </summary>
     public const string CashierDashboard = "/cashier-dashboard";
 
+    /// <summary>The stock controller's workspace, scoped to their warehouse.</summary>
+    public const string StockDashboard = "/stock-dashboard";
+
     /// <summary>
     /// Resolves the landing route from a role predicate, so a caller holding a
     /// <see cref="ClaimsPrincipal"/> and one holding only the role name from a
@@ -85,23 +88,23 @@ public static class RoleLandingRoutes
             return Dashboard;
         }
 
-        // The cashier has a workspace of its own again, on its own route rather
-        // than as a fourth branch inside Home.
+        // These two have workspaces of their own again, on their own routes
+        // rather than as further branches inside Home.
         if (isInRole(UserRoles.Cashier))
         {
             return CashierDashboard;
         }
 
-        // These two were served by the dashboard until it narrowed to an
-        // administrator's page. Until each has a workspace of its own they land
-        // on the page they actually work from — see docs/role-dashboards-plan.md.
-        // Admin is resolved above, so an administrator carrying one of these
-        // roles still reaches the dashboard.
-
         if (isInRole(UserRoles.StockController))
         {
-            return "/inventory-transfers";
+            return StockDashboard;
         }
+
+        // The manager was served by the dashboard until it narrowed to an
+        // administrator's page, and lands on the page they work from until they
+        // have a workspace too — see docs/role-dashboards-plan.md. Admin is
+        // resolved above, so an administrator carrying the role still reaches
+        // the dashboard.
 
         if (isInRole(UserRoles.Manager))
         {

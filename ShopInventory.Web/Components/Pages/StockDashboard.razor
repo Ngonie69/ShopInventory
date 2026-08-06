@@ -1,0 +1,287 @@
+@page "/stock-dashboard"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,StockController")]
+@rendermode InteractiveServer
+
+<PageTitle>Stock - Kefalos Cheese</PageTitle>
+
+@* The stock controller's dashboard, and the page they land on when they sign
+   in (see RoleLandingRoutes). They were sent to the transfers list as a
+   stopgap when /dashboard narrowed to an administrator's page.
+
+   Everything is scoped to one warehouse — the warehouses on the account's
+   "warehouse" claims, with a picker only when there is more than one. An
+   account with no claim at all is unrestricted rather than unassigned, which
+   is the reading DefaultWarehouseResolver and DepotDashboard both take.
+
+   The depot controller has a neighbouring page for a different question: a
+   depot runs a daily snapshot and its own two modules, where this one reports
+   what the warehouse holds now and what is queued against it.
+
+   Built on the dashboard kit shared with the administrator's, cashier's and
+   sales-rep pages — wwwroot/css/dashboard.css carries both palettes. *@
+
+<div class="dsh">
+
+    <header class="dsh-head">
+        <div class="dsh-head-inner">
+            <nav class="dsh-crumbs" aria-label="Breadcrumb">
+                <span>Inventory</span>
+                <span class="dsh-crumb-sep" aria-hidden="true">/</span>
+                <span class="dsh-crumb-now" aria-current="page">Stock</span>
+            </nav>
+
+            <div class="dsh-head-meta">
+                @if (warehouseOptions.Count > 1)
+                {
+                    <NocturneSelect TValue="string" Class="nsel-auto" Options="warehouseOptions"
+                                    @bind-Value="warehouse" OnChanged="OnWarehouseChangedAsync"
+                                    Caption="Warehouse" AriaLabel="Warehouse"
+                                    Placeholder="Pick a warehouse" />
+                }
+
+                <span class="dsh-synced">
+                    <span class="dsh-synced-dot" aria-hidden="true"></span>
+                    @if (loadedAt is { } stamp)
+                    {
+                        @($"Read at {stamp:HH:mm}")
+                    }
+                    else
+                    {
+                        @("Reading…")
+                    }
+                </span>
+
+                <a class="dsh-btn dsh-btn-primary dsh-btn-lg" href="/inventory-transfer/create">
+                    <DashIcon Name="plus-circle" Size="15" />
+                    Create transfer
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <div class="dsh-body">
+
+        @if (warehouse is null)
+        {
+            <div class="dsh-state">
+                This account has no warehouse assigned, so there is no stock to report on.
+            </div>
+        }
+        else
+        {
+            <section class="dsh-hero">
+                <div>
+                    <div class="dsh-kicker">@WarehouseLabel</div>
+                    <h1>@GreetingText, @GreetingName</h1>
+                    <p>
+                        What this warehouse holds, and what is queued against it.
+                        Stock is counted in items, not quantities — the warehouse holds
+                        crates, kilograms and eaches, which do not add up.
+                    </p>
+                </div>
+                <div class="dsh-date">
+                    <DashIcon Name="database" Size="14" />
+                    <span>@SyncLabel</span>
+                </div>
+            </section>
+
+            @* Item counts throughout. A quantity column summed across items would
+               be adding crates to kilograms to eaches. *@
+            <section class="dsh-stats" aria-label="What the warehouse holds">
+                <StatCard Label="In stock"
+                          Value="@Figure(inStockItems)"
+                          ValueLabel="Items with stock on hand"
+                          Amount="@(totalItems is null ? null : totalItems.Value.ToString("N0"))"
+                          AmountLabel="Items held"
+                          Icon="box"
+                          IsLead="true" />
+                <StatCard Label="Out of stock"
+                          Value="@Figure(outOfStockItems)"
+                          ValueLabel="Items at zero"
+                          Tone="@OutOfStockTone"
+                          ToneNote="@OutOfStockNote"
+                          Icon="warning" />
+                <StatCard Label="Committed"
+                          Value="@Figure(committedItems)"
+                          ValueLabel="Items promised out"
+                          Amount="@(onOrderItems is null ? null : onOrderItems.Value.ToString("N0"))"
+                          AmountLabel="On order"
+                          Icon="clipboard-check" />
+            </section>
+
+            <section class="dsh-stats" aria-label="Queued against this warehouse">
+                <StatCard Label="Awaiting approval"
+                          Value="@Figure(pendingTransferCount)"
+                          ValueLabel="Transfers needing a decision"
+                          Tone="@PendingTone"
+                          ToneNote="@PendingNote"
+                          Icon="swap" />
+                <StatCard Label="Failed posts"
+                          Value="@Figure(postFailedCount)"
+                          ValueLabel="Approved but not in SAP"
+                          Tone="@PostFailedTone"
+                          ToneNote="@PostFailedNote"
+                          Icon="plug" />
+                @* The request API has no warehouse-scoped paged endpoint, and the
+                   unpaged by-warehouse one silently returns SAP's default 20 rows,
+                   so this figure is company-wide and says so. It also carries no
+                   total, and the pages must not be walked to build one, so a full
+                   page reads "100+" rather than claiming to be the whole figure. *@
+                <StatCard Label="Open requests"
+                          Value="@OpenRequestFigure"
+                          ValueLabel="Transfer requests outstanding"
+                          ToneNote="@OpenRequestNote"
+                          Icon="list-check" />
+            </section>
+
+            <section class="dsh-panels" aria-label="Transfers">
+
+                <section class="dsh-panel" aria-labelledby="pending-heading">
+                    <header class="dsh-panel-head">
+                        <span class="dsh-panel-icon">
+                            <DashIcon Name="clipboard-check" Size="15" />
+                        </span>
+                        <h2 id="pending-heading">Waiting on a decision</h2>
+                        <a class="dsh-panel-link" href="/inventory-transfers">
+                            View all
+                            <DashIcon Name="chevron" Size="13" />
+                        </a>
+                    </header>
+
+                    @if (isLoadingPending)
+                    {
+                        <div class="dsh-state" role="status">
+                            <span class="dsh-spin" aria-hidden="true"></span>
+                            <span>Loading the approval queue&#8230;</span>
+                        </div>
+                    }
+                    else if (pendingTransfers is { Count: > 0 })
+                    {
+                        <div class="dsh-scroll">
+                            <table class="dsh-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Draft</th>
+                                        <th scope="col">Route</th>
+                                        <th scope="col">Raised by</th>
+                                        <th scope="col" class="dsh-th-money">Lines</th>
+                                        <th scope="col">Waiting</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var transfer in pendingTransfers)
+                                    {
+                                        <tr>
+                                            <td class="dsh-doc">@(transfer.DraftNumber ?? "—")</td>
+                                            <td class="dsh-name" title="@Route(transfer)">@Route(transfer)</td>
+                                            <td class="dsh-name" title="@transfer.CreatedByName">@transfer.CreatedByName</td>
+                                            <td class="dsh-money">@transfer.LineCount</td>
+                                            <td class="dsh-when">@Age(transfer.CreatedAtUtc)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="dsh-state">Nothing waiting on a decision</div>
+                    }
+                </section>
+
+                <section class="dsh-panel" aria-labelledby="movements-heading">
+                    <header class="dsh-panel-head">
+                        <span class="dsh-panel-icon">
+                            <DashIcon Name="swap" Size="15" />
+                        </span>
+                        <h2 id="movements-heading">Recent movements</h2>
+                        <a class="dsh-panel-link" href="/inventory-transfers">
+                            View all
+                            <DashIcon Name="chevron" Size="13" />
+                        </a>
+                    </header>
+
+                    @if (isLoadingMovements)
+                    {
+                        <div class="dsh-state" role="status">
+                            <span class="dsh-spin" aria-hidden="true"></span>
+                            <span>Loading movements&#8230;</span>
+                        </div>
+                    }
+                    else if (movements is { Count: > 0 })
+                    {
+                        <div class="dsh-scroll">
+                            <table class="dsh-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Doc #</th>
+                                        <th scope="col">Direction</th>
+                                        <th scope="col">Counterpart</th>
+                                        <th scope="col">Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var movement in movements)
+                                    {
+                                        <tr>
+                                            <td class="dsh-doc">TR-@movement.DocNum</td>
+                                            <td>
+                                                <span class="dsh-tag @(movement.IsInbound ? "dsh-tag-ok" : null)">
+                                                    @(movement.IsInbound ? "In" : "Out")
+                                                </span>
+                                            </td>
+                                            <td class="dsh-name" title="@movement.Counterpart">@movement.Counterpart</td>
+                                            <td class="dsh-when">@movement.When</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="dsh-state">No movements in the last @MovementWindowDays days</div>
+                    }
+                </section>
+
+            </section>
+
+            <section class="dsh-panel" aria-labelledby="stock-actions-heading">
+                <header class="dsh-panel-head">
+                    <span class="dsh-panel-icon">
+                        <DashIcon Name="bolt" Size="15" />
+                    </span>
+                    <h2 id="stock-actions-heading">Quick actions</h2>
+                </header>
+                <div class="dsh-quick">
+                    <QuickAction Title="Create transfer"
+                                 Description="Move stock between warehouses"
+                                 Href="/inventory-transfer/create"
+                                 Icon="swap" />
+                    <QuickAction Title="Request stock"
+                                 Description="Ask another warehouse for stock"
+                                 Href="/transfer-request/create"
+                                 Icon="note-add" />
+                    <QuickAction Title="Transfers"
+                                 Description="Every transfer and request"
+                                 Href="/inventory-transfers"
+                                 Icon="list-check" />
+                    <QuickAction Title="Local stock"
+                                 Description="Today's snapshot"
+                                 Href="/local-stock"
+                                 Icon="clipboard-data" />
+                    <QuickAction Title="Products"
+                                 Description="Stock on hand by item"
+                                 Href="/products"
+                                 Icon="box" />
+                    <QuickAction Title="Prices"
+                                 Description="Check an item's price"
+                                 Href="/prices"
+                                 Icon="tag" />
+                </div>
+            </section>
+        }
+
+    </div>
+</div>
