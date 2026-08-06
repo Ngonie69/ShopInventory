@@ -466,6 +466,7 @@
     private static readonly IReadOnlyList<SearchDestination> SearchDestinations =
     [
         new("Dashboard", "Sales and operations overview", "/dashboard", "ph-squares-four", UserRoles.DashboardRoles, "home", "overview"),
+        new("Till", "Today's invoices, payments and fiscalisation", RoleLandingRoutes.CashierDashboard, "ph-squares-four", "Admin,Cashier", "cashier", "dashboard", "overview", "home"),
         new("Invoices", "Find and manage customer invoices", "/invoices", "ph-receipt", UserRoles.InvoicingRoles, "billing", "documents"),
         new("Create invoice", "Create a new customer invoice", "/invoices/create", "ph-file-plus", UserRoles.InvoicingRoles, "new invoice"),
         new("Van sales invoices", "View van sales invoices", "/van-sales-invoices", "ph-truck", UserRoles.InvoicingRoles, "van"),

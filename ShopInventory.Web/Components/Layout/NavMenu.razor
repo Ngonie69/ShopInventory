@@ -1,4 +1,6 @@
-﻿@* Navigation for the staff shell. Presentation lives in
+﻿@using ShopInventory.Web.Common
+
+@* Navigation for the staff shell. Presentation lives in
    wwwroot/css/nocturne-shell.css — an inline <style> block here would render
    after the head stylesheets and win the cascade over them, which is what
    forced the previous shell rules to carry !important. Glyphs are Phosphor,
@@ -7,12 +9,15 @@
 <div class="nav-sidebar">
     <AuthorizeView>
         <Authorized>
-            @* ── Overview ── *@
-            <AuthorizeView Roles="@UserRoles.DashboardRoles"
+            @* ── Overview ──
+               One link, resolved per role: /dashboard for the three roles Home
+               serves and /cashier-dashboard for a cashier. Hard-coding
+               /dashboard here sent a cashier to a page they cannot open. *@
+            <AuthorizeView Roles="@UserRoles.DashboardNavRoles"
                            Context="dashboardCtx">
                 <Authorized>
                     <div class="nav-section-label">Overview</div>
-                    <NavLink class="snav-link" href="/dashboard" Match="NavLinkMatch.All">
+                    <NavLink class="snav-link" href="@RoleLandingRoutes.For(dashboardCtx.User)" Match="NavLinkMatch.All">
                         <span class="snav-icon">
                             <i class="ph ph-squares-four" aria-hidden="true"></i>
                         </span>
