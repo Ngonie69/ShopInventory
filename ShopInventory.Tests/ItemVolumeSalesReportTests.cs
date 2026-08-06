@@ -393,6 +393,39 @@ public sealed class ItemVolumeSalesReportTests : IDisposable
         Assert.Equal(225m, account.NetRevenueUsd);
     }
 
+    [Fact]
+    public async Task A_run_that_outlasts_its_own_deadline_is_reported_as_a_timeout()
+    {
+        // The deadline arm is the only thing on this page that tells the user what to do about a
+        // run that asked SAP for too much. In production it never fired: the report's budget, the
+        // SAP client's per-request timeout and the Web app's HttpClient timeout were all five
+        // minutes, so a long run was as likely to end as a caller-side abort — which routed to the
+        // generic arm below it and reported "The operation was canceled." instead.
+        var handler = CreateCancellingHandler();
+
+        var result = await handler.Handle(Query(), CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Equal("Report.Timeout", result.FirstError.Code);
+        Assert.Contains("smaller date range", result.FirstError.Description);
+    }
+
+    [Fact]
+    public async Task A_caller_that_hangs_up_is_not_reported_as_a_report_failure()
+    {
+        // Navigating away, or running the report again over the top of this one, cancels the
+        // request. Nobody is waiting for the answer, so the cancellation belongs to
+        // RequestCanceledExceptionHandler — which answers 499 and logs a line — rather than to a
+        // catch here that records a server fault against a report that was working.
+        using var callerAborted = new CancellationTokenSource();
+        await callerAborted.CancelAsync();
+
+        var handler = CreateCancellingHandler();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => handler.Handle(Query(), callerAborted.Token));
+    }
+
     private async Task SeedFactorAsync(string itemCode, decimal factor, bool isActive = true)
     {
         _context.ItemVolumeConversions.Add(new ItemVolumeConversionEntity
@@ -441,6 +474,31 @@ public sealed class ItemVolumeSalesReportTests : IDisposable
             invoiceCallLog?.Add(((IEnumerable<string>)args![0]!).ToList());
             return Task.FromResult(result);
         }
+    }
+
+    /// <summary>
+    /// A handler whose SAP reads cancel, the way they do when a deadline elapses mid-request.
+    /// </summary>
+    /// <remarks>
+    /// The cancellation surfaces out of the awaited task rather than out of the call itself, which
+    /// is where a real one surfaces — the handler starts both reads before it awaits either.
+    /// </remarks>
+    private GetItemVolumeSalesReportHandler CreateCancellingHandler()
+    {
+        var sap = StubProxy.For<ISAPServiceLayerClient>((method, _) => method.Name switch
+        {
+            nameof(ISAPServiceLayerClient.GetInvoicesByCustomersAsync) =>
+                Task.FromException<List<Invoice>>(new OperationCanceledException()),
+            nameof(ISAPServiceLayerClient.GetCreditNotesByCustomersAsync) =>
+                Task.FromException<List<SAPCreditNote>>(new OperationCanceledException()),
+            _ => throw new InvalidOperationException(
+                $"ISAPServiceLayerClient.{method.Name} was not expected — the report reads invoices and credit notes only.")
+        });
+
+        return new GetItemVolumeSalesReportHandler(
+            _context,
+            sap,
+            NullLogger<GetItemVolumeSalesReportHandler>.Instance);
     }
 
     private static Invoice Invoice(

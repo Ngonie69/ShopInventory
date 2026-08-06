@@ -11,8 +11,6 @@ public sealed class GetTopCustomersHandler(
     ILogger<GetTopCustomersHandler> logger
 ) : IRequestHandler<GetTopCustomersQuery, ErrorOr<TopCustomersReportDto>>
 {
-    private static readonly TimeSpan ReportTimeout = TimeSpan.FromMinutes(5);
-
     public async Task<ErrorOr<TopCustomersReportDto>> Handle(
         GetTopCustomersQuery request,
         CancellationToken cancellationToken)
@@ -22,9 +20,15 @@ public sealed class GetTopCustomersHandler(
             var from = ToUtc(request.FromDate ?? DateTime.UtcNow.AddDays(-30));
             var to = ToUtc(request.ToDate ?? DateTime.UtcNow);
 
-            using var cts = new CancellationTokenSource(ReportTimeout);
+            using var cts = ReportDeadline.Start(cancellationToken);
             var result = await reportService.GetTopCustomersAsync(from, to, request.TopCount, cts.Token);
             return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller hung up. Nobody is waiting for an answer, so this is not a timeout and
+            // not a fault: let RequestCanceledExceptionHandler answer 499 and log its one line.
+            throw;
         }
         catch (OperationCanceledException)
         {

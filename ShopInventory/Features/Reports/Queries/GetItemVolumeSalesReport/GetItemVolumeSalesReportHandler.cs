@@ -25,8 +25,6 @@ public sealed class GetItemVolumeSalesReportHandler(
     ILogger<GetItemVolumeSalesReportHandler> logger
 ) : IRequestHandler<GetItemVolumeSalesReportQuery, ErrorOr<GetItemVolumeSalesReportResult>>
 {
-    private static readonly TimeSpan ReportTimeout = TimeSpan.FromMinutes(5);
-
     private static readonly Regex AccountRangeRegex = new(
         @"^(?<prefix>[A-Za-z]+)(?<start>\d+)-(?<end>\d+)$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -52,8 +50,7 @@ public sealed class GetItemVolumeSalesReportHandler(
                 toDateUtc,
                 request.Grouping);
 
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(ReportTimeout);
+            using var timeoutCts = ReportDeadline.Start(cancellationToken);
 
             var invoicesTask = sapClient.GetInvoicesByCustomersAsync(
                 accountCodes,
@@ -126,9 +123,20 @@ public sealed class GetItemVolumeSalesReportHandler(
                 DocumentLines = documentLines
             };
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            logger.LogWarning("Item volume and revenue report timed out");
+            // The caller hung up — navigated away, or ran the report again over the top of this
+            // one. Nobody is waiting for an answer, so there is nothing to report and no fault to
+            // record: let RequestCanceledExceptionHandler answer 499 and log the one line it logs.
+            // Swallowing it here instead is what filled the log with stack traces that read as
+            // server errors and named a report that was working.
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogWarning(
+                "Item volume and revenue report timed out after {TimeoutMinutes} minute(s)",
+                ReportDeadline.Budget.TotalMinutes);
             return Errors.Report.Timeout;
         }
         catch (Exception ex)

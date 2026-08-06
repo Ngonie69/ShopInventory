@@ -30,6 +30,19 @@ public static partial class Errors
         public static Error TransferRequestFailed(string message) =>
             Error.Failure("DesktopIntegration.TransferRequestFailed", message);
 
+        /// <summary>
+        /// The post was already in flight when it failed, so SAP may hold the document.
+        /// </summary>
+        /// <remarks>
+        /// Must not read as "try again": the retry is how a lost reply becomes two transfer
+        /// requests for the same movement. Mirrors
+        /// <see cref="Errors.InventoryTransfer.SapPostUncertain"/>.
+        /// </remarks>
+        public static Error TransferRequestPostUncertain =>
+            Error.Failure(
+                "DesktopIntegration.TransferRequestPostUncertain",
+                "The transfer request was sent to SAP but the reply was lost. Check SAP for the document before creating it again.");
+
         public static Error ValidationFailed(string message) =>
             Error.Failure("DesktopIntegration.ValidationFailed", message);
 

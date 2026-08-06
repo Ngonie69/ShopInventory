@@ -11,17 +11,21 @@ public sealed class GetLowStockAlertsHandler(
     ILogger<GetLowStockAlertsHandler> logger
 ) : IRequestHandler<GetLowStockAlertsQuery, ErrorOr<LowStockAlertReportDto>>
 {
-    private static readonly TimeSpan ReportTimeout = TimeSpan.FromMinutes(5);
-
     public async Task<ErrorOr<LowStockAlertReportDto>> Handle(
         GetLowStockAlertsQuery request,
         CancellationToken cancellationToken)
     {
         try
         {
-            using var cts = new CancellationTokenSource(ReportTimeout);
+            using var cts = ReportDeadline.Start(cancellationToken);
             var result = await reportService.GetLowStockAlertsAsync(request.WarehouseCode, request.Threshold, cts.Token);
             return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller hung up. Nobody is waiting for an answer, so this is not a timeout and
+            // not a fault: let RequestCanceledExceptionHandler answer 499 and log its one line.
+            throw;
         }
         catch (OperationCanceledException)
         {

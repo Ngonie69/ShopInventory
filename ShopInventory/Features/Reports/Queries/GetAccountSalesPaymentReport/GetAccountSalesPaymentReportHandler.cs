@@ -18,7 +18,6 @@ public sealed class GetAccountSalesPaymentReportHandler(
     ILogger<GetAccountSalesPaymentReportHandler> logger
 ) : IRequestHandler<GetAccountSalesPaymentReportQuery, ErrorOr<GetAccountSalesPaymentReportResult>>
 {
-    private static readonly TimeSpan ReportTimeout = TimeSpan.FromMinutes(5);
     private static readonly JsonSerializerOptions QueuePayloadJsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -45,8 +44,7 @@ public sealed class GetAccountSalesPaymentReportHandler(
                 toDateUtc,
                 request.Grouping);
 
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(ReportTimeout);
+            using var timeoutCts = ReportDeadline.Start(cancellationToken);
 
             var invoicesTask = GetSapInvoicesForAccountsAsync(accountCodes, fromDateUtc, toDateUtc, timeoutCts.Token);
             var paymentsTask = GetSapPaymentsForAccountsAsync(accountCodes, fromDateUtc, toDateUtc, timeoutCts.Token);
@@ -143,6 +141,12 @@ public sealed class GetAccountSalesPaymentReportHandler(
                 PaymentDetails = paymentDetails,
                 PaymentApplications = paymentApplications
             };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller hung up. Nobody is waiting for an answer, so this is not a timeout and
+            // not a fault: let RequestCanceledExceptionHandler answer 499 and log its one line.
+            throw;
         }
         catch (OperationCanceledException)
         {

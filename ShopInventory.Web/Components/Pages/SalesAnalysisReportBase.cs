@@ -439,6 +439,18 @@ public abstract class SalesAnalysisReportBase : ComponentBase, IDisposable
 
     protected async Task RunReportAsync()
     {
+        // A run holds SAP for tens of seconds, and the button that starts it only goes disabled
+        // once the circuit has patched the DOM. A click that lands in the meantime used to reach
+        // BeginLoad, which cancelled the run already in flight and started a fresh one from zero —
+        // and the abandoned run's finally block then cleared isLoading and re-enabled the button.
+        // Clicking an unresponsive report twice therefore kept it permanently a few seconds from
+        // finishing, and left the API a trail of aborted SAP reads. A second click is the user
+        // asking for the answer they are already waiting for, so let the run they have finish.
+        if (isLoading)
+        {
+            return;
+        }
+
         if (selectedAccounts.Count == 0)
         {
             errorMessage = "Choose at least one business partner.";

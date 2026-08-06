@@ -53,6 +53,23 @@ public interface IDocumentService
     // Document Attachments
     Task<DocumentAttachmentDto> UploadAttachmentAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid? userId, CancellationToken cancellationToken = default);
     Task<DocumentAttachmentDto?> GetAttachmentByExternalReferenceAsync(string entityType, int entityId, string externalReference, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The most recent attachment one user put on one entity inside <paramref name="window"/>, for
+    /// callers that can rule out a second genuine attachment arriving that fast.
+    /// </summary>
+    /// <remarks>
+    /// A last resort, and deliberately not used by <c>UploadAttachmentAsync</c> itself: for most
+    /// entities a burst of attachments from one user is a person attaching several files at once,
+    /// and collapsing those would lose their work. Only a caller that knows its own document is
+    /// singular should ask.
+    /// </remarks>
+    Task<DocumentAttachmentDto?> FindRecentAttachmentByUploaderAsync(
+        string entityType,
+        int entityId,
+        Guid uploaderId,
+        TimeSpan window,
+        CancellationToken cancellationToken = default);
     Task<DocumentAttachmentListResponseDto> GetAttachmentsAsync(string entityType, int entityId, CancellationToken cancellationToken = default);
     Task<(Stream? stream, string? fileName, string? mimeType)> DownloadAttachmentAsync(int id, CancellationToken cancellationToken = default);
     Task<bool> DeleteAttachmentAsync(int id, CancellationToken cancellationToken = default);
@@ -655,6 +672,33 @@ public class DocumentService : IDocumentService
         var attachment = await FindAttachmentByExternalReferenceQuery(entityType, entityId, normalizedExternalReference)
             .AsNoTracking()
             .Include(a => a.UploadedByUser)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return attachment is null ? null : MapToDto(attachment);
+    }
+
+    public async Task<DocumentAttachmentDto?> FindRecentAttachmentByUploaderAsync(
+        string entityType,
+        int entityId,
+        Guid uploaderId,
+        TimeSpan window,
+        CancellationToken cancellationToken = default)
+    {
+        if (window <= TimeSpan.Zero)
+        {
+            return null;
+        }
+
+        var cutoff = DateTime.UtcNow - window;
+
+        var attachment = await _context.Set<DocumentAttachmentEntity>()
+            .AsNoTracking()
+            .Include(a => a.UploadedByUser)
+            .Where(a => a.EntityType == entityType
+                && a.EntityId == entityId
+                && a.UploadedByUserId == uploaderId
+                && a.UploadedAt >= cutoff)
+            .OrderByDescending(a => a.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
         return attachment is null ? null : MapToDto(attachment);

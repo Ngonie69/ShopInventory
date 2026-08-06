@@ -11,8 +11,6 @@ public sealed class GetStockMovementHandler(
     ILogger<GetStockMovementHandler> logger
 ) : IRequestHandler<GetStockMovementQuery, ErrorOr<StockMovementReportDto>>
 {
-    private static readonly TimeSpan ReportTimeout = TimeSpan.FromMinutes(5);
-
     public async Task<ErrorOr<StockMovementReportDto>> Handle(
         GetStockMovementQuery request,
         CancellationToken cancellationToken)
@@ -22,9 +20,15 @@ public sealed class GetStockMovementHandler(
             var from = ToUtc(request.FromDate ?? DateTime.UtcNow.AddDays(-30));
             var to = ToUtc(request.ToDate ?? DateTime.UtcNow);
 
-            using var cts = new CancellationTokenSource(ReportTimeout);
+            using var cts = ReportDeadline.Start(cancellationToken);
             var result = await reportService.GetStockMovementAsync(from, to, request.WarehouseCode, cts.Token);
             return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller hung up. Nobody is waiting for an answer, so this is not a timeout and
+            // not a fault: let RequestCanceledExceptionHandler answer 499 and log its one line.
+            throw;
         }
         catch (OperationCanceledException)
         {
