@@ -21,7 +21,7 @@ public sealed class RoleLandingRouteTests
     [InlineData(UserRoles.Driver, "/pods")]
     [InlineData("Operator", "/pods")]
     [InlineData(UserRoles.Merchandiser, "/mobile-drafts")]
-    [InlineData(UserRoles.DepotController, "/inventory-transfers")]
+    [InlineData(UserRoles.DepotController, "/dashboard")]
     [InlineData(UserRoles.Lab, "/lab/batch-status")]
     [InlineData(UserRoles.MerchandiserPurchaseOrderViewer, "/reports/merchandiser-purchase-orders")]
     public void Each_role_lands_on_its_own_page(string role, string expected)
@@ -43,18 +43,23 @@ public sealed class RoleLandingRouteTests
     }
 
     /// <summary>
-    /// A sales rep resolves to the dashboard route, which Home serves with the
-    /// sales-rep dashboard rather than the cashier one.
+    /// Three roles resolve to the one dashboard route, which Home serves with a
+    /// different page for each: the sales-rep workspace, the depot workspace and
+    /// the cashier dashboard everyone else gets.
     /// </summary>
-    [Fact]
-    public void Sales_rep_lands_on_the_dashboard_route()
+    [Theory]
+    [InlineData(UserRoles.SalesRep)]
+    [InlineData(UserRoles.DepotController)]
+    [InlineData(UserRoles.Cashier)]
+    public void The_dashboard_route_is_shared(string role)
     {
-        Assert.Equal(RoleLandingRoutes.Dashboard, RoleLandingRoutes.For(UserRoles.SalesRep));
+        Assert.Equal(RoleLandingRoutes.Dashboard, RoleLandingRoutes.For(role));
     }
 
     /// <summary>
-    /// An administrator carrying a single-purpose role keeps the dashboard —
-    /// the two roles that are checked against Admin.
+    /// An administrator carrying a single-purpose role keeps the dashboard. Lab
+    /// is the one still checked against Admin; the depot role reaches the same
+    /// answer on its own now that it lands there too.
     /// </summary>
     [Theory]
     [InlineData(UserRoles.Lab)]

@@ -12,14 +12,15 @@
 @inject IAuditService AuditService
 @rendermode InteractiveServer
 
-<PageTitle>@(isSalesRep ? "Sales Dashboard - Kefalos Cheese" : "Dashboard - Kefalos Cheese")</PageTitle>
+<PageTitle>@PageHeading</PageTitle>
 
 @* The imported Nocturne design is dark; wwwroot/css/dashboard.css (linked
    from App.razor) carries it and its light counterpart, and follows the app's
    theme toggle like every other page.
 
-   Sales reps get a different dashboard at the same route — see
-   SalesRepDashboard, which shares this stylesheet.
+   Sales reps and depot controllers get a different dashboard at the same route
+   — see SalesRepDashboard, which shares this stylesheet, and DepotDashboard,
+   which carries its own.
 
    The header states when the figures were read. The label it replaces said
    "Updated just now" from a static string, which stayed true for about a
@@ -29,6 +30,10 @@
 @if (isSalesRep)
 {
     <SalesRepDashboard DisplayName="@GreetingName" />
+}
+else if (isDepotController)
+{
+    <DepotDashboard DisplayName="@GreetingName" />
 }
 else
 {
@@ -172,8 +177,16 @@ else
     private bool isLoadingInvoices = true;
     private bool isLoadingPayments = true;
     private bool isSalesRep;
+    private bool isDepotController;
     private string currentUsername = "Sales Rep";
     private bool _initialized;
+
+    private string PageHeading => (isSalesRep, isDepotController) switch
+    {
+        (true, _) => "Sales Dashboard - Kefalos Cheese",
+        (_, true) => "Depot Dashboard - Kefalos Cheese",
+        _ => "Dashboard - Kefalos Cheese"
+    };
 
     /// <summary>When the figures on screen were read. Null until the first read lands.</summary>
     private DateTime? loadedAt;
@@ -228,16 +241,24 @@ else
 
         isSalesRep = user.IsInRole("SalesRep");
 
+        // An administrator carrying the depot role keeps the cashier dashboard,
+        // the same reading RoleLandingRoutes takes of a narrow role held
+        // alongside Admin.
+        isDepotController = user.IsInRole(UserRoles.DepotController) && !user.IsInRole(UserRoles.Admin);
+
         if (!_initialized)
         {
             _initialized = true;
 
-            if (!isSalesRep)
+            // The other two dashboards are components with their own reads;
+            // only the cashier one is served from here.
+            if (!isSalesRep && !isDepotController)
             {
                 await LoadDashboardData();
             }
 
-            await AuditService.LogAsync(AuditActions.ViewDashboard, isSalesRep ? "SalesRepDashboard" : "Dashboard", null);
+            var page = isSalesRep ? "SalesRepDashboard" : isDepotController ? "DepotDashboard" : "Dashboard";
+            await AuditService.LogAsync(AuditActions.ViewDashboard, page, null);
         }
     }
 

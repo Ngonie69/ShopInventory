@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -7,6 +8,7 @@ namespace ShopInventory.Web.Services;
 internal static partial class ApiErrorResponse
 {
     private const int MaxLogBodyLength = 4000;
+    private const int MaxLogIdentifierLength = 64;
     private const string RedactedValue = "[REDACTED]";
 
     private static readonly HashSet<string> GenericProblemTitles = new(StringComparer.OrdinalIgnoreCase)
@@ -128,6 +130,55 @@ internal static partial class ApiErrorResponse
         return sanitized.Length <= MaxLogBodyLength
             ? sanitized
             : sanitized[..MaxLogBodyLength] + "... [truncated]";
+    }
+
+    /// <summary>
+    /// Makes a caller-supplied identifier — an account code, a document number, anything that
+    /// reached us from a route or a query string — safe to write into a log line.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A carriage return or line feed in the value ends the log line early, and everything after it
+    /// is read back as a separate entry that the attacker wrote. Structured logging does not save
+    /// us here: the placeholder is rendered into the message text by the console and file sinks, so
+    /// the newline lands in the output exactly as sent.
+    /// </para>
+    /// <para>
+    /// <see cref="SanitizeForLog"/> is the wrong tool for this — it redacts secrets out of a
+    /// response body but deliberately leaves line breaks alone, because a body is expected to be
+    /// multi-line and readable. An identifier is neither.
+    /// </para>
+    /// <para>
+    /// Every control character goes, not just the line breaks: U+2028 and U+2029 break lines in
+    /// some sinks while <see cref="char.IsControl(char)"/> returns false for them, and a NUL or a
+    /// backspace can truncate or rewrite a line in a terminal. The length cap is here because the
+    /// route segment carrying this value has no length limit of its own.
+    /// </para>
+    /// </remarks>
+    public static string SanitizeIdentifierForLog(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            // An empty placeholder renders as a gap in the message and reads like a logging bug.
+            return "(none)";
+        }
+
+        var builder = new StringBuilder(Math.Min(value.Length, MaxLogIdentifierLength));
+
+        foreach (var character in value)
+        {
+            if (builder.Length == MaxLogIdentifierLength)
+            {
+                return builder.Append("... [truncated]").ToString();
+            }
+
+            // Written as escapes on purpose: as literals these are invisible in the source, and
+            // the next person here cannot tell them apart from each other or from a space.
+            var isUnicodeLineBreak = character is '\u2028' or '\u2029';
+            builder.Append(char.IsControl(character) || isUnicodeLineBreak ? '?' : character);
+        }
+
+        return builder.ToString();
     }
 
     public static string GetFriendlyMessage(

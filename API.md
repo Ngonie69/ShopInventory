@@ -1388,8 +1388,17 @@ warehouse leaves their account (the held change goes to `ApplyFailed` with `last
 | GET | `/api/GLAccount` | Get all G/L accounts from SAP |
 | GET | `/api/GLAccount/type/{accountType}` | Filter by type |
 | GET | `/api/GLAccount/{accountCode}` | Get specific account |
+| GET | `/api/GLAccount/{accountCode}/ledger` | Journal postings for one account |
 
 **Account Types:** `at_Revenues`, `at_Expenses`, `at_Other`
+
+**Ledger query:** `?fromDate=yyyy-MM-dd&toDate=yyyy-MM-dd`, defaulting to the current month to date.
+Returns the period's journal lines with a running balance, plus `sapBalance` and
+`computedBalanceToday` — the account's balance as SAP reports it and as the journal sums to, so the
+two can be compared. `reconciliationDifference` is their difference and is expected to be zero;
+`isReconciled` is false when the check could not be run at all, which is not the same as agreeing.
+Capped at 5,000 lines; `isTruncated` says the tail was dropped. There is no total line count — the
+capped read never sees one — so a truncated period is only ever "more than the limit".
 
 ---
 

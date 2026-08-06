@@ -183,8 +183,9 @@
                 </Authorized>
             </AuthorizeView>
 
-            @* Depot controllers only see Transfers and Local Stock, so their account
-               self-service link lives here rather than in the System section. *@
+            @* Depot controllers see only their dashboard, Transfers and Local Stock,
+               so their account self-service link lives here rather than in the
+               System section. *@
             <AuthorizeView Roles="DepotController" Context="depotAccountCtx">
                 <Authorized>
                     <div class="nav-section-label">Account</div>

@@ -534,7 +534,8 @@ Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/glaccount", "Get all GL accounts"),
 new("GET", "/api/glaccount/type/{accountType}", "Get GL accounts by type"),
-new("GET", "/api/glaccount/{accountCode}", "Get GL account by code")
+new("GET", "/api/glaccount/{accountCode}", "Get GL account by code"),
+new("GET", "/api/glaccount/{accountCode}/ledger", "Journal postings for one account")
 }
 },
 new ApiModule

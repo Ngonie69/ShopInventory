@@ -1,14 +1,15 @@
 /* ==========================================================================
    Operations — Nocturne
 
-   The six operational pages, on one sheet:
+   The seven operational pages, on one sheet:
 
-     /gl-accounts           `.ops.ops-gl`   chart of accounts, synced from SAP
-     /prices                `.ops.ops-prc`  a price list's items
-     /stock                 `.ops.ops-stk`  stock levels for one warehouse
-     /route-customers       `.ops.ops-rc`   locally captured customers by route
-     /desktop-transactions  `.ops.ops-dt`   the desktop sync queues
-     /desktop-sales         `.ops.ops-ds`   invoices fiscalized on the desktops
+     /gl-accounts           `.ops.ops-gl`     chart of accounts, synced from SAP
+     /gl-accounts/{code}    `.ops.ops-glled`  one account's journal postings
+     /prices                `.ops.ops-prc`    a price list's items
+     /stock                 `.ops.ops-stk`    stock levels for one warehouse
+     /route-customers       `.ops.ops-rc`     locally captured customers by route
+     /desktop-transactions  `.ops.ops-dt`     the desktop sync queues
+     /desktop-sales         `.ops.ops-ds`     invoices fiscalized on the desktops
 
    The first five are a derivation, not an import: no design existed for any of
    them, so they follow the documented fallback and take their vocabulary from
@@ -967,6 +968,49 @@
     color: var(--ops-mute-3);
 }
 
+/* A link out of a table row — the drill-down on /gl-accounts. An anchor rather
+   than a click handler on the <tr>, because a row handler reaches neither the
+   keyboard nor a middle click, and both matter for a list whose whole purpose is
+   picking one thing out of it. Bootstrap styles bare `a` at (0,0,1); every rule
+   here is (0,1,0) or deeper, so it wins without !important. */
+.ops .ops-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--ops-accent-text);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color .15s ease;
+}
+
+.ops .ops-link:hover,
+.ops .ops-link:focus-visible {
+    color: var(--ops-accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.ops .ops-link i {
+    font-size: 12px;
+    transition: transform .15s ease;
+}
+
+.ops .ops-link:hover i {
+    transform: translateX(2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ops .ops-link,
+    .ops .ops-link i {
+        transition: none;
+    }
+
+    .ops .ops-link:hover i {
+        transform: none;
+    }
+}
+
 /* ── Pagination ────────────────────────────────────────────────────────── */
 
 .ops-foot {
@@ -1342,6 +1386,38 @@
         transform: translateX(14px);
         opacity: 0;
     }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   /gl-accounts/{code} — `.ops-glled`
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* Almost nothing, deliberately. A G/L ledger is this sheet's hero, figures,
+   filter row and table with a different table in it, so the block below is only
+   the two things the shared vocabulary does not already say.
+
+   Note what is *not* here: the table has no `.ops-th-sort` on any header, unlike
+   its four sibling tables. The Balance column is a running total and only means
+   anything in posting order, so a sort would leave every figure in it wrong
+   while still looking sound. That is a decision in the markup rather than a rule
+   here, and it is written down in the page too. */
+
+/* The reconciliation notice leads with a sentence that has to land before the
+   detail behind it — it is the one notice on these pages that says the numbers
+   beside it cannot be trusted. */
+.ops-glled .ops-msg strong {
+    display: block;
+    margin-bottom: 2px;
+    font-weight: 500;
+}
+
+/* Nine columns is the widest table on the sheet, and `.ops-scroll` will hand it
+   a scrollbar. These two are what should give last: a wrapped posting date reads
+   as two rows, and the journal number under the document number is the pair that
+   identifies the line. */
+.ops-glled .ops-table tbody td:first-child,
+.ops-glled .ops-table tbody td:nth-child(2) {
+    white-space: nowrap;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

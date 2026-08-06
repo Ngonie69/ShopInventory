@@ -1,0 +1,467 @@
+@* The depot controller's landing page, rendered by Home at /dashboard in place
+   of the cashier one — the same arrangement SalesRepDashboard has beside it.
+
+   wwwroot/css/depot-dashboard.css (linked from App.razor) carries the design
+   and follows the app's theme toggle like every other page. The shape is the
+   sales-rep dashboard's, which that sheet's header explains; what is different
+   here is the two-directional chart and the two document families.
+
+   Everything on the page is about one depot: the warehouses on the signed-in
+   controller's account, defaulting to the first. The picker only appears when
+   there is more than one to choose between.
+
+   Three of the four panels are read once and left alone; only the chart and
+   the movement queue follow the range control, because a stock snapshot and an
+   approval queue are states rather than windows. Refresh re-reads all four. *@
+
+<div class="dpd">
+
+    <header>
+        <div class="dpd-shell">
+            <div class="dpd-titles">
+                <div class="dpd-kicker">Depot control &middot; @Today.ToString("dddd dd MMMM")</div>
+                <h1 class="dpd-title">@Greeting, @Greeted</h1>
+                <p class="dpd-sub">@Standfirst</p>
+            </div>
+            <div class="dpd-head-actions">
+                @if (depotOptions.Count > 1)
+                {
+                    <NocturneSelect TValue="string" Class="nsel-auto" Options="depotOptions" @bind-Value="depot"
+                                    OnChanged="OnDepotChangedAsync" Caption="Depot"
+                                    AriaLabel="Depot" Placeholder="Pick a depot" />
+                }
+                <div class="dpd-seg" role="group" aria-label="Reporting range">
+                    @foreach (var option in RangeOptions)
+                    {
+                        <button type="button"
+                                class="dpd-seg-opt @(option == rangeDays ? "is-on" : null)"
+                                aria-pressed="@(option == rangeDays)"
+                                disabled="@isLoadingMovements"
+                                @onclick="() => SelectRangeAsync(option)">
+                            @($"{option}d")
+                        </button>
+                    }
+                </div>
+                <button type="button" class="dpd-btn dpd-btn-quiet" disabled="@IsLoading" @onclick="RefreshAsync">
+                    @if (IsLoading)
+                    {
+                        <span class="dpd-spin" aria-hidden="true"></span>
+                        <span>Reading&#8230;</span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                        <span>Refresh</span>
+                    }
+                </button>
+                <a class="dpd-btn dpd-btn-quiet" href="/transfer-request/create">
+                    <i class="ph ph-file-plus" aria-hidden="true"></i>New request
+                </a>
+                <a class="dpd-btn dpd-btn-primary" href="/inventory-transfer/create">
+                    <i class="ph ph-plus" aria-hidden="true"></i>New transfer
+                </a>
+            </div>
+        </div>
+        <div class="dpd-rule"></div>
+    </header>
+
+    <div class="dpd-body">
+
+        @if (loadError is not null)
+        {
+            <div class="dpd-alert" role="alert">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <div>@loadError</div>
+            </div>
+        }
+
+        @* Which depot every figure below is about, and when it was read. The
+           page does not poll, so the stamp is also how old the figures are. *@
+        <div class="dpd-scope">
+            <span class="dpd-scope-depot">
+                <i class="ph ph-warehouse" aria-hidden="true"></i>@DepotLabel
+            </span>
+            <span class="dpd-scope-sep" aria-hidden="true">&middot;</span>
+            <span>
+                @if (readAt is { } stamp)
+                {
+                    @($"Read at {stamp:HH:mm}")
+                }
+                else
+                {
+                    @("Reading…")
+                }
+            </span>
+            @if (movementsTruncated)
+            {
+                <span class="dpd-scope-sep" aria-hidden="true">&middot;</span>
+                <span>Newest @MovementFetchSize.ToString("N0") movements of @movementTotal.ToString("N0")</span>
+            }
+            @if (requestsTruncated)
+            {
+                <span class="dpd-scope-sep" aria-hidden="true">&middot;</span>
+                <span>Requests from the newest @RequestFetchSize.ToString("N0") open in SAP</span>
+            }
+        </div>
+
+        @if (depot is null)
+        {
+            <section class="dpd-card">
+                <div class="dpd-empty dpd-empty-stack">
+                    <i class="ph ph-warehouse" style="font-size:22px" aria-hidden="true"></i>
+                    <div>
+                        No warehouse is assigned to this account, so there is no depot to report on.
+                        An administrator assigns one from User Management.
+                    </div>
+                </div>
+            </section>
+        }
+        else
+        {
+            @* Figures read "—" until their numbers are in, rather than showing
+               zeroes that are about to jump. *@
+            <section class="dpd-kpis" aria-label="Depot figures">
+                <div class="dpd-kpi">
+                    <div class="dpd-kpi-top">
+                        <span class="dpd-kpi-label">Movements today</span>
+                        <i class="ph ph-arrows-left-right" aria-hidden="true"></i>
+                    </div>
+                    <div class="dpd-kpi-fig">
+                        <span class="dpd-kpi-value">@Figure(MovementsToday)</span>
+                        <span class="dpd-kpi-unit">documents</span>
+                    </div>
+                    <div class="dpd-kpi-foot">
+                        @if (MovementsToday is not null)
+                        {
+                            <span class="dpd-flow">@inToday.ToString("N0") in</span>
+                            <span class="dpd-flow is-out">@outToday.ToString("N0") out</span>
+                        }
+                    </div>
+                </div>
+
+                <div class="dpd-kpi @(AwaitingApprovalCount > 0 ? "is-watch" : null)">
+                    <div class="dpd-kpi-top">
+                        <span class="dpd-kpi-label">Awaiting approval</span>
+                        <i class="ph ph-hourglass-medium" aria-hidden="true"></i>
+                    </div>
+                    <div class="dpd-kpi-fig">
+                        <span class="dpd-kpi-value">@Figure(AwaitingApprovalCount)</span>
+                        <span class="dpd-kpi-unit">drafts</span>
+                    </div>
+                    <div class="dpd-kpi-foot">
+                        <span>@ApprovalNote</span>
+                    </div>
+                </div>
+
+                <div class="dpd-kpi">
+                    <div class="dpd-kpi-top">
+                        <span class="dpd-kpi-label">Requests to fulfil</span>
+                        <i class="ph ph-clipboard-text" aria-hidden="true"></i>
+                    </div>
+                    <div class="dpd-kpi-fig">
+                        <span class="dpd-kpi-value">@Figure(OpenRequestCount)</span>
+                        <span class="dpd-kpi-unit">open</span>
+                    </div>
+                    <div class="dpd-kpi-foot">
+                        <span>@FulfilNote</span>
+                    </div>
+                </div>
+
+                <div class="dpd-kpi @(stock is { OutOfStock: > 0 } ? "is-risk" : null)">
+                    <div class="dpd-kpi-top">
+                        <span class="dpd-kpi-label">Out of stock</span>
+                        <i class="ph ph-package" aria-hidden="true"></i>
+                    </div>
+                    <div class="dpd-kpi-fig">
+                        <span class="dpd-kpi-value">@Figure(stock?.OutOfStock)</span>
+                        <span class="dpd-kpi-unit">items</span>
+                    </div>
+                    <div class="dpd-kpi-foot">
+                        <span>@StockNote</span>
+                    </div>
+                </div>
+            </section>
+
+            <div class="dpd-split">
+
+                <div class="dpd-col">
+
+                    <section class="dpd-card" aria-label="Stock movement">
+                        <div class="dpd-chart-head">
+                            <div>
+                                <span class="dpd-card-title">Stock movement</span>
+                                <span class="dpd-card-sub">
+                                    Transfer documents a day, last @rangeDays days &middot; in above the line, out below
+                                </span>
+                            </div>
+                            <div class="dpd-chart-total">
+                                <span class="dpd-chart-legend">
+                                    <span class="dpd-flow">@rangeIn.ToString("N0") in</span>
+                                    <span class="dpd-flow is-out">@rangeOut.ToString("N0") out</span>
+                                </span>
+                            </div>
+                        </div>
+
+                        @if (bars.Count == 0)
+                        {
+                            <div class="dpd-empty">
+                                @(isLoadingMovements
+                                    ? "Reading the movement window…"
+                                    : movementsFailed
+                                        ? "The movement window could not be read."
+                                        : $"No transfers touched {depot} in the last {rangeDays} days.")
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="dpd-plot">
+                                <div class="dpd-gridline is-top"></div>
+                                <div class="dpd-gridline is-foot"></div>
+                                <div class="dpd-baseline"></div>
+                                @if (axisMax > 0)
+                                {
+                                    <span class="dpd-ytick is-top">@axisMax</span>
+                                    <span class="dpd-ytick is-mid">0</span>
+                                    <span class="dpd-ytick is-foot">@axisMax</span>
+                                }
+                                @foreach (var bar in bars)
+                                {
+                                    @* The hit area is the full-height column, not the bar,
+                                       so a one-document day is still readable on hover.
+                                       tabindex carries the same reading to the keyboard. *@
+                                    <div class="dpd-barcol @(bar.IsToday ? "is-today" : null)"
+                                         tabindex="0" aria-label="@bar.Label">
+                                        <div class="dpd-half is-up">
+                                            <div class="dpd-bar" style="height:@bar.InHeight"></div>
+                                        </div>
+                                        <div class="dpd-half is-down">
+                                            <div class="dpd-bar" style="height:@bar.OutHeight"></div>
+                                        </div>
+                                        <div class="dpd-tip @bar.TipClass" role="tooltip" aria-hidden="true">
+                                            <span class="dpd-tip-head">@bar.Day</span>
+                                            <span class="dpd-tip-value">
+                                                <span class="dpd-flow">@bar.In in</span>
+                                                <span class="dpd-flow is-out">@bar.Out out</span>
+                                            </span>
+                                            <span class="dpd-tip-note">@bar.Note</span>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="dpd-xaxis">
+                                <span>@RangeStart.ToString("dd MMM")</span>
+                                <span>@RangeStart.AddDays(rangeDays / 2).ToString("dd MMM")</span>
+                                <span>Today</span>
+                            </div>
+                        }
+                    </section>
+
+                    <section class="dpd-card" aria-label="Recent movements">
+                        <div class="dpd-card-head">
+                            <span class="dpd-card-title">Recent movements</span>
+                            <a class="dpd-link dpd-card-note" href="/inventory-transfers">
+                                @(movementTotal > 0 ? $"View all {movementTotal:N0}" : "View all")
+                            </a>
+                        </div>
+
+                        <div class="dpd-moves-head" aria-hidden="true">
+                            <span>Document</span>
+                            <span>Direction</span>
+                            <span>Counterparty</span>
+                            <span class="dpd-move-lines">Lines</span>
+                            <span class="dpd-move-date">Date</span>
+                        </div>
+
+                        @if (recentMovements.Count == 0)
+                        {
+                            <div class="dpd-empty">
+                                @(isLoadingMovements
+                                    ? "Reading movements…"
+                                    : $"No transfers in the last {rangeDays} days.")
+                            </div>
+                        }
+                        else
+                        {
+                            @foreach (var move in recentMovements)
+                            {
+                                <div class="dpd-move">
+                                    <span class="dpd-move-id">@move.Document</span>
+                                    <span class="dpd-move-dir">
+                                        <span class="dpd-dir @move.DirectionTone">
+                                            <i class="ph @move.DirectionIcon" aria-hidden="true"></i>@move.DirectionLabel
+                                        </span>
+                                    </span>
+                                    <span class="dpd-move-party">@move.Counterparty</span>
+                                    @* The two labels are the column headings, which the
+                                       card layout below 860px drops. *@
+                                    <span class="dpd-move-lines"><span class="dpd-rl">Lines</span>@move.Lines</span>
+                                    <span class="dpd-move-date"><span class="dpd-rl">Date</span>@move.When</span>
+                                </div>
+                            }
+                        }
+                    </section>
+                </div>
+
+                <div class="dpd-col">
+
+                    <section class="dpd-card" aria-label="Needs you now">
+                        <div class="dpd-card-head">
+                            <span class="dpd-card-title">Needs you now</span>
+                            <span class="dpd-card-note">3 queues</span>
+                        </div>
+                        <div class="dpd-queues">
+                            <a class="dpd-queue @(OpenRequestCount == 0 ? "is-clear" : null)"
+                               href="/inventory-transfers">
+                                <span class="dpd-queue-icon"><i class="ph ph-clipboard-text" aria-hidden="true"></i></span>
+                                <span class="dpd-queue-body">
+                                    <span class="dpd-queue-label">Requests on this depot</span>
+                                    <span class="dpd-queue-note">@FulfilNote</span>
+                                </span>
+                                <span class="dpd-queue-count">@Figure(OpenRequestCount)</span>
+                                <i class="ph ph-caret-right" aria-hidden="true"></i>
+                            </a>
+                            <a class="dpd-queue @(AwaitingApprovalCount == 0 ? "is-clear" : null)"
+                               href="/inventory-transfers">
+                                <span class="dpd-queue-icon"><i class="ph ph-hourglass-medium" aria-hidden="true"></i></span>
+                                <span class="dpd-queue-body">
+                                    <span class="dpd-queue-label">Drafts awaiting approval</span>
+                                    <span class="dpd-queue-note">@ApprovalNote</span>
+                                </span>
+                                <span class="dpd-queue-count">@Figure(AwaitingApprovalCount)</span>
+                                <i class="ph ph-caret-right" aria-hidden="true"></i>
+                            </a>
+                            @* An approved draft that never reached SAP is stock that
+                               did not move and a document nobody is waiting on: it
+                               needs a person, not a queue. *@
+                            <a class="dpd-queue @(NotPostedCount > 0 ? "is-risk" : NotPostedCount == 0 ? "is-clear" : null)"
+                               href="/inventory-transfers">
+                                <span class="dpd-queue-icon"><i class="ph ph-warning-octagon" aria-hidden="true"></i></span>
+                                <span class="dpd-queue-body">
+                                    <span class="dpd-queue-label">Approved, not in SAP</span>
+                                    <span class="dpd-queue-note">@NotPostedNote</span>
+                                </span>
+                                <span class="dpd-queue-count">@Figure(NotPostedCount)</span>
+                                <i class="ph ph-caret-right" aria-hidden="true"></i>
+                            </a>
+                        </div>
+                    </section>
+
+                    <section class="dpd-card" aria-label="Depot stock">
+                        <div class="dpd-card-head">
+                            <span class="dpd-card-title">Depot stock</span>
+                            @if (stock is { } head)
+                            {
+                                <span class="dpd-card-note">
+                                    <span class="dpd-snap @head.StatusTone">
+                                        <span class="dpd-snap-dot" aria-hidden="true"></span>@head.StatusLabel
+                                    </span>
+                                </span>
+                            }
+                        </div>
+
+                        @if (stock is { } snapshot)
+                        {
+                            <div class="dpd-stock">
+                                <div class="dpd-stock-fig">
+                                    <span class="dpd-stock-value">
+                                        @($"{snapshot.InStockPercent:0}")<small>%</small>
+                                    </span>
+                                    <span class="dpd-stock-cap">
+                                        of @snapshot.Total.ToString("N0") items have stock &middot;
+                                        @snapshot.Adjusted.ToString("N0") moved since the snapshot
+                                    </span>
+                                </div>
+
+                                <div class="dpd-meter" role="img"
+                                     aria-label="@($"{snapshot.Healthy} in stock, {snapshot.Low} low, {snapshot.OutOfStock} out")">
+                                    <div class="dpd-meter-good" style="width:@Percent(snapshot.Healthy, snapshot.Total)"></div>
+                                    <div class="dpd-meter-low" style="width:@Percent(snapshot.Low, snapshot.Total)"></div>
+                                    <div class="dpd-meter-out" style="width:@Percent(snapshot.OutOfStock, snapshot.Total)"></div>
+                                </div>
+
+                                <div class="dpd-legend">
+                                    <div class="dpd-legend-row">
+                                        <span class="dpd-legend-dot" aria-hidden="true"></span>
+                                        <span>Comfortable (over 10)</span><span>@snapshot.Healthy.ToString("N0")</span>
+                                    </div>
+                                    <div class="dpd-legend-row is-low">
+                                        <span class="dpd-legend-dot" aria-hidden="true"></span>
+                                        <span>Running low (10 or fewer)</span><span>@snapshot.Low.ToString("N0")</span>
+                                    </div>
+                                    <div class="dpd-legend-row is-out">
+                                        <span class="dpd-legend-dot" aria-hidden="true"></span>
+                                        <span>Nothing left to sell</span><span>@snapshot.OutOfStock.ToString("N0")</span>
+                                    </div>
+                                </div>
+
+                                <a class="dpd-btn dpd-btn-primary dpd-btn-block" href="/local-stock">
+                                    Open local stock
+                                </a>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="dpd-empty dpd-empty-stack">
+                                <span>
+                                    @(isLoadingStock
+                                        ? "Reading the stock snapshot…"
+                                        : $"No snapshot for {depot} today — it may not have been fetched yet.")
+                                </span>
+                                @if (!isLoadingStock)
+                                {
+                                    <a class="dpd-link" href="/local-stock">Open local stock &rarr;</a>
+                                }
+                            </div>
+                        }
+                    </section>
+
+                    <section class="dpd-card" aria-label="Stock on its way in">
+                        <div class="dpd-card-head">
+                            <span class="dpd-card-title">On its way in</span>
+                            <span class="dpd-card-note">
+                                @(RequestsLoaded ? $"{incoming.Count:N0} open" : "Reading…")
+                            </span>
+                        </div>
+
+                        @if (incoming.Count == 0)
+                        {
+                            <div class="dpd-empty">
+                                @(RequestsLoaded
+                                    ? "This depot has no open request out for stock."
+                                    : "Reading requests…")
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="dpd-supply">
+                                @foreach (var request in incoming.Take(5))
+                                {
+                                    <div class="dpd-supply-row">
+                                        <span class="dpd-supply-id">@request.Document</span>
+                                        <span class="dpd-supply-from">from @request.Counterparty</span>
+                                        <span class="dpd-supply-age">@request.Age</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </section>
+                </div>
+            </div>
+
+            @* The three modules a depot controller owns, in the order the work
+               runs. *@
+            <section class="dpd-steps" aria-label="Recommended workflow">
+                @foreach (var step in Steps)
+                {
+                    <div class="dpd-step">
+                        <span class="dpd-step-n">Step @step.Number</span>
+                        <span class="dpd-step-title">@step.Title</span>
+                        <span class="dpd-step-body">@step.Body</span>
+                        <a class="dpd-link" href="@step.Href">@step.Cta &rarr;</a>
+                    </div>
+                }
+            </section>
+        }
+    </div>
+</div>
