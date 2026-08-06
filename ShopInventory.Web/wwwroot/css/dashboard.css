@@ -13,11 +13,20 @@
    and `.dark-theme` the override, matching the order App.razor's pre-paint
    script stamps the class in, so neither scheme flashes.
 
-   Two dashboards share this sheet. The staff one leads with three figures
-   and reads down into recent activity; the sales-rep one at the same route
-   has no figures to lead with — a rep sees orders, not takings — so it leads
-   with the modules it can open. Both use the same header, hero, panel and
-   button rules, which is the point of them sharing a file.
+   This sheet no longer dresses a page. It was written for the two dashboards
+   at /dashboard, and both have since left: the sales-rep one to
+   sales-rep-dashboard.css (`.srd`), and the administrator's to
+   operations-dashboard.css (`.opd`) when that page was rebuilt from
+   `Operations Dashboard.dc.html`. What is left here styles the StatCard and
+   ActivityTable components in Components/Dashboard — neither of which is
+   rendered by any page either, so every rule below is currently dead. It is
+   kept rather than deleted because removing it is a separate decision from
+   the QuickAction removal that emptied the quick-action section.
+
+   Beware the name: Quotations.razor declares a private `record StatCard` and
+   draws its own cards with `.qtn-` classes. It is not a consumer of the
+   StatCard *component*, and a grep for "<StatCard" finds it anyway through
+   `List<StatCard>`.
 
    Rules live here rather than in an inline Razor <style> block for the same
    reason as the sibling pages: app.css carries global `.dark-theme` rules
@@ -752,89 +761,11 @@
     color: var(--dsh-ok-ink);
 }
 
-/* ── Quick actions ─────────────────────────────────────────────────────── */
+/* The quick-action row that used to live here went with the QuickAction
+   component it dressed: the administrator's dashboard now writes its own tiles
+   with .opd-act* in operations-dashboard.css.
 
-.dsh-quick {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: var(--dsh-s4);
-}
-
-/* The row sits inside a panel, so it takes the panel's own gutters. */
-.dsh-panel > .dsh-quick {
-    padding: 0 var(--dsh-s8) var(--dsh-s8);
-}
-
-.dsh .dsh-action {
-    display: flex;
-    align-items: center;
-    gap: var(--dsh-s4);
-    padding: var(--dsh-s4) var(--dsh-s6);
-    border: 1px solid var(--dsh-divider);
-    border-radius: var(--dsh-r-lg);
-    background: var(--dsh-surface);
-    color: inherit;
-    text-decoration: none;
-    min-width: 0;
-    transition: border-color .15s, background-color .15s;
-}
-
-.dsh .dsh-action:hover {
-    border-color: rgba(var(--dsh-accent-rgb), .45);
-    background:
-        linear-gradient(155deg, rgba(var(--dsh-accent-rgb), .1), transparent 70%),
-        var(--dsh-surface);
-}
-
-.dsh-action-icon {
-    display: grid;
-    place-items: center;
-    width: 32px;
-    height: 32px;
-    flex: none;
-    border-radius: var(--dsh-r-md);
-    background: var(--dsh-field-bg);
-    color: var(--dsh-accent);
-    transition: background-color .15s;
-}
-
-.dsh .dsh-action:hover .dsh-action-icon {
-    background: rgba(var(--dsh-accent-rgb), .14);
-}
-
-.dsh-action-copy {
-    min-width: 0;
-}
-
-.dsh-action-copy strong {
-    display: block;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--dsh-ink);
-}
-
-.dsh-action-copy span {
-    display: block;
-    font-size: 12px;
-    color: var(--dsh-mute-3);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.dsh-action-chev {
-    margin-left: auto;
-    flex: none;
-    color: var(--dsh-faint);
-    transition: color .15s, transform .15s;
-}
-
-.dsh .dsh-action:hover .dsh-action-chev {
-    color: var(--dsh-accent);
-    transform: translateX(2px);
-}
-
-/* The module tiles and the numbered workflow steps that used to live here
+   The module tiles and the numbered workflow steps that used to live here
    belonged to the sales-rep dashboard, which now has its own imported design
    in sales-rep-dashboard.css. This sheet is the staff dashboard's alone. */
 
@@ -872,10 +803,6 @@
     .dsh-spin {
         animation-duration: 2.4s;
     }
-
-    .dsh .dsh-action:hover .dsh-action-chev {
-        transform: none;
-    }
 }
 
 /* ── Scrollbars ────────────────────────────────────────────────────────── */
@@ -895,12 +822,6 @@
 }
 
 /* ── Narrow screens ────────────────────────────────────────────────────── */
-
-@media (max-width: 1240px) {
-    .dsh-quick {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
 
 @media (max-width: 1100px) {
     /* Two tables side by side stop fitting before the figures do, so they
@@ -938,17 +859,12 @@
         padding-right: var(--dsh-s6);
     }
 
-    .dsh-panel-head,
-    .dsh-panel > .dsh-quick {
+    .dsh-panel-head {
         padding-inline: var(--dsh-s6);
     }
 }
 
 @media (max-width: 620px) {
-    .dsh-quick {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
     /* The breadcrumb's parent is the sidebar's own label — on a phone it is
        repetition the header cannot afford, so only the page's own name stays. */
     .dsh-crumbs > :not(.dsh-crumb-now) {

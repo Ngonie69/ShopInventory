@@ -7,25 +7,29 @@
    actually opens a dashboard for: is the system up, what is stuck, what is
    waiting on a decision, and who is doing what.
 
-   Trading stays, demoted to the last row: still worth a glance, but no longer
-   what the page is about. The Manager dashboard picks it up properly.
+   Trading stays, demoted to a band called "Today so far": still worth a
+   glance, but no longer what the page is about. The Manager dashboard picks it
+   up properly.
 
-   Shares wwwroot/css/dashboard.css with the sales-rep dashboard at the same
-   route — same header, hero, stat, panel and button rules. *@
+   Built from `Operations Dashboard.dc.html` — see wwwroot/css/operations-
+   dashboard.css, which is this page's alone. The figures are grouped into
+   named bands rather than three equal rows of cards: what is waiting on a
+   decision is drawn as accent-ringed cards that link to the queue they count,
+   and the day's trading sits below them in the quiet treatment. *@
 
-<div class="dsh">
+<div class="opd">
 
-    <header class="dsh-head">
-        <div class="dsh-head-inner">
-            <nav class="dsh-crumbs" aria-label="Breadcrumb">
+    <header class="opd-head">
+        <div class="opd-head-inner">
+            <nav class="opd-crumbs" aria-label="Breadcrumb">
                 <span>System</span>
-                <span class="dsh-crumb-sep" aria-hidden="true">/</span>
-                <span class="dsh-crumb-now" aria-current="page">Operations</span>
+                <span class="opd-crumb-sep" aria-hidden="true">/</span>
+                <span class="opd-crumb-now" aria-current="page">Operations</span>
             </nav>
 
-            <div class="dsh-head-meta">
-                <span class="dsh-synced">
-                    <span class="dsh-synced-dot" aria-hidden="true"></span>
+            <div class="opd-head-meta">
+                <span class="opd-synced">
+                    <span class="opd-synced-dot" aria-hidden="true"></span>
                     @if (loadedAt is { } stamp)
                     {
                         @($"Read at {stamp:HH:mm}")
@@ -36,7 +40,15 @@
                     }
                 </span>
 
-                <a class="dsh-btn dsh-btn-primary dsh-btn-lg" href="/exception-center">
+                <button type="button"
+                        class="opd-btn opd-btn-secondary"
+                        disabled="@isRefreshing"
+                        @onclick="RefreshAsync">
+                    <DashIcon Name="retry" Size="15" />
+                    @(isRefreshing ? "Reading…" : "Refresh")
+                </button>
+
+                <a class="opd-btn opd-btn-primary" href="/exception-center">
                     <DashIcon Name="warning" Size="15" />
                     Exception centre
                 </a>
@@ -44,144 +56,293 @@
         </div>
     </header>
 
-    <div class="dsh-body">
+    <div class="opd-body">
 
-        <section class="dsh-hero">
+        <section class="opd-hero">
             <div>
-                <div class="dsh-kicker">Operations</div>
+                <div class="opd-kicker">Operations</div>
                 <h1>@GreetingText, @DisplayName</h1>
                 <p>
                     What the system is doing, what is stuck, and what is waiting on you.
                     Figures are read once when the page opens.
                 </p>
             </div>
-            <div class="dsh-date">
-                <DashIcon Name="calendar" Size="14" />
+            <div class="opd-date">
+                <DashIcon Name="calendar" Size="15" />
                 <span>@DateTime.Now.ToString("dddd d MMMM yyyy")</span>
             </div>
         </section>
 
         @* Health leads: everything below it is only worth reading if the
            system behind it is actually up. *@
-        <section class="dsh-stats" aria-label="System health">
-            <StatCard Label="System"
-                      Value="@HealthValue"
-                      ValueLabel="API and its dependencies"
-                      Tone="@HealthTone"
-                      ToneNote="@HealthNote"
-                      Icon="heartbeat"
-                      IsLead="true" />
-            <StatCard Label="Blocked"
-                      Value="@Figure(blockedCount)"
-                      ValueLabel="Exceptions needing a decision"
-                      Tone="@BlockedTone"
-                      ToneNote="@BlockedNote"
-                      Icon="warning" />
-            <StatCard Label="Retries"
-                      Value="@Figure(retryOverdueCount)"
-                      ValueLabel="Overdue a retry"
-                      Amount="@(stalledCount is null ? null : stalledCount.Value.ToString("N0"))"
-                      AmountLabel="Stalled"
-                      Tone="@RetryTone"
-                      ToneNote="@RetryNote"
-                      Icon="clock" />
+        <section class="opd-health @(HealthIsBad ? "opd-health-bad" : null)" aria-label="System health">
+            <span class="opd-health-icon" aria-hidden="true">
+                <DashIcon Name="heartbeat" Size="26" />
+            </span>
+            <div class="opd-health-copy">
+                <span class="opd-health-title">@HealthTitle</span>
+                <span class="opd-health-sub">@HealthSubtitle</span>
+            </div>
+            <dl class="opd-health-stats">
+                <div class="opd-health-stat">
+                    <dt>Retries</dt>
+                    <dd>@RetryReading</dd>
+                </div>
+                <span class="opd-health-sep" aria-hidden="true"></span>
+                <div class="opd-health-stat">
+                    <dt>Stalled</dt>
+                    <dd>@Figure(stalledCount)</dd>
+                </div>
+                <span class="opd-health-sep" aria-hidden="true"></span>
+                <div class="opd-health-stat">
+                    <dt>Last read</dt>
+                    <dd>@(loadedAt is { } read ? read.ToString("HH:mm") : "—")</dd>
+                </div>
+            </dl>
         </section>
 
-        <section class="dsh-stats" aria-label="Work waiting on a decision">
-            @* No unit total here. The figure this card used to carry summed
-               TotalQuantity across transfers measured in crates, kilograms and
-               eaches, which was never a number. The note says what the count
-               covers instead, because every per-warehouse read needs a
-               warehouse code and this one is asked without one. *@
-            <StatCard Label="Transfers"
-                      Value="@Figure(pendingTransferCount)"
-                      ValueLabel="Awaiting approval"
-                      ToneNote="Across all warehouses"
-                      Icon="swap" />
-            <StatCard Label="Failed posts"
-                      Value="@Figure(postFailedCount)"
-                      ValueLabel="Approved but not in SAP"
-                      Tone="@PostFailedTone"
-                      ToneNote="@PostFailedNote"
-                      Icon="plug" />
-            <StatCard Label="People"
-                      Value="@Figure(activeUsers)"
-                      ValueLabel="Active today"
-                      Amount="@(totalActions is null ? null : totalActions.Value.ToString("N0"))"
-                      AmountLabel="Actions"
-                      Tone="@ActivityTone"
-                      ToneNote="@ActivityNote"
-                      Icon="users" />
+        <section class="opd-section" aria-labelledby="opd-waiting-heading">
+            <div class="opd-band">
+                <span class="opd-band-label" id="opd-waiting-heading">Waiting on you</span>
+                <span class="opd-band-rule" aria-hidden="true"></span>
+                <a class="opd-band-link" href="/exception-center">
+                    Open exception centre
+                    <DashIcon Name="arrow-right" Size="13" />
+                </a>
+            </div>
+
+            <div class="opd-grid">
+                <a class="opd-lead" href="/exception-center">
+                    <span class="opd-lead-head">
+                        <span class="opd-lead-rule" aria-hidden="true"></span>
+                        <span class="opd-lead-label">Blocked</span>
+                        <span class="opd-lead-icon" aria-hidden="true">
+                            <DashIcon Name="warning" Size="15" />
+                        </span>
+                    </span>
+                    <span class="opd-lead-num">@Figure(blockedCount)</span>
+                    <span class="opd-lead-sub">Exceptions needing a decision</span>
+                    @if (BlockedNote is { } blockedNote)
+                    {
+                        <span class="opd-lead-foot">
+                            <DashIcon Name="hourglass" Size="14" />
+                            @blockedNote
+                        </span>
+                    }
+                </a>
+
+                <a class="opd-lead" href="/inventory-transfers">
+                    <span class="opd-lead-head">
+                        <span class="opd-lead-rule" aria-hidden="true"></span>
+                        <span class="opd-lead-label">Failed posts</span>
+                        <span class="opd-lead-icon" aria-hidden="true">
+                            <DashIcon Name="plug" Size="15" />
+                        </span>
+                    </span>
+                    <span class="opd-lead-num">@Figure(postFailedCount)</span>
+                    <span class="opd-lead-sub">Approved but not in SAP</span>
+                    @if (PostFailedNote is { } postFailedNote)
+                    {
+                        <span class="opd-lead-foot">
+                            <DashIcon Name="retry" Size="14" />
+                            @postFailedNote
+                        </span>
+                    }
+                </a>
+
+                <a class="opd-lead" href="/user-management">
+                    <span class="opd-lead-head">
+                        <span class="opd-lead-rule" aria-hidden="true"></span>
+                        <span class="opd-lead-label">Accounts</span>
+                        <span class="opd-lead-icon" aria-hidden="true">
+                            <DashIcon Name="shield" Size="15" />
+                        </span>
+                    </span>
+                    <span class="opd-lead-num">@Figure(usersWithoutTwoFactor)</span>
+                    <span class="opd-lead-sub">Users without 2FA</span>
+                    @if (LockedNote is { } lockedNote)
+                    {
+                        <span class="opd-lead-foot">
+                            <DashIcon Name="lock-open" Size="14" />
+                            @lockedNote
+                        </span>
+                    }
+                </a>
+
+                <div class="opd-mini-stack">
+                    <div class="opd-mini">
+                        <span class="opd-mini-num">@Figure(retryOverdueCount)</span>
+                        <span class="opd-mini-copy">
+                            <span class="opd-mini-title">Retries overdue</span>
+                            <span class="opd-mini-sub">@(RetryNote ?? "Past their retry time")</span>
+                        </span>
+                        <span class="opd-mini-icon" aria-hidden="true">
+                            <DashIcon Name="clock" Size="16" />
+                        </span>
+                    </div>
+
+                    @* No unit total here. The figure this card used to carry
+                       summed TotalQuantity across transfers measured in crates,
+                       kilograms and eaches, which was never a number. The note
+                       says what the count covers instead, because every
+                       per-warehouse read needs a warehouse code and this one is
+                       asked without one. *@
+                    <div class="opd-mini">
+                        <span class="opd-mini-num">@Figure(pendingTransferCount)</span>
+                        <span class="opd-mini-copy">
+                            <span class="opd-mini-title">Transfers to approve</span>
+                            <span class="opd-mini-sub">Across all warehouses</span>
+                        </span>
+                        <span class="opd-mini-icon" aria-hidden="true">
+                            <DashIcon Name="swap" Size="16" />
+                        </span>
+                    </div>
+                </div>
+            </div>
         </section>
 
-        <section class="dsh-stats" aria-label="Security and trading">
-            <StatCard Label="Accounts"
-                      Value="@Figure(lockedUsers)"
-                      ValueLabel="Locked out"
-                      Tone="@SecurityTone"
-                      ToneNote="@SecurityNote"
-                      Icon="shield" />
-            <StatCard Label="Invoices"
-                      Value="@Figure(todayInvoiceCount)"
-                      ValueLabel="Raised today"
-                      Trend="@invoiceTrend.Text"
-                      Direction="@invoiceTrend.Direction"
-                      Amount="@FormatMoney(invoiceTotal)"
-                      AmountLabel="Total value"
-                      Icon="receipt" />
-            <StatCard Label="Payments"
-                      Value="@Figure(todayPaymentCount)"
-                      ValueLabel="Received today"
-                      Trend="@paymentTrend.Text"
-                      Direction="@paymentTrend.Direction"
-                      Amount="@FormatMoney(paymentTotal)"
-                      AmountLabel="Total received"
-                      Icon="card" />
+        <section class="opd-section" aria-labelledby="opd-today-heading">
+            <div class="opd-band">
+                <span class="opd-band-label" id="opd-today-heading">Today so far</span>
+                <span class="opd-band-rule" aria-hidden="true"></span>
+            </div>
+
+            <div class="opd-grid opd-grid-figures">
+                <div class="opd-fig">
+                    <div class="opd-fig-head">
+                        <span class="opd-fig-rule" aria-hidden="true"></span>
+                        <span class="opd-fig-label">Invoices raised</span>
+                        <span class="opd-fig-icon" aria-hidden="true">
+                            <DashIcon Name="receipt" Size="15" />
+                        </span>
+                    </div>
+                    <div class="opd-fig-row">
+                        <span class="opd-fig-num">@Figure(todayInvoiceCount)</span>
+                        <span class="opd-fig-amount">@FormatMoney(invoiceTotal) total</span>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(invoiceTrend.Text))
+                    {
+                        <div class="opd-fig-foot">
+                            <span class="opd-trend @TrendClass(invoiceTrend.Direction)">
+                                <DashIcon Name="@TrendIcon(invoiceTrend.Direction)" Size="14" />
+                                <span>@invoiceTrend.Text vs yesterday</span>
+                            </span>
+                        </div>
+                    }
+                </div>
+
+                <div class="opd-fig">
+                    <div class="opd-fig-head">
+                        <span class="opd-fig-rule" aria-hidden="true"></span>
+                        <span class="opd-fig-label">Payments received</span>
+                        <span class="opd-fig-icon" aria-hidden="true">
+                            <DashIcon Name="card" Size="15" />
+                        </span>
+                    </div>
+                    <div class="opd-fig-row">
+                        <span class="opd-fig-num">@Figure(todayPaymentCount)</span>
+                        <span class="opd-fig-amount">@FormatMoney(paymentTotal) received</span>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(paymentTrend.Text))
+                    {
+                        <div class="opd-fig-foot">
+                            <span class="opd-trend @TrendClass(paymentTrend.Direction)">
+                                <DashIcon Name="@TrendIcon(paymentTrend.Direction)" Size="14" />
+                                <span>@paymentTrend.Text vs yesterday</span>
+                            </span>
+                        </div>
+                    }
+                </div>
+
+                @* The design names the people who signed in today. The activity
+                   read returns counts without names, and the only names on hand
+                   are the last six audit rows — a different set — so the foot
+                   carries the day's action count instead. *@
+                <div class="opd-fig">
+                    <div class="opd-fig-head">
+                        <span class="opd-fig-rule" aria-hidden="true"></span>
+                        <span class="opd-fig-label">People active</span>
+                        <span class="opd-fig-icon" aria-hidden="true">
+                            <DashIcon Name="users" Size="15" />
+                        </span>
+                    </div>
+                    <div class="opd-fig-row">
+                        <span class="opd-fig-num">@Figure(activeUsers)</span>
+                        <span class="opd-fig-amount">signed in today</span>
+                    </div>
+                    @if (ActionsNote is { } actionsNote)
+                    {
+                        <div class="opd-fig-foot">
+                            <DashIcon Name="user-circle" Size="14" />
+                            <span>@actionsNote</span>
+                        </div>
+                    }
+                </div>
+            </div>
         </section>
 
-        <section class="dsh-panels" aria-label="What is failing and who is working">
+        <section class="opd-panels" aria-label="What is failing and who is working">
 
             @* The clusters carry a Guidance string that says what to do about
                each family of failure. That is the column worth the width. *@
-            <section class="dsh-panel" aria-labelledby="clusters-heading">
-                <header class="dsh-panel-head">
-                    <span class="dsh-panel-icon">
-                        <DashIcon Name="warning" Size="15" />
-                    </span>
+            <section class="opd-panel" aria-labelledby="clusters-heading">
+                <div class="opd-panel-head">
                     <h2 id="clusters-heading">What is failing</h2>
-                    <a class="dsh-panel-link" href="/exception-center">
+                    @if (clusters is { Count: > 0 })
+                    {
+                        <span class="opd-panel-count">@ClusterTotalText</span>
+                    }
+                    <a class="opd-panel-link" href="/exception-center">
                         View all
-                        <DashIcon Name="chevron" Size="13" />
+                        <DashIcon Name="arrow-right" Size="13" />
                     </a>
-                </header>
+                </div>
+
+                @* The filter only earns its place when there is more than one
+                   family to separate. *@
+                @if (FamilyFilters.Count > 2)
+                {
+                    <div class="opd-seg" role="radiogroup" aria-label="Filter failures by family">
+                        @foreach (var family in FamilyFilters)
+                        {
+                            <label class="opd-seg-opt @(family == familyFilter ? "is-on" : null)">
+                                <input type="radio"
+                                       name="opd-family"
+                                       checked="@(family == familyFilter)"
+                                       @onchange="@(() => familyFilter = family)" />
+                                @family
+                            </label>
+                        }
+                    </div>
+                }
 
                 @if (isLoadingExceptions)
                 {
-                    <div class="dsh-state" role="status">
-                        <span class="dsh-spin" aria-hidden="true"></span>
+                    <div class="opd-state" role="status">
+                        <span class="opd-spin" aria-hidden="true"></span>
                         <span>Loading failures&#8230;</span>
                     </div>
                 }
-                else if (clusters is { Count: > 0 })
+                else if (VisibleClusters is { Count: > 0 } visibleClusters)
                 {
-                    <div class="dsh-scroll">
-                        <table class="dsh-table">
+                    <div class="opd-scroll">
+                        <table class="opd-table">
                             <thead>
                                 <tr>
-                                    <th scope="col">Failure</th>
-                                    <th scope="col">Family</th>
-                                    <th scope="col" class="dsh-th-money">Count</th>
-                                    <th scope="col">What to do</th>
+                                    <th scope="col" style="width:34%">Failure</th>
+                                    <th scope="col" style="width:20%">Family</th>
+                                    <th scope="col" class="opd-th-num" style="width:12%">Count</th>
+                                    <th scope="col" style="width:34%">What to do</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var cluster in clusters)
+                                @foreach (var cluster in visibleClusters)
                                 {
                                     <tr>
-                                        <td class="dsh-name" title="@cluster.SampleError">@cluster.Label</td>
-                                        <td><span class="dsh-tag">@cluster.Family</span></td>
-                                        <td class="dsh-money">@cluster.Count.ToString("N0")</td>
-                                        <td class="dsh-name" title="@cluster.Guidance">@cluster.Guidance</td>
+                                        <td class="opd-name" title="@cluster.SampleError">@cluster.Label</td>
+                                        <td><span class="opd-tag">@cluster.Family</span></td>
+                                        <td class="opd-num">@cluster.Count.ToString("N0")</td>
+                                        <td class="opd-do" title="@cluster.Guidance">@cluster.Guidance</td>
                                     </tr>
                                 }
                             </tbody>
@@ -190,54 +351,56 @@
                 }
                 else if (exceptionsUnavailable)
                 {
-                    <div class="dsh-state">Exception centre unavailable</div>
+                    <div class="opd-state">Exception centre unavailable</div>
+                }
+                else if (clusters is { Count: > 0 })
+                {
+                    <div class="opd-state">Nothing failing in @familyFilter</div>
                 }
                 else
                 {
-                    <div class="dsh-state">Nothing is failing</div>
+                    <div class="opd-state">Nothing is failing</div>
                 }
             </section>
 
-            <section class="dsh-panel" aria-labelledby="activity-heading">
-                <header class="dsh-panel-head">
-                    <span class="dsh-panel-icon">
-                        <DashIcon Name="list-check" Size="15" />
-                    </span>
+            <section class="opd-panel" aria-labelledby="activity-heading">
+                <div class="opd-panel-head">
                     <h2 id="activity-heading">Recent activity</h2>
-                    <a class="dsh-panel-link" href="/user-activity">
+                    <span class="opd-panel-count">Live audit trail</span>
+                    <a class="opd-panel-link" href="/user-activity">
                         View all
-                        <DashIcon Name="chevron" Size="13" />
+                        <DashIcon Name="arrow-right" Size="13" />
                     </a>
-                </header>
+                </div>
 
                 @if (isLoadingActivity)
                 {
-                    <div class="dsh-state" role="status">
-                        <span class="dsh-spin" aria-hidden="true"></span>
+                    <div class="opd-state" role="status">
+                        <span class="opd-spin" aria-hidden="true"></span>
                         <span>Loading activity&#8230;</span>
                     </div>
                 }
                 else if (recentActivity is { Count: > 0 })
                 {
-                    <div class="dsh-scroll">
-                        <table class="dsh-table">
+                    <div class="opd-scroll">
+                        <table class="opd-table">
                             <thead>
                                 <tr>
-                                    <th scope="col">User</th>
-                                    <th scope="col">Action</th>
-                                    <th scope="col">Time</th>
-                                    <th scope="col">Result</th>
+                                    <th scope="col" style="width:30%">User</th>
+                                    <th scope="col" style="width:34%">Action</th>
+                                    <th scope="col" style="width:24%">Time</th>
+                                    <th scope="col" class="opd-col-result" style="width:12%">Result</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach (var entry in recentActivity)
                                 {
                                     <tr>
-                                        <td class="dsh-name" title="@entry.Username">@entry.Username</td>
-                                        <td class="dsh-name" title="@ActivityDetail(entry)">@entry.Action</td>
-                                        <td class="dsh-when">@entry.Timestamp.ToLocalTime().ToString("dd MMM HH:mm")</td>
-                                        <td>
-                                            <span class="dsh-tag @(entry.IsSuccess ? "dsh-tag-ok" : null)">
+                                        <td class="opd-name" title="@entry.Username">@entry.Username</td>
+                                        <td class="opd-do" title="@ActivityDetail(entry)">@entry.Action</td>
+                                        <td class="opd-when">@entry.Timestamp.ToLocalTime().ToString("dd MMM HH:mm")</td>
+                                        <td class="opd-col-result">
+                                            <span class="opd-tag @(entry.IsSuccess ? "opd-tag-ok" : "opd-tag-bad")">
                                                 @(entry.IsSuccess ? "OK" : "Failed")
                                             </span>
                                         </td>
@@ -249,44 +412,67 @@
                 }
                 else
                 {
-                    <div class="dsh-state">No recent activity</div>
+                    <div class="opd-state">No recent activity</div>
                 }
             </section>
 
         </section>
 
-        <section class="dsh-panel" aria-labelledby="admin-actions-heading">
-            <header class="dsh-panel-head">
-                <span class="dsh-panel-icon">
-                    <DashIcon Name="bolt" Size="15" />
-                </span>
-                <h2 id="admin-actions-heading">Quick actions</h2>
-            </header>
-            <div class="dsh-quick">
-                <QuickAction Title="Exception centre"
-                             Description="Retry and assign what failed"
-                             Href="/exception-center"
-                             Icon="warning" />
-                <QuickAction Title="Users"
-                             Description="Accounts, roles and warehouses"
-                             Href="/user-management"
-                             Icon="users" />
-                <QuickAction Title="Sync status"
-                             Description="Check the cached data"
-                             Href="/sync-status"
-                             Icon="database" />
-                <QuickAction Title="Approvals"
-                             Description="Stages and templates"
-                             Href="/approval-process/setup"
-                             Icon="clipboard-check" />
-                <QuickAction Title="Backups"
-                             Description="Database snapshots"
-                             Href="/backups"
-                             Icon="shield" />
-                <QuickAction Title="Settings"
-                             Description="Company and SAP configuration"
-                             Href="/settings"
-                             Icon="gauge" />
+        <section class="opd-section" aria-labelledby="opd-actions-heading">
+            <div class="opd-band">
+                <span class="opd-band-label" id="opd-actions-heading">Quick actions</span>
+                <span class="opd-band-rule" aria-hidden="true"></span>
+            </div>
+
+            <div class="opd-grid opd-grid-acts">
+                <a class="opd-act" href="/exception-center">
+                    <span class="opd-act-icon" aria-hidden="true"><DashIcon Name="warning" Size="19" /></span>
+                    <span class="opd-act-copy">
+                        <span class="opd-act-title">Exception centre</span>
+                        <span class="opd-act-sub">Retry and assign what failed</span>
+                    </span>
+                    <span class="opd-act-go" aria-hidden="true"><DashIcon Name="arrow-right" Size="15" /></span>
+                </a>
+                <a class="opd-act" href="/user-management">
+                    <span class="opd-act-icon" aria-hidden="true"><DashIcon Name="users" Size="19" /></span>
+                    <span class="opd-act-copy">
+                        <span class="opd-act-title">Users</span>
+                        <span class="opd-act-sub">Accounts, roles and warehouses</span>
+                    </span>
+                    <span class="opd-act-go" aria-hidden="true"><DashIcon Name="arrow-right" Size="15" /></span>
+                </a>
+                <a class="opd-act" href="/sync-status">
+                    <span class="opd-act-icon" aria-hidden="true"><DashIcon Name="database" Size="19" /></span>
+                    <span class="opd-act-copy">
+                        <span class="opd-act-title">Sync status</span>
+                        <span class="opd-act-sub">Check the cached data</span>
+                    </span>
+                    <span class="opd-act-go" aria-hidden="true"><DashIcon Name="arrow-right" Size="15" /></span>
+                </a>
+                <a class="opd-act" href="/approval-process/setup">
+                    <span class="opd-act-icon" aria-hidden="true"><DashIcon Name="clipboard-check" Size="19" /></span>
+                    <span class="opd-act-copy">
+                        <span class="opd-act-title">Approvals</span>
+                        <span class="opd-act-sub">Stages and templates</span>
+                    </span>
+                    <span class="opd-act-go" aria-hidden="true"><DashIcon Name="arrow-right" Size="15" /></span>
+                </a>
+                <a class="opd-act" href="/backups">
+                    <span class="opd-act-icon" aria-hidden="true"><DashIcon Name="shield" Size="19" /></span>
+                    <span class="opd-act-copy">
+                        <span class="opd-act-title">Backups</span>
+                        <span class="opd-act-sub">Database snapshots</span>
+                    </span>
+                    <span class="opd-act-go" aria-hidden="true"><DashIcon Name="arrow-right" Size="15" /></span>
+                </a>
+                <a class="opd-act" href="/settings">
+                    <span class="opd-act-icon" aria-hidden="true"><DashIcon Name="sliders" Size="19" /></span>
+                    <span class="opd-act-copy">
+                        <span class="opd-act-title">Settings</span>
+                        <span class="opd-act-sub">Company and SAP configuration</span>
+                    </span>
+                    <span class="opd-act-go" aria-hidden="true"><DashIcon Name="arrow-right" Size="15" /></span>
+                </a>
             </div>
         </section>
 

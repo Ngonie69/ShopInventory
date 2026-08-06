@@ -84,6 +84,11 @@ public partial class AdminDashboard
     private List<AuditLog>? recentActivity;
     private bool isLoadingActivity = true;
 
+    /// <summary>Which failure family the clusters panel is filtered to.</summary>
+    private string familyFilter = AllFamilies;
+
+    private bool isRefreshing;
+
     private bool _initialized;
 
     protected override async Task OnInitializedAsync()
@@ -92,6 +97,32 @@ public partial class AdminDashboard
         _initialized = true;
 
         await LoadAsync();
+    }
+
+    /// <summary>
+    /// Reads every figure again. The header says "Reading…" while it runs and
+    /// the button is held disabled, so a second click cannot start a second set
+    /// of reads over the top of the first.
+    /// </summary>
+    private async Task RefreshAsync()
+    {
+        if (isRefreshing) return;
+
+        isRefreshing = true;
+        isLoadingExceptions = true;
+        isLoadingActivity = true;
+        exceptionsUnavailable = false;
+        loadedAt = null;
+
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            isRefreshing = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private async Task LoadAsync()
@@ -150,6 +181,14 @@ public partial class AdminDashboard
                     .OrderByDescending(cluster => cluster.Count)
                     .Take(ClustersShown)
                     .ToList();
+
+                // A family that has stopped failing since the last read would
+                // otherwise leave the panel filtered to nothing, with no way
+                // back — the chip that selected it is gone too.
+                if (!FamilyFilters.Contains(familyFilter, StringComparer.OrdinalIgnoreCase))
+                {
+                    familyFilter = AllFamilies;
+                }
             }
             else
             {
@@ -329,11 +368,25 @@ public partial class AdminDashboard
             dependenciesStatus,
             healthChecks.Select(check => check.Status));
 
-    private string HealthValue => Health.Value;
+    /// <summary>
+    /// The banner's headline. It reads as a statement rather than as a status
+    /// word, because the banner is the first thing on the page and "Degraded"
+    /// on its own does not say what is degraded.
+    /// </summary>
+    private string HealthTitle => healthStatus is null
+        ? "Reading system health"
+        : $"System {Health.Value.ToLowerInvariant()}";
 
-    private StatTone HealthTone => healthStatus is null
-        ? StatTone.Neutral
-        : Health.IsHealthy ? StatTone.Ok : StatTone.Critical;
+    /// <summary>
+    /// Whether the banner reports trouble. It only ever agrees with the words
+    /// in <see cref="HealthSubtitle"/> — the colour is never the only reading.
+    /// </summary>
+    private bool HealthIsBad => healthStatus is not null && !Health.IsHealthy;
+
+    private string HealthSubtitle =>
+        HealthNote is { } note
+            ? $"API and its dependencies — {note}"
+            : "API and its dependencies";
 
     private string? HealthNote
     {
@@ -345,8 +398,8 @@ public partial class AdminDashboard
             if (failing.Count == 0)
             {
                 return healthChecks.Count == 0
-                    ? "No dependency checks reported"
-                    : $"All {healthChecks.Count} checks passing";
+                    ? "no dependency checks reported"
+                    : $"all {healthChecks.Count} checks passing";
             }
 
             return failing.Count <= 2
@@ -355,12 +408,16 @@ public partial class AdminDashboard
         }
     }
 
-    private StatTone BlockedTone => blockedCount switch
+    /// <summary>
+    /// The retry column in the health banner. A count of zero is the normal
+    /// state and reads as a word, because a row of zeroes tells nobody
+    /// anything.
+    /// </summary>
+    private string RetryReading => retryOverdueCount switch
     {
-        null => StatTone.Neutral,
-        0 => StatTone.Ok,
-        _ when ageOver7dCount > 0 => StatTone.Critical,
-        _ => StatTone.Warn
+        null => "—",
+        0 => "Normal",
+        var overdue => $"{overdue:N0} overdue"
     };
 
     private string? BlockedNote
@@ -379,27 +436,12 @@ public partial class AdminDashboard
         }
     }
 
-    private StatTone RetryTone => retryOverdueCount switch
-    {
-        null => StatTone.Neutral,
-        0 when stalledCount is 0 => StatTone.Ok,
-        0 => StatTone.Neutral,
-        _ => StatTone.Warn
-    };
-
     private string? RetryNote => retryOverdueCount switch
     {
         null => null,
         0 when stalledCount is 0 => "Retrying normally",
-        0 => null,
+        0 => "Retrying normally",
         _ => "Past their retry time"
-    };
-
-    private StatTone PostFailedTone => postFailedCount switch
-    {
-        null => StatTone.Neutral,
-        0 => StatTone.Ok,
-        _ => StatTone.Critical
     };
 
     private string? PostFailedNote => postFailedCount switch
@@ -409,33 +451,23 @@ public partial class AdminDashboard
         _ => "Stranded, need a retry"
     };
 
-    private StatTone ActivityTone =>
-        failedActions is null or 0 ? StatTone.Neutral : StatTone.Warn;
-
-    private string? ActivityNote =>
-        failedActions is null or 0 ? null : $"{failedActions:N0} failed";
-
-    private StatTone SecurityTone => lockedUsers switch
+    /// <summary>
+    /// The accounts card counts users without 2FA, so its foot carries the
+    /// other half of the security read — who is locked out right now.
+    /// </summary>
+    private string? LockedNote => lockedUsers switch
     {
-        null => StatTone.Neutral,
-        > 0 => StatTone.Warn,
-        _ when usersWithoutTwoFactor > 0 => StatTone.Warn,
-        _ => StatTone.Ok
+        null => null,
+        0 => "None locked out",
+        var locked => $"{locked:N0} locked out"
     };
 
-    private string? SecurityNote
+    private string? ActionsNote => totalActions switch
     {
-        get
-        {
-            if (lockedUsers is null) return null;
-
-            return usersWithoutTwoFactor switch
-            {
-                null or 0 => lockedUsers > 0 ? "Locked out of the app" : "All accounts open, 2FA everywhere",
-                _ => $"{usersWithoutTwoFactor:N0} without 2FA"
-            };
-        }
-    }
+        null => null,
+        _ when failedActions > 0 => $"{totalActions:N0} actions, {failedActions:N0} failed",
+        var actions => $"{actions:N0} actions today"
+    };
 
     /// <summary>Coarse age, because the card has room for two words.</summary>
     private static string DescribeAge(TimeSpan age) => age switch
@@ -444,4 +476,86 @@ public partial class AdminDashboard
         { TotalHours: < 24 } => $"{(int)age.TotalHours}h",
         _ => $"{(int)age.TotalDays}d"
     };
+
+    // Direction is drawn as an arrow as well as coloured, so it still reads
+    // for anyone who cannot separate the two tints.
+    private static string TrendClass(int direction) => direction switch
+    {
+        > 0 => "opd-trend-up",
+        < 0 => "opd-trend-down",
+        _ => "opd-trend-flat"
+    };
+
+    private static string TrendIcon(int direction) => direction switch
+    {
+        > 0 => "arrow-up",
+        < 0 => "arrow-down",
+        _ => "flat"
+    };
+
+    // ── The failure-family filter ───────────────────────────────────────────
+
+    private const string AllFamilies = "All";
+
+    /// <summary>
+    /// "All" plus one chip per family present in the clusters on screen. Built
+    /// from the data rather than from a fixed list, because the families come
+    /// from the exception centre's own classification and a hard-coded set
+    /// would silently hide a new one.
+    /// </summary>
+    private List<string> FamilyFilters
+    {
+        get
+        {
+            if (clusters is not { Count: > 0 })
+            {
+                return [AllFamilies];
+            }
+
+            return clusters
+                .Select(cluster => cluster.Family)
+                .Where(family => !string.IsNullOrWhiteSpace(family))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(family => family, StringComparer.OrdinalIgnoreCase)
+                .Prepend(AllFamilies)
+                .ToList();
+        }
+    }
+
+    private List<ExceptionCenterClusterModel>? VisibleClusters
+    {
+        get
+        {
+            if (clusters is null) return null;
+            if (familyFilter == AllFamilies) return clusters;
+
+            return clusters
+                .Where(cluster => string.Equals(cluster.Family, familyFilter, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+    }
+
+    /// <summary>
+    /// What the panel's count line says. The clusters are the top
+    /// <see cref="ClustersShown"/> by size out of a deeper read, so this counts
+    /// what is on screen rather than claiming a total for the whole centre.
+    /// </summary>
+    private string ClusterTotalText
+    {
+        get
+        {
+            if (clusters is not { Count: > 0 }) return string.Empty;
+
+            var failures = clusters.Sum(cluster => cluster.Count);
+            var families = clusters
+                .Select(cluster => cluster.Family)
+                .Where(family => !string.IsNullOrWhiteSpace(family))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+
+            return families <= 1
+                ? $"{failures:N0} in the top {clusters.Count}"
+                : $"{failures:N0} across {families} families";
+        }
+    }
 }

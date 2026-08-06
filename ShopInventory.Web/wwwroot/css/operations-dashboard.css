@@ -1,0 +1,1066 @@
+/* ==========================================================================
+   Operations Dashboard — Nocturne
+
+   Imported from `Operations Dashboard.dc.html` in the claude.ai design project
+   bc9cec0f-d1bb-42d6-9307-57ee596ef0a8. Only the content region is built here;
+   the sidebar and top bar the design draws are the app's own chrome, carried by
+   nocturne-shell.css.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system. Two values are this page's own and do flip, both marked
+   below: the tint alphas for the lead cards and the health banner, which are
+   washes of the accent over the surface and need more of it on a dark ground
+   than on paper.
+
+   Rules live here rather than in an inline Razor <style> block for the reason
+   the sibling sheets give: app.css carries global `.dark-theme input/select`
+   rules at (0,1,1) that would otherwise repaint every field, so each control
+   carries a class and each control selector is two classes deep, winning
+   regardless of load order. Headings are pinned to Nocturne's 500 because
+   Bootstrap's global `h1-h6 { font-weight: 600 }` would bolden them past the
+   weight this system allows, and every class is namespaced `opd-` because
+   Bootstrap owns the unprefixed `.btn-primary`, `.table`, `.card` and `.tag`
+   the design system uses.
+
+   Icons are drawn inline by DashIcon rather than from the Phosphor webfont the
+   design links: the dashboard is the first page a session paints, a webfont
+   that has not arrived leaves the figures headed by empty boxes, and unpkg —
+   which the design links — is not in the app's style-src/font-src allowlist at
+   all, so it would never arrive.
+
+   One departure from the design. Its "People active" card names the people who
+   signed in today; the activity statistics call returns counts without names,
+   and the only names on hand are the last six audit rows, which are not the
+   same set. The card carries the day's action count instead, and says so.
+   ========================================================================== */
+
+.opd {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --opd-bg: var(--noct-bg);
+    --opd-surface: var(--noct-surface);
+    --opd-ink: var(--noct-ink);
+    --opd-ink-2: var(--noct-ink-2);
+    --opd-mute: var(--noct-mute);
+    --opd-mute-2: var(--noct-mute-2);
+    --opd-mute-3: var(--noct-mute-3);
+    --opd-faint: var(--noct-faint);
+    --opd-divider: var(--noct-divider);
+    --opd-rule: var(--noct-rule);
+    --opd-hover: var(--noct-hover);
+    --opd-press: var(--noct-press);
+    --opd-accent: var(--noct-accent);
+    --opd-accent-rgb: var(--noct-accent-rgb);
+    --opd-accent-text: var(--noct-accent-text);
+    --opd-ink-rgb: var(--noct-fam-neutral-rgb);
+    --opd-thumb: var(--noct-thumb);
+    --opd-scheme: var(--noct-scheme);
+
+    --opd-fam-neutral: var(--noct-fam-neutral);
+    --opd-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --opd-fam-accent: var(--noct-fam-accent);
+    --opd-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --opd-fam-good: var(--noct-fam-good);
+    --opd-fam-good-rgb: var(--noct-fam-good-rgb);
+    --opd-fam-warn: var(--noct-fam-warn);
+    --opd-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --opd-fam-bad: var(--noct-fam-bad);
+    --opd-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --opd-s1: var(--noct-s1);
+    --opd-s2: var(--noct-s2);
+    --opd-s3: var(--noct-s3);
+    --opd-s4: var(--noct-s4);
+    --opd-s6: var(--noct-s6);
+    --opd-s8: var(--noct-s8);
+    --opd-r-sm: var(--noct-r-sm);
+    --opd-r-md: var(--noct-r-md);
+    --opd-r-lg: var(--noct-r-lg);
+
+    /* This page's own, and the reason they are not aliases: both are a wash of
+       the accent laid over the surface. Thinned light loses less presence than
+       thinned ink, so the dark ground takes roughly twice the alpha to read as
+       the same wash. Stated as alphas rather than as two finished gradients so
+       the gradient itself is written once. */
+    --opd-lead-tint: .13;
+    --opd-health-tint: .12;
+
+    color-scheme: var(--opd-scheme);
+}
+
+.dark-theme .opd {
+    --opd-lead-tint: .30;
+    --opd-health-tint: .26;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.opd {
+    min-height: 100vh;
+    background: var(--opd-bg);
+    color: var(--opd-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.opd * {
+    box-sizing: border-box;
+}
+
+.opd :focus-visible {
+    outline: 2px solid var(--opd-accent);
+    outline-offset: 2px;
+}
+
+.opd ::selection {
+    background: rgba(var(--opd-accent-rgb), .3);
+}
+
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. */
+.opd h1,
+.opd h2,
+.opd h3,
+.opd h4 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+.opd p {
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, so the exception-centre
+   action and the load time stay reachable once the tables scroll. */
+
+.opd-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: color-mix(in srgb, var(--opd-bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--opd-divider);
+}
+
+/* Wherever the compositor skips the blur, an 88% ground shows the page's own
+   heading straight through the bar. Opaque is the safe reading. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .opd-head {
+        background: var(--opd-bg);
+    }
+}
+
+.opd-head-inner {
+    max-width: 1480px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s6);
+}
+
+.opd-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--opd-mute-3);
+}
+
+.opd-crumb-sep {
+    color: var(--opd-faint);
+}
+
+.opd-crumb-now {
+    color: var(--opd-ink-2);
+}
+
+.opd-head-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s4);
+}
+
+.opd-synced {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--opd-mute-3);
+    white-space: nowrap;
+}
+
+.opd-synced-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--opd-accent);
+    box-shadow: 0 0 8px var(--opd-accent);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.opd .opd-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    text-decoration: none;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    font-size: 13.5px;
+    line-height: 1.2;
+    color: var(--opd-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    padding: 7px 13px;
+    border-radius: var(--opd-r-md);
+    white-space: nowrap;
+}
+
+.opd .opd-btn svg {
+    display: block;
+}
+
+.opd .opd-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.opd .opd-btn-primary {
+    color: var(--opd-accent-text);
+    border-color: var(--opd-accent);
+}
+
+.opd .opd-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--opd-accent-rgb), .12);
+}
+
+.opd .opd-btn-primary:active:not(:disabled) {
+    background: rgba(var(--opd-accent-rgb), .22);
+}
+
+.opd .opd-btn-secondary {
+    border-color: var(--opd-divider);
+}
+
+.opd .opd-btn-secondary:hover:not(:disabled) {
+    background: var(--opd-hover);
+}
+
+.opd .opd-btn-secondary:active:not(:disabled) {
+    background: var(--opd-press);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.opd-body {
+    max-width: 1480px;
+    margin: 0 auto;
+    padding: 28px 28px 44px;
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.opd-hero {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--opd-s8);
+    flex-wrap: wrap;
+}
+
+.opd-hero > div:first-child {
+    flex: 1;
+    min-width: 340px;
+}
+
+.opd-kicker {
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--opd-accent-text);
+    margin-bottom: var(--opd-s4);
+}
+
+.opd-hero h1 {
+    font-size: 40px;
+    letter-spacing: -.025em;
+    line-height: 1.08;
+    margin-bottom: var(--opd-s4);
+}
+
+.opd-hero p {
+    font-size: 14.5px;
+    color: var(--opd-mute-2);
+    max-width: 56ch;
+    text-wrap: pretty;
+}
+
+.opd-date {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s3);
+    padding: var(--opd-s3) 14px;
+    border-radius: var(--opd-r-md);
+    border: 1px solid var(--opd-divider);
+    font-size: 12.5px;
+    color: var(--opd-mute);
+    white-space: nowrap;
+}
+
+.opd-date svg {
+    color: var(--opd-accent);
+    flex: none;
+}
+
+/* ── Health banner ─────────────────────────────────────────────────────── */
+/* Health leads: everything below it is only worth reading if the system
+   behind it is up. */
+
+.opd-health {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s8);
+    flex-wrap: wrap;
+    padding: var(--opd-s6) var(--opd-s8);
+    border-radius: var(--opd-r-lg);
+    background: linear-gradient(90deg,
+        rgba(var(--opd-accent-rgb), var(--opd-health-tint)),
+        var(--opd-surface) 55%,
+        transparent);
+    box-shadow: inset 3px 0 0 var(--opd-accent);
+}
+
+.opd-health-icon {
+    display: grid;
+    place-items: center;
+    color: var(--opd-accent-text);
+    flex: none;
+}
+
+.opd-health-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.opd-health-title {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    font-size: 19px;
+    line-height: 1.2;
+}
+
+.opd-health-sub {
+    font-size: 12.5px;
+    color: var(--opd-mute-2);
+    text-wrap: pretty;
+}
+
+/* A failing system says so in words through the sub-line; the colour only
+   agrees with the text. */
+.opd-health-bad {
+    background: linear-gradient(90deg,
+        rgba(var(--opd-fam-bad-rgb), var(--opd-health-tint)),
+        var(--opd-surface) 55%,
+        transparent);
+    box-shadow: inset 3px 0 0 var(--opd-fam-bad);
+}
+
+.opd-health-bad .opd-health-icon {
+    color: var(--opd-fam-bad);
+}
+
+.opd-health-stats {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s8);
+}
+
+.opd-health-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.opd-health-stat dt {
+    font-size: 10px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--opd-mute-3);
+    font-weight: 400;
+}
+
+.opd-health-stat dd {
+    font-size: 15px;
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+}
+
+.opd-health-sep {
+    width: 1px;
+    height: 30px;
+    background: var(--opd-divider);
+    flex: none;
+}
+
+/* ── Band headings ─────────────────────────────────────────────────────── */
+/* A label, a rule that fades out to the right — the Nocturne signature — and
+   an optional link to the page that owns the band. */
+
+.opd-band {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.opd-band-label {
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--opd-mute-2);
+    white-space: nowrap;
+}
+
+.opd-band-rule {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(to right, var(--opd-divider), transparent);
+}
+
+.opd-band-link,
+.opd-panel-link {
+    font-size: 12.5px;
+    text-decoration: none;
+    color: var(--opd-accent-text);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.opd-band-link:hover,
+.opd-panel-link:hover {
+    color: var(--opd-accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.opd-section {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+/* ── Card grids ────────────────────────────────────────────────────────── */
+
+.opd-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+}
+
+.opd-grid-figures {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.opd-grid-acts {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+/* ── Lead cards — what is waiting on a decision ────────────────────────── */
+
+.opd-lead {
+    display: flex;
+    flex-direction: column;
+    gap: var(--opd-s3);
+    padding: var(--opd-s6);
+    border-radius: var(--opd-r-md);
+    text-decoration: none;
+    color: inherit;
+    background: linear-gradient(165deg,
+        rgba(var(--opd-accent-rgb), var(--opd-lead-tint)),
+        var(--opd-surface) 62%);
+    box-shadow: 0 0 0 1px rgba(var(--opd-accent-rgb), .35);
+}
+
+.opd-lead:hover {
+    box-shadow: 0 0 0 1px var(--opd-accent), 0 8px 24px rgba(0, 0, 0, .18);
+    color: inherit;
+}
+
+.opd-lead-head {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s3);
+}
+
+.opd-lead-rule {
+    width: 14px;
+    height: 2px;
+    background: var(--opd-accent);
+    flex: none;
+}
+
+.opd-lead-label {
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--opd-mute);
+}
+
+.opd-lead-icon {
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    color: var(--opd-accent-text);
+}
+
+.opd-lead-num {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    font-size: 40px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--opd-accent-text);
+}
+
+.opd-lead-sub {
+    font-size: 12.5px;
+    color: var(--opd-mute-2);
+    text-wrap: pretty;
+}
+
+.opd-lead-foot {
+    margin-top: var(--opd-s2);
+    padding-top: var(--opd-s3);
+    border-top: 1px solid var(--opd-rule);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--opd-accent-text);
+}
+
+.opd-lead-foot svg {
+    flex: none;
+}
+
+/* ── Mini cards — the quiet half of the same band ──────────────────────── */
+
+.opd-mini-stack {
+    display: grid;
+    grid-template-rows: repeat(2, 1fr);
+    gap: 14px;
+}
+
+.opd-mini {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s4);
+    padding: var(--opd-s4) var(--opd-s6);
+    border-radius: var(--opd-r-md);
+    background: var(--opd-surface);
+    box-shadow: 0 0 0 1px var(--opd-divider);
+}
+
+.opd-mini-num {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    font-size: 25px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--opd-mute-2);
+    flex: none;
+}
+
+.opd-mini-copy {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.3;
+    min-width: 0;
+}
+
+.opd-mini-title {
+    font-size: 12.5px;
+}
+
+.opd-mini-sub {
+    font-size: 11.5px;
+    color: var(--opd-mute-3);
+}
+
+.opd-mini-icon {
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    color: var(--opd-faint);
+    flex: none;
+}
+
+/* ── Figure cards — today so far ───────────────────────────────────────── */
+
+.opd-fig {
+    display: flex;
+    flex-direction: column;
+    gap: var(--opd-s3);
+    padding: var(--opd-s6);
+    border-radius: var(--opd-r-md);
+    background: var(--opd-surface);
+    box-shadow: 0 0 0 1px var(--opd-divider);
+}
+
+.opd-fig-head {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s3);
+}
+
+.opd-fig-rule {
+    width: 14px;
+    height: 2px;
+    background: rgba(var(--opd-ink-rgb), .5);
+    flex: none;
+}
+
+.opd-fig-label {
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--opd-mute-2);
+}
+
+.opd-fig-icon {
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    color: var(--opd-faint);
+}
+
+.opd-fig-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--opd-s4);
+    flex-wrap: wrap;
+}
+
+.opd-fig-num {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    font-size: 34px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.opd-fig-amount {
+    font-size: 12.5px;
+    color: var(--opd-mute-3);
+}
+
+.opd-fig-foot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--opd-mute-3);
+    padding-top: var(--opd-s3);
+    border-top: 1px solid var(--opd-rule);
+}
+
+.opd-fig-foot svg {
+    flex: none;
+}
+
+/* Direction is drawn as an arrow as well as coloured, so it still reads for
+   anyone who cannot separate the two tints. */
+.opd-trend {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.opd-trend-up svg {
+    color: var(--opd-fam-good);
+}
+
+.opd-trend-down svg {
+    color: var(--opd-accent-text);
+}
+
+.opd-trend-flat svg {
+    color: var(--opd-faint);
+}
+
+/* ── Panels ────────────────────────────────────────────────────────────── */
+
+.opd-panels {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+    gap: 14px;
+    align-items: start;
+}
+
+.opd-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+    padding: var(--opd-s6);
+    border-radius: var(--opd-r-md);
+    background: var(--opd-surface);
+    box-shadow: 0 0 0 1px var(--opd-divider);
+}
+
+.opd-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s4);
+    flex-wrap: wrap;
+}
+
+.opd-panel-head h2 {
+    font-size: 16px;
+}
+
+.opd-panel-count {
+    font-size: 12px;
+    color: var(--opd-mute-3);
+}
+
+.opd-panel-head .opd-panel-link {
+    margin-left: auto;
+}
+
+/* ── Segmented filter ──────────────────────────────────────────────────── */
+/* The checked state is carried by a class rather than read from the input with
+   :has(), because the page owns the selection in C# — the input stays for the
+   keyboard and the screen reader. */
+
+.opd-seg {
+    display: inline-flex;
+    align-self: flex-start;
+    max-width: 100%;
+    overflow: hidden;
+    border: 1px solid var(--opd-divider);
+    border-radius: var(--opd-r-md);
+}
+
+.opd .opd-seg-opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--opd-mute);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.opd .opd-seg-opt + .opd-seg-opt {
+    border-left: 1px solid var(--opd-divider);
+}
+
+/* Visually hidden, not display:none — a hidden input is not focusable and
+   would take the filter off the keyboard entirely. */
+.opd .opd-seg-opt input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.opd .opd-seg-opt.is-on {
+    color: var(--opd-accent-text);
+    box-shadow: inset 0 0 0 1px var(--opd-accent);
+}
+
+.opd .opd-seg-opt:not(.is-on):hover {
+    background: var(--opd-hover);
+}
+
+.opd .opd-seg-opt:has(input:focus-visible) {
+    outline: 2px solid var(--opd-accent);
+    outline-offset: -2px;
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────── */
+
+.opd-scroll {
+    overflow-x: auto;
+    margin: 0 calc(var(--opd-s6) * -1);
+    padding: 0 var(--opd-s6);
+}
+
+.opd-scroll::-webkit-scrollbar {
+    height: 10px;
+}
+
+.opd-scroll::-webkit-scrollbar-thumb {
+    background: var(--opd-thumb);
+    border-radius: 8px;
+    border: 3px solid var(--opd-surface);
+}
+
+.opd-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.opd-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    table-layout: fixed;
+    min-width: 420px;
+}
+
+.opd-table th {
+    text-align: left;
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--opd-mute-3);
+    font-weight: 400;
+    padding: var(--opd-s2);
+    border-bottom: 1px solid var(--opd-divider);
+}
+
+.opd-table td {
+    padding: var(--opd-s2);
+    border-bottom: 1px solid var(--opd-rule);
+    vertical-align: top;
+}
+
+.opd-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.opd-table tbody tr:hover {
+    background: var(--opd-hover);
+}
+
+.opd-table th:first-child,
+.opd-table td:first-child {
+    padding-left: 0;
+}
+
+.opd-table th:last-child,
+.opd-table td:last-child {
+    padding-right: 0;
+}
+
+.opd-th-num {
+    text-align: right;
+}
+
+.opd-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.opd-name {
+    text-wrap: pretty;
+    overflow-wrap: anywhere;
+}
+
+.opd-do {
+    font-size: 12.5px;
+    color: var(--opd-mute-2);
+    text-wrap: pretty;
+    overflow-wrap: anywhere;
+}
+
+.opd-when {
+    color: var(--opd-mute-3);
+    font-variant-numeric: tabular-nums;
+    font-size: 12.5px;
+    white-space: nowrap;
+}
+
+.opd-col-result {
+    text-align: right;
+}
+
+/* ── Tags ──────────────────────────────────────────────────────────────── */
+
+.opd-tag {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    letter-spacing: .02em;
+    padding: 3px 10px;
+    border-radius: 6px;
+    background: rgba(var(--opd-fam-neutral-rgb), .16);
+    color: var(--opd-fam-neutral);
+    white-space: nowrap;
+}
+
+.opd-tag-ok {
+    background: rgba(var(--opd-fam-accent-rgb), .16);
+    color: var(--opd-fam-accent);
+}
+
+.opd-tag-bad {
+    background: rgba(var(--opd-fam-bad-rgb), .16);
+    color: var(--opd-fam-bad);
+}
+
+/* ── Quick actions ─────────────────────────────────────────────────────── */
+/* One tile is a link that says where it goes and what is there. The arrow is
+   decorative — the whole tile is the link, so it carries no label of its own. */
+
+.opd-act {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s4);
+    padding: 14px var(--opd-s6);
+    border-radius: var(--opd-r-md);
+    text-decoration: none;
+    color: inherit;
+    background: var(--opd-surface);
+    box-shadow: 0 0 0 1px var(--opd-divider);
+}
+
+.opd-act:hover {
+    color: inherit;
+    background: var(--opd-hover);
+    box-shadow: 0 0 0 1px rgba(var(--opd-accent-rgb), .55);
+}
+
+.opd-act-icon {
+    display: grid;
+    place-items: center;
+    color: var(--opd-accent-text);
+    flex: none;
+}
+
+.opd-act-copy {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.35;
+    min-width: 0;
+}
+
+.opd-act-title {
+    font-size: 13.5px;
+}
+
+.opd-act-sub {
+    font-size: 12px;
+    color: var(--opd-mute-3);
+    text-wrap: pretty;
+}
+
+.opd-act-go {
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    color: var(--opd-faint);
+    flex: none;
+}
+
+.opd-act:hover .opd-act-go {
+    color: var(--opd-accent-text);
+}
+
+/* ── Empty and loading states ──────────────────────────────────────────── */
+
+.opd-state {
+    display: flex;
+    align-items: center;
+    gap: var(--opd-s3);
+    padding: var(--opd-s8) var(--opd-s3);
+    font-size: 13px;
+    color: var(--opd-mute-3);
+}
+
+.opd-spin {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    border-radius: 50%;
+    border: 2px solid var(--opd-divider);
+    border-top-color: var(--opd-accent);
+    animation: opd-spin .7s linear infinite;
+}
+
+@keyframes opd-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .opd-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ── Narrow ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 960px) {
+    .opd-head-inner,
+    .opd-body {
+        padding-left: 18px;
+        padding-right: 18px;
+    }
+
+    .opd-hero h1 {
+        font-size: 32px;
+    }
+
+    .opd-hero > div:first-child {
+        min-width: 0;
+    }
+
+    .opd-health-stats {
+        margin-left: 0;
+        width: 100%;
+        justify-content: space-between;
+        gap: var(--opd-s4);
+    }
+
+    .opd-panels {
+        grid-template-columns: 1fr;
+    }
+
+    .opd-scroll {
+        margin: 0 calc(var(--opd-s6) * -1);
+        padding: 0 var(--opd-s6);
+    }
+}
+
+@media (max-width: 620px) {
+    .opd-head-meta {
+        gap: var(--opd-s2);
+    }
+
+    /* The load time is the first thing to go: the two actions beside it are
+       what the header is for. */
+    .opd-synced {
+        display: none;
+    }
+
+    .opd-health {
+        gap: var(--opd-s4);
+    }
+
+    .opd-mini-stack {
+        grid-template-rows: none;
+    }
+}
