@@ -15,9 +15,11 @@ public sealed class RoleLandingRouteTests
     [InlineData(UserRoles.PodOperator, "/pod-dashboard")]
     [InlineData(UserRoles.SalesRep, "/dashboard")]
     [InlineData(UserRoles.Admin, "/dashboard")]
-    [InlineData(UserRoles.Cashier, "/dashboard")]
-    [InlineData(UserRoles.Manager, "/dashboard")]
-    [InlineData(UserRoles.StockController, "/dashboard")]
+    // These three shared the dashboard until it narrowed to an administrator's
+    // page, and land on the page they work from until each has its own.
+    [InlineData(UserRoles.Cashier, "/invoices")]
+    [InlineData(UserRoles.Manager, "/reports")]
+    [InlineData(UserRoles.StockController, "/inventory-transfers")]
     [InlineData(UserRoles.Driver, "/pods")]
     [InlineData("Operator", "/pods")]
     [InlineData(UserRoles.Merchandiser, "/mobile-drafts")]
@@ -45,28 +47,45 @@ public sealed class RoleLandingRouteTests
     /// <summary>
     /// Three roles resolve to the one dashboard route, which Home serves with a
     /// different page for each: the sales-rep workspace, the depot workspace and
-    /// the cashier dashboard everyone else gets.
+    /// the administrator's one. Cashier is deliberately not among them any
+    /// more — see <see cref="Each_role_lands_on_its_own_page"/>.
     /// </summary>
     [Theory]
     [InlineData(UserRoles.SalesRep)]
     [InlineData(UserRoles.DepotController)]
-    [InlineData(UserRoles.Cashier)]
+    [InlineData(UserRoles.Admin)]
     public void The_dashboard_route_is_shared(string role)
     {
         Assert.Equal(RoleLandingRoutes.Dashboard, RoleLandingRoutes.For(role));
     }
 
     /// <summary>
-    /// An administrator carrying a single-purpose role keeps the dashboard. Lab
-    /// is the one still checked against Admin; the depot role reaches the same
-    /// answer on its own now that it lands there too.
+    /// An administrator carrying a narrower role keeps the dashboard, by any of
+    /// the three routes to that answer: Lab is still checked against Admin
+    /// explicitly, the depot role lands there on its own, and the re-homed
+    /// three are resolved after Admin.
     /// </summary>
     [Theory]
     [InlineData(UserRoles.Lab)]
     [InlineData(UserRoles.DepotController)]
+    [InlineData(UserRoles.Cashier)]
+    [InlineData(UserRoles.StockController)]
+    [InlineData(UserRoles.Manager)]
     public void An_admin_holding_a_narrow_role_still_lands_on_the_dashboard(string role)
     {
         Assert.Equal(RoleLandingRoutes.Dashboard, RoleLandingRoutes.For(Principal(UserRoles.Admin, role)));
+    }
+
+    /// <summary>
+    /// A sales rep is resolved before the re-homed roles, so a rep who also
+    /// carries one of them keeps their own workspace.
+    /// </summary>
+    [Theory]
+    [InlineData(UserRoles.Cashier)]
+    [InlineData(UserRoles.Manager)]
+    public void A_sales_rep_holding_a_re_homed_role_keeps_the_dashboard(string role)
+    {
+        Assert.Equal(RoleLandingRoutes.Dashboard, RoleLandingRoutes.For(Principal(UserRoles.SalesRep, role)));
     }
 
     [Theory]

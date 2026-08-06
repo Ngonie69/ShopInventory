@@ -61,6 +61,12 @@
     --dsh-ok-bg: #e9f6ee;
     --dsh-ok-edge: #a8d3ba;
     --dsh-ok-ink: #1c5e39;
+    --dsh-warn-bg: #fdf4e6;
+    --dsh-warn-edge: #e0c088;
+    --dsh-warn-ink: #7a5312;
+    --dsh-crit-bg: #fdecec;
+    --dsh-crit-edge: #e0a0a0;
+    --dsh-crit-ink: #8c2020;
     --dsh-thumb: #c8cad6;
     --dsh-scheme: light;
 
@@ -102,6 +108,12 @@
     --dsh-ok-bg: rgba(30, 92, 58, .32);
     --dsh-ok-edge: #4d8465;
     --dsh-ok-ink: #b6e3c8;
+    --dsh-warn-bg: rgba(122, 83, 18, .32);
+    --dsh-warn-edge: #97753a;
+    --dsh-warn-ink: #f0d3a0;
+    --dsh-crit-bg: rgba(140, 32, 32, .32);
+    --dsh-crit-edge: #a35d5d;
+    --dsh-crit-ink: #f3b8b8;
     --dsh-thumb: #3f424d;
     --dsh-scheme: dark;
 }
@@ -472,6 +484,87 @@
 
 .dsh-trend svg {
     flex: none;
+}
+
+/* ── Stat tone ─────────────────────────────────────────────────────────── */
+/* A card reporting trouble. These sit after .dsh-stat-lead deliberately: the
+   lead card can itself go critical, and at equal specificity the later rule is
+   the one that wins, so the tint replaces the accent rather than losing to it.
+
+   Colour is never the whole reading — the card also carries its tone in words
+   through .dsh-stat-note, with a glyph beside it. */
+
+.dsh-stat-ok .dsh-stat-rule {
+    background: var(--dsh-ok-ink);
+}
+
+/* The lead card can itself go critical, and .dsh-stat-lead .dsh-stat-head
+   paints the label with the accent. Same specificity, so these have to come
+   after it — otherwise the label stays lavender on a red card. */
+.dsh-stat-warn .dsh-stat-head {
+    color: var(--dsh-warn-ink);
+}
+
+.dsh-stat-critical .dsh-stat-head {
+    color: var(--dsh-crit-ink);
+}
+
+.dsh-stat-warn {
+    background:
+        linear-gradient(155deg, var(--dsh-warn-bg), transparent 62%),
+        var(--dsh-surface);
+    border-color: var(--dsh-warn-edge);
+}
+
+.dsh-stat-warn .dsh-stat-rule,
+.dsh-stat-warn .dsh-stat-icon {
+    background: var(--dsh-warn-ink);
+    color: var(--dsh-warn-ink);
+}
+
+.dsh-stat-critical {
+    background:
+        linear-gradient(155deg, var(--dsh-crit-bg), transparent 62%),
+        var(--dsh-surface);
+    border-color: var(--dsh-crit-edge);
+}
+
+.dsh-stat-critical .dsh-stat-rule,
+.dsh-stat-critical .dsh-stat-icon {
+    background: var(--dsh-crit-ink);
+    color: var(--dsh-crit-ink);
+}
+
+/* The icon is a glyph, not a bar: undo the rule's background so the shared
+   selector above does not paint a block behind it. */
+.dsh-stat-warn .dsh-stat-icon,
+.dsh-stat-critical .dsh-stat-icon {
+    background: none;
+}
+
+.dsh-stat-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--dsh-mute-2);
+    min-width: 0;
+}
+
+.dsh-stat-note svg {
+    flex: none;
+}
+
+.dsh-stat-ok .dsh-stat-note {
+    color: var(--dsh-ok-ink);
+}
+
+.dsh-stat-warn .dsh-stat-note {
+    color: var(--dsh-warn-ink);
+}
+
+.dsh-stat-critical .dsh-stat-note {
+    color: var(--dsh-crit-ink);
 }
 
 .dsh-stat-money {

@@ -1,14 +1,20 @@
-@* One of the three figures the staff dashboard leads with.
+@* One figure on a dashboard.
 
    The card is read top-down: what it counts, the count, what the count is
-   of, then — under a rule — the two secondary readings, the day-over-day
-   comparison and the money. Only the lead card carries the accent, which is
-   how this design says which figure the page is actually about.
+   of, then — under a rule — the secondary readings: the day-over-day
+   comparison, a note about the figure's state, and the money. Only the lead
+   card carries the accent, which is how this design says which figure the
+   page is actually about.
 
    Direction is drawn as an arrow as well as coloured, so it still reads for
-   anyone who cannot separate the two tints. *@
+   anyone who cannot separate the two tints. Tone follows the same rule: a
+   card that is reporting trouble says so in words through ToneNote, and the
+   colour only agrees with the text.
 
-<article class="dsh-stat @(IsLead ? "dsh-stat-lead" : null)">
+   The foot is omitted entirely when a card has none of the three secondary
+   readings, so a bare count does not sit above an empty rule. *@
+
+<article class="dsh-stat @(IsLead ? "dsh-stat-lead" : null) @ToneClass">
     <div class="dsh-stat-head">
         <span class="dsh-stat-rule" aria-hidden="true"></span>
         <span>@Label</span>
@@ -20,20 +26,35 @@
     <div class="dsh-stat-num">@Value</div>
     <div class="dsh-stat-sub">@ValueLabel</div>
 
-    <div class="dsh-stat-foot">
-        @if (!string.IsNullOrWhiteSpace(Trend))
-        {
-            <span class="dsh-trend @DirectionClass">
-                <DashIcon Name="@DirectionIcon" Size="13" />
-                <strong>@Trend</strong>
-                <span>vs yesterday</span>
-            </span>
-        }
-        <div class="dsh-stat-money">
-            <strong>@Amount</strong>
-            <span>@AmountLabel</span>
+    @if (HasFoot)
+    {
+        <div class="dsh-stat-foot">
+            @if (!string.IsNullOrWhiteSpace(Trend))
+            {
+                <span class="dsh-trend @DirectionClass">
+                    <DashIcon Name="@DirectionIcon" Size="13" />
+                    <strong>@Trend</strong>
+                    <span>vs yesterday</span>
+                </span>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(ToneNote))
+            {
+                <span class="dsh-stat-note">
+                    <DashIcon Name="@ToneIcon" Size="13" />
+                    <span>@ToneNote</span>
+                </span>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(Amount))
+            {
+                <div class="dsh-stat-money">
+                    <strong>@Amount</strong>
+                    <span>@AmountLabel</span>
+                </div>
+            }
         </div>
-    </div>
+    }
 </article>
 
 @code {
@@ -47,14 +68,51 @@
     /// <summary>Which way <see cref="Trend"/> moved: 1 up, 0 unchanged, -1 down.</summary>
     [Parameter] public int Direction { get; set; } = 1;
 
-    [Parameter, EditorRequired] public string Amount { get; set; } = string.Empty;
+    /// <summary>
+    /// The money reading. Omit it on a card that counts something without a
+    /// value — the foot then closes up rather than showing an empty slot.
+    /// </summary>
+    [Parameter] public string? Amount { get; set; }
+
     [Parameter] public string AmountLabel { get; set; } = "Total value";
+
+    /// <summary>
+    /// What the figure's state is: <see cref="StatTone.Neutral"/> reports a
+    /// number, the rest report a judgement about it.
+    /// </summary>
+    [Parameter] public StatTone Tone { get; set; } = StatTone.Neutral;
+
+    /// <summary>
+    /// Says the tone in words. A tone with no note is colour alone, which is
+    /// not a reading — set this whenever <see cref="Tone"/> is not neutral.
+    /// </summary>
+    [Parameter] public string? ToneNote { get; set; }
 
     /// <summary>A <see cref="DashIcon"/> name.</summary>
     [Parameter, EditorRequired] public string Icon { get; set; } = string.Empty;
 
     /// <summary>The one card that carries the accent.</summary>
     [Parameter] public bool IsLead { get; set; }
+
+    private bool HasFoot =>
+        !string.IsNullOrWhiteSpace(Trend)
+        || !string.IsNullOrWhiteSpace(ToneNote)
+        || !string.IsNullOrWhiteSpace(Amount);
+
+    private string? ToneClass => Tone switch
+    {
+        StatTone.Ok => "dsh-stat-ok",
+        StatTone.Warn => "dsh-stat-warn",
+        StatTone.Critical => "dsh-stat-critical",
+        _ => null
+    };
+
+    private string ToneIcon => Tone switch
+    {
+        StatTone.Ok => "check-circle",
+        StatTone.Warn or StatTone.Critical => "warning",
+        _ => "flat"
+    };
 
     private string DirectionClass => Direction switch
     {

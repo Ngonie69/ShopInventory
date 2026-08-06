@@ -21,8 +21,8 @@ public static class RoleLandingRoutes
     /// <summary>
     /// The dashboard route. It serves three different pages: Home renders the
     /// sales-rep dashboard for a SalesRep, the depot one for a DepotController
-    /// and the cashier one for everybody else, so each of those roles signing in
-    /// arrives at their own workspace.
+    /// and the administrator's one for an Admin, so each of those roles signing
+    /// in arrives at their own workspace.
     /// </summary>
     public const string Dashboard = "/dashboard";
 
@@ -69,14 +69,33 @@ public static class RoleLandingRoutes
             return "/mobile-drafts";
         }
 
+        // The three roles the dashboard route still serves, each with a page of
+        // its own that Home picks between.
         if (isInRole(UserRoles.Admin) ||
-            isInRole(UserRoles.Cashier) ||
-            isInRole(UserRoles.StockController) ||
-            isInRole(UserRoles.Manager) ||
             isInRole(UserRoles.SalesRep) ||
             isInRole(UserRoles.DepotController))
         {
             return Dashboard;
+        }
+
+        // These three were served by the dashboard until it narrowed to an
+        // administrator's page. Until each has a workspace of its own they land
+        // on the page they actually work from — see docs/role-dashboards-plan.md.
+        // Admin is resolved above, so an administrator carrying one of these
+        // roles still reaches the dashboard.
+        if (isInRole(UserRoles.Cashier))
+        {
+            return "/invoices";
+        }
+
+        if (isInRole(UserRoles.StockController))
+        {
+            return "/inventory-transfers";
+        }
+
+        if (isInRole(UserRoles.Manager))
+        {
+            return "/reports";
         }
 
         return Fallback;

@@ -66,10 +66,13 @@ public static class UserRoles
     /// Comma-separated role strings for use in [Authorize(Roles = "...")] attributes
     /// </summary>
     /// <summary>
-    /// One route, three pages: Home renders the cashier dashboard, the sales-rep
-    /// one for a SalesRep and the depot one for a DepotController.
+    /// Who can open /dashboard. One route, three pages: Home renders the
+    /// administrator's dashboard, the sales-rep one for a SalesRep and the
+    /// depot one for a DepotController. Cashier, StockController and Manager
+    /// used to share it and now land on their own working page instead — see
+    /// docs/role-dashboards-plan.md.
     /// </summary>
-    public const string DashboardRoles = "Admin,Cashier,StockController,Manager,SalesRep,DepotController";
+    public const string DashboardRoles = "Admin,SalesRep,DepotController";
     public const string CatalogueRoles = "Admin,Cashier,StockController,Manager";
     public const string InsightsRoles = "Admin,Cashier,StockController,Manager";
     public const string SystemRoles = "Admin,Cashier,StockController,Manager";
