@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
+using ShopInventory.Web.Common;
 using ShopInventory.Web.Components.Dashboard;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Models;
@@ -23,6 +24,7 @@ public partial class StockDashboard
     [Inject] private IWarehouseStockCacheService StockCache { get; set; } = default!;
     [Inject] private IInventoryTransferService TransferService { get; set; } = default!;
     [Inject] private IMasterDataCacheService MasterData { get; set; } = default!;
+    [Inject] private IUserManagementService UserManagement { get; set; } = default!;
     [Inject] private IAuditService AuditService { get; set; } = default!;
     [Inject] private ILogger<StockDashboard> Logger { get; set; } = default!;
 
@@ -111,6 +113,11 @@ public partial class StockDashboard
     /// unrestricted rather than unassigned — the reading
     /// <see cref="DefaultWarehouseResolver"/> takes — so it is offered every
     /// active warehouse instead of an empty picker.
+    /// <para>
+    /// Which of them the page opens on is <see cref="HomeDepotResolver"/>'s
+    /// decision, and it needs the controller's assigned section — the access
+    /// token does not carry it, so it is read from the account's own record.
+    /// </para>
     /// </summary>
     private async Task ResolveWarehouseAsync(IEnumerable<string> claimValues)
     {
@@ -149,7 +156,13 @@ public partial class StockDashboard
             .Select(code => new NocturneSelectOption<string>(code, NameFor(code)) { Hint = code })
             .ToList();
 
-        warehouse = codes.FirstOrDefault();
+        // The section is the controller's own and cannot change under them, so it
+        // is read once here rather than with every panel. A failed read logs
+        // inside the service and comes back null, which only leaves the tie to be
+        // broken by the order the codes arrived in.
+        var me = await UserManagement.GetCurrentUserAsync();
+
+        warehouse = HomeDepotResolver.Resolve(codes, warehouseNames, me?.AssignedSection);
     }
 
     private async Task OnWarehouseChangedAsync()

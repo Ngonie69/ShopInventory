@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
+using ShopInventory.Web.Common;
 using ShopInventory.Web.Components;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
@@ -30,6 +31,7 @@ public partial class DepotDashboard
     [Inject] private IInventoryTransferService TransferService { get; set; } = default!;
     [Inject] private IDesktopIntegrationService DesktopService { get; set; } = default!;
     [Inject] private IMasterDataCacheService MasterData { get; set; } = default!;
+    [Inject] private IUserManagementService UserManagement { get; set; } = default!;
     [Inject] private ILogger<DepotDashboard> Logger { get; set; } = default!;
 
     /// <summary>
@@ -276,6 +278,11 @@ public partial class DepotDashboard
     /// unrestricted rather than unassigned — the same reading
     /// <see cref="DefaultWarehouseResolver"/> takes — so it is offered every
     /// active warehouse instead of an empty picker.
+    /// <para>
+    /// Which of them the page opens on is <see cref="HomeDepotResolver"/>'s
+    /// decision, and it needs the controller's assigned section — the access
+    /// token does not carry it, so it is read from the account's own record.
+    /// </para>
     /// </summary>
     private async Task ResolveDepotAsync()
     {
@@ -325,7 +332,13 @@ public partial class DepotDashboard
             })
             .ToList();
 
-        depot = codes.FirstOrDefault();
+        // The section is the controller's own and cannot change under them, so it
+        // is read once here rather than with every panel. A failed read logs
+        // inside the service and comes back null, which only leaves the tie to be
+        // broken by the order the codes arrived in.
+        var me = await UserManagement.GetCurrentUserAsync();
+
+        depot = HomeDepotResolver.Resolve(codes, warehouseNames, me?.AssignedSection);
         await InvokeAsync(StateHasChanged);
     }
 
