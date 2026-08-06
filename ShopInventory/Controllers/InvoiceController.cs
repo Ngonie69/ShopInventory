@@ -291,6 +291,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         [FromForm] decimal quantity,
         [FromForm] string? submissionRole,
         [FromForm] string? notes,
+        [FromForm] string? clientRequestId,
         IFormFile file,
         CancellationToken cancellationToken = default)
     {
@@ -316,7 +317,8 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
                 stream,
                 file.FileName,
                 file.ContentType,
-                GetUserId()),
+                GetUserId(),
+                ResolveClientRequestId(clientRequestId)),
             cancellationToken);
 
         return result.Match(Ok, Problem);
@@ -418,6 +420,28 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
             new GetPagedInvoicesQuery(page, pageSize, docNum, cardCode, fromDate, toDate, vanSalesOnly), cancellationToken);
 
         return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// Takes the crate POD idempotency key from the form field, falling back to the header.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors <see cref="CratesController"/>, because the two routes reach the same handler and it
+    /// keys its durable replay on this value. The form field is the one to send: the header alone is
+    /// what <see cref="Middleware.IdempotencyMiddleware"/> intercepts on, and for this route it
+    /// defers to the handler rather than answering, so a header-carried key gains nothing the field
+    /// does not already give and stays out of the middleware's per-instance cache.
+    /// </remarks>
+    private string? ResolveClientRequestId(string? clientRequestId)
+    {
+        if (!string.IsNullOrWhiteSpace(clientRequestId))
+        {
+            return clientRequestId.Trim();
+        }
+
+        return Request.Headers.TryGetValue("Idempotency-Key", out var headerValues)
+            ? headerValues.FirstOrDefault()?.Trim()
+            : null;
     }
 
     private Guid? GetUserId()
