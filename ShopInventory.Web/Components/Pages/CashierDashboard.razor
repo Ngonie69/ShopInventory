@@ -1,0 +1,174 @@
+@page "/cashier-dashboard"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Cashier")]
+@rendermode InteractiveServer
+
+<PageTitle>Till - Kefalos Cheese</PageTitle>
+
+@* The cashier's dashboard, and the page a Cashier lands on when they sign in
+   (see RoleLandingRoutes).
+
+   The old shared dashboard was, in substance, this page — invoices raised,
+   payments taken, Create invoice as the primary action — served to whoever
+   opened it. When /dashboard narrowed to an administrator's page the cashier
+   was sent to the invoice list as a stopgap: their work, but a list rather
+   than a workspace. This gives the figures back, and adds the two things a
+   list cannot show — what was raised but is not fiscalised, and what is
+   waiting to be invoiced.
+
+   It carries its own route rather than a fourth branch inside Home. Home's
+   three-way switch already falls through to "everyone else is an Admin", and
+   a fourth role would make that fallback mean nothing.
+
+   Built on the dashboard kit shared with the administrator's and sales-rep
+   pages — wwwroot/css/dashboard.css, linked from App.razor, carries the light
+   and dark palettes and follows the app's theme toggle. *@
+
+<div class="dsh">
+
+    <header class="dsh-head">
+        <div class="dsh-head-inner">
+            <nav class="dsh-crumbs" aria-label="Breadcrumb">
+                <span>Sales</span>
+                <span class="dsh-crumb-sep" aria-hidden="true">/</span>
+                <span class="dsh-crumb-now" aria-current="page">Till</span>
+            </nav>
+
+            <div class="dsh-head-meta">
+                <span class="dsh-synced">
+                    <span class="dsh-synced-dot" aria-hidden="true"></span>
+                    @if (loadedAt is { } stamp)
+                    {
+                        @($"Read at {stamp:HH:mm}")
+                    }
+                    else
+                    {
+                        @("Reading…")
+                    }
+                </span>
+
+                <a class="dsh-btn dsh-btn-primary dsh-btn-lg" href="/invoices/create">
+                    <DashIcon Name="plus-circle" Size="15" />
+                    Create invoice
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <div class="dsh-body">
+
+        <section class="dsh-hero">
+            <div>
+                <div class="dsh-kicker">Today at the till</div>
+                <h1>@GreetingText, @GreetingName</h1>
+                <p>
+                    What has been raised, what has been taken, and what is still waiting.
+                    Each comparison is against the same figure yesterday.
+                </p>
+            </div>
+            <div class="dsh-date">
+                <DashIcon Name="calendar" Size="14" />
+                <span>@DateTime.Now.ToString("dddd d MMMM yyyy")</span>
+            </div>
+        </section>
+
+        @* The invoice count leads: it is the one the shift is measured on. *@
+        <section class="dsh-stats" aria-label="Today's takings">
+            <StatCard Label="Invoices"
+                      Value="@Figure(todayInvoiceCount)"
+                      ValueLabel="Raised today"
+                      Trend="@invoiceTrend.Text"
+                      Direction="@invoiceTrend.Direction"
+                      Amount="@FormatMoney(invoiceTotal)"
+                      AmountLabel="Total value"
+                      Icon="receipt"
+                      IsLead="true" />
+            <StatCard Label="Payments"
+                      Value="@Figure(todayPaymentCount)"
+                      ValueLabel="Received today"
+                      Trend="@paymentTrend.Text"
+                      Direction="@paymentTrend.Direction"
+                      Amount="@FormatMoney(paymentTotal)"
+                      AmountLabel="Total received"
+                      Icon="card" />
+            <StatCard Label="Credit notes"
+                      Value="@Figure(todayCreditNoteCount)"
+                      ValueLabel="Raised today"
+                      Trend="@creditNoteTrend.Text"
+                      Direction="@creditNoteTrend.Direction"
+                      Icon="note-add" />
+        </section>
+
+        <section class="dsh-stats" aria-label="Still waiting">
+            @* Approved is the status before invoicing — SalesOrderStatus.Invoiced
+               is an alias of Fulfilled, so an approved order is one that has been
+               agreed and not yet turned into an invoice. *@
+            <StatCard Label="Sales orders"
+                      Value="@Figure(awaitingInvoiceCount)"
+                      ValueLabel="Approved, not yet invoiced"
+                      ToneNote="Ready to convert"
+                      Icon="cart" />
+            <StatCard Label="Fiscalisation"
+                      Value="@Figure(fiscalFailedCount)"
+                      ValueLabel="Failed today"
+                      Tone="@FiscalTone"
+                      ToneNote="@FiscalNote"
+                      Icon="warning" />
+            <StatCard Label="Not fiscalised"
+                      Value="@Figure(notFiscalisedCount)"
+                      ValueLabel="Raised today, no receipt yet"
+                      Tone="@NotFiscalisedTone"
+                      ToneNote="@NotFiscalisedNote"
+                      Icon="clock" />
+        </section>
+
+        <section class="dsh-panels" aria-label="Recent activity">
+            <ActivityTable Title="Recent invoices"
+                           ViewAllHref="/invoices"
+                           Kind="ActivityTable.ActivityKind.Invoices"
+                           Invoices="@recentInvoices"
+                           IsLoading="@isLoadingInvoices" />
+            <ActivityTable Title="Recent payments"
+                           ViewAllHref="/payments"
+                           Kind="ActivityTable.ActivityKind.Payments"
+                           Payments="@recentPayments"
+                           IsLoading="@isLoadingPayments" />
+        </section>
+
+        <section class="dsh-panel" aria-labelledby="till-actions-heading">
+            <header class="dsh-panel-head">
+                <span class="dsh-panel-icon">
+                    <DashIcon Name="bolt" Size="15" />
+                </span>
+                <h2 id="till-actions-heading">Quick actions</h2>
+            </header>
+            <div class="dsh-quick">
+                <QuickAction Title="Create invoice"
+                             Description="Raise a new sales invoice"
+                             Href="/invoices/create"
+                             Icon="note-add" />
+                <QuickAction Title="Receive payment"
+                             Description="Record an incoming payment"
+                             Href="/payments/create"
+                             Icon="card" />
+                <QuickAction Title="Sales orders"
+                             Description="Convert an order to an invoice"
+                             Href="/sales-orders"
+                             Icon="cart" />
+                <QuickAction Title="Quotations"
+                             Description="Quote a customer"
+                             Href="/quotations"
+                             Icon="clipboard-data" />
+                <QuickAction Title="Credit notes"
+                             Description="Credit an invoice back"
+                             Href="/credit-notes"
+                             Icon="receipt" />
+                <QuickAction Title="Fiscal log"
+                             Description="Every fiscalisation attempt"
+                             Href="/reports/fiscal-transactions"
+                             Icon="list-check" />
+            </div>
+        </section>
+
+    </div>
+</div>

@@ -15,11 +15,11 @@ public sealed class RoleLandingRouteTests
     [InlineData(UserRoles.PodOperator, "/pod-dashboard")]
     [InlineData(UserRoles.SalesRep, "/dashboard")]
     [InlineData(UserRoles.Admin, "/dashboard")]
-    // These three shared the dashboard until it narrowed to an administrator's
-    // page, and land on the page they work from until each has its own.
-    [InlineData(UserRoles.Cashier, "/invoices")]
-    [InlineData(UserRoles.Manager, "/reports")]
-    [InlineData(UserRoles.StockController, "/inventory-transfers")]
+    // The three roles that shared /dashboard until it narrowed to an
+    // administrator's page. Each has a workspace of its own now.
+    [InlineData(UserRoles.Cashier, "/cashier-dashboard")]
+    [InlineData(UserRoles.StockController, "/stock-dashboard")]
+    [InlineData(UserRoles.Manager, "/manager-dashboard")]
     [InlineData(UserRoles.Driver, "/pods")]
     [InlineData("Operator", "/pods")]
     [InlineData(UserRoles.Merchandiser, "/mobile-drafts")]
@@ -86,6 +86,30 @@ public sealed class RoleLandingRouteTests
     public void A_sales_rep_holding_a_re_homed_role_keeps_the_dashboard(string role)
     {
         Assert.Equal(RoleLandingRoutes.Dashboard, RoleLandingRoutes.For(Principal(UserRoles.SalesRep, role)));
+    }
+
+    /// <summary>
+    /// Every role the nav offers an Overview link to resolves to a page that
+    /// role can actually open. The link's href comes from this chain, so a role
+    /// listed there and missing here would send someone to a page their own
+    /// authorize attribute refuses — which is the bug the hard-coded
+    /// /dashboard href was.
+    /// </summary>
+    [Fact]
+    public void Every_overview_nav_role_lands_on_a_dashboard()
+    {
+        var dashboards = new[]
+        {
+            RoleLandingRoutes.Dashboard,
+            RoleLandingRoutes.CashierDashboard,
+            RoleLandingRoutes.StockDashboard,
+            RoleLandingRoutes.ManagerDashboard
+        };
+
+        foreach (var role in UserRoles.DashboardNavRoles.Split(','))
+        {
+            Assert.Contains(RoleLandingRoutes.For(role), dashboards);
+        }
     }
 
     [Theory]

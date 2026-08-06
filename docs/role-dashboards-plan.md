@@ -1,21 +1,31 @@
 # Role dashboards — plan
 
-Status: **not started**. Execute after the admin dashboard rebuild lands.
+Status: **all three phases built.** Every role now lands on a workspace; none
+is on a stopgap. What follows is the plan as executed, with the places reality
+differed recorded inline — the card-level detail below is still the reference
+for what each page reads and why.
+
+| Role | Lands on | Phase |
+|---|---|---|
+| Cashier | `/cashier-dashboard` | 1 ✅ |
+| StockController | `/stock-dashboard` | 2 ✅ |
+| Manager | `/manager-dashboard` | 3 ✅ |
+
+**Phase 0 was not done, and did not need to be.** It proposed extracting a
+shared dashboard kit before adding pages. The three new pages instead reuse the
+existing `dsh-` kit and `dashboard.css` directly, exactly as `AdminDashboard`
+does, which got the no-duplication benefit without a refactor touching four
+live dashboards. `DepotDashboard` landed with its own `dpd-` sheet and none of
+the shared components, so a kit extraction would now be a bigger job for less
+return than when it was written. Revisit only if a fifth page wants the chrome.
 
 ## Why this exists
 
-The admin rebuild narrows `/dashboard` to Admin (and SalesRep, who has always
-been served a different component at that route). Three roles lose the page
-they landed on. As an interim they are sent to a working page:
-
-| Role | Interim landing | Set in |
-|---|---|---|
-| Cashier | `/invoices` | `RoleLandingRoutes.For` |
-| StockController | `/inventory-transfers` | `RoleLandingRoutes.For` |
-| Manager | `/reports` | `RoleLandingRoutes.For` |
-
-That is a list, not a workspace. This plan gives each of them a dashboard of
-their own and flips their landing route to it.
+The admin rebuild narrowed `/dashboard` to Admin (and SalesRep, who has always
+been served a different component at that route). Three roles lost the page
+they landed on and were sent to a working page as an interim — `/invoices`,
+`/inventory-transfers` and `/reports`. That is a list, not a workspace. This
+plan gave each of them a dashboard and flipped their landing route to it.
 
 ## Which roles get a dashboard
 
@@ -229,20 +239,30 @@ worth carrying over.
 - [ ] Checked in light and dark, at desktop and the 960px breakpoint
 - [ ] Own PR
 
-## Open questions
+## Questions, answered by building
 
-1. **Do Nocturne designs already exist** for a cashier, stock or manager
-   dashboard in the design projects? The four existing dashboards were all
-   imported from `.dc.html` designs. Check before drawing anything by hand —
-   the chrome is already built and concepts there are alternatives, not a spec.
-2. **Cashier cards marked "confirm"** — does a fiscalization-failure figure and
-   an open-invoices figure exist behind the Web's services, or do they need API
-   work? This changes the Phase 1 estimate.
-3. **Nav label** — every role's link reads "Dashboard", or each reads its own
-   ("Till", "Stock", "Oversight")?
-4. **Where the new dashboards live.** `/dashboard` now serves three pages by
-   role from inside Home, while POD has its own route. Phases 1–3 assume
-   separate routes; the alternative is to keep adding branches to Home. Separate
-   routes still look right — Home is a switch, not a host — but the split is now
-   a decision rather than an accident, and Phase 0's `DashboardRoutes` set has
-   to agree with whichever way it goes.
+1. **The cashier's two "confirm" cards** went opposite ways. Fiscalisation is
+   available — and its summary is computed over the whole filtered set before
+   the handler pages, so a page size of one returns accurate day counts.
+   Open invoices is not: `GetOpenInvoicesByCustomersAsync` returns null for an
+   empty list and there is no company-wide equivalent, so the card was dropped
+   rather than built from a fan-out across every customer.
+2. **Where the new dashboards live** — each on its own route. Home's switch
+   falls through to "everyone else is an Admin", and a fourth role would leave
+   that fallback meaning nothing. `/dashboard` keeps its three (Admin, SalesRep,
+   DepotController); the other three stand alone.
+3. **The nav link** reads "Dashboard" for everyone, but resolves its href per
+   role through `RoleLandingRoutes.For`. `UserRoles.DashboardNavRoles` lists who
+   sees it, and a test walks that list asserting each role lands somewhere it
+   can actually open — hard-coding `/dashboard` was offering a cashier a link
+   their own authorize attribute refuses.
+4. **Two figures could not be built as specified** and say so on the card
+   rather than implying precision: open transfer requests are company-wide
+   (there is no warehouse-scoped paged endpoint) and carry no total, so a full
+   page reads "100+"; and the manager's request and receipt counts are windowed
+   to seven days because those endpoints have no status filter.
+
+Still open: **do Nocturne designs exist** for these three in the design
+projects? The four earlier dashboards were imported from `.dc.html` designs;
+these three were built on the shared kit instead. If a design turns up later it
+is a re-skin, not a rebuild.

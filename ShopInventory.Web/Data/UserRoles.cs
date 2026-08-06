@@ -73,6 +73,14 @@ public static class UserRoles
     /// docs/role-dashboards-plan.md.
     /// </summary>
     public const string DashboardRoles = "Admin,SalesRep,DepotController";
+
+    /// <summary>
+    /// Who sees the Overview link in the nav: every role with a workspace of
+    /// its own, whether it hangs off /dashboard or carries its own route. The
+    /// link's href is resolved per role through <c>RoleLandingRoutes.For</c>,
+    /// so this list and that chain have to agree.
+    /// </summary>
+    public const string DashboardNavRoles = "Admin,SalesRep,DepotController,Cashier,StockController,Manager";
     public const string CatalogueRoles = "Admin,Cashier,StockController,Manager";
     public const string InsightsRoles = "Admin,Cashier,StockController,Manager";
     public const string SystemRoles = "Admin,Cashier,StockController,Manager";

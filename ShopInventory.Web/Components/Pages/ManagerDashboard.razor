@@ -1,0 +1,290 @@
+@page "/manager-dashboard"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+
+<PageTitle>Oversight - Kefalos Cheese</PageTitle>
+
+@* The manager's dashboard, and the page they land on when they sign in (see
+   RoleLandingRoutes). They were sent to the reports index as a stopgap when
+   /dashboard narrowed to an administrator's page — a menu of reports, not a
+   report.
+
+   A manager's day is purchasing and approvals, so that leads. Trading closes
+   the page: the figures the old shared dashboard gave them, kept because a
+   manager still wants the day's shape at a glance, but no longer what the page
+   is about.
+
+   Two purchasing figures are windowed rather than totalled. The purchase
+   request and goods receipt endpoints carry no status filter, so an all-time
+   total would count every document ever raised and grow forever without
+   meaning anything. A week is the window a manager is actually working in.
+
+   Built on the dashboard kit shared with the administrator's, cashier's, stock
+   and sales-rep pages — wwwroot/css/dashboard.css carries both palettes. *@
+
+<div class="dsh">
+
+    <header class="dsh-head">
+        <div class="dsh-head-inner">
+            <nav class="dsh-crumbs" aria-label="Breadcrumb">
+                <span>Operations</span>
+                <span class="dsh-crumb-sep" aria-hidden="true">/</span>
+                <span class="dsh-crumb-now" aria-current="page">Oversight</span>
+            </nav>
+
+            <div class="dsh-head-meta">
+                <span class="dsh-synced">
+                    <span class="dsh-synced-dot" aria-hidden="true"></span>
+                    @if (loadedAt is { } stamp)
+                    {
+                        @($"Read at {stamp:HH:mm}")
+                    }
+                    else
+                    {
+                        @("Reading…")
+                    }
+                </span>
+
+                <a class="dsh-btn dsh-btn-primary dsh-btn-lg" href="/purchase-orders">
+                    <DashIcon Name="clipboard-check" Size="15" />
+                    Purchase orders
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <div class="dsh-body">
+
+        <section class="dsh-hero">
+            <div>
+                <div class="dsh-kicker">Oversight</div>
+                <h1>@GreetingText, @GreetingName</h1>
+                <p>
+                    What is waiting on a decision, what is on its way in, and how the day
+                    is trading. Purchasing figures cover the last @WindowDays days.
+                </p>
+            </div>
+            <div class="dsh-date">
+                <DashIcon Name="calendar" Size="14" />
+                <span>@DateTime.Now.ToString("dddd d MMMM yyyy")</span>
+            </div>
+        </section>
+
+        @* Approvals lead: they are the part of the day that stops without the
+           manager. *@
+        <section class="dsh-stats" aria-label="Purchasing">
+            <StatCard Label="Awaiting approval"
+                      Value="@Figure(pendingOrderCount)"
+                      ValueLabel="Purchase orders needing a decision"
+                      Tone="@PendingOrderTone"
+                      ToneNote="@PendingOrderNote"
+                      Icon="clipboard-check"
+                      IsLead="true" />
+            <StatCard Label="On order"
+                      Value="@Figure(approvedOrderCount)"
+                      ValueLabel="Approved, not yet received"
+                      ToneNote="Awaiting delivery"
+                      Icon="cart" />
+            <StatCard Label="Requests"
+                      Value="@Figure(recentRequestCount)"
+                      ValueLabel="@($"Raised in {WindowDays} days")"
+                      ToneNote="All statuses"
+                      Icon="note-add" />
+        </section>
+
+        <section class="dsh-stats" aria-label="Movement and people">
+            <StatCard Label="Goods received"
+                      Value="@Figure(recentReceiptCount)"
+                      ValueLabel="@($"Receipts in {WindowDays} days")"
+                      ToneNote="Against purchase orders"
+                      Icon="box" />
+            @* Company-wide: every per-warehouse read needs a warehouse code, and
+               a manager is not scoped to one. *@
+            <StatCard Label="Transfers"
+                      Value="@Figure(pendingTransferCount)"
+                      ValueLabel="Awaiting approval"
+                      ToneNote="Across all warehouses"
+                      Icon="swap" />
+            <StatCard Label="People"
+                      Value="@Figure(activeUsers)"
+                      ValueLabel="Active today"
+                      Amount="@(totalActions is null ? null : totalActions.Value.ToString("N0"))"
+                      AmountLabel="Actions"
+                      Tone="@ActivityTone"
+                      ToneNote="@ActivityNote"
+                      Icon="users" />
+        </section>
+
+        <section class="dsh-stats" aria-label="Trading today">
+            <StatCard Label="Invoices"
+                      Value="@Figure(todayInvoiceCount)"
+                      ValueLabel="Raised today"
+                      Trend="@invoiceTrend.Text"
+                      Direction="@invoiceTrend.Direction"
+                      Amount="@FormatMoney(invoiceTotal)"
+                      AmountLabel="Total value"
+                      Icon="receipt" />
+            <StatCard Label="Payments"
+                      Value="@Figure(todayPaymentCount)"
+                      ValueLabel="Received today"
+                      Trend="@paymentTrend.Text"
+                      Direction="@paymentTrend.Direction"
+                      Amount="@FormatMoney(paymentTotal)"
+                      AmountLabel="Total received"
+                      Icon="card" />
+            <StatCard Label="Credit notes"
+                      Value="@Figure(todayCreditNoteCount)"
+                      ValueLabel="Raised today"
+                      Trend="@creditNoteTrend.Text"
+                      Direction="@creditNoteTrend.Direction"
+                      Icon="arrow-down" />
+        </section>
+
+        <section class="dsh-panels" aria-label="Decisions and activity">
+
+            <section class="dsh-panel" aria-labelledby="approvals-heading">
+                <header class="dsh-panel-head">
+                    <span class="dsh-panel-icon">
+                        <DashIcon Name="clipboard-check" Size="15" />
+                    </span>
+                    <h2 id="approvals-heading">Waiting on a decision</h2>
+                    <a class="dsh-panel-link" href="/purchase-orders">
+                        View all
+                        <DashIcon Name="chevron" Size="13" />
+                    </a>
+                </header>
+
+                @if (isLoadingApprovals)
+                {
+                    <div class="dsh-state" role="status">
+                        <span class="dsh-spin" aria-hidden="true"></span>
+                        <span>Loading the approval queue&#8230;</span>
+                    </div>
+                }
+                else if (pendingOrders is { Count: > 0 })
+                {
+                    <div class="dsh-scroll">
+                        <table class="dsh-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Order</th>
+                                    <th scope="col">Supplier</th>
+                                    <th scope="col">Raised</th>
+                                    <th scope="col" class="dsh-th-money">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var order in pendingOrders)
+                                {
+                                    <tr>
+                                        <td class="dsh-doc">@order.OrderNumber</td>
+                                        <td class="dsh-name" title="@order.CardName">@(order.CardName ?? order.CardCode)</td>
+                                        <td class="dsh-when">@order.OrderDate.ToString("dd MMM")</td>
+                                        <td class="dsh-money">@order.Currency @order.DocTotal.ToString("N2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="dsh-state">Nothing waiting on a decision</div>
+                }
+            </section>
+
+            <section class="dsh-panel" aria-labelledby="activity-heading">
+                <header class="dsh-panel-head">
+                    <span class="dsh-panel-icon">
+                        <DashIcon Name="list-check" Size="15" />
+                    </span>
+                    <h2 id="activity-heading">Recent activity</h2>
+                    <a class="dsh-panel-link" href="/user-activity">
+                        View all
+                        <DashIcon Name="chevron" Size="13" />
+                    </a>
+                </header>
+
+                @if (isLoadingActivity)
+                {
+                    <div class="dsh-state" role="status">
+                        <span class="dsh-spin" aria-hidden="true"></span>
+                        <span>Loading activity&#8230;</span>
+                    </div>
+                }
+                else if (recentActivity is { Count: > 0 })
+                {
+                    <div class="dsh-scroll">
+                        <table class="dsh-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">User</th>
+                                    <th scope="col">Action</th>
+                                    <th scope="col">Time</th>
+                                    <th scope="col">Result</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var entry in recentActivity)
+                                {
+                                    <tr>
+                                        <td class="dsh-name" title="@entry.Username">@entry.Username</td>
+                                        <td class="dsh-name" title="@entry.Action">@entry.Action</td>
+                                        <td class="dsh-when">@entry.Timestamp.ToLocalTime().ToString("dd MMM HH:mm")</td>
+                                        <td>
+                                            <span class="dsh-tag @(entry.IsSuccess ? "dsh-tag-ok" : null)">
+                                                @(entry.IsSuccess ? "OK" : "Failed")
+                                            </span>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="dsh-state">No recent activity</div>
+                }
+            </section>
+
+        </section>
+
+        <section class="dsh-panel" aria-labelledby="manager-actions-heading">
+            <header class="dsh-panel-head">
+                <span class="dsh-panel-icon">
+                    <DashIcon Name="bolt" Size="15" />
+                </span>
+                <h2 id="manager-actions-heading">Quick actions</h2>
+            </header>
+            <div class="dsh-quick">
+                <QuickAction Title="Purchase orders"
+                             Description="Approve and track orders"
+                             Href="/purchase-orders"
+                             Icon="clipboard-check" />
+                <QuickAction Title="Purchase requests"
+                             Description="What has been asked for"
+                             Href="/purchase-requests"
+                             Icon="note-add" />
+                <QuickAction Title="Goods receipts"
+                             Description="What has arrived"
+                             Href="/goods-receipt-pos"
+                             Icon="box" />
+                <QuickAction Title="Reports"
+                             Description="Sales, stock and fulfilment"
+                             Href="/reports"
+                             Icon="clipboard-data" />
+                <QuickAction Title="Transfers"
+                             Description="Stock moving between warehouses"
+                             Href="/inventory-transfers"
+                             Icon="swap" />
+                <QuickAction Title="Activity log"
+                             Description="Who did what, and when"
+                             Href="/user-activity"
+                             Icon="users" />
+            </div>
+        </section>
+
+    </div>
+</div>

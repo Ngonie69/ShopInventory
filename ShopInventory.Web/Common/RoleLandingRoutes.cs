@@ -29,6 +29,19 @@ public static class RoleLandingRoutes
     public const string PodDashboard = "/pod-dashboard";
 
     /// <summary>
+    /// The cashier's workspace. It carries its own route rather than a fourth
+    /// branch inside Home, whose switch already falls through to "everyone else
+    /// is an Admin".
+    /// </summary>
+    public const string CashierDashboard = "/cashier-dashboard";
+
+    /// <summary>The stock controller's workspace, scoped to their warehouse.</summary>
+    public const string StockDashboard = "/stock-dashboard";
+
+    /// <summary>The manager's workspace: purchasing, approvals and the day's trading.</summary>
+    public const string ManagerDashboard = "/manager-dashboard";
+
+    /// <summary>
     /// Resolves the landing route from a role predicate, so a caller holding a
     /// <see cref="ClaimsPrincipal"/> and one holding only the role name from a
     /// login response both walk the same ordered chain.
@@ -78,24 +91,23 @@ public static class RoleLandingRoutes
             return Dashboard;
         }
 
-        // These three were served by the dashboard until it narrowed to an
-        // administrator's page. Until each has a workspace of its own they land
-        // on the page they actually work from — see docs/role-dashboards-plan.md.
-        // Admin is resolved above, so an administrator carrying one of these
-        // roles still reaches the dashboard.
+        // The three roles the dashboard used to serve alongside Admin. Each has
+        // a workspace of its own now, on its own route rather than as further
+        // branches inside Home. Admin is resolved above, so an administrator
+        // carrying one of these roles still reaches the dashboard.
         if (isInRole(UserRoles.Cashier))
         {
-            return "/invoices";
+            return CashierDashboard;
         }
 
         if (isInRole(UserRoles.StockController))
         {
-            return "/inventory-transfers";
+            return StockDashboard;
         }
 
         if (isInRole(UserRoles.Manager))
         {
-            return "/reports";
+            return ManagerDashboard;
         }
 
         return Fallback;
