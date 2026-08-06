@@ -418,8 +418,14 @@ public interface ISAPServiceLayerClient
     /// request that is never reused and cannot practically be deleted. Parameters keep the text
     /// constant, which keeps the count fixed. See the implementation for the SQL SAP will not accept
     /// on this path — notably that one parameter cannot carry an <c>IN</c> list.
+    ///
+    /// <c>maxRows</c> stops paging once that many rows are in hand, for a statement whose result set
+    /// has no natural bound. Null — the default, and what every existing caller passes — walks every
+    /// page until SAP runs out, which at 500 rows a page and SAP's per-call latency is minutes for a
+    /// busy control account. A caller that sets it must treat a full result as possibly truncated:
+    /// ask for one more row than you intend to show and the count tells you exactly.
     /// </remarks>
-    Task<List<Dictionary<string, object?>>> ExecuteParameterisedSqlQueryAsync(string queryCode, string queryName, string sqlText, IReadOnlyDictionary<string, string> parameters, CancellationToken cancellationToken = default);
+    Task<List<Dictionary<string, object?>>> ExecuteParameterisedSqlQueryAsync(string queryCode, string queryName, string sqlText, IReadOnlyDictionary<string, string> parameters, CancellationToken cancellationToken = default, int? maxRows = null);
 
     /// <summary>
     /// Binds parameters under a content-addressed code, for a statement whose shape varies as well

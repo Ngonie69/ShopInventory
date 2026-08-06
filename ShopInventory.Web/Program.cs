@@ -268,6 +268,7 @@ try
     builder.Services.AddScoped<IBusinessPartnerPricingService, BusinessPartnerPricingService>();
     builder.Services.AddScoped<IBusinessPartnerService, BusinessPartnerService>();
     builder.Services.AddScoped<IMasterDataCacheService, MasterDataCacheService>();
+    builder.Services.AddScoped<IGLAccountLedgerService, GLAccountLedgerService>();
 
     builder.Services.AddHttpContextAccessor();
 

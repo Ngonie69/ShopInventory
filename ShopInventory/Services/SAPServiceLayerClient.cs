@@ -7340,8 +7340,9 @@ ORDER BY T0.""ItemCode""";
         string queryName,
         string sqlText,
         IReadOnlyDictionary<string, string> parameters,
-        CancellationToken cancellationToken = default)
-        => await ExecuteRawSqlQueryAsync(queryCode, queryName, sqlText, parameters, cancellationToken);
+        CancellationToken cancellationToken = default,
+        int? maxRows = null)
+        => await ExecuteRawSqlQueryAsync(queryCode, queryName, sqlText, parameters, cancellationToken, maxRows);
 
     /// <summary>
     /// Binds <paramref name="parameters"/> like
@@ -7450,7 +7451,8 @@ ORDER BY T0.""ItemCode""";
         string queryName,
         string sqlText,
         IReadOnlyDictionary<string, string>? parameters,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? maxRows = null)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         await EnsureSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
@@ -7533,6 +7535,20 @@ ORDER BY T0.""ItemCode""";
             hasMore = (doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
                        doc.RootElement.TryGetProperty("@odata.nextLink", out _)) && pageCount > 0;
             skip += pageCount;
+
+            // Checked after the page rather than before the request, so the cap costs no extra
+            // round trip. The result overshoots to the page boundary; a caller that needs an exact
+            // count asks for one more row than it will show.
+            if (maxRows.HasValue && allRows.Count >= maxRows.Value)
+            {
+                _logger.LogInformation(
+                    "SQL query {Code} ({Name}) stopped at {Count} rows against a {MaxRows}-row cap",
+                    queryCode,
+                    queryName,
+                    allRows.Count,
+                    maxRows.Value);
+                hasMore = false;
+            }
         }
 
         _logger.LogInformation("SQL query {Code} ({Name}) returned {Count} rows", queryCode, queryName, allRows.Count);
