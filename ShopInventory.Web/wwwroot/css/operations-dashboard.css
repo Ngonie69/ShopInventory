@@ -712,8 +712,18 @@ a.opd-quiet:hover {
     gap: var(--opd-s3);
     padding: var(--opd-s6);
     border-radius: var(--opd-r-md);
+    color: var(--opd-ink);
     background: var(--opd-surface);
     box-shadow: inset 0 0 0 1px var(--opd-rule);
+    transition: background-color .15s, box-shadow .15s;
+}
+
+/* Every figure here counts a list that exists elsewhere, so every card is the
+   way through to it. The link is stated by the hover alone — a chevron on six
+   equal cards would be six arrows pointing at nothing in particular. */
+a.opd-fig:hover {
+    background: var(--opd-hover);
+    box-shadow: inset 0 0 0 1px var(--opd-divider);
 }
 
 .opd-fig-top {

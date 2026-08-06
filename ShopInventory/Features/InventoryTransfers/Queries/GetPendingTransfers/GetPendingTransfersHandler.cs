@@ -39,6 +39,18 @@ public sealed class GetPendingTransfersHandler(
         if (query.MineOnly)
             records = records.Where(item => item.CreatedByUserId == query.UserId);
 
+        // Both bounds are inclusive days, so the upper one is compared as the start of the day
+        // after. CreatedAtUtc is stored in UTC and the incoming dates carry no zone, so they are
+        // read as UTC — the same reading every other dated list in this API takes.
+        if (ToUtcDate(query.FromDate) is { } fromDate)
+            records = records.Where(item => item.CreatedAtUtc >= fromDate);
+
+        if (ToUtcDate(query.ToDate) is { } toDate)
+        {
+            var toExclusive = toDate.AddDays(1);
+            records = records.Where(item => item.CreatedAtUtc < toExclusive);
+        }
+
         var totalCount = await records.CountAsync(cancellationToken);
         var pageRecords = await records
             .OrderByDescending(item => item.CreatedAtUtc)
@@ -54,4 +66,12 @@ public sealed class GetPendingTransfersHandler(
             PageSize = pageSize
         };
     }
+
+    /// <summary>
+    /// Npgsql rejects a DateTime whose Kind is not Utc against a timestamptz column, and a date
+    /// parsed out of a query string has no Kind at all.
+    /// </summary>
+    private static DateTime? ToUtcDate(DateTime? value) => value is null
+        ? null
+        : DateTime.SpecifyKind(value.Value.Date, DateTimeKind.Utc);
 }

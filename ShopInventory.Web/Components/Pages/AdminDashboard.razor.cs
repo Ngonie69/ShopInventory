@@ -28,6 +28,7 @@ public partial class AdminDashboard
     [Inject] private IUserManagementService UserService { get; set; } = default!;
     [Inject] private IInvoiceService InvoiceService { get; set; } = default!;
     [Inject] private IPaymentService PaymentService { get; set; } = default!;
+    [Inject] private ISalesOrderService SalesOrderService { get; set; } = default!;
     [Inject] private ILogger<AdminDashboard> Logger { get; set; } = default!;
 
     /// <summary>The name to greet. Home resolves it from the signed-in user.</summary>
@@ -81,6 +82,21 @@ public partial class AdminDashboard
     private (string? Text, int Direction) invoiceTrend;
     private (string? Text, int Direction) paymentTrend;
 
+    // The document counts are all scoped to today, including the second figure each card carries.
+    // A queue counted over all time next to a count of one day reads as a proportion of it, and
+    // would be a badly wrong one; the pages these cards link to are where the standing queues live.
+    private int? todayMobileOrderCount;
+    private int? mobileOrdersToReview;
+    private (string? Text, int Direction) mobileOrderTrend;
+
+    private int? todaySalesOrderCount;
+    private int? salesOrdersToApprove;
+    private (string? Text, int Direction) salesOrderTrend;
+
+    private int? todayTransferCount;
+    private int? todayTransfersPosted;
+    private (string? Text, int Direction) transferTrend;
+
     private List<AuditLog>? recentActivity;
     private bool isLoadingActivity = true;
 
@@ -113,7 +129,10 @@ public partial class AdminDashboard
             LoadSecurityStatsAsync(),
             LoadRecentActivityAsync(),
             LoadInvoiceStatsAsync(),
-            LoadPaymentStatsAsync());
+            LoadPaymentStatsAsync(),
+            LoadMobileOrderStatsAsync(),
+            LoadSalesOrderStatsAsync(),
+            LoadTransferDayStatsAsync());
 
         // Stamped once every read has landed, so the header's time describes
         // the whole page rather than whichever call returned first.
@@ -226,6 +245,115 @@ public partial class AdminDashboard
         {
             Logger.LogWarning(ex, "Dashboard could not count {Status} transfers.", status);
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Transfers raised on one day. "all" lifts the endpoint's default filter, which would
+    /// otherwise count only the ones still awaiting a decision.
+    /// </summary>
+    private async Task<int?> CountTransfersRaisedAsync(string status, DateTime date)
+    {
+        var response = await TransferService.GetPendingTransfersAsync(
+            status, pageSize: 1, fromDate: date, toDate: date);
+
+        return response?.TotalCount;
+    }
+
+    private async Task LoadTransferDayStatsAsync()
+    {
+        try
+        {
+            var today = DateTime.Today;
+            var todayTask = CountTransfersRaisedAsync("all", today);
+            var yesterdayTask = CountTransfersRaisedAsync("all", today.AddDays(-1));
+            var postedTask = CountTransfersRaisedAsync(PendingTransferStatuses.Posted, today);
+            await Task.WhenAll(todayTask, yesterdayTask, postedTask);
+
+            todayTransferCount = await todayTask;
+            todayTransfersPosted = await postedTask;
+            transferTrend = BuildTrend(todayTransferCount, await yesterdayTask);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Dashboard could not read today's transfer figures.");
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    /// <summary>
+    /// Counts sales orders without drawing any. The smallest page still carries an authoritative
+    /// TotalCount, and a source-filtered read is answered from the local tables alone — which is
+    /// what keeps the mobile figures off SAP entirely.
+    /// </summary>
+    private async Task<int?> CountSalesOrdersAsync(
+        DateTime date,
+        SalesOrderSource? source = null,
+        SalesOrderStatus? status = null)
+    {
+        var response = await SalesOrderService.GetSalesOrdersAsync(
+            page: 1,
+            pageSize: 1,
+            status: status,
+            fromDate: date,
+            toDate: date,
+            source: source);
+
+        return response?.TotalCount;
+    }
+
+    private async Task LoadMobileOrderStatsAsync()
+    {
+        try
+        {
+            var today = DateTime.Today;
+            var todayTask = CountSalesOrdersAsync(today, SalesOrderSource.Mobile);
+            var yesterdayTask = CountSalesOrdersAsync(today.AddDays(-1), SalesOrderSource.Mobile);
+            // Mobile lines arrive unpriced, so a mobile order sits at Pending until someone has
+            // priced and approved it. That queue is the point of the card, not the raw count.
+            var toReviewTask = CountSalesOrdersAsync(today, SalesOrderSource.Mobile, SalesOrderStatus.Pending);
+            await Task.WhenAll(todayTask, yesterdayTask, toReviewTask);
+
+            todayMobileOrderCount = await todayTask;
+            mobileOrdersToReview = await toReviewTask;
+            mobileOrderTrend = BuildTrend(todayMobileOrderCount, await yesterdayTask);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Dashboard could not read today's mobile order figures.");
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task LoadSalesOrderStatsAsync()
+    {
+        try
+        {
+            var today = DateTime.Today;
+            var todayTask = CountSalesOrdersAsync(today);
+            var yesterdayTask = CountSalesOrdersAsync(today.AddDays(-1));
+            // Pending is a status SAP has no equivalent for, so this one counts exactly the orders
+            // raised in the app today that have not been approved onward into SAP.
+            var toApproveTask = CountSalesOrdersAsync(today, status: SalesOrderStatus.Pending);
+            await Task.WhenAll(todayTask, yesterdayTask, toApproveTask);
+
+            todaySalesOrderCount = await todayTask;
+            salesOrdersToApprove = await toApproveTask;
+            salesOrderTrend = BuildTrend(todaySalesOrderCount, await yesterdayTask);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Dashboard could not read today's sales order figures.");
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -348,6 +476,15 @@ public partial class AdminDashboard
     /// <summary>A figure that has not landed yet reads as a dash, not a zero.</summary>
     private static string Figure(int? value) => value?.ToString("N0") ?? "—";
 
+    /// <summary>
+    /// A comparison against yesterday, drawn only when both days actually read. A failed read is
+    /// not a day with no documents, and must not be printed as a fall to zero.
+    /// </summary>
+    private static (string? Text, int Direction) BuildTrend(int? today, int? yesterday) =>
+        today is { } count && yesterday is { } yesterdayCount
+            ? DashboardFigures.BuildTrend(count, yesterdayCount)
+            : (null, 0);
+
     private static string FormatMoney(decimal value) => $"USD {value:N2}";
 
     private static string ActivityDetail(AuditLog entry) =>
@@ -407,6 +544,40 @@ public partial class AdminDashboard
         0 => "0 locked out today",
         1 => "1 locked out today",
         _ => $"{lockedUsers:N0} locked out today"
+    };
+
+    /// <summary>
+    /// How much of today's mobile intake is still unpriced. A day with nothing left says so; a day
+    /// with nothing raised leaves the line off, because "0 to review" beside a zero count is the
+    /// same fact twice.
+    /// </summary>
+    private string? MobileReviewNote => mobileOrdersToReview switch
+    {
+        null => null,
+        0 when todayMobileOrderCount is > 0 => "All reviewed",
+        0 => null,
+        var toReview => $"{toReview:N0} to review"
+    };
+
+    private string? SalesOrderApprovalNote => salesOrdersToApprove switch
+    {
+        null => null,
+        0 when todaySalesOrderCount is > 0 => "All approved",
+        0 => null,
+        var toApprove => $"{toApprove:N0} to approve"
+    };
+
+    /// <summary>
+    /// How many of today's transfers made it into SAP. Posted can read higher than raised — a
+    /// transfer raised yesterday and posted today counts in one and not the other — so the line
+    /// says "all" rather than a figure that would look like an error.
+    /// </summary>
+    private string? TransferPostedNote => (todayTransferCount, todayTransfersPosted) switch
+    {
+        (null, _) or (_, null) => null,
+        (0, _) => null,
+        var (raised, posted) when posted >= raised => "All posted to SAP",
+        var (_, posted) => $"{posted:N0} posted to SAP"
     };
 
     /// <summary>
