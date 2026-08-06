@@ -26,10 +26,20 @@ public static class SalesAnalysisGroups
     /// </summary>
     public static List<SalesAnalysisPicker.GroupOption> BuildOptions(
         IReadOnlyList<SalesAnalysisPicker.Option> options,
+        IEnumerable<(string Code, string? Name)> groups) =>
+        BuildOptions(options.Select(option => option.Group), groups);
+
+    /// <summary>
+    /// The same, taking only the groups the picker's options belong to — for a picker whose option
+    /// type is its own. /reports/order-fulfillment has one: its control is drawn on that page's
+    /// tokens rather than <see cref="SalesAnalysisPicker"/>'s, but which groups are worth offering
+    /// is the same question with the same answer.
+    /// </summary>
+    public static List<SalesAnalysisPicker.GroupOption> BuildOptions(
+        IEnumerable<string?> memberGroups,
         IEnumerable<(string Code, string? Name)> groups)
     {
-        var present = options
-            .Select(option => option.Group)
+        var present = memberGroups
             .Where(group => !string.IsNullOrEmpty(group))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
