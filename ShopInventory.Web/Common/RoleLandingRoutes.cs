@@ -38,6 +38,9 @@ public static class RoleLandingRoutes
     /// <summary>The stock controller's workspace, scoped to their warehouse.</summary>
     public const string StockDashboard = "/stock-dashboard";
 
+    /// <summary>The manager's workspace: purchasing, approvals and the day's trading.</summary>
+    public const string ManagerDashboard = "/manager-dashboard";
+
     /// <summary>
     /// Resolves the landing route from a role predicate, so a caller holding a
     /// <see cref="ClaimsPrincipal"/> and one holding only the role name from a
@@ -88,8 +91,10 @@ public static class RoleLandingRoutes
             return Dashboard;
         }
 
-        // These two have workspaces of their own again, on their own routes
-        // rather than as further branches inside Home.
+        // The three roles the dashboard used to serve alongside Admin. Each has
+        // a workspace of its own now, on its own route rather than as further
+        // branches inside Home. Admin is resolved above, so an administrator
+        // carrying one of these roles still reaches the dashboard.
         if (isInRole(UserRoles.Cashier))
         {
             return CashierDashboard;
@@ -100,15 +105,9 @@ public static class RoleLandingRoutes
             return StockDashboard;
         }
 
-        // The manager was served by the dashboard until it narrowed to an
-        // administrator's page, and lands on the page they work from until they
-        // have a workspace too — see docs/role-dashboards-plan.md. Admin is
-        // resolved above, so an administrator carrying the role still reaches
-        // the dashboard.
-
         if (isInRole(UserRoles.Manager))
         {
-            return "/reports";
+            return ManagerDashboard;
         }
 
         return Fallback;
