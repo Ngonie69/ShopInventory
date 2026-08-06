@@ -11,17 +11,21 @@ public sealed class GetStockSummaryHandler(
     ILogger<GetStockSummaryHandler> logger
 ) : IRequestHandler<GetStockSummaryQuery, ErrorOr<StockSummaryReportDto>>
 {
-    private static readonly TimeSpan ReportTimeout = TimeSpan.FromMinutes(5);
-
     public async Task<ErrorOr<StockSummaryReportDto>> Handle(
         GetStockSummaryQuery request,
         CancellationToken cancellationToken)
     {
         try
         {
-            using var cts = new CancellationTokenSource(ReportTimeout);
+            using var cts = ReportDeadline.Start(cancellationToken);
             var result = await reportService.GetStockSummaryAsync(request.WarehouseCode, cts.Token);
             return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller hung up. Nobody is waiting for an answer, so this is not a timeout and
+            // not a fault: let RequestCanceledExceptionHandler answer 499 and log its one line.
+            throw;
         }
         catch (OperationCanceledException)
         {

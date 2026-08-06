@@ -158,6 +158,84 @@ public sealed class PodDuplicateUploadTests : IDisposable
         Assert.Single(Directory.GetFiles(Path.Combine(_uploadPath, "attachments", "Invoice", "2148037")));
     }
 
+    /// <summary>
+    /// The last-resort guard, for the client that defeats both of the ones above it.
+    /// </summary>
+    /// <remarks>
+    /// On 2026-08-06 the mobile app produced a differently encoded file per tap, so the content
+    /// hash matched nothing while seven invoices took a second POD 2 to 10 seconds after the first.
+    /// Time is the only key left when the caller varies both its reference and its bytes.
+    /// <see cref="ShopInventory.Features.Invoices.Commands.UploadPod.UploadPodHandler"/> asks with a
+    /// 15-second window.
+    /// </remarks>
+    [Fact]
+    public async Task A_second_upload_by_the_same_driver_inside_the_window_finds_the_first()
+    {
+        var service = CreateService();
+        var driver = await GivenUploaderAsync("tanaka");
+
+        var first = await UploadAsync(service, PodPhoto(seed: 1), externalReference: null, userId: driver);
+
+        // The handler asks before it stores, so this is the state the second tap arrives into. Its
+        // bytes differ from the first and it carries no reference, so neither guard above this one
+        // can see it.
+        var found = await service.FindRecentAttachmentByUploaderAsync(
+            "Invoice", 2148037, driver, TimeSpan.FromSeconds(15));
+
+        Assert.NotNull(found);
+        Assert.Equal(first.Id, found!.Id);
+    }
+
+    [Fact]
+    public async Task An_upload_older_than_the_window_is_left_alone()
+    {
+        var service = CreateService();
+        var driver = await GivenUploaderAsync("tanaka");
+
+        var first = await UploadAsync(service, PodPhoto(seed: 1), externalReference: null, userId: driver);
+
+        // A driver photographing a genuine second page cannot do it in fifteen seconds, so anything
+        // this far out is a real second POD and must survive.
+        await AgeAttachmentAsync(first.Id, TimeSpan.FromMinutes(9));
+
+        var found = await service.FindRecentAttachmentByUploaderAsync(
+            "Invoice", 2148037, driver, TimeSpan.FromSeconds(15));
+
+        Assert.Null(found);
+    }
+
+    [Fact]
+    public async Task A_second_driver_uploading_the_same_invoice_is_not_a_re_submission()
+    {
+        var service = CreateService();
+        var driver = await GivenUploaderAsync("tanaka");
+        var podOperator = await GivenUploaderAsync("chipo");
+
+        await UploadAsync(service, PodPhoto(seed: 1), externalReference: null, userId: driver);
+
+        // Two people can legitimately attach to one invoice — the POD report reports the uploaders
+        // as a list precisely because that happens.
+        var found = await service.FindRecentAttachmentByUploaderAsync(
+            "Invoice", 2148037, podOperator, TimeSpan.FromSeconds(15));
+
+        Assert.Null(found);
+    }
+
+    [Fact]
+    public async Task A_recent_upload_on_another_invoice_is_not_a_re_submission()
+    {
+        var service = CreateService();
+        var driver = await GivenUploaderAsync("tanaka");
+
+        // A bulk POD run walks invoices back to back, so the previous upload is always seconds old.
+        await UploadAsync(service, PodPhoto(seed: 1), externalReference: null, userId: driver, entityId: 2148037);
+
+        var found = await service.FindRecentAttachmentByUploaderAsync(
+            "Invoice", 2148673, driver, TimeSpan.FromSeconds(15));
+
+        Assert.Null(found);
+    }
+
     private static byte[] PodPhoto(int seed = 0)
     {
         // A PDF rather than an image: the image path re-encodes through ImageSharp, and this test
@@ -170,7 +248,8 @@ public sealed class PodDuplicateUploadTests : IDisposable
         DocumentService service,
         byte[] content,
         string? externalReference,
-        int entityId = 2148037)
+        int entityId = 2148037,
+        Guid? userId = null)
     {
         using var stream = new MemoryStream(content);
         return await service.UploadAttachmentAsync(
@@ -185,7 +264,27 @@ public sealed class PodDuplicateUploadTests : IDisposable
             stream,
             "POD_delivery.pdf",
             "application/pdf",
-            userId: null);
+            userId);
+    }
+
+    /// <summary>An uploader row, since the attachment's UploadedByUserId is a real foreign key.</summary>
+    private async Task<Guid> GivenUploaderAsync(string username)
+    {
+        var id = Guid.NewGuid();
+        _context.Users.Add(new ShopInventory.Models.User
+        {
+            Id = id,
+            Username = username,
+            FirstName = username,
+            LastName = "Tester",
+            Email = $"{username}@example.com",
+            PasswordHash = "x",
+            Role = "Driver",
+            IsActive = true
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        return id;
     }
 
     private async Task<int> CountAttachmentsAsync() =>

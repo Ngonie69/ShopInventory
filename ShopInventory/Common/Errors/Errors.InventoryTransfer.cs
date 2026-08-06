@@ -30,6 +30,19 @@ public static partial class Errors
         public static Error SapTimeout =>
             Error.Failure("InventoryTransfer.SapTimeout", "Connection to SAP Service Layer timed out or was aborted.");
 
+        /// <summary>
+        /// The post was already in flight when it failed, so SAP may hold the document.
+        /// </summary>
+        /// <remarks>
+        /// Distinct from <see cref="SapTimeout"/>, which is safe to retry because it can only be
+        /// raised before anything was sent. This one must not read as "try again": the retry is
+        /// how a lost reply becomes two transfer requests for the same movement.
+        /// </remarks>
+        public static Error SapPostUncertain =>
+            Error.Failure(
+                "InventoryTransfer.SapPostUncertain",
+                "The transfer request was sent to SAP but the reply was lost. Check SAP for the document before creating it again.");
+
         public static Error SapConnectionError(string message) =>
             Error.Failure("InventoryTransfer.SapConnectionError", $"Unable to connect to SAP Service Layer. {message}");
 

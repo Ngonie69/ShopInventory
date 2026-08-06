@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using ErrorOr;
 using MediatR;
 using ShopInventory.Web.Common.Errors;
+using ShopInventory.Web.Common.Http;
 
 namespace ShopInventory.Web.Features.Reports.Queries.GetItemVolumeSalesReport;
 
@@ -64,10 +65,19 @@ public sealed class GetItemVolumeSalesReportHandler(
                     (int)response.StatusCode,
                     body);
 
+                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                {
+                    return Errors.Report.LoadItemVolumeSalesFailed(
+                        "Your session could not access the item volume report. Refresh and try again.");
+                }
+
+                // The API answers a timed-out run with the one message that tells the user what to
+                // do about it — narrow the range. Replacing that with a generic failure was why a
+                // report that had simply asked SAP for too much read as a broken page.
+                var reason = ProblemDetailReader.ReadMessage(body);
+
                 return Errors.Report.LoadItemVolumeSalesFailed(
-                    response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
-                        ? "Your session could not access the item volume report. Refresh and try again."
-                        : "Failed to load the item volume report.");
+                    string.IsNullOrWhiteSpace(reason) ? "Failed to load the item volume report." : reason);
             }
 
             var result = await response.Content.ReadFromJsonAsync<GetItemVolumeSalesReportResult>(
