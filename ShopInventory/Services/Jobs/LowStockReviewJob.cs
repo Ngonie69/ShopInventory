@@ -77,10 +77,13 @@ public sealed class LowStockReviewJob : IJob
         }
 
         _logger.LogWarning(
-            "Morning low stock review: {TotalAlerts} item/warehouse line(s) low ({CriticalCount} critical, {WarningCount} warning)",
+            "Morning low stock review: {TotalAlerts} item/warehouse line(s) low ({CriticalCount} critical, " +
+            "{WarningCount} warning); {UnstockedCount} line(s) below the threshold were left out as not " +
+            "handled by the warehouse",
             report.TotalAlerts,
             report.CriticalCount,
-            report.WarningCount);
+            report.WarningCount,
+            report.UnstockedLinesIgnored);
 
         var notificationService = scope.ServiceProvider.GetRequiredService<INotificationService>();
 

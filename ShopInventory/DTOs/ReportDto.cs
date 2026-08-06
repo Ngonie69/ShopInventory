@@ -178,6 +178,18 @@ public class LowStockAlertReportDto
     public int TotalAlerts { get; set; }
     public int CriticalCount { get; set; }
     public int WarningCount { get; set; }
+
+    /// <summary>
+    /// Item/warehouse lines below the threshold that were left out because the warehouse does not
+    /// handle the item: nothing on hand, nothing committed, nothing on order.
+    /// </summary>
+    /// <remarks>
+    /// Expected to be large, and worth reporting rather than hiding — SAP holds a row for every
+    /// item in every warehouse, so this counts the pairings that have never happened. It stood at
+    /// 490,100 the morning this scoping was added, against 480 real alerts.
+    /// </remarks>
+    public int UnstockedLinesIgnored { get; set; }
+
     public List<LowStockItemDto> Items { get; set; } = new();
 }
 
