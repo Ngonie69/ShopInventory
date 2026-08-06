@@ -557,6 +557,13 @@
     padding: 0 var(--mox-s8) var(--mox-s6);
 }
 
+/* The shells are sized by hand in the markup; without this a control with an
+   intrinsic minimum (a select trigger, a date field) would win over the width
+   and overlap its neighbour. */
+.mox-field {
+    min-width: 0;
+}
+
 .mox-field > label {
     display: block;
     font-size: 11.5px;
@@ -579,6 +586,10 @@
     --nsel-edge: var(--mox-field-edge);
     --nsel-edge-hi: var(--mox-field-edge-hi);
     --nsel-radius: var(--mox-r-md);
+    /* The trigger's stock 150px floor is wider than the shells this page sizes
+       by hand, so it overran the field beside it. The widths here are the
+       `.mox-field` ones; the menu keeps its own min-width off the trigger. */
+    --nsel-min-w: 0;
 }
 
 .mox .mox-input,
