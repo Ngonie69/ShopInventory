@@ -20,7 +20,9 @@ namespace ShopInventory.Tests;
 ///
 /// That is not hypothetical: "ProductCatalog" was written for Merchandisers for its whole life and
 /// was in none of the lists, so no Merchandiser ever saw a catalogue change, and no Admin did
-/// either — the admin branch matches a role-targeted row only when the admin holds that role.
+/// either — the admin branch matches a role-targeted row only when the admin holds that role. It
+/// is no longer written at all: a catalogue change turned out to be a signal for the merchandiser
+/// app rather than news for the merchandiser, and goes out as a data-only push instead.
 /// </summary>
 public sealed class NotificationVisibilityTests : IDisposable
 {
@@ -70,7 +72,6 @@ public sealed class NotificationVisibilityTests : IDisposable
         "Invoice",
         "LowStock",
         "POD",
-        "ProductCatalog",
         "PurchaseInvoice",
         "PurchaseOrder",
         "PurchaseQuotation",
@@ -99,26 +100,6 @@ public sealed class NotificationVisibilityTests : IDisposable
             $"Category \"{category}\" is written by a producer but appears in no *BroadcastCategories " +
             "list, so BuildVisibleNotificationsQuery will hide it from every non-admin and from any " +
             "admin who does not hold its target role. Add it to the list whose audience should see it.");
-    }
-
-    [Fact]
-    public async Task ProductCatalogNotificationReachesAMerchandiser()
-    {
-        await _service.CreateNotificationAsync(new CreateNotificationRequest
-        {
-            Title = "Product catalog updated",
-            Message = "Item ABC123 was activated.",
-            Type = "Info",
-            Category = "ProductCatalog",
-            EntityType = "ProductCatalog",
-            EntityId = "ABC123",
-            TargetRole = "Merchandiser"
-        });
-
-        var visible = await _service.GetNotificationsAsync("mmoyo", ["Merchandiser"]);
-
-        Assert.Equal(1, visible.TotalCount);
-        Assert.Equal("Product catalog updated", visible.Notifications.Single().Title);
     }
 
     /// <summary>
@@ -212,6 +193,9 @@ public sealed class NotificationVisibilityTests : IDisposable
             => Task.FromResult(0);
 
         public Task<int> SendToRoleAsync(string role, string title, string body, Dictionary<string, string>? data = null, CancellationToken ct = default)
+            => Task.FromResult(0);
+
+        public Task<int> SendSilentDataToRoleAsync(string role, Dictionary<string, string> data, CancellationToken ct = default)
             => Task.FromResult(0);
 
         public Task<int> SendToAllAsync(string title, string body, Dictionary<string, string>? data = null, CancellationToken ct = default)

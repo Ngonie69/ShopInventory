@@ -14,8 +14,10 @@ public static class NotificationAudienceRules
     // Every category a producer writes must appear in one of these lists. The non-admin branch of
     // BuildVisibleNotificationsQuery admits a row only if its category matches a list the viewer's
     // roles can see, so an unlisted category is stored and then shown to nobody — which is what
-    // happened to "ProductCatalog" for its whole life.
-    public static readonly string[] ProductCatalogBroadcastCategories = ["ProductCatalog"];
+    // happened to "ProductCatalog" for its whole life. That category is gone rather than fixed: a
+    // catalogue change is a signal the merchandiser app acts on, not news for the merchandiser, and
+    // it now goes out as a data-only push (see ProductCatalogChangedNotificationHandler). Rows
+    // written before that are no longer shown to anyone and expire on their own within 30 days.
     public static readonly string[] AppVersionBroadcastCategories = ["AppVersion"];
     public static readonly string[] LabBroadcastCategories = ["Lab", "Batch", "BatchStatus"];
 
@@ -44,6 +46,28 @@ public static class NotificationAudienceRules
     public static readonly string[] LabAudienceRoles = ["Admin", "Lab"];
     public static readonly string[] AdminAudienceRoles = ["Admin"];
 
+    /// <summary>
+    /// Roles that receive only notifications addressed to them — by username, or to their own role
+    /// — and never a broadcast sent to whoever happens to be in an audience.
+    /// </summary>
+    /// <remarks>
+    /// Merchandiser is a mobile-only role. What a merchandiser is answerable for is the orders they
+    /// submitted, and that is what their app shows them; a company-wide broadcast on that phone is
+    /// noise at best, and at worst an alert about a page the app does not have. Membership of
+    /// <see cref="SalesAudienceRoles"/> and the rest still stands, because a notification addressed
+    /// to a merchandiser personally — their own order posting, failing, being held — has to pass the
+    /// same category filter as any other. This narrows who a broadcast goes out to, not what an
+    /// addressed notification may say.
+    /// </remarks>
+    public static readonly string[] AddressedOnlyRoles = ["Merchandiser"];
+
+    /// <summary>
+    /// Whether these roles are sent notifications addressed to nobody in particular. Both halves of
+    /// delivery have to ask: <see cref="GetBroadcastAudienceRoles"/> for the push and the SignalR
+    /// groups, and the visibility query for the list.
+    /// </summary>
+    public static bool ReceivesBroadcasts(IEnumerable<string>? roles) => !HasAnyRole(roles, AddressedOnlyRoles);
+
     public static string[] NormalizeRoles(IEnumerable<string>? roles) =>
         (roles ?? [])
             .Where(role => !string.IsNullOrWhiteSpace(role))
@@ -60,17 +84,58 @@ public static class NotificationAudienceRules
             normalizedRoles.Any(role => string.Equals(role, allowedRole, StringComparison.OrdinalIgnoreCase)));
     }
 
+    /// <summary>
+    /// Who a broadcast — a notification with neither a target user nor a target role — is delivered
+    /// to, over SignalR and mobile push.
+    /// </summary>
+    /// <remarks>
+    /// This has to agree with <c>NotificationService.BuildVisibleNotificationsQuery</c>, which
+    /// admits a broadcast to a non-admin only when both of its filters pass: the category is one the
+    /// viewer's roles can see, <em>and</em> the action URL is a route they can open. Returning the
+    /// action-URL audience on its own — which is what this did — delivered rows to roles the list
+    /// then hid from them.
+    ///
+    /// The morning low-stock sweep is the case that reached production: category "LowStock" with
+    /// ActionUrl "/stock" resolved to the Catalogue audience, which includes Merchandiser, so every
+    /// merchandiser's phone rang at 07:30 with a stock-control alert that never appeared in their
+    /// notification list. The route decides which roles may follow the link; it cannot widen the
+    /// audience past the ones the category is for.
+    ///
+    /// Admins are always included, because the query shows them every untargeted broadcast — and
+    /// because that keeps this non-empty, which is what stops <c>CreateNotificationAsync</c> falling
+    /// through to its send-to-everyone branch. <see cref="AddressedOnlyRoles"/> are always dropped:
+    /// they are sent what is addressed to them and nothing else.
+    /// </remarks>
     public static string[] GetBroadcastAudienceRoles(string? category, string? actionUrl = null)
     {
-        var actionAudience = GetActionUrlAudienceRoles(actionUrl);
-        if (actionAudience.Length > 0)
-        {
-            return actionAudience;
-        }
+        var categoryAudience = GetCategoryAudienceRoles(category);
 
+        // No action URL leaves the category audience alone: the query's route filter admits a row
+        // with no ActionUrl to everyone. A URL that matches no route rule narrows the audience to
+        // nothing, because that same filter admits an unrecognised route to no non-admin either.
+        var audience = string.IsNullOrWhiteSpace(actionUrl)
+            ? categoryAudience
+            : Intersect(categoryAudience, GetActionUrlAudienceRoles(actionUrl));
+
+        return AdminAudienceRoles
+            .Concat(audience.Where(role => ReceivesBroadcasts([role])))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string[] Intersect(string[] left, string[] right) =>
+        left.Where(role => right.Contains(role, StringComparer.OrdinalIgnoreCase)).ToArray();
+
+    /// <summary>
+    /// The roles a category is written for, matching the category filter in
+    /// <c>BuildVisibleNotificationsQuery</c>. A category in no list belongs to no one but Admin,
+    /// which is exactly how the query treats it.
+    /// </summary>
+    public static string[] GetCategoryAudienceRoles(string? category)
+    {
         if (string.IsNullOrWhiteSpace(category))
         {
-            return AdminAudienceRoles;
+            return [];
         }
 
         if (SecurityBroadcastCategories.Contains(category, StringComparer.OrdinalIgnoreCase))
@@ -123,12 +188,7 @@ public static class NotificationAudienceRules
             return LabAudienceRoles;
         }
 
-        if (ProductCatalogBroadcastCategories.Contains(category, StringComparer.OrdinalIgnoreCase))
-        {
-            return CatalogueAudienceRoles;
-        }
-
-        return AdminAudienceRoles;
+        return [];
     }
 
     public static bool CategoryRequiresActionUrl(string? category)
