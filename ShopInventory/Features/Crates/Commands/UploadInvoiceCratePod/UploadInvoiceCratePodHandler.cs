@@ -49,6 +49,10 @@ public sealed class UploadInvoiceCratePodHandler(
             invoiceDocNum.Value,
             ensureResult.Value.Id);
 
+        // ClientRequestId has to travel with it: UploadCratePodHandler only consults the durable
+        // idempotency store when it has one, and IdempotencyMiddleware stands aside for this route
+        // on the understanding that the handler owns the replay. Dropping the key here would leave
+        // neither guard active.
         return await mediator.Send(
             new UploadCratePod.UploadCratePodCommand(
                 ensureResult.Value.Id,
@@ -58,7 +62,8 @@ public sealed class UploadInvoiceCratePodHandler(
                 command.FileStream,
                 command.FileName,
                 command.ContentType,
-                command.UserId),
+                command.UserId,
+                command.ClientRequestId),
             cancellationToken);
     }
 }
