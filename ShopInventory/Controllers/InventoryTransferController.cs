@@ -82,7 +82,9 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     #region Pending (approval-held) Transfer Endpoints
 
     /// <summary>
-    /// Lists direct inventory transfers held for approval. Defaults to those still awaiting a decision.
+    /// Lists direct inventory transfers held for approval. Defaults to those still awaiting a
+    /// decision; <paramref name="fromDate"/> and <paramref name="toDate"/> bound when they were
+    /// raised, both inclusive.
     /// </summary>
     [HttpGet("pending")]
     [ProducesResponseType(typeof(PendingInventoryTransferListResponseDto), StatusCodes.Status200OK)]
@@ -92,6 +94,8 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
         [FromQuery] bool mineOnly = false,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
         CancellationToken cancellationToken = default)
     {
         var userId = UserClaimReader.GetUserId(User);
@@ -99,7 +103,8 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
             return Unauthorized();
 
         var result = await mediator.Send(
-            new GetPendingTransfersQuery(userId.Value, status, warehouseCode, mineOnly, page, pageSize), cancellationToken);
+            new GetPendingTransfersQuery(userId.Value, status, warehouseCode, mineOnly, page, pageSize, fromDate, toDate),
+            cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

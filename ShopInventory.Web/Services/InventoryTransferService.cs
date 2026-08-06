@@ -19,7 +19,12 @@ public interface IInventoryTransferService
     Task<(bool Success, string Message, InventoryTransferDto? Transfer, PendingInventoryTransferDto? PendingTransfer)> CreateInventoryTransferAsync(CreateInventoryTransferDto request);
 
     // Direct transfers held for approval
-    Task<PendingInventoryTransferListResponse?> GetPendingTransfersAsync(string? status = null, string? warehouseCode = null, bool mineOnly = false, int page = 1, int pageSize = 20);
+    /// <summary>
+    /// Transfers held for approval. <paramref name="fromDate"/> and <paramref name="toDate"/> bound
+    /// when they were raised, both inclusive, so a caller after nothing but a count can ask for one
+    /// row and read <c>TotalCount</c>.
+    /// </summary>
+    Task<PendingInventoryTransferListResponse?> GetPendingTransfersAsync(string? status = null, string? warehouseCode = null, bool mineOnly = false, int page = 1, int pageSize = 20, DateTime? fromDate = null, DateTime? toDate = null);
     Task<PendingInventoryTransferDto?> GetPendingTransferAsync(Guid id);
     Task<(bool Success, string Message, InventoryTransferDto? Transfer)> DecidePendingTransferAsync(Guid id, string decision, Guid? stageId = null, string? remarks = null);
     Task<(bool Success, string Message, InventoryTransferDto? Transfer)> RetryPendingTransferPostAsync(Guid id);
@@ -348,7 +353,8 @@ public class InventoryTransferService : IInventoryTransferService
     #region Pending (approval-held) Transfer Operations
 
     public async Task<PendingInventoryTransferListResponse?> GetPendingTransfersAsync(
-        string? status = null, string? warehouseCode = null, bool mineOnly = false, int page = 1, int pageSize = 20)
+        string? status = null, string? warehouseCode = null, bool mineOnly = false, int page = 1, int pageSize = 20,
+        DateTime? fromDate = null, DateTime? toDate = null)
     {
         try
         {
@@ -359,6 +365,10 @@ public class InventoryTransferService : IInventoryTransferService
                 query.Add($"warehouseCode={Uri.EscapeDataString(warehouseCode)}");
             if (mineOnly)
                 query.Add("mineOnly=true");
+            if (fromDate.HasValue)
+                query.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+            if (toDate.HasValue)
+                query.Add($"toDate={toDate.Value:yyyy-MM-dd}");
 
             return await _httpClient.GetFromJsonAsync<PendingInventoryTransferListResponse>(
                 $"api/inventorytransfer/pending?{string.Join("&", query)}");

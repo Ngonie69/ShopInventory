@@ -10,6 +10,12 @@
    Trading stays, demoted to "Today so far": still worth a glance, but no longer
    what the page is about. The Manager dashboard picks it up properly.
 
+   "Today so far" also carries the day's document flow — mobile orders, sales
+   orders, invoices and transfers — one card each, every count scoped to today
+   and every card a link to the list behind it. The second figure on a document
+   card is the part of that day's intake that has not finished moving: unpriced
+   mobile orders, unapproved sales orders, transfers not yet in SAP.
+
    Dressed from `Operations Dashboard.dc.html` in wwwroot/css/operations-dashboard.css,
    which is this page's own sheet — the `.dsh` rules it used to share belong to
    the sales-rep dashboard at the same route, and this design changes the
@@ -208,8 +214,60 @@
                 <span class="opd-band-rule" aria-hidden="true"></span>
             </div>
 
+            @* Every card counts a list that lives on another page, so every card
+               is the way through to it. The four document cards lead: they are
+               the day's work moving through the system, and each one's second
+               figure says how much of it has not finished moving. *@
             <div class="opd-today">
-                <div class="opd-fig">
+                <a class="opd-fig" href="/mobile-drafts">
+                    <div class="opd-fig-top">
+                        <span class="opd-fig-mark" aria-hidden="true"></span>
+                        <span class="opd-fig-label">Mobile orders</span>
+                        <span class="opd-fig-glyph" aria-hidden="true"><DashIcon Name="phone" Size="15" /></span>
+                    </div>
+                    <div class="opd-fig-line">
+                        <span class="opd-fig-value">@Figure(todayMobileOrderCount)</span>
+                        @if (MobileReviewNote is { } mobileNote)
+                        {
+                            <span class="opd-fig-amount">@mobileNote</span>
+                        }
+                    </div>
+                    @if (mobileOrderTrend.Text is { Length: > 0 } mobileTrendText)
+                    {
+                        <div class="opd-fig-foot">
+                            <span class="opd-fig-trend">
+                                <DashIcon Name="@TrendIcon(mobileOrderTrend.Direction)" Size="14" />
+                                @mobileTrendText
+                            </span>
+                        </div>
+                    }
+                </a>
+
+                <a class="opd-fig" href="/sales-orders">
+                    <div class="opd-fig-top">
+                        <span class="opd-fig-mark" aria-hidden="true"></span>
+                        <span class="opd-fig-label">Sales orders</span>
+                        <span class="opd-fig-glyph" aria-hidden="true"><DashIcon Name="cart" Size="15" /></span>
+                    </div>
+                    <div class="opd-fig-line">
+                        <span class="opd-fig-value">@Figure(todaySalesOrderCount)</span>
+                        @if (SalesOrderApprovalNote is { } salesOrderNote)
+                        {
+                            <span class="opd-fig-amount">@salesOrderNote</span>
+                        }
+                    </div>
+                    @if (salesOrderTrend.Text is { Length: > 0 } salesOrderTrendText)
+                    {
+                        <div class="opd-fig-foot">
+                            <span class="opd-fig-trend">
+                                <DashIcon Name="@TrendIcon(salesOrderTrend.Direction)" Size="14" />
+                                @salesOrderTrendText
+                            </span>
+                        </div>
+                    }
+                </a>
+
+                <a class="opd-fig" href="/invoices">
                     <div class="opd-fig-top">
                         <span class="opd-fig-mark" aria-hidden="true"></span>
                         <span class="opd-fig-label">Invoices raised</span>
@@ -228,9 +286,37 @@
                             </span>
                         </div>
                     }
-                </div>
+                </a>
 
-                <div class="opd-fig">
+                @* Transfers raised through this app. One raised in SAP directly
+                   never passes through the approval queue this counts, and there
+                   is no company-wide read of those — the SAP-side list is asked
+                   for one warehouse at a time. *@
+                <a class="opd-fig" href="/inventory-transfers">
+                    <div class="opd-fig-top">
+                        <span class="opd-fig-mark" aria-hidden="true"></span>
+                        <span class="opd-fig-label">Transfers</span>
+                        <span class="opd-fig-glyph" aria-hidden="true"><DashIcon Name="swap" Size="15" /></span>
+                    </div>
+                    <div class="opd-fig-line">
+                        <span class="opd-fig-value">@Figure(todayTransferCount)</span>
+                        @if (TransferPostedNote is { } transferNote)
+                        {
+                            <span class="opd-fig-amount">@transferNote</span>
+                        }
+                    </div>
+                    @if (transferTrend.Text is { Length: > 0 } transferTrendText)
+                    {
+                        <div class="opd-fig-foot">
+                            <span class="opd-fig-trend">
+                                <DashIcon Name="@TrendIcon(transferTrend.Direction)" Size="14" />
+                                @transferTrendText
+                            </span>
+                        </div>
+                    }
+                </a>
+
+                <a class="opd-fig" href="/payments">
                     <div class="opd-fig-top">
                         <span class="opd-fig-mark" aria-hidden="true"></span>
                         <span class="opd-fig-label">Payments received</span>
@@ -249,7 +335,7 @@
                             </span>
                         </div>
                     }
-                </div>
+                </a>
 
                 @* The design foots this card with the names of the people who
                    signed in. There is no read that returns them — the activity
@@ -257,7 +343,7 @@
                    are the latest actions, not the day's roll. So the foot
                    carries what was actually asked for: how much they did, and
                    how much of it failed. *@
-                <div class="opd-fig">
+                <a class="opd-fig" href="/user-activity">
                     <div class="opd-fig-top">
                         <span class="opd-fig-mark" aria-hidden="true"></span>
                         <span class="opd-fig-label">People active</span>
@@ -274,7 +360,7 @@
                             @actionsNote
                         </div>
                     }
-                </div>
+                </a>
             </div>
         </section>
 
