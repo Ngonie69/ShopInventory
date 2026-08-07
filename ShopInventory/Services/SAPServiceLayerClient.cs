@@ -2890,23 +2890,36 @@ ORDER BY T0.""ItemCode""";
                 ? $"SQLQueries('{queryCode}')/List"
                 : $"SQLQueries('{queryCode}')/List?$skip={skip}";
 
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                return request;
+            }
 
-            var response = await _httpClient.SendAsync(request, cancellationToken);
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read all item codes for warehouse {warehouseCode} from row {skip}",
+                cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
 
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-                response = await _httpClient.SendAsync(request, cancellationToken);
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"read all item codes for warehouse {warehouseCode} from row {skip} after SAP re-authentication",
+                    cancellationToken);
             }
+
+            using var responseOwner = response;
 
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
@@ -3058,23 +3071,36 @@ ORDER BY T0.""ItemCode""";
             ? $"SQLQueries('{queryCode}')/List"
             : $"SQLQueries('{queryCode}')/List?$skip={skip}";
 
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+        HttpRequestMessage CreateRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+            return request;
+        }
 
-        var response = await _httpClient.SendAsync(request, cancellationToken);
+        var response = await SendSapRequestWithTransientRetryAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            $"read item codes for warehouse {warehouseCode} from row {skip}",
+            cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response.Dispose();
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-            response = await _httpClient.SendAsync(request, cancellationToken);
+            response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read item codes for warehouse {warehouseCode} from row {skip} after SAP re-authentication",
+                cancellationToken);
         }
+
+        using var responseOwner = response;
 
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
@@ -3463,21 +3489,35 @@ ORDER BY T0.""ItemCode""";
             // Execute the query
             var url = $"SQLQueries('{queryCode}')/List";
 
-            var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                return request;
+            }
 
-            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read batch numbers for {itemCode} in warehouse {warehouseCode}",
+                cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
 
-                httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"read batch numbers for {itemCode} in warehouse {warehouseCode} after SAP re-authentication",
+                    cancellationToken);
             }
+
+            using var responseOwner = response;
 
             // Handle 404 as no results found (empty batch list)
             if (response.StatusCode == HttpStatusCode.NotFound)
@@ -3737,24 +3777,37 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
         {
             var url = $"SQLQueries('{queryCode}')/List?{parameterQuery}$skip={skip}";
 
-            var currentSession = _sessionId;
-            var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", "odata.maxpagesize=500");
+                return request;
+            }
 
-            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            var currentSession = _sessionId;
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"search batches with SQL query '{queryCode}' from row {skip}",
+                cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
 
-                httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
-                response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"search batches with SQL query '{queryCode}' from row {skip} after SAP re-authentication",
+                    cancellationToken);
             }
+
+            using var responseOwner = response;
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -3883,24 +3936,37 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
         {
             var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
 
-            var currentSession = _sessionId;
-            var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", "odata.maxpagesize=500");
+                return request;
+            }
 
-            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            var currentSession = _sessionId;
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read batch numbers for warehouse {warehouseCode} from row {skip}",
+                cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
 
-                httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
-                response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"read batch numbers for warehouse {warehouseCode} from row {skip} after SAP re-authentication",
+                    cancellationToken);
             }
+
+            using var responseOwner = response;
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -3971,21 +4037,35 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
             // Execute the query
             var url = $"SQLQueries('{queryCode}')/List";
 
-            var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                return request;
+            }
 
-            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read serial numbers for {itemCode} in warehouse {warehouseCode}",
+                cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
 
-                httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"read serial numbers for {itemCode} in warehouse {warehouseCode} after SAP re-authentication",
+                    cancellationToken);
             }
+
+            using var responseOwner = response;
 
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
@@ -4425,24 +4505,37 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
         {
             var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
 
-            var currentSession = _sessionId;
-            var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", "odata.maxpagesize=500");
+                return request;
+            }
 
-            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            var currentSession = _sessionId;
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read prices from SQL query '{queryCode}' from row {skip}",
+                cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
 
-                httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
-                response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"read prices from SQL query '{queryCode}' from row {skip} after SAP re-authentication",
+                    cancellationToken);
             }
+
+            using var responseOwner = response;
 
             var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -4498,24 +4591,37 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
         {
             var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
 
-            var currentSession = _sessionId;
-            var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", "odata.maxpagesize=500");
+                return request;
+            }
 
-            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            var currentSession = _sessionId;
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"execute stored SQL query '{queryCode}' from row {skip}",
+                cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
 
-                httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
-                response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"execute stored SQL query '{queryCode}' from row {skip} after SAP re-authentication",
+                    cancellationToken);
             }
+
+            using var responseOwner = response;
 
             var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -6061,21 +6167,35 @@ ORDER BY T0.""ItemCode""";
 
         var url = $"SQLQueries('{queryCode}')/List";
 
-        var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-        httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        HttpRequestMessage CreateRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return request;
+        }
 
-        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        var response = await SendSapRequestWithTransientRetryAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            $"read price for {itemCode} in list {priceListNum}",
+            cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response.Dispose();
 
-            httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read price for {itemCode} in list {priceListNum} after SAP re-authentication",
+                cancellationToken);
         }
+
+        using var responseOwner = response;
 
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
@@ -7230,65 +7350,54 @@ ORDER BY T0.""ItemCode""";
         // Execute and apply OData pagination on results (this is the key!)
         var url = $"SQLQueries('{queryCode}')/List?$skip={skip}&$top={pageSize}";
 
-        // Retry up to 2 times for transient I/O failures (stale pooled connections)
-        const int maxRetries = 2;
-        for (int attempt = 0; attempt <= maxRetries; attempt++)
+        HttpRequestMessage CreateRequest()
         {
-            try
-            {
-                var currentSession = _sessionId;
-                var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-
-                var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-
-                if (response.StatusCode == HttpStatusCode.Unauthorized)
-                {
-                    await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                    httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                    httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                    httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                    httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-                    response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-                }
-
-                var content = await response.Content.ReadAsStringAsync(cancellationToken);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogError("Failed to get stock via simple query: {StatusCode} - {Error}",
-                        response.StatusCode, content);
-                    throw new Exception($"Failed to get stock quantities: {response.StatusCode} - {content}");
-                }
-
-                return ParseStockQuantitiesFromSqlResult(content);
-            }
-            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested && attempt < maxRetries)
-            {
-                // Connection was aborted (stale TCP connection from pool), retry
-                _logger.LogWarning(ex, "Stock query attempt {Attempt} failed due to connection abort for warehouse {WarehouseCode}, retrying...",
-                    attempt + 1, warehouseCode);
-                await Task.Delay(500 * (attempt + 1), cancellationToken); // Brief backoff
-            }
-            catch (IOException ex) when (attempt < maxRetries)
-            {
-                _logger.LogWarning(ex, "Stock query attempt {Attempt} failed due to I/O error for warehouse {WarehouseCode}, retrying...",
-                    attempt + 1, warehouseCode);
-                await Task.Delay(500 * (attempt + 1), cancellationToken);
-            }
-            catch (HttpRequestException ex) when (attempt < maxRetries)
-            {
-                _logger.LogWarning(ex, "Stock query attempt {Attempt} failed due to HTTP error for warehouse {WarehouseCode}, retrying...",
-                    attempt + 1, warehouseCode);
-                await Task.Delay(500 * (attempt + 1), cancellationToken);
-            }
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+            return request;
         }
 
-        // Should not reach here, but just in case
-        throw new Exception($"Failed to get stock quantities for warehouse {warehouseCode} after {maxRetries + 1} attempts");
+        // This method used to carry its own retry loop — three attempts, 500ms steps, catching
+        // TaskCanceledException / IOException / HttpRequestException by hand. It was the only stored
+        // query in this client that retried at all, and it caught a narrower set than
+        // SapFailureClassifier does. One policy is easier to reason about than two, and this one
+        // loses nothing: everything the hand-rolled catches, the shared helper classifies as
+        // transient too.
+        var currentSession = _sessionId;
+        var response = await SendSapRequestWithTransientRetryAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            $"read stock for warehouse {warehouseCode} from row {skip}",
+            cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response.Dispose();
+
+            response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read stock for warehouse {warehouseCode} from row {skip} after SAP re-authentication",
+                cancellationToken);
+        }
+
+        using var responseOwner = response;
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogError("Failed to get stock via simple query: {StatusCode} - {Error}",
+                response.StatusCode, content);
+            throw new Exception($"Failed to get stock quantities: {response.StatusCode} - {content}");
+        }
+
+        return ParseStockQuantitiesFromSqlResult(content);
     }
 
     private async Task TryCreateSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken)
@@ -7475,14 +7584,34 @@ ORDER BY T0.""ItemCode""";
                 return request;
             }
 
+            // Retried like every other call in this client. This leg was the one exception, and it
+            // is the leg every SQL-backed report ends on: on 2026-08-07 the sales order vs invoice
+            // report lost a single TLS handshake to SAP (SocketException 10054) two minutes into a
+            // four-minute budget and answered the user a 400, while the PATCH immediately before it
+            // retried the same fault class without anyone noticing. Reads of a stored query are
+            // idempotent, so a page can be asked for again.
             var requestSession = _sessionId;
-            var response = await _httpClient.SendAsync(CreateRequest(requestSession), cancellationToken);
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                () => CreateRequest(_sessionId),
+                HttpCompletionOption.ResponseContentRead,
+                $"execute SQL query '{queryCode}' from row {skip}",
+                cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(requestSession, cancellationToken);
-                response = await _httpClient.SendAsync(CreateRequest(_sessionId), cancellationToken);
+                response.Dispose();
+
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    () => CreateRequest(_sessionId),
+                    HttpCompletionOption.ResponseContentRead,
+                    $"execute SQL query '{queryCode}' from row {skip} after SAP re-authentication",
+                    cancellationToken);
             }
+
+            using var responseOwner = response;
 
             if (!response.IsSuccessStatusCode)
             {
@@ -7668,12 +7797,50 @@ ORDER BY T0.""ItemCode""";
     /// </remarks>
     internal static bool SqlTextsAreEquivalent(string storedSqlText, string sqlText) =>
         string.Equals(
-            TrimLineEnds(NormalizeSqlText(storedSqlText)),
-            TrimLineEnds(NormalizeSqlText(sqlText)),
+            CanonicaliseForComparison(storedSqlText),
+            CanonicaliseForComparison(sqlText),
             StringComparison.Ordinal);
+
+    private static string CanonicaliseForComparison(string sqlText) =>
+        UnquoteTableNames(TrimLineEnds(NormalizeSqlText(sqlText)));
 
     private static string TrimLineEnds(string normalizedSqlText) =>
         string.Join('\n', normalizedSqlText.Split('\n').Select(line => line.TrimEnd()));
+
+    /// <summary>
+    /// Drops the quotes SAP puts around a bare table name, so a statement compares equal to the
+    /// text it was stored from.
+    /// </summary>
+    /// <remarks>
+    /// The Service Layer rewrites the statement it stores: post <c>FROM ORDR T0</c> and a later GET
+    /// returns <c>FROM "ORDR" T0</c>. Nothing else moves — column identifiers, <c>:name</c>
+    /// parameters, indentation and line structure all round-trip untouched. Confirmed 2026-08-07
+    /// against production by reading SqlText back for ORD_FULF_CUST, ORD_FULF_LINE and
+    /// STOCK_QTY_KEFBYC and diffing: quoting the bare table names made all three byte-identical,
+    /// and it was the only difference in any of them.
+    ///
+    /// Left unhandled, the probe in <see cref="EnsureSqlQueryAsync"/> could never agree with SAP,
+    /// so every code PATCHed once per <see cref="SqlQueryVerificationLifetime"/> — the slow write
+    /// against an oversized OUQR that the whole GET-first design exists to avoid.
+    ///
+    /// Only an all-uppercase identifier is unquoted, and only where it directly follows FROM or
+    /// JOIN. HANA folds an unquoted identifier to upper case, so <c>"ORDR"</c> and <c>ORDR</c> name
+    /// one table and collapsing them cannot change what the statement reads. <c>"MyTable"</c> and
+    /// <c>MyTable</c> do not name one table, and are deliberately left alone.
+    ///
+    /// This belongs here rather than in the SQL literals. <see cref="NormalizeSqlText"/> feeds
+    /// <see cref="ComputeSqlFingerprint"/>, so quoting the ~96 table names in those statements
+    /// instead would move every content-addressed code and strand a row per statement in an OUQR
+    /// where DELETE does not work. Loosening only the comparison moves no code and writes nothing.
+    /// </remarks>
+    private static string UnquoteTableNames(string normalizedSqlText) =>
+        QuotedTableNameRegex().Replace(normalizedSqlText, "$1$2$3");
+
+    // The case-insensitivity is scoped to the keyword. Applied to the whole pattern it would reach
+    // the identifier class as well, which is the one thing that must stay case-sensitive: it is
+    // what keeps "MyTable" from being collapsed onto MyTable, two different tables in HANA.
+    [GeneratedRegex(@"\b((?i:FROM|JOIN))(\s+)""([A-Z][A-Z0-9_]*)""")]
+    private static partial Regex QuotedTableNameRegex();
 
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];
@@ -7689,24 +7856,37 @@ ORDER BY T0.""ItemCode""";
         var safeWarehouse = SanitizeODataValue(warehouseCode);
         var url = $"SQLQueries('{queryCode}')/List?WhsCode='{safeWarehouse}'&$skip={skip}&$top={pageSize}";
 
-        var currentSession = _sessionId;
-        var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-        httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        HttpRequestMessage CreateRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return request;
+        }
 
-        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        var currentSession = _sessionId;
+        var response = await SendSapRequestWithTransientRetryAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            $"read stock for warehouse {warehouseCode} from row {skip}",
+            cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response.Dispose();
 
-            httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read stock for warehouse {warehouseCode} from row {skip} after SAP re-authentication",
+                cancellationToken);
         }
+
+        using var responseOwner = response;
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -7742,24 +7922,37 @@ ORDER BY T0.""ItemCode""";
         {
             var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
 
-            var currentSession = _sessionId;
-            var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", "odata.maxpagesize=500");
+                return request;
+            }
 
-            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            var currentSession = _sessionId;
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read stock for warehouse {warehouseCode} from row {skip}",
+                cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
 
-                httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
-                response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"read stock for warehouse {warehouseCode} from row {skip} after SAP re-authentication",
+                    cancellationToken);
             }
+
+            using var responseOwner = response;
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -7806,24 +7999,37 @@ ORDER BY T0.""ItemCode""";
     {
         var url = $"SQLQueries('{queryCode}')/List?$skip={skip}&$top={pageSize}";
 
-        var currentSession = _sessionId;
-        var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-        httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        HttpRequestMessage CreateRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return request;
+        }
 
-        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        var currentSession = _sessionId;
+        var response = await SendSapRequestWithTransientRetryAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            $"read stock for warehouse {warehouseCode} from row {skip}",
+            cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response.Dispose();
 
-            httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read stock for warehouse {warehouseCode} from row {skip} after SAP re-authentication",
+                cancellationToken);
         }
+
+        using var responseOwner = response;
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -7946,23 +8152,36 @@ ORDER BY T0.""ItemCode""";
 
                 _logger.LogInformation("Fetching packaging stock page at skip={Skip}, url={Url}", skip, url);
 
-                var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                httpRequest.Headers.Add("Prefer", "odata.maxpagesize=100");
+                HttpRequestMessage CreateRequest()
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                    request.Headers.Add("Prefer", "odata.maxpagesize=100");
+                    return request;
+                }
 
-                var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                var response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"read packaging material stock from row {skip}",
+                    cancellationToken);
 
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
                     await HandleAuthFailureAsync(currentSession, cancellationToken);
+                    response.Dispose();
 
-                    httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                    httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                    httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                    httpRequest.Headers.Add("Prefer", "odata.maxpagesize=100");
-                    response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                    response = await SendSapRequestWithTransientRetryAsync(
+                        _httpClient,
+                        CreateRequest,
+                        HttpCompletionOption.ResponseContentRead,
+                        $"read packaging material stock from row {skip} after SAP re-authentication",
+                        cancellationToken);
                 }
+
+                using var responseOwner = response;
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -8159,24 +8378,37 @@ ORDER BY T1."ItemCode"
         {
             var url = $"SQLQueries('{queryCode}')/List?{parameterQuery}$skip={skip}";
 
-            var currentSession = _sessionId;
-            var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", "odata.maxpagesize=500");
+                return request;
+            }
 
-            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            var currentSession = _sessionId;
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read sales for warehouse {warehouseCode} from row {skip}",
+                cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
 
-                httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
-                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
-                response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"read sales for warehouse {warehouseCode} from row {skip} after SAP re-authentication",
+                    cancellationToken);
             }
+
+            using var responseOwner = response;
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -13646,25 +13878,36 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         string parameterQuery,
         CancellationToken cancellationToken)
     {
-        var currentSession = _sessionId;
         var url = $"SQLQueries('{queryCode}')/List?{parameterQuery}".TrimEnd('?', '&');
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Headers.Add("Prefer", "odata.maxpagesize=1000");
 
-        var response = await _httpClient.SendAsync(request, cancellationToken);
+        HttpRequestMessage CreateRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            request.Headers.Add("Prefer", "odata.maxpagesize=1000");
+            return request;
+        }
+
+        var currentSession = _sessionId;
+        var response = await SendSapRequestWithTransientRetryAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            $"resolve item UoM candidates via SQL query '{queryCode}'",
+            cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
             response.Dispose();
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            request.Headers.Add("Prefer", "odata.maxpagesize=1000");
-            response = await _httpClient.SendAsync(request, cancellationToken);
+            response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"resolve item UoM candidates via SQL query '{queryCode}' after SAP re-authentication",
+                cancellationToken);
         }
 
         using var responseOwner = response;

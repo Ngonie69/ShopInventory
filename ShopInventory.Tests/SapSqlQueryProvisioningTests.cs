@@ -79,6 +79,83 @@ public class SapSqlQueryProvisioningTests
         Assert.Equal(2, sap.ProbeCount);
     }
 
+    /// <summary>
+    /// The execute leg was the one SAP call in this client that sent without the transient retry.
+    /// One reset handshake two minutes into the sales order vs invoice report's four-minute budget
+    /// therefore ended the whole report as a 400, on 2026-08-07, with plenty of budget left to ask
+    /// again.
+    /// </summary>
+    [Fact]
+    public async Task A_dropped_connection_during_execution_is_retried()
+    {
+        var sap = new FakeServiceLayer();
+        var client = CreateClient(sap);
+
+        await client.ExecuteRawSqlQueryAsync("SHOP_TEST", "Test query", Sql);
+
+        sap.DropNextExecuteConnections = 1;
+        var rows = await client.ExecuteRawSqlQueryAsync("SHOP_TEST", "Test query", Sql);
+
+        Assert.Empty(rows);
+        Assert.Equal(0, sap.DropNextExecuteConnections);
+        Assert.Equal(2, sap.ExecuteCount);
+    }
+
+    /// <summary>
+    /// The same gap sat on the other two ways this client runs a stored query. Neither answers a
+    /// report directly, so both failed quietly: a dropped handshake dropped a whole warehouse out
+    /// of the low-stock alerts (QCLAB, QADH and PROYG 2 on 2026-08-07) and would have emptied the
+    /// exchange rates.
+    /// </summary>
+    [Fact]
+    public async Task A_dropped_connection_while_reading_stock_is_retried()
+    {
+        var sap = new FakeServiceLayer();
+        var client = CreateClient(sap);
+
+        await client.GetStockQuantitiesInWarehouseAsync("CORMACH");
+
+        sap.DropNextExecuteConnections = 1;
+        var stock = await client.GetStockQuantitiesInWarehouseAsync("CORMACH");
+
+        Assert.Empty(stock);
+        Assert.Equal(0, sap.DropNextExecuteConnections);
+        Assert.Equal(2, sap.ExecuteCount);
+    }
+
+    [Fact]
+    public async Task A_dropped_connection_while_reading_exchange_rates_is_retried()
+    {
+        var sap = new FakeServiceLayer();
+        var client = CreateClient(sap);
+
+        await client.GetExchangeRatesAsync();
+
+        sap.DropNextExecuteConnections = 1;
+        var rates = await client.GetExchangeRatesAsync();
+
+        Assert.Empty(rates);
+        Assert.Equal(0, sap.DropNextExecuteConnections);
+        Assert.Equal(2, sap.ExecuteCount);
+    }
+
+    [Fact]
+    public async Task A_rejected_statement_is_not_retried()
+    {
+        // Retrying is for the transport losing a request, not for SAP answering that it will not
+        // run this statement: the second answer would be the same one, three seconds later.
+        var sap = new FakeServiceLayer();
+        var client = CreateClient(sap);
+
+        await client.ExecuteRawSqlQueryAsync("SHOP_TEST", "Test query", Sql);
+
+        sap.FailNextExecute = true;
+        await Assert.ThrowsAnyAsync<Exception>(
+            () => client.ExecuteRawSqlQueryAsync("SHOP_TEST", "Test query", Sql));
+
+        Assert.Equal(2, sap.ExecuteCount);
+    }
+
     [Fact]
     public async Task Distinct_statements_are_each_verified_once()
     {
@@ -132,6 +209,12 @@ public class SapSqlQueryProvisioningTests
         public int ExecuteCount { get; private set; }
         public bool FailNextExecute { get; set; }
 
+        /// <summary>
+        /// How many further execute requests are answered by dropping the connection instead of a
+        /// response, standing in for the TLS handshake SAP resets under load.
+        /// </summary>
+        public int DropNextExecuteConnections { get; set; }
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -157,11 +240,22 @@ public class SapSqlQueryProvisioningTests
 
             if (path.EndsWith("/List", StringComparison.Ordinal))
             {
+                if (DropNextExecuteConnections > 0)
+                {
+                    DropNextExecuteConnections--;
+                    throw new HttpRequestException(
+                        "The SSL connection could not be established, see inner exception.",
+                        new IOException("An existing connection was forcibly closed by the remote host."));
+                }
+
                 ExecuteCount++;
                 if (FailNextExecute)
                 {
                     FailNextExecute = false;
-                    return Json("{\"error\":{\"message\":\"boom\"}}", HttpStatusCode.InternalServerError);
+
+                    // Deliberately not a 5xx: this stands for a statement SAP will keep rejecting,
+                    // which the execute path must surface rather than retry.
+                    return Json("{\"error\":{\"message\":\"boom\"}}", HttpStatusCode.BadRequest);
                 }
 
                 return Json("{\"value\":[]}");
