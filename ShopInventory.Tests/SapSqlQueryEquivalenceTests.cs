@@ -44,6 +44,74 @@ public class SapSqlQueryEquivalenceTests
         Assert.True(SAPServiceLayerClient.SqlTextsAreEquivalent(Statement, Statement + ";"));
     }
 
+    /// <summary>
+    /// SAP quotes a bare table name in the statement it stores. This was the whole reason every
+    /// query code re-PATCHed once an hour, and none of the other transforms could see it: the
+    /// statement below is one line, with no trailing whitespace and no newlines to normalise.
+    /// </summary>
+    /// <remarks>
+    /// Both strings are verbatim from production (KEFALOS_USD_NEW2) on 2026-08-07 — the ORD_FULF_CUST
+    /// statement as ReportService builds it for the company-wide report, and the SqlText SAP handed
+    /// back for that code.
+    /// </remarks>
+    [Fact]
+    public void A_statement_matches_itself_after_SAP_quotes_the_table_name()
+    {
+        const string written =
+            "SELECT T0.\"CardCode\", T0.\"CardName\" FROM ORDR T0 WHERE T0.\"DocDate\" >= :fromDate";
+        const string storedBySap =
+            "SELECT T0.\"CardCode\", T0.\"CardName\" FROM \"ORDR\" T0 WHERE T0.\"DocDate\" >= :fromDate";
+
+        Assert.True(SAPServiceLayerClient.SqlTextsAreEquivalent(storedBySap, written));
+    }
+
+    [Fact]
+    public void Every_join_in_a_statement_is_matched_the_same_way()
+    {
+        // ORD_FULF_LINE, the statement the report died on. SAP quoted both tables.
+        var written = "SELECT T1.\"LineNum\"\nFROM ORDR T0\nINNER JOIN RDR1 T1 ON T0.\"DocEntry\" = T1.\"DocEntry\"";
+        var storedBySap = written
+            .Replace("FROM ORDR", "FROM \"ORDR\"", StringComparison.Ordinal)
+            .Replace("JOIN RDR1", "JOIN \"RDR1\"", StringComparison.Ordinal);
+
+        Assert.True(SAPServiceLayerClient.SqlTextsAreEquivalent(storedBySap, written));
+    }
+
+    [Fact]
+    public void A_statement_that_already_quotes_its_tables_still_matches()
+    {
+        // Several statements here are written with the tables quoted, so SAP stores them unchanged.
+        // Collapsing both sides has to leave those matching, not break them.
+        const string statement = "SELECT T0.\"ItemCode\" FROM \"ITM1\" T0 INNER JOIN \"OITM\" T1 ON T0.\"ItemCode\" = T1.\"ItemCode\"";
+
+        Assert.True(SAPServiceLayerClient.SqlTextsAreEquivalent(statement, statement));
+    }
+
+    /// <summary>
+    /// The collapse is safe only because HANA folds an unquoted identifier to upper case, so
+    /// <c>"ORDR"</c> and <c>ORDR</c> are one table. A mixed-case quoted name is a different table
+    /// from the unquoted spelling, and has to keep reading as a difference.
+    /// </summary>
+    [Fact]
+    public void A_mixed_case_quoted_table_is_not_collapsed()
+    {
+        const string quoted = "SELECT * FROM \"MyTable\" T0";
+        const string bare = "SELECT * FROM MyTable T0";
+
+        Assert.False(SAPServiceLayerClient.SqlTextsAreEquivalent(quoted, bare));
+    }
+
+    [Fact]
+    public void Quoting_elsewhere_in_the_statement_is_untouched()
+    {
+        // Only the identifier directly after FROM/JOIN is collapsed. A column or alias that differs
+        // by quoting is a real edit — it changes what the row is called on the way out.
+        const string quotedColumn = "SELECT T0.\"DocNum\" AS \"DOCNUM\" FROM ORDR T0";
+        const string bareColumn = "SELECT T0.\"DocNum\" AS DOCNUM FROM ORDR T0";
+
+        Assert.False(SAPServiceLayerClient.SqlTextsAreEquivalent(quotedColumn, bareColumn));
+    }
+
     [Fact]
     public void A_genuinely_edited_statement_is_still_a_difference()
     {

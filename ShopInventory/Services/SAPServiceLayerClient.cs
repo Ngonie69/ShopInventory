@@ -7797,12 +7797,50 @@ ORDER BY T0.""ItemCode""";
     /// </remarks>
     internal static bool SqlTextsAreEquivalent(string storedSqlText, string sqlText) =>
         string.Equals(
-            TrimLineEnds(NormalizeSqlText(storedSqlText)),
-            TrimLineEnds(NormalizeSqlText(sqlText)),
+            CanonicaliseForComparison(storedSqlText),
+            CanonicaliseForComparison(sqlText),
             StringComparison.Ordinal);
+
+    private static string CanonicaliseForComparison(string sqlText) =>
+        UnquoteTableNames(TrimLineEnds(NormalizeSqlText(sqlText)));
 
     private static string TrimLineEnds(string normalizedSqlText) =>
         string.Join('\n', normalizedSqlText.Split('\n').Select(line => line.TrimEnd()));
+
+    /// <summary>
+    /// Drops the quotes SAP puts around a bare table name, so a statement compares equal to the
+    /// text it was stored from.
+    /// </summary>
+    /// <remarks>
+    /// The Service Layer rewrites the statement it stores: post <c>FROM ORDR T0</c> and a later GET
+    /// returns <c>FROM "ORDR" T0</c>. Nothing else moves — column identifiers, <c>:name</c>
+    /// parameters, indentation and line structure all round-trip untouched. Confirmed 2026-08-07
+    /// against production by reading SqlText back for ORD_FULF_CUST, ORD_FULF_LINE and
+    /// STOCK_QTY_KEFBYC and diffing: quoting the bare table names made all three byte-identical,
+    /// and it was the only difference in any of them.
+    ///
+    /// Left unhandled, the probe in <see cref="EnsureSqlQueryAsync"/> could never agree with SAP,
+    /// so every code PATCHed once per <see cref="SqlQueryVerificationLifetime"/> — the slow write
+    /// against an oversized OUQR that the whole GET-first design exists to avoid.
+    ///
+    /// Only an all-uppercase identifier is unquoted, and only where it directly follows FROM or
+    /// JOIN. HANA folds an unquoted identifier to upper case, so <c>"ORDR"</c> and <c>ORDR</c> name
+    /// one table and collapsing them cannot change what the statement reads. <c>"MyTable"</c> and
+    /// <c>MyTable</c> do not name one table, and are deliberately left alone.
+    ///
+    /// This belongs here rather than in the SQL literals. <see cref="NormalizeSqlText"/> feeds
+    /// <see cref="ComputeSqlFingerprint"/>, so quoting the ~96 table names in those statements
+    /// instead would move every content-addressed code and strand a row per statement in an OUQR
+    /// where DELETE does not work. Loosening only the comparison moves no code and writes nothing.
+    /// </remarks>
+    private static string UnquoteTableNames(string normalizedSqlText) =>
+        QuotedTableNameRegex().Replace(normalizedSqlText, "$1$2$3");
+
+    // The case-insensitivity is scoped to the keyword. Applied to the whole pattern it would reach
+    // the identifier class as well, which is the one thing that must stay case-sensitive: it is
+    // what keeps "MyTable" from being collapsed onto MyTable, two different tables in HANA.
+    [GeneratedRegex(@"\b((?i:FROM|JOIN))(\s+)""([A-Z][A-Z0-9_]*)""")]
+    private static partial Regex QuotedTableNameRegex();
 
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];
