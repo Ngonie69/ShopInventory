@@ -31,6 +31,8 @@ public static class QuartzConfiguration
         var healthAlert = configuration.GetSection("SystemHealthAlert").Get<SystemHealthAlertSettings>() ?? new SystemHealthAlertSettings();
         var lowStockAlert = configuration.GetSection(LowStockAlertSettings.SectionName)
             .Get<LowStockAlertSettings>() ?? new LowStockAlertSettings();
+        var vanSalesPosting = configuration.GetSection(VanSalesPostingSettings.SectionName)
+            .Get<VanSalesPostingSettings>() ?? new VanSalesPostingSettings();
 
         services.AddQuartz(q =>
         {
@@ -94,6 +96,19 @@ public static class QuartzConfiguration
             if (dailyStock.EnableAutoConsolidation)
             {
                 AddCronJob<EndOfDayConsolidationJob>(q, "end-of-day-consolidation", BuildDailyCron(dailyStock.EndOfDayTimeCAT, "18:00"));
+            }
+
+            // Van sales post one invoice per ZIMRA receipt rather than being consolidated, so they run as
+            // their own job and are filtered out of the consolidation above. Two triggers on one job: the
+            // main run, and a mop-up for vans that only regained signal afterwards. Re-running is safe —
+            // each sale posts under its own U_Van_saleorder and SAP is asked for it first.
+            if (vanSalesPosting.Enabled)
+            {
+                AddCronJob<VanSalesEndOfDayPostingJob>(
+                    q, "van-sales-eod-posting", BuildDailyCron(vanSalesPosting.PostingTimeCAT, "18:00"));
+
+                AddCronJob<VanSalesEndOfDayPostingJob>(
+                    q, "van-sales-eod-mopup", BuildDailyCron(vanSalesPosting.MopUpTimeCAT, "19:30"));
             }
 
             // After the daily stock snapshot, so it measures the figures the day is starting from.
