@@ -7,6 +7,7 @@ using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Mappings;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 using Microsoft.Extensions.Options;
 
 namespace ShopInventory.Features.Invoices.Queries.GetInvoiceByDocEntry;
@@ -14,10 +15,11 @@ namespace ShopInventory.Features.Invoices.Queries.GetInvoiceByDocEntry;
 public sealed class GetInvoiceByDocEntryHandler(
     ApplicationDbContext dbContext,
     ISAPServiceLayerClient sapClient,
-    IRevmaxClient revmaxClient,
+    IFiscalisationApiClient fiscalisationClient,
+    IFiscalDeviceConfigCache fiscalConfigCache,
     ISender sender,
     IOptions<SAPSettings> settings,
-    IOptions<RevmaxSettings> revmaxSettings,
+    IOptions<FiscalisationSettings> fiscalisationSettings,
     ILogger<GetInvoiceByDocEntryHandler> logger
 ) : IRequestHandler<GetInvoiceByDocEntryQuery, ErrorOr<InvoiceDto>>
 {
@@ -37,12 +39,13 @@ public sealed class GetInvoiceByDocEntryHandler(
             var invoiceDto = invoice.ToDto();
             await FiscalDocumentStatusProjector.EnrichInvoiceAsync(dbContext, invoiceDto, cancellationToken);
 
-            if (revmaxSettings.Value.Enabled
+            if (fiscalisationSettings.Value.Enabled
                 && string.Equals(invoiceDto.FiscalizationStatus, "Unknown", StringComparison.OrdinalIgnoreCase))
             {
                 await InvoiceFiscalTransactionSync.SyncAsync(
                     invoiceDto,
-                    revmaxClient,
+                    fiscalisationClient,
+                    fiscalConfigCache,
                     sender,
                     logger,
                     cancellationToken);

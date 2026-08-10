@@ -1,16 +1,17 @@
 using MediatR;
 using ShopInventory.Common.Fiscalization;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Services;
 
 /// <summary>
 /// Drains <see cref="IInvoiceFiscalStatusBackfillQueue"/>, reading each invoice's fiscal status back
-/// from REVMax and recording it locally.
+/// from the fiscalisation platform and recording it locally.
 /// </summary>
 /// <remarks>
-/// Deliberately one at a time. REVMax answers a status lookup in roughly three seconds and sits in
-/// front of fiscal device hardware, so this keeps exactly the request rate the old in-request
-/// backfill produced — the change is only that nobody is waiting on it.
+/// Deliberately one at a time. A status lookup takes seconds and the platform is shared, so this
+/// keeps exactly the request rate the old in-request backfill produced — the change is only that
+/// nobody is waiting on it.
 /// </remarks>
 public sealed class InvoiceFiscalStatusBackfillService(
     IInvoiceFiscalStatusBackfillQueue queue,
@@ -37,10 +38,12 @@ public sealed class InvoiceFiscalStatusBackfillService(
             try
             {
                 using var scope = serviceScopeFactory.CreateScope();
-                var revmaxClient = scope.ServiceProvider.GetRequiredService<IRevmaxClient>();
+                var fiscalisationClient = scope.ServiceProvider.GetRequiredService<IFiscalisationApiClient>();
+                var fiscalConfigCache = scope.ServiceProvider.GetRequiredService<IFiscalDeviceConfigCache>();
                 var sender = scope.ServiceProvider.GetRequiredService<ISender>();
 
-                await InvoiceFiscalTransactionSync.SyncAsync(invoice, revmaxClient, sender, logger, stoppingToken);
+                await InvoiceFiscalTransactionSync.SyncAsync(
+                    invoice, fiscalisationClient, fiscalConfigCache, sender, logger, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

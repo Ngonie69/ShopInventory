@@ -177,7 +177,7 @@ toc_items = [
     '   10.1 Notifications',
     '   10.2 Exchange Rates',
     '   10.3 Sync Status',
-    '   10.4 REVMax Fiscal Device',
+    '   10.4 Fiscal Console',
     '   10.5 AI Assistant',
     '11. Administration (Admin Only)',
     '   11.1 User Management',
@@ -234,7 +234,7 @@ add_bullet('Record customer payments and track outstanding balances')
 add_bullet('Generate business reports and export to Excel or PDF')
 add_bullet('Upload and track proof of delivery (POD) for shipments')
 add_bullet('Manage customers, products, and pricing')
-add_bullet('Fiscalise transactions via REVMax fiscal device')
+add_bullet('Fiscalise transactions with ZIMRA FDMS')
 add_bullet('Access the AI Assistant for quick data insights')
 
 doc.add_heading('System Requirements', level=3)
@@ -284,7 +284,7 @@ add_table(
         ['Payments', 'Payments', 'Admin, Cashier'],
         ['Catalogue', 'Customers, Prices, G/L Accounts, Exchange Rates', 'All staff roles (Prices: Admin only)'],
         ['Insights', 'Reports, POD Dashboard, Proof of Delivery, POD Report', 'Varies by role'],
-        ['System', 'Notifications, Sync Status, REVMax, AI Assistant', 'Varies by role'],
+        ['System', 'Notifications, Sync Status, Fiscal Console, AI Assistant', 'Varies by role'],
         ['Administration', 'User Management, Settings, Audit Trail, Backups, etc.', 'Admin only'],
     ]
 )
@@ -746,15 +746,17 @@ add_bullet('Health Score – overall system health percentage')
 add_bullet('Use "Test SAP Connection" to verify connectivity')
 add_bullet('Use "Manual Sync" to trigger an immediate data refresh')
 
-doc.add_heading('10.4 REVMax Fiscal Device', level=2)
+doc.add_heading('10.4 Fiscal Console', level=2)
 doc.add_paragraph(
-    'The REVMax page (Admin only) monitors the fiscal device used for tax compliance in Zimbabwe.'
+    'Fiscal compliance is handled by the ZIMRA FDMS fiscalisation platform at '
+    'https://fiscal.kefaloscheese.com/, which replaced the REVMax device gateway. Invoices and '
+    'credit notes are fiscalised automatically; the console is only needed for device administration.'
 )
-add_bullet('Device Card – company TIN, BPN, VAT number, serial number, and device status')
-add_bullet('Fiscal Day Card – current fiscal day status (Open/Closed), last receipt number')
-add_bullet('License Card – license status and expiry date')
-add_bullet('Invoice Lookup – search for a specific invoice\'s fiscal record')
-add_bullet('Click "Refresh All" to update all device information')
+add_bullet('Admins reach it from the "Fiscal Console" link in the sidebar, which opens in a new tab')
+add_bullet('It has its own login, separate from the Kefalos Portal')
+add_bullet('Device status, certificates, fiscal day open/close and Z-reports all live there')
+add_bullet('Within the Portal, use Reports > Fiscal Txn Log to see what was fiscalised and what failed')
+add_bullet('Fiscalised Sales report shows the fiscalised totals for a period')
 
 doc.add_heading('10.5 AI Assistant', level=2)
 doc.add_paragraph(
@@ -987,9 +989,9 @@ r.bold = True
 doc.add_paragraph('A: Posted invoices cannot be deleted. Instead, create a Credit Note to reverse or adjust the invoice amount.')
 
 p = doc.add_paragraph()
-r = p.add_run('Q: What is the REVMax fiscal device?')
+r = p.add_run('Q: How are invoices fiscalised?')
 r.bold = True
-doc.add_paragraph('A: REVMax is the fiscal device required for tax compliance in Zimbabwe. It generates fiscal receipts with QR codes for transactions. The Kefalos Portal automatically fiscalises invoices and credit notes through this device.')
+doc.add_paragraph('A: Through the ZIMRA FDMS fiscalisation platform at https://fiscal.kefaloscheese.com/, which is required for tax compliance in Zimbabwe. It issues fiscal receipts with QR codes. The Kefalos Portal submits invoices and credit notes to it automatically, so no manual step is needed.')
 
 p = doc.add_paragraph()
 r = p.add_run('Q: How do I switch to dark mode?')

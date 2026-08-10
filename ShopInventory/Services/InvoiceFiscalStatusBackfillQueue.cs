@@ -10,7 +10,7 @@ public sealed class InvoiceFiscalStatusBackfillQueue : IInvoiceFiscalStatusBackf
     /// <summary>
     /// Bounded, unlike the fiscalisation queue, because this one is fed by browsing rather than by
     /// documents being posted: paging through invoices could otherwise offer it work faster than
-    /// REVMax can answer, without limit. Dropping the overflow is safe — the status stays unknown
+    /// the platform can answer, without limit. Dropping the overflow is safe — the status stays unknown
     /// and the next view of those invoices queues them again.
     /// </summary>
     private const int Capacity = 5000;

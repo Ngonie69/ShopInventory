@@ -146,7 +146,7 @@ public sealed class GetExceptionCenterHandler(
                 Source = InvoiceQueueSource,
                 ItemId = q.Id,
                 Category = q.LastError != null && EF.Functions.ILike(q.LastError, "%fiscalization%")
-                    ? "REVMax"
+                    ? "Fiscalisation"
                     : "SAP Posting",
                 Title = q.LastError != null && EF.Functions.ILike(q.LastError, "%fiscalization%")
                     ? "Invoice fiscalization issue"

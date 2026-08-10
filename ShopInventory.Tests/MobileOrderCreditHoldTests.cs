@@ -251,7 +251,7 @@ public sealed class MobileOrderCreditHoldTests : IDisposable
             priceCatalog,
             StubProxy.Unused<IIdempotencyRequestStore>(),
             creditLimitService,
-            Options.Create(new RevmaxSettings { VatRate = 0m }));
+            Options.Create(new TaxSettings { VatRate = 0m }));
     }
 
     /// <summary>

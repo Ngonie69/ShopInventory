@@ -2,56 +2,54 @@ using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Xml.Linq;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
-using ShopInventory.Models.Revmax;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Services;
 
 /// <summary>
-/// Service for fiscalizing invoices and credit notes with REVMax.
-/// Invoices are only fiscalized after successful SAP posting.
+/// Fiscalises invoices and credit notes against the ZIMRA FDMS Fiscalisation platform.
 /// </summary>
 public interface IFiscalizationService
 {
     /// <summary>
-    /// Fiscalizes an invoice that has been successfully posted to SAP.
+    /// Fiscalises an invoice that has already been posted to SAP.
     /// </summary>
-    /// <param name="invoice">The SAP invoice to fiscalize</param>
-    /// <param name="customerDetails">Optional customer details for fiscalization</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Fiscalization result with QR code and fiscal details</returns>
+    /// <remarks>
+    /// Only the SAP DocEntry is sent — the platform reads the document's lines, buyer and totals from
+    /// SAP itself. Do not call this for anything that is not in SAP: the DocEntry is looked up for
+    /// real, so a local identifier passed here fiscalises whichever unrelated SAP invoice holds that
+    /// number. Use <see cref="FiscalizePreSapInvoiceAsync"/> instead.
+    /// </remarks>
     Task<FiscalizationResult> FiscalizeInvoiceAsync(
         InvoiceDto invoice,
         CustomerFiscalDetails? customerDetails = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Fiscalizes an invoice using a custom invoice number (e.g., for pre-SAP fiscalization
-    /// where a SAP DocNum is not yet available).
+    /// Fiscalises an invoice that does not exist in SAP yet, from a full receipt payload.
     /// </summary>
-    /// <param name="invoice">The invoice data to fiscalize</param>
-    /// <param name="invoiceNumber">Custom invoice number to use with REVMax</param>
-    /// <param name="customerDetails">Optional customer details for fiscalization</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Fiscalization result with QR code and fiscal details</returns>
-    Task<FiscalizationResult> FiscalizeInvoiceAsync(
+    /// <param name="externalReference">
+    /// Stable identifier for the document. It becomes the receipt's permanent fiscal identity and part
+    /// of the platform's idempotency key, so it must be identical on every retry and must never be
+    /// regenerated.
+    /// </param>
+    Task<FiscalizationResult> FiscalizePreSapInvoiceAsync(
         InvoiceDto invoice,
-        string invoiceNumber,
+        string externalReference,
         CustomerFiscalDetails? customerDetails = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Fiscalizes a credit note that has been successfully posted to SAP.
-    /// Requires the original invoice to be already fiscalized.
+    /// Fiscalises a credit note that has already been posted to SAP.
     /// </summary>
-    /// <param name="creditNote">The SAP credit note to fiscalize</param>
-    /// <param name="originalInvoiceNumber">The original invoice number (DocNum)</param>
-    /// <param name="customerDetails">Optional customer details</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Fiscalization result</returns>
+    /// <param name="originalInvoiceNumber">
+    /// The invoice being credited. Advisory only — recorded for traceability. The platform recovers the
+    /// fiscal link itself from the SAP document's BaseType/BaseEntry, across all devices, which is
+    /// strictly better than anything this app can compute.
+    /// </param>
     Task<FiscalizationResult> FiscalizeCreditNoteAsync(
         InvoiceDto creditNote,
         string originalInvoiceNumber,
@@ -59,16 +57,13 @@ public interface IFiscalizationService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Checks if an invoice has already been fiscalized.
+    /// Whether a document has already been fiscalised, on any device.
     /// </summary>
-    /// <param name="invoiceNumber">The invoice number to check</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>True if already fiscalized</returns>
     Task<bool> IsInvoiceFiscalizedAsync(string invoiceNumber, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
-/// Customer fiscal details for REVMax.
+/// Customer fiscal details.
 /// </summary>
 public class CustomerFiscalDetails
 {
@@ -102,7 +97,7 @@ public class FiscalizationResult
     public string? InvoiceNumber { get; set; }
 
     /// <summary>
-    /// Whether fiscalization was skipped (e.g., REVMax not configured).
+    /// Whether fiscalization was skipped (not configured, already done, or a server-side dry run).
     /// </summary>
     public bool Skipped { get; set; }
 
@@ -111,13 +106,24 @@ public class FiscalizationResult
     /// </summary>
     public bool Queued { get; set; }
 
+    /// <summary>
+    /// The document's fiscal state is unknown and must be reconciled by looking it up, not by
+    /// resubmitting.
+    /// </summary>
+    /// <remarks>
+    /// Set on an idempotency conflict or an indeterminate FDMS outcome. Callers with retry logic must
+    /// check this before retrying: a receipt may already exist at FDMS, and a duplicate fiscal receipt
+    /// cannot be withdrawn.
+    /// </remarks>
+    public bool RequiresReconciliation { get; set; }
+
     public string? RawRequestJson { get; set; }
 
     public string? RawResponseJson { get; set; }
 }
 
 /// <summary>
-/// Implementation of fiscalization service using REVMax.
+/// Implementation backed by the Fiscalisation platform's HTTP API.
 /// </summary>
 public class FiscalizationService : IFiscalizationService
 {
@@ -129,16 +135,19 @@ public class FiscalizationService : IFiscalizationService
         WriteIndented = false
     };
 
-    private readonly IRevmaxClient _revmaxClient;
-    private readonly RevmaxSettings _settings;
+    private readonly IFiscalisationApiClient _client;
+    private readonly IFiscalDeviceConfigCache _configCache;
+    private readonly FiscalisationSettings _settings;
     private readonly ILogger<FiscalizationService> _logger;
 
     public FiscalizationService(
-        IRevmaxClient revmaxClient,
-        IOptions<RevmaxSettings> settings,
+        IFiscalisationApiClient client,
+        IFiscalDeviceConfigCache configCache,
+        IOptions<FiscalisationSettings> settings,
         ILogger<FiscalizationService> logger)
     {
-        _revmaxClient = revmaxClient ?? throw new ArgumentNullException(nameof(revmaxClient));
+        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _configCache = configCache ?? throw new ArgumentNullException(nameof(configCache));
         _settings = settings?.Value ?? throw new ArgumentNullException(nameof(settings));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -148,443 +157,503 @@ public class FiscalizationService : IFiscalizationService
         CustomerFiscalDetails? customerDetails = null,
         CancellationToken cancellationToken = default)
     {
-        if (invoice == null)
-        {
-            throw new ArgumentNullException(nameof(invoice));
-        }
+        ArgumentNullException.ThrowIfNull(invoice);
 
-        return FiscalizeInvoiceAsync(invoice, invoice.DocNum.ToString(), customerDetails, cancellationToken);
+        return FiscaliseSapDocumentAsync(
+            invoice,
+            SapDocumentType.Invoice,
+            ReceiptType.FiscalInvoice,
+            customerDetails,
+            cancellationToken);
     }
 
-    public async Task<FiscalizationResult> FiscalizeInvoiceAsync(
+    public Task<FiscalizationResult> FiscalizeCreditNoteAsync(
+        InvoiceDto creditNote,
+        string originalInvoiceNumber,
+        CustomerFiscalDetails? customerDetails = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(creditNote);
+
+        _logger.LogInformation(
+            "Fiscalising credit note DocEntry {DocEntry} (credits {OriginalInvoice})",
+            creditNote.DocEntry,
+            originalInvoiceNumber);
+
+        return FiscaliseSapDocumentAsync(
+            creditNote,
+            SapDocumentType.CreditNote,
+            ReceiptType.CreditNote,
+            customerDetails,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Shared path for anything that already exists in SAP.
+    /// </summary>
+    private async Task<FiscalizationResult> FiscaliseSapDocumentAsync(
+        InvoiceDto document,
+        SapDocumentType documentType,
+        ReceiptType receiptType,
+        CustomerFiscalDetails? customerDetails,
+        CancellationToken cancellationToken)
+    {
+        var documentNumber = document.DocNum.ToString(CultureInfo.InvariantCulture);
+
+        if (!_settings.Enabled)
+        {
+            return Disabled(documentNumber);
+        }
+
+        if (document.DocEntry <= 0)
+        {
+            return new FiscalizationResult
+            {
+                Success = false,
+                Message = "This document has no SAP DocEntry, so it cannot be fiscalised from SAP.",
+                InvoiceNumber = documentNumber,
+                ErrorCode = "MISSING_DOC_ENTRY"
+            };
+        }
+
+        // No lines, no currency, no invoice number. The platform reads all of that from SAP, and
+        // letting it derive the invoice number from the document guarantees the idempotency key
+        // matches whatever a later re-run or reconciliation computes.
+        var request = new SapFiscaliseReceiptApiRequest
+        {
+            SapDocument = new SapDocumentReference
+            {
+                DocumentType = documentType,
+                DocEntry = document.DocEntry
+            },
+            Receipt = new SubmitReceiptApiRequest
+            {
+                // Device 0 lets the platform fiscalise on whichever of its devices is healthy.
+                DeviceId = 0,
+                ReceiptType = receiptType,
+                Buyer = MapBuyer(customerDetails),
+                ReceiptNotes = document.Comments
+            }
+        };
+
+        var rawRequestJson = Serialize(request);
+
+        try
+        {
+            var response = await _client.SubmitSapReceiptAsync(request, cancellationToken);
+
+            _logger.LogInformation(
+                "Fiscalised {DocumentType} {InvoiceNo}. ReceiptGlobalNo: {ReceiptGlobalNo}, FiscalDayNo: {FiscalDayNo}",
+                documentType,
+                response.InvoiceNo,
+                response.ReceiptGlobalNo,
+                response.FiscalDayNo);
+
+            return await MapSuccessAsync(response, rawRequestJson, cancellationToken);
+        }
+        catch (FiscalisationApiException ex)
+        {
+            return await MapFailureAsync(ex, documentNumber, receiptType, rawRequestJson, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Unexpected(ex, documentNumber, rawRequestJson);
+        }
+    }
+
+    public async Task<FiscalizationResult> FiscalizePreSapInvoiceAsync(
         InvoiceDto invoice,
+        string externalReference,
+        CustomerFiscalDetails? customerDetails = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(invoice);
+
+        if (string.IsNullOrWhiteSpace(externalReference))
+        {
+            throw new ArgumentException(
+                "A stable external reference is required: it becomes the receipt's permanent fiscal identity.",
+                nameof(externalReference));
+        }
+
+        var invoiceNo = BuildPreSapInvoiceNo(externalReference);
+
+        if (!_settings.Enabled)
+        {
+            return Disabled(invoiceNo);
+        }
+
+        var lines = MapLines(invoice, ReceiptType.FiscalInvoice);
+        if (lines.Count == 0)
+        {
+            return new FiscalizationResult
+            {
+                Success = false,
+                Message = "The invoice has no lines to fiscalise.",
+                InvoiceNumber = invoiceNo,
+                ErrorCode = "NO_LINES"
+            };
+        }
+
+        var request = new SubmitReceiptApiRequest
+        {
+            DeviceId = _settings.DefaultDeviceId,
+            InvoiceNo = invoiceNo,
+            ReceiptType = ReceiptType.FiscalInvoice,
+            Currency = string.IsNullOrWhiteSpace(invoice.DocCurrency)
+                ? _settings.DefaultCurrency
+                : invoice.DocCurrency,
+            ReceiptDate = ParseDocDate(invoice.DocDate),
+            TaxInclusive = true,
+            PaymentType = MoneyType.Cash,
+            PaymentAmount = lines.Sum(line => RoundCurrency(line.Price * line.Quantity)),
+            Lines = lines,
+            Buyer = MapBuyer(customerDetails),
+            ReceiptNotes = invoice.Comments,
+            ReceiptPrintForm = ReceiptPrintForm.InvoiceA4
+        };
+
+        var rawRequestJson = Serialize(request);
+
+        try
+        {
+            var response = await _client.SubmitReceiptAsync(request, cancellationToken);
+
+            _logger.LogInformation(
+                "Fiscalised pre-SAP invoice {InvoiceNo}. ReceiptGlobalNo: {ReceiptGlobalNo}",
+                invoiceNo,
+                response.ReceiptGlobalNo);
+
+            return await MapSuccessAsync(response, rawRequestJson, cancellationToken);
+        }
+        catch (FiscalisationApiException ex)
+        {
+            return await MapFailureAsync(
+                ex, invoiceNo, ReceiptType.FiscalInvoice, rawRequestJson, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Unexpected(ex, invoiceNo, rawRequestJson);
+        }
+    }
+
+    public async Task<bool> IsInvoiceFiscalizedAsync(
         string invoiceNumber,
-        CustomerFiscalDetails? customerDetails = null,
         CancellationToken cancellationToken = default)
     {
-        string? rawRequestJson = null;
-        string? rawResponseJson = null;
-
-        if (invoice == null)
+        if (string.IsNullOrWhiteSpace(invoiceNumber) || !_settings.Enabled)
         {
-            throw new ArgumentNullException(nameof(invoice));
-        }
-
-        if (string.IsNullOrWhiteSpace(invoiceNumber))
-        {
-            throw new ArgumentException("Invoice number is required", nameof(invoiceNumber));
+            return false;
         }
 
         try
         {
-            _logger.LogInformation(
-                "Starting fiscalization for invoice {InvoiceNumber} (DocEntry: {DocEntry})",
-                invoiceNumber, invoice.DocEntry);
+            // Device 0 searches every device: an earlier attempt may have failed over.
+            var result = await _client.CheckReceiptAsync(
+                0, invoiceNumber, ReceiptType.FiscalInvoice, cancellationToken);
 
-            // Check if already fiscalized to prevent duplicates
-            if (await IsInvoiceFiscalizedAsync(invoiceNumber, cancellationToken))
-            {
-                _logger.LogWarning(
-                    "Invoice {InvoiceNumber} is already fiscalized - skipping",
-                    invoiceNumber);
-
-                return new FiscalizationResult
-                {
-                    Success = true,
-                    Skipped = true,
-                    Message = $"Invoice {invoiceNumber} is already fiscalized",
-                    InvoiceNumber = invoiceNumber
-                };
-            }
-
-            // Build the TransactM request
-            var request = BuildTransactMRequest(invoice, customerDetails);
-            request.InvoiceNumber = invoiceNumber;
-            rawRequestJson = Serialize(request);
-
-            // Post to REVMax
-            var response = await _revmaxClient.TransactMAsync(request, cancellationToken);
-            rawResponseJson = Serialize(response);
-
-            if (response == null)
-            {
-                _logger.LogError("REVMax returned null response for invoice {InvoiceNumber}", invoiceNumber);
-
-                return new FiscalizationResult
-                {
-                    Success = false,
-                    Message = "REVMax returned no response",
-                    InvoiceNumber = invoiceNumber,
-                    ErrorCode = "NO_RESPONSE",
-                    RawRequestJson = rawRequestJson,
-                    RawResponseJson = rawResponseJson
-                };
-            }
-
-            if (response.Success)
-            {
-                _logger.LogInformation(
-                    "Invoice {InvoiceNumber} fiscalized successfully. ReceiptGlobalNo: {ReceiptGlobalNo}, FiscalDayNo: {FiscalDayNo}",
-                    invoiceNumber, response.ReceiptGlobalNo, response.FiscalDayNo);
-
-                return new FiscalizationResult
-                {
-                    Success = true,
-                    Message = response.Message ?? "Fiscalization successful",
-                    InvoiceNumber = invoiceNumber,
-                    QRCode = response.QRcode,
-                    FiscalDayNo = response.FiscalDayNo,
-                    ReceiptGlobalNo = response.ReceiptGlobalNo,
-                    ReceiptCounter = response.ReceiptCounter,
-                    DeviceSerial = response.DeviceSerial,
-                    VerificationCode = response.VerificationCode,
-                    RawRequestJson = rawRequestJson,
-                    RawResponseJson = rawResponseJson
-                };
-            }
-            else
-            {
-                _logger.LogWarning(
-                    "Fiscalization failed for invoice {InvoiceNumber}: {Message}",
-                    invoiceNumber, response.Message);
-
-                return new FiscalizationResult
-                {
-                    Success = false,
-                    Message = response.Message ?? "Fiscalization failed",
-                    InvoiceNumber = invoiceNumber,
-                    ErrorCode = "REVMAX_ERROR",
-                    RawRequestJson = rawRequestJson,
-                    RawResponseJson = rawResponseJson
-                };
-            }
+            return result.IsFiscalised;
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex,
-                "HTTP error during fiscalization of invoice {InvoiceNumber}",
+            _logger.LogWarning(ex, "Error checking fiscalisation status for {InvoiceNumber}", invoiceNumber);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Lifts a purely numeric reference out of the SAP DocNum namespace. See
+    /// <see cref="FiscalisationSettings.PreSapInvoiceNoPrefix"/> for why.
+    /// </summary>
+    /// <remarks>
+    /// References that already start with a letter (DESKTOP-…, DS-…, SO-CONV-…) pass through unchanged,
+    /// so anything already fiscalised keeps its existing fiscal identity.
+    /// </remarks>
+    internal string BuildPreSapInvoiceNo(string externalReference)
+    {
+        var trimmed = externalReference.Trim();
+
+        return trimmed.All(char.IsAsciiDigit)
+            ? _settings.PreSapInvoiceNoPrefix + trimmed
+            : trimmed;
+    }
+
+    private async Task<FiscalizationResult> MapSuccessAsync(
+        SubmitReceiptApiResponse response,
+        string? rawRequestJson,
+        CancellationToken cancellationToken)
+    {
+        var config = await _configCache.TryGetAsync(response.DeviceId, cancellationToken);
+        var verificationCode = FiscalReceiptQrComposer.TryCreateVerificationCode(response.DeviceSignatureValue);
+        var qrPayload = FiscalReceiptQrComposer.BuildQrPayload(
+            config?.QrUrl,
+            response.DeviceId,
+            response.ReceiptDate,
+            response.ReceiptGlobalNo,
+            verificationCode);
+
+        if (qrPayload is null)
+        {
+            // The receipt is already at FDMS and cannot be withdrawn, so a missing QR is never a reason
+            // to fail or retry. The status backfill repairs it later.
+            _logger.LogWarning(
+                "Fiscalised {InvoiceNo} but could not compose its QR code: {Reason}",
+                response.InvoiceNo,
+                FiscalReceiptQrComposer.ResolveUnavailableReason(config?.QrUrl, verificationCode));
+        }
+
+        return new FiscalizationResult
+        {
+            Success = response.Success,
+            Message = $"Fiscalised as receipt {response.ReceiptGlobalNo} on day {response.FiscalDayNo}.",
+            InvoiceNumber = response.InvoiceNo,
+            QRCode = qrPayload,
+            VerificationCode = verificationCode is null
+                ? null
+                : FiscalReceiptQrComposer.FormatVerificationCode(verificationCode),
+            FiscalDayNo = response.FiscalDayNo.ToString(CultureInfo.InvariantCulture),
+            ReceiptGlobalNo = response.ReceiptGlobalNo.ToString(CultureInfo.InvariantCulture),
+            ReceiptCounter = response.ReceiptCounter.ToString(CultureInfo.InvariantCulture),
+            DeviceSerial = config?.DeviceSerialNo,
+            RawRequestJson = rawRequestJson,
+            RawResponseJson = Serialize(response)
+        };
+    }
+
+    /// <summary>
+    /// Turns a platform error into a result, deciding whether it is a success in disguise, a
+    /// reconcile-don't-retry conflict, or a real failure.
+    /// </summary>
+    private async Task<FiscalizationResult> MapFailureAsync(
+        FiscalisationApiException exception,
+        string invoiceNumber,
+        ReceiptType receiptType,
+        string? rawRequestJson,
+        CancellationToken cancellationToken)
+    {
+        // "Already fiscalised" arrives as a 400 from the SAP endpoint, not as a replayed success. Left
+        // as a failure it would raise a fresh incident every time a completed invoice is reprocessed.
+        if (string.Equals(exception.ErrorCode, "AlreadyFiscalised", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation(
+                "{InvoiceNumber} is already fiscalised; recovering its receipt details.",
+                invoiceNumber);
+
+            return await RecoverAlreadyFiscalisedAsync(
+                invoiceNumber, receiptType, rawRequestJson, exception, cancellationToken);
+        }
+
+        // The platform is in dry-run mode: it mapped and logged the receipt but sent nothing to FDMS.
+        if (string.Equals(exception.ErrorCode, "DryRun", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(
+                "Fiscalisation platform is in dry-run mode; {InvoiceNumber} was not sent to FDMS.",
                 invoiceNumber);
 
             return new FiscalizationResult
             {
                 Success = false,
-                Message = "Failed to connect to REVMax fiscal device",
+                Skipped = true,
+                Message = "The fiscalisation platform is in dry-run mode; nothing was submitted to FDMS.",
                 InvoiceNumber = invoiceNumber,
-                ErrorCode = "CONNECTION_ERROR",
-                ErrorDetails = ex.Message,
-                RawRequestJson = rawRequestJson,
-                RawResponseJson = rawResponseJson
+                ErrorCode = exception.ErrorCode,
+                RawRequestJson = rawRequestJson
             };
         }
-        catch (Exception ex)
+
+        if (exception.RequiresReconciliation)
         {
-            _logger.LogError(ex,
-                "Unexpected error during fiscalization of invoice {InvoiceNumber}",
-                invoiceNumber);
+            _logger.LogError(
+                exception,
+                "Fiscalisation of {InvoiceNumber} is unresolved ({ErrorCode}). It must be reconciled, not retried.",
+                invoiceNumber,
+                exception.ErrorCode);
 
             return new FiscalizationResult
             {
                 Success = false,
-                Message = "Fiscalization error",
+                RequiresReconciliation = true,
+                Message = "The fiscal outcome is unresolved. Check the receipt on the fiscalisation "
+                    + "console before any resubmission — it may already exist.",
                 InvoiceNumber = invoiceNumber,
-                ErrorCode = "UNEXPECTED_ERROR",
-                ErrorDetails = ex.Message,
-                RawRequestJson = rawRequestJson,
-                RawResponseJson = rawResponseJson
+                ErrorCode = exception.ErrorCode,
+                ErrorDetails = exception.Message,
+                RawRequestJson = rawRequestJson
             };
         }
+
+        _logger.LogError(
+            exception,
+            "Fiscalisation failed for {InvoiceNumber} ({ErrorCode})",
+            invoiceNumber,
+            exception.ErrorCode);
+
+        return new FiscalizationResult
+        {
+            Success = false,
+            Message = exception.Message,
+            InvoiceNumber = invoiceNumber,
+            ErrorCode = exception.ErrorCode ?? "FISCALISATION_ERROR",
+            ErrorDetails = exception.Message,
+            RawRequestJson = rawRequestJson
+        };
     }
 
-    public async Task<FiscalizationResult> FiscalizeCreditNoteAsync(
-        InvoiceDto creditNote,
-        string originalInvoiceNumber,
-        CustomerFiscalDetails? customerDetails = null,
-        CancellationToken cancellationToken = default)
+    private async Task<FiscalizationResult> RecoverAlreadyFiscalisedAsync(
+        string invoiceNumber,
+        ReceiptType receiptType,
+        string? rawRequestJson,
+        FiscalisationApiException exception,
+        CancellationToken cancellationToken)
     {
-        string? rawRequestJson = null;
-        string? rawResponseJson = null;
-
-        if (creditNote == null)
-        {
-            throw new ArgumentNullException(nameof(creditNote));
-        }
-
-        if (string.IsNullOrWhiteSpace(originalInvoiceNumber))
-        {
-            throw new ArgumentException("Original invoice number is required for credit notes", nameof(originalInvoiceNumber));
-        }
-
-        var creditNoteNumber = creditNote.DocNum.ToString();
-
         try
         {
-            _logger.LogInformation(
-                "Starting fiscalization for credit note {CreditNoteNumber} (Original: {OriginalInvoice})",
-                creditNoteNumber, originalInvoiceNumber);
+            var check = await _client.CheckReceiptAsync(0, invoiceNumber, receiptType, cancellationToken);
+            var match = check.Matches.FirstOrDefault();
 
-            // Check if credit note already fiscalized
-            if (await IsInvoiceFiscalizedAsync(creditNoteNumber, cancellationToken))
+            if (match is not null)
             {
-                _logger.LogWarning(
-                    "Credit note {CreditNoteNumber} is already fiscalized - skipping",
-                    creditNoteNumber);
+                var config = await _configCache.TryGetAsync(match.DeviceId, cancellationToken);
+                var verificationCode = FiscalReceiptQrComposer.TryCreateVerificationCode(match.DeviceSignatureValue);
 
                 return new FiscalizationResult
                 {
                     Success = true,
                     Skipped = true,
-                    Message = $"Credit note {creditNoteNumber} is already fiscalized",
-                    InvoiceNumber = creditNoteNumber
-                };
-            }
-
-            // Verify original invoice is fiscalized
-            var originalInvoice = await _revmaxClient.GetInvoiceAsync(originalInvoiceNumber, cancellationToken);
-
-            bool originalFiscalized = originalInvoice != null &&
-                                      originalInvoice.Success &&
-                                      (!string.IsNullOrWhiteSpace(originalInvoice.QRcode) ||
-                                       (originalInvoice.Data?.ReceiptGlobalNo > 0));
-
-            if (!originalFiscalized)
-            {
-                _logger.LogError(
-                    "Cannot fiscalize credit note {CreditNoteNumber}: Original invoice {OriginalInvoice} is not fiscalized",
-                    creditNoteNumber, originalInvoiceNumber);
-
-                return new FiscalizationResult
-                {
-                    Success = false,
-                    Message = $"Original invoice {originalInvoiceNumber} must be fiscalized before the credit note",
-                    InvoiceNumber = creditNoteNumber,
-                    ErrorCode = "ORIGINAL_NOT_FISCALIZED"
-                };
-            }
-
-            // Build the TransactMExt request for credit note
-            var request = BuildCreditNoteRequest(creditNote, originalInvoiceNumber, originalInvoice, customerDetails);
-            rawRequestJson = Serialize(request);
-
-            // Post to REVMax
-            var response = await _revmaxClient.TransactMExtAsync(request, cancellationToken);
-            rawResponseJson = Serialize(response);
-
-            if (response == null)
-            {
-                _logger.LogError("REVMax returned null response for credit note {CreditNoteNumber}", creditNoteNumber);
-
-                return new FiscalizationResult
-                {
-                    Success = false,
-                    Message = "REVMax returned no response",
-                    InvoiceNumber = creditNoteNumber,
-                    ErrorCode = "NO_RESPONSE",
+                    Message = $"Already fiscalised as receipt {match.ReceiptGlobalNo} on device {match.DeviceId}.",
+                    InvoiceNumber = match.InvoiceNo,
+                    QRCode = FiscalReceiptQrComposer.BuildQrPayload(
+                        config?.QrUrl, match.DeviceId, match.ReceiptDate, match.ReceiptGlobalNo, verificationCode),
+                    VerificationCode = verificationCode is null
+                        ? null
+                        : FiscalReceiptQrComposer.FormatVerificationCode(verificationCode),
+                    FiscalDayNo = match.FiscalDayNo.ToString(CultureInfo.InvariantCulture),
+                    ReceiptGlobalNo = match.ReceiptGlobalNo.ToString(CultureInfo.InvariantCulture),
+                    ReceiptCounter = match.ReceiptCounter.ToString(CultureInfo.InvariantCulture),
+                    DeviceSerial = config?.DeviceSerialNo,
                     RawRequestJson = rawRequestJson,
-                    RawResponseJson = rawResponseJson
-                };
-            }
-
-            if (response.Success)
-            {
-                _logger.LogInformation(
-                    "Credit note {CreditNoteNumber} fiscalized successfully. ReceiptGlobalNo: {ReceiptGlobalNo}",
-                    creditNoteNumber, response.ReceiptGlobalNo);
-
-                return new FiscalizationResult
-                {
-                    Success = true,
-                    Message = response.Message ?? "Credit note fiscalization successful",
-                    InvoiceNumber = creditNoteNumber,
-                    QRCode = response.QRcode,
-                    FiscalDayNo = response.FiscalDayNo,
-                    ReceiptGlobalNo = response.ReceiptGlobalNo,
-                    ReceiptCounter = response.ReceiptCounter,
-                    DeviceSerial = response.DeviceSerial,
-                    VerificationCode = response.VerificationCode,
-                    RawRequestJson = rawRequestJson,
-                    RawResponseJson = rawResponseJson
-                };
-            }
-            else
-            {
-                _logger.LogWarning(
-                    "Credit note fiscalization failed for {CreditNoteNumber}: {Message}",
-                    creditNoteNumber, response.Message);
-
-                return new FiscalizationResult
-                {
-                    Success = false,
-                    Message = response.Message ?? "Credit note fiscalization failed",
-                    InvoiceNumber = creditNoteNumber,
-                    ErrorCode = "REVMAX_ERROR",
-                    RawRequestJson = rawRequestJson,
-                    RawResponseJson = rawResponseJson
+                    RawResponseJson = Serialize(check)
                 };
             }
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex,
-                "HTTP error during credit note fiscalization {CreditNoteNumber}",
-                creditNoteNumber);
-
-            return new FiscalizationResult
-            {
-                Success = false,
-                Message = "Failed to connect to REVMax fiscal device",
-                InvoiceNumber = creditNoteNumber,
-                ErrorCode = "CONNECTION_ERROR",
-                ErrorDetails = ex.Message,
-                RawRequestJson = rawRequestJson,
-                RawResponseJson = rawResponseJson
-            };
+            _logger.LogWarning(
+                ex, "Could not read back the existing receipt for {InvoiceNumber}", invoiceNumber);
         }
-        catch (Exception ex)
+
+        // Still a success: the platform told us the document is fiscalised. We just could not recover
+        // the receipt details to display.
+        return new FiscalizationResult
         {
-            _logger.LogError(ex,
-                "Unexpected error during credit note fiscalization {CreditNoteNumber}",
-                creditNoteNumber);
-
-            return new FiscalizationResult
-            {
-                Success = false,
-                Message = "Credit note fiscalization error",
-                InvoiceNumber = creditNoteNumber,
-                ErrorCode = "UNEXPECTED_ERROR",
-                ErrorDetails = ex.Message,
-                RawRequestJson = rawRequestJson,
-                RawResponseJson = rawResponseJson
-            };
-        }
-    }
-
-    public async Task<bool> IsInvoiceFiscalizedAsync(string invoiceNumber, CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            var invoice = await _revmaxClient.GetInvoiceAsync(invoiceNumber, cancellationToken);
-
-            if (invoice == null || !invoice.Success)
-            {
-                return false;
-            }
-
-            // Check for fiscal evidence
-            return !string.IsNullOrWhiteSpace(invoice.QRcode) ||
-                   (invoice.Data?.ReceiptGlobalNo > 0);
-        }
-        catch (HttpRequestException)
-        {
-            // Invoice not found on REVMax - not fiscalized
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error checking fiscalization status for {InvoiceNumber}", invoiceNumber);
-            return false;
-        }
-    }
-
-    private TransactMRequest BuildTransactMRequest(InvoiceDto invoice, CustomerFiscalDetails? customerDetails)
-    {
-        var itemsXml = BuildItemsXml(invoice);
-        var currenciesXml = BuildCurrenciesXml(invoice);
-
-        return new TransactMRequest
-        {
-            InvoiceNumber = invoice.DocNum.ToString(),
-            Currency = invoice.DocCurrency ?? _settings.DefaultCurrency,
-            BranchName = _settings.DefaultBranchName,
-            CustomerName = customerDetails?.CustomerName ?? invoice.CardName,
-            CustomerVatNumber = customerDetails?.VatNumber,
-            CustomerAddress = customerDetails?.Address,
-            CustomerTelephone = customerDetails?.Telephone,
-            CustomerEmail = customerDetails?.Email,
-            CustomerBPN = customerDetails?.BPN,
-            InvoiceAmount = invoice.DocTotal,
-            InvoiceTaxAmount = invoice.VatSum,
-            Istatus = "01", // Normal invoice
-            Cashier = invoice.CardCode,
-            InvoiceComment = invoice.Comments,
-            ItemsXml = itemsXml,
-            CurrenciesXml = currenciesXml
+            Success = true,
+            Skipped = true,
+            Message = exception.Message,
+            InvoiceNumber = invoiceNumber,
+            ErrorCode = exception.ErrorCode,
+            RawRequestJson = rawRequestJson
         };
     }
 
-    private TransactMExtRequest BuildCreditNoteRequest(
-        InvoiceDto creditNote,
-        string originalInvoiceNumber,
-        InvoiceResponse? originalInvoice,
-        CustomerFiscalDetails? customerDetails)
+    private FiscalizationResult Disabled(string invoiceNumber)
     {
-        var itemsXml = BuildItemsXml(creditNote);
-        var currenciesXml = BuildCurrenciesXml(creditNote);
+        _logger.LogInformation("Fiscalisation is disabled; skipping {InvoiceNumber}", invoiceNumber);
 
-        return new TransactMExtRequest
+        return new FiscalizationResult
         {
-            InvoiceNumber = creditNote.DocNum.ToString(),
-            OriginalInvoiceNumber = originalInvoiceNumber,
-            Currency = creditNote.DocCurrency ?? _settings.DefaultCurrency,
-            BranchName = _settings.DefaultBranchName,
-            CustomerName = customerDetails?.CustomerName ?? creditNote.CardName,
-            CustomerVatNumber = customerDetails?.VatNumber,
-            CustomerAddress = customerDetails?.Address,
-            CustomerTelephone = customerDetails?.Telephone,
-            CustomerEmail = customerDetails?.Email,
-            CustomerBPN = customerDetails?.BPN,
-            InvoiceAmount = Math.Abs(creditNote.DocTotal), // Credit notes often have negative amounts
-            InvoiceTaxAmount = Math.Abs(creditNote.VatSum),
-            Istatus = "02", // Credit note
-            Cashier = creditNote.CardCode,
-            InvoiceComment = creditNote.Comments ?? creditNote.Remarks,
-            ItemsXml = itemsXml,
-            CurrenciesXml = currenciesXml,
-            refDeviceId = _settings.DefaultRefDeviceId,
-            refFiscalDayNo = originalInvoice?.Data?.FiscalDayNo,
-            refReceiptGlobalNo = originalInvoice?.Data?.ReceiptGlobalNo
+            Success = true,
+            Skipped = true,
+            Message = "Fiscalisation is disabled.",
+            InvoiceNumber = invoiceNumber
         };
     }
 
-    private List<RevmaxRequestItem> BuildItemsXml(InvoiceDto invoice)
+    private FiscalizationResult Unexpected(Exception ex, string invoiceNumber, string? rawRequestJson)
     {
-        if (invoice.Lines == null || invoice.Lines.Count == 0)
+        _logger.LogError(ex, "Unexpected error fiscalising {InvoiceNumber}", invoiceNumber);
+
+        return new FiscalizationResult
         {
-            return new List<RevmaxRequestItem>();
+            Success = false,
+            Message = "Fiscalisation error",
+            InvoiceNumber = invoiceNumber,
+            ErrorCode = "UNEXPECTED_ERROR",
+            ErrorDetails = ex.Message,
+            RawRequestJson = rawRequestJson
+        };
+    }
+
+    private static BuyerApiRequest? MapBuyer(CustomerFiscalDetails? customerDetails)
+    {
+        if (customerDetails is null)
+        {
+            return null;
         }
 
-        return invoice.Lines.Select(line =>
+        return new BuyerApiRequest
         {
-            var quantity = Math.Abs(line.Quantity);
-            var price = GetPriceAfterVat(line);
-            var amount = GetLineAmount(line, quantity, price);
-            var itemDescription = line.ItemDescription ?? string.Empty;
-            var taxCode = NormalizeTaxCode(line.TaxCode);
-
-            return new RevmaxRequestItem
-            {
-                HH = line.LineNum.ToString(CultureInfo.InvariantCulture),
-                ItemCode = line.ItemCode ?? string.Empty,
-                ItemName1 = itemDescription,
-                ItemName2 = itemDescription,
-                Qty = quantity.ToString(CultureInfo.InvariantCulture),
-                Price = price.ToString(CultureInfo.InvariantCulture),
-                Amt = amount.ToString(CultureInfo.InvariantCulture),
-                Tax = GetTaxId(taxCode).ToString(CultureInfo.InvariantCulture),
-                TaxR = GetTaxRateString(taxCode)
-            };
-        }).ToList();
+            RegisterName = customerDetails.CustomerName,
+            TradeName = customerDetails.CustomerName,
+            Tin = customerDetails.BPN,
+            VatNumber = customerDetails.VatNumber,
+            Phone = customerDetails.Telephone,
+            Email = customerDetails.Email,
+            Street = customerDetails.Address
+        };
     }
 
-    private List<RevmaxRequestCurrency> BuildCurrenciesXml(InvoiceDto invoice)
-        => new()
+    /// <summary>
+    /// Maps invoice lines to receipt lines, satisfying the platform's line validation.
+    /// </summary>
+    /// <remarks>
+    /// Prices are tax-inclusive gross, and negative for a credit note — the platform rejects a credit
+    /// note whose line prices are positive.
+    /// </remarks>
+    private List<LineApiRequest> MapLines(InvoiceDto invoice, ReceiptType receiptType)
+    {
+        if (invoice.Lines is null || invoice.Lines.Count == 0)
         {
-            new RevmaxRequestCurrency
+            return [];
+        }
+
+        var sign = receiptType == ReceiptType.CreditNote ? -1m : 1m;
+
+        return invoice.Lines
+            .Select(line =>
             {
-                Name = invoice.DocCurrency ?? _settings.DefaultCurrency,
-                Amount = Math.Abs(invoice.DocTotal).ToString(CultureInfo.InvariantCulture),
-                Rate = "1"
-            }
-        };
+                var quantity = Math.Abs(line.Quantity);
+                var price = RoundCurrency(GetPriceAfterVat(line));
+
+                return new LineApiRequest
+                {
+                    // Required, and capped at 200 characters by the platform. ItemDescription is
+                    // nullable, so fall back to the code rather than sending an empty name.
+                    Name = Truncate(
+                        string.IsNullOrWhiteSpace(line.ItemDescription) ? line.ItemCode : line.ItemDescription,
+                        200),
+                    HsCode = _settings.DefaultHsCode,
+                    Quantity = quantity <= 0m ? 1m : quantity,
+                    Price = sign * price,
+                    TaxId = ResolveTaxId(line.TaxCode)
+                };
+            })
+            .ToList();
+    }
+
+    private int ResolveTaxId(string? taxCode)
+    {
+        if (!string.IsNullOrWhiteSpace(taxCode)
+            && _settings.TaxIdMappings.TryGetValue(taxCode.Trim(), out var taxId)
+            && taxId > 0)
+        {
+            return taxId;
+        }
+
+        return _settings.DefaultTaxId;
+    }
+
+    private static string? Truncate(string? value, int maxLength)
+        => value is not null && value.Length > maxLength ? value[..maxLength] : value;
 
     private static decimal GetPriceAfterVat(InvoiceLineDto line)
     {
@@ -592,166 +661,13 @@ public class FiscalizationService : IFiscalizationService
         return grossPrice > 0m ? grossPrice : Math.Abs(line.UnitPrice);
     }
 
-    private static decimal GetLineAmount(InvoiceLineDto line, decimal quantity, decimal price)
-    {
-        var lineTotal = Math.Abs(line.LineTotal);
-        return lineTotal > 0m ? lineTotal : quantity * price;
-    }
-
-    private static string? NormalizeTaxCode(string? taxCode)
-        => string.IsNullOrWhiteSpace(taxCode) ? null : taxCode.Trim().ToUpperInvariant();
-
-    private static int GetTaxId(string? taxCode)
-        => taxCode switch
-        {
-            "A1" or "X1" => 1,
-            "B1" or "X0" => 2,
-            "C1" => 3,
-            "E1" => 5,
-            _ => 1
-        };
-
-    private string GetTaxRateString(string? taxCode)
-        => taxCode switch
-        {
-            "A1" or "X1" => FormatTaxRate(ResolveConfiguredTaxRate()),
-            "B1" or "X0" or "C1" or "E1" => "0",
-            _ => FormatTaxRate(ResolveConfiguredTaxRate())
-        };
-
-    private decimal ResolveGrossMultiplier(InvoiceDto invoice)
-    {
-        if (invoice.Lines == null || invoice.Lines.Count == 0)
-        {
-            return 1m;
-        }
-
-        var docTotal = Math.Abs(invoice.DocTotal);
-        var netLineTotal = invoice.Lines.Sum(line => GetNetLineTotal(line));
-
-        if (docTotal <= 0m || netLineTotal <= 0m || docTotal <= netLineTotal)
-        {
-            return 1m;
-        }
-
-        return docTotal / netLineTotal;
-    }
-
-    private decimal GetRevmaxUnitPrice(InvoiceLineDto line, decimal grossMultiplier)
-    {
-        var unitPrice = Math.Abs(line.UnitPrice);
-        var grossPrice = Math.Abs(line.GrossPrice);
-
-        if (grossPrice > 0m && grossPrice > unitPrice)
-        {
-            return RoundCurrency(grossPrice);
-        }
-
-        if (grossMultiplier > 1m && unitPrice > 0m)
-        {
-            return RoundCurrency(unitPrice * grossMultiplier);
-        }
-
-        return RoundCurrency(grossPrice > 0m ? grossPrice : unitPrice);
-    }
-
-    private decimal GetRevmaxLineAmount(
-        InvoiceLineDto line,
-        decimal grossMultiplier,
-        decimal quantity,
-        decimal unitPrice)
-    {
-        var grossTotal = GetGrossTotal(line);
-        var netLineTotal = GetNetLineTotal(line);
-
-        if (grossTotal > 0m && grossTotal > netLineTotal)
-        {
-            return RoundCurrency(grossTotal);
-        }
-
-        if (grossMultiplier > 1m && netLineTotal > 0m)
-        {
-            return RoundCurrency(netLineTotal * grossMultiplier);
-        }
-
-        if (unitPrice > 0m && quantity > 0m)
-        {
-            return RoundCurrency(unitPrice * quantity);
-        }
-
-        return RoundCurrency(netLineTotal);
-    }
-
-    private static decimal GetNetLineTotal(InvoiceLineDto line)
-    {
-        var lineTotal = Math.Abs(line.LineTotal);
-        if (lineTotal > 0m)
-        {
-            return lineTotal;
-        }
-
-        return RoundCurrency(Math.Abs(line.Quantity) * Math.Abs(line.UnitPrice));
-    }
-
-    private static decimal GetGrossTotal(InvoiceLineDto line)
-    {
-        var unitPrice = Math.Abs(line.UnitPrice);
-        var grossPrice = Math.Abs(line.GrossPrice);
-
-        if (grossPrice <= 0m || grossPrice <= unitPrice)
-        {
-            return 0m;
-        }
-
-        return RoundCurrency(Math.Abs(line.Quantity) * grossPrice);
-    }
-
-    private static bool IsTaxable(InvoiceLineDto line, decimal grossMultiplier)
-        => Math.Abs(line.GrossPrice) > Math.Abs(line.UnitPrice) || grossMultiplier > 1.0005m;
-
-    private decimal ResolveConfiguredTaxRate()
-    {
-        var configuredRate = _settings.VatRate > 1m ? _settings.VatRate / 100m : _settings.VatRate;
-        return RoundTaxRate(configuredRate > 0m ? configuredRate : 0.155m);
-    }
-
-    private static void NormalizeItemAmountTotal(
-        List<(InvoiceLineDto Line, int Index, decimal Quantity, decimal UnitPrice, decimal Amount, bool IsTaxable)> items,
-        decimal targetTotal)
-    {
-        if (items.Count == 0 || targetTotal <= 0m)
-        {
-            return;
-        }
-
-        var amountTotal = items.Sum(item => item.Amount);
-        var difference = RoundCurrency(targetTotal - amountTotal);
-
-        if (Math.Abs(difference) < 0.01m || Math.Abs(difference) > 0.10m)
-        {
-            return;
-        }
-
-        var lastItem = items[^1];
-        var adjustedAmount = RoundCurrency(lastItem.Amount + difference);
-        var adjustedPrice = lastItem.Quantity > 0m
-            ? RoundCurrency(adjustedAmount / lastItem.Quantity)
-            : lastItem.UnitPrice;
-
-        items[^1] = (lastItem.Line, lastItem.Index, lastItem.Quantity, adjustedPrice, adjustedAmount, lastItem.IsTaxable);
-    }
+    private static DateTime? ParseDocDate(string? docDate)
+        => DateTime.TryParse(docDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+            ? parsed
+            : null;
 
     private static decimal RoundCurrency(decimal value)
         => Math.Round(value, 2, MidpointRounding.AwayFromZero);
-
-    private static decimal RoundTaxRate(decimal value)
-        => Math.Round(value, 4, MidpointRounding.AwayFromZero);
-
-    private static string FormatItemNumber(decimal value)
-        => RoundCurrency(value).ToString("0.##", CultureInfo.InvariantCulture);
-
-    private static string FormatTaxRate(decimal value)
-        => RoundTaxRate(value).ToString("0.####", CultureInfo.InvariantCulture);
 
     private static string? Serialize(object? value)
         => value is null ? null : JsonSerializer.Serialize(value, JsonOptions);

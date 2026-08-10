@@ -326,9 +326,6 @@ try
     // Add Desktop Integration service (for viewing desktop app transactions)
     builder.Services.AddScoped<IDesktopIntegrationService, DesktopIntegrationService>();
 
-    // Add REVMax fiscal device service
-    builder.Services.AddScoped<IRevmaxService, RevmaxService>();
-
     // Add Timesheet service
     builder.Services.AddScoped<ITimesheetService, TimesheetService>();
 

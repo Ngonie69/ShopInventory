@@ -793,26 +793,6 @@ new("POST", "/api/notification/mark-read", "Mark notifications as read"),
 new("POST", "/api/notification", "Create a notification"),
 new("DELETE", "/api/notification/{id}", "Delete a notification")
 }
-},
-new ApiModule
-{
-Name = "Revmax Proxy",
-BasePath = "/api/revmax",
-Description = "Revmax fiscal device integration for Zimbabwe compliance.",
-Icon = Icons.Material.Filled.ReceiptLong,
-Color = Color.Warning,
-Methods = new[] { "GET", "POST" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/revmax/day-status", "Get fiscal day status"),
-new("GET", "/api/revmax/card-details", "Get fiscal device card details"),
-new("GET", "/api/revmax/license", "Get device license"),
-new("GET", "/api/revmax/z-report", "Get the Z report"),
-new("GET", "/api/revmax/invoices/{invoiceNumber}", "Get a fiscalized invoice"),
-new("GET", "/api/revmax/unprocessed-invoices/summary", "Get unprocessed invoice summary"),
-new("POST", "/api/revmax/transact", "Fiscalize a document"),
-new("POST", "/api/revmax/transact-ext", "Fiscalize a document (extended)")
-}
 }
 }
 }

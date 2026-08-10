@@ -1,26 +1,26 @@
-using System.Globalization;
-using System.Net;
 using System.Text.Json;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models;
-using ShopInventory.Models.Revmax;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Features.DesktopIntegration.Commands.BackfillFiscalTransactions;
 
 public sealed class BackfillFiscalTransactionsHandler(
     ApplicationDbContext dbContext,
     ISAPServiceLayerClient sapClient,
-    IRevmaxClient revmaxClient,
+    IFiscalisationApiClient fiscalisationClient,
+    IFiscalDeviceConfigCache fiscalConfigCache,
     ISender sender,
     IOptions<SAPSettings> sapSettings,
-    IOptions<RevmaxSettings> revmaxSettings,
+    IOptions<FiscalisationSettings> fiscalisationSettings,
     ILogger<BackfillFiscalTransactionsHandler> logger
 ) : IRequestHandler<BackfillFiscalTransactionsCommand, ErrorOr<BackfillFiscalTransactionsResult>>
 {
@@ -36,9 +36,9 @@ public sealed class BackfillFiscalTransactionsHandler(
             return Errors.DesktopIntegration.SapDisabled;
         }
 
-        if (!revmaxSettings.Value.Enabled)
+        if (!fiscalisationSettings.Value.Enabled)
         {
-            return Errors.DesktopIntegration.BackfillFiscalTransactionsFailed("REVMax integration is disabled.");
+            return Errors.DesktopIntegration.BackfillFiscalTransactionsFailed("Fiscalisation is disabled.");
         }
 
         var request = command.Request;
@@ -130,39 +130,22 @@ public sealed class BackfillFiscalTransactionsHandler(
                         continue;
                     }
 
-                    InvoiceResponse? fiscalInvoice;
+                    var snapshot = await FiscalReceiptLookup.TryLookupAsync(
+                        fiscalisationClient,
+                        fiscalConfigCache,
+                        invoice.DocNum,
+                        ReceiptType.FiscalInvoice,
+                        logger,
+                        cancellationToken);
 
-                    try
+                    if (snapshot is null)
                     {
-                        fiscalInvoice = await revmaxClient.GetInvoiceAsync(
-                            invoice.DocNum.ToString(CultureInfo.InvariantCulture),
-                            cancellationToken);
-                    }
-                    catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
-                    {
-                        notFiscalisedCount++;
-                        continue;
-                    }
-                    catch (HttpRequestException ex)
-                    {
+                        // The lookup failed, which is not the same as "not fiscalised".
                         lookupFailedCount++;
-                        logger.LogWarning(
-                            ex,
-                            "REVMax lookup failed while backfilling fiscal transaction log for invoice {DocNum}",
-                            invoice.DocNum);
-                        continue;
-                    }
-                    catch (Exception ex)
-                    {
-                        lookupFailedCount++;
-                        logger.LogWarning(
-                            ex,
-                            "Unexpected REVMax lookup error while backfilling fiscal transaction log for invoice {DocNum}",
-                            invoice.DocNum);
                         continue;
                     }
 
-                    if (!HasFiscalEvidence(fiscalInvoice))
+                    if (!snapshot.IsFiscalised)
                     {
                         notFiscalisedCount++;
                         continue;
@@ -172,7 +155,7 @@ public sealed class BackfillFiscalTransactionsHandler(
 
                     var syncResult = await sender.Send(
                         new SyncFiscalTransaction.SyncFiscalTransactionCommand(
-                            BuildSyncRequest(invoice, fiscalInvoice!, fromUtc, toUtc),
+                            BuildSyncRequest(invoice, snapshot, fromUtc, toUtc),
                             command.UserId,
                             command.Username),
                         cancellationToken);
@@ -255,27 +238,24 @@ public sealed class BackfillFiscalTransactionsHandler(
 
     private static SyncFiscalTransaction.SyncFiscalTransactionRequest BuildSyncRequest(
         Invoice invoice,
-        InvoiceResponse fiscalInvoice,
+        FiscalReceiptSnapshot snapshot,
         DateTime fromUtc,
         DateTime toUtc)
     {
-        var timestampUtc = ResolveTimestampUtc(fiscalInvoice.Data?.ReceiptDate);
-        var receiptGlobalNo = ResolveReceiptGlobalNo(fiscalInvoice.Data?.ReceiptGlobalNo);
-
         return new SyncFiscalTransaction.SyncFiscalTransactionRequest
         {
             ClientTransactionId = $"invoice-fiscal-backfill-{invoice.DocNum}",
-            TimestampUtc = timestampUtc,
+            TimestampUtc = snapshot.TimestampUtc,
             DocNum = invoice.DocNum,
             DocumentType = DocumentType,
             Status = "Fiscalised",
-            Message = BuildMessage(invoice.DocNum, receiptGlobalNo),
-            VerificationCode = fiscalInvoice.VerificationCode,
-            QRCode = fiscalInvoice.QRcode,
-            DeviceSerialNumber = fiscalInvoice.DeviceSerialNumber,
-            DeviceId = fiscalInvoice.DeviceID,
-            FiscalDay = fiscalInvoice.FiscalDay,
-            ReceiptGlobalNo = receiptGlobalNo,
+            Message = BuildMessage(invoice.DocNum, snapshot.ReceiptGlobalNo),
+            VerificationCode = snapshot.VerificationCode,
+            QRCode = snapshot.QrCode,
+            DeviceSerialNumber = snapshot.DeviceSerialNumber,
+            DeviceId = snapshot.DeviceId,
+            FiscalDay = snapshot.FiscalDay,
+            ReceiptGlobalNo = snapshot.ReceiptGlobalNo,
             CardCode = invoice.CardCode,
             CardName = invoice.CardName,
             DocTotal = invoice.DocTotal,
@@ -288,39 +268,18 @@ public sealed class BackfillFiscalTransactionsHandler(
                 WindowFromUtc = fromUtc,
                 WindowToUtc = toUtc
             }),
-            RawResponse = Serialize(fiscalInvoice),
+            RawResponse = snapshot.RawResponseJson,
             SourceSystem = SourceSystem
         };
     }
 
-    private static bool HasFiscalEvidence(InvoiceResponse? invoice)
-        => invoice is { Success: true }
-           && (!string.IsNullOrWhiteSpace(invoice.QRcode)
-               || (invoice.Data?.ReceiptGlobalNo > 0));
-
     private static DateTime? NormalizeUtcDate(DateTime? value)
         => value.HasValue ? DateTime.SpecifyKind(value.Value.Date, DateTimeKind.Utc) : null;
 
-    private static DateTime ResolveTimestampUtc(string? receiptDate)
-    {
-        if (!string.IsNullOrWhiteSpace(receiptDate) &&
-            DateTimeOffset.TryParse(receiptDate, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
-        {
-            return parsed.UtcDateTime;
-        }
-
-        return DateTime.UtcNow;
-    }
-
-    private static int? ResolveReceiptGlobalNo(long? receiptGlobalNo)
-        => receiptGlobalNo.HasValue && receiptGlobalNo.Value > 0 && receiptGlobalNo.Value <= int.MaxValue
-            ? (int)receiptGlobalNo.Value
-            : null;
-
     private static string BuildMessage(int docNum, int? receiptGlobalNo)
         => receiptGlobalNo.HasValue
-            ? $"Backfilled fiscalised invoice {docNum} from existing REVMax receipt #{receiptGlobalNo}."
-            : $"Backfilled fiscalised invoice {docNum} from an existing REVMax transaction.";
+            ? $"Backfilled fiscalised invoice {docNum} from existing fiscal receipt #{receiptGlobalNo}."
+            : $"Backfilled fiscalised invoice {docNum} from an existing fiscal transaction.";
 
     private static string? Serialize(object? value)
         => value is null ? null : JsonSerializer.Serialize(value);

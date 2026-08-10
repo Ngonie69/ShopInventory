@@ -14,7 +14,7 @@ The workspace also contains `OpenWA/`, a separate NestJS WhatsApp gateway used o
 Key runtime flow:
 
 ```text
-Browser -> ShopInventory.Web -> ShopInventory API -> PostgreSQL / SAP B1 / REVMax / payment gateways
+Browser -> ShopInventory.Web -> ShopInventory API -> PostgreSQL / SAP B1 / Fiscalisation / payment gateways
 ```
 
 Read `architecture.md` when the change touches architecture, integration boundaries, deployment behavior, background workers, or data ownership.
@@ -139,11 +139,11 @@ Critical invoice path:
 3. Validate quantities and warehouse codes.
 4. Use `IBatchInventoryValidationService` for FIFO/FEFO batch allocation when `autoAllocateBatches` applies.
 5. Acquire inventory or workflow locks through existing lock abstractions.
-6. Post to SAP, queue downstream work, fiscalize through REVMax, and generate PDFs according to the existing flow.
+6. Post to SAP, queue downstream work, fiscalise through the Fiscalisation platform, and generate PDFs according to the existing flow.
 
 Other integrations:
 
-- Keep REVMax fiscalization behind existing services and feature slices.
+- Keep fiscalisation behind `IFiscalizationService` and `IFiscalisationApiClient`; never call the platform directly from a controller or page.
 - Keep PayNow, Innbucks, and Ecocash behind payment gateway abstractions.
 - Keep WhatsApp session mechanics inside `OpenWA`; the .NET API remains the policy and orchestration layer.
 - Preserve health, readiness, and deployment-safe startup behavior.

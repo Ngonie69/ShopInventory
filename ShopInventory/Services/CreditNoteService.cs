@@ -489,7 +489,7 @@ public class CreditNoteService : ICreditNoteService
             throw new InvalidOperationException($"Failed to post credit note to SAP: {ex.Message}", ex);
         }
 
-        // FISCALIZE with REVMax after successful SAP posting
+        // FISCALISE after successful SAP posting
         FiscalizationResult? fiscalizationResult = null;
         try
         {
@@ -545,7 +545,7 @@ public class CreditNoteService : ICreditNoteService
                         creditNote.CreditNoteNumber,
                         sapCreditNote.DocNum,
                         request.CardCode,
-                        fiscalizationResult.Message ?? "REVMax fiscalization failed for the credit note.",
+                        fiscalizationResult.Message ?? "Fiscalisation failed for the credit note.",
                         cancellationToken);
                 }
             }
@@ -559,7 +559,7 @@ public class CreditNoteService : ICreditNoteService
                     creditNote.CreditNoteNumber,
                     sapCreditNote.DocNum,
                     request.CardCode,
-                    "REVMax fiscalization skipped because the original invoice reference was missing.",
+                    "Fiscalisation skipped because the original invoice reference was missing.",
                     cancellationToken);
             }
         }
@@ -1031,14 +1031,14 @@ public class CreditNoteService : ICreditNoteService
             var incident = new ExceptionCenterIncidentEntity
             {
                 Source = "credit-note-fiscalization",
-                Category = "REVMax",
+                Category = "Fiscalisation",
                 Title = "Credit note fiscalization issue",
                 Reference = string.IsNullOrWhiteSpace(reference)
                     ? $"SAP Credit Note {sapDocNum}"
                     : reference,
                 Status = "RequiresReview",
                 SourceSystem = "CreditNote",
-                Provider = "REVMax",
+                Provider = "Fiscalisation",
                 LastError = message.Length > 2000 ? message[..2000] : message,
                 RetryCount = 0,
                 MaxRetries = 0,

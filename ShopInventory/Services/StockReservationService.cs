@@ -532,7 +532,7 @@ public class StockReservationService : IStockReservationService
                 cancellationToken);
             var notificationActionUrl = ResolveNotificationActionUrl(reservation.SourceSystem);
 
-            // Queue fiscalization so REVMax latency does not block the SAP response.
+            // Queue fiscalization so fiscal-platform latency does not block the SAP response.
             FiscalizationResult? fiscalizationResult = null;
             if (request.Fiscalize)
             {

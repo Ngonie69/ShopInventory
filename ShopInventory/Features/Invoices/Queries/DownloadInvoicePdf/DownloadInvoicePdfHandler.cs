@@ -6,6 +6,7 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Mappings;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 using Microsoft.Extensions.Options;
 
 namespace ShopInventory.Features.Invoices.Queries.DownloadInvoicePdf;
@@ -13,7 +14,8 @@ namespace ShopInventory.Features.Invoices.Queries.DownloadInvoicePdf;
 public sealed class DownloadInvoicePdfHandler(
     ApplicationDbContext dbContext,
     ISAPServiceLayerClient sapClient,
-    IRevmaxClient revmaxClient,
+    IFiscalisationApiClient fiscalisationClient,
+    IFiscalDeviceConfigCache fiscalConfigCache,
     IInvoicePdfService invoicePdfService,
     IOptions<SAPSettings> settings,
     ILogger<DownloadInvoicePdfHandler> logger
@@ -91,15 +93,20 @@ public sealed class DownloadInvoicePdfHandler(
         {
             try
             {
-                var fiscalInvoice = await revmaxClient.GetInvoiceAsync(docNum.ToString(), cancellationToken);
-                return fiscalInvoice?.Success == true && !string.IsNullOrWhiteSpace(fiscalInvoice.QRcode)
-                    ? fiscalInvoice.QRcode
-                    : null;
+                var snapshot = await FiscalReceiptLookup.TryLookupAsync(
+                    fiscalisationClient,
+                    fiscalConfigCache,
+                    docNum,
+                    ReceiptType.FiscalInvoice,
+                    logger,
+                    cancellationToken);
+
+                return snapshot?.QrCode;
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex,
-                    "Could not load REVMax QR code for invoice {DocNum} while generating PDF",
+                    "Could not load the fiscal QR code for invoice {DocNum} while generating PDF",
                     docNum);
                 return null;
             }

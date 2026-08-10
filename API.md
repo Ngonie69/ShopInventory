@@ -8,7 +8,7 @@
 | **Protocol** | HTTPS (enforced in production) |
 | **Database** | PostgreSQL |
 | **ERP Integration** | SAP Business One (Service Layer) |
-| **Fiscal Integration** | REVMax |
+| **Fiscal Integration** | ZIMRA FDMS via https://fiscal.kefaloscheese.com/ |
 | **Payment Gateways** | PayNow, Innbucks, Ecocash |
 | **API Format** | JSON |
 
@@ -69,7 +69,7 @@ Examples:
   - [SAP Settings](#29-sap-settings)
   - [Desktop Integration](#30-desktop-integration)
   - [Customer Portal](#31-customer-portal)
-  - [REVMax Proxy](#32-revmax-proxy)
+  - [Fiscalisation](#32-fiscalisation)
   - [Health](#33-health)
 - [DTOs Reference](#dtos-reference)
 
@@ -771,7 +771,7 @@ Change the current user's password.
 }
 ```
 
-> **Note:** Invoice creation performs stock validation, batch allocation (FEFO/FIFO), stock locking, SAP posting, and optional REVMax fiscalization in a single transaction.
+> **Note:** Invoice creation performs stock validation, batch allocation (FEFO/FIFO), stock locking, SAP posting, and optional fiscalisation in a single transaction.
 
 ---
 
@@ -1939,49 +1939,43 @@ This controller supports stock reservations and queue-based invoice posting for 
 
 ---
 
-### 32. REVMax Proxy
+### 32. Fiscalisation
 
-**Base route:** `/api/revmax`  
-**Auth:** Bearer + ApiAccess
+**There is no fiscal proxy in this API.** REVMax was decommissioned and the `/api/revmax/*` routes were
+removed with it. Fiscalisation now runs against the ZIMRA FDMS platform at
+<https://fiscal.kefaloscheese.com/>, which this API calls as a client.
 
-Proxy endpoints for the REVMax fiscal device (ZIMRA compliance).
+Device status, licences, Z-reports, fiscal-day open/close and the receipt archive are functions of that
+platform's own console, behind its own login. They are not exposed through ShopInventory.
+
+**How this API uses it**
+
+| Purpose | Platform endpoint |
+|---------|-------------------|
+| Fiscalise an invoice or credit note already in SAP | `POST /api/sap/receipts/fiscalise` — takes only the SAP `DocEntry`; the platform reads the document from SAP itself |
+| Fiscalise a desktop/POS invoice before it reaches SAP | `POST /api/receipts/submit` — full receipt payload |
+| Read fiscal status back | `GET /api/receipts/check?deviceId=0&invoiceNo=…&receiptType=…` |
+| Device configuration (QR base URL, serial, active taxes) | `GET /api/fiscal-config?deviceId=` |
+
+Authentication is an `X-API-Key` header. The key is configured as `Fiscalisation__ApiKey` and needs the
+`receipt.submit`, `sap.fiscalise` and `device.read` scopes.
+
+**VAT Rate:** 15.5%, configured at `Tax:VatRate`.
+
+**Fiscal fields on an invoice** — `isFiscalized`, `fiscalizationStatus`, `fiscalQrCode`,
+`fiscalReceiptGlobalNo`, `fiscalizedAtUtc`. These come from the local projection in
+`DesktopFiscalTransactions`, not from a live call.
+
+The QR code is **composed by this API**, not returned by the platform: the verification segment is the
+first 16 hex characters of `MD5(deviceSignatureValue)`, appended to the device's `qrUrl` along with the
+device id, receipt date and receipt global number. See `FiscalReceiptQrComposer`.
+
+**Triggering fiscalisation**
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/revmax/card-details` | Fiscal device card details (TIN, BPN, serial number) |
-| GET | `/api/revmax/day-status` | Current fiscal day status |
-| GET | `/api/revmax/license` | Get the active REVMax license |
-| POST | `/api/revmax/license` | Set or replace the active REVMax license |
-| GET | `/api/revmax/z-report` | Get fiscal report (Z-report) |
-| GET | `/api/revmax/invoices/{invoiceNumber}` | Get a fiscalized invoice by invoice number |
-| GET | `/api/revmax/unprocessed-invoices/summary` | Get the summary of invoices still pending processing on REVMax |
-| POST | `/api/revmax/transact` | Submit a standard fiscal transaction |
-| POST | `/api/revmax/transact-ext` | Submit an extended fiscal transaction used to fiscalise credit notes where the original invoice was fiscalised on a different device |
-
-`/api/revmax/transact-ext` proxies REVMax `TransactMExt` and extends the standard transaction payload with `refDeviceId`, `refReceiptGlobalNo`, and `refFiscalDayNo`. Use it when the credit note must reference a prior fiscalized invoice from a different device.
-
-**VAT Rate:** 15.5% (configurable)
-
-**Fiscal Response:**
-
-```json
-{
-  "code": 0,
-  "message": "Success",
-  "qrCode": "https://fdms.zimra.co.zw/...",
-  "verificationCode": "ABC123",
-  "verificationLink": "https://fdms.zimra.co.zw/verify/...",
-  "deviceID": "DEV001",
-  "deviceSerialNumber": "SN123456",
-  "fiscalDay": 245,
-  "data": {
-    "receiptGlobalNo": 1234,
-    "receiptCounter": 567,
-    "fiscalDayNo": 245,
-    "invoiceNo": "INV-1001"
-  }
-}
-```
+| POST | `/api/Invoice/{docEntry}/fiscalize` | Fiscalise a posted invoice |
+| POST | `/api/DesktopIntegration/fiscal-transactions/backfill` | Backfill fiscal status for a date window |
 
 ---
 

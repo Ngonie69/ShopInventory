@@ -22,7 +22,7 @@ public sealed class CreateDesktopSaleHandler(
     IHubContext<NotificationHub> hubContext,
     IIdempotencyRequestStore idempotencyRequestStore,
     INotificationService notificationService,
-    IOptions<RevmaxSettings> revmaxSettings,
+    IOptions<TaxSettings> taxSettings,
     ILogger<CreateDesktopSaleHandler> logger
 ) : IRequestHandler<CreateDesktopSaleCommand, ErrorOr<DesktopSaleResponseDto>>
 {
@@ -98,7 +98,7 @@ public sealed class CreateDesktopSaleHandler(
                 ? DateTime.Parse(req.DocDate).Date
                 : today;
 
-            var vatRate = revmaxSettings.Value.VatRate;
+            var vatRate = taxSettings.Value.VatRate;
 
             // Acquire per-item/warehouse locks to serialize concurrent sales affecting the same stock
             var lockRequests = req.Lines
@@ -375,11 +375,14 @@ public sealed class CreateDesktopSaleHandler(
     {
         try
         {
-            // Build an InvoiceDto from local sale data for the fiscalization service
+            // Build an InvoiceDto from local sale data for the fiscalization service.
+            //
+            // DocNum/DocEntry are deliberately left unset. A desktop sale has no SAP document yet, and
+            // the local primary key is not a SAP identifier: passing it as a DocEntry would make the
+            // fiscalisation platform look up — and fiscalise — whichever unrelated SAP invoice happens
+            // to hold that number.
             var invoiceDto = new DTOs.InvoiceDto
             {
-                DocNum = sale.Id,
-                DocEntry = sale.Id,
                 DocDate = sale.DocDate.ToString("yyyy-MM-dd"),
                 CardCode = sale.CardCode,
                 CardName = sale.CardName,
@@ -400,9 +403,12 @@ public sealed class CreateDesktopSaleHandler(
                 }).ToList()
             };
 
-            // Use the external reference as the invoice number for Revmax
-            // (so it's unique and traceable, not the DB Id)
-            var result = await fiscalizationService.FiscalizeInvoiceAsync(invoiceDto, cancellationToken: ct);
+            // The external reference is the invoice number: unique, traceable, and stable across
+            // retries, which is what the platform's idempotency key requires.
+            var result = await fiscalizationService.FiscalizePreSapInvoiceAsync(
+                invoiceDto,
+                sale.ExternalReferenceId!,
+                cancellationToken: ct);
 
             if (result.Success && !result.Skipped)
             {

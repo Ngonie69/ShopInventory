@@ -109,17 +109,6 @@ public static class AuditActions
     public const string DeleteBackup = "DeleteBackup";
     public const string ResetDatabase = "ResetDatabase";
 
-    // REVMax actions
-    public const string ViewRevmaxCardDetails = "ViewRevmaxCardDetails";
-    public const string ViewRevmaxDayStatus = "ViewRevmaxDayStatus";
-    public const string ViewRevmaxLicense = "ViewRevmaxLicense";
-    public const string UpdateRevmaxLicense = "UpdateRevmaxLicense";
-    public const string GenerateRevmaxZReport = "GenerateRevmaxZReport";
-    public const string ViewRevmaxInvoice = "ViewRevmaxInvoice";
-    public const string ViewRevmaxUnprocessedInvoices = "ViewRevmaxUnprocessedInvoices";
-    public const string CreateRevmaxTransaction = "CreateRevmaxTransaction";
-    public const string CreateRevmaxExtendedTransaction = "CreateRevmaxExtendedTransaction";
-
     // Settings actions
     public const string UpdateSAPSettings = "UpdateSAPSettings";
     public const string UpdateMobileVersionPolicy = "UpdateMobileVersionPolicy";
