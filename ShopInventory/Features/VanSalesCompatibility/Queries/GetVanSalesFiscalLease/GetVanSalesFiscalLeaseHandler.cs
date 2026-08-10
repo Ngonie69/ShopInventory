@@ -27,7 +27,7 @@ namespace ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesFiscal
 /// </summary>
 public sealed class GetVanSalesFiscalLeaseHandler(
     ApplicationDbContext db,
-    FiscalDeviceConfigCache configCache,
+    IFiscalDeviceConfigCache configCache,
     IFiscalisationApiClient fiscalisationClient,
     ISAPServiceLayerClient sapClient,
     IOptions<FiscalisationSettings> fiscalisationOptions,
