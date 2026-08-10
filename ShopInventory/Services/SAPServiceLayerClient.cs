@@ -3222,6 +3222,92 @@ ORDER BY T0.""ItemCode""";
     }
 
     /// <inheritdoc />
+    public async Task<Dictionary<string, string>> GetItemVatGroupsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        const string cacheKey = "sap:item-vat-groups";
+
+        if (_memoryCache.TryGetValue(cacheKey, out Dictionary<string, string>? cached) && cached is not null)
+        {
+            return cached;
+        }
+
+        var vatGroupsByCode = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        const int pageSize = 200;
+        var skip = 0;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var endpoint =
+                $"Items?$select=ItemCode,VatGroup&$filter=ItemType eq 'itItems' and Valid eq 'tYES'" +
+                $"&$orderby=ItemCode&$top={pageSize}&$skip={skip}";
+
+            var requestSession = _sessionId;
+
+            HttpRequestMessage CreateRequest(string? sessionId)
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+                request.Headers.Add("Cookie", $"B1SESSION={sessionId}");
+
+                // $top alone does not lift the Service Layer's ~20-row default page, and the truncation
+                // is silent — a lease would simply be missing most of the catalogue.
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                return request;
+            }
+
+            var response = await _httpClient.SendAsync(CreateRequest(requestSession), cancellationToken);
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(requestSession, cancellationToken);
+                response = await _httpClient.SendAsync(CreateRequest(_sessionId), cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning(
+                    "Failed to read item VAT groups from SAP: {StatusCode} - {Error}",
+                    response.StatusCode,
+                    errorContent);
+                break;
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var page = JsonSerializer.Deserialize<SAPResponse<Item>>(content)?.Value ?? [];
+
+            foreach (var item in page)
+            {
+                var code = UomQuantityValidation.NormalizeItemCode(item.ItemCode);
+
+                // A blank VAT group is left out rather than defaulted. The handset then refuses that
+                // item by name instead of stamping a receipt with a tax the item may not attract.
+                if (code is null || string.IsNullOrWhiteSpace(item.VatGroup))
+                {
+                    continue;
+                }
+
+                vatGroupsByCode[code] = item.VatGroup.Trim();
+            }
+
+            if (page.Count < pageSize)
+            {
+                break;
+            }
+
+            skip += pageSize;
+        }
+
+        // Item VAT groups change about as often as the price book, and a stale entry is caught by the
+        // handset's own gate, so this is cached hard rather than re-read per lease.
+        _memoryCache.Set(cacheKey, vatGroupsByCode, TimeSpan.FromHours(6));
+
+        return vatGroupsByCode;
+    }
+
+    /// <inheritdoc />
     public async Task<Dictionary<string, Item>> GetItemsByCodesAsync(
         IEnumerable<string> itemCodes,
         CancellationToken cancellationToken = default)

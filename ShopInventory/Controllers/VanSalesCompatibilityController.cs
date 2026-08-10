@@ -24,6 +24,7 @@ using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesAttendance
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesAttendanceStatus;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCustomers;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesFiscal;
+using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesFiscalLease;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesOrderHistory;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesSalesOrderHistory;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesTransferRequests;
@@ -283,6 +284,28 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
         return result.Match(
             value => Ok(new VanSalesEnvelope<VanSalesLegacyFiscalDto> { Success = value }),
             errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Issues this handset's fiscal lease: the device it signs receipts as, the open fiscal day, the
+    /// sequence position to sign from, and the tax on every item it might sell.
+    ///
+    /// Returned bare rather than wrapped in <see cref="VanSalesEnvelope{T}"/>, unlike the legacy routes
+    /// beside it — nothing legacy consumes this, and the handset parses it directly.
+    /// </summary>
+    [HttpGet("fiscal/lease")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.CreateInvoices)]
+    public async Task<IActionResult> GetFiscalLease(CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(new GetVanSalesFiscalLeaseQuery(userId.Value), cancellationToken);
+        return result.Match<IActionResult>(Ok, errors => Problem(errors));
     }
 
     [HttpPost("pod")]
