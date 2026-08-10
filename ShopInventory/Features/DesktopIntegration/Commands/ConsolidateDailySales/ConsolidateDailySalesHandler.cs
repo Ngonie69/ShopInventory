@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -23,6 +24,7 @@ public sealed class ConsolidateDailySalesHandler(
     IInvoiceQueueService queueService,
     INotificationService notificationService,
     IHubContext<NotificationHub> hubContext,
+    ISender sender,
     ILogger<ConsolidateDailySalesHandler> logger
 ) : IRequestHandler<ConsolidateDailySalesCommand, ErrorOr<ConsolidateDailySalesResult>>
 {
@@ -195,6 +197,12 @@ public sealed class ConsolidateDailySalesHandler(
             consolidation.PostedAt = DateTime.UtcNow;
             consolidation.Status = ConsolidationStatus.Posted;
 
+            // Written with the DocNum, because this is what tells every later reader that fiscalising
+            // this invoice would duplicate receipts already lodged with FDMS. See
+            // ConsolidatedInvoiceRegistry.
+            var constituentReceipts = DescribeConstituentReceipts(sales);
+            consolidation.ConstituentFiscalReceipts = JsonSerializer.Serialize(constituentReceipts);
+
             // Mark all desktop sales as consolidated
             foreach (var sale in sales)
             {
@@ -202,12 +210,22 @@ public sealed class ConsolidateDailySalesHandler(
                 sale.ConsolidationId = consolidation.Id;
             }
 
+            // Before anything else that can fail. The invoice exists in SAP from here on, and the
+            // marker is the only thing standing between it and a second FDMS submission.
+            await context.SaveChangesAsync(ct);
+
             // Mark queue entries as completed after successful SAP posting
             if (_queueIdsByCardCode.TryGetValue(cardCode, out var queueIds) && queueIds.Count > 0)
             {
                 await queueService.MarkAsConsolidatedAsync(
                     queueIds, sapInvoice.DocEntry.ToString(), sapInvoice.DocNum, ct);
             }
+
+            await RecordConsolidatedInvoiceAsFiscalisedAsync(
+                consolidation,
+                constituentReceipts,
+                sales.First().Currency,
+                ct);
 
             await NotifyVanSalesRecipientsAsync(
                 sales,
@@ -257,6 +275,64 @@ public sealed class ConsolidateDailySalesHandler(
             await context.SaveChangesAsync(ct);
 
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Names the receipts each constituent sale was fiscalised under, before SAP.
+    /// </summary>
+    /// <remarks>
+    /// The two sources fiscalise under different numbers, and the difference matters because that
+    /// number is what the fiscalisation platform keys its duplicate guard on. A sale created through
+    /// CreateDesktopSale goes to FDMS under its own row id; a queued invoice fiscalised by
+    /// InvoicePostingJob goes under its external reference. The queue-derived sales here are
+    /// transient objects built by <see cref="ConvertQueueEntriesToSales"/> and never persisted, so a
+    /// zero id is what distinguishes them.
+    /// </remarks>
+    private static List<ConsolidatedFiscalReceipt> DescribeConstituentReceipts(
+        IEnumerable<DesktopSaleEntity> sales)
+        => sales
+            .Select(sale => new ConsolidatedFiscalReceipt(
+                sale.ExternalReferenceId,
+                sale.Id > 0 ? sale.Id.ToString() : sale.ExternalReferenceId,
+                sale.FiscalReceiptNumber,
+                sale.TotalAmount))
+            .ToList();
+
+    /// <summary>
+    /// Records the consolidated invoice as already fiscalised, so it never reports as "Unknown" and
+    /// is never offered to the backfill queue or the Fiscalise button.
+    /// </summary>
+    /// <remarks>
+    /// Swallowed on failure on purpose: the SAP invoice is already posted and the marker on the
+    /// consolidation row is already committed, so nothing here is worth failing a consolidation that
+    /// succeeded. The guards read the marker, not this row — this row is what explains the verdict
+    /// to whoever reads the fiscal transaction log.
+    /// </remarks>
+    private async Task RecordConsolidatedInvoiceAsFiscalisedAsync(
+        SaleConsolidationEntity consolidation,
+        IReadOnlyCollection<ConsolidatedFiscalReceipt> receipts,
+        string? currency,
+        CancellationToken ct)
+    {
+        try
+        {
+            await InvoiceFiscalTransactionSync.RecordConsolidatedInvoiceAsync(
+                sender,
+                consolidation,
+                receipts,
+                currency,
+                logger,
+                ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Could not record consolidated invoice {DocNum} as fiscalised. Its {SaleCount} sale(s) are already "
+                + "with FDMS and it must not be fiscalised",
+                consolidation.SapDocNum,
+                consolidation.SaleCount);
         }
     }
 

@@ -62,5 +62,23 @@ public static partial class Errors
 
         public static Error PodExcluded(string cardName, string cardCode) =>
             Error.Validation("Invoice.PodExcluded", $"POD uploads are not required for {cardName} ({cardCode}).");
+
+        /// <summary>
+        /// Refuses to fiscalise an end-of-day consolidation, whose constituent sales each went to
+        /// FDMS before SAP under their own receipt.
+        /// </summary>
+        /// <remarks>
+        /// The fiscalisation platform cannot refuse this itself: its duplicate guard is keyed on
+        /// (TaxPayerTIN, ReceiptType, InvoiceNo), and the consolidated invoice carries a different
+        /// InvoiceNo from every receipt inside it. Submission is irreversible, so the refusal has to
+        /// happen here.
+        /// </remarks>
+        public static Error AlreadyFiscalisedAsConsolidatedSales(int docNum, int saleCount) =>
+            Error.Conflict(
+                "Invoice.AlreadyFiscalisedAsConsolidatedSales",
+                $"Invoice {docNum} is the end-of-day consolidation of {saleCount} till sale(s) that were each "
+                + "fiscalised before reaching SAP, under their own receipt numbers. Fiscalising it would submit "
+                + "the same sales to FDMS a second time under a different invoice number, which cannot be "
+                + "reversed. The receipts it consolidates are recorded against it in the fiscal transaction log.");
     }
 }

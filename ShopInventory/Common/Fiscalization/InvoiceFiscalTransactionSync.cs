@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.Extensions.Logging;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
+using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 using ShopInventory.Services.Fiscalisation;
 
@@ -12,9 +13,16 @@ internal static class InvoiceFiscalTransactionSync
 {
     private const string DocumentType = "Invoice";
     private const string SourceSystem = "InvoiceFiscalisationBackfill";
+    private const string ConsolidationSourceSystem = "DesktopSaleConsolidation";
     private const string FiscalisedStatus = "Fiscalised";
     private const string NotFiscalisedStatus = "Not Fiscalised";
     private const string UnknownStatus = "Unknown";
+
+    /// <summary>The Message column the explanation is written to.</summary>
+    private const int MaxMessageLength = 2000;
+
+    /// <summary>Receipts named in the message before it switches to a count.</summary>
+    private const int MessageReceiptLimit = 12;
 
     /// <summary>
     /// Hands every invoice whose fiscal status is still unknown to the backfill queue, and reports
@@ -45,6 +53,82 @@ internal static class InvoiceFiscalTransactionSync
             .GroupBy(invoice => invoice.DocNum)
             .Select(group => group.First())
             .Count(queue.TryQueue);
+    }
+
+    /// <summary>
+    /// Records an end-of-day consolidated invoice as already fiscalised, naming the receipts its
+    /// constituent sales were fiscalised under before they reached SAP.
+    /// </summary>
+    /// <remarks>
+    /// Without this row the consolidated invoice reads "Unknown" — nothing ever fiscalised that
+    /// DocNum — and "Unknown" is what
+    /// <see cref="QueueUnknownInvoicesForBackfill"/> queues and what leaves the Fiscalise button
+    /// showing. Fiscalising it would send the same sales to FDMS a second time under a second
+    /// invoice number, which the platform's (TaxPayerTIN, ReceiptType, InvoiceNo) idempotency key
+    /// cannot catch and which no one can reverse.
+    ///
+    /// Best-effort by design. It runs after the SAP invoice has already posted, so a failure here
+    /// must not fail the consolidation; the marker row in SaleConsolidations is what the guards
+    /// actually depend on, and it is written with the DocNum itself.
+    /// </remarks>
+    public static async Task<bool> RecordConsolidatedInvoiceAsync(
+        ISender sender,
+        SaleConsolidationEntity consolidation,
+        IReadOnlyCollection<ConsolidatedFiscalReceipt> receipts,
+        string? currency,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var docNum = consolidation.SapDocNum.GetValueOrDefault();
+        if (docNum <= 0)
+        {
+            return false;
+        }
+
+        var syncResult = await sender.Send(
+            new SyncFiscalTransactionCommand(
+                new SyncFiscalTransactionRequest
+                {
+                    ClientTransactionId = $"invoice-consolidation-{docNum}",
+                    TimestampUtc = consolidation.PostedAt ?? DateTime.UtcNow,
+                    DocNum = docNum,
+                    DocumentType = DocumentType,
+                    Status = FiscalisedStatus,
+                    Message = BuildConsolidatedMessage(docNum, consolidation.SaleCount, receipts),
+                    CardCode = consolidation.CardCode,
+                    CardName = consolidation.CardName,
+                    DocTotal = consolidation.TotalAmount,
+                    VatSum = consolidation.TotalVat,
+                    Currency = currency,
+                    RawRequest = Serialize(new
+                    {
+                        consolidation.Id,
+                        consolidation.CardCode,
+                        consolidation.ConsolidationDate,
+                        consolidation.SapDocEntry,
+                        consolidation.SapDocNum,
+                        consolidation.SaleCount
+                    }),
+                    // The full list, however long — the message only names the first few.
+                    RawResponse = Serialize(receipts),
+                    SourceSystem = ConsolidationSourceSystem
+                },
+                null,
+                null),
+            cancellationToken);
+
+        if (syncResult.IsError)
+        {
+            logger.LogError(
+                "Consolidated invoice {DocNum} could not be recorded as fiscalised: {Errors}. It will report as Unknown "
+                + "until this is repaired, and must not be fiscalised — its {SaleCount} sale(s) already went to FDMS",
+                docNum,
+                string.Join("; ", syncResult.Errors.Select(error => error.Description)),
+                consolidation.SaleCount);
+            return false;
+        }
+
+        return true;
     }
 
     public static async Task<bool> SyncAsync(
@@ -128,6 +212,44 @@ internal static class InvoiceFiscalTransactionSync
         => isFiscalized
             ? $"Backfilled fiscalised invoice {docNum} from the fiscalisation platform."
             : $"Invoice {docNum} is not fiscalised.";
+
+    private static string BuildConsolidatedMessage(
+        int docNum,
+        int saleCount,
+        IReadOnlyCollection<ConsolidatedFiscalReceipt> receipts)
+    {
+        var named = receipts
+            .Select(DescribeReceipt)
+            .Where(description => !string.IsNullOrWhiteSpace(description))
+            .ToList();
+
+        var listed = string.Join(", ", named.Take(MessageReceiptLimit));
+        if (named.Count > MessageReceiptLimit)
+        {
+            listed += $" and {named.Count - MessageReceiptLimit} more";
+        }
+
+        var message =
+            $"Consolidation of {saleCount} desktop sale(s), each fiscalised before SAP under its own receipt"
+            + (string.IsNullOrWhiteSpace(listed) ? ". " : $": {listed}. ")
+            + $"Do not fiscalise invoice {docNum} — that would submit the same sales to FDMS again under a "
+            + "second invoice number, which cannot be reversed.";
+
+        return message.Length <= MaxMessageLength ? message : message[..MaxMessageLength];
+    }
+
+    private static string DescribeReceipt(ConsolidatedFiscalReceipt receipt)
+    {
+        var number = receipt.FiscalInvoiceNumber ?? receipt.Reference;
+        if (string.IsNullOrWhiteSpace(number))
+        {
+            return string.Empty;
+        }
+
+        return string.IsNullOrWhiteSpace(receipt.ReceiptGlobalNo)
+            ? number
+            : $"{number} (receipt {receipt.ReceiptGlobalNo})";
+    }
 
     private static string? Serialize(object? value)
         => value is null ? null : JsonSerializer.Serialize(value);
