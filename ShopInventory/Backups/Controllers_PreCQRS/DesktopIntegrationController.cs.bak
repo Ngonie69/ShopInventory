@@ -2187,7 +2187,7 @@ public class ConvertSalesOrderToInvoiceRequest
     public int? SalesPersonCode { get; set; }
 
     /// <summary>
-    /// Whether to fiscalize the invoice via REVMax
+    /// Whether to fiscalize the invoice
     /// </summary>
     public bool Fiscalize { get; set; } = true;
 

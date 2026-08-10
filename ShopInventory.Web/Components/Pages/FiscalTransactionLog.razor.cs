@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Components.Authorization;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Features.Reports.Commands.BackfillFiscalTransactionLog;
 using ShopInventory.Web.Features.Reports.Queries.GetFiscalTransactionLog;
-using ShopInventory.Web.Features.Revmax;
+using ShopInventory.Web.Features.Fiscalisation;
 using ShopInventory.Web.Services;
 
 namespace ShopInventory.Web.Components.Pages;
@@ -68,8 +68,8 @@ public partial class FiscalTransactionLog : IDisposable
     [
         new("All", "All", "neutral") { IsUnset = true, RuleAfter = true },
         new("InvoiceFiscalisation", "API Queue", "info"),
-        new("RevmaxEndpoint", "REVMax Endpoint", "accent"),
-        new("InvoiceFiscalisationBackfill", "Backfill", "neutral")
+        new("InvoiceFiscalisationBackfill", "Backfill", "neutral"),
+        new("RevmaxEndpoint", "REVMax Endpoint (legacy)", "accent")
     ];
     private DateTime? fromDate = DateTime.Today.AddDays(-30);
     private DateTime? toDate = DateTime.Today;
@@ -349,7 +349,7 @@ public partial class FiscalTransactionLog : IDisposable
 
     private static string DisplayMessage(FiscalTransactionLogItemModel transaction)
     {
-        if (RevmaxFailurePayloadReader.TryReadFailureDetails(
+        if (FiscalFailurePayloadReader.TryReadFailureDetails(
             transaction.RawResponse,
             out _,
             out _,
@@ -360,7 +360,7 @@ public partial class FiscalTransactionLog : IDisposable
             return failureMessage;
         }
 
-        return RevmaxFailurePayloadReader.CleanOperatorMessage(transaction.Message) ?? "No operator message captured.";
+        return FiscalFailurePayloadReader.CleanOperatorMessage(transaction.Message) ?? "No operator message captured.";
     }
 
     private void SetSelectedTransaction(FiscalTransactionLogItemModel? transaction)
@@ -374,8 +374,9 @@ public partial class FiscalTransactionLog : IDisposable
         => (sourceSystem ?? string.Empty).Trim() switch
         {
             "InvoiceFiscalisation" => "API Queue",
-            "RevmaxEndpoint" => "REVMax Endpoint",
             "InvoiceFiscalisationBackfill" => "Backfill",
+            // Written by the decommissioned REVMax proxy. Historical rows only — nothing writes it now.
+            "RevmaxEndpoint" => "REVMax Endpoint (legacy)",
             _ => string.IsNullOrWhiteSpace(sourceSystem) ? "Unknown source" : sourceSystem
         };
 

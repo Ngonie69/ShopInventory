@@ -1,12 +1,10 @@
-using System.Globalization;
-using System.Net;
 using System.Text.Json;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
-using ShopInventory.Models.Revmax;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Common.Fiscalization;
 
@@ -23,7 +21,7 @@ internal static class InvoiceFiscalTransactionSync
     /// how many were accepted.
     /// </summary>
     /// <remarks>
-    /// This used to do the REVMax lookups here, in sequence, inside the caller's request. Each one
+    /// This used to do the fiscal lookups here, in sequence, inside the caller's request. Each one
     /// takes around three seconds, and the cap was 100 per page — so a page of invoices nobody had
     /// looked at before could hold a user for over five minutes, and on 2026-08-02 one held a page
     /// of 100 for 152 seconds across 46 lookups.
@@ -51,7 +49,8 @@ internal static class InvoiceFiscalTransactionSync
 
     public static async Task<bool> SyncAsync(
         InvoiceDto? invoice,
-        IRevmaxClient revmaxClient,
+        IFiscalisationApiClient client,
+        IFiscalDeviceConfigCache configCache,
         ISender sender,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -61,59 +60,34 @@ internal static class InvoiceFiscalTransactionSync
             return false;
         }
 
-        InvoiceResponse? fiscalInvoice = null;
+        var snapshot = await FiscalReceiptLookup.TryLookupAsync(
+            client, configCache, invoice.DocNum, ReceiptType.FiscalInvoice, logger, cancellationToken);
 
-        try
+        if (snapshot is null)
         {
-            fiscalInvoice = await revmaxClient.GetInvoiceAsync(
-                invoice.DocNum.ToString(CultureInfo.InvariantCulture),
-                cancellationToken);
-        }
-        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
-        {
-            logger.LogInformation(
-                "Invoice {DocNum} is not present on REVMax while backfilling fiscal status",
-                invoice.DocNum);
-        }
-        catch (HttpRequestException ex)
-        {
-            logger.LogWarning(
-                ex,
-                "REVMax lookup failed while backfilling fiscal status for invoice {DocNum}",
-                invoice.DocNum);
-            return false;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(
-                ex,
-                "Unexpected REVMax lookup failure while backfilling fiscal status for invoice {DocNum}",
-                invoice.DocNum);
+            // The lookup itself failed. Leave the status as it was — recording "not fiscalised"
+            // here would be a guess, and the queue will try again.
             return false;
         }
 
-        var receiptGlobalNo = ResolveReceiptGlobalNo(fiscalInvoice?.Data?.ReceiptGlobalNo);
-        var isFiscalized = HasFiscalEvidence(fiscalInvoice, receiptGlobalNo);
-        var timestampUtc = isFiscalized
-            ? ResolveTimestampUtc(fiscalInvoice?.Data?.ReceiptDate)
-            : DateTime.UtcNow;
+        var isFiscalized = snapshot.IsFiscalised;
 
         var syncResult = await sender.Send(
             new SyncFiscalTransactionCommand(
                 new SyncFiscalTransactionRequest
                 {
                     ClientTransactionId = $"invoice-status-backfill-{invoice.DocNum}",
-                    TimestampUtc = timestampUtc,
+                    TimestampUtc = snapshot.TimestampUtc,
                     DocNum = invoice.DocNum,
                     DocumentType = DocumentType,
                     Status = isFiscalized ? FiscalisedStatus : NotFiscalisedStatus,
-                    Message = BuildMessage(invoice.DocNum, isFiscalized, fiscalInvoice?.Message),
-                    VerificationCode = isFiscalized ? fiscalInvoice?.VerificationCode : null,
-                    QRCode = isFiscalized ? fiscalInvoice?.QRcode : null,
-                    DeviceSerialNumber = isFiscalized ? fiscalInvoice?.DeviceSerialNumber : null,
-                    DeviceId = isFiscalized ? fiscalInvoice?.DeviceID : null,
-                    FiscalDay = isFiscalized ? fiscalInvoice?.FiscalDay : null,
-                    ReceiptGlobalNo = receiptGlobalNo,
+                    Message = BuildMessage(invoice.DocNum, isFiscalized),
+                    VerificationCode = snapshot.VerificationCode,
+                    QRCode = snapshot.QrCode,
+                    DeviceSerialNumber = snapshot.DeviceSerialNumber,
+                    DeviceId = snapshot.DeviceId,
+                    FiscalDay = snapshot.FiscalDay,
+                    ReceiptGlobalNo = snapshot.ReceiptGlobalNo,
                     CardCode = invoice.CardCode,
                     CardName = invoice.CardName,
                     DocTotal = invoice.DocTotal,
@@ -126,7 +100,7 @@ internal static class InvoiceFiscalTransactionSync
                         invoice.CardCode,
                         invoice.CardName
                     }),
-                    RawResponse = Serialize(fiscalInvoice),
+                    RawResponse = snapshot.RawResponseJson,
                     SourceSystem = SourceSystem
                 },
                 null,
@@ -144,46 +118,16 @@ internal static class InvoiceFiscalTransactionSync
 
         invoice.IsFiscalized = isFiscalized;
         invoice.FiscalizationStatus = isFiscalized ? FiscalisedStatus : NotFiscalisedStatus;
-        invoice.FiscalQrCode = isFiscalized ? fiscalInvoice?.QRcode : null;
-        invoice.FiscalReceiptGlobalNo = receiptGlobalNo;
-        invoice.FiscalizedAtUtc = isFiscalized ? timestampUtc : null;
+        invoice.FiscalQrCode = snapshot.QrCode;
+        invoice.FiscalReceiptGlobalNo = snapshot.ReceiptGlobalNo;
+        invoice.FiscalizedAtUtc = isFiscalized ? snapshot.TimestampUtc : null;
         return true;
     }
 
-    private static bool HasFiscalEvidence(InvoiceResponse? fiscalInvoice, int? receiptGlobalNo)
-        => fiscalInvoice is { Success: true }
-           && (!string.IsNullOrWhiteSpace(fiscalInvoice.QRcode) || receiptGlobalNo.HasValue);
-
-    private static DateTime ResolveTimestampUtc(string? receiptDate)
-    {
-        if (!string.IsNullOrWhiteSpace(receiptDate)
-            && DateTimeOffset.TryParse(receiptDate, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
-        {
-            return parsed.UtcDateTime;
-        }
-
-        return DateTime.UtcNow;
-    }
-
-    private static int? ResolveReceiptGlobalNo(long? receiptGlobalNo)
-        => receiptGlobalNo.HasValue && receiptGlobalNo.Value > 0 && receiptGlobalNo.Value <= int.MaxValue
-            ? (int)receiptGlobalNo.Value
-            : null;
-
-    private static string BuildMessage(int docNum, bool isFiscalized, string? fallbackMessage)
-    {
-        if (isFiscalized)
-        {
-            return $"Backfilled fiscalised invoice {docNum} from REVMax.";
-        }
-
-        if (!string.IsNullOrWhiteSpace(fallbackMessage))
-        {
-            return fallbackMessage.Trim();
-        }
-
-        return $"Invoice {docNum} is not fiscalised on REVMax.";
-    }
+    private static string BuildMessage(int docNum, bool isFiscalized)
+        => isFiscalized
+            ? $"Backfilled fiscalised invoice {docNum} from the fiscalisation platform."
+            : $"Invoice {docNum} is not fiscalised.";
 
     private static string? Serialize(object? value)
         => value is null ? null : JsonSerializer.Serialize(value);

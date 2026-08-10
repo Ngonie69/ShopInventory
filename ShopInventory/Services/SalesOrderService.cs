@@ -53,7 +53,7 @@ public class SalesOrderService : ISalesOrderService
         ILocalPriceCatalogService localPriceCatalogService,
         IIdempotencyRequestStore idempotencyRequestStore,
         ICreditLimitService creditLimitService,
-        IOptions<RevmaxSettings> revmaxSettings)
+        IOptions<TaxSettings> taxSettings)
     {
         _context = context;
         _sapClient = sapClient;
@@ -63,7 +63,7 @@ public class SalesOrderService : ISalesOrderService
         _localPriceCatalogService = localPriceCatalogService;
         _idempotencyRequestStore = idempotencyRequestStore;
         _creditLimitService = creditLimitService;
-        _defaultTaxPercent = NormalizeTaxPercent(revmaxSettings.Value.VatRate);
+        _defaultTaxPercent = NormalizeTaxPercent(taxSettings.Value.VatRate);
         _connectionString = context.Database.GetConnectionString()
             ?? throw new InvalidOperationException("DefaultConnection is not configured.");
     }

@@ -7,6 +7,7 @@ using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Features.CreditNotes.Commands.CreateCreditNoteFromInvoice;
 
@@ -14,7 +15,8 @@ public sealed class CreateCreditNoteFromInvoiceHandler(
     ICreditNoteService creditNoteService,
     IAuditService auditService,
     ISender sender,
-    IRevmaxClient revmaxClient,
+    IFiscalisationApiClient fiscalisationClient,
+    IFiscalDeviceConfigCache fiscalConfigCache,
     IIdempotencyRequestStore idempotencyRequestStore,
     INotificationService notificationService,
     ILogger<CreateCreditNoteFromInvoiceHandler> logger
@@ -90,7 +92,8 @@ public sealed class CreateCreditNoteFromInvoiceHandler(
 
             await CreditNoteFiscalTransactionSync.SyncAsync(
                 creditNote,
-                revmaxClient,
+                fiscalisationClient,
+                fiscalConfigCache,
                 sender,
                 logger,
                 command.UserId.ToString(),

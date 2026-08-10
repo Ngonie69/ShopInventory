@@ -25,7 +25,7 @@ flowchart LR
     Web --> WebDb[(PostgreSQL\nWebAppDbContext)]
 
     Api --> SAP[SAP Business One\nService Layer]
-    Api --> REV[REVMax Fiscal Devices]
+    Api --> REV[ZIMRA FDMS Fiscalisation]
     Api --> Pay[Payment Gateways\nPayNow / Innbucks / Ecocash]
     Api --> Push[Push / Notification Providers]
     Api --> OpenWA[OpenWA WhatsApp Gateway]
@@ -59,7 +59,7 @@ Primary API building blocks visible in the repository:
 - `Hubs/NotificationHub.cs` for server-push updates.
 - `Middleware/` for security and request-processing concerns.
 
-Representative feature areas under `Features/` include invoices, sales orders, purchase orders, stock, payments, reports, route customers, REVMax, customer portal, crates, timesheets, and WhatsApp.
+Representative feature areas under `Features/` include invoices, sales orders, purchase orders, stock, payments, reports, route customers, customer portal, crates, timesheets, and WhatsApp.
 
 ### 2. ShopInventory.Web
 
@@ -213,9 +213,13 @@ SAP Business One Service Layer is the most important external dependency. The AP
 
 Architecturally, SAP sits behind client abstractions and queue-based workflows so the rest of the application does not speak to SAP directly from controllers.
 
-### REVMax
+### Fiscalisation
 
-REVMax is used for fiscalization. Invoice and credit-note workflows may continue beyond initial document creation into fiscal processing handled by background services and dedicated feature slices.
+Fiscalisation runs against the ZIMRA FDMS platform at https://fiscal.kefaloscheese.com/, which replaced the decommissioned REVMax device gateway. Invoice and credit-note workflows may continue beyond initial document creation into fiscal processing handled by background services.
+
+The API is a client of that platform, authenticating with an `X-API-Key`. Documents already in SAP are fiscalised by DocEntry alone — the platform reads the document from SAP itself — while desktop/POS sales, which are fiscalised before they reach SAP, submit a full receipt payload. Fiscal status is read back into a local projection so pages never block on a live lookup.
+
+Note that the platform does not discover SAP documents on its own: its own SAP bridge only fires on a print event in the SAP client, so anything this application posts through the Service Layer must be fiscalised by this application.
 
 ### Payment Gateways
 

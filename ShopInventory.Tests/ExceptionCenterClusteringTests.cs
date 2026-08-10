@@ -103,10 +103,24 @@ public sealed class ExceptionCenterClusteringTests
     public void FiscalizationFailuresAreSeparatedFromSapPostingFailures()
     {
         var fiscal = ExceptionCenterErrorClassifier.Classify(
-            "REVMax fiscal device rejected the receipt: certificate expired", "REVMax");
+            "FDMS rejected the receipt: RCPT015", "Fiscalisation");
 
         Assert.Equal("fiscalization", fiscal.Signature);
         Assert.Equal(ExceptionCenterErrorClassifier.Families.Fiscal, fiscal.Family);
+    }
+
+    /// <summary>
+    /// Incidents raised before the REVMax decommissioning are still in the table and must keep
+    /// clustering with the new ones rather than dropping into Unknown.
+    /// </summary>
+    [Fact]
+    public void LegacyRevmaxIncidentsStillClusterAsFiscal()
+    {
+        var legacy = ExceptionCenterErrorClassifier.Classify(
+            "REVMax fiscal device rejected the receipt: certificate expired", "REVMax");
+
+        Assert.Equal("fiscalization", legacy.Signature);
+        Assert.Equal(ExceptionCenterErrorClassifier.Families.Fiscal, legacy.Family);
     }
 
     [Fact]

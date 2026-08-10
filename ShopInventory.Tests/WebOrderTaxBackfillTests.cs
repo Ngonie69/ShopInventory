@@ -248,7 +248,7 @@ public sealed class WebOrderTaxBackfillTests : IDisposable
         var handler = new BackfillWebOrderTaxHandler(
             _context,
             CreateSalesOrderService(sapOrder),
-            Options.Create(new RevmaxSettings { VatRate = ConfiguredVatRate }),
+            Options.Create(new TaxSettings { VatRate = ConfiguredVatRate }),
             NullLogger<BackfillWebOrderTaxHandler>.Instance);
 
         return await handler.Handle(
@@ -276,7 +276,7 @@ public sealed class WebOrderTaxBackfillTests : IDisposable
             StubProxy.Unused<ILocalPriceCatalogService>(),
             StubProxy.Unused<ShopInventory.Common.Idempotency.IIdempotencyRequestStore>(),
             StubProxy.Unused<ICreditLimitService>(),
-            Options.Create(new RevmaxSettings { VatRate = ConfiguredVatRate }));
+            Options.Create(new TaxSettings { VatRate = ConfiguredVatRate }));
     }
 
     private async Task GivenOrder(

@@ -1,5 +1,7 @@
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 using Quartz;
+using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
 
@@ -36,6 +38,8 @@ public sealed class InvoicePostingJob : IJob
         using var scope = _serviceProvider.CreateScope();
         var queueService = scope.ServiceProvider.GetRequiredService<IInvoiceQueueService>();
         var fiscalizationService = scope.ServiceProvider.GetService<IFiscalizationService>();
+        var vatRate = scope.ServiceProvider
+            .GetRequiredService<IOptions<TaxSettings>>().Value.VatRate;
 
         // Get next batch of invoices to process
         var pendingInvoices = await queueService.GetNextBatchForProcessingAsync(_batchSize, stoppingToken);
@@ -60,6 +64,7 @@ public sealed class InvoicePostingJob : IJob
                 queueEntry,
                 queueService,
                 fiscalizationService,
+                vatRate,
                 stoppingToken);
         }
     }
@@ -68,6 +73,7 @@ public sealed class InvoicePostingJob : IJob
         InvoiceQueueEntity queueEntry,
         IInvoiceQueueService queueService,
         IFiscalizationService? fiscalizationService,
+        decimal vatRate,
         CancellationToken stoppingToken)
     {
         var startTime = DateTime.UtcNow;
@@ -105,8 +111,12 @@ public sealed class InvoicePostingJob : IJob
                     throw new InvalidOperationException("Fiscalization is required but the fiscalization service is not available");
                 }
 
-                var invoiceDto = BuildInvoiceDtoFromPayload(queueEntry, request);
-                var fiscalResult = await fiscalizationService.FiscalizeInvoiceAsync(
+                var invoiceDto = BuildInvoiceDtoFromPayload(queueEntry, request, vatRate);
+
+                // Pre-SAP: this invoice does not exist in SAP yet, so it is fiscalised from a full
+                // payload under its external reference. That reference is the receipt's permanent
+                // fiscal identity and must stay byte-identical across every retry of this entry.
+                var fiscalResult = await fiscalizationService.FiscalizePreSapInvoiceAsync(
                     invoiceDto,
                     queueEntry.ExternalReference,
                     null,
@@ -119,6 +129,29 @@ public sealed class InvoicePostingJob : IJob
                     _logger.LogInformation(
                         "Invoice fiscalized: {ExternalReference}, Receipt: {Receipt}",
                         queueEntry.ExternalReference, fiscalReceiptNumber);
+                }
+                else if (fiscalResult.RequiresReconciliation)
+                {
+                    // The fiscal outcome is unresolved: a receipt may already exist at FDMS. Retrying
+                    // could produce a second one, and a fiscal receipt cannot be withdrawn. Park it for
+                    // a human instead of letting IsRetryableError default this to retryable.
+                    _logger.LogError(
+                        "Fiscalization of {ExternalReference} is unresolved ({ErrorCode}). "
+                        + "Parked for reconciliation — do not resubmit before checking the fiscal console.",
+                        queueEntry.ExternalReference,
+                        fiscalResult.ErrorCode);
+
+                    await queueService.UpdateQueueEntryAsync(
+                        queueEntry.Id,
+                        InvoiceQueueStatus.RequiresReview,
+                        null,
+                        null,
+                        fiscalResult.Message ?? fiscalResult.ErrorDetails,
+                        null,
+                        null,
+                        stoppingToken);
+
+                    return;
                 }
                 else
                 {
@@ -190,7 +223,8 @@ public sealed class InvoicePostingJob : IJob
     /// </summary>
     private static InvoiceDto BuildInvoiceDtoFromPayload(
         InvoiceQueueEntity queueEntry,
-        CreateStockReservationRequest request)
+        CreateStockReservationRequest request,
+        decimal vatRate)
     {
         var lines = request.Lines.Select((l, i) => new InvoiceLineDto
         {
@@ -207,9 +241,9 @@ public sealed class InvoicePostingJob : IJob
 
         var docTotal = lines.Sum(l => l.LineTotal);
 
-        // Approximate VAT sum (15.5% VAT-exclusive on line totals)
-        // REVMax recalculates from per-item TAXR, this is for the header summary
-        var vatSum = docTotal * 0.155m;
+        // Approximate VAT sum for the header summary only. The fiscalisation platform recalculates
+        // tax per line from the line's tax id, so this figure never reaches FDMS.
+        var vatSum = docTotal * vatRate;
 
         return new InvoiceDto
         {

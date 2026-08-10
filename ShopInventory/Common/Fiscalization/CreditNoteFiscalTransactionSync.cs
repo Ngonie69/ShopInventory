@@ -4,8 +4,7 @@ using MediatR;
 using Microsoft.Extensions.Logging;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
-using ShopInventory.Models.Revmax;
-using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Common.Fiscalization;
 
@@ -18,7 +17,8 @@ internal static class CreditNoteFiscalTransactionSync
 
     public static async Task SyncAsync(
         CreditNoteDto creditNote,
-        IRevmaxClient revmaxClient,
+        IFiscalisationApiClient client,
+        IFiscalDeviceConfigCache configCache,
         ISender sender,
         ILogger logger,
         string? userId,
@@ -29,59 +29,35 @@ internal static class CreditNoteFiscalTransactionSync
             return;
         }
 
-        InvoiceResponse? fiscalInvoice = null;
+        var docNum = creditNote.SAPDocNum.Value;
 
-        try
+        var snapshot = await FiscalReceiptLookup.TryLookupAsync(
+            client, configCache, docNum, ReceiptType.CreditNote, logger, cancellationToken);
+
+        if (snapshot is null)
         {
-            fiscalInvoice = await revmaxClient.GetInvoiceAsync(
-                creditNote.SAPDocNum.Value.ToString(CultureInfo.InvariantCulture),
-                cancellationToken);
-        }
-        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            logger.LogInformation(
-                "Credit note {DocNum} is not present on REVMax after creation",
-                creditNote.SAPDocNum.Value);
-        }
-        catch (HttpRequestException ex)
-        {
-            logger.LogWarning(
-                ex,
-                "REVMax lookup failed while syncing fiscal status for credit note {DocNum}",
-                creditNote.SAPDocNum.Value);
-            return;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(
-                ex,
-                "Unexpected REVMax lookup failure while syncing fiscal status for credit note {DocNum}",
-                creditNote.SAPDocNum.Value);
+            // Lookup failed — leave the status alone rather than recording a guess.
             return;
         }
 
-        var receiptGlobalNo = ResolveReceiptGlobalNo(fiscalInvoice?.Data?.ReceiptGlobalNo);
-        var isFiscalized = HasFiscalEvidence(fiscalInvoice, receiptGlobalNo);
-        var timestampUtc = isFiscalized
-            ? ResolveTimestampUtc(fiscalInvoice?.Data?.ReceiptDate)
-            : DateTime.UtcNow;
+        var isFiscalized = snapshot.IsFiscalised;
 
         var syncResult = await sender.Send(
             new SyncFiscalTransactionCommand(
                 new SyncFiscalTransactionRequest
                 {
-                    ClientTransactionId = $"credit-note-fiscalisation-{creditNote.SAPDocNum.Value}",
-                    TimestampUtc = timestampUtc,
-                    DocNum = creditNote.SAPDocNum.Value,
+                    ClientTransactionId = $"credit-note-fiscalisation-{docNum}",
+                    TimestampUtc = snapshot.TimestampUtc,
+                    DocNum = docNum,
                     DocumentType = DocumentType,
                     Status = isFiscalized ? FiscalisedStatus : NotFiscalisedStatus,
-                    Message = BuildMessage(creditNote.SAPDocNum.Value, isFiscalized, fiscalInvoice?.Message),
-                    VerificationCode = isFiscalized ? fiscalInvoice?.VerificationCode : null,
-                    QRCode = isFiscalized ? fiscalInvoice?.QRcode : null,
-                    DeviceSerialNumber = isFiscalized ? fiscalInvoice?.DeviceSerialNumber : null,
-                    DeviceId = isFiscalized ? fiscalInvoice?.DeviceID : null,
-                    FiscalDay = isFiscalized ? fiscalInvoice?.FiscalDay : null,
-                    ReceiptGlobalNo = receiptGlobalNo,
+                    Message = BuildMessage(docNum, isFiscalized),
+                    VerificationCode = snapshot.VerificationCode,
+                    QRCode = snapshot.QrCode,
+                    DeviceSerialNumber = snapshot.DeviceSerialNumber,
+                    DeviceId = snapshot.DeviceId,
+                    FiscalDay = snapshot.FiscalDay,
+                    ReceiptGlobalNo = snapshot.ReceiptGlobalNo,
                     CardCode = creditNote.CardCode,
                     CardName = creditNote.CardName,
                     DocTotal = creditNote.DocTotal,
@@ -95,7 +71,7 @@ internal static class CreditNoteFiscalTransactionSync
                         creditNote.SAPDocNum,
                         creditNote.OriginalInvoiceDocEntry
                     }),
-                    RawResponse = Serialize(fiscalInvoice),
+                    RawResponse = snapshot.RawResponseJson,
                     SourceSystem = SourceSystem
                 },
                 userId,
@@ -106,51 +82,21 @@ internal static class CreditNoteFiscalTransactionSync
         {
             logger.LogWarning(
                 "Failed to sync fiscal transaction row for credit note {DocNum}: {Errors}",
-                creditNote.SAPDocNum.Value,
+                docNum,
                 string.Join("; ", syncResult.Errors.Select(error => error.Description)));
             return;
         }
 
         creditNote.IsFiscalized = isFiscalized;
         creditNote.FiscalizationStatus = isFiscalized ? FiscalisedStatus : NotFiscalisedStatus;
-        creditNote.FiscalReceiptGlobalNo = receiptGlobalNo;
-        creditNote.FiscalizedAtUtc = isFiscalized ? timestampUtc : null;
+        creditNote.FiscalReceiptGlobalNo = snapshot.ReceiptGlobalNo;
+        creditNote.FiscalizedAtUtc = isFiscalized ? snapshot.TimestampUtc : null;
     }
 
-    private static bool HasFiscalEvidence(InvoiceResponse? fiscalInvoice, int? receiptGlobalNo)
-        => fiscalInvoice is { Success: true }
-           && (!string.IsNullOrWhiteSpace(fiscalInvoice.QRcode) || receiptGlobalNo.HasValue);
-
-    private static DateTime ResolveTimestampUtc(string? receiptDate)
-    {
-        if (!string.IsNullOrWhiteSpace(receiptDate)
-            && DateTimeOffset.TryParse(receiptDate, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
-        {
-            return parsed.UtcDateTime;
-        }
-
-        return DateTime.UtcNow;
-    }
-
-    private static int? ResolveReceiptGlobalNo(long? receiptGlobalNo)
-        => receiptGlobalNo.HasValue && receiptGlobalNo.Value > 0 && receiptGlobalNo.Value <= int.MaxValue
-            ? (int)receiptGlobalNo.Value
-            : null;
-
-    private static string BuildMessage(int docNum, bool isFiscalized, string? fallbackMessage)
-    {
-        if (isFiscalized)
-        {
-            return $"Credit note {docNum} fiscalised successfully.";
-        }
-
-        if (!string.IsNullOrWhiteSpace(fallbackMessage))
-        {
-            return fallbackMessage.Trim();
-        }
-
-        return $"Credit note {docNum} is not fiscalised on REVMax.";
-    }
+    private static string BuildMessage(int docNum, bool isFiscalized)
+        => isFiscalized
+            ? $"Credit note {docNum} fiscalised successfully."
+            : $"Credit note {docNum} is not fiscalised.";
 
     private static string? Serialize(object? value)
         => value is null ? null : JsonSerializer.Serialize(value);

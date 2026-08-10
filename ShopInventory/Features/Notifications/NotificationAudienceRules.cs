@@ -345,6 +345,8 @@ public static class NotificationAudienceRules
             return DesktopSalesAudienceRoles;
         }
 
+        // "/revmax" is kept for notifications raised before that page was removed: their action URLs
+        // are persisted, so dropping the prefix would silently re-route the audience for old rows.
         if (normalizedActionUrl.StartsWith("/settings", StringComparison.OrdinalIgnoreCase) ||
             normalizedActionUrl.StartsWith("/revmax", StringComparison.OrdinalIgnoreCase) ||
             normalizedActionUrl.StartsWith("/desktop-transactions", StringComparison.OrdinalIgnoreCase) ||

@@ -16,7 +16,7 @@ public sealed class GetPagedInvoicesHandler(
     ISAPServiceLayerClient sapClient,
     IInvoiceFiscalStatusBackfillQueue fiscalStatusBackfillQueue,
     IOptions<SAPSettings> settings,
-    IOptions<RevmaxSettings> revmaxSettings,
+    IOptions<FiscalisationSettings> fiscalisationSettings,
     ILogger<GetPagedInvoicesHandler> logger
 ) : IRequestHandler<GetPagedInvoicesQuery, ErrorOr<InvoiceListResponseDto>>
 {
@@ -45,7 +45,7 @@ public sealed class GetPagedInvoicesHandler(
 
             await FiscalDocumentStatusProjector.EnrichInvoicesAsync(dbContext, invoiceDtos, cancellationToken);
 
-            if (revmaxSettings.Value.Enabled)
+            if (fiscalisationSettings.Value.Enabled)
             {
                 var queuedCount = InvoiceFiscalTransactionSync.QueueUnknownInvoicesForBackfill(
                     invoiceDtos,
@@ -54,7 +54,7 @@ public sealed class GetPagedInvoicesHandler(
                 if (queuedCount > 0)
                 {
                     logger.LogInformation(
-                        "Queued {Count} invoice(s) on page {Page} for fiscal status backfill; they report as Unknown until REVMax has been read back",
+                        "Queued {Count} invoice(s) on page {Page} for fiscal status backfill; they report as Unknown until the fiscal platform has been read back",
                         queuedCount,
                         request.Page);
                 }

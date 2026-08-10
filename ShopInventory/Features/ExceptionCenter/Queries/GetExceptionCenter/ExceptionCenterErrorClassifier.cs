@@ -99,11 +99,17 @@ public static class ExceptionCenterErrorClassifier
                     || text.Contains("duplicate")
                     || text.Contains("-2035")),
 
+        // "revmax" stays in the match list: incidents raised before the migration still carry it.
         new("fiscalization",
             "Fiscal device rejected the document",
-            "Check the REVMax/fiscal device queue and its certificate. Retrying is safe once the device is accepting again — the fiscal number is only allocated on success.",
+            "Check the fiscal console at https://fiscal.kefaloscheese.com/ and the device certificate. "
+                + "Retrying is safe once the device is accepting again — the fiscal number is only allocated on success. "
+                + "The exception is an idempotency conflict, where the receipt may already exist: look it up before resubmitting.",
             Families.Fiscal,
-            text => text.Contains("fiscal") || text.Contains("revmax") || text.Contains("zimra")),
+            text => text.Contains("fiscal")
+                    || text.Contains("revmax")
+                    || text.Contains("zimra")
+                    || text.Contains("fdms")),
 
         new("insufficient-stock",
             "Not enough stock in the source warehouse",
@@ -249,6 +255,8 @@ public static class ExceptionCenterErrorClassifier
         => category switch
         {
             "SAP Posting" => Families.Sap,
+            "Fiscalisation" => Families.Fiscal,
+            // Historical incidents were categorised under the decommissioned provider's name.
             "REVMax" => Families.Fiscal,
             "Payment Callback" => Families.Payment,
             "Sync Retry" => Families.Worker,

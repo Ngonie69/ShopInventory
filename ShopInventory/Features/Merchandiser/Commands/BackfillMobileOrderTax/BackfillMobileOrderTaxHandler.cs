@@ -10,11 +10,11 @@ namespace ShopInventory.Features.Merchandiser.Commands.BackfillMobileOrderTax;
 
 public sealed class BackfillMobileOrderTaxHandler(
     ApplicationDbContext context,
-    IOptions<RevmaxSettings> revmaxSettings,
+    IOptions<TaxSettings> taxSettings,
     ILogger<BackfillMobileOrderTaxHandler> logger
 ) : IRequestHandler<BackfillMobileOrderTaxCommand, ErrorOr<BackfillMobileOrderTaxResult>>
 {
-    private readonly decimal _defaultTaxPercent = NormalizeTaxPercent(revmaxSettings.Value.VatRate);
+    private readonly decimal _defaultTaxPercent = NormalizeTaxPercent(taxSettings.Value.VatRate);
 
     public async Task<ErrorOr<BackfillMobileOrderTaxResult>> Handle(
         BackfillMobileOrderTaxCommand command,

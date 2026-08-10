@@ -22,7 +22,7 @@ public enum DesktopSaleConsolidationStatus
 
 /// <summary>
 /// A local invoice created by the desktop app during the day.
-/// Fiscalized immediately via Revmax; posted to SAP at end of day as part of a consolidated invoice.
+/// Fiscalised immediately; posted to SAP at end of day as part of a consolidated invoice.
 /// </summary>
 [Index(nameof(ExternalReferenceId), IsUnique = true)]
 [Index(nameof(CardCode))]

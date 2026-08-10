@@ -36,11 +36,11 @@ namespace ShopInventory.Features.SalesOrders.Commands.BackfillWebOrderTax;
 public sealed class BackfillWebOrderTaxHandler(
     ApplicationDbContext context,
     ISalesOrderService salesOrderService,
-    IOptions<RevmaxSettings> revmaxSettings,
+    IOptions<TaxSettings> taxSettings,
     ILogger<BackfillWebOrderTaxHandler> logger
 ) : IRequestHandler<BackfillWebOrderTaxCommand, ErrorOr<BackfillWebOrderTaxResult>>
 {
-    private readonly decimal _configuredTaxPercent = NormalizeTaxPercent(revmaxSettings.Value.VatRate);
+    private readonly decimal _configuredTaxPercent = NormalizeTaxPercent(taxSettings.Value.VatRate);
 
     public async Task<ErrorOr<BackfillWebOrderTaxResult>> Handle(
         BackfillWebOrderTaxCommand command,

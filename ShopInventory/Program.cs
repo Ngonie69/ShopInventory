@@ -30,6 +30,7 @@ using ShopInventory.Health;
 using ShopInventory.Middleware;
 using ShopInventory.Models;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 using System.IO.Compression;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
@@ -250,7 +251,7 @@ try
     builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
     builder.Services.Configure<RateLimitSettings>(builder.Configuration.GetSection("RateLimit"));
     builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection("Security"));
-    builder.Services.Configure<RevmaxSettings>(builder.Configuration.GetSection("Revmax"));
+    builder.Services.Configure<TaxSettings>(builder.Configuration.GetSection(TaxSettings.SectionName));
     builder.Services.Configure<DailyStockSettings>(builder.Configuration.GetSection("DailyStock"));
     builder.Services.Configure<PodReportCacheSettings>(
         builder.Configuration.GetSection(PodReportCacheSettings.SectionName));
@@ -605,7 +606,7 @@ try
 
     // Same shape, for the read-back that fills in fiscal status on invoices nobody has looked up
     // yet. Separate queue and consumer because the two do opposite things: that one fiscalises a
-    // document, this one only asks REVMax what already happened to it.
+    // document, this one only asks the fiscalisation platform what already happened to it.
     builder.Services.AddHostedService<InvoiceFiscalStatusBackfillService>();
 
     // FetchDailyStockHandler is resolved directly by DailyStockSnapshotJob.
@@ -750,17 +751,37 @@ try
     // Register exchange rate service (depends on SAP Service Layer client)
     builder.Services.AddScoped<IExchangeRateService, ExchangeRateService>();
 
-    // Register REVMax fiscal integration client
-    // Typed HttpClient for REVMax API with retry policy
-    var revmaxSettings = builder.Configuration.GetSection("Revmax").Get<RevmaxSettings>()
-        ?? new RevmaxSettings();
+    // Register the Fiscalisation platform client
+    builder.Services.Configure<FiscalisationSettings>(
+        builder.Configuration.GetSection(FiscalisationSettings.SectionName));
 
-    builder.Services.AddHttpClient<IRevmaxClient, RevmaxClient>((serviceProvider, client) =>
+    builder.Services.AddHttpClient<IFiscalisationApiClient, FiscalisationApiClient>((serviceProvider, client) =>
     {
-        client.BaseAddress = new Uri(revmaxSettings.BaseUrl.TrimEnd('/') + "/");
-        client.Timeout = TimeSpan.FromSeconds(revmaxSettings.TimeoutSeconds);
+        var fiscalisationSettings = serviceProvider.GetRequiredService<IOptions<FiscalisationSettings>>().Value;
+        var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+
+        client.BaseAddress = new Uri(fiscalisationSettings.BaseUrl.TrimEnd('/') + "/");
+        client.Timeout = TimeSpan.FromSeconds(Math.Max(fiscalisationSettings.TimeoutSeconds, 1));
         client.DefaultRequestHeaders.Add("Accept", "application/json");
+
+        if (!string.IsNullOrWhiteSpace(fiscalisationSettings.ApiKey))
+        {
+            client.DefaultRequestHeaders.Add("X-API-Key", fiscalisationSettings.ApiKey.Trim());
+        }
+        else if (fiscalisationSettings.Enabled)
+        {
+            // Every call will come back 401 without this. Say so at startup rather than letting it
+            // surface one document at a time.
+            logger.LogWarning(
+                "Fiscalisation is enabled but no API key is configured. Set Fiscalisation__ApiKey. "
+                + "Fiscalisation requests will be rejected until it is supplied.");
+        }
     });
+
+    // Scoped, not singleton: it depends on the typed FiscalisationApiClient, and a singleton would pin
+    // one HttpClient forever and defeat the factory's handler rotation. The cached entries still
+    // outlive the scope because the storage is the singleton IMemoryCache.
+    builder.Services.AddScoped<IFiscalDeviceConfigCache, FiscalDeviceConfigCache>();
 
     // Register fiscalization service - fiscalizes invoices after SAP posting
     builder.Services.AddScoped<IFiscalizationService, FiscalizationService>();

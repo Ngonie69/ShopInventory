@@ -5,11 +5,11 @@ using ShopInventory.Services;
 namespace ShopInventory.Tests;
 
 /// <summary>
-/// Covers the hand-off that keeps REVMax status lookups out of the invoice list request.
+/// Covers the hand-off that keeps fiscal status lookups out of the invoice list request.
 /// </summary>
 /// <remarks>
 /// The list handler used to do the lookups itself, in sequence, up to 100 per page. Each takes
-/// about three seconds against REVMax, so on 2026-08-02 a single page of 100 invoices spent 152
+/// about three seconds, so on 2026-08-02 a single page of 100 invoices spent 152
 /// seconds on 46 of them — 46 of the 63 lookups made in that entire three-hour session. The page
 /// never needed them: the status it renders comes from the local projection, and an invoice that
 /// has not been read back yet is honestly Unknown.

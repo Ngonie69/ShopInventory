@@ -67,7 +67,7 @@ public class InvoiceCreatedResponseDto
     public InvoiceDto? Invoice { get; set; }
 
     /// <summary>
-    /// Fiscalization result from REVMax. Null if fiscalization was not attempted.
+    /// Fiscalization result. Null if fiscalization was not attempted.
     /// </summary>
     public FiscalizationResult? Fiscalization { get; set; }
 }

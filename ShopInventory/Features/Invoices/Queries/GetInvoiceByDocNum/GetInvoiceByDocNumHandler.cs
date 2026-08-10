@@ -11,6 +11,7 @@ using ShopInventory.Mappings;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Services.Fiscalisation;
 using Microsoft.Extensions.Options;
 
 namespace ShopInventory.Features.Invoices.Queries.GetInvoiceByDocNum;
@@ -18,12 +19,13 @@ namespace ShopInventory.Features.Invoices.Queries.GetInvoiceByDocNum;
 public sealed class GetInvoiceByDocNumHandler(
     ApplicationDbContext db,
     ISAPServiceLayerClient sapClient,
-    IRevmaxClient revmaxClient,
+    IFiscalisationApiClient fiscalisationClient,
+    IFiscalDeviceConfigCache fiscalConfigCache,
     ISender sender,
     IAuditService auditService,
     IDocumentService documentService,
     IOptions<SAPSettings> settings,
-    IOptions<RevmaxSettings> revmaxSettings,
+    IOptions<FiscalisationSettings> fiscalisationSettings,
     ILogger<GetInvoiceByDocNumHandler> logger
 ) : IRequestHandler<GetInvoiceByDocNumQuery, ErrorOr<InvoiceDto>>
 {
@@ -226,12 +228,13 @@ public sealed class GetInvoiceByDocNumHandler(
 
         await FiscalDocumentStatusProjector.EnrichInvoiceAsync(db, invoiceDto, cancellationToken);
 
-        if (revmaxSettings.Value.Enabled
+        if (fiscalisationSettings.Value.Enabled
             && string.Equals(invoiceDto.FiscalizationStatus, "Unknown", StringComparison.OrdinalIgnoreCase))
         {
             await InvoiceFiscalTransactionSync.SyncAsync(
                 invoiceDto,
-                revmaxClient,
+                fiscalisationClient,
+                fiscalConfigCache,
                 sender,
                 logger,
                 cancellationToken);
