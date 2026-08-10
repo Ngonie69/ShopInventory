@@ -207,6 +207,18 @@ public class User
     public string? AssignedCostCentreCode { get; set; }
 
     /// <summary>
+    /// The ZIMRA fiscal device this user's handset is registered as, for offline trading.
+    ///
+    /// Null for everyone who does not stamp their own receipts, which is almost everyone — the desktop
+    /// and SAP paths fiscalise through the platform's own devices and never need this.
+    ///
+    /// It must be unique per handset and never shared. A device's receipt chain has exactly one writer;
+    /// two handsets on one device id would each sign a different receipt as number N, and ZIMRA refuses
+    /// the whole fiscal day when the file is uploaded.
+    /// </summary>
+    public int? FiscalDeviceId { get; set; }
+
+    /// <summary>
     /// Navigation property for refresh tokens
     /// </summary>
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();

@@ -19,6 +19,14 @@ public class Item
     [JsonPropertyName("ItemsGroupCode")]
     public int? ItemsGroupCode { get; set; }
 
+    /// <summary>
+    /// The item's sales VAT group (e.g. <c>O8</c>). This is the code the FDMS tax id is mapped from —
+    /// SAP's <c>TaxCode</c> on a document line is a different field and does not carry it.
+    /// Null unless the query that fetched this item asked for it.
+    /// </summary>
+    [JsonPropertyName("VatGroup")]
+    public string? VatGroup { get; set; }
+
     [JsonPropertyName("BarCode")]
     public string? BarCode { get; set; }
 

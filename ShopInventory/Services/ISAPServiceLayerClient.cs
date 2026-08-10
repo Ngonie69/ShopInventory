@@ -136,6 +136,18 @@ public interface ISAPServiceLayerClient
     Task<Dictionary<string, Item>> GetItemsByCodesAsync(IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Reads every sellable item's sales VAT group, keyed by item code.
+    /// </summary>
+    /// <remarks>
+    /// For building a van handset's fiscal lease, which must state the tax on each item before the van
+    /// goes offline and can no longer ask. Deliberately a whole-catalogue read rather than per item: the
+    /// handset needs the answer for anything it might sell, and the alternative is a round trip at the
+    /// till with no network to make it over. Items whose VAT group SAP leaves blank are absent from the
+    /// result rather than defaulted, so the caller can refuse them by name.
+    /// </remarks>
+    Task<Dictionary<string, string>> GetItemVatGroupsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Resolves item names for the given codes, for display next to a bare item code.
     /// </summary>
     /// <remarks>
