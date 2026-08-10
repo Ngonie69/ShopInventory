@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Fiscalization;
+using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -43,11 +44,18 @@ public sealed class ConsolidateDailySalesHandler(
     {
         var consolidationDate = command.ConsolidationDate?.Date ?? DateTime.UtcNow.Date;
 
-        // Get all pending desktop sales for the date
+        // Get all pending desktop sales for the date.
+        //
+        // Van sales are deliberately excluded. They live in this table with the same Pending status, but
+        // they post to SAP one-to-one so that each SAP invoice still maps to exactly one ZIMRA receipt
+        // (VanSalesEndOfDayPostingService). Both routes run at 18:00, so without this filter a van sale
+        // would be consolidated here *and* posted there — fiscalised once, invoiced twice, undoable only
+        // by a manual credit note.
         var pendingSales = await context.DesktopSales
             .Include(s => s.Lines)
             .Where(s => s.DocDate == consolidationDate &&
-                        s.ConsolidationStatus == DesktopSaleConsolidationStatus.Pending)
+                        s.ConsolidationStatus == DesktopSaleConsolidationStatus.Pending &&
+                        s.SourceSystem != SaleSourceSystems.VanSales)
             .ToListAsync(cancellationToken);
 
         // Also get fiscalized queued invoices for the date

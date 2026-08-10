@@ -615,6 +615,7 @@ try
     // End-of-day consolidation logic is a scoped service shared by EndOfDayConsolidationJob and
     // the DesktopIntegrationController "run now" endpoint.
     builder.Services.AddScoped<EndOfDayConsolidationService>();
+    builder.Services.AddScoped<VanSalesEndOfDayPostingService>();
 
     // All other recurring background work runs on the clustered Quartz scheduler.
     builder.Services.AddShopInventoryQuartz(builder.Configuration, defaultConnectionString);

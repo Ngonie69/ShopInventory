@@ -12,6 +12,7 @@ using ShopInventory.Features.VanSalesCompatibility.Commands.CreateVanSalesSalesO
 using ShopInventory.Features.VanSalesCompatibility.Commands.CreateVanSalesTransferRequest;
 using ShopInventory.Features.VanSalesCompatibility.Commands.PostVanSalesAttendance;
 using ShopInventory.Features.VanSalesCompatibility.Commands.ConfirmVanSalesTransferRequest;
+using ShopInventory.Features.VanSalesCompatibility.Commands.IngestVanSalesOfflineSales;
 using ShopInventory.Features.VanSalesCompatibility.Commands.UploadVanSalesPod;
 using ShopInventory.Features.VanSalesCompatibility.Commands.LoginVanSales;
 using ShopInventory.Features.VanSalesCompatibility.Commands.RefreshVanSales;
@@ -321,6 +322,33 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
         return result.Match(
             value => value.WasQueued ? Accepted(value) : Ok(value),
             errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Takes custody of sales a van completed and ZIMRA-stamped while offline.
+    ///
+    /// Distinct from <c>order</c>/<c>order/with-batches</c> in the two ways that matter: nothing here
+    /// reaches SAP on the request (the batch is held for the end-of-day posting run), and nothing here is
+    /// fiscalised (the customer already holds the printed receipt). Per-sale outcomes are returned so one
+    /// bad row cannot strand a van's whole backlog on the handset.
+    /// </summary>
+    [HttpPost("sales")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.CreateInvoices)]
+    public async Task<IActionResult> IngestOfflineSales(
+        [FromBody] VanSalesOfflineSaleBatchRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(
+            new IngestVanSalesOfflineSalesCommand(request, userId.Value), cancellationToken);
+
+        return result.Match<IActionResult>(Ok, errors => Problem(errors));
     }
 
     [HttpPost("order/convert-to-invoice")]
