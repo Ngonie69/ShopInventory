@@ -31,6 +31,12 @@ public sealed class ConsolidateDailySalesHandler(
     // Tracks queue entry IDs grouped by CardCode for post-consolidation marking
     private readonly Dictionary<string, List<int>> _queueIdsByCardCode = new();
 
+    /// <summary>Matches the MaxLength on <see cref="SaleConsolidationEntity.LastError"/>.</summary>
+    private const int MaxLastErrorLength = 2000;
+
+    private static string Truncate(string value, int maxLength)
+        => value.Length <= maxLength ? value : value[..maxLength];
+
     public async Task<ErrorOr<ConsolidateDailySalesResult>> Handle(
         ConsolidateDailySalesCommand command,
         CancellationToken cancellationToken)
@@ -153,6 +159,11 @@ public sealed class ConsolidateDailySalesHandler(
             })
             .ToList();
 
+        // One consolidated invoice per customer per day, so this identifies the document without
+        // depending on anything the post returns. It is what the recovery lookup below searches on
+        // when the post's own reply does not arrive.
+        var vanSaleOrderKey = $"CONSOL-{consolidationDate:yyyyMMdd}-{cardCode}";
+
         // Build the SAP invoice request
         var saleRefs = string.Join(",", sales.Select(s => s.ExternalReferenceId));
         var invoiceRequest = new CreateInvoiceRequest
@@ -160,12 +171,17 @@ public sealed class ConsolidateDailySalesHandler(
             CardCode = cardCode,
             DocDate = consolidationDate.ToString("yyyy-MM-dd"),
             DocDueDate = consolidationDate.ToString("yyyy-MM-dd"),
-            NumAtCard = $"CONSOL-{consolidationDate:yyyyMMdd}-{cardCode}",
+            NumAtCard = vanSaleOrderKey,
             Comments = $"Consolidated {sales.Count} desktop sale(s): {saleRefs}",
             DocCurrency = sales.First().Currency,
-            U_Van_saleorder = $"CONSOL-{consolidationDate:yyyyMMdd}-{cardCode}",
+            U_Van_saleorder = vanSaleOrderKey,
             Lines = mergedLines
         };
+
+        // Set once the post has been issued, and read by the catch below. Past that point the
+        // invoice may exist in SAP whatever the outcome looks like from here, so a failure is a
+        // question to ask SAP rather than a verdict.
+        var postIssued = false;
 
         try
         {
@@ -190,50 +206,24 @@ public sealed class ConsolidateDailySalesHandler(
                     $"Consolidated invoice stock validation failed: {string.Join("; ", stockValidationErrors.Select(error => error.Message))}");
             }
 
-            var sapInvoice = await sapClient.CreateInvoiceAsync(invoiceRequest, ct);
+            // The last safe abort. Everything above is preparation and may be cancelled freely;
+            // from here on the group carries a durable obligation and runs on CancellationToken.None.
+            // A caller who hangs up mid-post must not be able to leave an invoice sitting in SAP with
+            // no marker against it — that is the state the marker exists to prevent.
+            ct.ThrowIfCancellationRequested();
+            postIssued = true;
 
-            consolidation.SapDocEntry = sapInvoice.DocEntry;
-            consolidation.SapDocNum = sapInvoice.DocNum;
-            consolidation.PostedAt = DateTime.UtcNow;
+            var sapInvoice = await sapClient.CreateInvoiceAsync(invoiceRequest, CancellationToken.None);
+
             consolidation.Status = ConsolidationStatus.Posted;
-
-            // Written with the DocNum, because this is what tells every later reader that fiscalising
-            // this invoice would duplicate receipts already lodged with FDMS. See
-            // ConsolidatedInvoiceRegistry.
-            var constituentReceipts = DescribeConstituentReceipts(sales);
-            consolidation.ConstituentFiscalReceipts = JsonSerializer.Serialize(constituentReceipts);
-
-            // Mark all desktop sales as consolidated
-            foreach (var sale in sales)
-            {
-                sale.ConsolidationStatus = DesktopSaleConsolidationStatus.Consolidated;
-                sale.ConsolidationId = consolidation.Id;
-            }
-
-            // Before anything else that can fail. The invoice exists in SAP from here on, and the
-            // marker is the only thing standing between it and a second FDMS submission.
-            await context.SaveChangesAsync(ct);
-
-            // Mark queue entries as completed after successful SAP posting
-            if (_queueIdsByCardCode.TryGetValue(cardCode, out var queueIds) && queueIds.Count > 0)
-            {
-                await queueService.MarkAsConsolidatedAsync(
-                    queueIds, sapInvoice.DocEntry.ToString(), sapInvoice.DocNum, ct);
-            }
-
-            await RecordConsolidatedInvoiceAsFiscalisedAsync(
+            await RecordPostedInvoiceAsync(
                 consolidation,
-                constituentReceipts,
-                sales.First().Currency,
-                ct);
-
-            await NotifyVanSalesRecipientsAsync(
                 sales,
-                sapInvoice.DocEntry,
-                sapInvoice.DocNum,
                 cardCode,
                 cardName,
-                ct);
+                sapInvoice.DocEntry,
+                sapInvoice.DocNum,
+                CancellationToken.None);
 
             logger.LogInformation(
                 "Posted consolidated invoice for {CardCode}: SapDocNum={DocNum}, {SaleCount} sales, total={Total}",
@@ -246,7 +236,7 @@ public sealed class ConsolidateDailySalesHandler(
                 try
                 {
                     paymentDocNum = await PostIncomingPaymentAsync(
-                        cardCode, consolidationDate, totalPaid, sapInvoice.DocEntry, sales, ct);
+                        cardCode, consolidationDate, totalPaid, sapInvoice.DocEntry, sales, CancellationToken.None);
 
                     consolidation.PaymentSapDocNum = paymentDocNum;
                     consolidation.PaymentPostedAt = DateTime.UtcNow;
@@ -261,7 +251,7 @@ public sealed class ConsolidateDailySalesHandler(
                 }
             }
 
-            await context.SaveChangesAsync(ct);
+            await context.SaveChangesAsync(CancellationToken.None);
 
             return new ConsolidationGroupResult(
                 cardCode, cardName, sales.Count, totalAmount,
@@ -270,12 +260,196 @@ public sealed class ConsolidateDailySalesHandler(
         }
         catch (Exception ex)
         {
+            // The post is the only step here that can leave a document behind in SAP. If it was
+            // issued, this exception may be nothing more than a lost reply over an invoice that
+            // committed — a timeout, a dropped connection, a cancellation — and treating that as a
+            // failure would leave a real SAP invoice with no marker on it. Ask SAP before deciding.
+            if (postIssued)
+            {
+                var recovered = await TryFindPostedInvoiceAsync(vanSaleOrderKey, cardCode, ex);
+                if (recovered is not null)
+                {
+                    return await AdoptRecoveredInvoiceAsync(
+                        consolidation, sales, cardCode, cardName, totalAmount, recovered, ex);
+                }
+            }
+
             consolidation.Status = ConsolidationStatus.Failed;
             consolidation.LastError = ex.Message;
-            await context.SaveChangesAsync(ct);
+
+            // Not on ct: the usual way to reach this line is the caller going away, and the record of
+            // why the group failed is worth as much then as at any other time.
+            await context.SaveChangesAsync(CancellationToken.None);
 
             throw;
         }
+    }
+
+    /// <summary>
+    /// Records a consolidated invoice that exists in SAP against its consolidation: the DocEntry and
+    /// DocNum marker, the receipts its constituents were fiscalised under, the sales, the queue
+    /// entries, and the fiscal transaction row that explains the verdict.
+    /// </summary>
+    /// <remarks>
+    /// Shared by the ordinary post and by <see cref="AdoptRecoveredInvoiceAsync"/>, so an invoice
+    /// found after a lost reply is marked exactly as one whose reply arrived. The caller sets
+    /// <see cref="SaleConsolidationEntity.Status"/> beforehand, so it is committed in the same
+    /// SaveChanges as the marker.
+    /// </remarks>
+    private async Task RecordPostedInvoiceAsync(
+        SaleConsolidationEntity consolidation,
+        List<DesktopSaleEntity> sales,
+        string cardCode,
+        string? cardName,
+        int sapDocEntry,
+        int sapDocNum,
+        CancellationToken ct)
+    {
+        consolidation.SapDocEntry = sapDocEntry;
+        consolidation.SapDocNum = sapDocNum;
+        consolidation.PostedAt = DateTime.UtcNow;
+
+        // Written with the DocNum, because this is what tells every later reader that fiscalising
+        // this invoice would duplicate receipts already lodged with FDMS. See
+        // ConsolidatedInvoiceRegistry.
+        var constituentReceipts = DescribeConstituentReceipts(sales);
+        consolidation.ConstituentFiscalReceipts = JsonSerializer.Serialize(constituentReceipts);
+
+        // Mark all desktop sales as consolidated
+        foreach (var sale in sales)
+        {
+            sale.ConsolidationStatus = DesktopSaleConsolidationStatus.Consolidated;
+            sale.ConsolidationId = consolidation.Id;
+        }
+
+        // Before anything else that can fail. The invoice exists in SAP from here on, and the
+        // marker is the only thing standing between it and a second FDMS submission.
+        await context.SaveChangesAsync(ct);
+
+        // Mark queue entries as completed after successful SAP posting
+        if (_queueIdsByCardCode.TryGetValue(cardCode, out var queueIds) && queueIds.Count > 0)
+        {
+            await queueService.MarkAsConsolidatedAsync(
+                queueIds, sapDocEntry.ToString(), sapDocNum, ct);
+        }
+
+        await RecordConsolidatedInvoiceAsFiscalisedAsync(
+            consolidation,
+            constituentReceipts,
+            sales.First().Currency,
+            ct);
+
+        await NotifyVanSalesRecipientsAsync(
+            sales,
+            sapDocEntry,
+            sapDocNum,
+            cardCode,
+            cardName,
+            ct);
+    }
+
+    /// <summary>
+    /// Asks SAP whether the invoice this group was posting exists, after the post itself failed to
+    /// say so. Returns it if it does, or null if nothing was created.
+    /// </summary>
+    /// <remarks>
+    /// The request carries a deterministic U_Van_saleorder — CONSOL-{yyyyMMdd}-{cardCode}, one
+    /// consolidated invoice per customer per day — so this is an exact lookup rather than a guess.
+    /// GetInvoiceByVanSaleOrderAsync already excludes cancelled documents and takes the newest, so
+    /// an invoice that was posted and then cancelled in SAP correctly reads as absent.
+    ///
+    /// Runs on CancellationToken.None deliberately: the commonest way to arrive here is the caller's
+    /// token being cancelled, and a lookup on that token would be aborted before it could ask the one
+    /// question that decides whether a real SAP invoice goes unmarked.
+    ///
+    /// A failure of the lookup itself is swallowed and logged. It leaves the group Failed — the same
+    /// place it would have landed without any of this — and must not replace the original error,
+    /// which is the one that explains what went wrong.
+    /// </remarks>
+    private async Task<Invoice?> TryFindPostedInvoiceAsync(
+        string vanSaleOrder,
+        string cardCode,
+        Exception postFailure)
+    {
+        try
+        {
+            var existing = await sapClient.GetInvoiceByVanSaleOrderAsync(vanSaleOrder, CancellationToken.None);
+
+            if (existing is null)
+            {
+                logger.LogInformation(
+                    "Consolidated invoice post for {CardCode} failed and no invoice with U_Van_saleorder "
+                    + "'{VanSaleOrder}' exists in SAP; nothing was created",
+                    cardCode, vanSaleOrder);
+            }
+
+            return existing;
+        }
+        catch (Exception lookupFailure)
+        {
+            logger.LogError(
+                lookupFailure,
+                "Could not check SAP for a consolidated invoice with U_Van_saleorder '{VanSaleOrder}' after the "
+                + "post for {CardCode} failed ({PostFailure}). If that post did commit, the invoice now has no "
+                + "consolidation marker and must not be fiscalised",
+                vanSaleOrder, cardCode, postFailure.Message);
+
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Takes ownership of an invoice that reached SAP even though the post never reported it.
+    /// </summary>
+    /// <remarks>
+    /// Reported as PartiallyCompleted rather than Posted: the invoice is real and is now marked, but
+    /// this run never saw a reply, so anything the success path does after the post — the incoming
+    /// payment above all — did not run and is left for an operator. The payment is deliberately not
+    /// attempted here; it settles a document this run cannot vouch for, and a wrong one is a second
+    /// correction rather than a recovery.
+    ///
+    /// The status is not a problem for the fiscalisation guard: ConsolidatedInvoiceRegistry looks the
+    /// marker up without filtering on ConsolidationStatus, precisely so a consolidation that reached
+    /// a DocNum and then stumbled still counts.
+    /// </remarks>
+    private async Task<ConsolidationGroupResult> AdoptRecoveredInvoiceAsync(
+        SaleConsolidationEntity consolidation,
+        List<DesktopSaleEntity> sales,
+        string cardCode,
+        string? cardName,
+        decimal totalAmount,
+        Invoice recovered,
+        Exception postFailure)
+    {
+        logger.LogWarning(
+            postFailure,
+            "Consolidated invoice post for {CardCode} did not return, but DocEntry {DocEntry}/DocNum {DocNum} "
+            + "exists in SAP. Recording it against the consolidation: its {SaleCount} sale(s) are already with "
+            + "FDMS and it must not be fiscalised",
+            cardCode, recovered.DocEntry, recovered.DocNum, sales.Count);
+
+        consolidation.Status = ConsolidationStatus.PartiallyCompleted;
+
+        // Truncated to the column: this explanation shares its SaveChanges with the marker, and an
+        // overlong SAP message must not be what stops the marker being written.
+        consolidation.LastError = Truncate(
+            $"Invoice posted to SAP but the reply was lost ({postFailure.Message}). Recovered by U_Van_saleorder; "
+            + "any incoming payment for this consolidation still needs to be posted.",
+            MaxLastErrorLength);
+
+        await RecordPostedInvoiceAsync(
+            consolidation,
+            sales,
+            cardCode,
+            cardName,
+            recovered.DocEntry,
+            recovered.DocNum,
+            CancellationToken.None);
+
+        return new ConsolidationGroupResult(
+            cardCode, cardName, sales.Count, totalAmount,
+            recovered.DocNum, null,
+            consolidation.Status.ToString(), consolidation.LastError);
     }
 
     /// <summary>
