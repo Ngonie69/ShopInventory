@@ -1,6 +1,6 @@
 using Asp.Versioning.ApiExplorer;
 using Microsoft.Extensions.Options;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
 namespace ShopInventory.Configuration;
@@ -39,30 +39,14 @@ public sealed class ConfigureSwaggerOptions(IApiVersionDescriptionProvider provi
             Description = "Enter your API Key"
         });
 
-        options.AddSecurityRequirement(new OpenApiSecurityRequirement
+        // 2.x replaced the "empty scheme carrying an OpenApiReference" idiom with a first-class
+        // reference type, and the requirement is now built per document so each reference can be
+        // resolved against the document that hosts its security definitions. The rendered output is the
+        // same $ref with the same empty scope list as before.
+        options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
         {
-            {
-                new OpenApiSecurityScheme
-                {
-                    Reference = new OpenApiReference
-                    {
-                        Type = ReferenceType.SecurityScheme,
-                        Id = "Bearer"
-                    }
-                },
-                Array.Empty<string>()
-            },
-            {
-                new OpenApiSecurityScheme
-                {
-                    Reference = new OpenApiReference
-                    {
-                        Type = ReferenceType.SecurityScheme,
-                        Id = "ApiKey"
-                    }
-                },
-                Array.Empty<string>()
-            }
+            { new OpenApiSecuritySchemeReference("Bearer", document), new List<string>() },
+            { new OpenApiSecuritySchemeReference("ApiKey", document), new List<string>() }
         });
 
         options.OperationFilter<ApiVersionOperationFilter>();
