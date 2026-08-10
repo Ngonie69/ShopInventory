@@ -32,6 +32,11 @@ namespace ShopInventory.Tests;
 /// found again without depending on anything the post returned. These tests are about that
 /// recovery, and about the guarantee being structural rather than a narrow window: what asks SAP
 /// the question cannot itself be cancelled by the caller who caused the problem.
+///
+/// The same key is also asked about before the post, so a run whose recovery could not reach SAP
+/// does not become a duplicate invoice on the next one. That is
+/// <see cref="ConsolidationDuplicatePostGuardTests"/>; both lookups appear in this fixture, and are
+/// recorded apart.
 /// </remarks>
 public sealed class ConsolidationLostReplyRecoveryTests : IDisposable
 {
@@ -54,14 +59,29 @@ public sealed class ConsolidationLostReplyRecoveryTests : IDisposable
     private readonly CancellationTokenSource _caller = new();
 
     private bool _invoiceFound;
-    private string? _lookupKey;
-    private CancellationToken _lookupToken = new CancellationTokenSource().Token;
     private (List<int> Ids, string DocEntry, int DocNum)? _queueMarking;
 
-    /// <summary>Set when SAP holds the invoice; cleared when the post genuinely never landed.</summary>
-    private Invoice? _sapHolds = PostedInvoice;
+    /// <summary>
+    /// What SAP holds. Empty until the post puts the invoice there, because the same lookup now runs
+    /// before the post as a duplicate guard — see ConsolidationDuplicatePostGuardTests — and a run
+    /// that starts with the invoice already in SAP is a different scenario from this one.
+    /// </summary>
+    private Invoice? _sapHolds;
 
-    /// <summary>Set to make the recovery lookup itself fail.</summary>
+    /// <summary>Whether the post commits before its reply is lost; cleared when it never landed.</summary>
+    private bool _postCommits = true;
+
+    /// <summary>Set once the post has been issued, to tell the two lookups apart.</summary>
+    private bool _postIssued;
+
+    /// <summary>The guard's lookup, before any post.</summary>
+    private string? _guardKey;
+
+    /// <summary>The recovery's lookup, after the post failed to report itself.</summary>
+    private string? _recoveryKey;
+    private CancellationToken _recoveryToken = new CancellationTokenSource().Token;
+
+    /// <summary>Set to make the recovery lookup itself fail. The guard's still answers.</summary>
     private Exception? _lookupFailure;
 
     /// <summary>Set to lose the caller while the group is still being prepared, before any post.</summary>
@@ -157,10 +177,10 @@ public sealed class ConsolidationLostReplyRecoveryTests : IDisposable
 
         Assert.True(_invoiceFound);
         Assert.False(
-            _lookupToken.IsCancellationRequested,
+            _recoveryToken.IsCancellationRequested,
             "The recovery lookup ran on a token the disconnected caller had already cancelled.");
         Assert.False(
-            _lookupToken.CanBeCanceled,
+            _recoveryToken.CanBeCanceled,
             "The recovery lookup was passed a cancellable token; the caller must not get a vote here.");
     }
 
@@ -174,7 +194,7 @@ public sealed class ConsolidationLostReplyRecoveryTests : IDisposable
 
         await Consolidate();
 
-        Assert.Equal($"CONSOL-20260810-{CardCode}", _lookupKey);
+        Assert.Equal($"CONSOL-20260810-{CardCode}", _recoveryKey);
     }
 
     /// <summary>
@@ -254,7 +274,7 @@ public sealed class ConsolidationLostReplyRecoveryTests : IDisposable
     public async Task A_post_that_never_reached_SAP_is_still_a_failure()
     {
         await GivenAPendingSaleAsync();
-        _sapHolds = null;
+        _postCommits = false;
 
         var result = await Consolidate();
 
@@ -304,7 +324,10 @@ public sealed class ConsolidationLostReplyRecoveryTests : IDisposable
 
         var result = await Consolidate();
 
-        Assert.Null(_lookupKey);
+        // The guard ran and found nothing, which is what let preparation start at all. What must not
+        // have run is the recovery: no post was issued, so there is nothing in SAP to look for.
+        Assert.Equal($"CONSOL-20260810-{CardCode}", _guardKey);
+        Assert.Null(_recoveryKey);
         Assert.Equal(1, result.FailedPostings);
         Assert.Equal(ConsolidationStatus.Failed, (await _context.SaleConsolidations.SingleAsync()).Status);
 
@@ -395,7 +418,7 @@ public sealed class ConsolidationLostReplyRecoveryTests : IDisposable
             nameof(ISAPServiceLayerClient.ValidateStockAvailabilityAsync) =>
                 Task.FromResult(new List<StockValidationError>()),
             nameof(ISAPServiceLayerClient.CreateInvoiceAsync) => PostAndLoseTheReply(),
-            nameof(ISAPServiceLayerClient.GetInvoiceByVanSaleOrderAsync) => RecoveryLookup(args),
+            nameof(ISAPServiceLayerClient.GetInvoiceByVanSaleOrderAsync) => KeyLookup(args),
             _ => throw new InvalidOperationException(
                 $"ISAPServiceLayerClient.{method.Name} was not expected on this path.")
         });
@@ -406,15 +429,35 @@ public sealed class ConsolidationLostReplyRecoveryTests : IDisposable
     /// </summary>
     private Task<Invoice> PostAndLoseTheReply()
     {
+        _postIssued = true;
+
+        // The document commits here — this is what the recovery must be able to find — and only the
+        // reply is lost.
+        if (_postCommits)
+        {
+            _sapHolds = PostedInvoice;
+        }
+
         _caller.Cancel();
 
         throw new TaskCanceledException(_postFailureMessage);
     }
 
-    private Task<Invoice?> RecoveryLookup(object?[]? args)
+    /// <summary>
+    /// Both lookups land here — the duplicate guard before the post and the recovery after it — so
+    /// they are recorded apart. They are the same call on the same key; what differs is when they run
+    /// and, crucially, on whose token.
+    /// </summary>
+    private Task<Invoice?> KeyLookup(object?[]? args)
     {
-        _lookupKey = (string)args![0]!;
-        _lookupToken = (CancellationToken)args[1]!;
+        if (!_postIssued)
+        {
+            _guardKey = (string)args![0]!;
+            return Task.FromResult(_sapHolds);
+        }
+
+        _recoveryKey = (string)args![0]!;
+        _recoveryToken = (CancellationToken)args[1]!;
 
         if (_lookupFailure is not null)
         {

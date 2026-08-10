@@ -160,8 +160,8 @@ public sealed class ConsolidateDailySalesHandler(
             .ToList();
 
         // One consolidated invoice per customer per day, so this identifies the document without
-        // depending on anything the post returns. It is what the recovery lookup below searches on
-        // when the post's own reply does not arrive.
+        // depending on anything the post returns. It is what both lookups below search on: the guard
+        // before the post, and the recovery after one whose reply does not arrive.
         var vanSaleOrderKey = $"CONSOL-{consolidationDate:yyyyMMdd}-{cardCode}";
 
         // Build the SAP invoice request
@@ -185,6 +185,23 @@ public sealed class ConsolidateDailySalesHandler(
 
         try
         {
+            // Before anything is posted: does this consolidation's invoice already exist in SAP?
+            //
+            // The recovery below only runs on the failure path of the run that posted, and it can
+            // fail too — an unreachable Service Layer answers neither the post nor the lookup. That
+            // leaves the invoice in SAP with the sales still Pending, and the next run has nothing
+            // stopping it posting a second invoice for the same customer and date. Asking first is
+            // what makes the key a guard rather than only a way to clean up afterwards.
+            //
+            // Runs on ct: nothing has been issued yet, so this is still preparation the caller may
+            // freely walk away from. Contrast TryFindPostedInvoiceAsync, which must not be.
+            var alreadyInSap = await FindInvoiceAlreadyPostedAsync(vanSaleOrderKey, cardCode, ct);
+            if (alreadyInSap is not null)
+            {
+                return await AdoptInvoiceFromEarlierRunAsync(
+                    consolidation, sales, cardCode, cardName, totalAmount, alreadyInSap);
+            }
+
             var batchValidationResult = await batchValidation.ValidateAndAllocateBatchesAsync(
                 invoiceRequest,
                 autoAllocate: true,
@@ -275,7 +292,11 @@ public sealed class ConsolidateDailySalesHandler(
             }
 
             consolidation.Status = ConsolidationStatus.Failed;
-            consolidation.LastError = ex.Message;
+
+            // Truncated for the same reason the adoption's is: this path now also carries messages
+            // quoted from SAP — a failed pre-post guard lookup among them — and the record of why the
+            // group failed must not be lost to an overlong one.
+            consolidation.LastError = Truncate(ex.Message, MaxLastErrorLength);
 
             // Not on ct: the usual way to reach this line is the caller going away, and the record of
             // why the group failed is worth as much then as at any other time.
@@ -349,6 +370,79 @@ public sealed class ConsolidateDailySalesHandler(
     }
 
     /// <summary>
+    /// Asks SAP whether this consolidation's invoice already exists, before posting one. Returns it
+    /// if it does, or null if the day is genuinely unposted and the group should proceed.
+    /// </summary>
+    /// <remarks>
+    /// Same lookup and same key as <see cref="TryFindPostedInvoiceAsync"/>, but the opposite policy
+    /// on failure: that one swallows, because the group is already failing and the original error is
+    /// the one worth keeping. This one throws, because a lookup that cannot answer leaves us unable
+    /// to tell an unposted day from one whose invoice is already in SAP — and posting on that
+    /// uncertainty is precisely the duplicate this guard exists to prevent. Failing the group instead
+    /// costs a run: the sales stay Pending and the next run asks again.
+    ///
+    /// Cancelled documents are excluded by the lookup's own filter (Cancelled eq 'tNO'), so an
+    /// operator who cancels the invoice in SAP and re-runs the consolidation gets a fresh post.
+    /// </remarks>
+    private async Task<Invoice?> FindInvoiceAlreadyPostedAsync(
+        string vanSaleOrder,
+        string cardCode,
+        CancellationToken ct)
+    {
+        try
+        {
+            return await sapClient.GetInvoiceByVanSaleOrderAsync(vanSaleOrder, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new InvalidOperationException(
+                $"Could not check SAP for an existing consolidated invoice with U_Van_saleorder "
+                + $"'{vanSaleOrder}' ({ex.Message}). Not posting for {cardCode}: an earlier run may "
+                + "already have created this invoice, and posting without an answer would put a "
+                + "second one against the same customer and date.",
+                ex);
+        }
+    }
+
+    /// <summary>
+    /// Takes ownership of an invoice an earlier run posted and never managed to record.
+    /// </summary>
+    /// <remarks>
+    /// Reported as PartiallyCompleted for the same reason the post-failure recovery is: the invoice
+    /// is real and is now marked, but no run has ever reported posting an incoming payment against
+    /// it, so it is left for an operator. The sales are still Pending precisely because the earlier
+    /// run never reached the SaveChanges that both marks the consolidation and consolidates them —
+    /// and the payment is only attempted after that point. A payment is deliberately not attempted
+    /// here either: settling a document this run cannot vouch for is a second correction rather than
+    /// a recovery.
+    /// </remarks>
+    private async Task<ConsolidationGroupResult> AdoptInvoiceFromEarlierRunAsync(
+        SaleConsolidationEntity consolidation,
+        List<DesktopSaleEntity> sales,
+        string cardCode,
+        string? cardName,
+        decimal totalAmount,
+        Invoice existing)
+    {
+        logger.LogWarning(
+            "Consolidated invoice for {CardCode} already exists in SAP as DocEntry {DocEntry}/DocNum {DocNum} "
+            + "before this run posted anything. Recording it against this consolidation instead of posting a "
+            + "second one: its {SaleCount} sale(s) are already with FDMS",
+            cardCode, existing.DocEntry, existing.DocNum, sales.Count);
+
+        return await AdoptInvoiceAsync(
+            consolidation,
+            sales,
+            cardCode,
+            cardName,
+            totalAmount,
+            existing,
+            $"Invoice {existing.DocNum} for this customer and date was already in SAP, posted by an earlier run "
+            + "that could not record it. Adopted instead of posting a second invoice; any incoming payment for "
+            + "this consolidation still needs to be posted.");
+    }
+
+    /// <summary>
     /// Asks SAP whether the invoice this group was posting exists, after the post itself failed to
     /// say so. Returns it if it does, or null if nothing was created.
     /// </summary>
@@ -404,13 +498,8 @@ public sealed class ConsolidateDailySalesHandler(
     /// <remarks>
     /// Reported as PartiallyCompleted rather than Posted: the invoice is real and is now marked, but
     /// this run never saw a reply, so anything the success path does after the post — the incoming
-    /// payment above all — did not run and is left for an operator. The payment is deliberately not
-    /// attempted here; it settles a document this run cannot vouch for, and a wrong one is a second
-    /// correction rather than a recovery.
-    ///
-    /// The status is not a problem for the fiscalisation guard: ConsolidatedInvoiceRegistry looks the
-    /// marker up without filtering on ConsolidationStatus, precisely so a consolidation that reached
-    /// a DocNum and then stumbled still counts.
+    /// payment above all — did not run and is left for an operator. See
+    /// <see cref="AdoptInvoiceAsync"/>, which both adoptions share.
     /// </remarks>
     private async Task<ConsolidationGroupResult> AdoptRecoveredInvoiceAsync(
         SaleConsolidationEntity consolidation,
@@ -428,27 +517,57 @@ public sealed class ConsolidateDailySalesHandler(
             + "FDMS and it must not be fiscalised",
             cardCode, recovered.DocEntry, recovered.DocNum, sales.Count);
 
+        return await AdoptInvoiceAsync(
+            consolidation,
+            sales,
+            cardCode,
+            cardName,
+            totalAmount,
+            recovered,
+            $"Invoice posted to SAP but the reply was lost ({postFailure.Message}). Recovered by U_Van_saleorder; "
+            + "any incoming payment for this consolidation still needs to be posted.");
+    }
+
+    /// <summary>
+    /// Records an invoice that exists in SAP against this consolidation without this run having
+    /// posted it, and reports the group as PartiallyCompleted.
+    /// </summary>
+    /// <remarks>
+    /// Shared by both adoptions — the one after a lost reply and the one that finds the invoice
+    /// before posting — so the two reach the same verdict on the same evidence: the invoice is
+    /// accounted for, the payment is not vouched for by anyone. Only the explanation differs.
+    ///
+    /// PartiallyCompleted is not a problem for the fiscalisation guard: ConsolidatedInvoiceRegistry
+    /// looks the marker up without filtering on ConsolidationStatus, precisely so a consolidation
+    /// that reached a DocNum and then stumbled still counts.
+    /// </remarks>
+    private async Task<ConsolidationGroupResult> AdoptInvoiceAsync(
+        SaleConsolidationEntity consolidation,
+        List<DesktopSaleEntity> sales,
+        string cardCode,
+        string? cardName,
+        decimal totalAmount,
+        Invoice invoice,
+        string explanation)
+    {
         consolidation.Status = ConsolidationStatus.PartiallyCompleted;
 
         // Truncated to the column: this explanation shares its SaveChanges with the marker, and an
         // overlong SAP message must not be what stops the marker being written.
-        consolidation.LastError = Truncate(
-            $"Invoice posted to SAP but the reply was lost ({postFailure.Message}). Recovered by U_Van_saleorder; "
-            + "any incoming payment for this consolidation still needs to be posted.",
-            MaxLastErrorLength);
+        consolidation.LastError = Truncate(explanation, MaxLastErrorLength);
 
         await RecordPostedInvoiceAsync(
             consolidation,
             sales,
             cardCode,
             cardName,
-            recovered.DocEntry,
-            recovered.DocNum,
+            invoice.DocEntry,
+            invoice.DocNum,
             CancellationToken.None);
 
         return new ConsolidationGroupResult(
             cardCode, cardName, sales.Count, totalAmount,
-            recovered.DocNum, null,
+            invoice.DocNum, null,
             consolidation.Status.ToString(), consolidation.LastError);
     }
 
