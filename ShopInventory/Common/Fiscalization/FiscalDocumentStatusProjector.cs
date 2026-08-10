@@ -13,17 +13,28 @@ internal static class FiscalDocumentStatusProjector
     private const string NotFiscalisedStatus = "Not Fiscalised";
     private const string UnknownStatus = "Unknown";
 
-    public static Task EnrichInvoicesAsync(
+    public static async Task EnrichInvoicesAsync(
         ApplicationDbContext dbContext,
         IEnumerable<InvoiceDto>? invoices,
         CancellationToken cancellationToken)
-        => EnrichAsync(
+    {
+        if (invoices is null)
+        {
+            return;
+        }
+
+        var invoiceList = invoices as IReadOnlyList<InvoiceDto> ?? invoices.ToList();
+
+        await EnrichAsync(
             dbContext,
             InvoiceDocumentType,
-            invoices,
+            invoiceList,
             invoice => invoice.DocNum,
             ApplyInvoiceStatus,
             cancellationToken);
+
+        await ApplyConsolidatedInvoiceStatusAsync(dbContext, invoiceList, cancellationToken);
+    }
 
     public static Task EnrichInvoiceAsync(
         ApplicationDbContext dbContext,
@@ -105,6 +116,50 @@ internal static class FiscalDocumentStatusProjector
         {
             transactionLookup.TryGetValue(docNumSelector(document), out var transaction);
             applyStatus(document, transaction);
+        }
+    }
+
+    /// <summary>
+    /// Reports an end-of-day consolidated invoice as fiscalised, whatever the fiscal transaction log
+    /// holds for its DocNum.
+    /// </summary>
+    /// <remarks>
+    /// It is the honest answer — every sale inside it went to FDMS before SAP, under its own receipt
+    /// — and it is what keeps the invoice out of the paths that would fiscalise it a second time:
+    /// <see cref="InvoiceFiscalTransactionSync.QueueUnknownInvoicesForBackfill"/> only takes
+    /// invoices reading "Unknown", and the Fiscalise button is hidden on anything already fiscalised.
+    ///
+    /// Consolidation also writes a log row saying the same thing, with the constituent receipts in
+    /// its message. This covers the invoices consolidated before that row existed, and the ones
+    /// whose row failed to write — the SAP post is already committed by then, so that write can
+    /// never be allowed to fail the consolidation.
+    /// </remarks>
+    private static async Task ApplyConsolidatedInvoiceStatusAsync(
+        ApplicationDbContext dbContext,
+        IReadOnlyList<InvoiceDto> invoices,
+        CancellationToken cancellationToken)
+    {
+        if (invoices.Count == 0)
+        {
+            return;
+        }
+
+        var consolidatedDocNums = await ConsolidatedInvoiceRegistry.FindConsolidatedDocNumsAsync(
+            dbContext,
+            invoices.Select(invoice => invoice.DocNum),
+            cancellationToken);
+
+        if (consolidatedDocNums.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var invoice in invoices.Where(invoice => consolidatedDocNums.Contains(invoice.DocNum)))
+        {
+            // Only the verdict. The QR code, receipt number and timestamp stay as the log left them,
+            // because none of them belong to this document — they belong to its constituent receipts.
+            invoice.IsFiscalized = true;
+            invoice.FiscalizationStatus = FiscalisedStatus;
         }
     }
 

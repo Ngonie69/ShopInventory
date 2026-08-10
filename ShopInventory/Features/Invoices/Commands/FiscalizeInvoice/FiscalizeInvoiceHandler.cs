@@ -2,6 +2,8 @@ using System.Text.Json;
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Fiscalization;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Features.Invoices.Queries.GetInvoiceByDocEntry;
@@ -11,6 +13,7 @@ using ShopInventory.Services;
 namespace ShopInventory.Features.Invoices.Commands.FiscalizeInvoice;
 
 public sealed class FiscalizeInvoiceHandler(
+    ApplicationDbContext dbContext,
     ISender sender,
     IFiscalizationService fiscalizationService,
     IAuditService auditService,
@@ -35,6 +38,30 @@ public sealed class FiscalizeInvoiceHandler(
         if (invoice.DocNum <= 0)
         {
             return Errors.Invoice.ValidationFailed("Only posted invoices can be fiscalised.");
+        }
+
+        // Before the already-fiscalised shortcut below, so the refusal says why rather than reporting
+        // a bare skip, and before anything can reach the platform. FDMS submission is irreversible.
+        var consolidation = await ConsolidatedInvoiceRegistry.FindByDocNumAsync(
+            dbContext,
+            invoice.DocNum,
+            cancellationToken);
+
+        if (consolidation is not null)
+        {
+            var refusal = Errors.Invoice.AlreadyFiscalisedAsConsolidatedSales(
+                invoice.DocNum,
+                consolidation.SaleCount);
+
+            logger.LogWarning(
+                "Refused manual fiscalisation of consolidated invoice {DocNum} requested by {Username}; it consolidates "
+                + "{SaleCount} sale(s) already fiscalised pre-SAP",
+                invoice.DocNum,
+                command.Username,
+                consolidation.SaleCount);
+
+            await TryAuditAsync(invoice, isSuccess: false, refusal.Description, command);
+            return refusal;
         }
 
         if (string.Equals(invoice.FiscalizationStatus, FiscalisedStatus, StringComparison.OrdinalIgnoreCase))
@@ -132,15 +159,21 @@ public sealed class FiscalizeInvoiceHandler(
     private static int? ParseReceiptGlobalNo(string? value)
         => int.TryParse(value, out var parsed) && parsed > 0 ? parsed : null;
 
-    private async Task TryAuditAsync(
+    private Task TryAuditAsync(
         InvoiceDto invoice,
         FiscalizationResult result,
         FiscalizeInvoiceCommand command)
+        => TryAuditAsync(invoice, result.Success || result.Skipped, result.Message, command);
+
+    private async Task TryAuditAsync(
+        InvoiceDto invoice,
+        bool isSuccess,
+        string? message,
+        FiscalizeInvoiceCommand command)
     {
-        var isSuccess = result.Success || result.Skipped;
         var details = isSuccess
-            ? $"Manual fiscalization processed for invoice #{invoice.DocNum}. {result.Message}"
-            : $"Manual fiscalization failed for invoice #{invoice.DocNum}. {result.Message}";
+            ? $"Manual fiscalization processed for invoice #{invoice.DocNum}. {message}"
+            : $"Manual fiscalization failed for invoice #{invoice.DocNum}. {message}";
 
         try
         {
@@ -150,7 +183,7 @@ public sealed class FiscalizeInvoiceHandler(
                 invoice.DocEntry.ToString(),
                 details,
                 isSuccess,
-                isSuccess ? null : result.Message);
+                isSuccess ? null : message);
         }
         catch (Exception ex)
         {
