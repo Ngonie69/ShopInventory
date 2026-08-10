@@ -53,28 +53,29 @@ public class FiscalisationSettings
     public string DefaultCurrency { get; set; } = "USD";
 
     /// <summary>
-    /// SAP tax code to FDMS TaxID. Defaults carry over the mapping REVMax used.
+    /// SAP tax code to FDMS TaxID, for the pre-SAP path only. Configure in appsettings.
     /// </summary>
     /// <remarks>
-    /// These IDs were REVMax's. The new platform validates them against the device's active taxes from
-    /// /api/fiscal-config and rejects the receipt if they do not match, so confirm them against a live
-    /// ApplicableTaxes list before enabling the pre-SAP path.
+    /// Deliberately empty here rather than carrying plausible-looking defaults. FDMS tax ids are
+    /// specific to one taxpayer on one FDMS environment — the ids for the ZIMRA test service are not
+    /// the ids for the live one — so a default that looks reasonable is a default that is wrong
+    /// somewhere. Empty falls through to <see cref="DefaultTaxId"/>, and an unset DefaultTaxId is
+    /// rejected by the platform's own validation, which is the loud failure we want.
+    ///
+    /// The authoritative list is the device's active taxes from /api/fiscal-config. The Fiscalisation
+    /// platform keeps the equivalent mapping for its SAP path in SapServiceLayer:TaxMappings; keep the
+    /// two in step.
     /// </remarks>
-    public Dictionary<string, int> TaxIdMappings { get; set; } = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["A1"] = 1,
-        ["X1"] = 1,
-        ["B1"] = 2,
-        ["X0"] = 2,
-        ["C1"] = 3,
-        ["E1"] = 5
-    };
-
-    public int DefaultTaxId { get; set; } = 1;
+    public Dictionary<string, int> TaxIdMappings { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// HS code used when a line carries none. FDMS requires one on every line for a VAT-registered
-    /// taxpayer, and it must be 4 or 8 digits.
+    /// FDMS TaxID for lines whose SAP tax code is not in <see cref="TaxIdMappings"/>.
+    /// </summary>
+    public int DefaultTaxId { get; set; }
+
+    /// <summary>
+    /// HS code used when a line carries none. FDMS requires one on every invoice line for a
+    /// VAT-registered taxpayer, and it must be 4 or 8 digits. Credit and debit notes are exempt.
     /// </summary>
     public string? DefaultHsCode { get; set; }
 
