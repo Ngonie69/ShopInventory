@@ -616,6 +616,10 @@ try
     builder.Services.AddScoped<EndOfDayConsolidationService>();
     builder.Services.AddScoped<VanSalesEndOfDayPostingService>();
 
+    // Hands the fiscalisation platform the receipts vans signed for themselves offline, which is the only
+    // route by which those receipts ever reach ZIMRA.
+    builder.Services.AddScoped<VanSalesSignedReceiptIngestService>();
+
     // All other recurring background work runs on the clustered Quartz scheduler.
     builder.Services.AddShopInventoryQuartz(builder.Configuration, defaultConnectionString);
 

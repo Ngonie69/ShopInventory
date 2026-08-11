@@ -15,10 +15,14 @@ namespace ShopInventory.Features.VanSalesCompatibility.Commands.IngestVanSalesOf
 ///
 /// Three properties matter more than anything else this handler does:
 ///
-///  1. <b>It never fiscalises.</b> Every sale arriving here was stamped on the handset and the customer
-///     is holding the printed receipt. Fiscalising again would issue a second ZIMRA receipt for one sale,
-///     reversible only by a manual credit note, so the rows are written as
-///     <see cref="DesktopSaleFiscalizationStatus.Success"/> and no fiscalisation queue is touched.
+///  1. <b>It never fiscalises — it takes custody of a receipt that already is fiscal.</b> Every sale
+///     arriving here was stamped on the handset and the customer is holding the printed receipt.
+///     Fiscalising again would issue a second ZIMRA receipt for one sale, reversible only by a manual
+///     credit note, so the rows are written as <see cref="DesktopSaleFiscalizationStatus.Success"/> and no
+///     fiscalisation queue is touched. What it does instead is store the receipt exactly as it was signed
+///     and queue it for <c>VanSalesSignedReceiptIngestService</c>, which hands it to the fiscalisation
+///     platform. Without that, the receipt would exist only on the handset and in SAP comments, and ZIMRA
+///     would close the fiscal day short of the receipts the van actually printed.
 ///  2. <b>A duplicate is a success.</b> A handset that loses the response re-sends, so re-arrival is
 ///     routine. The unique index on <c>ExternalReferenceId</c> is the guard, and a duplicate answers
 ///     <c>duplicate</c> so the handset clears its queue instead of retrying forever.
@@ -131,11 +135,32 @@ public sealed class IngestVanSalesOfflineSalesHandler(
 
             db.DesktopSales.Add(BuildSale(sale, reference, user, warehouseCode!, costCentreCode!));
 
+            // Accepted either way — the customer paid and the money has to reach SAP — but a sale with no
+            // usable signature is a receipt ZIMRA can never be given, and that has to be said out loud
+            // rather than left to be discovered when the fiscal day is short.
+            var signed = sale.HasSignedReceipt();
+            if (!signed)
+            {
+                logger.LogError(
+                    "Van sale {Reference} arrived without a usable device signature, so its ZIMRA receipt " +
+                    "cannot be submitted. Receipt {ReceiptGlobalNo}/{ReceiptCounter} on device " +
+                    "{FiscalDeviceId}, fiscal day {FiscalDayNo}. The sale is held for posting; the fiscal " +
+                    "side needs a person.",
+                    reference,
+                    sale.ReceiptGlobalNo,
+                    sale.ReceiptCounter,
+                    sale.FiscalDeviceId,
+                    sale.FiscalDayNo);
+            }
+
             response.Results.Add(new VanSalesOfflineSaleResultDto
             {
                 VanOrder = reference,
                 Status = StatusAccepted,
-                Message = "Held for end-of-day posting."
+                Message = signed
+                    ? "Held for end-of-day posting; the receipt is queued for ZIMRA."
+                    : "Held for end-of-day posting, but it carries no device signature so its receipt " +
+                      "cannot be submitted to ZIMRA."
             });
             response.Accepted++;
         }
@@ -216,7 +241,13 @@ public sealed class IngestVanSalesOfflineSalesHandler(
             UnitPrice = item.Price,
             LineTotal = Math.Round(item.Price * item.Quantity, 2, MidpointRounding.AwayFromZero),
             WarehouseCode = warehouseCode,
-            TaxCode = item.TaxCode
+            TaxCode = item.TaxCode,
+
+            // Carried so the signed receipt can be rebuilt for the platform. Order matters as much as the
+            // values do — the receipt was signed over these lines in the order they arrived.
+            TaxId = item.TaxId,
+            TaxPercent = item.TaxPercent,
+            HsCode = item.HsCode
         }).ToList();
 
         return new DesktopSaleEntity
@@ -243,6 +274,17 @@ public sealed class IngestVanSalesOfflineSalesHandler(
             FiscalVerificationCode = sale.VerificationCode,
             FiscalQRCode = sale.QrCode,
             FiscalReceiptNumber = sale.ReceiptGlobalNo?.ToString(),
+
+            // The signed receipt, stored verbatim so it can be handed to the fiscalisation platform and,
+            // through it, to ZIMRA. Nothing here is recomputed: the signature covers these exact values.
+            ReceiptDate = sale.ReceiptDate,
+            FiscalDayOpenedAt = sale.FiscalDayOpenedAt,
+            PreviousReceiptHash = sale.PreviousReceiptHash?.Trim(),
+            DeviceSignatureHash = sale.DeviceSignatureHash?.Trim(),
+            DeviceSignatureValue = sale.DeviceSignatureValue?.Trim(),
+            ReceiptIngestStatus = sale.HasSignedReceipt()
+                ? DesktopSaleReceiptIngestStatus.Pending
+                : DesktopSaleReceiptIngestStatus.Unsignable,
 
             ConsolidationStatus = DesktopSaleConsolidationStatus.Pending,
             WarehouseCode = warehouseCode,

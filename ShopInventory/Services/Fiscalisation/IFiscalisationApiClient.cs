@@ -25,6 +25,23 @@ public interface IFiscalisationApiClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Hands over a receipt a van handset signed for itself while out of coverage, for the platform to
+    /// verify and archive. It reaches ZIMRA when that fiscal day's offline file is uploaded.
+    /// </summary>
+    /// <remarks>
+    /// Only for a device ZIMRA registered in Offline mode, and only for receipts that device signed: the
+    /// platform refuses a pre-signed receipt for an Online-mode device, whose sequence FDMS owns. A
+    /// device has one chain, so a device's receipts go through this path or through
+    /// <see cref="SubmitReceiptAsync"/>, never both.
+    ///
+    /// Re-sending an already-archived receipt replays the archived one rather than duplicating it, so a
+    /// retry after a lost response is safe.
+    /// </remarks>
+    Task<SubmitReceiptApiResponse> IngestSignedReceiptAsync(
+        IngestSignedReceiptApiRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Looks up whether a document was already fiscalised.
     /// </summary>
     /// <param name="deviceId">

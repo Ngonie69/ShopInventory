@@ -41,7 +41,11 @@ public enum SapDocumentType
     DebitNote = 2
 }
 
-public sealed class SubmitReceiptApiRequest
+// Not sealed, matching the platform: IngestSignedReceiptApiRequest extends it so the pre-signed path
+// describes the receipt in exactly the same terms the ordinary submit path does. That shared shape is
+// load-bearing — the platform rebuilds the receipt from these fields with one method for both paths, and
+// a signature only verifies if both sides derive the payload identically.
+public class SubmitReceiptApiRequest
 {
     public int DeviceId { get; set; }
     public string? InvoiceNo { get; set; }
@@ -58,6 +62,44 @@ public sealed class SubmitReceiptApiRequest
     public ReceiptPrintForm? ReceiptPrintForm { get; set; } = Fiscalisation.ReceiptPrintForm.InvoiceA4;
     public string? Username { get; set; }
     public string? UserNameSurname { get; set; }
+}
+
+/// <summary>
+/// A receipt a client signed with the device's own key, for archiving as-is.
+///
+/// The authority is inverted from <see cref="SubmitReceiptApiRequest"/>: there the platform assigns the
+/// sequence and signs, here the client did both while it was out of coverage and the platform verifies and
+/// records. Every field below is part of what was signed or of what proves it, so none may be adjusted on
+/// the way — the platform re-derives the payload and refuses anything that does not hash to
+/// <see cref="DeviceSignatureHash"/>.
+/// </summary>
+public sealed class IngestSignedReceiptApiRequest : SubmitReceiptApiRequest
+{
+    /// <summary>The fiscal day the handset opened locally and signed this receipt into.</summary>
+    public int FiscalDayNo { get; set; }
+
+    /// <summary>
+    /// When that day was opened on the handset. The platform never opened this day itself and has no
+    /// other way to learn it, and the offline file's header declares it.
+    /// </summary>
+    public DateTime FiscalDayOpenedAt { get; set; }
+
+    public int ReceiptCounter { get; set; }
+
+    public int ReceiptGlobalNo { get; set; }
+
+    /// <summary>
+    /// The hash this receipt was chained onto, or null for the first receipt of a fiscal day. Sent
+    /// explicitly so a divergence is reported as a chain break rather than an unexplained signature
+    /// failure.
+    /// </summary>
+    public string? PreviousReceiptHash { get; set; }
+
+    /// <summary>Base64 SHA-256 of the canonical payload the handset signed.</summary>
+    public string? DeviceSignatureHash { get; set; }
+
+    /// <summary>Base64 RSA-PKCS1-SHA256 signature over that same payload.</summary>
+    public string? DeviceSignatureValue { get; set; }
 }
 
 public sealed class LineApiRequest

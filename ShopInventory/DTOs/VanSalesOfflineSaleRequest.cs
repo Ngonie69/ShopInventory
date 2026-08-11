@@ -85,13 +85,70 @@ public sealed class VanSalesOfflineSaleRequest
 
     [JsonPropertyName("qr_code")]
     public string? QrCode { get; set; }
+
+    // --- The receipt exactly as it was signed, so ZIMRA can still be given it ---
+    //
+    // The handset signs a canonical payload built from the device id, receipt type, currency, global
+    // number, receipt date, total, tax block and the previous receipt's hash. The fiscalisation platform
+    // re-derives that payload from what we forward and refuses anything that does not hash to the
+    // signature below, so every field here is reported verbatim: never rounded, re-derived, or defaulted.
+
+    /// <summary>
+    /// The instant the receipt was signed at, in the van's local wall clock at second precision.
+    ///
+    /// Distinct from <see cref="SoldAt"/> even though today's handsets derive one from the other: SoldAt
+    /// decides the trading day a sale posts against and may be normalised, whereas this is part of the
+    /// signed payload and a one-second difference invalidates the signature.
+    /// </summary>
+    [JsonPropertyName("receipt_date")]
+    public DateTime? ReceiptDate { get; set; }
+
+    /// <summary>
+    /// When the handset's fiscal day was opened, local wall clock. The platform never opened this day
+    /// itself, so it has no other way to learn it, and the offline file's header declares it.
+    /// </summary>
+    [JsonPropertyName("fiscal_day_opened_at")]
+    public DateTime? FiscalDayOpenedAt { get; set; }
+
+    /// <summary>
+    /// The hash this receipt was chained onto, or null for the first receipt of a fiscal day. Sent
+    /// explicitly rather than inferred from the receipt before it, so a divergence is reported as the
+    /// chain break it is instead of surfacing as an unexplained signature failure.
+    /// </summary>
+    [JsonPropertyName("previous_receipt_hash")]
+    public string? PreviousReceiptHash { get; set; }
+
+    /// <summary>Base64 SHA-256 of the canonical payload the handset signed.</summary>
+    [JsonPropertyName("device_signature_hash")]
+    public string? DeviceSignatureHash { get; set; }
+
+    /// <summary>Base64 RSA-PKCS1-SHA256 signature over that same payload.</summary>
+    [JsonPropertyName("device_signature_value")]
+    public string? DeviceSignatureValue { get; set; }
+
+    /// <summary>Whether this sale carries everything the platform needs to accept the receipt.</summary>
+    public bool HasSignedReceipt() =>
+        !string.IsNullOrWhiteSpace(DeviceSignatureHash) &&
+        !string.IsNullOrWhiteSpace(DeviceSignatureValue) &&
+        ReceiptDate.HasValue &&
+        ReceiptDate.Value != default &&
+        FiscalDayNo is > 0 &&
+        ReceiptCounter is > 0 &&
+        ReceiptGlobalNo is > 0;
 }
 
+/// <summary>
+/// One line, serving two masters: SAP invoices it tonight, and the fiscalisation platform rebuilds the
+/// signed receipt from it. The fiscal fields are therefore reported as the handset signed them —
+/// <see cref="Price"/> in particular is the tax-inclusive unit price the receipt was signed over, not a
+/// list price, because the platform recomputes the line total and the tax block from it.
+/// </summary>
 public sealed class VanSalesOfflineSaleItemRequest
 {
     [JsonPropertyName("code")]
     public string Code { get; set; } = string.Empty;
 
+    /// <summary>Also the receipt line's name, so it is part of what the platform rebuilds.</summary>
     [JsonPropertyName("description")]
     public string? Description { get; set; }
 
@@ -103,6 +160,20 @@ public sealed class VanSalesOfflineSaleItemRequest
 
     [JsonPropertyName("tax_code")]
     public string? TaxCode { get; set; }
+
+    /// <summary>The FDMS tax id the line was signed under, from the handset's fiscal lease.</summary>
+    [JsonPropertyName("tax_id")]
+    public int? TaxId { get; set; }
+
+    /// <summary>
+    /// The rate in force when the receipt was signed. Null and zero are different — null is untaxed and
+    /// contributes nothing to the signed payload, zero is a zero rate and contributes "0.00".
+    /// </summary>
+    [JsonPropertyName("tax_percent")]
+    public decimal? TaxPercent { get; set; }
+
+    [JsonPropertyName("hs_code")]
+    public string? HsCode { get; set; }
 }
 
 /// <summary>

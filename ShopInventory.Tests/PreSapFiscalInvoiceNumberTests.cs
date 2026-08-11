@@ -72,6 +72,10 @@ public class PreSapFiscalInvoiceNumberTests
             SubmitReceiptApiRequest request, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("No network call expected.");
 
+        public Task<SubmitReceiptApiResponse> IngestSignedReceiptAsync(
+            IngestSignedReceiptApiRequest request, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("No network call expected.");
+
         public Task<CheckFiscalisedReceiptApiResponse> CheckReceiptAsync(
             int deviceId, string invoiceNo, ReceiptType receiptType, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("No network call expected.");
