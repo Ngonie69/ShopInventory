@@ -28,7 +28,16 @@ public sealed class VanSalesSignedReceiptIngestJob(
         {
             var result = await ingestService.IngestPendingReceiptsAsync(context.CancellationToken);
 
-            if (result.ChainBroken > 0 || result.Unsignable > 0)
+            if (result.PlatformEndpointMissing)
+            {
+                // Deliberately not warned about per receipt: one line naming the cause is more use than a
+                // wall of identical failures, and there is exactly one thing to do about it.
+                logger.LogError(
+                    "No van receipt can be submitted: the fiscalisation platform does not serve the " +
+                    "ingest-signed route, so its build is older than this service. Nothing was marked failed " +
+                    "and no attempts were spent — deploy the platform and the backlog drains on the next run.");
+            }
+            else if (result.ChainBroken > 0 || result.Unsignable > 0)
             {
                 logger.LogError(
                     "Signed van receipt ingest stopped {Stopped} handset(s): {ChainBroken} chain break(s), " +

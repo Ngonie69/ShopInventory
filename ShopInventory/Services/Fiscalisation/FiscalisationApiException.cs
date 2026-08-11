@@ -11,16 +11,33 @@ namespace ShopInventory.Services.Fiscalisation;
 /// </remarks>
 public class FiscalisationApiException : Exception
 {
-    public FiscalisationApiException(HttpStatusCode statusCode, string? errorCode, string detail)
+    public FiscalisationApiException(
+        HttpStatusCode statusCode,
+        string? errorCode,
+        string detail,
+        bool hasProblemDocument = true)
         : base(detail)
     {
         StatusCode = statusCode;
         ErrorCode = errorCode;
+        HasProblemDocument = hasProblemDocument;
     }
 
     public HttpStatusCode StatusCode { get; }
 
     public string? ErrorCode { get; }
+
+    /// <summary>
+    /// Whether the platform explained itself. The platform answers every failure it recognises with a
+    /// problem document, so false means the response carried nothing to read — which is what a route this
+    /// platform build does not have looks like from here: the request never reaches the API-key
+    /// middleware, and the 400 comes back empty.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to true so that an exception constructed by hand describes a platform that answered
+    /// properly, which is the ordinary case.
+    /// </remarks>
+    public bool HasProblemDocument { get; }
 
     /// <summary>
     /// Whether the platform is telling us the document's fate is unknown and must be reconciled with
