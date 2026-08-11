@@ -9,6 +9,7 @@ using ShopInventory.Features.Products.Queries.GetPagedProductsInWarehouse;
 using ShopInventory.Features.Products.Queries.GetProductBatches;
 using ShopInventory.Features.Products.Queries.GetProductByCode;
 using ShopInventory.Features.Products.Queries.GetProductsInWarehouse;
+using ShopInventory.Features.Products.Queries.GetVanSaleCatalogue;
 
 namespace ShopInventory.Controllers;
 
@@ -26,6 +27,34 @@ public class ProductController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> GetAllProducts(CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetAllProductsQuery(), cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors)
+        );
+    }
+
+    /// <summary>
+    /// Gets the van sales approved catalogue — every item flagged <c>U_VanSale = 'Yes'</c> in SAP
+    /// </summary>
+    /// <remarks>
+    /// Not warehouse-scoped, unlike <c>warehouse/{code}/paged?vanSaleOnly=true</c>, which intersects
+    /// the same flag with the codes holding stock. That intersection answers what a van can sell; this
+    /// answers what a van may be sent. A stock transfer request needs the second one — the items worth
+    /// asking the depot for are precisely the ones the van has none of, and those are absent from the
+    /// warehouse page by design.
+    /// <para>
+    /// Prices are not populated: a transfer request has no customer to price against. Callers that
+    /// need a figure read <c>/price/grouped</c>, as they already do for products SAP prices at zero.
+    /// </para>
+    /// </remarks>
+    [HttpGet("van-sale-catalogue")]
+    [OutputCache(PolicyName = "master-data")]
+    [ProducesResponseType(typeof(ProductsListResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetVanSaleCatalogue(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetVanSaleCatalogueQuery(), cancellationToken);
 
         return result.Match(
             value => Ok(value),

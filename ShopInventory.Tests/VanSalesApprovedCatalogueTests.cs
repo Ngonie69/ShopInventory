@@ -124,6 +124,60 @@ public class VanSalesApprovedCatalogueTests
         Assert.False(hasMore);
     }
 
+    // ── The catalogue standing on its own ───────────────────────────────────
+
+    /// <summary>
+    /// The catalogue read is the approval list resolved to item rows, and narrowed by nothing else.
+    /// </summary>
+    [Fact]
+    public async Task The_catalogue_resolves_every_approved_code_to_an_item()
+    {
+        var sap = new RecordingServiceLayer
+        {
+            VanSaleRows = """[{"ItemCode":"NRI049"},{"ItemCode":"CHE011"}]"""
+        };
+        var client = CreateClient(sap);
+
+        var items = await client.GetVanSalesApprovedItemsAsync();
+
+        Assert.Equal(["CHE011", "NRI049"], items.Select(item => item.ItemCode));
+        Assert.Equal(["CHE011 name", "NRI049 name"], items.Select(item => item.ItemName));
+    }
+
+    /// <summary>
+    /// The point of the whole thing: a stock transfer request is for what the van has none of, so an
+    /// item no warehouse is carrying has to survive the read. Every other path over this flag
+    /// intersects it with stock, and would drop this item.
+    /// </summary>
+    [Fact]
+    public async Task The_catalogue_holds_items_nothing_is_carrying()
+    {
+        var sap = new RecordingServiceLayer
+        {
+            WarehouseRows = "[]",
+            VanSaleRows = """[{"ItemCode":"CHE011"}]"""
+        };
+        var client = CreateClient(sap);
+
+        var items = await client.GetVanSalesApprovedItemsAsync();
+
+        Assert.Equal(["CHE011"], items.Select(item => item.ItemCode));
+    }
+
+    /// <summary>
+    /// Nothing approved is an empty catalogue, and no item master read at all — a request for zero
+    /// codes comes back as every item there is.
+    /// </summary>
+    [Fact]
+    public async Task An_empty_approval_list_reads_no_items()
+    {
+        var sap = new RecordingServiceLayer { VanSaleRows = "[]" };
+        var client = CreateClient(sap);
+
+        Assert.Empty(await client.GetVanSalesApprovedItemsAsync());
+        Assert.Empty(sap.ItemReads);
+    }
+
     private static SAPServiceLayerClient CreateClient(RecordingServiceLayer sap)
     {
         var httpClient = new HttpClient(sap)
@@ -162,6 +216,8 @@ public class VanSalesApprovedCatalogueTests
 
         public List<string> ExecutedVanSaleQueries { get; } = [];
 
+        public List<string> ItemReads { get; } = [];
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -199,6 +255,7 @@ public class VanSalesApprovedCatalogueTests
 
             if (path.EndsWith("/Items", StringComparison.Ordinal))
             {
+                ItemReads.Add(Uri.UnescapeDataString(uri.Query));
                 return Json($"{{\"value\":{BuildItemRows(uri.Query)}}}");
             }
 
