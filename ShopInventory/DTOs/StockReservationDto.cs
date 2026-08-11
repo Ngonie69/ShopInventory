@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -48,6 +49,24 @@ public class CreateStockReservationRequest
     /// </summary>
     [MaxLength(200)]
     public string? CardName { get; set; }
+
+    /// <summary>
+    /// The route customer a van sold to, carried onto the reservation so the confirmed row can be
+    /// reported per shop. <see cref="CardCode"/> is the van's own business partner on those sales.
+    ///
+    /// <c>[JsonIgnore]</c>: set in-process from a customer the van has been checked against, never
+    /// bound from a request body. Nothing downstream re-validates them.
+    /// </summary>
+    [JsonIgnore]
+    public int? RouteCustomerId { get; set; }
+
+    [JsonIgnore]
+    [MaxLength(50)]
+    public string? RouteCustomerCode { get; set; }
+
+    [JsonIgnore]
+    [MaxLength(200)]
+    public string? RouteCustomerName { get; set; }
 
     /// <summary>
     /// Currency code

@@ -70,6 +70,10 @@ public enum DesktopSaleReceiptIngestStatus
 // The drain walks one device's receipts in signing order, so it filters on the status and sorts on the
 // global number. Both together, because a van's day is a few dozen rows in a table of every sale ever made.
 [Index(nameof(ReceiptIngestStatus), nameof(ReceiptGlobalNo))]
+// Reporting reads a route customer's sales in date order, and the fallback path reads them by code for
+// rows whose customer record has since been deleted.
+[Index(nameof(RouteCustomerId), nameof(DocDate))]
+[Index(nameof(RouteCustomerCode))]
 public class DesktopSaleEntity
 {
     [Key]
@@ -91,6 +95,33 @@ public class DesktopSaleEntity
 
     [MaxLength(200)]
     public string? CardName { get; set; }
+
+    // --- Which shop on the route actually bought this ---
+    //
+    // A van sale posts against the van's own business partner, because that is the account SAP bills, so
+    // CardCode above says which van sold rather than who bought. The shop is recorded here and nowhere
+    // else: without it, a route's takings are one undifferentiated number and no customer has a history.
+    //
+    // Null on every sale that is not a route-customer van sale — the desktop route, and vans whose
+    // customers are real SAP business partners, both leave it unset.
+
+    public int? RouteCustomerId { get; set; }
+
+    [ForeignKey(nameof(RouteCustomerId))]
+    public RouteCustomerEntity? RouteCustomer { get; set; }
+
+    /// <summary>
+    /// The route customer's code and name as they stood when the sale was made.
+    ///
+    /// Snapshots, not a convenience copy of the joined row. Route customers are hard-deleted, which nulls
+    /// the id above, and they are freely renamed; a sale that happened must keep the name it happened to,
+    /// or last year's report changes every time someone tidies the customer list.
+    /// </summary>
+    [MaxLength(50)]
+    public string? RouteCustomerCode { get; set; }
+
+    [MaxLength(200)]
+    public string? RouteCustomerName { get; set; }
 
     [Column(TypeName = "date")]
     public DateTime DocDate { get; set; }

@@ -1,0 +1,669 @@
+@page "/route-customers/{RouteCustomerId:int}/sales"
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
+@attribute [Authorize(Roles = "Admin,Manager,Cashier")]
+@inject IRouteCustomerService RouteCustomerService
+@inject IMasterDataCacheService MasterDataCache
+@inject IReportExportService ExportService
+@inject IAuditService AuditService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<PageTitle>@(detail?.Customer.Name ?? "Route customer") sales - Shop Inventory</PageTitle>
+
+@* One route customer's trading. Styles live in wwwroot/css/operations.css
+   (linked from App.razor), shared with the other operational pages — see that
+   file's header. `ops` is the scope; `ops-rcs` is this page's own half of it.
+
+   **Why this page has to exist at all.** A van whose customers are captured on
+   the road invoices its own SAP business partner, because the shops are not
+   business partners. Every sale it makes therefore carries the same CardCode,
+   and /invoices cannot tell them apart. The route customer is recorded
+   separately on the sale, and this is the only page that reads it.
+
+   **Money is never one number.** A van trades in USD and ZWG, so every value on
+   this page is a stack of per-currency figures rather than a total. That is why
+   the value figure and the value column are `.ops-money` and not `.ops-num`. *@
+
+<div class="ops ops-rcs">
+
+    <div class="ops-hero">
+        <div class="ops-hero-text">
+            <div class="ops-kicker">
+                <a class="ops-link" href="/route-customers">Route customers</a>
+                <span class="ops-rcs-crumb-sep">/</span>
+                @RouteLabel
+            </div>
+            <h1>@(detail?.Customer.Name ?? "Route customer")</h1>
+            <p>@CustomerSubtitle</p>
+        </div>
+        <div class="ops-hero-actions">
+            <button type="button" class="ops-btn ops-btn-ghost" @onclick="ExportToExcel"
+                    disabled="@(isExporting || detail is null)">
+                @if (isExporting)
+                {
+                    <span class="ops-spin"></span>
+                    <span>Exporting&hellip;</span>
+                }
+                else
+                {
+                    <i class="ph ph-file-xls" aria-hidden="true"></i>
+                    <span>Export</span>
+                }
+            </button>
+            <button type="button" class="ops-icon-btn" title="Refresh" aria-label="Refresh"
+                    @onclick="LoadAsync" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="ops-spin"></span>
+                }
+                else
+                {
+                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                }
+            </button>
+        </div>
+    </div>
+
+    <section class="ops-panel">
+        <div class="ops-panel-head">
+            <h2><i class="ph ph-calendar-blank" aria-hidden="true"></i>Period</h2>
+            <div class="ops-panel-tools">
+                @foreach (var range in QuickRanges)
+                {
+                    <button type="button"
+                            class="ops-btn ops-btn-ghost ops-btn-sm @(activeRangeDays == range.Days ? "is-on" : "")"
+                            @onclick="() => ApplyQuickRangeAsync(range.Days)">
+                        @range.Label
+                    </button>
+                }
+            </div>
+        </div>
+        <div class="ops-filters">
+            <div class="ops-field">
+                <label class="ops-label" for="rcs-from">From</label>
+                <NocturneDateField Id="rcs-from" Date="fromDate"
+                                   DateChanged="@(value => OnDateChangedAsync(value, isFrom: true))"
+                                   AriaLabel="From date" />
+            </div>
+            <div class="ops-field">
+                <label class="ops-label" for="rcs-to">To</label>
+                <NocturneDateField Id="rcs-to" Date="toDate"
+                                   DateChanged="@(value => OnDateChangedAsync(value, isFrom: false))"
+                                   AriaLabel="To date" />
+            </div>
+        </div>
+    </section>
+
+    @if (isLoading)
+    {
+        <div class="ops-loading">
+            <span class="ops-spin ops-spin-lg"></span>
+            <p>Loading sales&hellip;</p>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="ops-empty">
+            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+            <h3>Could not load these sales</h3>
+            <p>@errorMessage</p>
+            <div class="ops-empty-actions">
+                <button type="button" class="ops-btn ops-btn-primary" @onclick="LoadAsync">Try again</button>
+            </div>
+        </div>
+    }
+    else if (detail is not null)
+    {
+        <div class="ops-figures">
+            <div class="ops-figure ops-fam-accent">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Sales</div>
+                <div class="ops-figure-num">@detail.SaleCount.ToString("N0")</div>
+                <div class="ops-figure-sub">@detail.LineCount.ToString("N0") line(s)</div>
+            </div>
+
+            @* The value figure is a stack, not a number: two currencies cannot be
+               added, so the tile shows each on its own row. *@
+            <div class="ops-figure ops-fam-good">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Value</div>
+                @if (detail.TotalsByCurrency.Count == 0)
+                {
+                    <div class="ops-figure-num">&mdash;</div>
+                    <div class="ops-figure-sub">Nothing sold in this period</div>
+                }
+                else
+                {
+                    <div class="ops-rcs-money-stack">
+                        @foreach (var total in detail.TotalsByCurrency)
+                        {
+                            <div class="ops-rcs-money-line">
+                                <span class="ops-rcs-money-cur">@total.Currency</span>
+                                <span class="ops-rcs-money-val">@total.Gross.ToString("N2")</span>
+                            </div>
+                        }
+                    </div>
+                    <div class="ops-figure-sub">Tax inclusive, as paid</div>
+                }
+            </div>
+
+            <div class="ops-figure @(LastSaleFamily)">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Last purchase</div>
+                <div class="ops-figure-num">@LastSaleHeadline</div>
+                <div class="ops-figure-sub">@LastSaleDetail</div>
+            </div>
+
+            <div class="ops-figure @(detail.Orders.Count > 0 ? "ops-fam-info" : "ops-fam-neutral")">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Orders</div>
+                <div class="ops-figure-num">@detail.Orders.Count.ToString("N0")</div>
+                <div class="ops-figure-sub">Not counted in the value above</div>
+            </div>
+        </div>
+
+        <section class="ops-panel">
+            <div class="ops-panel-head">
+                <h2><i class="ph ph-receipt" aria-hidden="true"></i>Sales</h2>
+                <span class="ops-count">@detail.SaleCount sale(s)</span>
+            </div>
+
+            @if (detail.Sales.Count == 0)
+            {
+                <div class="ops-empty">
+                    <i class="ph ph-receipt" aria-hidden="true"></i>
+                    <h3>No sales in this period</h3>
+                    <p>
+                        Nothing was sold to @detail.Customer.Name between
+                        @detail.From.ToString("dd MMM yyyy") and @detail.To.ToString("dd MMM yyyy").
+                    </p>
+                </div>
+            }
+            else
+            {
+                <div class="ops-scroll">
+                    <table class="ops-table">
+                        <thead>
+                            <tr>
+                                <th class="ops-rcs-expand"></th>
+                                <th>Sold</th>
+                                <th>Reference</th>
+                                <th>Source</th>
+                                <th>Payment</th>
+                                <th class="ops-num">Value</th>
+                                <th>Status</th>
+                                <th>Receipt</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var sale in detail.Sales)
+                            {
+                                var isOpen = expandedReferences.Contains(sale.Reference);
+
+                                <tr class="ops-rcs-row @(isOpen ? "is-open" : "")">
+                                    <td class="ops-rcs-expand">
+                                        <button type="button" class="ops-icon-btn"
+                                                aria-expanded="@isOpen"
+                                                aria-label="@($"{(isOpen ? "Hide" : "Show")} the lines on {sale.Reference}")"
+                                                @onclick="() => ToggleLines(sale.Reference)">
+                                            <i class="ph @(isOpen ? "ph-caret-down" : "ph-caret-right")" aria-hidden="true"></i>
+                                        </button>
+                                    </td>
+                                    <td>
+                                        <div>@sale.SoldAt.ToString("dd MMM yyyy")</div>
+                                        <div class="ops-sub">@sale.Lines.Count line(s)</div>
+                                    </td>
+                                    <td><span class="ops-code">@sale.Reference</span></td>
+                                    <td>
+                                        <span class="ops-badge @SourceFamily(sale.Source)">@SourceLabel(sale.Source)</span>
+                                    </td>
+                                    <td>
+                                        <div>@(string.IsNullOrWhiteSpace(sale.PaymentMethod) ? "—" : sale.PaymentMethod)</div>
+                                        @if (!string.IsNullOrWhiteSpace(sale.PaymentReference))
+                                        {
+                                            <div class="ops-sub">@sale.PaymentReference</div>
+                                        }
+                                    </td>
+                                    <td class="ops-num">
+                                        <div>@sale.Currency @sale.Total.ToString("N2")</div>
+                                        @* Only a van sale carries its own tax split. An online sale's
+                                           VAT lives on the SAP invoice, so nothing is claimed here. *@
+                                        @if (sale.Source == RouteCustomerSaleSource.OfflineVanSale)
+                                        {
+                                            <div class="ops-sub">VAT @sale.VatAmount.ToString("N2")</div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div>@sale.Status</div>
+                                        @if (sale.PostedAt.HasValue)
+                                        {
+                                            <div class="ops-sub">@sale.PostedAt.Value.ToString("dd MMM, HH:mm")</div>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (sale.ReceiptGlobalNo.HasValue)
+                                        {
+                                            <div class="ops-code">@sale.ReceiptGlobalNo</div>
+                                            <div class="ops-sub">
+                                                Day @(string.IsNullOrWhiteSpace(sale.FiscalDayNo) ? "—" : sale.FiscalDayNo)
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span class="ops-sub">&mdash;</span>
+                                        }
+                                    </td>
+                                </tr>
+
+                                @if (isOpen)
+                                {
+                                    <tr class="ops-rcs-lines-row">
+                                        <td colspan="8">
+                                            <div class="ops-rcs-lines">
+                                                <table class="ops-table ops-rcs-lines-table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Item</th>
+                                                            <th class="ops-num">Quantity</th>
+                                                            <th class="ops-num">Unit price</th>
+                                                            <th class="ops-num">Line total</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @foreach (var line in sale.Lines)
+                                                        {
+                                                            <tr>
+                                                                <td>
+                                                                    <div class="ops-name">
+                                                                        @(string.IsNullOrWhiteSpace(line.ItemDescription)
+                                                                            ? line.ItemCode : line.ItemDescription)
+                                                                    </div>
+                                                                    <div class="ops-sub">@line.ItemCode</div>
+                                                                </td>
+                                                                <td class="ops-num">
+                                                                    <span class="ops-qty">@line.Quantity.ToString("N2")</span>
+                                                                    @if (!string.IsNullOrWhiteSpace(line.UoMCode))
+                                                                    {
+                                                                        <span class="ops-unit">@line.UoMCode</span>
+                                                                    }
+                                                                </td>
+                                                                <td class="ops-num">@line.UnitPrice.ToString("N2")</td>
+                                                                <td class="ops-num">@line.LineTotal.ToString("N2")</td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+
+        @if (detail.ProductMix.Count > 0)
+        {
+            <section class="ops-panel">
+                <div class="ops-panel-head">
+                    <h2><i class="ph ph-package" aria-hidden="true"></i>What they buy</h2>
+                    <span class="ops-count">@detail.ProductMix.Count item(s)</span>
+                </div>
+                <div class="ops-scroll">
+                    <table class="ops-table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th class="ops-num">Quantity</th>
+                                <th class="ops-mid">Times bought</th>
+                                <th class="ops-num">Value</th>
+                                <th>Last bought</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in detail.ProductMix)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="ops-name">
+                                            @(string.IsNullOrWhiteSpace(item.ItemDescription) ? item.ItemCode : item.ItemDescription)
+                                        </div>
+                                        <div class="ops-sub">@item.ItemCode</div>
+                                    </td>
+                                    <td class="ops-num">
+                                        <span class="ops-qty">@item.Quantity.ToString("N2")</span>
+                                        @if (!string.IsNullOrWhiteSpace(item.UoMCode))
+                                        {
+                                            <span class="ops-unit">@item.UoMCode</span>
+                                        }
+                                    </td>
+                                    <td class="ops-mid">@item.LineCount</td>
+                                    <td class="ops-num">@RenderMoney(item.TotalsByCurrency)</td>
+                                    <td>@(item.LastSoldAt?.ToString("dd MMM yyyy") ?? "—")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+
+        @if (detail.Orders.Count > 0)
+        {
+            <section class="ops-panel">
+                <div class="ops-panel-head">
+                    <h2><i class="ph ph-clipboard-text" aria-hidden="true"></i>Orders</h2>
+                    <span class="ops-count">@detail.Orders.Count order(s)</span>
+                </div>
+                <div class="ops-msg ops-fam-info">
+                    <i class="ph ph-info" aria-hidden="true"></i>
+                    <div class="ops-msg-body">
+                        Orders are listed for context and are not counted in the value above. A mobile order
+                        is priced after it is captured, so one showing no value is waiting to be priced
+                        rather than free.
+                    </div>
+                </div>
+                <div class="ops-scroll">
+                    <table class="ops-table">
+                        <thead>
+                            <tr>
+                                <th>Order</th>
+                                <th>Placed</th>
+                                <th>Status</th>
+                                <th class="ops-mid">Lines</th>
+                                <th class="ops-num">Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var order in detail.Orders)
+                            {
+                                <tr>
+                                    <td><span class="ops-code">@order.OrderNumber</span></td>
+                                    <td>@order.OrderDate.ToString("dd MMM yyyy")</td>
+                                    <td>
+                                        <span class="ops-badge @(order.IsInvoiced ? "ops-fam-good" : "ops-fam-warn")">
+                                            @(order.IsInvoiced ? "Invoiced" : order.Status)
+                                        </span>
+                                    </td>
+                                    <td class="ops-mid">@order.LineCount</td>
+                                    <td class="ops-num">
+                                        @if (order.IsAwaitingPricing)
+                                        {
+                                            <span class="ops-sub">Awaiting pricing</span>
+                                        }
+                                        else
+                                        {
+                                            <span>@order.Currency @order.DocTotal.ToString("N2")</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public int RouteCustomerId { get; set; }
+
+    private static readonly (int Days, string Label)[] QuickRanges =
+    [
+        (7, "7 days"),
+        (30, "30 days"),
+        (90, "90 days"),
+        (365, "12 months")
+    ];
+
+    private RouteCustomerSalesDetailModel? detail;
+    private int? loadedCustomerId;
+    private Dictionary<string, string> routeDisplayNames = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> expandedReferences = new(StringComparer.Ordinal);
+
+    private DateTime? fromDate = DateTime.Today.AddDays(-89);
+    private DateTime? toDate = DateTime.Today;
+    private int? activeRangeDays = 90;
+
+    private bool isLoading = true;
+    private bool isExporting;
+    private string? errorMessage;
+
+    /// <summary>The route as a person names it, falling back to the bare code when the cache is cold.</summary>
+    private string RouteLabel
+    {
+        get
+        {
+            var code = detail?.Customer.AssignedBusinessPartnerCode;
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                return "Route";
+            }
+
+            return routeDisplayNames.TryGetValue(code, out var label) ? label : code;
+        }
+    }
+
+    private string CustomerSubtitle
+    {
+        get
+        {
+            if (detail is null)
+            {
+                return "Everything this customer has bought, and what they buy most.";
+            }
+
+            var parts = new List<string> { $"Code {detail.Customer.Code}" };
+
+            if (!string.IsNullOrWhiteSpace(detail.Customer.Phone))
+            {
+                parts.Add(detail.Customer.Phone!);
+            }
+
+            if (!string.IsNullOrWhiteSpace(detail.Customer.Address))
+            {
+                parts.Add(detail.Customer.Address!);
+            }
+
+            if (!detail.Customer.IsActive)
+            {
+                parts.Add("Inactive");
+            }
+
+            return string.Join(" · ", parts);
+        }
+    }
+
+    private string LastSaleHeadline => detail?.LastSaleAt?.ToString("dd MMM") ?? "Never";
+
+    private string LastSaleDetail
+    {
+        get
+        {
+            if (detail?.LastSaleAt is null)
+            {
+                return "No purchase in this period";
+            }
+
+            var days = detail.DaysSinceLastSale ?? 0;
+            return days switch
+            {
+                0 => "Today",
+                1 => "Yesterday",
+                _ => $"{days} days ago"
+            };
+        }
+    }
+
+    // The tile only takes a hue when the value means something. A gap worth chasing is warn and a long
+    // silence is bad; a customer who bought this week is simply a fact.
+    //
+    // No sale at all is warn rather than bad, and never neutral. Neutral would say there is nothing to
+    // see, which is wrong — the route sales report counts the same customer under "never bought". Not
+    // bad either, because unlike a 60-day silence this only means the window is empty, and the window
+    // may be a week.
+    private string LastSaleFamily => detail?.DaysSinceLastSale switch
+    {
+        null => "ops-fam-warn",
+        > 60 => "ops-fam-bad",
+        > 30 => "ops-fam-warn",
+        _ => "ops-fam-good"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRouteNamesAsync();
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// Reloads when the route changes to a different customer without the component being recreated —
+    /// the report page links straight from one customer's row to another's.
+    ///
+    /// Keyed off the id that was last loaded rather than off <c>detail</c>, which is null after a failed
+    /// load and would leave the page stuck showing the previous customer's error.
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loadedCustomerId is not null && loadedCustomerId != RouteCustomerId)
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadRouteNamesAsync()
+    {
+        try
+        {
+            var businessPartners = await MasterDataCache.GetBusinessPartnersAsync(includeInactive: true);
+            routeDisplayNames = businessPartners?
+                .Where(bp => !string.IsNullOrWhiteSpace(bp.CardCode))
+                .ToDictionary(
+                    bp => bp.CardCode!,
+                    bp => string.IsNullOrWhiteSpace(bp.CardName) ? bp.CardCode! : $"{bp.CardCode} - {bp.CardName}",
+                    StringComparer.OrdinalIgnoreCase)
+                ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            routeDisplayNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+        expandedReferences.Clear();
+        loadedCustomerId = RouteCustomerId;
+
+        try
+        {
+            detail = await RouteCustomerService.GetRouteCustomerSalesAsync(RouteCustomerId, fromDate, toDate);
+        }
+        catch (Exception ex)
+        {
+            // Deliberately not left as an empty page: a report that failed to load and a customer who
+            // bought nothing look identical, and only one of them is a claim worth making.
+            errorMessage = ex.Message;
+            detail = null;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+
+        if (detail is not null)
+        {
+            await AuditService.LogAsync(AuditActions.ViewCustomers, "RouteCustomerSales", RouteCustomerId.ToString());
+        }
+    }
+
+    private async Task OnDateChangedAsync(DateTime? value, bool isFrom)
+    {
+        if (isFrom)
+        {
+            fromDate = value;
+        }
+        else
+        {
+            toDate = value;
+        }
+
+        activeRangeDays = null;
+        await LoadAsync();
+    }
+
+    private async Task ApplyQuickRangeAsync(int days)
+    {
+        toDate = DateTime.Today;
+        fromDate = DateTime.Today.AddDays(-(days - 1));
+        activeRangeDays = days;
+        await LoadAsync();
+    }
+
+    private void ToggleLines(string reference)
+    {
+        if (!expandedReferences.Add(reference))
+        {
+            expandedReferences.Remove(reference);
+        }
+    }
+
+    private static string SourceLabel(RouteCustomerSaleSource source) => source switch
+    {
+        RouteCustomerSaleSource.OfflineVanSale => "Van sale",
+        RouteCustomerSaleSource.OnlineInvoice => "Online",
+        _ => "Sale"
+    };
+
+    private static string SourceFamily(RouteCustomerSaleSource source) => source switch
+    {
+        RouteCustomerSaleSource.OfflineVanSale => "ops-fam-accent",
+        _ => "ops-fam-info"
+    };
+
+    private static MarkupString RenderMoney(List<RouteCustomerSalesTotalsModel> totals)
+    {
+        if (totals.Count == 0)
+        {
+            return new MarkupString("&mdash;");
+        }
+
+        var lines = totals.Select(total =>
+            $"{System.Net.WebUtility.HtmlEncode(total.Currency)} {total.Gross.ToString("N2", CultureInfo.CurrentCulture)}");
+
+        return new MarkupString(string.Join("<br />", lines));
+    }
+
+    private async Task ExportToExcel()
+    {
+        if (detail is null)
+        {
+            return;
+        }
+
+        isExporting = true;
+
+        try
+        {
+            var bytes = ExportService.ExportRouteCustomerSalesToExcel(detail, RouteLabel);
+            var fileName = $"Route_Customer_Sales_{detail.Customer.Code}_{DateTime.Now:yyyyMMdd_HHmm}.xlsx";
+
+            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
+            Snackbar.Add("Export ready.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Export failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isExporting = false;
+        }
+    }
+}

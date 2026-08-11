@@ -1,0 +1,727 @@
+@page "/route-sales-report"
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
+@attribute [Authorize(Roles = "Admin,Manager,Cashier")]
+@inject IRouteCustomerService RouteCustomerService
+@inject IMasterDataCacheService MasterDataCache
+@inject IReportExportService ExportService
+@inject IAuditService AuditService
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<PageTitle>Route Sales Report - Shop Inventory</PageTitle>
+
+@* Styles live in wwwroot/css/operations.css (linked from App.razor), shared
+   with the other operational pages — see that file's header. `ops` is the
+   scope; `ops-rsr` is this page's own half of it.
+
+   **Three views, one page.** Who is trading, who has stopped, and what they
+   buy are three readings of the same rows over the same window. Three separate
+   pages would each carry their own filters, and two of them would eventually
+   be set differently and disagree about the same route — so the filter row is
+   stated once and the tab strip chooses what to do with it.
+
+   **Dormant and never-bought are different findings.** A shop that has not
+   bought for 90 days has lapsed and can be won back; one that has never bought
+   was captured and never converted. The API returns a null gap for the second
+   rather than a large number, and this page keeps them in separate counts. *@
+
+<div class="ops ops-rsr">
+
+    <div class="ops-hero">
+        <div class="ops-hero-text">
+            <div class="ops-kicker">
+                <a class="ops-link" href="/route-customers">Route customers</a>
+                <span>&nbsp;/&nbsp;Reporting</span>
+            </div>
+            <h1>Route Sales Report</h1>
+            <p>
+                What each customer captured on the road has bought, which of them have gone quiet,
+                and what moves on a route. Van sales only — these customers are not SAP business
+                partners, so they appear in no other sales report.
+            </p>
+        </div>
+        <div class="ops-hero-actions">
+            <button type="button" class="ops-btn ops-btn-ghost" @onclick="ExportToExcel"
+                    disabled="@(isExporting || summary is null)">
+                @if (isExporting)
+                {
+                    <span class="ops-spin"></span>
+                    <span>Exporting&hellip;</span>
+                }
+                else
+                {
+                    <i class="ph ph-file-xls" aria-hidden="true"></i>
+                    <span>Export</span>
+                }
+            </button>
+            <button type="button" class="ops-icon-btn" title="Refresh" aria-label="Refresh"
+                    @onclick="LoadAsync" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="ops-spin"></span>
+                }
+                else
+                {
+                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                }
+            </button>
+        </div>
+    </div>
+
+    <section class="ops-panel">
+        <div class="ops-panel-head">
+            <h2><i class="ph ph-funnel" aria-hidden="true"></i>Filter</h2>
+            <div class="ops-panel-tools">
+                @foreach (var range in QuickRanges)
+                {
+                    <button type="button"
+                            class="ops-btn ops-btn-ghost ops-btn-sm @(activeRangeDays == range.Days ? "is-on" : "")"
+                            @onclick="() => ApplyQuickRangeAsync(range.Days)">
+                        @range.Label
+                    </button>
+                }
+            </div>
+        </div>
+        <div class="ops-filters">
+            <div class="ops-field">
+                <label class="ops-label" for="rsr-route">Route</label>
+                <NocturneSelect Id="rsr-route" Class="nsel-block" Options="RouteFilterOptions"
+                                Value="selectedRouteCode"
+                                ValueChanged="@(code => OnRouteChangedAsync(code))"
+                                TValue="string" Caption="Filter by route"
+                                AriaLabel="Filter by route" Placeholder="All routes" />
+            </div>
+            <div class="ops-field">
+                <label class="ops-label" for="rsr-from">From</label>
+                <NocturneDateField Id="rsr-from" Date="fromDate"
+                                   DateChanged="@(value => OnDateChangedAsync(value, isFrom: true))"
+                                   AriaLabel="From date" />
+            </div>
+            <div class="ops-field">
+                <label class="ops-label" for="rsr-to">To</label>
+                <NocturneDateField Id="rsr-to" Date="toDate"
+                                   DateChanged="@(value => OnDateChangedAsync(value, isFrom: false))"
+                                   AriaLabel="To date" />
+            </div>
+            <div class="ops-field">
+                <label class="ops-label" for="rsr-dormant">Dormant after</label>
+                <NocturneSelect Id="rsr-dormant" Class="nsel-block" Options="DormantOptions"
+                                Value="dormantDays"
+                                ValueChanged="@(days => OnDormantChangedAsync(days))"
+                                TValue="int" Caption="Dormancy threshold"
+                                AriaLabel="Dormancy threshold" />
+            </div>
+        </div>
+    </section>
+
+    @if (isLoading)
+    {
+        <div class="ops-loading">
+            <span class="ops-spin ops-spin-lg"></span>
+            <p>Loading route sales&hellip;</p>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="ops-empty">
+            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+            <h3>Could not load the report</h3>
+            <p>@errorMessage</p>
+            <div class="ops-empty-actions">
+                <button type="button" class="ops-btn ops-btn-primary" @onclick="LoadAsync">Try again</button>
+            </div>
+        </div>
+    }
+    else if (summary is not null)
+    {
+        <div class="ops-figures">
+            <div class="ops-figure ops-fam-neutral">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Customers</div>
+                <div class="ops-figure-num">@AllCustomers.Count.ToString("N0")</div>
+                <div class="ops-figure-sub">across @summary.Routes.Count route(s)</div>
+            </div>
+            <div class="ops-figure ops-fam-good">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Trading</div>
+                <div class="ops-figure-num">@TradingCount.ToString("N0")</div>
+                <div class="ops-figure-sub">@TotalSaleCount.ToString("N0") sale(s) in this period</div>
+            </div>
+            <div class="ops-figure @(DormantCount > 0 ? "ops-fam-warn" : "ops-fam-neutral")">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Dormant</div>
+                <div class="ops-figure-num">@DormantCount.ToString("N0")</div>
+                <div class="ops-figure-sub">no sale for over @summary.DormantDays days</div>
+            </div>
+            <div class="ops-figure @(NeverBoughtCount > 0 ? "ops-fam-bad" : "ops-fam-neutral")">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Never bought</div>
+                <div class="ops-figure-num">@NeverBoughtCount.ToString("N0")</div>
+                <div class="ops-figure-sub">captured but not yet converted</div>
+            </div>
+        </div>
+
+        <div class="ops-tabs">
+            <button type="button" class="ops-tab @(activeView == View.Summary ? "is-on" : "")"
+                    @onclick="() => activeView = View.Summary">
+                <i class="ph ph-list-checks" aria-hidden="true"></i>
+                <span>Route summary</span>
+                <span class="ops-tab-count">@AllCustomers.Count</span>
+            </button>
+            <button type="button" class="ops-tab @(activeView == View.Dormant ? "is-on" : "")"
+                    @onclick="() => activeView = View.Dormant">
+                <i class="ph ph-moon" aria-hidden="true"></i>
+                <span>Dormant</span>
+                <span class="ops-tab-count">@(DormantCount + NeverBoughtCount)</span>
+            </button>
+            <button type="button" class="ops-tab @(activeView == View.ProductMix ? "is-on" : "")"
+                    @onclick="ShowProductMixAsync">
+                <i class="ph ph-package" aria-hidden="true"></i>
+                <span>Product mix</span>
+                @if (productMix is not null)
+                {
+                    <span class="ops-tab-count">@productMix.Items.Count</span>
+                }
+            </button>
+        </div>
+
+        @if (activeView == View.Summary)
+        {
+            @if (summary.Routes.Count == 0)
+            {
+                <div class="ops-empty">
+                    <i class="ph ph-signpost" aria-hidden="true"></i>
+                    <h3>No route customers</h3>
+                    <p>Nothing has been captured against a route yet.</p>
+                </div>
+            }
+            else
+            {
+                <div class="ops-rsr-routes">
+                    @foreach (var route in summary.Routes)
+                    {
+                        <section class="ops-panel">
+                            <div class="ops-rsr-head">
+                                <div>
+                                    <h2 class="ops-rsr-title">@RouteLabel(route.AssignedBusinessPartnerCode)</h2>
+                                    <div class="ops-rsr-key">
+                                        @route.CustomerCount customer(s) · @route.SaleCount sale(s) ·
+                                        @route.DormantCount dormant · @route.NeverBoughtCount never bought
+                                    </div>
+                                </div>
+                                <div class="ops-rsr-totals">
+                                    @if (route.TotalsByCurrency.Count == 0)
+                                    {
+                                        <span class="ops-sub">No sales in this period</span>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var total in route.TotalsByCurrency)
+                                        {
+                                            <span class="ops-rsr-total">
+                                                <span class="ops-rsr-total-cur">@total.Currency</span>@total.Gross.ToString("N2")
+                                            </span>
+                                        }
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="ops-scroll">
+                                <table class="ops-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Customer</th>
+                                            <th>Code</th>
+                                            <th class="ops-mid">Sales</th>
+                                            <th class="ops-mid">Lines</th>
+                                            <th class="ops-num">Value</th>
+                                            <th>Last sale</th>
+                                            <th class="ops-mid">Open orders</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var customer in route.Customers)
+                                        {
+                                            <tr>
+                                                <td>@RenderCustomerName(customer)</td>
+                                                <td><span class="ops-code">@customer.Code</span></td>
+                                                <td class="ops-mid">@customer.SaleCount</td>
+                                                <td class="ops-mid">@customer.LineCount</td>
+                                                <td class="ops-num">@RenderMoney(customer.TotalsByCurrency)</td>
+                                                <td>@RenderLastSale(customer)</td>
+                                                <td class="ops-mid">
+                                                    @(customer.OpenOrderCount == 0 ? "—" : customer.OpenOrderCount.ToString())
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+                    }
+                </div>
+            }
+        }
+        else if (activeView == View.Dormant)
+        {
+            @if (DormantRows.Count == 0)
+            {
+                <div class="ops-empty">
+                    <i class="ph ph-check-circle" aria-hidden="true"></i>
+                    <h3>Every customer is trading</h3>
+                    <p>
+                        No customer on this filter has gone more than @summary.DormantDays days without a
+                        sale, and none is still waiting for a first one.
+                    </p>
+                </div>
+            }
+            else
+            {
+                <section class="ops-panel">
+                    <div class="ops-panel-head">
+                        <h2><i class="ph ph-moon" aria-hidden="true"></i>Needs a visit</h2>
+                        <span class="ops-count">@DormantRows.Count customer(s)</span>
+                    </div>
+                    <div class="ops-msg ops-fam-info">
+                        <i class="ph ph-info" aria-hidden="true"></i>
+                        <div class="ops-msg-body">
+                            Longest silence first, with the customers who have never bought at the end —
+                            those were captured on the road and have not placed a first order, which is a
+                            different conversation from a shop that has stopped.
+                        </div>
+                    </div>
+                    <div class="ops-scroll">
+                        <table class="ops-table">
+                            <thead>
+                                <tr>
+                                    <th>Customer</th>
+                                    <th>Route</th>
+                                    <th>Phone</th>
+                                    <th class="ops-mid">Standing</th>
+                                    <th>Last sale</th>
+                                    <th class="ops-mid">Days</th>
+                                    <th>Captured</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var customer in DormantRows)
+                                {
+                                    <tr>
+                                        <td>@RenderCustomerName(customer)</td>
+                                        <td><span class="ops-code">@customer.AssignedBusinessPartnerCode</span></td>
+                                        <td>@(string.IsNullOrWhiteSpace(customer.Phone) ? "—" : customer.Phone)</td>
+                                        <td class="ops-mid">
+                                            @if (customer.SaleCount == 0)
+                                            {
+                                                <span class="ops-badge ops-fam-bad">Never bought</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="ops-badge ops-fam-warn">Dormant</span>
+                                            }
+                                        </td>
+                                        <td>@(customer.LastSaleAt?.ToString("dd MMM yyyy") ?? "—")</td>
+                                        <td class="ops-mid">@(customer.DaysSinceLastSale?.ToString() ?? "—")</td>
+                                        <td>@(customer.CapturedAt?.ToString("dd MMM yyyy") ?? "—")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            }
+        }
+        else
+        {
+            @if (isLoadingProductMix)
+            {
+                <div class="ops-loading">
+                    <span class="ops-spin ops-spin-lg"></span>
+                    <p>Loading product mix&hellip;</p>
+                </div>
+            }
+            else if (!string.IsNullOrWhiteSpace(productMixError))
+            {
+                <div class="ops-empty">
+                    <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                    <h3>Could not load the product mix</h3>
+                    <p>@productMixError</p>
+                    <div class="ops-empty-actions">
+                        <button type="button" class="ops-btn ops-btn-primary" @onclick="LoadProductMixAsync">
+                            Try again
+                        </button>
+                    </div>
+                </div>
+            }
+            else if (productMix is null || productMix.Items.Count == 0)
+            {
+                <div class="ops-empty">
+                    <i class="ph ph-package" aria-hidden="true"></i>
+                    <h3>Nothing sold in this period</h3>
+                    <p>No lines were sold to route customers on this filter.</p>
+                </div>
+            }
+            else
+            {
+                <section class="ops-panel">
+                    <div class="ops-panel-head">
+                        <h2><i class="ph ph-package" aria-hidden="true"></i>What moves on the route</h2>
+                        <span class="ops-count">@productMix.Items.Count item(s)</span>
+                    </div>
+                    <div class="ops-msg ops-fam-info">
+                        <i class="ph ph-info" aria-hidden="true"></i>
+                        <div class="ops-msg-body">
+                            Ordered by how often an item is bought rather than by value. Value would mean
+                            adding USD to ZWG to rank them, and quantity would put a case above a bottle.
+                        </div>
+                    </div>
+                    <div class="ops-scroll">
+                        <table class="ops-table">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th class="ops-num">Quantity</th>
+                                    <th class="ops-mid">Times bought</th>
+                                    <th class="ops-mid">Customers</th>
+                                    <th class="ops-num">Value</th>
+                                    <th>Last sold</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in productMix.Items)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="ops-name">
+                                                @(string.IsNullOrWhiteSpace(item.ItemDescription)
+                                                    ? item.ItemCode : item.ItemDescription)
+                                            </div>
+                                            <div class="ops-sub">@item.ItemCode</div>
+                                        </td>
+                                        <td class="ops-num">
+                                            <span class="ops-qty">@item.Quantity.ToString("N2")</span>
+                                            @if (!string.IsNullOrWhiteSpace(item.UoMCode))
+                                            {
+                                                <span class="ops-unit">@item.UoMCode</span>
+                                            }
+                                        </td>
+                                        <td class="ops-mid">@item.LineCount</td>
+                                        <td class="ops-mid">@item.CustomerCount</td>
+                                        <td class="ops-num">@RenderMoney(item.TotalsByCurrency)</td>
+                                        <td>@(item.LastSoldAt?.ToString("dd MMM yyyy") ?? "—")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            }
+        }
+    }
+</div>
+
+@code {
+    private enum View { Summary, Dormant, ProductMix }
+
+    private static readonly (int Days, string Label)[] QuickRanges =
+    [
+        (30, "30 days"),
+        (90, "90 days"),
+        (180, "6 months"),
+        (365, "12 months")
+    ];
+
+    private static readonly NocturneSelectOption<int>[] DormantOptions =
+    [
+        new(14, "14 days", "warn"),
+        new(30, "30 days", "warn"),
+        new(60, "60 days", "warn"),
+        new(90, "90 days", "warn")
+    ];
+
+    private RouteCustomerSalesSummaryModel? summary;
+    private RouteCustomerProductMixModel? productMix;
+    private Dictionary<string, string> routeDisplayNames = new(StringComparer.OrdinalIgnoreCase);
+
+    private View activeView = View.Summary;
+    private string? selectedRouteCode;
+    private DateTime? fromDate = DateTime.Today.AddDays(-89);
+    private DateTime? toDate = DateTime.Today;
+    private int dormantDays = 30;
+    private int? activeRangeDays = 90;
+
+    private bool isLoading = true;
+    private bool isLoadingProductMix;
+    private bool isExporting;
+    private string? errorMessage;
+    private string? productMixError;
+
+    private List<RouteCustomerSalesRowModel> AllCustomers =>
+        summary?.Routes.SelectMany(route => route.Customers).ToList() ?? [];
+
+    private int TotalSaleCount => AllCustomers.Sum(customer => customer.SaleCount);
+
+    private int TradingCount => AllCustomers.Count(customer => customer.SaleCount > 0);
+
+    private int DormantCount => summary is null
+        ? 0
+        : AllCustomers.Count(customer => customer.DaysSinceLastSale is { } days && days > summary.DormantDays);
+
+    private int NeverBoughtCount => AllCustomers.Count(customer => customer.SaleCount == 0);
+
+    /// <summary>
+    /// The lapsed and the never-converted, longest silence first and the never-converted last.
+    ///
+    /// They share a table because both are a customer worth visiting, and they are ordered apart because
+    /// they are not the same errand: one is a shop that has stopped, the other is one that never started.
+    /// </summary>
+    private List<RouteCustomerSalesRowModel> DormantRows => summary is null
+        ? []
+        : AllCustomers
+            .Where(customer => customer.SaleCount == 0 ||
+                (customer.DaysSinceLastSale is { } days && days > summary.DormantDays))
+            .OrderBy(customer => customer.SaleCount == 0)
+            .ThenByDescending(customer => customer.DaysSinceLastSale ?? 0)
+            .ThenBy(customer => customer.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private IEnumerable<NocturneSelectOption<string>> RouteFilterOptions =>
+        (summary?.Routes.Select(route => route.AssignedBusinessPartnerCode) ?? [])
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+            .Select(code => new NocturneSelectOption<string>(code, RouteLabel(code), "info"))
+            .Prepend(NocturneSelectOption.All("All routes"));
+
+    private string RouteLabel(string code) =>
+        routeDisplayNames.TryGetValue(code, out var label) ? label : code;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRouteNamesAsync();
+        await LoadAsync();
+        await AuditService.LogAsync(AuditActions.ViewCustomers, "RouteSalesReport", null);
+    }
+
+    private async Task LoadRouteNamesAsync()
+    {
+        try
+        {
+            var businessPartners = await MasterDataCache.GetBusinessPartnersAsync(includeInactive: true);
+            routeDisplayNames = businessPartners?
+                .Where(bp => !string.IsNullOrWhiteSpace(bp.CardCode))
+                .ToDictionary(
+                    bp => bp.CardCode!,
+                    bp => string.IsNullOrWhiteSpace(bp.CardName) ? bp.CardCode! : $"{bp.CardCode} - {bp.CardName}",
+                    StringComparer.OrdinalIgnoreCase)
+                ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            routeDisplayNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            summary = await RouteCustomerService.GetSalesSummaryAsync(
+                selectedRouteCode, fromDate, toDate, dormantDays);
+        }
+        catch (Exception ex)
+        {
+            // Not left as an empty report: "no customer has bought anything" and "the report failed" look
+            // the same on the page, and only one of them should send somebody out to a route.
+            errorMessage = ex.Message;
+            summary = null;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+
+        // The mix is already on screen, so it has to follow the filter rather than wait to be reopened.
+        if (activeView == View.ProductMix)
+        {
+            await LoadProductMixAsync();
+        }
+        else
+        {
+            productMix = null;
+        }
+    }
+
+    /// <summary>Loaded on first open rather than with the page — it is a third query for a third tab.</summary>
+    private async Task ShowProductMixAsync()
+    {
+        activeView = View.ProductMix;
+
+        if (productMix is null && !isLoadingProductMix)
+        {
+            await LoadProductMixAsync();
+        }
+    }
+
+    private async Task LoadProductMixAsync()
+    {
+        isLoadingProductMix = true;
+        productMixError = null;
+
+        try
+        {
+            productMix = await RouteCustomerService.GetProductMixAsync(
+                selectedRouteCode, null, fromDate, toDate);
+        }
+        catch (Exception ex)
+        {
+            productMixError = ex.Message;
+            productMix = null;
+        }
+        finally
+        {
+            isLoadingProductMix = false;
+        }
+    }
+
+    private async Task OnRouteChangedAsync(string? code)
+    {
+        selectedRouteCode = code;
+        await LoadAsync();
+    }
+
+    private async Task OnDateChangedAsync(DateTime? value, bool isFrom)
+    {
+        if (isFrom)
+        {
+            fromDate = value;
+        }
+        else
+        {
+            toDate = value;
+        }
+
+        activeRangeDays = null;
+        await LoadAsync();
+    }
+
+    private async Task OnDormantChangedAsync(int days)
+    {
+        dormantDays = days;
+        await LoadAsync();
+    }
+
+    private async Task ApplyQuickRangeAsync(int days)
+    {
+        toDate = DateTime.Today;
+        fromDate = DateTime.Today.AddDays(-(days - 1));
+        activeRangeDays = days;
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// The customer's name, linked to their history — unless the record has been deleted, in which case
+    /// there is nothing to link to and the row says so rather than offering a dead link.
+    /// </summary>
+    private RenderFragment RenderCustomerName(RouteCustomerSalesRowModel customer) => builder =>
+    {
+        if (customer.RouteCustomerId is { } id)
+        {
+            builder.OpenElement(0, "a");
+            builder.AddAttribute(1, "class", "ops-link ops-name");
+            builder.AddAttribute(2, "href", $"/route-customers/{id}/sales");
+            builder.AddContent(3, customer.Name);
+            builder.CloseElement();
+
+            if (!customer.IsActive)
+            {
+                builder.OpenElement(4, "div");
+                builder.AddAttribute(5, "class", "ops-sub");
+                builder.AddContent(6, "Inactive");
+                builder.CloseElement();
+            }
+
+            return;
+        }
+
+        builder.OpenElement(7, "div");
+        builder.AddAttribute(8, "class", "ops-name");
+        builder.AddContent(9, customer.Name);
+        builder.CloseElement();
+        builder.OpenElement(10, "div");
+        builder.AddAttribute(11, "class", "ops-sub");
+        builder.AddContent(12, "Customer deleted");
+        builder.CloseElement();
+    };
+
+    private RenderFragment RenderLastSale(RouteCustomerSalesRowModel customer) => builder =>
+    {
+        if (customer.LastSaleAt is not { } lastSale)
+        {
+            builder.OpenElement(0, "span");
+            builder.AddAttribute(1, "class", "ops-badge ops-fam-warn");
+            builder.AddContent(2, "Never bought");
+            builder.CloseElement();
+            return;
+        }
+
+        builder.OpenElement(3, "div");
+        builder.AddContent(4, lastSale.ToString("dd MMM yyyy"));
+        builder.CloseElement();
+        builder.OpenElement(5, "div");
+        builder.AddAttribute(6, "class", "ops-sub");
+        builder.AddContent(7, customer.DaysSinceLastSale switch
+        {
+            null => string.Empty,
+            0 => "Today",
+            1 => "Yesterday",
+            var days => $"{days} days ago"
+        });
+        builder.CloseElement();
+    };
+
+    private static MarkupString RenderMoney(List<RouteCustomerSalesTotalsModel> totals)
+    {
+        if (totals.Count == 0)
+        {
+            return new MarkupString("&mdash;");
+        }
+
+        // One line per currency. Two currencies added together would be a number that is not any amount
+        // of money, so the cell grows instead.
+        var lines = totals.Select(total =>
+            $"{System.Net.WebUtility.HtmlEncode(total.Currency)} {total.Gross.ToString("N2", CultureInfo.CurrentCulture)}");
+
+        return new MarkupString(string.Join("<br />", lines));
+    }
+
+    private async Task ExportToExcel()
+    {
+        if (summary is null)
+        {
+            return;
+        }
+
+        isExporting = true;
+
+        try
+        {
+            var bytes = ExportService.ExportRouteSalesSummaryToExcel(summary, routeDisplayNames);
+            var fileName = $"Route_Sales_Report_{DateTime.Now:yyyyMMdd_HHmm}.xlsx";
+
+            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
+            Snackbar.Add("Export ready.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Export failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isExporting = false;
+        }
+    }
+}

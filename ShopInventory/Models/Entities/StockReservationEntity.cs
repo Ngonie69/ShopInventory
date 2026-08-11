@@ -16,6 +16,10 @@ namespace ShopInventory.Models.Entities;
 [Index(nameof(Status))]
 [Index(nameof(CardCode))]
 [Index(nameof(SourceSystem))]
+// A confirmed reservation is the only local record of an online van sale, so it is also a reporting
+// table: these two carry the per-customer drill-down for that route.
+[Index(nameof(RouteCustomerId), nameof(CreatedAt))]
+[Index(nameof(RouteCustomerCode))]
 public class StockReservationEntity
 {
     [Key]
@@ -61,6 +65,28 @@ public class StockReservationEntity
     /// </summary>
     [MaxLength(200)]
     public string? CardName { get; set; }
+
+    /// <summary>
+    /// The route customer a van sold to, when this reservation came from the van sales app.
+    ///
+    /// An online van sale posts straight to SAP and leaves no <c>DesktopSaleEntity</c> behind, so the
+    /// confirmed reservation is the only local record it has. <see cref="CardCode"/> is the van's own
+    /// business partner on those rows; the shop is here. Null for every other source system.
+    /// </summary>
+    public int? RouteCustomerId { get; set; }
+
+    [ForeignKey(nameof(RouteCustomerId))]
+    public RouteCustomerEntity? RouteCustomer { get; set; }
+
+    /// <summary>
+    /// Code and name as they stood at the sale. Snapshots: route customers are hard-deleted, which nulls
+    /// the id above, and a rename must not travel backwards into sales already made.
+    /// </summary>
+    [MaxLength(50)]
+    public string? RouteCustomerCode { get; set; }
+
+    [MaxLength(200)]
+    public string? RouteCustomerName { get; set; }
 
     /// <summary>
     /// Total reserved value

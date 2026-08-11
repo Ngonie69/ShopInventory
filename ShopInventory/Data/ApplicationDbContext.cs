@@ -1098,11 +1098,20 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.HasIndex(e => e.OrderDate);
       entity.HasIndex(e => e.SAPDocEntry);
       entity.HasIndex(e => new { e.CardCode, e.Status, e.OrderDate });
+      entity.HasIndex(e => new { e.RouteCustomerId, e.OrderDate });
+      entity.HasIndex(e => e.RouteCustomerCode);
 
       entity.HasMany(e => e.Lines)
             .WithOne(l => l.SalesOrder)
             .HasForeignKey(l => l.SalesOrderId)
             .OnDelete(DeleteBehavior.Cascade);
+
+      // SetNull for the same reason as on DesktopSales: a deleted route customer loses its link, not
+      // the orders it placed.
+      entity.HasOne(e => e.RouteCustomer)
+            .WithMany()
+            .HasForeignKey(e => e.RouteCustomerId)
+            .OnDelete(DeleteBehavior.SetNull);
 
       entity.HasOne(e => e.Invoice)
             .WithMany()
@@ -1413,6 +1422,13 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
             .HasForeignKey(l => l.ReservationId)
             .OnDelete(DeleteBehavior.Cascade);
 
+      // SetNull for the same reason as on DesktopSales: a deleted route customer loses its link, not
+      // the sales it made.
+      entity.HasOne(r => r.RouteCustomer)
+            .WithMany()
+            .HasForeignKey(r => r.RouteCustomerId)
+            .OnDelete(DeleteBehavior.SetNull);
+
       // CHECK constraint for non-negative total value
       entity.ToTable(t => t.HasCheckConstraint("CK_StockReservations_TotalValue_NonNegative", "\"TotalValue\" >= 0"));
     });
@@ -1666,6 +1682,13 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.HasOne(s => s.Consolidation)
             .WithMany(c => c.Sales)
             .HasForeignKey(s => s.ConsolidationId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      // SetNull, not Cascade: deleting a route customer must never delete the sales it made. The code
+      // and name snapshots on the sale keep the row readable once the id is gone.
+      entity.HasOne(s => s.RouteCustomer)
+            .WithMany()
+            .HasForeignKey(s => s.RouteCustomerId)
             .OnDelete(DeleteBehavior.SetNull);
 
       entity.ToTable(t =>

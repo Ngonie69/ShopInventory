@@ -66,11 +66,21 @@
                         </span>
                         <span class="snav-text">Create Sale Order</span>
                     </NavLink>
-                    <NavLink class="snav-link" href="/route-customers" Match="NavLinkMatch.All">
+                    @* Prefix, not All, so the link stays lit on a customer's own
+                       sales page at /route-customers/{id}/sales. The report sits
+                       at /route-sales-report rather than under this path for the
+                       same reason — it is its own destination. *@
+                    <NavLink class="snav-link" href="/route-customers" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
                             <i class="ph ph-signpost" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Route Customers</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/route-sales-report" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <i class="ph ph-chart-bar" aria-hidden="true"></i>
+                        </span>
+                        <span class="snav-text">Route Sales Report</span>
                     </NavLink>
                 </Authorized>
             </AuthorizeView>

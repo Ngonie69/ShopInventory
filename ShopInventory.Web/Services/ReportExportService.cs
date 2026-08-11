@@ -39,6 +39,10 @@ public interface IReportExportService
     byte[] ExportItemVolumeSalesReportToExcel(GetItemVolumeSalesReportResult report, string title);
     byte[] ExportMerchandiserPurchaseOrderReportToExcel(GetMerchandiserPurchaseOrderReportResult report);
     byte[] ExportMobileOrdersToExcel(IReadOnlyCollection<SalesOrderDto> orders, string title);
+    byte[] ExportRouteCustomerSalesToExcel(RouteCustomerSalesDetailModel detail, string routeLabel);
+    byte[] ExportRouteSalesSummaryToExcel(
+        RouteCustomerSalesSummaryModel summary,
+        IReadOnlyDictionary<string, string> routeLabels);
     string GeneratePrintableHtml(string title, string content, DateTime? fromDate = null, DateTime? toDate = null);
 }
 
@@ -6979,5 +6983,364 @@ public class ReportExportService : IReportExportService
         WriteFooter(ws, row - 1, cols);
         FinalizeSheet(ws, cols, headerRow, landscape: true);
         return WorkbookToBytes(workbook);
+    }
+
+    /// <summary>
+    /// One route customer's trading: the sales, what they buy, and anything still on order.
+    ///
+    /// Three sheets rather than three stacked blocks, because each has its own column shape and the
+    /// sales sheet is the one people filter and sort.
+    /// </summary>
+    public byte[] ExportRouteCustomerSalesToExcel(RouteCustomerSalesDetailModel detail, string routeLabel)
+    {
+        var title = $"Route customer sales — {detail.Customer.Name}";
+        using var workbook = NewWorkbook(title);
+
+        WriteRouteCustomerSalesSheet(workbook, detail, routeLabel, title);
+        WriteRouteCustomerProductMixSheet(workbook, detail.ProductMix, detail.From, detail.To,
+            $"Product mix — {detail.Customer.Name}");
+
+        if (detail.Orders.Count > 0)
+        {
+            WriteRouteCustomerOrdersSheet(workbook, detail.Orders);
+        }
+
+        return WorkbookToBytes(workbook);
+    }
+
+    private void WriteRouteCustomerSalesSheet(
+        XLWorkbook workbook,
+        RouteCustomerSalesDetailModel detail,
+        string routeLabel,
+        string title)
+    {
+        var ws = AddSheet(workbook, "Sales");
+        const int cols = 11;
+
+        var row = WriteReportHeader(ws, title, cols, detail.From, detail.To,
+            $"{detail.Customer.Code} on {routeLabel}");
+
+        WriteKpiCard(ws, row, 1, "Sales", detail.SaleCount, FormatCount);
+        WriteKpiCard(ws, row, 2, "Lines", detail.LineCount, FormatCount);
+        WriteKpiCard(ws, row, 3, "Last sale",
+            detail.LastSaleAt?.ToString(FormatDate, CultureInfo.InvariantCulture) ?? "Never");
+        WriteKpiCard(ws, row, 4, "Days since",
+            detail.DaysSinceLastSale?.ToString("N0", CultureInfo.InvariantCulture) ?? "—",
+            detail.DaysSinceLastSale is > 30 ? WarningOrange : null);
+        WriteKpiCard(ws, row, 5, "Value", DescribeCurrencyTotals(detail.TotalsByCurrency));
+        row += 3;
+
+        var headers = new[]
+        {
+            "Sold", "Reference", "Source", "Currency", "Total", "VAT", "Paid",
+            "Payment", "Status", "SAP Doc #", "ZIMRA receipt"
+        };
+
+        for (var i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(row, i + 1).Value = headers[i];
+        }
+        StyleTableHeader(ws, row, cols);
+        var headerRow = row;
+        row++;
+
+        var dataStart = row;
+        foreach (var sale in detail.Sales)
+        {
+            ws.Cell(row, 1).Value = sale.SoldAt;
+            ws.Cell(row, 1).Style.NumberFormat.Format = FormatDate;
+            ws.Cell(row, 2).Value = sale.Reference;
+            ws.Cell(row, 2).Style.Font.Bold = true;
+            ws.Cell(row, 3).Value = DescribeSaleSource(sale.Source);
+            ws.Cell(row, 4).Value = sale.Currency;
+            ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 5).Value = sale.Total;
+            ws.Cell(row, 5).Style.NumberFormat.Format = FormatMoney;
+
+            // An online sale carries no tax split — that lives on the SAP invoice — so the cell is left
+            // empty rather than filled with a zero that reads as "no VAT was charged".
+            if (sale.Source == RouteCustomerSaleSource.OfflineVanSale)
+            {
+                ws.Cell(row, 6).Value = sale.VatAmount;
+                ws.Cell(row, 6).Style.NumberFormat.Format = FormatMoney;
+            }
+
+            ws.Cell(row, 7).Value = sale.AmountPaid;
+            ws.Cell(row, 7).Style.NumberFormat.Format = FormatMoney;
+            ws.Cell(row, 8).Value = sale.PaymentMethod ?? "-";
+            ws.Cell(row, 9).Value = sale.Status;
+            ws.Cell(row, 10).Value = sale.SapDocNum.HasValue
+                ? sale.SapDocNum.Value.ToString(CultureInfo.InvariantCulture)
+                : "Pending";
+            ws.Cell(row, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            if (!sale.SapDocNum.HasValue)
+            {
+                ws.Cell(row, 10).Style.Font.FontColor = WarningOrange;
+            }
+
+            ws.Cell(row, 11).Value = sale.ReceiptGlobalNo.HasValue
+                ? sale.ReceiptGlobalNo.Value.ToString(CultureInfo.InvariantCulture)
+                : "-";
+            ws.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            row++;
+        }
+
+        row = FinishTable(ws, headerRow, dataStart, row, cols,
+            "This customer made no purchases inside the selected dates.");
+
+        row = WriteCurrencyTotals(
+            ws,
+            row,
+            cols,
+            currencyColumn: 4,
+            labelColumn: 3,
+            detail.Sales.GroupBy(sale => sale.Currency),
+            (sheet, totalRow, group) =>
+            {
+                sheet.Cell(totalRow, 5).Value = group.Sum(sale => sale.Total);
+                sheet.Cell(totalRow, 5).Style.NumberFormat.Format = FormatMoney;
+                sheet.Cell(totalRow, 7).Value = group.Sum(sale => sale.AmountPaid);
+                sheet.Cell(totalRow, 7).Style.NumberFormat.Format = FormatMoney;
+            });
+
+        WriteFooter(ws, row - 1, cols);
+        FinalizeSheet(ws, cols, headerRow, landscape: true);
+    }
+
+    private void WriteRouteCustomerProductMixSheet(
+        XLWorkbook workbook,
+        List<RouteCustomerProductMixRowModel> items,
+        DateTime from,
+        DateTime to,
+        string title)
+    {
+        var ws = AddSheet(workbook, "Product mix");
+        const int cols = 7;
+
+        var row = WriteReportHeader(ws, title, cols, from, to, $"Items bought: {items.Count:N0}");
+
+        var headers = new[] { "Item", "Description", "Quantity", "UoM", "Times bought", "Customers", "Value" };
+        for (var i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(row, i + 1).Value = headers[i];
+        }
+        StyleTableHeader(ws, row, cols);
+        var headerRow = row;
+        row++;
+
+        var dataStart = row;
+        foreach (var item in items)
+        {
+            ws.Cell(row, 1).Value = item.ItemCode;
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 2).Value = item.ItemDescription ?? string.Empty;
+            ws.Cell(row, 3).Value = item.Quantity;
+            ws.Cell(row, 3).Style.NumberFormat.Format = FormatQuantity;
+            ws.Cell(row, 4).Value = item.UoMCode ?? "-";
+            ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 5).Value = item.LineCount;
+            ws.Cell(row, 5).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 6).Value = item.CustomerCount;
+            ws.Cell(row, 6).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+            // Text, not a number: the value can be in two currencies, and one cell holding "USD 40.00 /
+            // ZWG 900.00" is honest where a single numeric total would not be.
+            ws.Cell(row, 7).Value = DescribeCurrencyTotals(item.TotalsByCurrency);
+            row++;
+        }
+
+        row = FinishTable(ws, headerRow, dataStart, row, cols, "No items were sold inside the selected dates.");
+        WriteFooter(ws, row - 1, cols);
+        FinalizeSheet(ws, cols, headerRow);
+    }
+
+    private void WriteRouteCustomerOrdersSheet(XLWorkbook workbook, List<RouteCustomerOrderModel> orders)
+    {
+        var ws = AddSheet(workbook, "Orders");
+        const int cols = 6;
+
+        var row = WriteReportHeader(ws, "Orders", cols,
+            subtitle: "Orders are shown for context and are not counted in the sales totals — a mobile order is priced after capture.");
+
+        var headers = new[] { "Order #", "Ordered", "Status", "Lines", "Currency", "Value" };
+        for (var i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(row, i + 1).Value = headers[i];
+        }
+        StyleTableHeader(ws, row, cols);
+        var headerRow = row;
+        row++;
+
+        var dataStart = row;
+        foreach (var order in orders)
+        {
+            ws.Cell(row, 1).Value = order.OrderNumber;
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 2).Value = order.OrderDate;
+            ws.Cell(row, 2).Style.NumberFormat.Format = FormatDate;
+            ws.Cell(row, 3).Value = order.IsInvoiced ? "Invoiced" : order.Status;
+            ws.Cell(row, 4).Value = order.LineCount;
+            ws.Cell(row, 4).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 5).Value = order.Currency ?? "-";
+            ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+            if (order.IsAwaitingPricing)
+            {
+                ws.Cell(row, 6).Value = "Awaiting pricing";
+                ws.Cell(row, 6).Style.Font.FontColor = MutedText;
+                ws.Cell(row, 6).Style.Font.Italic = true;
+            }
+            else
+            {
+                ws.Cell(row, 6).Value = order.DocTotal;
+                ws.Cell(row, 6).Style.NumberFormat.Format = FormatMoney;
+            }
+
+            row++;
+        }
+
+        row = FinishTable(ws, headerRow, dataStart, row, cols, "This customer has no orders inside the selected dates.");
+        WriteFooter(ws, row - 1, cols);
+        FinalizeSheet(ws, cols, headerRow);
+    }
+
+    /// <summary>
+    /// Every route customer against what they bought, one row each, with the route repeated down a
+    /// column so the sheet can be filtered and pivoted rather than read only in the order it was written.
+    /// </summary>
+    public byte[] ExportRouteSalesSummaryToExcel(
+        RouteCustomerSalesSummaryModel summary,
+        IReadOnlyDictionary<string, string> routeLabels)
+    {
+        const string title = "Route customer sales summary";
+        using var workbook = NewWorkbook(title);
+        var ws = AddSheet(workbook, "Summary");
+        const int cols = 11;
+
+        var rows = summary.Routes.SelectMany(route => route.Customers).ToList();
+
+        var row = WriteReportHeader(ws, title, cols, summary.From, summary.To,
+            $"{summary.Routes.Count:N0} route(s), {rows.Count:N0} customer(s). " +
+            $"Dormant means no sale for more than {summary.DormantDays:N0} days.");
+
+        WriteKpiCard(ws, row, 1, "Customers", rows.Count, FormatCount);
+        WriteKpiCard(ws, row, 2, "Bought", rows.Count(customer => customer.SaleCount > 0), FormatCount, SuccessGreen);
+        WriteKpiCard(ws, row, 3, "Dormant",
+            rows.Count(customer => customer.DaysSinceLastSale is { } days && days > summary.DormantDays),
+            FormatCount, WarningOrange);
+        WriteKpiCard(ws, row, 4, "Never bought", rows.Count(customer => customer.SaleCount == 0), FormatCount, DangerRed);
+        WriteKpiCard(ws, row, 5, "Value",
+            DescribeCurrencyTotals(summary.Routes.SelectMany(route => route.TotalsByCurrency).ToList()));
+        row += 3;
+
+        var headers = new[]
+        {
+            "Route", "Code", "Customer", "Phone", "Status", "Sales", "Lines",
+            "Value", "First sale", "Last sale", "Days since"
+        };
+
+        for (var i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(row, i + 1).Value = headers[i];
+        }
+        StyleTableHeader(ws, row, cols);
+        var headerRow = row;
+        row++;
+
+        var dataStart = row;
+        foreach (var customer in rows)
+        {
+            ws.Cell(row, 1).Value = routeLabels.TryGetValue(customer.AssignedBusinessPartnerCode, out var label)
+                ? label
+                : customer.AssignedBusinessPartnerCode;
+            ws.Cell(row, 2).Value = customer.Code;
+            ws.Cell(row, 2).Style.Font.Bold = true;
+            ws.Cell(row, 3).Value = customer.Name;
+            ws.Cell(row, 4).Value = customer.Phone ?? "-";
+
+            ws.Cell(row, 5).Value = DescribeCustomerStanding(customer, summary.DormantDays);
+            ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 5).Style.Font.FontColor = customer.SaleCount == 0
+                ? DangerRed
+                : customer.DaysSinceLastSale > summary.DormantDays
+                    ? WarningOrange
+                    : SuccessGreen;
+
+            ws.Cell(row, 6).Value = customer.SaleCount;
+            ws.Cell(row, 6).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 7).Value = customer.LineCount;
+            ws.Cell(row, 7).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 8).Value = DescribeCurrencyTotals(customer.TotalsByCurrency);
+
+            // Blank rather than a dash: a placeholder turns the whole column to text and stops it sorting,
+            // which is the one thing a "who has not bought lately" report is read by.
+            if (customer.FirstSaleAt.HasValue)
+            {
+                ws.Cell(row, 9).Value = customer.FirstSaleAt.Value;
+                ws.Cell(row, 9).Style.NumberFormat.Format = FormatDate;
+            }
+
+            if (customer.LastSaleAt.HasValue)
+            {
+                ws.Cell(row, 10).Value = customer.LastSaleAt.Value;
+                ws.Cell(row, 10).Style.NumberFormat.Format = FormatDate;
+            }
+
+            if (customer.DaysSinceLastSale.HasValue)
+            {
+                ws.Cell(row, 11).Value = customer.DaysSinceLastSale.Value;
+                ws.Cell(row, 11).Style.NumberFormat.Format = FormatCount;
+                ws.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            }
+
+            row++;
+        }
+
+        row = FinishTable(ws, headerRow, dataStart, row, cols, "No route customers matched this report's filters.");
+        WriteFooter(ws, row - 1, cols);
+        FinalizeSheet(ws, cols, headerRow, landscape: true);
+        return WorkbookToBytes(workbook);
+    }
+
+    private static string DescribeSaleSource(RouteCustomerSaleSource source) => source switch
+    {
+        RouteCustomerSaleSource.OfflineVanSale => "Van sale",
+        RouteCustomerSaleSource.OnlineInvoice => "Online invoice",
+        _ => "Sale"
+    };
+
+    private static string DescribeCustomerStanding(RouteCustomerSalesRowModel customer, int dormantDays)
+    {
+        if (customer.SaleCount == 0)
+        {
+            return "Never bought";
+        }
+
+        return customer.DaysSinceLastSale > dormantDays ? "Dormant" : "Active";
+    }
+
+    /// <summary>
+    /// Per-currency totals as one readable string — "USD 40.00 / ZWG 900.00".
+    ///
+    /// A cell, a KPI card and a footer all need this, and all of them have room for one value. Adding
+    /// the currencies together to fit would produce a number that is not any amount of money.
+    /// </summary>
+    private static string DescribeCurrencyTotals(IReadOnlyCollection<RouteCustomerSalesTotalsModel> totals)
+    {
+        if (totals.Count == 0)
+        {
+            return "—";
+        }
+
+        return string.Join(" / ", totals
+            .GroupBy(total => total.Currency, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new { Currency = group.Key, Gross = group.Sum(total => total.Gross) })
+            .OrderByDescending(total => total.Gross)
+            .Select(total => $"{total.Currency} {total.Gross.ToString("N2", CultureInfo.InvariantCulture)}"));
     }
 }
