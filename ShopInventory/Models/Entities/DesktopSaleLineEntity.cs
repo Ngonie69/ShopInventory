@@ -50,6 +50,24 @@ public class DesktopSaleLineEntity
     [MaxLength(20)]
     public string? UoMCode { get; set; }
 
+    // --- Fiscal detail, on a van sale line that was signed offline ---
+    //
+    // The fiscalisation platform rebuilds the signed receipt from these lines, so the values a handset
+    // signed under have to survive here. They are unused by the desktop route and by SAP posting.
+
+    /// <summary>The FDMS tax id the line was signed under.</summary>
+    public int? TaxId { get; set; }
+
+    /// <summary>
+    /// The rate in force at signing. Null and zero are not the same: null is untaxed and contributes
+    /// nothing to the signed payload, zero is a zero rate and contributes "0.00".
+    /// </summary>
+    [Column(TypeName = "decimal(5,2)")]
+    public decimal? TaxPercent { get; set; }
+
+    [MaxLength(20)]
+    public string? HsCode { get; set; }
+
     [NotMapped]
     public string? CostCentreCode { get; set; }
 }

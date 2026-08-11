@@ -244,6 +244,15 @@ public sealed class VanSalesOfflineIngestTests : IDisposable
         ReceiptCounter = 4,
         VerificationCode = "A1B2C3D4E5F60718",
         QrCode = "https://fdms.example/verify/000003541010082026000000050 1A1B2C3D4E5F60718",
+
+        // The receipt as signed. Without it the sale still posts to SAP, but ZIMRA never receives the
+        // receipt the customer is holding — so it belongs in the default fixture, not only in the test
+        // that names it.
+        ReceiptDate = new DateTime(2026, 8, 10, 11, 30, 0, DateTimeKind.Unspecified),
+        FiscalDayOpenedAt = new DateTime(2026, 8, 10, 6, 15, 0, DateTimeKind.Unspecified),
+        PreviousReceiptHash = "cGJ2aW91c2hhc2g=",
+        DeviceSignatureHash = "aGFzaC1vZi10aGUtcGF5bG9hZA==",
+        DeviceSignatureValue = "c2lnbmF0dXJlLW92ZXItdGhlLXBheWxvYWQ=",
         Items =
         [
             new VanSalesOfflineSaleItemRequest
@@ -251,8 +260,62 @@ public sealed class VanSalesOfflineIngestTests : IDisposable
                 Code = "CHE011",
                 Description = "Cheese 1kg",
                 Quantity = 2m,
-                Price = 50m
+                Price = 50m,
+                TaxCode = "15.5% Output VAT USD",
+                TaxId = 517,
+                TaxPercent = 15.5m,
+                HsCode = "04031000"
             }
         ]
     };
+
+    /// <summary>
+    /// The receipt has to survive the upload intact, because handing it to the fiscalisation platform is
+    /// the only route by which ZIMRA ever learns this sale happened. Nothing here may be re-derived: the
+    /// platform rebuilds the signed payload from exactly these values.
+    /// </summary>
+    [Fact]
+    public async Task The_signed_receipt_is_stored_and_queued_for_zimra()
+    {
+        await IngestAsync(BuildSale("VAN006-INV-20260810-AAA111"));
+
+        var sale = await _context.DesktopSales.Include(s => s.Lines).SingleAsync();
+
+        Assert.Equal(DesktopSaleReceiptIngestStatus.Pending, sale.ReceiptIngestStatus);
+        Assert.Equal(new DateTime(2026, 8, 10, 11, 30, 0), sale.ReceiptDate);
+        Assert.Equal(new DateTime(2026, 8, 10, 6, 15, 0), sale.FiscalDayOpenedAt);
+        Assert.Equal("cGJ2aW91c2hhc2g=", sale.PreviousReceiptHash);
+        Assert.Equal("aGFzaC1vZi10aGUtcGF5bG9hZA==", sale.DeviceSignatureHash);
+        Assert.Equal("c2lnbmF0dXJlLW92ZXItdGhlLXBheWxvYWQ=", sale.DeviceSignatureValue);
+
+        // The tax the line was signed under, not whatever the catalogue says later.
+        var line = sale.Lines.Single();
+        Assert.Equal(517, line.TaxId);
+        Assert.Equal(15.5m, line.TaxPercent);
+        Assert.Equal("04031000", line.HsCode);
+    }
+
+    /// <summary>
+    /// A sale that arrives without a signature is a receipt that can never be submitted. It is still
+    /// accepted — the customer paid, and refusing the upload would strand the takings on the handset as
+    /// well as losing the receipt — but it is marked as needing a person rather than left looking normal.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_with_no_signature_is_accepted_but_flagged_as_unsubmittable()
+    {
+        var sale = BuildSale("VAN006-INV-20260810-AAA111");
+        sale.DeviceSignatureHash = null;
+        sale.DeviceSignatureValue = null;
+
+        var response = await IngestAsync(sale);
+
+        Assert.Equal(1, response.Accepted);
+        Assert.Contains("cannot be submitted to ZIMRA", response.Results.Single().Message);
+
+        var stored = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(DesktopSaleReceiptIngestStatus.Unsignable, stored.ReceiptIngestStatus);
+
+        // Still held for posting: the money is real whatever the fiscal side says.
+        Assert.Equal(DesktopSaleConsolidationStatus.Pending, stored.ConsolidationStatus);
+    }
 }

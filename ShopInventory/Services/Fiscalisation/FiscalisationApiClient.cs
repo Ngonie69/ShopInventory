@@ -56,6 +56,18 @@ public class FiscalisationApiClient : IFiscalisationApiClient
             cancellationToken);
     }
 
+    public Task<SubmitReceiptApiResponse> IngestSignedReceiptAsync(
+        IngestSignedReceiptApiRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return PostWithTransientRetryAsync<IngestSignedReceiptApiRequest, SubmitReceiptApiResponse>(
+            "api/receipts/ingest-signed",
+            request,
+            cancellationToken);
+    }
+
     public async Task<CheckFiscalisedReceiptApiResponse> CheckReceiptAsync(
         int deviceId,
         string invoiceNo,

@@ -57,6 +57,12 @@ public static class QuartzConfiguration
             AddIntervalJob<InventoryTransferPostingJob>(q, "inventory-transfer-posting", TimeSpan.FromSeconds(10));
             AddIntervalJob<IncomingPaymentPostingJob>(q, "incoming-payment-posting", TimeSpan.FromSeconds(10));
             AddIntervalJob<ReservationCleanupJob>(q, "reservation-cleanup", TimeSpan.FromMinutes(1), startDelay: TimeSpan.FromSeconds(30));
+
+            // Receipts vans signed offline, on their way to ZIMRA. Frequent because the deadline is the
+            // fiscal day's automatic close, not end of day — a receipt still queued when its day closes is
+            // one that never reaches ZIMRA at all.
+            AddIntervalJob<VanSalesSignedReceiptIngestJob>(
+                q, "van-sales-signed-receipt-ingest", TimeSpan.FromMinutes(2), startDelay: TimeSpan.FromMinutes(1));
             AddIntervalJob<SalesOrderReconciliationJob>(q, "sales-order-reconciliation", TimeSpan.FromMinutes(2), startDelay: TimeSpan.FromMinutes(1));
 
             if (sap.Enabled && creditNoteSync.Enabled)
