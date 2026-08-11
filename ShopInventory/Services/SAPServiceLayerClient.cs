@@ -42,6 +42,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private const string GLAccountsCacheKey = "SAP_GLAccounts";
     private const string PriceListsCacheKey = "SAP_PriceLists";
     private const string WarehouseItemCodesCacheKeyPrefix = "SAP_WarehouseItemCodes_";
+    private const string VanSalesApprovedItemCodesCacheKey = "SAP_VanSalesApprovedItemCodes";
     private const string SalesOrderLineSapUomCacheKeyPrefix = "SAP_SalesOrderLineUoM_";
     private const string CostCentresCacheKey = "SAP_CostCentres";
     private const string CurrenciesCacheKey = "SAP_Currencies";
@@ -2822,6 +2823,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         string warehouseCode,
         int page,
         int pageSize,
+        bool vanSaleOnly = false,
         CancellationToken cancellationToken = default)
     {
         var normalizedPage = Math.Max(page, 1);
@@ -2829,6 +2831,14 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var skip = (normalizedPage - 1) * normalizedPageSize;
 
         var itemCodes = await GetAllItemCodesInWarehouseAsync(warehouseCode, cancellationToken);
+
+        if (vanSaleOnly)
+        {
+            // Narrow before paging, so the page stays dense and HasMore counts approved items only.
+            var approved = await GetVanSalesApprovedItemCodesAsync(cancellationToken);
+            itemCodes = itemCodes.Where(approved.Contains).ToList();
+        }
+
         if (itemCodes.Count == 0)
         {
             return ([], false);
@@ -2962,6 +2972,122 @@ ORDER BY T0.""ItemCode""";
 
     private static string BuildWarehouseItemCodesCacheKey(string warehouseCode)
         => WarehouseItemCodesCacheKeyPrefix + warehouseCode.Trim().ToUpperInvariant();
+
+    /// <summary>
+    /// Reads the item codes a van may sell — the items flagged <c>U_VanSale = 'Yes'</c> on the item master.
+    /// </summary>
+    /// <remarks>
+    /// This is an approval list, not a stock list: it says nothing about what is on the van. Callers
+    /// intersect it with a warehouse's codes. The SQL is a fixed literal, so the content-addressed
+    /// code resolves to one SQLQueries object that is created once and re-used, never per request.
+    /// </remarks>
+    public async Task<HashSet<string>> GetVanSalesApprovedItemCodesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (_memoryCache.TryGetValue(VanSalesApprovedItemCodesCacheKey, out HashSet<string>? cached)
+            && cached is not null)
+        {
+            return cached;
+        }
+
+        var approved = await QueryVanSalesApprovedItemCodesAsync(cancellationToken);
+        _memoryCache.Set(VanSalesApprovedItemCodesCacheKey, approved, TimeSpan.FromMinutes(15));
+        return approved;
+    }
+
+    private async Task<HashSet<string>> QueryVanSalesApprovedItemCodesAsync(
+        CancellationToken cancellationToken)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        const string sqlText = @"SELECT T0.""ItemCode"", T0.""ItemName"", T0.""U_VanSale""
+FROM OITM T0
+WHERE T0.""U_VanSale"" = 'Yes'
+ORDER BY T0.""ItemCode""";
+
+        var queryCode = BuildContentAddressedQueryCode("VAN_SALE_ITEMS", sqlText);
+        await EnsureSqlQueryAsync(queryCode, "Van sales approved items", sqlText, cancellationToken);
+
+        var itemCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        const int pageSize = 500;
+        var skip = 0;
+
+        while (true)
+        {
+            var url = skip == 0
+                ? $"SQLQueries('{queryCode}')/List"
+                : $"SQLQueries('{queryCode}')/List?$skip={skip}";
+
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                return request;
+            }
+
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read van sales approved item codes from row {skip}",
+                cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
+
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"read van sales approved item codes from row {skip} after SAP re-authentication",
+                    cancellationToken);
+            }
+
+            using var responseOwner = response;
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return [];
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError(
+                    "Failed to get van sales approved item codes: {StatusCode} - {Error}",
+                    response.StatusCode,
+                    errorContent);
+                throw new Exception($"Failed to get van sales approved item codes: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var pageItemCodes = ParseItemCodesFromSqlResult(content);
+            if (pageItemCodes.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var itemCode in pageItemCodes)
+            {
+                itemCodes.Add(itemCode);
+            }
+
+            if (pageItemCodes.Count < pageSize)
+            {
+                break;
+            }
+
+            skip += pageItemCodes.Count;
+        }
+
+        _logger.LogInformation("Van sales approved catalogue holds {Count} items", itemCodes.Count);
+        return itemCodes;
+    }
 
     /// <summary>
     /// Reads valid inventory items by code, with the stock quantities the warehouse paths bind.

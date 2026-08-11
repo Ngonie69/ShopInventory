@@ -32,7 +32,7 @@ public sealed class GetProductsInWarehouseHandler(
             do
             {
                 var (items, pageHasMore) = await sapClient.GetPagedItemsInWarehouseAsync(
-                    request.WarehouseCode, page, sapPageSize, cancellationToken);
+                    request.WarehouseCode, page, sapPageSize, cancellationToken: cancellationToken);
 
                 var itemCodes = items
                     .Select(i => i.ItemCode)

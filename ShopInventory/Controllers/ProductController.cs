@@ -73,6 +73,11 @@ public class ProductController(IMediator mediator) : ApiControllerBase
     /// <summary>
     /// Gets products in a warehouse with pagination
     /// </summary>
+    /// <remarks>
+    /// Pass <c>vanSaleOnly=true</c> to narrow the page to the van sales approved catalogue — the
+    /// items flagged <c>U_VanSale = 'Yes'</c> in SAP. It is opt-in because the web's master-data
+    /// cache reads this same route and needs every item.
+    /// </remarks>
     [HttpGet("warehouse/{warehouseCode}/paged")]
     [ProducesResponseType(typeof(WarehouseProductsPagedResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -83,10 +88,11 @@ public class ProductController(IMediator mediator) : ApiControllerBase
         [FromQuery] int pageSize = 20,
         [FromQuery] string? businessPartnerCode = null,
         [FromQuery] int? priceListNum = null,
+        [FromQuery] bool vanSaleOnly = false,
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetPagedProductsInWarehouseQuery(warehouseCode, page, pageSize, businessPartnerCode, priceListNum), cancellationToken);
+            new GetPagedProductsInWarehouseQuery(warehouseCode, page, pageSize, businessPartnerCode, priceListNum, vanSaleOnly), cancellationToken);
 
         return result.Match(
             value => Ok(value),

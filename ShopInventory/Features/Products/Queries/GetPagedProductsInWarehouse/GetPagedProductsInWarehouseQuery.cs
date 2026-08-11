@@ -9,5 +9,6 @@ public sealed record GetPagedProductsInWarehouseQuery(
     int Page = 1,
     int PageSize = 20,
     string? BusinessPartnerCode = null,
-    int? PriceListNum = null
+    int? PriceListNum = null,
+    bool VanSaleOnly = false
 ) : IRequest<ErrorOr<WarehouseProductsPagedResponseDto>>;
