@@ -203,6 +203,9 @@ public class FiscalisationApiClient : IFiscalisationApiClient
                 ? response.ReasonPhrase ?? "Fiscalisation API request failed."
                 : responseBody;
 
-        throw new FiscalisationApiException(response.StatusCode, error?.ErrorCode, detail);
+        // Whether the platform said anything at all, which is how a caller tells a refusal it should act
+        // on from a route this platform build does not serve.
+        throw new FiscalisationApiException(
+            response.StatusCode, error?.ErrorCode, detail, hasProblemDocument: error is not null);
     }
 }

@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
@@ -98,6 +99,13 @@ public sealed class VanSalesSignedReceiptIngestService(
             // Saved per device rather than once at the end: a run that dies half way should keep the
             // devices it already finished, and each device's rows are independent of the others'.
             await context.SaveChangesAsync(cancellationToken);
+
+            // A missing route is not this device's problem, it is every device's. Trying the rest would
+            // add one identical failure per handset to the log and change nothing.
+            if (result.PlatformEndpointMissing)
+            {
+                break;
+            }
         }
 
         logger.LogInformation(
@@ -160,8 +168,6 @@ public sealed class VanSalesSignedReceiptIngestService(
                 return;
             }
 
-            sale.ReceiptIngestAttempts++;
-
             try
             {
                 // The platform replays an already-archived receipt rather than duplicating it, so losing
@@ -191,8 +197,33 @@ public sealed class VanSalesSignedReceiptIngestService(
                 result.Errors.Add($"{sale.ExternalReferenceId}: {ex.Message}");
                 return;
             }
+            catch (FiscalisationApiException ex) when (IsEndpointMissing(ex))
+            {
+                // The platform in front of us has no ingest-signed route: this build predates it. That is
+                // an environment problem, not a bad receipt, so it must not spend the receipt's attempts —
+                // eight of those at two-minute intervals would block every handset inside a quarter of an
+                // hour, and each one would then need a person to reset it once the platform is updated.
+                sale.ReceiptIngestError = Truncate(
+                    "The fiscalisation platform does not serve /api/receipts/ingest-signed. This receipt " +
+                    "is untouched and will be submitted once the platform is updated.",
+                    2000);
+
+                result.PlatformEndpointMissing = true;
+                result.Errors.Add($"{sale.ExternalReferenceId}: {ex.Message}");
+
+                logger.LogError(
+                    ex,
+                    "The fiscalisation platform has no /api/receipts/ingest-signed route (HTTP {StatusCode}), so no " +
+                    "van receipt can be submitted. Nothing has been marked failed and no attempts were spent; the " +
+                    "receipts wait as they are. The platform must be updated — until then every fiscal day these " +
+                    "vans trade in will close without their receipts.",
+                    (int)ex.StatusCode);
+
+                return;
+            }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                sale.ReceiptIngestAttempts++;
                 sale.ReceiptIngestStatus = DesktopSaleReceiptIngestStatus.Failed;
                 sale.ReceiptIngestError = Truncate(ex.Message, 2000);
                 result.Failed++;
@@ -224,6 +255,21 @@ public sealed class VanSalesSignedReceiptIngestService(
     /// missing signature, or a receipt that has used up its attempts. All three stop the device rather
     /// than the receipt, because nothing behind them can be accepted while they are missing.
     /// </summary>
+    /// <summary>
+    /// Whether the platform did not recognise the route at all, as opposed to refusing what was sent.
+    ///
+    /// The distinction decides whether a receipt's attempts are spent, so it is drawn narrowly. A
+    /// platform build that has the route always explains itself with a problem document — even its
+    /// rejections carry an error code — while one that does not have it never reaches that middleware and
+    /// answers with an empty body. A 404 says the same thing more plainly, and would be what a proxy or a
+    /// mis-set base URL produces.
+    /// </summary>
+    private static bool IsEndpointMissing(FiscalisationApiException failure) =>
+        failure.StatusCode == HttpStatusCode.NotFound
+        || (failure.StatusCode == HttpStatusCode.BadRequest
+            && failure.ErrorCode is null
+            && !failure.HasProblemDocument);
+
     private static bool IsBlocked(DesktopSaleEntity sale) =>
         sale.ReceiptIngestStatus is DesktopSaleReceiptIngestStatus.ChainBroken
             or DesktopSaleReceiptIngestStatus.Unsignable
@@ -407,6 +453,13 @@ public sealed class VanSalesReceiptIngestRunResult
     public int Unsignable { get; set; }
 
     public int DevicesStopped { get; set; }
+
+    /// <summary>
+    /// The platform does not serve the ingest route, so the run stopped without spending any receipt's
+    /// attempts. This is a deployment problem — the platform is older than this service — and it is
+    /// reported on its own because nothing on the receipts themselves shows it.
+    /// </summary>
+    public bool PlatformEndpointMissing { get; set; }
 
     public List<string> Errors { get; } = [];
 

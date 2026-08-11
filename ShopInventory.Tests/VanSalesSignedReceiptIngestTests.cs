@@ -235,6 +235,65 @@ public sealed class VanSalesSignedReceiptIngestTests : IDisposable
     }
 
     /// <summary>
+    /// A platform build older than this service has no ingest route, and answers with an empty 400 — which
+    /// is a deployment problem, not a bad receipt. Spending the receipts' attempts on it would block every
+    /// handset within a quarter of an hour and leave each one needing a person to reset it, for a fault
+    /// that fixes itself the moment the platform is deployed.
+    /// </summary>
+    [Fact]
+    public async Task A_platform_without_the_ingest_route_costs_no_attempts()
+    {
+        await SeedAsync(
+            Receipt("VAN006-INV-1", globalNo: 501, counter: 4),
+            Receipt("VAN006-INV-2", globalNo: 502, counter: 5),
+            Receipt("VAN007-INV-1", globalNo: 220, counter: 2, deviceNumber: "35411"));
+
+        // What the live platform actually returns for a route it does not serve: the request never reaches
+        // the API-key middleware, so there is no problem document to read.
+        _platform.FailOnEverything(new FiscalisationApiException(
+            HttpStatusCode.BadRequest, errorCode: null, detail: "Bad Request", hasProblemDocument: false));
+
+        var result = await BuildService().IngestPendingReceiptsAsync();
+
+        Assert.True(result.PlatformEndpointMissing);
+        Assert.Equal(0, result.Failed);
+        Assert.Equal(0, result.Ingested);
+
+        // Tried once. Every handset would fail identically, so the rest are not walked.
+        Assert.Single(_platform.Requests);
+
+        var sales = await _context.DesktopSales.ToListAsync();
+        Assert.All(sales, sale =>
+        {
+            Assert.Equal(DesktopSaleReceiptIngestStatus.Pending, sale.ReceiptIngestStatus);
+            Assert.Equal(0, sale.ReceiptIngestAttempts);
+        });
+    }
+
+    /// <summary>
+    /// The narrowness matters as much as the rule: a refusal the platform explains is a real answer about
+    /// this receipt, and it has to keep costing an attempt, or a genuinely bad receipt would be retried
+    /// every two minutes for ever.
+    /// </summary>
+    [Fact]
+    public async Task A_refusal_the_platform_explains_still_costs_an_attempt()
+    {
+        await SeedAsync(Receipt("VAN006-INV-1", globalNo: 501, counter: 4));
+
+        _platform.FailOnEverything(new FiscalisationApiException(
+            HttpStatusCode.BadRequest, "ValidationFailed", "HS code is required on a VAT-payer line."));
+
+        var result = await BuildService().IngestPendingReceiptsAsync();
+
+        Assert.False(result.PlatformEndpointMissing);
+        Assert.Equal(1, result.Failed);
+
+        var sale = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(DesktopSaleReceiptIngestStatus.Failed, sale.ReceiptIngestStatus);
+        Assert.Equal(1, sale.ReceiptIngestAttempts);
+    }
+
+    /// <summary>
     /// Sales the platform already holds, and sales that were never signed offline at all, are not offered
     /// again. Re-offering an archived receipt is harmless — the platform replays it — but a drain that
     /// grows with the table stops finishing.
@@ -323,15 +382,24 @@ public sealed class VanSalesSignedReceiptIngestTests : IDisposable
     private sealed class RecordingFiscalisationClient : IFiscalisationApiClient
     {
         private readonly Dictionary<string, Exception> _failures = new(StringComparer.OrdinalIgnoreCase);
+        private Exception? _blanketFailure;
 
         public List<IngestSignedReceiptApiRequest> Requests { get; } = [];
 
         public void FailOn(string invoiceNo, Exception failure) => _failures[invoiceNo] = failure;
 
+        /// <summary>Fails every call, the way a platform-wide fault does.</summary>
+        public void FailOnEverything(Exception failure) => _blanketFailure = failure;
+
         public Task<SubmitReceiptApiResponse> IngestSignedReceiptAsync(
             IngestSignedReceiptApiRequest request, CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
+
+            if (_blanketFailure is not null)
+            {
+                throw _blanketFailure;
+            }
 
             if (_failures.TryGetValue(request.InvoiceNo ?? string.Empty, out var failure))
             {
