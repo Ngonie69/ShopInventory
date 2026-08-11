@@ -77,6 +77,12 @@ public class ProductController(IMediator mediator) : ApiControllerBase
     /// Pass <c>vanSaleOnly=true</c> to narrow the page to the van sales approved catalogue — the
     /// items flagged <c>U_VanSale = 'Yes'</c> in SAP. It is opt-in because the web's master-data
     /// cache reads this same route and needs every item.
+    /// <para>
+    /// Anything reading the whole warehouse should pass <c>cursor=true</c> and then follow
+    /// <c>nextCursor</c> back in as <c>after</c>. The list being paged is the codes holding stock
+    /// right now, so it moves between pages; offsets skip items when it does, and an offset page is
+    /// not guaranteed dense. Offsets stay the default only because handsets in the field page that way.
+    /// </para>
     /// </remarks>
     [HttpGet("warehouse/{warehouseCode}/paged")]
     [ProducesResponseType(typeof(WarehouseProductsPagedResponseDto), StatusCodes.Status200OK)]
@@ -89,10 +95,18 @@ public class ProductController(IMediator mediator) : ApiControllerBase
         [FromQuery] string? businessPartnerCode = null,
         [FromQuery] int? priceListNum = null,
         [FromQuery] bool vanSaleOnly = false,
+        [FromQuery] bool cursor = false,
+        [FromQuery] string? after = null,
         CancellationToken cancellationToken = default)
     {
+        // A blank cursor is how "start from the beginning" arrives from most clients, and it means
+        // the same thing as sending none — not a position, and not a reason to refuse the request.
+        var normalizedAfter = string.IsNullOrWhiteSpace(after) ? null : after.Trim();
+
         var result = await mediator.Send(
-            new GetPagedProductsInWarehouseQuery(warehouseCode, page, pageSize, businessPartnerCode, priceListNum, vanSaleOnly), cancellationToken);
+            new GetPagedProductsInWarehouseQuery(
+                warehouseCode, page, pageSize, businessPartnerCode, priceListNum, vanSaleOnly, cursor, normalizedAfter),
+            cancellationToken);
 
         return result.Match(
             value => Ok(value),
