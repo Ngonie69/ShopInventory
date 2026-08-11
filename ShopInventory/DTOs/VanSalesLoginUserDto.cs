@@ -40,6 +40,16 @@ public class VanSalesLoginUserDto
     [JsonPropertyName("assigned_business_partner_code")]
     public string? AssignedBusinessPartnerCode { get; set; }
 
+    /// <summary>
+    /// The assigned business partner's name — the rep's route, in words.
+    /// </summary>
+    /// <remarks>
+    /// Empty when the user is not assigned to one, or when the business partner master could not be
+    /// read; the handset falls back to showing the code. See <see cref="Features.VanSalesCompatibility.VanSalesRouteName"/>.
+    /// </remarks>
+    [JsonPropertyName("assigned_business_partner_name")]
+    public string? AssignedBusinessPartnerName { get; set; }
+
     [JsonPropertyName("assigned_cost_centre_code")]
     public string? AssignedCostCentreCode { get; set; }
 }
