@@ -119,7 +119,13 @@ public interface ISAPServiceLayerClient
     Task<List<Item>> GetAllItemsAsync(CancellationToken cancellationToken = default);
     [Obsolete("Use GetPagedItemsInWarehouseAsync for UI/list paths. This full-fetch method scans all warehouse batches and must only be used by explicit background/export flows.", true)]
     Task<List<Item>> GetItemsInWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
-    Task<(List<Item> Items, bool HasMore)> GetPagedItemsInWarehouseAsync(string warehouseCode, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<(List<Item> Items, bool HasMore)> GetPagedItemsInWarehouseAsync(string warehouseCode, int page, int pageSize, bool vanSaleOnly = false, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads the item codes flagged <c>U_VanSale = 'Yes'</c> on the item master — what a van is
+    /// approved to sell, which is a separate question from what it is carrying.
+    /// </summary>
+    Task<HashSet<string>> GetVanSalesApprovedItemCodesAsync(CancellationToken cancellationToken = default);
     Task<Item?> GetItemByCodeAsync(string itemCode, CancellationToken cancellationToken = default);
 
     /// <summary>

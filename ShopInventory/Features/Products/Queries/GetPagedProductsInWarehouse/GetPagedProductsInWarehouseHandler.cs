@@ -26,7 +26,7 @@ public sealed class GetPagedProductsInWarehouseHandler(
         try
         {
             var (items, hasMore) = await sapClient.GetPagedItemsInWarehouseAsync(
-                request.WarehouseCode, request.Page, request.PageSize, cancellationToken);
+                request.WarehouseCode, request.Page, request.PageSize, request.VanSaleOnly, cancellationToken);
 
             var itemCodes = items
                 .Select(i => i.ItemCode)
@@ -60,8 +60,12 @@ public sealed class GetPagedProductsInWarehouseHandler(
                 Products = products
             };
 
-            logger.LogInformation("Retrieved page {Page} of products in warehouse {Warehouse} ({Count} records)",
-                request.Page, request.WarehouseCode, products.Count);
+            logger.LogInformation(
+                "Retrieved page {Page} of {Scope} products in warehouse {Warehouse} ({Count} records)",
+                request.Page,
+                request.VanSaleOnly ? "van sales approved" : "all",
+                request.WarehouseCode,
+                products.Count);
 
             return response;
         }
