@@ -5,12 +5,15 @@ using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Auth.Commands.Login;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCustomers;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.VanSalesCompatibility.Commands.LoginVanSales;
 
 public sealed class LoginVanSalesHandler(
     IMediator mediator,
-    ApplicationDbContext db
+    ApplicationDbContext db,
+    ISAPServiceLayerClient sapClient,
+    ILogger<LoginVanSalesHandler> logger
 ) : IRequestHandler<LoginVanSalesCommand, ErrorOr<VanSalesLoginResponse>>
 {
     public async Task<ErrorOr<VanSalesLoginResponse>> Handle(
@@ -56,6 +59,12 @@ public sealed class LoginVanSalesHandler(
             return shopsResult.Errors;
         }
 
-        return VanSalesCompatibilityMapper.MapLoginResponse(authResponse, user, shopsResult.Value);
+        var routeName = await VanSalesRouteName.ResolveAsync(
+            user.AssignedBusinessPartnerCode,
+            sapClient.GetBusinessPartnerByCodeAsync,
+            logger,
+            cancellationToken);
+
+        return VanSalesCompatibilityMapper.MapLoginResponse(authResponse, user, shopsResult.Value, routeName);
     }
 }

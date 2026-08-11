@@ -14,10 +14,19 @@ public static partial class VanSalesCompatibilityMapper
     private const int LegacyVatRate = 15;
     private static readonly Regex TrailingDigitsRegex = new("(\\d+)$", RegexOptions.Compiled);
 
+    /// <summary>
+    /// Builds the handset's login payload.
+    /// </summary>
+    /// <remarks>
+    /// <c>assignedBusinessPartnerName</c> is passed in rather than looked up here because reading it
+    /// touches SAP, and it is optional: empty means the handset shows the route's code instead. See
+    /// <see cref="VanSalesRouteName"/> for why the handset can no longer work it out for itself.
+    /// </remarks>
     public static VanSalesLoginResponse MapLoginResponse(
         AuthLoginResponse authResponse,
         User user,
-        IReadOnlyCollection<VanSalesShopDto> shops)
+        IReadOnlyCollection<VanSalesShopDto> shops,
+        string? assignedBusinessPartnerName = null)
     {
         var assignedWarehouseCodes = user.GetWarehouseCodes()
             .Where(code => !string.IsNullOrWhiteSpace(code))
@@ -47,6 +56,7 @@ public static partial class VanSalesCompatibilityMapper
                 AssignedWarehouseCodes = assignedWarehouseCodes,
                 AssignedCustomerCodes = assignedCustomerCodes,
                 AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
+                AssignedBusinessPartnerName = assignedBusinessPartnerName ?? string.Empty,
                 AssignedCostCentreCode = user.AssignedCostCentreCode
             },
             Token = authResponse.AccessToken,
