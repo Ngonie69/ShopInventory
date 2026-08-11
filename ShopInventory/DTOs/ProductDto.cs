@@ -76,10 +76,20 @@ public class WarehouseProductsResponseDto
 public class WarehouseProductsPagedResponseDto
 {
     public string? WarehouseCode { get; set; }
+
+    /// <summary>The page requested. Echoed from the request, and meaningless in cursor mode.</summary>
     public int Page { get; set; }
+
     public int PageSize { get; set; }
     public int Count { get; set; }
     public bool HasMore { get; set; }
+
+    /// <summary>
+    /// Pass back as <c>after</c> to read the next page. Populated in cursor mode only — null under
+    /// offset paging, and null once <see cref="HasMore"/> is false.
+    /// </summary>
+    public string? NextCursor { get; set; }
+
     public List<ProductDto>? Products { get; set; }
 }
 

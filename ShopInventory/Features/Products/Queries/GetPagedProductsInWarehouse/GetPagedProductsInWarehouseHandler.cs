@@ -25,8 +25,9 @@ public sealed class GetPagedProductsInWarehouseHandler(
 
         try
         {
-            var (items, hasMore) = await sapClient.GetPagedItemsInWarehouseAsync(
-                request.WarehouseCode, request.Page, request.PageSize, request.VanSaleOnly, cancellationToken);
+            var (items, hasMore, nextCursor) = request.IsCursorPaged
+                ? await ReadCursorPageAsync(request, cancellationToken)
+                : await ReadOffsetPageAsync(request, cancellationToken);
 
             var itemCodes = items
                 .Select(i => i.ItemCode)
@@ -57,12 +58,13 @@ public sealed class GetPagedProductsInWarehouseHandler(
                 PageSize = request.PageSize,
                 Count = products.Count,
                 HasMore = hasMore,
+                NextCursor = nextCursor,
                 Products = products
             };
 
             logger.LogInformation(
-                "Retrieved page {Page} of {Scope} products in warehouse {Warehouse} ({Count} records)",
-                request.Page,
+                "Retrieved {Position} of {Scope} products in warehouse {Warehouse} ({Count} records)",
+                request.IsCursorPaged ? $"cursor page after {request.After ?? "(start)"}" : $"page {request.Page}",
                 request.VanSaleOnly ? "van sales approved" : "all",
                 request.WarehouseCode,
                 products.Count);
@@ -79,6 +81,38 @@ public sealed class GetPagedProductsInWarehouseHandler(
             logger.LogError(ex, "Network error connecting to SAP Service Layer");
             return Errors.Product.SapConnectionError(ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Cursor paging: safe to walk across pages while the warehouse's stock is moving.
+    /// </summary>
+    private async Task<(List<Item> Items, bool HasMore, string? NextCursor)> ReadCursorPageAsync(
+        GetPagedProductsInWarehouseQuery request,
+        CancellationToken cancellationToken)
+    {
+        var page = await sapClient.GetItemPageInWarehouseAsync(
+            request.WarehouseCode, request.After, request.PageSize, request.VanSaleOnly, cancellationToken);
+
+        return (page.Items, page.HasMore, page.NextCursor);
+    }
+
+    /// <summary>
+    /// Offset paging, kept for callers built against it before cursors existed.
+    /// </summary>
+    /// <remarks>
+    /// Unchanged on purpose. Handsets in the field cannot all be updated at once, and they page by
+    /// offset; making pages dense here — the fix that stops an empty page reading as the end of the
+    /// catalogue — would consume a variable number of codes per page and move the boundaries those
+    /// callers compute. They get both fixes by opting in to cursors, not by having this shift.
+    /// </remarks>
+    private async Task<(List<Item> Items, bool HasMore, string? NextCursor)> ReadOffsetPageAsync(
+        GetPagedProductsInWarehouseQuery request,
+        CancellationToken cancellationToken)
+    {
+        var (items, hasMore) = await sapClient.GetPagedItemsInWarehouseAsync(
+            request.WarehouseCode, request.Page, request.PageSize, request.VanSaleOnly, cancellationToken);
+
+        return (items, hasMore, null);
     }
 
     private async Task<Dictionary<string, decimal>> BuildPriceMapAsync(

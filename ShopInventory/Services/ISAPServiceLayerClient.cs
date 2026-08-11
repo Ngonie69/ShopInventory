@@ -122,6 +122,17 @@ public interface ISAPServiceLayerClient
     Task<(List<Item> Items, bool HasMore)> GetPagedItemsInWarehouseAsync(string warehouseCode, int page, int pageSize, bool vanSaleOnly = false, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Reads one page of a warehouse's stocked items positioned by cursor rather than by offset,
+    /// and dense: a code resolving to no live item is consumed rather than left as a gap in the page.
+    /// </summary>
+    /// <remarks>
+    /// Prefer this over <see cref="GetPagedItemsInWarehouseAsync"/> for anything walking the whole
+    /// warehouse. The list being paged is the codes holding stock right now, so it changes underneath
+    /// a multi-page read; <see cref="WarehouseItemCursor"/> covers what that costs under offsets.
+    /// </remarks>
+    Task<WarehouseItemPage> GetItemPageInWarehouseAsync(string warehouseCode, string? after, int pageSize, bool vanSaleOnly = false, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads the item codes flagged <c>U_VanSale = 'Yes'</c> on the item master — what a van is
     /// approved to sell, which is a separate question from what it is carrying.
     /// </summary>
