@@ -137,6 +137,18 @@ public interface ISAPServiceLayerClient
     /// approved to sell, which is a separate question from what it is carrying.
     /// </summary>
     Task<HashSet<string>> GetVanSalesApprovedItemCodesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The same approval list resolved to item master rows, and narrowed by nothing else.
+    /// </summary>
+    /// <remarks>
+    /// This is the catalogue a van can be <em>sent</em>, which is not the catalogue it can sell:
+    /// <see cref="GetItemPageInWarehouseAsync"/> intersects the flag with the codes holding stock, so
+    /// an item the van has run out of is absent from it by design. A stock transfer request is for
+    /// exactly those items, so it reads this instead.
+    /// </remarks>
+    Task<List<Item>> GetVanSalesApprovedItemsAsync(CancellationToken cancellationToken = default);
+
     Task<Item?> GetItemByCodeAsync(string itemCode, CancellationToken cancellationToken = default);
 
     /// <summary>
