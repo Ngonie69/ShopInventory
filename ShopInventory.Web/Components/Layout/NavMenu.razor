@@ -1,10 +1,16 @@
-﻿@using ShopInventory.Web.Common
+@using ShopInventory.Web.Common
+@inject NavSectionState SectionState
 
 @* Navigation for the staff shell. Presentation lives in
    wwwroot/css/nocturne-shell.css — an inline <style> block here would render
    after the head stylesheets and win the cascade over them, which is what
    forced the previous shell rules to carry !important. Glyphs are Phosphor,
-   the Nocturne design system's icon set, loaded in App.razor. *@
+   the Nocturne design system's icon set, loaded in App.razor.
+
+   Every row belongs to a <NavSection>, which draws the heading and collapses
+   the rows under it. Each section is gated on the union of the roles its rows
+   are gated on, so a heading is never drawn over an empty group; the inner
+   AuthorizeViews still decide the rows themselves. *@
 
 <div class="nav-sidebar">
     <AuthorizeView>
@@ -16,461 +22,463 @@
             <AuthorizeView Roles="@UserRoles.DashboardNavRoles"
                            Context="dashboardCtx">
                 <Authorized>
-                    <div class="nav-section-label">Overview</div>
-                    <NavLink class="snav-link" href="@RoleLandingRoutes.For(dashboardCtx.User)" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-squares-four" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Dashboard</span>
-                    </NavLink>
+                    <NavSection Title="Overview">
+                        <NavLink class="snav-link" href="@RoleLandingRoutes.For(dashboardCtx.User)" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <i class="ph ph-squares-four" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Dashboard</span>
+                        </NavLink>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
-            @* ── Sales & Billing ── *@
-            <AuthorizeView Roles="Admin,Cashier" Context="invoiceCtx">
+            @* ── Sales & Billing ──
+               Merchandiser is in the gate for Mobile Orders alone, which used to
+               sit here with no heading over it at all. *@
+            <AuthorizeView Roles="Admin,Cashier,Merchandiser" Context="salesBillingCtx">
                 <Authorized>
-                    <div class="nav-section-label">Sales & Billing</div>
-                    <NavLink class="snav-link" href="/invoices" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-receipt" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Invoices</span>
-                    </NavLink>
-                    <NavLink class="snav-link sub-link" href="/van-sales-invoices" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-truck" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Van Sales Invoices</span>
-                    </NavLink>
-                    <NavLink class="snav-link sub-link" href="/invoices/create" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-plus-circle" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Create Invoice</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/sales-orders" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-shopping-cart" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Sales Orders</span>
-                    </NavLink>
-                    <NavLink class="snav-link sub-link" href="/van-sales-orders" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-truck" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Van Sales Orders</span>
-                    </NavLink>
-                    <NavLink class="snav-link sub-link" href="/sales-orders/create" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-plus-circle" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Create Sale Order</span>
-                    </NavLink>
-                    @* Prefix, not All, so the link stays lit on a customer's own
-                       sales page at /route-customers/{id}/sales. The report sits
-                       at /route-sales-report rather than under this path for the
-                       same reason — it is its own destination. *@
-                    <NavLink class="snav-link" href="/route-customers" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-signpost" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Route Customers</span>
-                    </NavLink>
-                    <NavLink class="snav-link sub-link" href="/route-sales-report" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-chart-bar" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Route Sales Report</span>
-                    </NavLink>
+                    <NavSection Title="Sales & Billing">
+                        <AuthorizeView Roles="Admin,Cashier" Context="invoiceCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/invoices" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-receipt" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Invoices</span>
+                                </NavLink>
+                                <NavLink class="snav-link sub-link" href="/van-sales-invoices" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-truck" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Van Sales Invoices</span>
+                                </NavLink>
+                                <NavLink class="snav-link sub-link" href="/invoices/create" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-plus-circle" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Create Invoice</span>
+                                </NavLink>
+                                <NavLink class="snav-link" href="/sales-orders" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-shopping-cart" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Sales Orders</span>
+                                </NavLink>
+                                <NavLink class="snav-link sub-link" href="/van-sales-orders" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-truck" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Van Sales Orders</span>
+                                </NavLink>
+                                <NavLink class="snav-link sub-link" href="/sales-orders/create" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-plus-circle" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Create Sale Order</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+
+                        <AuthorizeView Roles="Admin,Cashier,Merchandiser" Context="mobileDraftsCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/mobile-drafts" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-device-mobile" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Mobile Orders</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+
+                        <AuthorizeView Roles="Admin,Cashier" Context="quotationCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/quotations" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-file-text" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Quotations</span>
+                                </NavLink>
+                                <NavLink class="snav-link sub-link" href="/quotations/create" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-plus-circle" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Create Quotation</span>
+                                </NavLink>
+                                <NavLink class="snav-link" href="/credit-notes" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-file-minus" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Credit Notes</span>
+                                </NavLink>
+                                <NavLink class="snav-link sub-link" href="/credit-notes/create" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-plus-circle" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Create Credit Note</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
             <AuthorizeView Roles="SalesRep" Context="salesRepSalesCtx">
                 <Authorized>
-                    <div class="nav-section-label">Sales</div>
-                    <NavLink class="snav-link" href="/sales-orders" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-shopping-cart" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Sales Orders</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/sales-orders/create" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-note-pencil" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Create Sale Order</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/mobile-drafts" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-device-mobile" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Mobile Orders</span>
-                    </NavLink>
-                    @* A rep's copy of the report is scoped to one business partner they pick;
-                       the page requires the choice before it will load. *@
-                    <NavLink class="snav-link" href="/reports/order-fulfillment" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-truck" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Sales Order vs Invoice</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/timesheets" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-clock" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Timesheets</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/timesheet-report" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-chart-bar" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Timesheet Report</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/merchandiser-account" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-user-plus" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Manage Merchandisers</span>
-                    </NavLink>
-                </Authorized>
-            </AuthorizeView>
-
-            <AuthorizeView Roles="Admin,Cashier,Merchandiser" Context="mobileDraftsCtx">
-                <Authorized>
-                    <NavLink class="snav-link" href="/mobile-drafts" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-device-mobile" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Mobile Orders</span>
-                    </NavLink>
-                </Authorized>
-            </AuthorizeView>
-
-            <AuthorizeView Roles="Admin,Cashier" Context="quotationCtx">
-                <Authorized>
-                    <NavLink class="snav-link" href="/quotations" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-file-text" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Quotations</span>
-                    </NavLink>
-                    <NavLink class="snav-link sub-link" href="/quotations/create" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-plus-circle" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Create Quotation</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/credit-notes" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-file-minus" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Credit Notes</span>
-                    </NavLink>
-                    <NavLink class="snav-link sub-link" href="/credit-notes/create" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-plus-circle" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Create Credit Note</span>
-                    </NavLink>
+                    <NavSection Title="Sales">
+                        <NavLink class="snav-link" href="/sales-orders" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-shopping-cart" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Sales Orders</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/sales-orders/create" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <i class="ph ph-note-pencil" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Create Sale Order</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/mobile-drafts" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-device-mobile" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Mobile Orders</span>
+                        </NavLink>
+                        @* A rep's copy of the report is scoped to one business partner they pick;
+                           the page requires the choice before it will load. *@
+                        <NavLink class="snav-link" href="/reports/order-fulfillment" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-truck" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Sales Order vs Invoice</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/timesheets" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-clock" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Timesheets</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/timesheet-report" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-chart-bar" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Timesheet Report</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/merchandiser-account" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-user-plus" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Manage Merchandisers</span>
+                        </NavLink>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
             @* ── Inventory ── *@
             <AuthorizeView Roles="@UserRoles.InventoryTransferRoles" Context="transferCtx">
                 <Authorized>
-                    <div class="nav-section-label">Inventory</div>
-                    <NavLink class="snav-link" href="/inventory-transfers" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-arrows-left-right" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Transfers</span>
-                    </NavLink>
-                    <AuthorizeView Roles="Admin,StockController,DepotController" Context="localStockCtx">
-                        <Authorized>
-                            <NavLink class="snav-link" href="/local-stock" Match="NavLinkMatch.Prefix">
-                                <span class="snav-icon">
-                                    <i class="ph ph-package" aria-hidden="true"></i>
-                                </span>
-                                <span class="snav-text">Local Stock</span>
-                            </NavLink>
-                        </Authorized>
-                    </AuthorizeView>
+                    <NavSection Title="Inventory">
+                        <NavLink class="snav-link" href="/inventory-transfers" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-arrows-left-right" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Transfers</span>
+                        </NavLink>
+                        <AuthorizeView Roles="Admin,StockController,DepotController" Context="localStockCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/local-stock" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-package" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Local Stock</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
             @* Depot controllers see only their dashboard, Transfers and Local Stock,
                so their account self-service link lives here rather than in the
-               System section. *@
+               System section. Its own id: the sidebar carries a second Account
+               group further down, and the two collapse independently. *@
             <AuthorizeView Roles="DepotController" Context="depotAccountCtx">
                 <Authorized>
-                    <div class="nav-section-label">Account</div>
-                    <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-shield-check" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Security</span>
-                    </NavLink>
+                    <NavSection Title="Account" Id="depot-account">
+                        <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-shield-check" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Security</span>
+                        </NavLink>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
             @* ── Purchasing ── *@
             <AuthorizeView Roles="Admin,Manager" Context="purchasingCtx">
                 <Authorized>
-                    <div class="nav-section-label">Purchasing</div>
-                    <NavLink class="snav-link" href="/purchase-orders" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-shopping-bag" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Purchase Orders</span>
-                    </NavLink>
-                    <NavLink class="snav-link sub-link" href="/purchase-orders/create" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-plus-circle" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Create PO</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/purchase-requests" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-clipboard-text" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Purchase Requests</span>
-                    </NavLink>
-                    <NavLink class="snav-link sub-link" href="/purchase-requests/create" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-file-plus" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Create Request</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/purchase-quotations" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-file-text" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Purchase Quotations</span>
-                    </NavLink>
-                    <NavLink class="snav-link sub-link" href="/purchase-quotations/create" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-file-plus" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Create PQ</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/goods-receipt-pos" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-truck" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Goods Receipt POs</span>
-                    </NavLink>
-                    <NavLink class="snav-link sub-link" href="/goods-receipt-pos/create" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-tray" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Create GRPO</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/purchase-invoices" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-receipt" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">A/P Invoices</span>
-                    </NavLink>
-                    <NavLink class="snav-link sub-link" href="/purchase-invoices/create" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-file-plus" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Create A/P Invoice</span>
-                    </NavLink>
+                    <NavSection Title="Purchasing">
+                        <NavLink class="snav-link" href="/purchase-orders" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-shopping-bag" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Purchase Orders</span>
+                        </NavLink>
+                        <NavLink class="snav-link sub-link" href="/purchase-orders/create" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <i class="ph ph-plus-circle" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Create PO</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/purchase-requests" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-clipboard-text" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Purchase Requests</span>
+                        </NavLink>
+                        <NavLink class="snav-link sub-link" href="/purchase-requests/create" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <i class="ph ph-file-plus" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Create Request</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/purchase-quotations" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-file-text" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Purchase Quotations</span>
+                        </NavLink>
+                        <NavLink class="snav-link sub-link" href="/purchase-quotations/create" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <i class="ph ph-file-plus" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Create PQ</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/goods-receipt-pos" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-truck" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Goods Receipt POs</span>
+                        </NavLink>
+                        <NavLink class="snav-link sub-link" href="/goods-receipt-pos/create" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <i class="ph ph-tray" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Create GRPO</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/purchase-invoices" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-receipt" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">A/P Invoices</span>
+                        </NavLink>
+                        <NavLink class="snav-link sub-link" href="/purchase-invoices/create" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <i class="ph ph-file-plus" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Create A/P Invoice</span>
+                        </NavLink>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
             @* ── Payments ── *@
             <AuthorizeView Roles="@UserRoles.PaymentRoles" Context="paymentCtx">
                 <Authorized>
-                    <div class="nav-section-label">Payments</div>
-                    <NavLink class="snav-link" href="/payments" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-credit-card" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Payments</span>
-                    </NavLink>
-                    <NavLink class="snav-link sub-link" href="/payments/create" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-plus-circle" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Create Payment</span>
-                    </NavLink>
+                    <NavSection Title="Payments">
+                        <NavLink class="snav-link" href="/payments" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-credit-card" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Payments</span>
+                        </NavLink>
+                        <NavLink class="snav-link sub-link" href="/payments/create" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <i class="ph ph-plus-circle" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Create Payment</span>
+                        </NavLink>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
             @* ── Catalogue ── *@
             <AuthorizeView Roles="@UserRoles.CatalogueRoles" Context="catalogueCtx">
                 <Authorized>
-                    <div class="nav-section-label">Catalogue</div>
-                    <NavLink class="snav-link" href="/products" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-package" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Products</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/stock" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-chart-bar" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Stock Monitoring</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/customers" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-users-three" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Customers</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/gl-accounts" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-bank" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">G/L Accounts</span>
-                    </NavLink>
+                    <NavSection Title="Catalogue">
+                        <NavLink class="snav-link" href="/products" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-package" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Products</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/stock" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-chart-bar" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Stock Monitoring</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/customers" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-users-three" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Customers</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/gl-accounts" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-bank" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">G/L Accounts</span>
+                        </NavLink>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
             <AuthorizeView Roles="Admin,Lab" Context="labCtx">
                 <Authorized>
-                    <div class="nav-section-label">Lab</div>
-                    <NavLink class="snav-link" href="/lab/batch-status" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-flask" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Batch Status</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/lab/batch-status/history" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Status History</span>
-                    </NavLink>
-                    <AuthorizeView Roles="Lab" Context="labSecurityCtx">
-                        <Authorized>
-                            <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
-                                <span class="snav-icon">
-                                    <i class="ph ph-shield-check" aria-hidden="true"></i>
-                                </span>
-                                <span class="snav-text">Security</span>
-                            </NavLink>
-                        </Authorized>
-                    </AuthorizeView>
+                    <NavSection Title="Lab">
+                        <NavLink class="snav-link" href="/lab/batch-status" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-flask" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Batch Status</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/lab/batch-status/history" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Status History</span>
+                        </NavLink>
+                        <AuthorizeView Roles="Lab" Context="labSecurityCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-shield-check" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Security</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
-            @* ── Insights ── *@
-            <AuthorizeView Roles="@UserRoles.InsightsRoles" Context="insightsCtx">
+            @* ── Insights ──
+               The gate is the union of every report's own roles: the insights
+               roles, plus the merch-PO viewer and the sales rep, who each reach
+               exactly one pair of reports here and nothing else. *@
+            <AuthorizeView Roles="Admin,Cashier,StockController,Manager,MerchandiserPurchaseOrderViewer,SalesRep"
+                           Context="insightsSectionCtx">
                 <Authorized>
-                    <div class="nav-section-label">Insights</div>
-                    <NavLink class="snav-link" href="/reports" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-trend-up" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Reports</span>
-                    </NavLink>
-                    <NavLink class="snav-link sub-link" href="/reports/order-fulfillment" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-truck" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Sales Order vs Invoice</span>
-                    </NavLink>
-                </Authorized>
-            </AuthorizeView>
-            <AuthorizeView Roles="Admin,Manager,MerchandiserPurchaseOrderViewer" Context="merchPoReportCtx">
-                <Authorized>
-                    <AuthorizeView Roles="MerchandiserPurchaseOrderViewer" Context="merchPoReportLabelCtx">
-                        <Authorized>
-                            <div class="nav-section-label">Insights</div>
-                        </Authorized>
-                    </AuthorizeView>
-                    <NavLink class="snav-link" href="/reports/merchandiser-purchase-orders" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-check-square-offset" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Merch PO Report</span>
-                    </NavLink>
-                </Authorized>
-            </AuthorizeView>
-            <AuthorizeView Roles="Admin,Manager" Context="fiscalReportCtx">
-                <Authorized>
-                    <NavLink class="snav-link sub-link" href="/fiscalized-sales-report" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-receipt" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Fiscalized Sales</span>
-                    </NavLink>
-                </Authorized>
-            </AuthorizeView>
-            <AuthorizeView Roles="Admin,Manager,Cashier" Context="fiscalTransactionCtx">
-                <Authorized>
-                    <NavLink class="snav-link sub-link" href="/reports/fiscal-transactions" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-list-checks" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Fiscal Txn Log</span>
-                    </NavLink>
-                </Authorized>
-            </AuthorizeView>
-            <AuthorizeView Roles="@UserRoles.InsightsRoles" Context="accountSalesPaymentsCtx">
-                <Authorized>
-                    <NavLink class="snav-link sub-link" href="/reports/account-sales-payments" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-coins" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Account Sales & Payments</span>
-                    </NavLink>
-                </Authorized>
-            </AuthorizeView>
-
-            @* The item volume pair and the factors behind it. Sales reps see these
-               two reports and nothing else under Insights, so the section label is
-               repeated for them the way the merch PO report does it above. *@
-            <AuthorizeView Roles="Admin,SalesRep" Context="itemVolumeCtx">
-                <Authorized>
-                    <AuthorizeView Roles="SalesRep" Context="itemVolumeLabelCtx">
-                        <Authorized>
-                            <div class="nav-section-label">Insights</div>
-                        </Authorized>
-                    </AuthorizeView>
-                    <NavLink class="snav-link sub-link" href="/reports/item-volume" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-drop" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Item Volume</span>
-                    </NavLink>
-                    <NavLink class="snav-link sub-link" href="/reports/customer-revenue" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-currency-dollar" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Customer Revenue</span>
-                    </NavLink>
-                </Authorized>
-            </AuthorizeView>
-            <AuthorizeView Roles="Admin" Context="volumeConversionsCtx">
-                <Authorized>
-                    <NavLink class="snav-link sub-link" href="/reports/volume-conversions" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Volume Factors</span>
-                    </NavLink>
+                    <NavSection Title="Insights">
+                        <AuthorizeView Roles="@UserRoles.InsightsRoles" Context="insightsCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/reports" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-trend-up" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Reports</span>
+                                </NavLink>
+                                <NavLink class="snav-link sub-link" href="/reports/order-fulfillment" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-truck" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Sales Order vs Invoice</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                        <AuthorizeView Roles="Admin,Manager,MerchandiserPurchaseOrderViewer" Context="merchPoReportCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/reports/merchandiser-purchase-orders" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-check-square-offset" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Merch PO Report</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                        <AuthorizeView Roles="Admin,Manager" Context="fiscalReportCtx">
+                            <Authorized>
+                                <NavLink class="snav-link sub-link" href="/fiscalized-sales-report" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-receipt" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Fiscalized Sales</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                        <AuthorizeView Roles="Admin,Manager,Cashier" Context="fiscalTransactionCtx">
+                            <Authorized>
+                                <NavLink class="snav-link sub-link" href="/reports/fiscal-transactions" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-list-checks" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Fiscal Txn Log</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                        <AuthorizeView Roles="@UserRoles.InsightsRoles" Context="accountSalesPaymentsCtx">
+                            <Authorized>
+                                <NavLink class="snav-link sub-link" href="/reports/account-sales-payments" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-coins" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Account Sales &amp; Payments</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                        @* The item volume pair and the factors behind it. These two are
+                           the whole of a sales rep's Insights. *@
+                        <AuthorizeView Roles="Admin,SalesRep" Context="itemVolumeCtx">
+                            <Authorized>
+                                <NavLink class="snav-link sub-link" href="/reports/item-volume" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-drop" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Item Volume</span>
+                                </NavLink>
+                                <NavLink class="snav-link sub-link" href="/reports/customer-revenue" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-currency-dollar" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Customer Revenue</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                        <AuthorizeView Roles="Admin" Context="volumeConversionsCtx">
+                            <Authorized>
+                                <NavLink class="snav-link sub-link" href="/reports/volume-conversions" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Volume Factors</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
+            @* Merchandiser check-in/out. Its own group rather than the tail of
+               Insights, which is where the two used to land for want of a
+               heading — and where a merchandiser saw them under nothing at all. *@
             <AuthorizeView Roles="Admin,Manager,Merchandiser" Context="timesheetsAdminCtx">
                 <Authorized>
-                    <NavLink class="snav-link" href="/timesheets" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-clock" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Timesheets</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/timesheet-report" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-chart-bar" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Timesheet Report</span>
-                    </NavLink>
+                    <NavSection Title="Timesheets">
+                        <NavLink class="snav-link" href="/timesheets" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-clock" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Timesheets</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/timesheet-report" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-chart-bar" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Timesheet Report</span>
+                        </NavLink>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
@@ -481,331 +489,350 @@
                No SalesRep. A sales rep supervises merchandisers — they create the
                accounts and read the timesheets — and has no part in the vans. They
                used to be listed here, which is how a rep who was meant to see only
-               merchandiser check-in/out got the van section in their sidebar. *@
-            <AuthorizeView Roles="Admin,Manager" Context="vanSalesCtx">
+               merchandiser check-in/out got the van section in their sidebar.
+
+               Cashier is in the gate for the two route rows alone, which are the
+               van round seen from the customer's side and used to sit under Sales
+               & Billing. Their own roles are unchanged by the move. *@
+            <AuthorizeView Roles="Admin,Manager,Cashier" Context="vanSalesCtx">
                 <Authorized>
-                    <div class="nav-section-label">Van Sales</div>
-                    @* ph-truck rather than ph-van: this sheet only loads the Phosphor
-                       glyphs the app already uses, and an absent one renders as blank
-                       space rather than as a missing-icon box. *@
-                    <NavLink class="snav-link" href="/van-sales/activity" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-truck" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Van Activity</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/van-sales/attendance-report" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-chart-bar" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Attendance Report</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/van-sales/compliance" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-clipboard-text" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Departure Compliance</span>
-                    </NavLink>
-                    <AuthorizeView Roles="Admin,Manager" Context="vanRoutesCtx">
-                        <Authorized>
-                            <NavLink class="snav-link" href="/van-sales/routes" Match="NavLinkMatch.Prefix">
-                                <span class="snav-icon">
-                                    <i class="ph ph-signpost" aria-hidden="true"></i>
-                                </span>
-                                <span class="snav-text">Routes</span>
-                            </NavLink>
-                        </Authorized>
-                    </AuthorizeView>
+                    <NavSection Title="Van Sales">
+                        <AuthorizeView Roles="Admin,Manager" Context="vanRoundCtx">
+                            <Authorized>
+                                @* ph-truck rather than ph-van: this sheet only loads the Phosphor
+                                   glyphs the app already uses, and an absent one renders as blank
+                                   space rather than as a missing-icon box. *@
+                                <NavLink class="snav-link" href="/van-sales/activity" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-truck" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Van Activity</span>
+                                </NavLink>
+                                <NavLink class="snav-link" href="/van-sales/attendance-report" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-chart-bar" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Attendance Report</span>
+                                </NavLink>
+                                <NavLink class="snav-link" href="/van-sales/compliance" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-clipboard-text" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Departure Compliance</span>
+                                </NavLink>
+                                <NavLink class="snav-link" href="/van-sales/routes" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-signpost" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Routes</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                        <AuthorizeView Roles="Admin,Cashier" Context="routeCustomerCtx">
+                            <Authorized>
+                                @* Prefix, not All, so the link stays lit on a customer's own
+                                   sales page at /route-customers/{id}/sales. The report sits
+                                   at /route-sales-report rather than under this path for the
+                                   same reason — it is its own destination. *@
+                                <NavLink class="snav-link" href="/route-customers" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-signpost" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Route Customers</span>
+                                </NavLink>
+                                <NavLink class="snav-link sub-link" href="/route-sales-report" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-chart-bar" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Route Sales Report</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
-            <AuthorizeView Roles="SalesRep" Context="salesRepDeliveryCtx">
+            @* ── PODs ──
+               One group for the three POD screens, whoever is reading them. They
+               used to be written twice: once headed "Delivery" for a sales rep,
+               and once with no heading of their own for everyone else — which is
+               how they came to read as the tail of Van Sales for an admin, and as
+               part of Insights for a POD operator. *@
+            <AuthorizeView Roles="Admin,Cashier,PodOperator,Operator,Driver,SalesRep" Context="podCtx">
                 <Authorized>
-                    <div class="nav-section-label">Delivery</div>
-                    <NavLink class="snav-link" href="/pod-dashboard" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-gauge" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">POD Dashboard</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/pods" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-list-checks" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Product PODs</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/pod-report" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-chart-bar" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Product POD Report</span>
-                    </NavLink>
-                    <div class="nav-section-label">Account</div>
-                    <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-shield-check" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Security</span>
-                    </NavLink>
+                    <NavSection Title="PODs">
+                        @if (!podCtx.User.IsInRole("Operator"))
+                        {
+                            <NavLink class="snav-link" href="/pod-dashboard" Match="NavLinkMatch.Prefix">
+                                <span class="snav-icon">
+                                    <i class="ph ph-gauge" aria-hidden="true"></i>
+                                </span>
+                                <span class="snav-text">POD Dashboard</span>
+                            </NavLink>
+                        }
+                        <NavLink class="snav-link" href="/pods" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-list-checks" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Product PODs</span>
+                        </NavLink>
+                        @if (!podCtx.User.IsInRole("Operator"))
+                        {
+                            <NavLink class="snav-link" href="/pod-report" Match="NavLinkMatch.Prefix">
+                                <span class="snav-icon">
+                                    <i class="ph ph-chart-bar" aria-hidden="true"></i>
+                                </span>
+                                <span class="snav-text">Product POD Report</span>
+                            </NavLink>
+                        }
+                        <AuthorizeView Roles="PodOperator" Context="driverAccountCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/user-management" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-truck" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Driver Accounts</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
-            <AuthorizeView Roles="Admin,Cashier,PodOperator,Operator,Driver" Context="podCtx">
+            @* Account self-service for the roles with no System section of their
+               own. The depot controller's copy is further up, next to the only
+               other thing they see. *@
+            <AuthorizeView Roles="SalesRep,PodOperator,Driver,Operator" Context="podSecCtx">
                 <Authorized>
-                    <AuthorizeView Roles="PodOperator,Driver" Context="podLabelCtx">
-                        <Authorized>
-                            <div class="nav-section-label">Insights</div>
-                        </Authorized>
-                    </AuthorizeView>
-                    @if (!podCtx.User.IsInRole("Operator"))
-                    {
-                        <NavLink class="snav-link" href="/pod-dashboard" Match="NavLinkMatch.Prefix">
+                    <NavSection Title="Account">
+                        <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
                             <span class="snav-icon">
-                                <i class="ph ph-gauge" aria-hidden="true"></i>
+                                <i class="ph ph-shield-check" aria-hidden="true"></i>
                             </span>
-                            <span class="snav-text">POD Dashboard</span>
+                            <span class="snav-text">Security</span>
                         </NavLink>
-                    }
-                    <NavLink class="snav-link" href="/pods" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-list-checks" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Product PODs</span>
-                    </NavLink>
-                    @if (!podCtx.User.IsInRole("Operator"))
-                    {
-                        <NavLink class="snav-link" href="/pod-report" Match="NavLinkMatch.Prefix">
-                            <span class="snav-icon">
-                                <i class="ph ph-chart-bar" aria-hidden="true"></i>
-                            </span>
-                            <span class="snav-text">Product POD Report</span>
-                        </NavLink>
-                    }
-                    <AuthorizeView Roles="PodOperator" Context="driverAccountCtx">
-                        <Authorized>
-                            <NavLink class="snav-link" href="/user-management" Match="NavLinkMatch.Prefix">
-                                <span class="snav-icon">
-                                    <i class="ph ph-truck" aria-hidden="true"></i>
-                                </span>
-                                <span class="snav-text">Driver Accounts</span>
-                            </NavLink>
-                        </Authorized>
-                    </AuthorizeView>
-                    <AuthorizeView Roles="PodOperator,Driver,Operator" Context="podSecCtx">
-                        <Authorized>
-                            <div class="nav-section-label">Account</div>
-                            <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
-                                <span class="snav-icon">
-                                    <i class="ph ph-shield-check" aria-hidden="true"></i>
-                                </span>
-                                <span class="snav-text">Security</span>
-                            </NavLink>
-                        </Authorized>
-                    </AuthorizeView>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
+
             <AuthorizeView Roles="Admin,Manager,Merchandiser,PodOperator,Operator,Driver,SalesRep" Context="crateCtx">
                 <Authorized>
-                    <div class="nav-section-label">Crates</div>
-                    <NavLink class="snav-link sub-link" href="/crates/pods" Match="NavLinkMatch.All">
-                        <span class="snav-icon">
-                            <i class="ph ph-list-checks" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Crate PODs</span>
-                    </NavLink>
-                    @if (!crateCtx.User.IsInRole("PodOperator") && !crateCtx.User.IsInRole("Operator"))
-                    {
-                        <NavLink class="snav-link" href="/crates/opening-balances" Match="NavLinkMatch.All">
+                    <NavSection Title="Crates">
+                        <NavLink class="snav-link sub-link" href="/crates/pods" Match="NavLinkMatch.All">
                             <span class="snav-icon">
-                                <i class="ph ph-package" aria-hidden="true"></i>
+                                <i class="ph ph-list-checks" aria-hidden="true"></i>
                             </span>
-                            <span class="snav-text">Opening Balances</span>
+                            <span class="snav-text">Crate PODs</span>
                         </NavLink>
-                        <NavLink class="snav-link sub-link" href="/crates/grvs" Match="NavLinkMatch.All">
-                            <span class="snav-icon">
-                                <i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i>
-                            </span>
-                            <span class="snav-text">Crate GRVs</span>
-                        </NavLink>
-                    }
+                        @if (!crateCtx.User.IsInRole("PodOperator") && !crateCtx.User.IsInRole("Operator"))
+                        {
+                            <NavLink class="snav-link" href="/crates/opening-balances" Match="NavLinkMatch.All">
+                                <span class="snav-icon">
+                                    <i class="ph ph-package" aria-hidden="true"></i>
+                                </span>
+                                <span class="snav-text">Opening Balances</span>
+                            </NavLink>
+                            <NavLink class="snav-link sub-link" href="/crates/grvs" Match="NavLinkMatch.All">
+                                <span class="snav-icon">
+                                    <i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i>
+                                </span>
+                                <span class="snav-text">Crate GRVs</span>
+                            </NavLink>
+                        }
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
             @* ── System ── *@
             <AuthorizeView Roles="@UserRoles.SystemRoles" Context="systemCtx">
                 <Authorized>
-                    <div class="nav-section-label">System</div>
-                    <NavLink class="snav-link" href="/exception-center" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-warning" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Exception Center</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/sync-status" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Sync Status</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/notifications" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-bell" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Notifications</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/document-templates" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-file-text" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Templates</span>
-                    </NavLink>
-                    @* AI Assistant (/ai-assistant) is hidden from the sidebar and the
-                       topbar command palette. The route still resolves, so existing
-                       links into it — including notification action URLs — keep working. *@
-                    <AuthorizeView Roles="Admin" Context="mobilePushCtx">
-                        <Authorized>
-                            <NavLink class="snav-link" href="/mobile-push" Match="NavLinkMatch.Prefix">
-                                <span class="snav-icon">
-                                    <i class="ph ph-megaphone" aria-hidden="true"></i>
-                                </span>
-                                <span class="snav-text">Mobile Push</span>
-                            </NavLink>
-                        </Authorized>
-                    </AuthorizeView>
-                    <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-shield-check" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Security</span>
-                    </NavLink>
-                </Authorized>
-            </AuthorizeView>
+                    <NavSection Title="System">
+                        <NavLink class="snav-link" href="/exception-center" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-warning" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Exception Center</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/sync-status" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Sync Status</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/notifications" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-bell" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Notifications</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/document-templates" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-file-text" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Templates</span>
+                        </NavLink>
+                        @* AI Assistant (/ai-assistant) is hidden from the sidebar and the
+                           topbar command palette. The route still resolves, so existing
+                           links into it — including notification action URLs — keep working. *@
+                        <AuthorizeView Roles="Admin" Context="mobilePushCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/mobile-push" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-megaphone" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Mobile Push</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                        <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-shield-check" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Security</span>
+                        </NavLink>
 
-            @*
-                Device status, licences, Z-reports and fiscal-day management now live in the
-                fiscalisation console, behind its own login. A plain anchor rather than a NavLink:
-                NavLink is for in-app routes and would render a bogus active state on an external URL.
-            *@
-            <AuthorizeView Roles="Admin" Context="fiscalCtx">
-                <Authorized>
-                    <a class="snav-link" href="https://fiscal.kefaloscheese.com/"
-                       target="_blank" rel="noopener noreferrer">
-                        <span class="snav-icon">
-                            <i class="ph ph-cpu" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Fiscal Console</span>
-                        <i class="ph ph-arrow-square-out snav-external" aria-hidden="true"></i>
-                    </a>
-                </Authorized>
-            </AuthorizeView>
+                        @*
+                            Device status, licences, Z-reports and fiscal-day management now live in the
+                            fiscalisation console, behind its own login. A plain anchor rather than a NavLink:
+                            NavLink is for in-app routes and would render a bogus active state on an external URL.
+                        *@
+                        <AuthorizeView Roles="Admin" Context="fiscalCtx">
+                            <Authorized>
+                                <a class="snav-link" href="https://fiscal.kefaloscheese.com/"
+                                   target="_blank" rel="noopener noreferrer">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-cpu" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Fiscal Console</span>
+                                    <i class="ph ph-arrow-square-out snav-external" aria-hidden="true"></i>
+                                </a>
+                            </Authorized>
+                        </AuthorizeView>
 
-            @* ── Management (Admin + Manager) ── *@
-            <AuthorizeView Roles="Admin,Manager" Context="managementCtx">
-                <Authorized>
-                    <NavLink class="snav-link" href="/user-activity" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-pulse" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Activity Log</span>
-                    </NavLink>
+                        <AuthorizeView Roles="Admin,Manager" Context="managementCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/user-activity" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-pulse" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Activity Log</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
             @* ── Administration (Admin only) ── *@
             <AuthorizeView Roles="Admin" Context="adminContext">
                 <Authorized>
-                    <div class="nav-section-label admin-label">Administration</div>
-                    <NavLink class="snav-link" href="/desktop-sales" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-desktop" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Desktop Sales</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/desktop-transactions" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-monitor" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Desktop Txns</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/user-management" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-users-three" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">User Management</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/approval-process/setup" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-check-square-offset" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Approval Process</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/driver-business-partners" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-truck" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Driver Shops</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/merchandiser-products" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-package" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Merch Products</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/customer-portal-management" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-browsers" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Portal Mgmt</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/audit-trail" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Audit Trail</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/backups" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-cloud-arrow-up" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Backups</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/webhooks" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-broadcast" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Webhooks</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/whatsapp-inbox" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-chat-circle-dots" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">WhatsApp Inbox</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/swagger" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-code" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">API Docs</span>
-                    </NavLink>
-                    <NavLink class="snav-link" href="/settings" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-gear-six" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">Settings</span>
-                    </NavLink>
+                    <NavSection Title="Administration" ExtraClass="admin-label">
+                        <NavLink class="snav-link" href="/desktop-sales" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-desktop" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Desktop Sales</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/desktop-transactions" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-monitor" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Desktop Txns</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/user-management" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-users-three" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">User Management</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/approval-process/setup" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-check-square-offset" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Approval Process</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/driver-business-partners" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-truck" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Driver Shops</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/merchandiser-products" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-package" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Merch Products</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/customer-portal-management" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-browsers" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Portal Mgmt</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/audit-trail" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Audit Trail</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/backups" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-cloud-arrow-up" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Backups</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/webhooks" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-broadcast" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Webhooks</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/whatsapp-inbox" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-chat-circle-dots" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">WhatsApp Inbox</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/swagger" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-code" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">API Docs</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/settings" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-gear-six" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Settings</span>
+                        </NavLink>
+                    </NavSection>
                 </Authorized>
             </AuthorizeView>
 
             <div class="nav-bottom-spacer"></div>
         </Authorized>
         <NotAuthorized>
-            <div class="nav-section-label">Account</div>
-            <NavLink class="snav-link" href="/login" Match="NavLinkMatch.All">
-                <span class="snav-icon">
-                    <i class="ph ph-sign-in" aria-hidden="true"></i>
-                </span>
-                <span class="snav-text">Login</span>
-            </NavLink>
+            <NavSection Title="Account">
+                <NavLink class="snav-link" href="/login" Match="NavLinkMatch.All">
+                    <span class="snav-icon">
+                        <i class="ph ph-sign-in" aria-hidden="true"></i>
+                    </span>
+                    <span class="snav-text">Login</span>
+                </NavLink>
+            </NavSection>
         </NotAuthorized>
     </AuthorizeView>
 </div>
+
+@code {
+    // Which groups are collapsed comes out of local storage, so it can only be
+    // read once the circuit is up. Sections open by default, so the worst this
+    // costs is one frame with everything expanded.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await SectionState.LoadAsync();
+        }
+    }
+}

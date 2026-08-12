@@ -1,0 +1,77 @@
+@inject NavSectionState State
+@implements IDisposable
+
+@* One collapsible group of the staff sidebar: the section heading, which is
+   also the toggle, followed by its rows.
+
+   Two siblings rather than one wrapper element. .nav-sidebar is the flex column
+   the rows' geometry hangs off — an <a> is inline otherwise, and neither
+   min-height nor the vertical padding would apply — and the heading's
+   :first-child rule is read against it too. The rows keep the column by
+   restating it on .nav-group-items; the heading stays where it was. *@
+
+<button type="button" id="@ToggleId"
+        class="nav-section-label nav-section-toggle @ExtraClass"
+        aria-expanded="@(Expanded ? "true" : "false")" aria-controls="@PanelId"
+        @onclick="ToggleAsync">
+    <span class="nav-section-text">@Title</span>
+    <i class="ph ph-caret-down nav-section-caret" aria-hidden="true"></i>
+</button>
+<div id="@PanelId" class="nav-group-items" role="group" aria-labelledby="@ToggleId" hidden="@(!Expanded)">
+    @ChildContent
+</div>
+
+@code {
+    /// <summary>Heading text. Also the fallback identity — see <see cref="Id"/>.</summary>
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The key the collapsed state is stored under. Derived from the title when
+    /// left unset, so renaming a heading resets that one section rather than
+    /// silently adopting another's state.
+    /// </summary>
+    [Parameter]
+    public string? Id { get; set; }
+
+    /// <summary>Extra classes for the heading — <c>admin-label</c> is the one in use.</summary>
+    [Parameter]
+    public string? ExtraClass { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    private string SectionId => Id ?? Slug(Title);
+
+    private string ToggleId => $"navsec-{SectionId}";
+
+    private string PanelId => $"navsec-{SectionId}-items";
+
+    private bool Expanded => State.IsExpanded(SectionId);
+
+    protected override void OnInitialized() => State.Changed += OnStateChanged;
+
+    private Task ToggleAsync() => State.ToggleAsync(SectionId);
+
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => State.Changed -= OnStateChanged;
+
+    private static string Slug(string title)
+    {
+        var slug = new System.Text.StringBuilder(title.Length);
+        foreach (var c in title)
+        {
+            if (char.IsLetterOrDigit(c))
+            {
+                slug.Append(char.ToLowerInvariant(c));
+            }
+            else if (slug.Length > 0 && slug[^1] != '-')
+            {
+                slug.Append('-');
+            }
+        }
+
+        return slug.ToString().TrimEnd('-');
+    }
+}
