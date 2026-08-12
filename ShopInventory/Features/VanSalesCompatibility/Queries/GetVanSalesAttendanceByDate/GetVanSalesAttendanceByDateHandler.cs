@@ -4,7 +4,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
-using ShopInventory.Features.Timesheets.Queries.GetTimesheets;
+using ShopInventory.Features.VanSalesAttendance.Queries.GetVanVisits;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesAttendanceByDate;
@@ -43,7 +43,7 @@ public sealed class GetVanSalesAttendanceByDateHandler(
         var endUtc = AuditService.FromCAT(parsedCatDate.Date.AddDays(1)).AddTicks(-1);
 
         var result = await mediator.Send(
-            new GetTimesheetsQuery(1, 5000, user.Id, null, null, startUtc, endUtc),
+            new GetVanVisitsQuery(1, 5000, user.Id, null, null, startUtc, endUtc),
             cancellationToken);
 
         if (result.IsError)

@@ -1,23 +1,23 @@
 using ErrorOr;
 using MediatR;
-using ShopInventory.Data;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Data;
 using ShopInventory.Models.Entities;
 
-namespace ShopInventory.Features.Timesheets.Queries.GetTimesheets;
+namespace ShopInventory.Features.VanSalesAttendance.Queries.GetVanVisits;
 
-public sealed class GetTimesheetsHandler(
+public sealed class GetVanVisitsHandler(
     ApplicationDbContext db
-) : IRequestHandler<GetTimesheetsQuery, ErrorOr<TimesheetListResult>>
+) : IRequestHandler<GetVanVisitsQuery, ErrorOr<VanVisitListResult>>
 {
-    public async Task<ErrorOr<TimesheetListResult>> Handle(
-        GetTimesheetsQuery request,
+    public async Task<ErrorOr<VanVisitListResult>> Handle(
+        GetVanVisitsQuery request,
         CancellationToken cancellationToken)
     {
-        // Pinned, not filtered. No caller can widen this to van sales rows.
+        // Pinned, not filtered. No caller can widen this to merchandiser rows.
         var query = db.TimesheetEntries
             .AsNoTracking()
-            .Where(t => t.Channel == TimesheetChannel.Merchandiser);
+            .Where(t => t.Channel == TimesheetChannel.VanSales);
 
         if (request.UserId.HasValue)
             query = query.Where(t => t.UserId == request.UserId.Value);
@@ -40,7 +40,7 @@ public sealed class GetTimesheetsHandler(
             .OrderByDescending(t => t.CheckInTime)
             .Skip((request.Page - 1) * request.PageSize)
             .Take(request.PageSize)
-            .Select(t => new TimesheetEntryDto(
+            .Select(t => new VanVisitDto(
                 t.Id,
                 t.UserId,
                 t.Username,
@@ -65,6 +65,6 @@ public sealed class GetTimesheetsHandler(
                 t.CheckOutRecordedAt))
             .ToListAsync(cancellationToken);
 
-        return new TimesheetListResult(entries, totalCount, request.Page, request.PageSize);
+        return new VanVisitListResult(entries, totalCount, request.Page, request.PageSize);
     }
 }

@@ -1,20 +1,16 @@
 using ErrorOr;
 using MediatR;
-using ShopInventory.Models.Entities;
 
-namespace ShopInventory.Features.Timesheets.Queries.GetTimesheets;
+namespace ShopInventory.Features.VanSalesAttendance.Queries.GetVanVisits;
 
 /// <summary>
-/// A page of merchandiser visits.
+/// A page of van sales calls.
+///
+/// No channel argument, by design — see <c>GetTimesheetsQuery</c>, which is pinned the same way in
+/// the other direction. Between them there is no query in the system that can return both
+/// operations' rows, whatever a caller asks for.
 /// </summary>
-/// <remarks>
-/// There is no channel argument, and that is the point. This query used to take a nullable one, which
-/// meant every caller decided for itself whether it wanted van rows — a report that simply forgot to
-/// pass it aggregated both, and an endpoint that took it from the query string let any caller ask for
-/// the other operation's data. Van sales visits are read by <c>GetVanVisitsQuery</c>, which is pinned
-/// the same way in the other direction.
-/// </remarks>
-public sealed record GetTimesheetsQuery(
+public sealed record GetVanVisitsQuery(
     int Page,
     int PageSize,
     Guid? UserId,
@@ -22,16 +18,21 @@ public sealed record GetTimesheetsQuery(
     string? CustomerCode,
     DateTime? FromDate,
     DateTime? ToDate
-) : IRequest<ErrorOr<TimesheetListResult>>;
+) : IRequest<ErrorOr<VanVisitListResult>>;
 
-public sealed record TimesheetListResult(
-    List<TimesheetEntryDto> Entries,
+public sealed record VanVisitListResult(
+    List<VanVisitDto> Entries,
     int TotalCount,
     int Page,
     int PageSize
 );
 
-public sealed record TimesheetEntryDto(
+/// <summary>
+/// One van call. Its own shape rather than the merchandiser's <c>TimesheetEntryDto</c>: a van's row
+/// is read on a page that groups by rep and round, and the two are free to grow different fields.
+/// There is deliberately no channel property — nothing downstream should ever need to ask.
+/// </summary>
+public sealed record VanVisitDto(
     int Id,
     Guid UserId,
     string Username,
@@ -57,7 +58,7 @@ public sealed record TimesheetEntryDto(
 )
 {
     /// <summary>
-    /// Whether this visit reached the server materially later than it happened — the handset was out
+    /// Whether this call reached the server materially later than it happened — the handset was out
     /// of coverage and queued it.
     ///
     /// Computed here rather than projected, so it cannot be translated into SQL and cannot disagree

@@ -5,8 +5,8 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Mobile;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
-using ShopInventory.Features.Timesheets.Commands.CheckIn;
-using ShopInventory.Features.Timesheets.Commands.CheckOut;
+using ShopInventory.Features.VanSalesAttendance.Commands.VanCheckIn;
+using ShopInventory.Features.VanSalesAttendance.Commands.VanCheckOut;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCustomers;
 using ShopInventory.Models.Entities;
 
@@ -76,7 +76,7 @@ public sealed class PostVanSalesAttendanceHandler(
             }
 
             var checkInResult = await mediator.Send(
-                new CheckInCommand(
+                new VanCheckInCommand(
                     user.Id,
                     user.Username,
                     shop.Code,
@@ -84,7 +84,6 @@ public sealed class PostVanSalesAttendanceHandler(
                     latitude,
                     longitude,
                     null,
-                    TimesheetChannel.VanSales,
                     capture),
                 cancellationToken);
 
@@ -101,7 +100,7 @@ public sealed class PostVanSalesAttendanceHandler(
         }
 
         var checkOutResult = await mediator.Send(
-            new CheckOutCommand(
+            new VanCheckOutCommand(
                 user.Id,
                 user.Username,
                 latitude,

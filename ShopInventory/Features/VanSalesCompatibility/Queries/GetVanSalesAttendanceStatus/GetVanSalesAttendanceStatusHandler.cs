@@ -3,7 +3,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
-using ShopInventory.Features.Timesheets.Queries.GetActiveCheckIn;
+using ShopInventory.Features.VanSalesAttendance.Queries.GetActiveVanVisit;
 
 namespace ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesAttendanceStatus;
 
@@ -25,7 +25,7 @@ public sealed class GetVanSalesAttendanceStatusHandler(
             return Error.Unauthorized("VanSalesCompatibility.Unauthenticated", "User is not authenticated.");
         }
 
-        var activeResult = await mediator.Send(new GetActiveCheckInQuery(user.Id), cancellationToken);
+        var activeResult = await mediator.Send(new GetActiveVanVisitQuery(user.Id), cancellationToken);
         if (activeResult.IsError)
         {
             return activeResult.FirstError.Type == ErrorType.NotFound

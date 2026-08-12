@@ -6,11 +6,14 @@ namespace ShopInventory.Models.Entities;
 /// <summary>
 /// Which operation a visit belongs to.
 ///
-/// Both a merchandiser and a van sales rep check in through this one table — the handset's
-/// <c>/api/vansales/attendance</c> route forwards straight into the same <c>CheckInCommand</c> — and
-/// until this column existed nothing on the row said which. The two are measured on different things
-/// (a merchandiser on shelf time, a van on call compliance and takings), so one list of both served
-/// neither.
+/// A merchandiser and a van sales rep still share this one table, but nothing above it is shared:
+/// each has its own commands, handlers, queries, endpoint, permission, portal service and pages
+/// (<c>Features/Timesheets</c> and <c>Features/VanSalesAttendance</c>). This column is what makes
+/// that separation enforceable — every one of those queries pins it, none of them takes it as an
+/// argument, so no caller can ask a merchandiser code path for a van's rows or the reverse.
+///
+/// Treat it as storage, not as a switch. If you find yourself adding a parameter that selects a
+/// channel, the thing you actually want is the other feature folder.
 ///
 /// Stamped at check-in rather than derived from the user's role at read time. Roles change; a rep
 /// promoted off the vans would otherwise silently re-label every visit they ever made.

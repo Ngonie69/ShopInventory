@@ -33,6 +33,7 @@ public interface IReportExportService
     byte[] ExportSlowMovingProductsToExcel(SlowMovingProductsReport report);
     byte[] ExportPodUploadStatusToExcel(PodUploadStatusReport report);
     byte[] ExportTimesheetReportToExcel(TimesheetReportResponse report, DateTime? fromDate = null, DateTime? toDate = null);
+    byte[] ExportVanAttendanceReportToExcel(VanVisitReportResponse report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     byte[] ExportAccountSalesPaymentReportToExcel(GetAccountSalesPaymentReportResult report);
@@ -4442,6 +4443,275 @@ public class ReportExportService : IReportExportService
             ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, c).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
         }
+        row += 2;
+
+        TsDisclaimerRow(ws, row, lastCol, now);
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+        ws.Column(1).Width = 30;
+    }
+
+    // ── Van attendance ──────────────────────────────────────────────────────
+    //
+    // Its own workbook, from the van's own report. It borrows the Ts* helpers above, which are
+    // presentation only — a title bar, a KPI strip, a striped data row. Nothing about van and
+    // merchandiser data mixes here: the two exports take different models built by different
+    // handlers, and neither can be handed the other's.
+    //
+    // What differs from the timesheet workbook is what a van is measured on. Open calls get a
+    // column of their own rather than being inferred from a completion percentage, because on a
+    // van they are the finding — a rep who checked in and drove off without checking out leaves a
+    // call with no duration, and the sheet has to name that rather than average it away.
+
+    public byte[] ExportVanAttendanceReportToExcel(
+        VanVisitReportResponse report,
+        DateTime? fromDate = null,
+        DateTime? toDate = null)
+    {
+        using var workbook = NewWorkbook("Van Attendance Report");
+        var now = DateTime.UtcNow.AddHours(2); // CAT
+
+        BuildVanAttendanceOverviewSheet(workbook, report, fromDate, toDate, now);
+
+        foreach (var rep in report.RepSummaries.OrderByDescending(r => r.TotalCalls))
+            BuildVanAttendanceRepSheet(workbook, rep, now);
+
+        return WorkbookToBytes(workbook);
+    }
+
+    private static void BuildVanAttendanceOverviewSheet(
+        XLWorkbook workbook,
+        VanVisitReportResponse report,
+        DateTime? fromDate,
+        DateTime? toDate,
+        DateTime now)
+    {
+        const int lastCol = 8;
+        var ws = workbook.Worksheets.Add("Overview");
+        TsApplyDefaults(ws);
+
+        var period = fromDate.HasValue && toDate.HasValue
+            ? $"VAN ATTENDANCE REPORT  —  {fromDate:dd MMM yyyy} to {toDate:dd MMM yyyy}"
+            : "VAN ATTENDANCE REPORT";
+        int row = TsTitleBar(ws, period, lastCol, now);
+
+        var completionPct = report.TotalCalls > 0
+            ? (double)report.CompletedCalls / report.TotalCalls * 100
+            : 0;
+        var pctColor = completionPct >= 80 ? TsGreen : completionPct >= 50 ? TsOrange : TsRed;
+
+        var busiestDay = report.RepSummaries.SelectMany(r => r.Days)
+            .GroupBy(d => d.Date)
+            .Select(g => new { Date = g.Key, Calls = g.Sum(x => x.CallCount) })
+            .OrderByDescending(x => x.Calls).FirstOrDefault();
+
+        row = TsKpiStrip(ws, row, lastCol,
+            ("Calls", report.TotalCalls.ToString("N0"), null),
+            ("Completed", report.CompletedCalls.ToString("N0"), null),
+            ("Never Checked Out", report.OpenCalls.ToString("N0"), report.OpenCalls > 0 ? TsOrange : null),
+            ("On Site", FormatHoursExcel(report.TotalHours * 60), null),
+            ("Avg per Call", FormatHoursExcel(report.AverageCallMinutes), null),
+            ("Reps", report.RepSummaries.Count.ToString("N0"), null),
+            ("Trading Days", report.TradingDays.ToString("N0"), null),
+            ("Completion", $"{completionPct:F0}%", pctColor));
+
+        TsSectionTitle(ws, row, lastCol, "REP PERFORMANCE");
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Rep", "Calls", "Completed", "Open", "Customers", "Days", "On Site", "Avg per Call"]);
+
+        int idx = 0;
+        foreach (var rep in report.RepSummaries.OrderByDescending(r => r.TotalCalls))
+        {
+            TsDataRow(ws, row, lastCol, idx % 2 == 1);
+
+            ws.Cell(row, 1).Value = rep.DisplayName;
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 2).Value = rep.TotalCalls;
+            ws.Cell(row, 3).Value = rep.CompletedCalls;
+            ws.Cell(row, 4).Value = rep.OpenCalls;
+            if (rep.OpenCalls > 0)
+            {
+                ws.Cell(row, 4).Style.Font.FontColor = TsOrange;
+                ws.Cell(row, 4).Style.Font.Bold = true;
+            }
+            ws.Cell(row, 5).Value = rep.DistinctCustomers;
+            ws.Cell(row, 6).Value = rep.TradingDays;
+            ws.Cell(row, 7).Value = FormatHoursExcel(rep.TotalMinutes);
+            ws.Cell(row, 8).Value = FormatHoursExcel(rep.AverageMinutesPerCall);
+
+            for (int c = 2; c <= lastCol; c++)
+                ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            row++; idx++;
+        }
+
+        TsSummaryRow(ws, row, lastCol);
+        ws.Cell(row, 1).Value = $"TOTAL: {report.RepSummaries.Count} REPS";
+        ws.Cell(row, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        ws.Cell(row, 2).Value = report.TotalCalls;
+        ws.Cell(row, 3).Value = report.CompletedCalls;
+        ws.Cell(row, 4).Value = report.OpenCalls;
+        ws.Cell(row, 5).Value = report.RepSummaries
+            .SelectMany(r => r.Customers).Select(c => c.CustomerCode)
+            .Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        ws.Cell(row, 6).Value = report.TradingDays;
+        ws.Cell(row, 7).Value = FormatHoursExcel(report.TotalHours * 60);
+        ws.Cell(row, 8).Value = FormatHoursExcel(report.AverageCallMinutes);
+        for (int c = 2; c <= lastCol; c++)
+        {
+            ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, c).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        }
+        row += 2;
+
+        // ── Daily activity across every rep ──
+        var dailyTotals = report.RepSummaries.SelectMany(r => r.Days)
+            .GroupBy(d => d.Date)
+            .Select(g => new
+            {
+                Date = g.Key,
+                Calls = g.Sum(x => x.CallCount),
+                Open = g.Sum(x => x.OpenCalls),
+                TotalMinutes = g.Sum(x => x.TotalMinutes),
+                FirstCheckIn = g.Where(x => x.FirstCheckIn.HasValue).Min(x => x.FirstCheckIn),
+                LastCheckOut = g.Where(x => x.LastCheckOut.HasValue).Max(x => x.LastCheckOut)
+            })
+            .OrderByDescending(d => d.Date).ToList();
+
+        if (dailyTotals.Count > 0)
+        {
+            TsSectionTitle(ws, row, lastCol, "DAILY ACTIVITY");
+            row += 2;
+
+            row = TsColumnHeaders(ws, row, lastCol,
+                ["Trading Day", "Day", "Calls", "Open", "On Site", "First In", "Last Out", "Span"]);
+
+            idx = 0;
+            foreach (var day in dailyTotals)
+            {
+                TsDataRow(ws, row, lastCol, idx % 2 == 1);
+
+                // The trading day is already a CAT date — it is not converted again here. The two
+                // instants beside it are UTC and are.
+                ws.Cell(row, 1).Value = day.Date.ToString("dd MMM yyyy");
+                ws.Cell(row, 2).Value = day.Date.ToString("ddd");
+                ws.Cell(row, 3).Value = day.Calls;
+                ws.Cell(row, 4).Value = day.Open;
+                if (day.Open > 0)
+                {
+                    ws.Cell(row, 4).Style.Font.FontColor = TsOrange;
+                    ws.Cell(row, 4).Style.Font.Bold = true;
+                }
+                ws.Cell(row, 5).Value = FormatHoursExcel(day.TotalMinutes);
+                ws.Cell(row, 6).Value = day.FirstCheckIn.HasValue
+                    ? ToCatExcel(day.FirstCheckIn.Value).ToString("HH:mm")
+                    : "—";
+                ws.Cell(row, 7).Value = day.LastCheckOut.HasValue
+                    ? ToCatExcel(day.LastCheckOut.Value).ToString("HH:mm")
+                    : "—";
+                ws.Cell(row, 8).Value = day.FirstCheckIn.HasValue && day.LastCheckOut.HasValue
+                    ? FormatHoursExcel((day.LastCheckOut.Value - day.FirstCheckIn.Value).TotalMinutes)
+                    : "—";
+
+                for (int c = 2; c <= lastCol; c++)
+                    ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                row++; idx++;
+            }
+
+            row += 2;
+        }
+
+        TsDisclaimerRow(ws, row, lastCol, now);
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+        ws.Column(1).Width = 30;
+    }
+
+    private static void BuildVanAttendanceRepSheet(
+        XLWorkbook workbook,
+        VanVisitReportRepSummary rep,
+        DateTime now)
+    {
+        const int lastCol = 7;
+
+        // Excel rejects a sheet name over 31 characters or carrying any of :\/?*[] — a rep whose
+        // display name trips either would otherwise fail the whole workbook at save.
+        var sheetName = rep.DisplayName.Length > 28 ? rep.DisplayName[..28] : rep.DisplayName;
+        sheetName = string.Concat(sheetName.Select(c => ":\\/?*[]".Contains(c) ? '_' : c));
+
+        var ws = workbook.Worksheets.Add(sheetName);
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, $"VAN ATTENDANCE  —  {rep.DisplayName.ToUpper()}", lastCol, now);
+
+        var pct = rep.CompletionRate is { } rate ? rate * 100 : 0;
+        var pctColor = pct >= 80 ? TsGreen : pct >= 50 ? TsOrange : TsRed;
+
+        row = TsKpiStrip(ws, row, lastCol,
+            ("Calls", rep.TotalCalls.ToString("N0"), null),
+            ("Completed", rep.CompletedCalls.ToString("N0"), null),
+            ("Open", rep.OpenCalls.ToString("N0"), rep.OpenCalls > 0 ? TsOrange : null),
+            ("On Site", FormatHoursExcel(rep.TotalMinutes), null),
+            ("Avg per Call", FormatHoursExcel(rep.AverageMinutesPerCall), null),
+            ("Customers", rep.DistinctCustomers.ToString("N0"), null),
+            ("Completion", rep.CompletionRate is null ? "—" : $"{pct:F0}%", pctColor));
+
+        TsSectionTitle(ws, row, lastCol, "DAILY BREAKDOWN");
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Trading Day", "Day", "Calls", "Customers", "Open", "First In", "On Site"]);
+
+        int idx = 0;
+        foreach (var day in rep.Days.OrderByDescending(d => d.Date))
+        {
+            TsDataRow(ws, row, lastCol, idx % 2 == 1);
+
+            ws.Cell(row, 1).Value = day.Date.ToString("dd MMM yyyy");
+            ws.Cell(row, 2).Value = day.Date.ToString("ddd");
+            ws.Cell(row, 3).Value = day.CallCount;
+            ws.Cell(row, 4).Value = day.DistinctCustomers;
+            ws.Cell(row, 5).Value = day.OpenCalls;
+            if (day.OpenCalls > 0)
+            {
+                ws.Cell(row, 5).Style.Font.FontColor = TsOrange;
+                ws.Cell(row, 5).Style.Font.Bold = true;
+            }
+            ws.Cell(row, 6).Value = day.FirstCheckIn.HasValue
+                ? ToCatExcel(day.FirstCheckIn.Value).ToString("HH:mm")
+                : "—";
+            ws.Cell(row, 7).Value = FormatHoursExcel(day.TotalMinutes);
+
+            for (int c = 2; c <= lastCol; c++)
+                ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            row++; idx++;
+        }
+
+        row += 2;
+
+        TsSectionTitle(ws, row, lastCol, "CUSTOMER BREAKDOWN");
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Customer", "Code", "Calls", "On Site", "Avg per Call", "", ""]);
+
+        idx = 0;
+        foreach (var customer in rep.Customers.OrderByDescending(c => c.CallCount))
+        {
+            TsDataRow(ws, row, lastCol, idx % 2 == 1);
+
+            ws.Cell(row, 1).Value = customer.CustomerName;
+            ws.Cell(row, 2).Value = customer.CustomerCode;
+            ws.Cell(row, 3).Value = customer.CallCount;
+            ws.Cell(row, 4).Value = FormatHoursExcel(customer.TotalMinutes);
+            ws.Cell(row, 5).Value = customer.CallCount > 0
+                ? FormatHoursExcel(customer.TotalMinutes / customer.CallCount)
+                : "—";
+
+            for (int c = 2; c <= lastCol; c++)
+                ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            row++; idx++;
+        }
+
         row += 2;
 
         TsDisclaimerRow(ws, row, lastCol, now);

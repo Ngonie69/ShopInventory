@@ -1,8 +1,12 @@
 @page "/van-sales/activity"
-@attribute [Authorize(Roles = "Admin,Manager,SalesRep")]
+@* Admin and Manager only. A sales rep supervises merchandisers, not vans, and reads
+   /timesheets; the API agrees — this page's data sits behind vansales.attendance.view,
+   which a SalesRep does not hold, so the role list here and the permission there cannot
+   drift apart into a page that renders and then fails to load. *@
+@attribute [Authorize(Roles = "Admin,Manager")]
 @rendermode InteractiveServer
 @using ShopInventory.Web.Models
-@inject ITimesheetService TimesheetService
+@inject IVanSalesAttendanceService VanSalesAttendanceService
 
 <PageTitle>Van Sales Activity - Shop Inventory</PageTitle>
 
@@ -221,7 +225,7 @@
 </div>
 
 @code {
-    private TimesheetListResponse? data;
+    private VanVisitListResponse? data;
     private List<Round> rounds = [];
 
     private DateTime? fromDate;
@@ -278,13 +282,12 @@
             var fromUtc = fromDate?.AddHours(-2);
             var toUtc = toDate?.AddDays(1).AddHours(-2).AddSeconds(-1);
 
-            data = await TimesheetService.GetTimesheetsAsync(
+            data = await VanSalesAttendanceService.GetVisitsAsync(
                 currentPage, PageSize,
                 username: filterUsername,
                 customerCode: filterCustomerCode,
                 fromDate: fromUtc,
-                toDate: toUtc,
-                channel: TimesheetChannel.VanSales);
+                toDate: toUtc);
 
             if (data is null)
             {
@@ -316,7 +319,7 @@
     /// Grouped on the CAT date rather than the raw UTC one, or every evening call after 22:00 local
     /// starts a second round on the following day.
     /// </summary>
-    private static List<Round> BuildRounds(List<TimesheetEntryDto> entries) =>
+    private static List<Round> BuildRounds(List<VanVisitDto> entries) =>
         entries
             .GroupBy(entry => new { entry.UserId, Date = ToCat(entry.CheckInTime).Date })
             .Select(group =>
@@ -352,7 +355,7 @@
         DateTime? LastCheckOut,
         int DistinctCustomers,
         double TotalMinutes,
-        List<TimesheetEntryDto> Visits);
+        List<VanVisitDto> Visits);
 
     /// <summary>
     /// The API stores UTC and this page shows CAT. A fixed offset is correct here: Zimbabwe has never

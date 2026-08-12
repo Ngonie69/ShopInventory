@@ -1,0 +1,420 @@
+@page "/van-sales/attendance-report"
+@* Admin and Manager only — see VanSalesActivity.razor. *@
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+@using ShopInventory.Web.Models
+@inject IVanSalesAttendanceService VanSalesAttendanceService
+@inject IReportExportService ExportService
+@inject IJSRuntime JS
+
+<PageTitle>Van Attendance Report - Shop Inventory</PageTitle>
+
+@* Time on the round, per rep.
+
+   Carried by wwwroot/css/van-sales.css (linked from App.razor) in both schemes,
+   and built only from the vocabulary the two sibling van pages already use —
+   this page adds no CSS of its own.
+
+   The third van page, and the one that answers "how much of the week did this
+   rep actually spend at a customer". Activity says what happened call by call;
+   compliance scores the day against its plan; this sits between them and totals
+   the time.
+
+   Three things the page has to hold, all of them about not flattering the data:
+
+   - A day is a CAT trading day, matching the compliance report. A van's evening
+     calls are ordinary, and grouping on the raw UTC date files an 18:30 call
+     under tomorrow — the two van reports would then disagree on the same week.
+   - An open call is counted and named, never quietly treated as a zero-length
+     one. A rep who checks in and never checks out has no duration to add, and
+     letting that shorten their average would reward the omission.
+   - A completion rate with no calls behind it is unavailable, not 0%. Same rule
+     the compliance sheet applies to CCR, and the same em dash. *@
+
+<div class="vs">
+
+    <div class="vs-head">
+        <div>
+            <h2 class="vs-title">Van attendance report</h2>
+            <p class="vs-subtitle">
+                Calls made and time on site, per rep, over CAT trading days.
+                Call-by-call detail is on Van Activity; the day's score against its plan is on Departure Compliance.
+            </p>
+        </div>
+    </div>
+
+    <div class="vs-filters">
+        <div class="row g-3">
+            @* NocturneDateField, never <input type="date"> — see the compliance page for why. *@
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vsr-from">From</label>
+                <NocturneDateField Id="vsr-from" @bind-Date="fromDate" AriaLabel="From date" />
+            </div>
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vsr-to">To</label>
+                <NocturneDateField Id="vsr-to" @bind-Date="toDate" AriaLabel="To date" />
+            </div>
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vsr-rep">Rep</label>
+                <input id="vsr-rep" class="vs-field" @bind="filterUsername" placeholder="Username" />
+            </div>
+            <div class="col-md-3 vs-actions">
+                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
+                    @(isLoading ? "Loading…" : "Run")
+                </button>
+                <button class="vs-btn" @onclick="ClearAsync" disabled="@isLoading">Clear</button>
+            </div>
+        </div>
+
+        <div class="row g-3" style="margin-top:2px;">
+            <div class="col-12 vs-actions">
+                <button class="vs-btn" @onclick="() => SetRangeAsync(7)" disabled="@isLoading">Last 7 days</button>
+                <button class="vs-btn" @onclick="() => SetRangeAsync(14)" disabled="@isLoading">Last 14 days</button>
+                <button class="vs-btn" @onclick="() => SetRangeAsync(30)" disabled="@isLoading">Last 30 days</button>
+                <button class="vs-btn" @onclick="SetThisMonthAsync" disabled="@isLoading">This month</button>
+                @if (report is not null && report.RepSummaries.Count > 0)
+                {
+                    <button class="vs-btn" @onclick="ExportExcelAsync" disabled="@isExporting">
+                        @(isExporting ? "Building…" : "Export Excel")
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (loadError is not null)
+    {
+        <div class="vs-notice">@loadError</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Totalling the rounds…</span>
+        </div>
+    }
+    else if (report is null)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">Nothing loaded yet</div>
+            <div>Choose a period and run the report.</div>
+        </div>
+    }
+    else if (report.RepSummaries.Count == 0)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">No van calls in this period</div>
+            <div>No van rep checked in between these dates.</div>
+        </div>
+    }
+    else
+    {
+        <div class="vs-summary">
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@report.TotalCalls</div>
+                <div class="vs-summary-label">Calls</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@FormatHours(report.TotalHours * 60)</div>
+                <div class="vs-summary-label">On site</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@FormatMinutes(report.AverageCallMinutes)</div>
+                <div class="vs-summary-label">Avg per call</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@report.RepSummaries.Count</div>
+                <div class="vs-summary-label">Reps</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@report.TradingDays</div>
+                <div class="vs-summary-label">Trading days</div>
+            </div>
+            @* The count carries no colour of its own: the sheet's only warn-coloured value class is
+               scoped to .vs-meter-fill, so a state class here would be dead CSS. The chip is the
+               live vocabulary, and it earns its place only when there is something to flag. *@
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@report.OpenCalls</div>
+                <div class="vs-summary-label">
+                    Never checked out
+                    @if (report.OpenCalls > 0)
+                    {
+                        <span class="vs-chip vs-chip-warn">Open</span>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @foreach (var rep in report.RepSummaries)
+        {
+            <div class="vs-day">
+                <div class="vs-day-head">
+                    <div>
+                        <div class="vs-day-who">@rep.DisplayName</div>
+                        <div class="vs-day-where">
+                            @rep.TotalCalls @(rep.TotalCalls == 1 ? "call" : "calls")
+                            · @rep.DistinctCustomers @(rep.DistinctCustomers == 1 ? "customer" : "customers")
+                            · @rep.TradingDays @(rep.TradingDays == 1 ? "day" : "days")
+                            · @FormatHours(rep.TotalMinutes) on site
+                            @if (rep.OpenCalls > 0)
+                            {
+                                <span> · </span><span class="vs-chip vs-chip-warn">@rep.OpenCalls open</span>
+                            }
+                            @if (rep.OfflineCalls > 0)
+                            {
+                                <span> · </span><span class="vs-chip vs-chip-neutral">@rep.OfflineCalls offline</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="vs-day-when">
+                        <div class="vs-day-date">@FormatMinutes(rep.AverageMinutesPerCall) per call</div>
+                        @* The separator belongs to the figure before it, not to the line. A rep
+                           built from grouped rows always has at least one call, so neither of
+                           these can be missing in practice — but a dangling "· — closed" is what
+                           the reader would get if that ever stopped being true. *@
+                        <div>
+                            @if (rep.CallsPerDay is { } perDay)
+                            {
+                                <span>@perDay.ToString("F1") calls/day · </span>
+                            }
+                            @FormatRate(rep.CompletionRate) closed
+                        </div>
+                    </div>
+                </div>
+
+                <div class="vs-actions" style="padding: 0 16px 12px;">
+                    <button class="vs-btn" @onclick="() => ToggleRep(rep.UserId)">
+                        @(expandedReps.Contains(rep.UserId) ? "Hide detail" : "Show detail")
+                    </button>
+                </div>
+
+                @if (expandedReps.Contains(rep.UserId))
+                {
+                    <div class="vs-table-wrap">
+                        <table class="vs-table">
+                            <thead>
+                                <tr>
+                                    <th>Trading day</th>
+                                    <th>Calls</th>
+                                    <th>Customers</th>
+                                    <th>First in</th>
+                                    <th>Last out</th>
+                                    <th>On site</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var day in rep.Days)
+                                {
+                                    <tr>
+                                        <td class="vs-primary">@day.Date.ToString("ddd dd MMM yyyy")</td>
+                                        <td class="vs-num">@day.CallCount</td>
+                                        <td class="vs-num">@day.DistinctCustomers</td>
+                                        <td class="vs-num">
+                                            @if (day.FirstCheckIn is { } first)
+                                            {
+                                                @ToCat(first).ToString("HH:mm")
+                                            }
+                                        </td>
+                                        <td class="vs-num">
+                                            @if (day.OpenCalls > 0)
+                                            {
+                                                <span class="vs-chip vs-chip-warn">
+                                                    @day.OpenCalls open
+                                                </span>
+                                            }
+                                            else if (day.LastCheckOut is { } last)
+                                            {
+                                                @ToCat(last).ToString("HH:mm")
+                                            }
+                                        </td>
+                                        <td class="vs-num">@FormatHours(day.TotalMinutes)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="vs-table-wrap">
+                        <table class="vs-table">
+                            <thead>
+                                <tr>
+                                    <th>Customer</th>
+                                    <th>Calls</th>
+                                    <th>On site</th>
+                                    <th>Avg per call</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var customer in rep.Customers)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="vs-primary">@customer.CustomerName</div>
+                                            <div class="vs-meta">@customer.CustomerCode</div>
+                                        </td>
+                                        <td class="vs-num">@customer.CallCount</td>
+                                        <td class="vs-num">@FormatHours(customer.TotalMinutes)</td>
+                                        <td class="vs-num">
+                                            @(customer.CallCount > 0
+                                                ? FormatMinutes(customer.TotalMinutes / customer.CallCount)
+                                                : "—")
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private VanVisitReportResponse? report;
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string? filterUsername;
+
+    private bool isLoading;
+    private bool isExporting;
+    private string? loadError;
+
+    private readonly HashSet<Guid> expandedReps = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = CatToday();
+        fromDate = today.AddDays(-29);
+        toDate = today;
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        StateHasChanged();
+
+        try
+        {
+            report = await VanSalesAttendanceService.GetReportAsync(
+                fromDate: fromDate,
+                toDate: toDate,
+                username: string.IsNullOrWhiteSpace(filterUsername) ? null : filterUsername.Trim());
+
+            if (report is null)
+            {
+                loadError = "The van attendance report could not be loaded. Check that the API is reachable.";
+                return;
+            }
+
+            // Open the first rep, so the page arrives showing something rather than a stack of
+            // closed cards. Anyone already opened stays open across a re-run.
+            if (report.RepSummaries.Count > 0 && expandedReps.Count == 0)
+            {
+                expandedReps.Add(report.RepSummaries[0].UserId);
+            }
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Failed to build the van attendance report: {ex.Message}";
+            report = null;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ClearAsync()
+    {
+        var today = CatToday();
+        fromDate = today.AddDays(-29);
+        toDate = today;
+        filterUsername = null;
+        expandedReps.Clear();
+
+        await LoadAsync();
+    }
+
+    private async Task SetRangeAsync(int days)
+    {
+        var today = CatToday();
+        fromDate = today.AddDays(-(days - 1));
+        toDate = today;
+
+        await LoadAsync();
+    }
+
+    private async Task SetThisMonthAsync()
+    {
+        var today = CatToday();
+        fromDate = new DateTime(today.Year, today.Month, 1);
+        toDate = today;
+
+        await LoadAsync();
+    }
+
+    private void ToggleRep(Guid userId)
+    {
+        if (!expandedReps.Add(userId))
+        {
+            expandedReps.Remove(userId);
+        }
+    }
+
+    private async Task ExportExcelAsync()
+    {
+        if (report is null) return;
+
+        isExporting = true;
+        StateHasChanged();
+
+        try
+        {
+            var bytes = ExportService.ExportVanAttendanceReportToExcel(report, fromDate, toDate);
+            var name = $"Van_Attendance_Report_{DateTime.Now:yyyyMMdd_HHmm}.xlsx";
+
+            await JS.InvokeVoidAsync("downloadFile", name, Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Failed to export: {ex.Message}";
+        }
+        finally
+        {
+            isExporting = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Today in CAT. The filters name trading days, so "today" has to be the local one — after
+    /// 22:00 UTC the server's date is already tomorrow's, and the report would open on an empty day.
+    /// </summary>
+    private static DateTime CatToday() => DateTime.UtcNow.AddHours(2).Date;
+
+    /// <summary>
+    /// The API stores UTC and this page shows CAT. A fixed offset is correct here: Zimbabwe has never
+    /// observed daylight saving, and it matches what the rest of the portal already does.
+    /// </summary>
+    private static DateTime ToCat(DateTime utc) => utc.AddHours(2);
+
+    private static string FormatHours(double minutes) =>
+        $"{(int)(minutes / 60)}h {(int)(minutes % 60)}m";
+
+    private static string FormatMinutes(double minutes) => $"{minutes:F0}m";
+
+    /// <summary>
+    /// An em dash for a rate with no denominator, matching the compliance sheet — a rep with no
+    /// calls has no completion rate, and 0% would read as a rep who closed nothing.
+    /// </summary>
+    private static MarkupString FormatRate(double? rate) => rate is null
+        ? new MarkupString("<span class=\"vs-metric-none\">&mdash;</span>")
+        : new MarkupString($"{rate.Value * 100:F0}%");
+}

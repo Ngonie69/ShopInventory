@@ -1,27 +1,28 @@
 using ErrorOr;
 using MediatR;
-using ShopInventory.Data;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Errors;
+using ShopInventory.Data;
 using ShopInventory.Models.Entities;
 
-namespace ShopInventory.Features.Timesheets.Queries.GetActiveCheckIn;
+namespace ShopInventory.Features.VanSalesAttendance.Queries.GetActiveVanVisit;
 
-public sealed class GetActiveCheckInHandler(
+public sealed class GetActiveVanVisitHandler(
     ApplicationDbContext db
-) : IRequestHandler<GetActiveCheckInQuery, ErrorOr<ActiveCheckInResult>>
+) : IRequestHandler<GetActiveVanVisitQuery, ErrorOr<ActiveVanVisitResult>>
 {
-    public async Task<ErrorOr<ActiveCheckInResult>> Handle(
-        GetActiveCheckInQuery request,
+    public async Task<ErrorOr<ActiveVanVisitResult>> Handle(
+        GetActiveVanVisitQuery request,
         CancellationToken cancellationToken)
     {
         var entry = await db.TimesheetEntries
             .AsNoTracking()
             .Where(t => t.UserId == request.UserId
-                        && t.Channel == TimesheetChannel.Merchandiser
+                        && t.Channel == TimesheetChannel.VanSales
                         && t.CheckOutTime == null)
             .OrderByDescending(t => t.CheckInTime)
             .ThenByDescending(t => t.Id)
-            .Select(t => new ActiveCheckInResult(
+            .Select(t => new ActiveVanVisitResult(
                 t.Id,
                 t.CustomerCode,
                 t.CustomerName,
@@ -32,7 +33,7 @@ public sealed class GetActiveCheckInHandler(
             .FirstOrDefaultAsync(cancellationToken);
 
         if (entry is null)
-            return Common.Errors.Errors.Timesheet.NoActiveCheckIn;
+            return Errors.Timesheet.NoActiveCheckIn;
 
         return entry;
     }

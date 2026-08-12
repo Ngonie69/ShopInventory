@@ -36,7 +36,7 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [HttpGet("compliance-report")]
-    [RequirePermission(Permission.ViewTimesheets)]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
     [ProducesResponseType(typeof(DepartureComplianceReportResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetComplianceReport(
@@ -65,10 +65,20 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
     }
 
     /// <summary>The selling routes, for the report's filter and for assigning a van to one.</summary>
+    /// <remarks>
+    /// Route names are reference data, not attendance, and this endpoint has two unrelated callers:
+    /// the compliance report's filter, and the user editor, where assigning a rep to a route is part
+    /// of editing the user. Gating it on van attendance alone would have emptied the editor's route
+    /// picker for everyone who administers users without overseeing vans — and silently, because the
+    /// portal service swallows the failure and returns an empty list. Any one of these is enough.
+    /// </remarks>
     /// <param name="includeInactive">Bring back retired routes too; they still head historical days.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [HttpGet("routes")]
-    [RequirePermission(Permission.ViewTimesheets)]
+    [RequirePermission(
+        Permission.ViewVanSalesAttendance,
+        Permission.ViewUsers,
+        Permission.CreateMerchandiserAccounts)]
     [ProducesResponseType(typeof(List<RouteDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetRoutes(
         [FromQuery] bool includeInactive = false,
