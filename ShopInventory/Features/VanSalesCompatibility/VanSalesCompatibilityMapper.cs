@@ -568,6 +568,23 @@ public static partial class VanSalesCompatibilityMapper
             : user.AssignedCostCentreCode.Trim();
     }
 
+    /// <summary>
+    /// Reads one of the date strings the legacy handset and SAP exchange.
+    /// </summary>
+    /// <remarks>
+    /// The answer is always a CAT wall clock carrying <see cref="DateTimeKind.Unspecified"/>, because
+    /// that is all these strings ever hold: "2026-08-12" is a trading day in the van's own clock, not
+    /// an instant, and the handset has no notion of UTC to tell us otherwise.
+    ///
+    /// <para>
+    /// It parsed with <see cref="DateTimeStyles.AssumeLocal"/> until 2026-08-12, which stamped the
+    /// server's zone onto a value that never had one. Npgsql refuses a Local kind against
+    /// <c>timestamp with time zone</c> outright, so both van sales history endpoints answered 500 to
+    /// every refresh a handset made. Anything comparing one of these against such a column has to
+    /// convert it first — see <see cref="VanSalesLegacyDateWindow"/>, which is the only correct way to
+    /// do it.
+    /// </para>
+    /// </remarks>
     public static DateTime? ParseLegacyDate(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -589,20 +606,33 @@ public static partial class VanSalesCompatibilityMapper
             trimmed,
             formats,
             CultureInfo.InvariantCulture,
-            DateTimeStyles.AssumeLocal,
+            DateTimeStyles.None,
             out var exactDate))
         {
-            return exactDate;
+            return AsCatWallClock(exactDate);
         }
 
         return DateTime.TryParse(
             trimmed,
             CultureInfo.InvariantCulture,
-            DateTimeStyles.AssumeLocal,
+            DateTimeStyles.None,
             out var parsedDate)
-            ? parsedDate
+            ? AsCatWallClock(parsedDate)
             : null;
     }
+
+    /// <summary>
+    /// Reduces a parsed value to the CAT wall clock the rest of this mapper works in.
+    /// </summary>
+    /// <remarks>
+    /// Only the round-trip ("O") form carries a zone, and .NET hands one of those back already moved
+    /// to the server's own. That is a real instant, so it is converted to CAT rather than read as if
+    /// its digits were CAT already. Every other format arrives unzoned and is what it says it is.
+    /// </remarks>
+    private static DateTime AsCatWallClock(DateTime value) =>
+        value.Kind == DateTimeKind.Unspecified
+            ? value
+            : DateTime.SpecifyKind(AuditService.ToCAT(value), DateTimeKind.Unspecified);
 
     private static string NormalizeDocumentDate(string? value)
     {
@@ -654,6 +684,15 @@ public static partial class VanSalesCompatibilityMapper
             : null;
     }
 
+    /// <summary>
+    /// Renders a date for the handset, which reads everything as CAT and has no way to say otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Both kinds of value arrive here. Instants out of the database — a fiscal timestamp, an order's
+    /// CreatedAt — are UTC and have to be moved. CAT wall clocks that came off a legacy date string
+    /// through <see cref="ParseLegacyDate"/> are already in the handset's terms, and converting one
+    /// again would add the CAT offset a second time and show a trading day starting at 02:00.
+    /// </remarks>
     private static string FormatLegacyDateTime(DateTime? value)
     {
         if (!value.HasValue)
@@ -661,8 +700,11 @@ public static partial class VanSalesCompatibilityMapper
             return string.Empty;
         }
 
-        return AuditService.ToCAT(value.Value)
-            .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        var catValue = value.Value.Kind == DateTimeKind.Unspecified
+            ? value.Value
+            : AuditService.ToCAT(value.Value);
+
+        return catValue.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
     }
 
     private static int RoundLegacyQuantity(decimal value)

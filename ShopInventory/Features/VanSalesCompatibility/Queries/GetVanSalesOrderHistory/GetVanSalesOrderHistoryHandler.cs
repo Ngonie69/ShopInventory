@@ -50,8 +50,7 @@ public sealed class GetVanSalesOrderHistoryHandler(
             logger,
             cancellationToken);
 
-        var fromDateUtc = VanSalesCompatibilityMapper.ParseLegacyDate(query.Request.StartDate)?.Date;
-        var toDateUtcExclusive = VanSalesCompatibilityMapper.ParseLegacyDate(query.Request.EndDate)?.Date.AddDays(1);
+        var window = VanSalesLegacyDateWindow.Parse(query.Request.StartDate, query.Request.EndDate);
 
         var history = new List<VanSalesLegacyOrderDto>();
 
@@ -60,8 +59,7 @@ public sealed class GetVanSalesOrderHistoryHandler(
             history.AddRange(await GetSalesOrderHistoryAsync(
                 user.Id,
                 effectiveCustomerCodes,
-                fromDateUtc,
-                toDateUtcExclusive,
+                window,
                 cancellationToken));
         }
 
@@ -70,8 +68,7 @@ public sealed class GetVanSalesOrderHistoryHandler(
             history.AddRange(await GetInvoiceHistoryAsync(
                 user.Id,
                 effectiveCustomerCodes,
-                fromDateUtc,
-                toDateUtcExclusive,
+                window,
                 cancellationToken));
         }
 
@@ -84,8 +81,7 @@ public sealed class GetVanSalesOrderHistoryHandler(
     private async Task<List<VanSalesLegacyOrderDto>> GetSalesOrderHistoryAsync(
         Guid userId,
         IReadOnlyCollection<string> effectiveCustomerCodes,
-        DateTime? fromDateUtc,
-        DateTime? toDateUtcExclusive,
+        VanSalesLegacyDateWindow window,
         CancellationToken cancellationToken)
     {
         var salesOrdersQuery = db.SalesOrders
@@ -97,14 +93,16 @@ public sealed class GetVanSalesOrderHistoryHandler(
             salesOrdersQuery = salesOrdersQuery.Where(order => effectiveCustomerCodes.Contains(order.CardCode));
         }
 
-        if (fromDateUtc.HasValue)
+        // OrderDate is timestamptz, so the trading days the handset asked for are compared as the UTC
+        // instants they cover rather than as bare dates.
+        if (window.FromUtc is { } fromUtc)
         {
-            salesOrdersQuery = salesOrdersQuery.Where(order => order.OrderDate >= fromDateUtc.Value);
+            salesOrdersQuery = salesOrdersQuery.Where(order => order.OrderDate >= fromUtc);
         }
 
-        if (toDateUtcExclusive.HasValue)
+        if (window.ToUtcExclusive is { } toUtcExclusive)
         {
-            salesOrdersQuery = salesOrdersQuery.Where(order => order.OrderDate < toDateUtcExclusive.Value);
+            salesOrdersQuery = salesOrdersQuery.Where(order => order.OrderDate < toUtcExclusive);
         }
 
         var orders = await salesOrdersQuery
@@ -151,10 +149,13 @@ public sealed class GetVanSalesOrderHistoryHandler(
     private async Task<List<VanSalesLegacyOrderDto>> GetInvoiceHistoryAsync(
         Guid userId,
         IReadOnlyCollection<string> effectiveCustomerCodes,
-        DateTime? fromDateUtc,
-        DateTime? toDateUtcExclusive,
+        VanSalesLegacyDateWindow window,
         CancellationToken cancellationToken)
     {
+        // TimestampUtc is timestamptz, so it takes the UTC instants the trading days cover.
+        var fromUtc = window.FromUtc;
+        var toUtcExclusive = window.ToUtcExclusive;
+
         var userIdValue = userId.ToString();
         var fiscalTransactions = await db.DesktopFiscalTransactions
             .AsNoTracking()
@@ -162,8 +163,8 @@ public sealed class GetVanSalesOrderHistoryHandler(
                 transaction.DocumentType == "Invoice" &&
                 transaction.DocNum > 0 &&
                 transaction.CreatedByUserId == userIdValue)
-            .Where(transaction => !fromDateUtc.HasValue || transaction.TimestampUtc >= fromDateUtc.Value)
-            .Where(transaction => !toDateUtcExclusive.HasValue || transaction.TimestampUtc < toDateUtcExclusive.Value)
+            .Where(transaction => !fromUtc.HasValue || transaction.TimestampUtc >= fromUtc.Value)
+            .Where(transaction => !toUtcExclusive.HasValue || transaction.TimestampUtc < toUtcExclusive.Value)
             .OrderByDescending(transaction => transaction.TimestampUtc)
             .ToListAsync(cancellationToken);
 
@@ -176,10 +177,13 @@ public sealed class GetVanSalesOrderHistoryHandler(
             .GroupBy(transaction => transaction.DocNum)
             .ToDictionary(group => group.Key, group => group.First());
 
-        var sapFromDate = fromDateUtc ?? fiscalTransactions.Min(transaction => transaction.TimestampUtc).Date;
-        var sapToDate = toDateUtcExclusive.HasValue
-            ? toDateUtcExclusive.Value.AddDays(-1)
-            : fiscalTransactions.Max(transaction => transaction.TimestampUtc).Date;
+        // SAP filters DocDate as a calendar date in its own CAT terms, so this half takes the trading
+        // days themselves. An unasked-for bound falls back to the days the fiscal receipts landed on,
+        // which are instants and have to be read in CAT to name the right day.
+        var sapFromDate = window.FromDate
+            ?? AuditService.ToCAT(fiscalTransactions.Min(transaction => transaction.TimestampUtc)).Date;
+        var sapToDate = window.ToDate
+            ?? AuditService.ToCAT(fiscalTransactions.Max(transaction => transaction.TimestampUtc)).Date;
 
         var invoices = await sapClient.GetInvoiceHeadersByDateRangeAsync(
             sapFromDate,

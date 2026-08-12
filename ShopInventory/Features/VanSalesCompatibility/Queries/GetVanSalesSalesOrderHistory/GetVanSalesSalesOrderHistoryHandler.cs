@@ -40,8 +40,7 @@ public sealed class GetVanSalesSalesOrderHistoryHandler(
             logger,
             cancellationToken);
 
-        var fromDateUtc = VanSalesCompatibilityMapper.ParseLegacyDate(query.Request.StartDate)?.Date;
-        var toDateUtcExclusive = VanSalesCompatibilityMapper.ParseLegacyDate(query.Request.EndDate)?.Date.AddDays(1);
+        var window = VanSalesLegacyDateWindow.Parse(query.Request.StartDate, query.Request.EndDate);
 
         var salesOrdersQuery = db.SalesOrders
             .AsNoTracking()
@@ -52,14 +51,16 @@ public sealed class GetVanSalesSalesOrderHistoryHandler(
             salesOrdersQuery = salesOrdersQuery.Where(order => effectiveCustomerCodes.Contains(order.CardCode));
         }
 
-        if (fromDateUtc.HasValue)
+        // OrderDate is timestamptz, so the trading days the handset asked for are compared as the UTC
+        // instants they cover rather than as bare dates.
+        if (window.FromUtc is { } fromUtc)
         {
-            salesOrdersQuery = salesOrdersQuery.Where(order => order.OrderDate >= fromDateUtc.Value);
+            salesOrdersQuery = salesOrdersQuery.Where(order => order.OrderDate >= fromUtc);
         }
 
-        if (toDateUtcExclusive.HasValue)
+        if (window.ToUtcExclusive is { } toUtcExclusive)
         {
-            salesOrdersQuery = salesOrdersQuery.Where(order => order.OrderDate < toDateUtcExclusive.Value);
+            salesOrdersQuery = salesOrdersQuery.Where(order => order.OrderDate < toUtcExclusive);
         }
 
         var orders = await salesOrdersQuery
