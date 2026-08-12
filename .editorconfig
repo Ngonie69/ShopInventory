@@ -1,0 +1,102 @@
+root = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# This file exists to stop the IDE suggesting ~1,830 stylistic rewrites nobody
+# asked for, while leaving visible the handful that can hide a real defect.
+#
+# It deliberately does NOT set charset, end_of_line, trim_trailing_whitespace or
+# insert_final_newline. Those are the usual hygiene settings and they look free,
+# but the codebase does not currently satisfy any of them: 190 of 2,197 .cs
+# files carry a UTF-8 BOM, 592 have trailing whitespace, 599 do not end in a
+# newline, and 20 are LF in an otherwise CRLF tree. Turning them on would mean
+# the next `dotnet format` — or simply saving a file in Visual Studio — rewrites
+# hundreds of files that nobody touched, burying the real change in a PR and
+# rewriting git blame with it. Each figure above was measured, not assumed.
+#
+# They are worth adopting one day, but as a deliberate sweep of its own, not as
+# a side effect of this file. Line endings in particular belong in .gitattributes
+# (`* text=auto`), which normalises what is committed without rewriting whatever
+# is already on disk.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[*]
+indent_style = space
+
+[*.{cs,csx}]
+indent_size = 4
+
+# File-scoped namespaces are the house style (1,555 files to 159). Pinned silent
+# so it documents the convention without flagging the 159 that predate it.
+csharp_style_namespace_declarations = file_scoped
+dotnet_diagnostic.IDE0161.severity = silent
+
+# ── Silenced: style preferences the project has not adopted ──────────────────
+#
+# `silent`, not `none`: the refactoring stays available from the lightbulb when
+# you actually want it, it just stops volunteering. Delete a line to bring one
+# back — the count next to each is how many sites it flagged when this file was
+# written, i.e. the size of the diff you would be signing up for.
+
+# Collection expressions — `new List<X>()` → `[]`, `.ToList()` → `[.. x]`.
+# 1,438 sites, and the fluent form in particular reads worse than what it
+# replaces at the end of a long LINQ chain.
+dotnet_diagnostic.IDE0028.severity = silent
+dotnet_diagnostic.IDE0300.severity = silent
+dotnet_diagnostic.IDE0301.severity = silent
+dotnet_diagnostic.IDE0302.severity = silent
+dotnet_diagnostic.IDE0303.severity = silent
+dotnet_diagnostic.IDE0304.severity = silent
+dotnet_diagnostic.IDE0305.severity = silent
+dotnet_diagnostic.IDE0306.severity = silent
+
+# Primary constructors (122). The codebase uses both forms already; converting
+# the rest is churn across every service and handler in the solution.
+dotnet_diagnostic.IDE0290.severity = silent
+
+# Inferred member names (122) — `new { x = x }` → `new { x }`.
+dotnet_diagnostic.IDE0037.severity = silent
+
+# Namespace/folder mismatch (18). Real, but renaming a namespace is a breaking
+# change for every caller and belongs in its own commit, not a formatting pass.
+dotnet_diagnostic.IDE0130.severity = silent
+
+# Assorted expression-level rewrites: null-check and null-propagation
+# simplification, deconstruction, `new()`, range operators, compound assignment,
+# UTF-8 literals, unbound generics, conditional simplification, and
+# System.Threading.Lock. ~110 sites between them, all taste.
+dotnet_diagnostic.IDE0031.severity = silent
+dotnet_diagnostic.IDE0042.severity = silent
+dotnet_diagnostic.IDE0054.severity = silent
+dotnet_diagnostic.IDE0057.severity = silent
+dotnet_diagnostic.IDE0075.severity = silent
+dotnet_diagnostic.IDE0090.severity = silent
+dotnet_diagnostic.IDE0230.severity = silent
+dotnet_diagnostic.IDE0270.severity = silent
+dotnet_diagnostic.IDE0330.severity = silent
+dotnet_diagnostic.IDE0340.severity = silent
+
+# ── Kept visible: these ones can be a bug wearing a style rule's clothes ─────
+#
+# Left at `suggestion` rather than raised to `warning` on purpose. The build is
+# warning-clean and worth keeping that way; these belong in the editor, where
+# the person who can judge them is looking. A value computed and discarded, or
+# a parameter a method accepts and ignores, is usually harmless leftovers — and
+# occasionally a method that silently does not do what its signature promises.
+dotnet_diagnostic.IDE0059.severity = suggestion
+dotnet_diagnostic.IDE0060.severity = suggestion
+dotnet_diagnostic.IDE0044.severity = suggestion
+dotnet_diagnostic.IDE1006.severity = suggestion
+
+# Razor components pick up the C# rules above through [*.cs]; this covers the
+# markup files themselves.
+[*.razor]
+indent_size = 4
+
+[*.{json,js,css,scss,html,yml,yaml}]
+indent_size = 2
+
+[*.{csproj,props,targets,config,xml}]
+indent_size = 2
+
+[*.{sh,ps1}]
+indent_size = 4
