@@ -398,26 +398,6 @@
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
-                        <AuthorizeView Roles="Admin,Manager" Context="fiscalReportCtx">
-                            <Authorized>
-                                <NavLink class="snav-link sub-link" href="/fiscalized-sales-report" Match="NavLinkMatch.Prefix">
-                                    <span class="snav-icon">
-                                        <i class="ph ph-receipt" aria-hidden="true"></i>
-                                    </span>
-                                    <span class="snav-text">Fiscalized Sales</span>
-                                </NavLink>
-                            </Authorized>
-                        </AuthorizeView>
-                        <AuthorizeView Roles="Admin,Manager,Cashier" Context="fiscalTransactionCtx">
-                            <Authorized>
-                                <NavLink class="snav-link sub-link" href="/reports/fiscal-transactions" Match="NavLinkMatch.Prefix">
-                                    <span class="snav-icon">
-                                        <i class="ph ph-list-checks" aria-hidden="true"></i>
-                                    </span>
-                                    <span class="snav-text">Fiscal Txn Log</span>
-                                </NavLink>
-                            </Authorized>
-                        </AuthorizeView>
                         <AuthorizeView Roles="@UserRoles.InsightsRoles" Context="accountSalesPaymentsCtx">
                             <Authorized>
                                 <NavLink class="snav-link sub-link" href="/reports/account-sales-payments" Match="NavLinkMatch.Prefix">

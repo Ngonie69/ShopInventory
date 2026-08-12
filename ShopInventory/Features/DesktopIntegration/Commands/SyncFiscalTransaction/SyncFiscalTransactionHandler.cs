@@ -5,7 +5,6 @@ using System.Security.Cryptography;
 using System.Text;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
-using ShopInventory.Features.DesktopIntegration.Queries.GetFiscalTransactions;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;

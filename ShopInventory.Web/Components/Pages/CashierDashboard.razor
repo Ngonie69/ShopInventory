@@ -108,18 +108,6 @@
                       ValueLabel="Approved, not yet invoiced"
                       ToneNote="Ready to convert"
                       Icon="cart" />
-            <StatCard Label="Fiscalisation"
-                      Value="@Figure(fiscalFailedCount)"
-                      ValueLabel="Failed today"
-                      Tone="@FiscalTone"
-                      ToneNote="@FiscalNote"
-                      Icon="warning" />
-            <StatCard Label="Not fiscalised"
-                      Value="@Figure(notFiscalisedCount)"
-                      ValueLabel="Raised today, no receipt yet"
-                      Tone="@NotFiscalisedTone"
-                      ToneNote="@NotFiscalisedNote"
-                      Icon="clock" />
         </section>
 
         <section class="dsh-panels" aria-label="Recent activity">
@@ -163,10 +151,6 @@
                              Description="Credit an invoice back"
                              Href="/credit-notes"
                              Icon="receipt" />
-                <QuickAction Title="Fiscal log"
-                             Description="Every fiscalisation attempt"
-                             Href="/reports/fiscal-transactions"
-                             Icon="list-check" />
             </div>
         </section>
 

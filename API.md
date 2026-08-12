@@ -1983,7 +1983,9 @@ device id, receipt date and receipt global number. See `FiscalReceiptQrComposer`
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/Invoice/{docEntry}/fiscalize` | Fiscalise a posted invoice |
-| POST | `/api/DesktopIntegration/fiscal-transactions/backfill` | Backfill fiscal status for a date window |
+
+Fiscal status is also reconciled in the background by `InvoiceFiscalStatusBackfillService`; there is
+no longer an on-demand backfill endpoint.
 
 ---
 
