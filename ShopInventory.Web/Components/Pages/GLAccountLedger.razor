@@ -5,7 +5,10 @@
 @using ShopInventory.Web.Services
 @attribute [Authorize(Roles = UserRoles.CatalogueRoles)]
 @inject IGLAccountLedgerService LedgerService
+@inject IReportExportService ExportService
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
 @rendermode InteractiveServer
 
 <PageTitle>@(ledger?.AccountCode ?? Code) Ledger - Shop Inventory</PageTitle>
@@ -31,6 +34,20 @@
             {
                 <span class="ops-count">As at @ledger.ToDate.ToString("dd MMM yyyy")</span>
             }
+            @* Exports every line in the period, not the fifty on screen. *@
+            <button type="button" class="ops-btn ops-btn-ghost" @onclick="ExportToExcel"
+                    disabled="@(isExporting || isLoading || ledger is null)">
+                @if (isExporting)
+                {
+                    <span class="ops-spin"></span>
+                    <span>Exporting&hellip;</span>
+                }
+                else
+                {
+                    <i class="ph ph-file-xls" aria-hidden="true"></i>
+                    <span>Export</span>
+                }
+            </button>
             <button type="button" class="ops-btn ops-btn-ghost" @onclick="BackToAccounts">
                 <i class="ph ph-arrow-left" aria-hidden="true"></i>
                 <span>All accounts</span>
@@ -302,6 +319,7 @@
 
     private GLAccountLedgerResponse? ledger;
     private bool isLoading = true;
+    private bool isExporting;
     private string? errorMessage;
     private string? dateRangeWarning;
 
@@ -396,6 +414,39 @@
         ResetDates();
         await LoadLedger();
     }
+
+    private async Task ExportToExcel()
+    {
+        if (ledger is null)
+        {
+            return;
+        }
+
+        isExporting = true;
+
+        try
+        {
+            var bytes = ExportService.ExportGLAccountLedgerToExcel(ledger);
+            var fileName = $"GL_Ledger_{FileNameSafe(ledger.AccountCode)}"
+                           + $"_{ledger.FromDate:yyyyMMdd}-{ledger.ToDate:yyyyMMdd}.xlsx";
+
+            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
+            Snackbar.Add("Export ready.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Export failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isExporting = false;
+        }
+    }
+
+    // Account codes come from SAP's chart of accounts, which is free to put a dot or a slash in
+    // one — and a slash in a download name is a path, not a file.
+    private static string FileNameSafe(string value) =>
+        string.Concat(value.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
 
     private void BackToAccounts() => Navigation.NavigateTo("/gl-accounts");
 
