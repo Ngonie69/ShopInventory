@@ -3,18 +3,24 @@ using Quartz;
 namespace ShopInventory.Services;
 
 /// <summary>
-/// Posts the day's van sales to SAP. Registered against <em>two</em> cron triggers — the main run at
-/// 18:00 and a mop-up at 19:30 — because a van that was still out of coverage at 18:00 uploads its
-/// backlog afterwards, and without a second pass those sales would sit until the next night's run.
+/// Posts held van sales to SAP. Runs on a repeating trigger through the trading day, at 18:00 once the
+/// vans are back, and again at 19:30 to mop up any that only regained signal afterwards.
 ///
-/// Running the same job twice is safe by construction, not by scheduling luck: each sale posts under its
-/// own <c>U_Van_saleorder</c>, and <c>VanSalesEndOfDayPostingService</c> asks SAP for that key before
-/// posting, so the second pass adopts what the first already created. This is why the job does not reuse
-/// <c>ConsolidateDailySales</c>, whose key is <c>CONSOL-{date}-{cardCode}</c> — identical on both runs,
-/// so a mop-up there would be adopted as the 18:00 invoice and the late sales would vanish silently.
+/// The interval pass is what makes the day visible. Van sales fiscalise on the handset and are held
+/// rather than posted on the request, so without it SAP — and everything reading stock or revenue from
+/// it — would learn nothing about a day's trading until the evening. The two evening passes remain
+/// because a van out of coverage all afternoon still uploads late.
 ///
-/// <see cref="DisallowConcurrentExecutionAttribute"/> means an 18:00 run still going at 19:30 simply
-/// skips the mop-up rather than posting alongside itself.
+/// Running the same job repeatedly is safe by construction, not by scheduling luck: each sale posts under
+/// its own <c>U_Van_saleorder</c>, and <c>VanSalesEndOfDayPostingService</c> asks SAP for that key before
+/// posting, so a later pass adopts what an earlier one created. This is why the job does not reuse
+/// <c>ConsolidateDailySales</c>, whose key is <c>CONSOL-{date}-{cardCode}</c> — identical on every run,
+/// so a second pass there would be adopted as the first's invoice and the late sales would vanish
+/// silently.
+///
+/// <see cref="DisallowConcurrentExecutionAttribute"/> keeps the interval trigger and the 18:00 run from
+/// overlapping, which is why they share one job key: Quartz enforces it per key, so a schedule that hung
+/// off a key of its own would not be covered by it.
 /// </summary>
 [DisallowConcurrentExecution]
 public sealed class VanSalesEndOfDayPostingJob(
@@ -26,9 +32,9 @@ public sealed class VanSalesEndOfDayPostingJob(
         using var scope = serviceProvider.CreateScope();
         var postingService = scope.ServiceProvider.GetRequiredService<VanSalesEndOfDayPostingService>();
 
-        // Both runs are in the same CAT evening, so "today" is the trading day for each of them. A run
-        // that slipped past midnight would need the previous day, which is why this is computed from CAT
-        // rather than from UTC — at 19:30 CAT, UtcNow is still the same date, but at 01:00 it would not be.
+        // Every trigger fires within the CAT trading day, so "today" is the trading day for all of them.
+        // Computed from CAT rather than UTC because a run after 22:00 CAT is already tomorrow in UTC, and
+        // would go looking for a day that has not started.
         var tradingDate = DateTime.UtcNow.AddHours(2).Date;
 
         try
