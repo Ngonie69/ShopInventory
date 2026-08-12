@@ -1,8 +1,10 @@
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Mobile;
 using ShopInventory.Data;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Features.Timesheets.Commands.CheckIn;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -19,8 +21,31 @@ public sealed class CheckOutHandler(
         CheckOutCommand command,
         CancellationToken cancellationToken)
     {
+        var capture = command.Capture ?? CaptureContext.Live;
+
         try
         {
+            // A replayed check-out. Same reasoning as the check-in side: the queued record is resent
+            // when a sync loses its reply, and closing an unrelated later visit would be worse than
+            // doing nothing.
+            if (!string.IsNullOrWhiteSpace(capture.ClientReference))
+            {
+                var alreadyClosed = await db.TimesheetEntries
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        t => t.CheckOutClientReference == capture.ClientReference,
+                        cancellationToken);
+
+                if (alreadyClosed is not null)
+                {
+                    logger.LogInformation(
+                        "Replayed check-out {ClientReference} for {Username}; returning entry {EntryId}",
+                        capture.ClientReference, command.Username, alreadyClosed.Id);
+
+                    return ToResult(alreadyClosed, wasReplay: true);
+                }
+            }
+
             var activeEntries = await db.TimesheetEntries
                 .AsTracking()
                 .Where(t => t.UserId == command.UserId && t.CheckOutTime == null)
@@ -34,16 +59,40 @@ public sealed class CheckOutHandler(
             var entry = activeEntries[0];
             var duplicateEntries = activeEntries.Skip(1).ToList();
 
-            var checkOutTime = DateTime.UtcNow;
+            var recordedAt = DateTime.UtcNow;
+            var checkOutTime = CaptureClock.Resolve(capture.OccurredAt, recordedAt);
+
+            // A queued check-out can only be believed as far as the check-in it closes. A clock that
+            // ran backwards, or a pair replayed out of order, would otherwise write a negative
+            // duration — which is not merely odd, it subtracts time from the day's total.
+            if (checkOutTime < entry.CheckInTime)
+            {
+                logger.LogWarning(
+                    "Check-out for entry {EntryId} claimed {Claimed:O}, before its check-in at {CheckIn:O}; using the check-in time",
+                    entry.Id, checkOutTime, entry.CheckInTime);
+
+                checkOutTime = entry.CheckInTime;
+            }
+
             entry.CheckOutTime = checkOutTime;
+            entry.CheckOutRecordedAt = recordedAt;
             entry.CheckOutLatitude = command.Latitude;
             entry.CheckOutLongitude = command.Longitude;
             entry.CheckOutNotes = command.Notes;
+            entry.CheckOutClientReference = NullIfBlank(capture.ClientReference);
+            entry.CheckOutLocationSource = NullIfBlank(capture.LocationSource);
+            entry.CheckOutLocationAccuracyMetres = capture.AccuracyMetres;
             entry.DurationMinutes = (checkOutTime - entry.CheckInTime).TotalMinutes;
+
+            if (Truncate(capture.LocationUnavailableReason, 200) is { } reason)
+            {
+                entry.LocationUnavailableReason = reason;
+            }
 
             foreach (var duplicateEntry in duplicateEntries)
             {
                 duplicateEntry.CheckOutTime = duplicateEntry.CheckInTime;
+                duplicateEntry.CheckOutRecordedAt = recordedAt;
                 duplicateEntry.DurationMinutes = 0;
                 duplicateEntry.CheckOutNotes = AppendDuplicateCloseNote(duplicateEntry.CheckOutNotes);
             }
@@ -68,26 +117,22 @@ public sealed class CheckOutHandler(
                     ? $" Duplicate open visits closed: {duplicateEntries.Count}."
                     : string.Empty;
 
+                var lateSuffix = entry.WasCapturedOffline
+                    ? $" Captured offline at {AuditService.ToCAT(checkOutTime):dd MMM HH:mm} and synced later."
+                    : string.Empty;
+
                 await auditService.LogAsync(
                     AuditActions.CheckOut,
                     "Timesheet",
                     entry.Id.ToString(),
-                    $"Checked out from {entry.CustomerCode} ({entry.CustomerName}) after {entry.DurationMinutes:F1} minutes.{duplicateSuffix}",
+                    $"Checked out from {entry.CustomerCode} ({entry.CustomerName}) after {entry.DurationMinutes:F1} minutes.{duplicateSuffix}{lateSuffix}",
                     true);
             }
             catch
             {
             }
 
-            return new CheckOutResult(
-                entry.Id,
-                entry.CustomerCode,
-                entry.CustomerName,
-                entry.CheckInTime,
-                checkOutTime,
-                entry.DurationMinutes.Value,
-                entry.CheckOutLatitude,
-                entry.CheckOutLongitude);
+            return ToResult(entry, wasReplay: false);
         }
         catch (Exception ex)
         {
@@ -95,6 +140,17 @@ public sealed class CheckOutHandler(
             return Errors.Timesheet.CheckOutFailed(ex.Message);
         }
     }
+
+    private static CheckOutResult ToResult(TimesheetEntryEntity entry, bool wasReplay) => new(
+        entry.Id,
+        entry.CustomerCode,
+        entry.CustomerName,
+        entry.CheckInTime,
+        entry.CheckOutTime ?? entry.CheckInTime,
+        entry.DurationMinutes ?? 0,
+        entry.CheckOutLatitude,
+        entry.CheckOutLongitude,
+        wasReplay);
 
     private static string AppendDuplicateCloseNote(string? existingNotes)
     {
@@ -105,5 +161,14 @@ public sealed class CheckOutHandler(
             : $"{existingNotes.Trim()} | {note}";
 
         return combined.Length <= 500 ? combined : combined[..500];
+    }
+
+    private static string? NullIfBlank(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string? Truncate(string? value, int maxLength)
+    {
+        var trimmed = NullIfBlank(value);
+        return trimmed is null || trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength];
     }
 }

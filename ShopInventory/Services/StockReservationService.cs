@@ -243,6 +243,7 @@ public class StockReservationService : IStockReservationService
             RouteCustomerCode = request.RouteCustomerCode,
             RouteCustomerName = request.RouteCustomerName,
             Currency = request.Currency,
+            PaymentMethod = request.PaymentMethod,
             Status = ReservationStatus.Pending,
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddMinutes(Math.Min(request.ReservationDurationMinutes, MaxReservationDurationHours * 60)),

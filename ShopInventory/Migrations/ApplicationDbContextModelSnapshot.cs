@@ -4393,6 +4393,56 @@ namespace ShopInventory.Migrations
                     b.ToTable("RouteCustomers", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.RouteEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Territory")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("TruckRegNo")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("IsActive");
+
+                    b.ToTable("Routes", (string)null);
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.SaleConsolidationEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -4974,6 +5024,10 @@ namespace ShopInventory.Migrations
                     b.Property<string>("Metadata")
                         .HasColumnType("text");
 
+                    b.Property<string>("PaymentMethod")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<int>("RenewalCount")
                         .HasColumnType("integer");
 
@@ -5233,8 +5287,22 @@ namespace ShopInventory.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int>("Channel")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CheckInClientReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<double?>("CheckInLatitude")
                         .HasColumnType("double precision");
+
+                    b.Property<double?>("CheckInLocationAccuracyMetres")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("CheckInLocationSource")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<double?>("CheckInLongitude")
                         .HasColumnType("double precision");
@@ -5243,11 +5311,25 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<DateTime?>("CheckInRecordedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime>("CheckInTime")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("CheckOutClientReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<double?>("CheckOutLatitude")
                         .HasColumnType("double precision");
+
+                    b.Property<double?>("CheckOutLocationAccuracyMetres")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("CheckOutLocationSource")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<double?>("CheckOutLongitude")
                         .HasColumnType("double precision");
@@ -5255,6 +5337,9 @@ namespace ShopInventory.Migrations
                     b.Property<string>("CheckOutNotes")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("CheckOutRecordedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("CheckOutTime")
                         .HasColumnType("timestamp with time zone");
@@ -5275,6 +5360,10 @@ namespace ShopInventory.Migrations
                     b.Property<double?>("DurationMinutes")
                         .HasColumnType("double precision");
 
+                    b.Property<string>("LocationUnavailableReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
 
@@ -5285,7 +5374,13 @@ namespace ShopInventory.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CheckInClientReference")
+                        .IsUnique();
+
                     b.HasIndex("CheckInTime");
+
+                    b.HasIndex("CheckOutClientReference")
+                        .IsUnique();
 
                     b.HasIndex("CustomerCode");
 
@@ -5293,6 +5388,8 @@ namespace ShopInventory.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_TimesheetEntries_UserId_ActiveCheckIn")
                         .HasFilter("\"CheckOutTime\" IS NULL");
+
+                    b.HasIndex("Channel", "CheckInTime");
 
                     b.HasIndex("UserId", "CheckOutTime");
 
@@ -5335,6 +5432,134 @@ namespace ShopInventory.Migrations
                         .IsUnique();
 
                     b.ToTable("UserPermissions", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.VanRouteDayEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("ClosingMileage")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal?>("DeclaredCash")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("DeclaredCurrency")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<decimal?>("DeclaredEcocash")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("DeclaredInnbucks")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime>("DepartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double?>("DepartedLatitude")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("DepartedLongitude")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTime?>("DepartedRecordedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EndClientReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("PlannedCustomerCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ReturnedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double?>("ReturnedLatitude")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("ReturnedLongitude")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTime?>("ReturnedRecordedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RouteCode")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<int?>("RouteId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RouteName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int?>("RtiOut")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("RtiReturned")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("StartClientReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int?>("StartingMileage")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Territory")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("TradingDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("TruckRegNo")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EndClientReference")
+                        .IsUnique();
+
+                    b.HasIndex("RouteId");
+
+                    b.HasIndex("StartClientReference")
+                        .IsUnique();
+
+                    b.HasIndex("TradingDate");
+
+                    b.HasIndex("RouteCode", "TradingDate");
+
+                    b.HasIndex("UserId", "TradingDate")
+                        .IsUnique();
+
+                    b.ToTable("VanRouteDays", (string)null);
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.WhatsAppWebhookEventEntity", b =>
@@ -6058,6 +6283,9 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<int?>("RouteId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("SupplyingWarehouseCode")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
@@ -6087,6 +6315,8 @@ namespace ShopInventory.Migrations
 
                     b.HasIndex("Email")
                         .IsUnique();
+
+                    b.HasIndex("RouteId");
 
                     b.HasIndex("Username")
                         .IsUnique();
@@ -6665,6 +6895,16 @@ namespace ShopInventory.Migrations
                     b.Navigation("CreatedByUser");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.RouteEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CreatedByUser");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.SalesOrderEntity", b =>
                 {
                     b.HasOne("ShopInventory.Models.User", "ApprovedByUser")
@@ -6786,6 +7026,24 @@ namespace ShopInventory.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.VanRouteDayEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.RouteEntity", "Route")
+                        .WithMany()
+                        .HasForeignKey("RouteId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("ShopInventory.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Route");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Notification", b =>
                 {
                     b.HasOne("ShopInventory.Models.User", "User")
@@ -6838,6 +7096,16 @@ namespace ShopInventory.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.User", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.RouteEntity", "Route")
+                        .WithMany()
+                        .HasForeignKey("RouteId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Route");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.UserNotificationSettings", b =>

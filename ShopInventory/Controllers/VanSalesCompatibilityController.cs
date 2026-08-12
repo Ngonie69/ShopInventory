@@ -11,6 +11,8 @@ using ShopInventory.Features.VanSalesCompatibility.Commands.ChangeVanSalesPasswo
 using ShopInventory.Features.VanSalesCompatibility.Commands.CreateVanSalesSalesOrder;
 using ShopInventory.Features.VanSalesCompatibility.Commands.CreateVanSalesTransferRequest;
 using ShopInventory.Features.VanSalesCompatibility.Commands.PostVanSalesAttendance;
+using ShopInventory.Features.VanSalesCompatibility.Commands.StartVanSalesDay;
+using ShopInventory.Features.VanSalesCompatibility.Commands.EndVanSalesDay;
 using ShopInventory.Features.VanSalesCompatibility.Commands.ConfirmVanSalesTransferRequest;
 using ShopInventory.Features.VanSalesCompatibility.Commands.IngestVanSalesOfflineSales;
 using ShopInventory.Features.VanSalesCompatibility.Commands.UploadVanSalesPod;
@@ -22,6 +24,7 @@ using ShopInventory.Features.VanSalesCompatibility;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesAttendance;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesAttendanceByDate;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesAttendanceStatus;
+using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCurrentDay;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCustomers;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesFiscal;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesFiscalLease;
@@ -148,6 +151,68 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
         return result.Match(
             value => Ok(value),
             errors => Ok(VanSalesAttendanceMapper.MapCheckFailure(GetLegacyErrorMessage(errors))));
+    }
+
+    // ── The trading day ──────────────────────────────────────────────────
+    //
+    // The departure compliance record: out of the depot in the morning, back in the evening. Sits
+    // beside attendance rather than inside it because it is a different unit — attendance counts
+    // visits, this bounds the day they happened in and carries the facts no visit knows (the truck,
+    // the odometer, the takings counted at the end).
+
+    [HttpGet("day/current")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.ManageTimesheets)]
+    public async Task<IActionResult> GetCurrentDay(CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(new GetVanSalesCurrentDayQuery(userId.Value), cancellationToken);
+        return result.Match(
+            value => Ok(value),
+            errors => Ok(VanSalesRouteDayMapper.Failure(GetLegacyErrorMessage(errors))));
+    }
+
+    [HttpPost("day/start")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.ManageTimesheets)]
+    public async Task<IActionResult> StartDay(
+        [FromBody] VanSalesStartDayRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(new StartVanSalesDayCommand(request, userId.Value), cancellationToken);
+        return result.Match(
+            value => Ok(value),
+            errors => Ok(VanSalesRouteDayMapper.Failure(GetLegacyErrorMessage(errors))));
+    }
+
+    [HttpPost("day/end")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.ManageTimesheets)]
+    public async Task<IActionResult> EndDay(
+        [FromBody] VanSalesEndDayRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(new EndVanSalesDayCommand(request, userId.Value), cancellationToken);
+        return result.Match(
+            value => Ok(value),
+            errors => Ok(VanSalesRouteDayMapper.Failure(GetLegacyErrorMessage(errors))));
     }
 
     [HttpGet("customer")]

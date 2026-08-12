@@ -341,13 +341,16 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         CancellationToken cancellationToken = default)
     {
         var userId = GetUserId();
-        if (userId == null)
+
+        // Service callers (the customer portal) authenticate with an API key and carry
+        // no user identity, so they must name the accounts they are asking about.
+        if (userId == null && string.IsNullOrWhiteSpace(cardCode))
             return Unauthorized();
 
         Guid? uploadedByUserId = User.IsInRole("Driver") ? userId : null;
 
         var result = await mediator.Send(
-            new GetAllPodsQuery(page, pageSize, cardCode, fromDate, toDate, search, uploadedByUsername, uploadedFromLocation, uploadedByUserId, userId.Value),
+            new GetAllPodsQuery(page, pageSize, cardCode, fromDate, toDate, search, uploadedByUsername, uploadedFromLocation, uploadedByUserId, userId),
             cancellationToken);
 
         return result.Match(Ok, Problem);

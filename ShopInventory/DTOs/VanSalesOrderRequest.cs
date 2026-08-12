@@ -40,6 +40,14 @@ public class VanSalesOrderRequest
     [JsonPropertyName("longitude")]
     public string Longitude { get; set; } = string.Empty;
 
+    /// <summary>
+    /// How the customer paid, as a brand — "Cash", "Ecocash", "Innbucks". Optional: handsets built
+    /// before the payment step existed send nothing, and the sale is then reported as untendered
+    /// rather than assumed to be cash.
+    /// </summary>
+    [JsonPropertyName("payment_method")]
+    public string? PaymentMethod { get; set; }
+
     [JsonPropertyName("sales_order")]
     public string SalesOrder { get; set; } = string.Empty;
 

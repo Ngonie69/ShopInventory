@@ -207,6 +207,18 @@ public class User
     public string? AssignedCostCentreCode { get; set; }
 
     /// <summary>
+    /// The selling route this van runs, which is where its territory and truck registration come from.
+    /// </summary>
+    /// <remarks>
+    /// Null for everyone who is not on a van, which is almost everyone. Distinct from
+    /// <see cref="AssignedSection"/>: that names the depot the account belongs to, and a single depot
+    /// sends vans out on many routes.
+    /// </remarks>
+    public int? RouteId { get; set; }
+
+    public Entities.RouteEntity? Route { get; set; }
+
+    /// <summary>
     /// The warehouse a van draws its stock from — the source of its inventory transfer requests.
     /// </summary>
     /// <remarks>

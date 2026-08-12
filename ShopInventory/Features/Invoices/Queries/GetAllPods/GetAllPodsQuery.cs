@@ -14,5 +14,6 @@ public sealed record GetAllPodsQuery(
     string? UploadedByUsername,
     string? UploadedFromLocation,
     Guid? UploadedByUserId,
-    Guid UserId
+    // Null for service callers (customer portal), which carry no staff user identity.
+    Guid? UserId
 ) : IRequest<ErrorOr<PodAttachmentListResponseDto>>;

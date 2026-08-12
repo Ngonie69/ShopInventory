@@ -10,6 +10,7 @@ using ShopInventory.Features.Timesheets.Queries.GetAssignedCustomers;
 using ShopInventory.Features.Timesheets.Queries.GetTimesheets;
 using ShopInventory.Features.Timesheets.Queries.GetTimesheetReport;
 using ShopInventory.Models;
+using ShopInventory.Models.Entities;
 using System.Security.Claims;
 
 namespace ShopInventory.Controllers;
@@ -34,6 +35,8 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
 
         var username = User.FindFirstValue(ClaimTypes.Name) ?? "unknown";
 
+        // Merchandiser, because this is the merchandiser route. A van rep's handset checks in through
+        // /api/vansales/attendance, which stamps VanSales on its own way past.
         var command = new CheckInCommand(
             userId.Value,
             username,
@@ -41,7 +44,8 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
             request.CustomerName,
             request.Latitude,
             request.Longitude,
-            request.Notes);
+            request.Notes,
+            TimesheetChannel.Merchandiser);
 
         var result = await mediator.Send(command, cancellationToken);
 
@@ -122,6 +126,7 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
         [FromQuery] string? customerCode = null,
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null,
+        [FromQuery] TimesheetChannel? channel = null,
         CancellationToken cancellationToken = default)
     {
         // Merchandiser can only see their own timesheets
@@ -136,7 +141,7 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
         var utcToDate = toDate.HasValue ? DateTime.SpecifyKind(toDate.Value, DateTimeKind.Utc) : toDate;
 
         var result = await mediator.Send(
-            new GetTimesheetsQuery(page, pageSize, userId, username, customerCode, utcFromDate, utcToDate),
+            new GetTimesheetsQuery(page, pageSize, userId, username, customerCode, utcFromDate, utcToDate, channel),
             cancellationToken);
 
         return result.Match(

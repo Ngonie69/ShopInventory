@@ -5,9 +5,13 @@ namespace ShopInventory.Web.Services;
 
 public interface ITimesheetService
 {
+    /// <param name="channel">
+    /// Which operation to list. Merchandiser and van sales visits share one table, so a page that
+    /// does not say which it wants gets both.
+    /// </param>
     Task<TimesheetListResponse?> GetTimesheetsAsync(int page = 1, int pageSize = 20,
         Guid? userId = null, string? username = null, string? customerCode = null,
-        DateTime? fromDate = null, DateTime? toDate = null);
+        DateTime? fromDate = null, DateTime? toDate = null, TimesheetChannel? channel = null);
     Task<TimesheetReportResponse?> GetReportAsync(Guid? userId = null, string? username = null,
         DateTime? fromDate = null, DateTime? toDate = null);
 }
@@ -25,7 +29,7 @@ public class TimesheetService : ITimesheetService
 
     public async Task<TimesheetListResponse?> GetTimesheetsAsync(int page = 1, int pageSize = 20,
         Guid? userId = null, string? username = null, string? customerCode = null,
-        DateTime? fromDate = null, DateTime? toDate = null)
+        DateTime? fromDate = null, DateTime? toDate = null, TimesheetChannel? channel = null)
     {
         try
         {
@@ -35,6 +39,7 @@ public class TimesheetService : ITimesheetService
             if (!string.IsNullOrEmpty(customerCode)) queryParams.Add($"customerCode={Uri.EscapeDataString(customerCode)}");
             if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-ddTHH:mm:ss}");
             if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-ddTHH:mm:ss}");
+            if (channel.HasValue) queryParams.Add($"channel={channel.Value}");
 
             var url = $"api/Timesheet?{string.Join("&", queryParams)}";
             return await _httpClient.GetFromJsonAsync<TimesheetListResponse>(url);

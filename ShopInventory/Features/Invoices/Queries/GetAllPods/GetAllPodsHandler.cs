@@ -18,21 +18,26 @@ public sealed class GetAllPodsHandler(
     {
         var page = request.Page < 1 ? 1 : request.Page;
         var pageSize = request.PageSize < 1 ? 20 : request.PageSize > 100 ? 100 : request.PageSize;
-        var currentUser = await context.Users
-            .AsNoTracking()
-            .Where(u => u.Id == request.UserId)
-            .Select(u => new { u.Role, u.AssignedSection })
-            .FirstOrDefaultAsync(cancellationToken);
 
-        if (currentUser is null)
+        // A service caller (the customer portal) has no staff user, and is already
+        // constrained to its own card codes by the controller.
+        var currentUser = request.UserId is { } userId
+            ? await context.Users
+                .AsNoTracking()
+                .Where(u => u.Id == userId)
+                .Select(u => new { u.Role, u.AssignedSection })
+                .FirstOrDefaultAsync(cancellationToken)
+            : null;
+
+        if (currentUser is null && request.UserId is not null)
         {
             return ShopInventory.Common.Errors.Errors.Auth.UserNotFound;
         }
 
-        var isScopedPodViewer = string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(currentUser.Role, "Operator", StringComparison.OrdinalIgnoreCase);
+        var isScopedPodViewer = string.Equals(currentUser?.Role, "PodOperator", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(currentUser?.Role, "Operator", StringComparison.OrdinalIgnoreCase);
 
-        if (isScopedPodViewer && string.IsNullOrWhiteSpace(currentUser.AssignedSection))
+        if (isScopedPodViewer && string.IsNullOrWhiteSpace(currentUser!.AssignedSection))
         {
             return new PodAttachmentListResponseDto
             {
@@ -45,7 +50,7 @@ public sealed class GetAllPodsHandler(
         }
 
         var assignedSection = isScopedPodViewer
-            ? currentUser.AssignedSection
+            ? currentUser!.AssignedSection
             : null;
 
         var result = await documentService.GetAllPodAttachmentsAsync(

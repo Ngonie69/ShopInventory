@@ -119,6 +119,12 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // Route customer tables
   public DbSet<RouteCustomerEntity> RouteCustomers { get; set; }
 
+  // Selling routes — the round a van runs, its territory and its truck
+  public DbSet<RouteEntity> Routes { get; set; }
+
+  // One rep's trading day on a route: the departure compliance record
+  public DbSet<VanRouteDayEntity> VanRouteDays { get; set; }
+
   // Purchase Order tables
   public DbSet<PurchaseOrderEntity> PurchaseOrders { get; set; }
   public DbSet<PurchaseOrderLineEntity> PurchaseOrderLines { get; set; }
@@ -402,6 +408,13 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
       entity.Property(u => u.SupplyingWarehouseCode)
                 .HasMaxLength(50);
+
+      // Restrict, not cascade: deleting a route must not take the van's account with it, and being
+      // asked to reassign the van first is the right prompt.
+      entity.HasOne(u => u.Route)
+                .WithMany()
+                .HasForeignKey(u => u.RouteId)
+                .OnDelete(DeleteBehavior.Restrict);
 
       entity.Ignore(u => u.AssignedWarehouseCode);
     });
@@ -1630,16 +1643,78 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         .HasFilter("\"CheckOutTime\" IS NULL")
         .IsUnique();
 
+      // Both lists read one channel and a date window, and the compliance report reads one rep's
+      // van visits for one day, so the channel leads.
+      entity.HasIndex(e => new { e.Channel, e.CheckInTime });
+
+      // What makes a replayed offline record recognisable. Nullable on purpose: nothing created on
+      // the web carries one, and Postgres allows any number of nulls under a unique index.
+      entity.HasIndex(e => e.CheckInClientReference).IsUnique();
+      entity.HasIndex(e => e.CheckOutClientReference).IsUnique();
+
       entity.Property(e => e.Username).IsRequired().HasMaxLength(50);
       entity.Property(e => e.CustomerCode).IsRequired().HasMaxLength(50);
       entity.Property(e => e.CustomerName).IsRequired().HasMaxLength(200);
       entity.Property(e => e.CheckInNotes).HasMaxLength(500);
       entity.Property(e => e.CheckOutNotes).HasMaxLength(500);
+      entity.Property(e => e.CheckInClientReference).HasMaxLength(100);
+      entity.Property(e => e.CheckOutClientReference).HasMaxLength(100);
+      entity.Property(e => e.CheckInLocationSource).HasMaxLength(20);
+      entity.Property(e => e.CheckOutLocationSource).HasMaxLength(20);
+      entity.Property(e => e.LocationUnavailableReason).HasMaxLength(200);
 
       entity.HasOne(e => e.User)
             .WithMany()
             .HasForeignKey(e => e.UserId)
             .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    // Selling routes — territory, round and truck for the vans
+    modelBuilder.Entity<RouteEntity>(entity =>
+    {
+      entity.ToTable("Routes");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.Code).IsUnique();
+      entity.HasIndex(e => e.IsActive);
+
+      entity.Property(e => e.Code).IsRequired().HasMaxLength(30);
+      entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+      entity.Property(e => e.Territory).HasMaxLength(100);
+      entity.Property(e => e.TruckRegNo).HasMaxLength(30);
+
+      entity.HasOne(e => e.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // The van's trading day — departure compliance
+    modelBuilder.Entity<VanRouteDayEntity>(entity =>
+    {
+      entity.ToTable("VanRouteDays");
+      entity.HasKey(e => e.Id);
+
+      entity.Property(e => e.Username).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.RouteCode).HasMaxLength(30);
+      entity.Property(e => e.RouteName).HasMaxLength(100);
+      entity.Property(e => e.Territory).HasMaxLength(100);
+      entity.Property(e => e.TruckRegNo).HasMaxLength(30);
+      entity.Property(e => e.DeclaredCurrency).HasMaxLength(10);
+      entity.Property(e => e.Notes).HasMaxLength(1000);
+      entity.Property(e => e.StartClientReference).HasMaxLength(100);
+      entity.Property(e => e.EndClientReference).HasMaxLength(100);
+
+      entity.HasOne(e => e.User)
+            .WithMany()
+            .HasForeignKey(e => e.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+      // The route may be retired while its days remain; the snapshot columns keep the report whole.
+      entity.HasOne(e => e.Route)
+            .WithMany()
+            .HasForeignKey(e => e.RouteId)
+            .OnDelete(DeleteBehavior.SetNull);
     });
 
     // ── Desktop Offline Invoicing ────────────────────────────────────────
