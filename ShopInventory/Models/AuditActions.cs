@@ -113,10 +113,6 @@ public static class AuditActions
     public const string UpdateSAPSettings = "UpdateSAPSettings";
     public const string UpdateMobileVersionPolicy = "UpdateMobileVersionPolicy";
 
-    // Customer Portal actions
-    public const string RegisterCustomer = "RegisterCustomer";
-    public const string BulkRegisterCustomers = "BulkRegisterCustomers";
-
     // Timesheet actions
     public const string CheckIn = "CheckIn";
     public const string CheckOut = "CheckOut";

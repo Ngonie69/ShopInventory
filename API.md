@@ -1933,9 +1933,17 @@ This controller supports stock reservations and queue-based invoice posting for 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/CustomerPortal/register` | Register a customer portal user |
-| POST | `/api/CustomerPortal/generate-hash` | Generate a BCrypt password hash |
-| POST | `/api/CustomerPortal/bulk-register` | Bulk register from SAP business partners |
+| POST | `/api/CustomerPortal/generate-hash` | Generate a BCrypt password hash (development only) |
+
+**Portal accounts are not created through this API.** `register` and `bulk-register` were removed: they
+hashed a password, discarded it, created nothing and returned success anyway. Portal accounts live in
+the Web app's database, which this API cannot reach, so an account written here is one the portal's own
+login would never find.
+
+Creating, suspending and resetting portal accounts — individually or in bulk — is done on the Web app's
+**Customer Portal Management** page, which owns that table. `generate-hash` remains because it is useful
+precisely for the reason the others could not work: it returns a hash to place in that other database
+by hand.
 
 ---
 

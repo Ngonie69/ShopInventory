@@ -2,35 +2,28 @@ using MediatR;
 using ShopInventory.DTOs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using ShopInventory.Features.CustomerPortal.Commands.BulkRegisterCustomers;
 using ShopInventory.Features.CustomerPortal.Commands.GeneratePasswordHash;
-using ShopInventory.Features.CustomerPortal.Commands.RegisterCustomer;
 
 namespace ShopInventory.Controllers;
 
 /// <summary>
-/// Admin endpoints for managing customer portal users
+/// Development helper for customer portal passwords.
 /// </summary>
+/// <remarks>
+/// Portal accounts themselves are not managed here. CustomerPortalUser belongs to the Web app's
+/// database, which this API cannot reach, and the Web app creates and maintains them for real on its
+/// Customer Portal Management page. This controller once carried register and bulk-register actions
+/// that hashed a password, discarded it, created nothing and reported success anyway; they were
+/// removed rather than implemented, because an account written to this database is one the portal's
+/// own login (ShopInventory.Web CustomerAuthService) would never find.
+///
+/// What remains is the one action that does what it says: it returns a hash to paste into that other
+/// database by hand, which is only useful precisely because the two are separate.
+/// </remarks>
 [Route("api/[controller]")]
 [Authorize(Policy = "AdminOnly")]
 public class CustomerPortalController(IMediator mediator) : ApiControllerBase
 {
-    /// <summary>
-    /// Register a new customer portal user
-    /// </summary>
-    [HttpPost("register")]
-    [ProducesResponseType(typeof(CustomerRegistrationResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> RegisterCustomer([FromBody] CustomerRegistrationRequest request, CancellationToken cancellationToken)
-    {
-        var result = await mediator.Send(new RegisterCustomerCommand(
-            request.CardCode,
-            request.CardName,
-            request.Email,
-            request.Password), cancellationToken);
-        return result.Match(value => Ok(value), errors => Problem(errors));
-    }
-
     /// <summary>
     /// Generate password hash for a customer (development only)
     /// </summary>
@@ -39,19 +32,6 @@ public class CustomerPortalController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> GeneratePasswordHash([FromBody] GenerateHashRequest request, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GeneratePasswordHashCommand(request.Password), cancellationToken);
-        return result.Match(value => Ok(value), errors => Problem(errors));
-    }
-
-    /// <summary>
-    /// Bulk register customers from SAP Business Partners
-    /// </summary>
-    [HttpPost("bulk-register")]
-    [ProducesResponseType(typeof(BulkRegistrationResponse), StatusCodes.Status200OK)]
-    public async Task<IActionResult> BulkRegisterCustomers([FromBody] BulkRegistrationRequest request, CancellationToken cancellationToken)
-    {
-        var result = await mediator.Send(new BulkRegisterCustomersCommand(
-            request.DefaultPassword!,
-            request.Customers), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 }

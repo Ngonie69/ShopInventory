@@ -472,15 +472,13 @@ new ApiModule
 {
 Name = "Customer Portal",
 BasePath = "/api/customerportal",
-Description = "Provision customer portal sign-in accounts from SAP business partners.",
+Description = "Password hashing helper. Portal accounts themselves are managed on the Customer Portal Management page, not through this API.",
 Icon = Icons.Material.Filled.Portrait,
 Color = Color.Secondary,
 Methods = new[] { "POST" },
 Endpoints = new List<ApiEndpoint>
 {
-new("POST", "/api/customerportal/register", "Register a customer portal user"),
-new("POST", "/api/customerportal/generate-hash", "Generate a password hash"),
-new("POST", "/api/customerportal/bulk-register", "Bulk register portal users from SAP partners")
+new("POST", "/api/customerportal/generate-hash", "Generate a password hash (development only)")
 }
 },
 new ApiModule
