@@ -165,7 +165,9 @@ public sealed class IngestVanSalesOfflineSalesHandler(
                 }
             }
 
-            db.DesktopSales.Add(BuildSale(sale, reference, customer, user, warehouseCode!, costCentreCode!));
+            // customer is set whenever Validate returns no error, but that is a relationship the
+            // compiler cannot see through an out parameter.
+            db.DesktopSales.Add(BuildSale(sale, reference, customer!, user, warehouseCode!, costCentreCode!));
 
             // Accepted either way — the customer paid and the money has to reach SAP — but a sale with no
             // usable signature is a receipt ZIMRA can never be given, and that has to be said out loud
