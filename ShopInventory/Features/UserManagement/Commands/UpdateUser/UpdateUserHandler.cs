@@ -177,6 +177,15 @@ public sealed class UpdateUserHandler(
             user.AssignedCostCentreCode = null;
         }
 
+        if (ApplicationRoles.RequiresSupplyingWarehouseCode(user.Role))
+        {
+            user.SupplyingWarehouseCode = command.Request.SupplyingWarehouseCode?.Trim();
+        }
+        else
+        {
+            user.SupplyingWarehouseCode = null;
+        }
+
         if (ApplicationRoles.RequiresWarehouseAssignments(user.Role) && user.GetWarehouseCodes().Count == 0)
         {
             return Errors.UserManagement.UpdateFailed($"At least one assigned warehouse code is required for {user.Role} role");
@@ -202,6 +211,12 @@ public sealed class UpdateUserHandler(
             string.IsNullOrWhiteSpace(user.AssignedCostCentreCode))
         {
             return Errors.UserManagement.UpdateFailed($"An assigned cost centre code is required for {user.Role} role");
+        }
+
+        if (ApplicationRoles.RequiresSupplyingWarehouseCode(user.Role) &&
+            string.IsNullOrWhiteSpace(user.SupplyingWarehouseCode))
+        {
+            return Errors.UserManagement.UpdateFailed($"A supplying warehouse code is required for {user.Role} role");
         }
 
         var shouldNotifyCustomerAssignmentChanges = command.Request.AssignedCustomerCodes != null &&
@@ -266,6 +281,7 @@ public sealed class UpdateUserHandler(
                 .SetProperty(x => x.AssignedSection, user.AssignedSection)
                 .SetProperty(x => x.AssignedBusinessPartnerCode, user.AssignedBusinessPartnerCode)
                 .SetProperty(x => x.AssignedCostCentreCode, user.AssignedCostCentreCode)
+                .SetProperty(x => x.SupplyingWarehouseCode, user.SupplyingWarehouseCode)
                 .SetProperty(x => x.Permissions, user.Permissions)
                 .SetProperty(x => x.UpdatedAt, user.UpdatedAt),
                 cancellationToken);

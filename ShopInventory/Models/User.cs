@@ -207,6 +207,18 @@ public class User
     public string? AssignedCostCentreCode { get; set; }
 
     /// <summary>
+    /// The warehouse a van draws its stock from — the source of its inventory transfer requests.
+    /// </summary>
+    /// <remarks>
+    /// Not the same thing as <see cref="AssignedWarehouseCodes"/>, which is the van itself (VAN010) and
+    /// so the *destination* of those requests. A van is loaded from one depot and one only: the Bulawayo
+    /// vans from KEFBYC, the Harare ones from KEFGRC. The handset cannot be trusted to pick it — it used
+    /// to send a warehouse *name* typed into a hardcoded list — so it is assigned here, once, per van.
+    /// </remarks>
+    [MaxLength(50)]
+    public string? SupplyingWarehouseCode { get; set; }
+
+    /// <summary>
     /// The ZIMRA fiscal device this user's handset is registered as, for offline trading.
     ///
     /// Null for everyone who does not stamp their own receipts, which is almost everyone — the desktop

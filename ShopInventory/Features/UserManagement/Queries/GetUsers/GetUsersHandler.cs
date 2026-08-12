@@ -121,6 +121,7 @@ public sealed class GetUsersHandler(
             AssignedCustomerCodes = user.GetCustomerCodes(),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
             AssignedCostCentreCode = user.AssignedCostCentreCode,
+            SupplyingWarehouseCode = user.SupplyingWarehouseCode,
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
             LastLoginAt = lastLoginAt

@@ -261,7 +261,8 @@ public class UserManagementService : IUserManagementService
             AssignedSection = model.AssignedSection,
             AssignedCustomerCodes = assignedCustomerCodes,
             AssignedBusinessPartnerCode = model.AssignedBusinessPartnerCode,
-            AssignedCostCentreCode = model.AssignedCostCentreCode
+            AssignedCostCentreCode = model.AssignedCostCentreCode,
+            SupplyingWarehouseCode = model.SupplyingWarehouseCode
         });
 
         if (!response.IsSuccessStatusCode)
@@ -371,7 +372,8 @@ public class UserManagementService : IUserManagementService
             AssignedSection = model.AssignedSection,
             AssignedCustomerCodes = assignedCustomerCodes,
             AssignedBusinessPartnerCode = model.AssignedBusinessPartnerCode,
-            AssignedCostCentreCode = model.AssignedCostCentreCode
+            AssignedCostCentreCode = model.AssignedCostCentreCode,
+            SupplyingWarehouseCode = model.SupplyingWarehouseCode
         });
 
         if (!response.IsSuccessStatusCode)

@@ -523,6 +523,7 @@ public class UserManagementService : IUserManagementService
             AssignedCustomerCodes = user.GetCustomerCodes(),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
             AssignedCostCentreCode = user.AssignedCostCentreCode,
+            SupplyingWarehouseCode = user.SupplyingWarehouseCode,
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
             LastLoginAt = user.LastLoginAt
