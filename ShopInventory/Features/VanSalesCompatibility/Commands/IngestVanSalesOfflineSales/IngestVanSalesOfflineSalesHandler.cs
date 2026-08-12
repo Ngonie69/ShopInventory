@@ -6,6 +6,8 @@ using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
+using System.Globalization;
 
 namespace ShopInventory.Features.VanSalesCompatibility.Commands.IngestVanSalesOfflineSales;
 
@@ -39,12 +41,31 @@ namespace ShopInventory.Features.VanSalesCompatibility.Commands.IngestVanSalesOf
 /// </summary>
 public sealed class IngestVanSalesOfflineSalesHandler(
     ApplicationDbContext db,
+    IAuditService auditService,
     ILogger<IngestVanSalesOfflineSalesHandler> logger
 ) : IRequestHandler<IngestVanSalesOfflineSalesCommand, ErrorOr<VanSalesOfflineSaleBatchResponse>>
 {
     private const string StatusAccepted = "accepted";
     private const string StatusDuplicate = "duplicate";
     private const string StatusRejected = "rejected";
+
+    /// <summary>
+    /// The audit entity a batch is filed under. The id is the van's warehouse, because "show me every
+    /// upload this van has made" is the question an investigation actually asks — a batch has no
+    /// identity of its own to key on.
+    /// </summary>
+    private const string BatchEntityType = "VanSalesOfflineSaleBatch";
+
+    private const string SaleEntityType = "VanSalesOfflineSale";
+
+    /// <summary>
+    /// How many individual sales one upload may write its own audit row for.
+    ///
+    /// Each row is a separate round trip, and a misconfigured van can reject an entire day at once. Past
+    /// this point the references are folded into the batch row instead, which is still searchable — the
+    /// audit trail's search covers the details text.
+    /// </summary>
+    private const int MaxPerSaleAuditRows = 25;
 
     public async Task<ErrorOr<VanSalesOfflineSaleBatchResponse>> Handle(
         IngestVanSalesOfflineSalesCommand command,
@@ -58,18 +79,31 @@ public sealed class IngestVanSalesOfflineSalesHandler(
                 "At least one sale is required.");
         }
 
+        // Every refusal below turns a van away with its whole day still on the handset, and the rep sees
+        // only a failed upload. Each one is recorded so that a van which has stopped delivering its
+        // takings can be found from the audit trail rather than from a phone call.
         var user = await db.Users
             .AsNoTracking()
             .FirstOrDefaultAsync(u => u.Id == command.UserId, cancellationToken);
 
         if (user is null || !user.IsActive)
         {
+            await AuditRefusedBatchAsync(
+                sales.Count,
+                entityId: command.UserId.ToString(),
+                reason: "the user is unknown or deactivated");
+
             return Error.Unauthorized("VanSalesCompatibility.Unauthenticated", "User is not authenticated.");
         }
 
         var warehouseCode = VanSalesCompatibilityMapper.ResolveAssignedWarehouseCode(user);
         if (string.IsNullOrWhiteSpace(warehouseCode))
         {
+            await AuditRefusedBatchAsync(
+                sales.Count,
+                entityId: null,
+                reason: "the user has no assigned warehouse");
+
             return Error.Validation(
                 "VanSalesCompatibility.MissingWarehouse",
                 "An assigned warehouse is required for van sales invoicing.");
@@ -78,6 +112,11 @@ public sealed class IngestVanSalesOfflineSalesHandler(
         var costCentreCode = VanSalesCompatibilityMapper.ResolveAssignedCostCentreCode(user);
         if (string.IsNullOrWhiteSpace(costCentreCode))
         {
+            await AuditRefusedBatchAsync(
+                sales.Count,
+                entityId: warehouseCode,
+                reason: "the user has no assigned cost centre");
+
             return Error.Validation(
                 "VanSalesCompatibility.MissingCostCentre",
                 "An assigned cost centre is required for van sales invoicing.");
@@ -92,6 +131,15 @@ public sealed class IngestVanSalesOfflineSalesHandler(
         // way, but whether the per-customer report can see them is worth saying once per upload.
         var unattributed = 0;
         var matchedByName = 0;
+
+        // The two outcomes worth naming one by one afterwards. A rejected sale is the only one that is
+        // never written anywhere — it exists solely in the reply the handset is about to receive, so if
+        // that reply is lost the takings vanish with no trace of what they were or why they bounced.
+        var rejections = new List<(string Reference, string Reason)>();
+        var unsignable = new List<string>();
+
+        // What the accepted sales are worth, kept per currency because a route may trade in two.
+        var acceptedValue = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
         // Which of these references the database already holds. Read once for the whole batch: a van
         // reconnecting after a day out of coverage sends its entire backlog, and the overlap with what
@@ -121,8 +169,10 @@ public sealed class IngestVanSalesOfflineSalesHandler(
 
             if (string.IsNullOrWhiteSpace(reference))
             {
-                response.Results.Add(Reject(string.Empty, "van_order is required — it is the idempotency key."));
+                const string reason = "van_order is required — it is the idempotency key.";
+                response.Results.Add(Reject(string.Empty, reason));
                 response.Rejected++;
+                rejections.Add((Reference: "(no reference)", Reason: reason));
                 continue;
             }
 
@@ -144,6 +194,7 @@ public sealed class IngestVanSalesOfflineSalesHandler(
             {
                 response.Results.Add(Reject(reference, validationError));
                 response.Rejected++;
+                rejections.Add((reference, validationError));
                 continue;
             }
 
@@ -175,6 +226,7 @@ public sealed class IngestVanSalesOfflineSalesHandler(
             var signed = sale.HasSignedReceipt();
             if (!signed)
             {
+                unsignable.Add(reference);
                 logger.LogError(
                     "Van sale {Reference} arrived without a usable device signature, so its ZIMRA receipt " +
                     "cannot be submitted. Receipt {ReceiptGlobalNo}/{ReceiptCounter} on device " +
@@ -197,6 +249,9 @@ public sealed class IngestVanSalesOfflineSalesHandler(
                       "cannot be submitted to ZIMRA."
             });
             response.Accepted++;
+
+            var currency = string.IsNullOrWhiteSpace(sale.Currency) ? "USD" : sale.Currency.Trim();
+            acceptedValue[currency] = acceptedValue.GetValueOrDefault(currency) + sale.Total;
         }
 
         if (response.Accepted > 0)
@@ -226,8 +281,187 @@ public sealed class IngestVanSalesOfflineSalesHandler(
                 user.AssignedBusinessPartnerCode);
         }
 
+        await WriteAuditTrailAsync(
+            warehouseCode!,
+            response,
+            acceptedValue,
+            rejections,
+            unsignable,
+            unattributed,
+            matchedByName);
+
         return response;
     }
+
+    /// <summary>
+    /// Records what the upload did, after the sales themselves are safely committed.
+    ///
+    /// The ordering is not incidental. <c>AuditService</c> writes through the same
+    /// <see cref="ApplicationDbContext"/> this handler is adding sales to, so an audit call made mid-loop
+    /// would call <c>SaveChanges</c> on a half-built batch and commit rows the loop had not finished
+    /// deciding about. Everything here runs once the batch is settled.
+    /// </summary>
+    private async Task WriteAuditTrailAsync(
+        string warehouseCode,
+        VanSalesOfflineSaleBatchResponse response,
+        IReadOnlyDictionary<string, decimal> acceptedValue,
+        IReadOnlyList<(string Reference, string Reason)> rejections,
+        IReadOnlyList<string> unsignable,
+        int unattributed,
+        int matchedByName)
+    {
+        try
+        {
+            // Rejections first: they are the outcome most likely to need acting on, and if the cap bites
+            // it should bite the merely-unsubmittable rather than the outright lost.
+            var perSaleBudget = MaxPerSaleAuditRows;
+
+            foreach (var (reference, reason) in rejections.Take(perSaleBudget))
+            {
+                await auditService.LogAsync(
+                    Models.AuditActions.RejectVanSalesOfflineSale,
+                    SaleEntityType,
+                    reference,
+                    $"Van {warehouseCode} offline sale {reference} was refused and not stored: {reason}",
+                    false,
+                    reason);
+            }
+
+            perSaleBudget -= Math.Min(rejections.Count, perSaleBudget);
+
+            foreach (var reference in unsignable.Take(perSaleBudget))
+            {
+                await auditService.LogAsync(
+                    Models.AuditActions.UnsignableVanSalesOfflineSale,
+                    SaleEntityType,
+                    reference,
+                    $"Van {warehouseCode} offline sale {reference} was stored for posting but carries no " +
+                    "device signature, so its ZIMRA receipt cannot be submitted.",
+                    false,
+                    "No usable device signature.");
+            }
+
+            var truncated = rejections.Count + unsignable.Count > MaxPerSaleAuditRows;
+
+            await auditService.LogAsync(
+                Models.AuditActions.IngestVanSalesOfflineBatch,
+                BatchEntityType,
+                warehouseCode,
+                BuildBatchDetails(
+                    warehouseCode, response, acceptedValue, rejections, unsignable,
+                    unattributed, matchedByName, truncated),
+                response.Rejected == 0 && unsignable.Count == 0,
+                BuildBatchError(response.Rejected, unsignable.Count));
+        }
+        catch (Exception ex)
+        {
+            // The takings are already committed. Losing the audit trail for them is bad, but failing the
+            // upload over it would send the van away with a day's sales it has no way to re-send.
+            logger.LogWarning(ex, "Failed to audit the van sales offline batch for {WarehouseCode}.", warehouseCode);
+        }
+    }
+
+    private async Task AuditRefusedBatchAsync(int saleCount, string? entityId, string reason)
+    {
+        try
+        {
+            await auditService.LogAsync(
+                Models.AuditActions.IngestVanSalesOfflineBatch,
+                BatchEntityType,
+                entityId,
+                $"Refused an upload of {saleCount} offline {Plural(saleCount, "sale")} because {reason}. " +
+                "The sales stay on the handset.",
+                false,
+                reason);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to audit a refused van sales offline batch.");
+        }
+    }
+
+    private static string BuildBatchDetails(
+        string warehouseCode,
+        VanSalesOfflineSaleBatchResponse response,
+        IReadOnlyDictionary<string, decimal> acceptedValue,
+        IReadOnlyList<(string Reference, string Reason)> rejections,
+        IReadOnlyList<string> unsignable,
+        int unattributed,
+        int matchedByName,
+        bool truncated)
+    {
+        var total = response.Accepted + response.Duplicates + response.Rejected;
+        var parts = new List<string>
+        {
+            $"Van {warehouseCode} uploaded {total} offline {Plural(total, "sale")}: " +
+            $"{response.Accepted} accepted, {response.Duplicates} duplicate, {response.Rejected} rejected."
+        };
+
+        if (acceptedValue.Count > 0)
+        {
+            var value = string.Join(
+                " + ",
+                acceptedValue
+                    .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(entry => $"{entry.Value.ToString("N2", CultureInfo.InvariantCulture)} {entry.Key}"));
+
+            parts.Add($"Accepted value {value}.");
+        }
+
+        if (unattributed > 0 || matchedByName > 0)
+        {
+            parts.Add(
+                $"{unattributed} could not be attributed to a shop and {matchedByName} were matched by " +
+                "customer name alone.");
+        }
+
+        if (unsignable.Count > 0)
+        {
+            parts.Add(
+                $"{unsignable.Count} accepted without a device signature, so {Plural(unsignable.Count, "receipt")} " +
+                "cannot reach ZIMRA.");
+        }
+
+        if (rejections.Count > 0)
+        {
+            // Named in full even past the per-sale row cap: this is what makes a lost sale findable by
+            // its reference when there was no room to give it a row of its own.
+            parts.Add(
+                "Rejected: " +
+                string.Join("; ", rejections.Select(r => $"{r.Reference} ({r.Reason})")));
+        }
+
+        if (truncated)
+        {
+            parts.Add($"Only the first {MaxPerSaleAuditRows} sales were given rows of their own.");
+        }
+
+        return string.Join(" ", parts);
+    }
+
+    private static string? BuildBatchError(int rejected, int unsignable)
+    {
+        if (rejected == 0 && unsignable == 0)
+        {
+            return null;
+        }
+
+        var reasons = new List<string>();
+
+        if (rejected > 0)
+        {
+            reasons.Add($"{rejected} {Plural(rejected, "sale")} rejected and left on the handset");
+        }
+
+        if (unsignable > 0)
+        {
+            reasons.Add($"{unsignable} {Plural(unsignable, "receipt")} cannot be submitted to ZIMRA");
+        }
+
+        return string.Join("; ", reasons) + ".";
+    }
+
+    private static string Plural(int count, string noun) => count == 1 ? noun : noun + "s";
 
     private static string? Validate(
         VanSalesOfflineSaleRequest sale,

@@ -9,6 +9,7 @@ using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSalesSummary
 using ShopInventory.Features.VanSalesCompatibility.Commands.IngestVanSalesOfflineSales;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Tests;
 
@@ -492,7 +493,7 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
     private async Task<VanSalesOfflineSaleBatchResponse> IngestAsync(params VanSalesOfflineSaleRequest[] sales)
     {
         var result = await new IngestVanSalesOfflineSalesHandler(
-                _context, NullLogger<IngestVanSalesOfflineSalesHandler>.Instance)
+                _context, new NoOpAuditService(), NullLogger<IngestVanSalesOfflineSalesHandler>.Instance)
             .Handle(
                 new IngestVanSalesOfflineSalesCommand(
                     new VanSalesOfflineSaleBatchRequest { Sales = [.. sales] }, VanUser),
@@ -606,4 +607,20 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
             }
         ]
     };
+
+    /// <summary>
+    /// These tests are about what the report reads back, not about the audit trail the ingest writes —
+    /// <see cref="VanSalesOfflineIngestTests"/> owns that.
+    /// </summary>
+    private sealed class NoOpAuditService : IAuditService
+    {
+        public Task LogAsync(string action, string username, string userRole, string? entityType = null,
+            string? entityId = null, string? details = null, string? endpoint = null,
+            bool isSuccess = true, string? errorMessage = null) => Task.CompletedTask;
+
+        public Task LogAsync(string action, string? entityType = null, string? entityId = null) => Task.CompletedTask;
+
+        public Task LogAsync(string action, string? entityType, string? entityId, string? details,
+            bool isSuccess, string? errorMessage = null) => Task.CompletedTask;
+    }
 }

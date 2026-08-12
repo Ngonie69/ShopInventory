@@ -117,4 +117,14 @@ public static class AuditActions
     public const string CheckIn = "CheckIn";
     public const string CheckOut = "CheckOut";
     public const string ViewAssignedCustomers = "ViewAssignedCustomers";
+
+    // Van sales offline ingest
+    //
+    // A van's backlog arrives already sold and already fiscalised, so these are the only record of what
+    // reached the server. The two per-sale actions below cover the outcomes that leave nothing behind
+    // anywhere else: a rejected sale is never stored, and a sale whose receipt cannot be submitted to
+    // ZIMRA is stored but will quietly go missing from the fiscal day unless someone is told.
+    public const string IngestVanSalesOfflineBatch = "IngestVanSalesOfflineBatch";
+    public const string RejectVanSalesOfflineSale = "RejectVanSalesOfflineSale";
+    public const string UnsignableVanSalesOfflineSale = "UnsignableVanSalesOfflineSale";
 }
