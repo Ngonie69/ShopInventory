@@ -178,7 +178,8 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         [FromQuery] DateTime? toDate,
         CancellationToken cancellationToken = default,
         [FromQuery] int? page = null,
-        [FromQuery] int? pageSize = null)
+        [FromQuery] int? pageSize = null,
+        [FromQuery] bool includeLines = false)
     {
         var restrictToAssignedCustomers = User.IsInRole("Driver");
         var result = await mediator.Send(
@@ -189,7 +190,8 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
                 page,
                 pageSize,
                 restrictToAssignedCustomers ? GetUserId() : null,
-                restrictToAssignedCustomers),
+                restrictToAssignedCustomers,
+                includeLines),
             cancellationToken);
 
         return result.Match(Ok, Problem);

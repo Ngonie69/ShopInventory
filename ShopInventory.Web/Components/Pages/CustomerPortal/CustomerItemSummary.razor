@@ -67,43 +67,39 @@
                     <span class="cpd-tag">@filteredItems.Count() @Plural(filteredItems.Count(), "item")</span>
                 }
             </div>
+            @* Every control here is one of the portal's own: NocturneDateField and
+               NocturneSelect draw their calendar and their menu in page DOM, so the
+               row is one height and one palette rather than two Mud fields in
+               MudBlazor's metrics beside three in the portal's. See
+               .claude/skills/nocturne-dropdowns-and-dates. *@
             <div class="cpd-filters">
-                @* NocturneDateField rather than MudDatePicker: it draws the same calendar
-                   as the rest of the portal instead of MudBlazor's own. *@
                 <div class="cpd-field">
                     <label class="cpd-field-label" for="cis-f-from">From</label>
-                    <NocturneDateField Id="cis-f-from" Class="ndf-bs" @bind-Date="fromDate" />
+                    <NocturneDateField Id="cis-f-from" @bind-Date="fromDate" AriaLabel="From date" />
                 </div>
                 <div class="cpd-field">
                     <label class="cpd-field-label" for="cis-f-to">To</label>
-                    <NocturneDateField Id="cis-f-to" Class="ndf-bs" @bind-Date="toDate" />
+                    <NocturneDateField Id="cis-f-to" @bind-Date="toDate" AriaLabel="To date" />
                 </div>
                 @if (isMultiAccount && linkedAccounts.Any())
                 {
                     <div class="cpd-field">
-                        <MudSelect T="string" Label="Account" Value="@selectedAccountFilter"
-                                   ValueChanged="OnAccountFilterChanged" Variant="Variant.Outlined" Dense="true"
-                                   AnchorOrigin="Origin.BottomCenter">
-                            <MudSelectItem T="string" Value="@("")">All accounts</MudSelectItem>
-                            @foreach (var account in linkedAccounts)
-                            {
-                                <MudSelectItem T="string" Value="@account.CardCode">
-                                    @account.CardName @(!string.IsNullOrEmpty(account.Currency) ? $"({account.Currency})" : "")
-                                    — @account.CardCode
-                                </MudSelectItem>
-                            }
-                        </MudSelect>
+                        <label class="cpd-field-label" for="cis-f-account">Account</label>
+                        @* The lambda is not a style choice: passing the method group makes
+                           TValue inference fail on an error that names EventCallback. *@
+                        <NocturneSelect Id="cis-f-account" Class="nsel-block" TValue="string"
+                                        Options="AccountFilterOptions" Value="@selectedAccountFilter"
+                                        ValueChanged="@(code => OnAccountFilterChanged(code ?? string.Empty))"
+                                        Caption="Filter by account" AriaLabel="Filter by account"
+                                        Placeholder="All accounts" />
                     </div>
                 }
                 <div class="cpd-field">
-                    <MudSelect T="string" @bind-Value="selectedCategory" Label="Category" Variant="Variant.Outlined"
-                               Dense="true" AnchorOrigin="Origin.BottomCenter" Clearable="true">
-                        <MudSelectItem T="string" Value="@((string)null!)">All categories</MudSelectItem>
-                        @foreach (var cat in availableCategories)
-                        {
-                            <MudSelectItem T="string" Value="@cat">@cat</MudSelectItem>
-                        }
-                    </MudSelect>
+                    <label class="cpd-field-label" for="cis-f-category">Category</label>
+                    <NocturneSelect Id="cis-f-category" Class="nsel-block" TValue="string"
+                                    Options="CategoryFilterOptions" @bind-Value="selectedCategory"
+                                    Caption="Filter by category" AriaLabel="Filter by category"
+                                    Placeholder="All categories" />
                 </div>
                 <div class="cpd-field">
                     <label class="cpd-field-label" for="cis-f-search">Search</label>
@@ -111,18 +107,18 @@
                            placeholder="Item code or description" />
                 </div>
                 <div class="cpd-field cpd-field-action">
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ApplyFilters"
-                               Disabled="@(isLoading || !fromDate.HasValue || !toDate.HasValue)">
+                    <button type="button" class="btn btn-primary" @onclick="ApplyFilters"
+                            disabled="@(isLoading || !fromDate.HasValue || !toDate.HasValue)">
                         @if (isLoading)
                         {
-                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                            <span>Loading...</span>
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            <span>Loading</span>
                         }
                         else
                         {
                             <span>@(hasLoadedData ? "Reload items" : "Load items")</span>
                         }
-                    </MudButton>
+                    </button>
                 </div>
             </div>
         </section>
@@ -182,16 +178,21 @@
             <section class="cpd-panel cpd-ledger">
                 <div class="cpd-panel-head">
                     <h5>Items</h5>
-                    @* The breakdown is four more columns, not a different table, so it is
-                       a state of this panel rather than a filter above it. *@
-                    <button type="button" class="btn btn-outline-primary btn-sm" @onclick="ToggleBreakdown"
-                            aria-pressed="@showBreakdown">
-                        <i class="ph @(showBreakdown ? "ph-eye-slash" : "ph-eye")"></i>
-                        @(showBreakdown ? "Hide breakdown" : "Show breakdown")
-                    </button>
-                    <span class="cpd-panel-total">
-                        Net <strong>@FormatCurrency(shown.Sum(i => i.NetAmount))</strong>
-                    </span>
+                    @* The toggle and the total share the trailing group: the total keeps
+                       the far edge every other panel puts it on, and the button sits with
+                       it rather than crowding the title. The breakdown is four more
+                       columns, not a different table, so it is a state of this panel
+                       rather than a filter above it. *@
+                    <div class="cpd-panel-tools">
+                        <button type="button" class="btn btn-outline-primary btn-sm" @onclick="ToggleBreakdown"
+                                aria-pressed="@showBreakdown">
+                            <i class="ph @(showBreakdown ? "ph-eye-slash" : "ph-eye")"></i>
+                            @(showBreakdown ? "Hide breakdown" : "Show breakdown")
+                        </button>
+                        <span class="cpd-panel-total">
+                            Net <strong>@FormatCurrency(shown.Sum(i => i.NetAmount))</strong>
+                        </span>
+                    </div>
                 </div>
 
                 @if (shown.Any())
@@ -310,6 +311,31 @@
     private bool isMultiAccount;
     private string selectedAccountFilter = "";
     private List<LinkedAccountInfo> linkedAccounts = new();
+
+    // Both lists come from the loaded data, so they are computed rather than static.
+    // No family anywhere, the "All …" rows included: an account and a category carry
+    // no state beyond their text, so a swatch on the first row alone would read as a
+    // mistake — and NocturneSelectOption.All() gives that row the neutral one, which
+    // is the system's slate rather than anything in the portal's palette.
+    private IEnumerable<NocturneSelectOption<string>> AccountFilterOptions =>
+        linkedAccounts
+            .Select(account => new NocturneSelectOption<string>(
+                account.CardCode,
+                string.IsNullOrEmpty(account.Currency)
+                    ? account.CardName
+                    : $"{account.CardName} ({account.Currency})")
+            {
+                Hint = account.CardCode
+            })
+            .Prepend(AllRow("All accounts"));
+
+    private IEnumerable<NocturneSelectOption<string>> CategoryFilterOptions =>
+        availableCategories
+            .Select(category => new NocturneSelectOption<string>(category, category))
+            .Prepend(AllRow("All categories"));
+
+    private static NocturneSelectOption<string> AllRow(string label) =>
+        new(string.Empty, label) { RuleAfter = true, IsUnset = true };
 
     private IEnumerable<ItemCodeSummary> filteredItems =>
         ApplySort(ApplyFilter(items ?? Enumerable.Empty<ItemCodeSummary>()));

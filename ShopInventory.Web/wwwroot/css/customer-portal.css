@@ -153,6 +153,46 @@
     --cpx-scheme: dark;
 }
 
+/* The shared Nocturne controls, on the portal's palette ---------------------
+   NocturneDateField and NocturneSelect are drawn for any Nocturne page, so they
+   read their colours from `--noct-*` (nocturne-tokens.css) — which is a violet
+   accent on a blue-grey ground, and arrives looking like a visitor on a teal
+   page. A component cannot see `--cpx-*` from inside itself, but it does see
+   whatever `--noct-*` is in force where it sits, so the portal restates that
+   layer over its own tokens here and both controls come out in the portal's
+   colours: the selected day, the chosen row, the focus ring, the menu.
+
+   Only the tokens those two read are listed, and only the ones that carry the
+   palette — the radii, the family swatches and the pop shadow are the system's
+   and stay. Every value is an alias, so the dark theme comes free: these
+   re-resolve when `.dark-theme .cpx` above swaps the portal's own.
+
+   On the element rather than in the block above it purely to keep the portal's
+   own palette readable as one list. A declaration here beats the `:root` one by
+   inheritance, not by specificity — different elements — so load order against
+   nocturne-tokens.css does not come into it. */
+.cpx {
+    --noct-surface: var(--cpx-surface);
+    --noct-ink: var(--cpx-ink);
+    --noct-ink-2: var(--cpx-ink-2);
+    --noct-mute: var(--cpx-mute);
+    --noct-mute-2: var(--cpx-mute-2);
+    --noct-mute-3: var(--cpx-mute-2);
+    --noct-faint: var(--cpx-faint);
+    --noct-placeholder: var(--cpx-placeholder);
+    --noct-divider: var(--cpx-divider);
+    --noct-rule: var(--cpx-rowline);
+    --noct-hover: var(--cpx-hover);
+    --noct-press: var(--cpx-press);
+    --noct-field-bg: var(--cpx-field);
+    --noct-field-edge: var(--cpx-edge-hi);
+    --noct-thumb: var(--cpx-edge-hi);
+    --noct-accent: var(--cpx-accent);
+    --noct-accent-rgb: var(--cpx-accent-rgb);
+    --noct-accent-text: var(--cpx-accent-text);
+    --noct-on-accent: var(--cpx-on-accent);
+}
+
 /* ==========================================================================
    Shell
 
@@ -1675,6 +1715,23 @@
     white-space: nowrap;
 }
 
+/* A panel head that carries a control as well as a total: the two travel
+   together on the trailing edge, so the total keeps the position it has on
+   every other panel and the control does not crowd the title. The auto margin
+   moves to the group — two of them in one flex row would split the slack
+   between them and leave the control adrift in the middle. */
+.cpx .cpd-panel-tools {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--cpx-s2) var(--cpx-s4);
+    margin-left: auto;
+}
+
+.cpx .cpd-panel-tools .cpd-panel-total {
+    margin-left: 0;
+}
+
 .cpx .cpd-panel-total strong {
     font-weight: 600;
     color: var(--cpx-ink);
@@ -1910,6 +1967,20 @@
     color: var(--cpx-ink);
 }
 
+/* The ledgers carry `mobile-card-table` for the stacked-card breakpoint, and
+   app.css paints `.dark-theme .mobile-card-table tbody tr, … tfoot tr` a slate
+   #0f172a at (0,2,2) — so in dark theme every row and the totals line came out
+   navy on the panel's green surface while the panel around them stayed right.
+   It fails in dark only, which is why it read as "these tables look a bit
+   different" rather than as broken. Three classes to out-specify it, in the
+   same shape the `th` rules above use, and transparent so the row shows the
+   panel it sits on rather than restating its colour. */
+.cpx.customer-shell .cpd-table tbody tr,
+.cpx.customer-shell .cpd-table tfoot tr {
+    background: transparent;
+    border-color: var(--cpx-rowline);
+}
+
 /* The row as well as the cell: app.css tints `table tbody tr:hover` at (0,3,3)
    in the portal's own teal, and a transparent cell lets it through. */
 .cpx.customer-shell .cpd-table tbody tr:hover,
@@ -2063,6 +2134,44 @@
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 11.5rem), 1fr));
     gap: var(--cpx-s4);
     align-items: end;
+
+    /* The shared controls' metrics, so a calendar field, a dropdown and a
+       `.cpd-input` on the same row are one box: the portal's field, the
+       portal's edge and radius, at one height. Both components read these as
+       `var()` fallbacks at the control, which is what lets a row set them for
+       whatever it happens to hold.
+
+       The height is stated rather than left to each control's own padding:
+       `.cpd-input` is a Bootstrap-line-height box around fluid type, so it
+       lands between 41 and 42px across the clamp's range while the two
+       components sit on their own line-height — a row that agreed at one
+       window width would be a pixel out at another. 42px is where the tallest
+       of them settles, so nothing is squeezed.
+
+       A page that passes `ndf-bs` / `nsel-bs` declares the same names on the
+       control itself and keeps the Bootstrap fit — that is how the other
+       portal pages still get 44px while this row does not. */
+    --cpd-field-h: 42px;
+
+    --ndf-h: var(--cpd-field-h);
+    --ndf-pad-y: var(--cpx-s3);
+    --ndf-pad-x: var(--cpx-s4);
+    --ndf-fs: var(--cpx-text-sm);
+    --ndf-radius: var(--cpx-r-md);
+    --ndf-fill: var(--cpx-field);
+    --ndf-edge: var(--cpx-edge);
+
+    --nsel-h: var(--cpd-field-h);
+    --nsel-pad-y: var(--cpx-s3);
+    --nsel-pad-x: var(--cpx-s4);
+    --nsel-fs: var(--cpx-text-sm);
+    --nsel-radius: var(--cpx-r-md);
+    --nsel-fill: var(--cpx-field);
+    --nsel-edge: var(--cpx-edge);
+    --nsel-edge-hi: var(--cpx-edge-hi);
+    /* The grid cell already sets the width; the trigger's own 150px floor would
+       only stop the row collapsing on a narrow screen. */
+    --nsel-min-w: 0;
 }
 
 .cpx .cpd-field {
@@ -2089,6 +2198,17 @@
 .cpx .cpd-field-action .btn,
 .cpx .cpd-field-action .mud-button-root {
     width: 100%;
+}
+
+/* The two controls a filter row holds that are not the shared components: the
+   plain input and the load button. Same height as the rest of the row, from the
+   same value — `.btn`'s own 40px floor and `.cpd-input`'s 40px would each land
+   a pixel or two short of it. The fallback is that floor, so a `.cpd-field` in
+   some other grid keeps the height it has today. */
+.cpx .cpd-filters .cpd-input,
+.cpx .cpd-filters .cpd-field-action .btn,
+.cpx .cpd-filters .cpd-field-action .mud-button-root {
+    min-height: var(--cpd-field-h, 40px);
 }
 
 /* MudSelect renders its own floating label, so a `cpd-field-label` above it

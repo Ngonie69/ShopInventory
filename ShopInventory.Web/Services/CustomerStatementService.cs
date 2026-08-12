@@ -492,16 +492,20 @@ public class CustomerStatementService : ICustomerStatementService
             var itemMap = new Dictionary<string, ItemCodeSummary>(StringComparer.OrdinalIgnoreCase);
             var accountDataTasks = allCardCodes.Select(async accountCardCode =>
             {
+                // The lines are the whole point here � the summary aggregates them by item code �
+                // and both lists answer with headers only unless asked.
                 var invoiceTask = _invoiceService.GetInvoicesByCustomerAsync(
                     accountCardCode,
                     fromDate,
-                    toDate);
+                    toDate,
+                    includeLines: true);
                 var creditNoteTask = _creditNoteService.GetCreditNotesAsync(
                     page: 1,
                     pageSize: 1000,
                     cardCode: accountCardCode,
                     fromDate: fromDate,
-                    toDate: toDate);
+                    toDate: toDate,
+                    includeLines: true);
                 await Task.WhenAll(invoiceTask, creditNoteTask);
                 return (
                     Invoices: invoiceTask.Result?.Invoices ?? [],
@@ -576,6 +580,25 @@ public class CustomerStatementService : ICustomerStatementService
                             summary.ItemGroup = DeriveItemGroup(line.ItemDescription);
                         }
                     }
+                }
+            }
+
+            // Invoices with no lines summarise to nothing, and an empty summary is
+            // indistinguishable from a customer who bought nothing — which is exactly
+            // how this page spent its time reporting "No invoiced items in the selected
+            // period" while the invoices were there. Say so in the log instead.
+            if (itemMap.Count == 0)
+            {
+                var invoiceCount = accountData.Sum(data => data.Invoices.Count);
+                if (invoiceCount > 0)
+                {
+                    _logger.LogWarning(
+                        "Item summary for {CardCode} found {InvoiceCount} invoice(s) between {From:yyyy-MM-dd} and " +
+                        "{To:yyyy-MM-dd} but no document lines on any of them — the list was asked for without lines",
+                        cardCode,
+                        invoiceCount,
+                        fromDate,
+                        toDate);
                 }
             }
 

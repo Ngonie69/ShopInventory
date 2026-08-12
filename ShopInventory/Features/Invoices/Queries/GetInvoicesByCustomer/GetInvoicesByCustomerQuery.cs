@@ -11,5 +11,10 @@ public sealed record GetInvoicesByCustomerQuery(
     int? Page,
     int? PageSize,
     Guid? RequestingUserId = null,
-    bool RestrictToAssignedCustomers = false
+    bool RestrictToAssignedCustomers = false,
+
+    // Lines are off by default: a list only needs the headers, and asking SAP to expand
+    // DocumentLines cuts the page size and makes the walk several times slower. Callers that
+    // aggregate by item (the customer portal's item summary) ask for them explicitly.
+    bool IncludeLines = false
 ) : IRequest<ErrorOr<InvoiceDateResponseDto>>;

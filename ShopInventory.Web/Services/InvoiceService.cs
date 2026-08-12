@@ -10,7 +10,7 @@ public interface IInvoiceService
     Task<InvoiceDto?> GetInvoiceByDocEntryAsync(int docEntry);
     Task<InvoiceDto?> GetInvoiceByDocNumAsync(int docNum);
     Task<FiscalizationResult> FiscalizeInvoiceAsync(int docEntry);
-    Task<InvoiceDateResponse?> GetInvoicesByCustomerAsync(string cardCode, DateTime? fromDate = null, DateTime? toDate = null, int? page = null, int? pageSize = null);
+    Task<InvoiceDateResponse?> GetInvoicesByCustomerAsync(string cardCode, DateTime? fromDate = null, DateTime? toDate = null, int? page = null, int? pageSize = null, bool includeLines = false);
 
     /// <summary>
     /// Invoices still carrying a balance across a set of accounts, filtered by SAP.
@@ -136,7 +136,11 @@ public class InvoiceService : IInvoiceService
         }
     }
 
-    public async Task<InvoiceDateResponse?> GetInvoicesByCustomerAsync(string cardCode, DateTime? fromDate = null, DateTime? toDate = null, int? page = null, int? pageSize = null)
+    /// <summary>
+    /// Invoices for one customer. <paramref name="includeLines"/> asks the API to expand the
+    /// document lines; without it the response carries headers only, which is all a list needs.
+    /// </summary>
+    public async Task<InvoiceDateResponse?> GetInvoicesByCustomerAsync(string cardCode, DateTime? fromDate = null, DateTime? toDate = null, int? page = null, int? pageSize = null, bool includeLines = false)
     {
         try
         {
@@ -150,6 +154,8 @@ public class InvoiceService : IInvoiceService
                 queryParams.Add($"page={page.Value}");
             if (pageSize.HasValue)
                 queryParams.Add($"pageSize={pageSize.Value}");
+            if (includeLines)
+                queryParams.Add("includeLines=true");
             if (queryParams.Count > 0)
                 url += "?" + string.Join("&", queryParams);
             return await _httpClient.GetFromJsonAsync<InvoiceDateResponse>(url);
