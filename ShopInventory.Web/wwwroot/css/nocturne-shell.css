@@ -966,6 +966,57 @@ html body .kf-drawer .kf-sidebar-scroll .nav-section-label.admin-label {
     padding-top: 18px !important;
 }
 
+/* Each heading is its own group's toggle: a <button> so it is reachable by
+   keyboard and announces open/closed, styled back down to the label it was.
+   Every visual rule above is keyed on .nav-section-label, which the button
+   still carries, so the two forms are the same object — only font-family has
+   to be restated, since a button does not inherit it. */
+html body .kf-drawer .kf-sidebar-scroll .nav-section-toggle {
+    align-items: center !important;
+    appearance: none !important;
+    background: none;
+    border: 0 !important;
+    border-radius: 6px !important;
+    cursor: pointer !important;
+    display: flex !important;
+    font-family: inherit !important;
+    gap: 8px !important;
+    justify-content: space-between !important;
+    text-align: left !important;
+    width: 100% !important;
+}
+
+html body .kf-drawer .kf-sidebar-scroll .nav-section-toggle:hover {
+    color: var(--kfn-text-2) !important;
+}
+
+html body .kf-drawer .kf-sidebar-scroll .nav-section-caret {
+    flex: 0 0 auto !important;
+    font-size: 11px !important;
+    line-height: 1 !important;
+    opacity: .75 !important;
+    transition: transform .14s ease !important;
+}
+
+/* Closed points the caret at the group it is holding shut. */
+html body .kf-drawer .kf-sidebar-scroll .nav-section-toggle[aria-expanded="false"] .nav-section-caret {
+    transform: rotate(-90deg) !important;
+}
+
+/* The rows of one group. .nav-sidebar is the flex column their geometry hangs
+   off — an <a> is inline otherwise, and neither min-height nor the vertical
+   padding would apply — so the group restates the column it took them out of. */
+html body .kf-drawer .kf-sidebar-scroll .nav-group-items {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 2px !important;
+}
+
+/* Beats the rule above, which is what [hidden] alone cannot do. */
+html body .kf-drawer .kf-sidebar-scroll .nav-group-items[hidden] {
+    display: none !important;
+}
+
 /* Rows: 32px tall, 12.5px label, 16px glyph. Long labels wrap onto a
    second line rather than being clipped — a handful of the report links
    are wider than the column. */
@@ -1081,12 +1132,14 @@ html body .kf-drawer .kf-sidebar-scroll .nav-bottom-spacer {
 .kf-notification-view-all:focus-visible,
 .kf-sidebar-brand .kf-sidebar-close:focus-visible,
 html body .kf-drawer .kf-sidebar-scroll .snav-link:focus-visible,
+html body .kf-drawer .kf-sidebar-scroll .nav-section-toggle:focus-visible,
 #mud-snackbar-container .mud-snackbar .mud-snackbar-content-action > button:focus-visible {
     outline: 2px solid var(--kfn-accent) !important;
     outline-offset: 2px !important;
 }
 
-html body .kf-drawer .kf-sidebar-scroll .snav-link:focus-visible {
+html body .kf-drawer .kf-sidebar-scroll .snav-link:focus-visible,
+html body .kf-drawer .kf-sidebar-scroll .nav-section-toggle:focus-visible {
     outline-offset: -2px !important;
 }
 
