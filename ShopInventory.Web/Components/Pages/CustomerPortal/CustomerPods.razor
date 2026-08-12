@@ -103,64 +103,41 @@
                 </h5>
             </div>
             <div class="card-body">
+                @* Every control here is one of the portal's own. NocturneDateField keeps the
+                   shorthand entry FlexibleDatePicker was written for and draws the portal's
+                   calendar; NocturneSelect draws its menu in page DOM. Both wear the `-bs`
+                   fit rather than the portal's field metrics, because this row is still a
+                   Bootstrap one — the neighbours are `.form-label` columns, not `.cpd-field`
+                   cells. See .claude/skills/nocturne-dropdowns-and-dates. *@
                 <div class="row g-3 align-items-end">
-                    @* NocturneDateField rather than FlexibleDatePicker: it keeps the shorthand
-                       entry that component was written for and draws the same calendar as the
-                       rest of the portal, instead of MudBlazor's. *@
                     <div class="col-md-3">
                         <label class="form-label small fw-semibold text-uppercase text-muted" for="cpod-f-from">From</label>
-                        <NocturneDateField Id="cpod-f-from" Class="ndf-bs" @bind-Date="fromDate" />
+                        <NocturneDateField Id="cpod-f-from" Class="ndf-bs" @bind-Date="fromDate" AriaLabel="From date" />
                     </div>
                     <div class="col-md-3">
                         <label class="form-label small fw-semibold text-uppercase text-muted" for="cpod-f-to">To</label>
-                        <NocturneDateField Id="cpod-f-to" Class="ndf-bs" @bind-Date="toDate" />
+                        <NocturneDateField Id="cpod-f-to" Class="ndf-bs" @bind-Date="toDate" AriaLabel="To date" />
                     </div>
                     @if (isMultiAccount && linkedAccounts.Any())
                     {
                         <div class="col-md-3">
-                            <MudSelect T="string" Label="Account" Value="@selectedAccountFilter"
-                                       ValueChanged="OnAccountFilterChanged" Variant="Variant.Outlined" Dense="true"
-                                       AnchorOrigin="Origin.BottomCenter">
-                                <MudSelectItem T="string" Value="@("")">All Accounts</MudSelectItem>
-                                @foreach (var account in linkedAccounts)
-                                {
-                                    <MudSelectItem T="string" Value="@account.CardCode">
-                                        @account.CardName @(!string.IsNullOrEmpty(account.Currency) ? $"({account.Currency})" : "")
-                                        — @account.CardCode
-                                    </MudSelectItem>
-                                }
-                            </MudSelect>
+                            <label class="form-label small fw-semibold text-uppercase text-muted" for="cpod-f-account">Account</label>
+                            @* The lambda is not a style choice: passing the method group makes
+                               TValue inference fail on an error that names EventCallback. *@
+                            <NocturneSelect Id="cpod-f-account" Class="nsel-bs" TValue="string"
+                                            Options="AccountFilterOptions" Value="@selectedAccountFilter"
+                                            ValueChanged="@(code => OnAccountFilterChanged(code ?? string.Empty))"
+                                            Caption="Filter by account" AriaLabel="Filter by account"
+                                            Placeholder="All accounts" />
                         </div>
                         <div class="col-md-3">
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="LoadData"
-                                       Disabled="@isLoading">
-                                @if (isLoading)
-                                {
-                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                                    <span>Loading...</span>
-                                }
-                                else
-                                {
-                                    <span>Load PODs</span>
-                                }
-                            </MudButton>
+                            @LoadButton()
                         </div>
                     }
                     else
                     {
                         <div class="col-md-6">
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="LoadData"
-                                       Disabled="@isLoading">
-                                @if (isLoading)
-                                {
-                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                                    <span>Loading...</span>
-                                }
-                                else
-                                {
-                                    <span>Load PODs</span>
-                                }
-                            </MudButton>
+                            @LoadButton()
                         </div>
                     }
                 </div>
@@ -405,14 +382,16 @@
                                                             of @podResponse.TotalCount
                                                         </span>
                                                         <div class="cpod-pagination-btns">
-                                                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(currentPage <= 1)"
-                                                                       OnClick="() => LoadPage(currentPage - 1)">
+                                                            <button type="button" class="btn btn-outline-primary btn-sm"
+                                                                    disabled="@(currentPage <= 1)"
+                                                                    @onclick="() => LoadPage(currentPage - 1)">
                                                                 <i class="bi bi-chevron-left me-1"></i>Previous
-                                                            </MudButton>
-                                                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(!podResponse.HasMore)"
-                                                                       OnClick="() => LoadPage(currentPage + 1)">
+                                                            </button>
+                                                            <button type="button" class="btn btn-outline-primary btn-sm"
+                                                                    disabled="@(!podResponse.HasMore)"
+                                                                    @onclick="() => LoadPage(currentPage + 1)">
                                                                 Next<i class="bi bi-chevron-right ms-1"></i>
-                                                            </MudButton>
+                                                            </button>
                                                         </div>
                                                     </div>
                                                 }
@@ -441,20 +420,24 @@
                                     <div class="cpod-viewer-header">
                                         <h6 class="mb-0 text-truncate">@viewerFileName</h6>
                                         <div class="d-flex gap-2">
-                                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
-                                                       OnClick="() => DownloadPod(viewerPod!)">
+                                            <button type="button" class="btn btn-outline-primary btn-sm"
+                                                    @onclick="() => DownloadPod(viewerPod!)">
                                                 <i class="bi bi-download me-1"></i> Download
-                                            </MudButton>
-                                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small" OnClick="CloseViewer">
+                                            </button>
+                                            <button type="button" class="btn btn-outline-primary btn-sm"
+                                                    @onclick="CloseViewer" aria-label="Close the viewer">
                                                 <i class="bi bi-x-lg"></i>
-                                            </MudButton>
+                                            </button>
                                         </div>
                                     </div>
                                     <div class="cpod-viewer-body">
                                         @if (isLoadingViewer)
                                         {
                                             <div class="d-flex justify-content-center align-items-center h-100">
-                                                <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+                                                <div class="spinner-border" role="status"
+                                                     style="width: 2.25rem; height: 2.25rem;">
+                                                    <span class="visually-hidden">Loading the document…</span>
+                                                </div>
                                             </div>
                                         }
                                         else if (viewerMimeType?.StartsWith("image/") == true)
@@ -1119,6 +1102,28 @@
     private string selectedAccountFilter = "";
     private List<LinkedAccountInfo> linkedAccounts = new();
     private string? loadErrorMessage;
+
+    // Computed rather than static: the list arrives with the session.
+    private IEnumerable<NocturneSelectOption<string>> AccountFilterOptions =>
+        PortalFilterOptions.Accounts(linkedAccounts);
+
+    /// <summary>
+    /// The load button, which sits in a different column depending on whether the account
+    /// filter is there to take one. A fragment rather than two copies of the markup: the
+    /// two used to drift, and the disabled and loading states have to agree.
+    /// </summary>
+    private RenderFragment LoadButton() =>
+    @<button type="button" class="btn btn-primary btn-field-bs w-100" @onclick="LoadData" disabled="@isLoading">
+        @if (isLoading)
+        {
+            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            <span>Loading</span>
+        }
+        else
+        {
+            <span>Load PODs</span>
+        }
+    </button>;
 
     // Viewer state
     private bool showViewer;

@@ -1306,58 +1306,37 @@
     color: var(--cpx-accent);
 }
 
+/* Inside a filled button that colour is the ground the spinner is standing on,
+   so a loading button showed its label and nothing turning beside it. The
+   button's own ink instead — `currentColor` in a `color` property resolves to
+   the inherited value, which is what `.btn-primary` set. The outline buttons
+   are left alone: accent on transparent is exactly right. */
+.cpx .btn-primary .spinner-border {
+    color: currentColor;
+}
+
+/* A button standing in a Bootstrap field row beside `ndf-bs` / `nsel-bs`
+   controls. Those are 44px — app.css's own `.form-control` height, which is
+   what the `-bs` variants are matched to — while `.cpx .btn` is 40px, and four
+   pixels between two controls on one row reads as a mistake. /customer-portal/pods
+   is the one page still built that way. */
+.cpx .btn-field-bs {
+    min-height: 44px;
+}
+
 /* MudBlazor controls ------------------------------------------------------
-   Two classes deep so these out-specify app.css's global `.dark-theme`
-   control rules regardless of stylesheet order. */
+   The `.mud-input-*` and `.mud-button-*` block that used to sit here is gone.
+   No portal page renders a MudBlazor input or button any more: the filter
+   dropdowns are NocturneSelect, the dates NocturneDateField, and every button
+   is a `.btn` dressed by this sheet. Those rules were dressing a control that
+   is no longer in the portal, and left behind they would say the opposite.
 
-.cpx .mud-input-outlined-border {
-    border-color: var(--cpx-edge) !important;
-    border-radius: var(--cpx-r-md) !important;
-}
-
-.cpx .mud-input-outlined:hover .mud-input-outlined-border {
-    border-color: var(--cpx-edge-hi) !important;
-}
-
-.cpx .mud-input.mud-input-outlined {
-    background: var(--cpx-field);
-    border-radius: var(--cpx-r-md);
-    color: var(--cpx-ink);
-}
-
-.cpx .mud-input-root,
-.cpx .mud-select-input .mud-input-slot {
-    color: var(--cpx-ink) !important;
-    font-size: var(--cpx-text-sm);
-}
-
-.cpx .mud-input-label {
-    color: var(--cpx-mute-2) !important;
-    font-size: var(--cpx-text-sm);
-}
-
-.cpx .mud-input-control:focus-within .mud-input-outlined-border {
-    border-color: var(--cpx-accent) !important;
-    border-width: 1px !important;
-}
-
-.cpx .mud-button-root {
-    border-radius: var(--cpx-r-md);
-    font-weight: 600;
-    letter-spacing: 0;
-    text-transform: none;
-    min-height: 40px;
-}
-
-.cpx .mud-button-filled.mud-button-filled-primary {
-    background-color: var(--cpx-accent);
-    color: var(--cpx-on-accent);
-}
-
-.cpx .mud-button-filled.mud-button-filled-dark {
-    background-color: var(--cpx-ink);
-    color: var(--cpx-bg);
-}
+   MudBlazor still owns the frame — MudLayout, MudAppBar and MudDrawer, which
+   `.cpx` sits on — so the rules that negotiate with it are still live, up in
+   the Shell block: --mud-drawer-width-left, .mud-main-content's padding and
+   the app bar's toolbar height. The providers (dialog, snackbar, popover) are
+   rendered outside `.cpx` by CustomerPortalLayout, so nothing scoped here
+   reaches them at all. */
 
 /* Pagination -------------------------------------------------------------- */
 
@@ -2195,8 +2174,7 @@
     justify-content: flex-end;
 }
 
-.cpx .cpd-field-action .btn,
-.cpx .cpd-field-action .mud-button-root {
+.cpx .cpd-field-action .btn {
     width: 100%;
 }
 
@@ -2206,17 +2184,8 @@
    a pixel or two short of it. The fallback is that floor, so a `.cpd-field` in
    some other grid keeps the height it has today. */
 .cpx .cpd-filters .cpd-input,
-.cpx .cpd-filters .cpd-field-action .btn,
-.cpx .cpd-filters .cpd-field-action .mud-button-root {
+.cpx .cpd-filters .cpd-field-action .btn {
     min-height: var(--cpd-field-h, 40px);
-}
-
-/* MudSelect renders its own floating label, so a `cpd-field-label` above it
-   would state the same word twice. Those fields carry the label only on the
-   control — this keeps the control's own box the same height as a
-   NocturneDateField beside it. */
-.cpx .cpd-field .mud-input-control {
-    margin: 0;
 }
 
 /* Pager --------------------------------------------------------------------

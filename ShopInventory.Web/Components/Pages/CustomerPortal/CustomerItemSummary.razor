@@ -313,29 +313,13 @@
     private List<LinkedAccountInfo> linkedAccounts = new();
 
     // Both lists come from the loaded data, so they are computed rather than static.
-    // No family anywhere, the "All …" rows included: an account and a category carry
-    // no state beyond their text, so a swatch on the first row alone would read as a
-    // mistake — and NocturneSelectOption.All() gives that row the neutral one, which
-    // is the system's slate rather than anything in the portal's palette.
     private IEnumerable<NocturneSelectOption<string>> AccountFilterOptions =>
-        linkedAccounts
-            .Select(account => new NocturneSelectOption<string>(
-                account.CardCode,
-                string.IsNullOrEmpty(account.Currency)
-                    ? account.CardName
-                    : $"{account.CardName} ({account.Currency})")
-            {
-                Hint = account.CardCode
-            })
-            .Prepend(AllRow("All accounts"));
+        PortalFilterOptions.Accounts(linkedAccounts);
 
     private IEnumerable<NocturneSelectOption<string>> CategoryFilterOptions =>
         availableCategories
             .Select(category => new NocturneSelectOption<string>(category, category))
-            .Prepend(AllRow("All categories"));
-
-    private static NocturneSelectOption<string> AllRow(string label) =>
-        new(string.Empty, label) { RuleAfter = true, IsUnset = true };
+            .Prepend(PortalFilterOptions.All("All categories"));
 
     private IEnumerable<ItemCodeSummary> filteredItems =>
         ApplySort(ApplyFilter(items ?? Enumerable.Empty<ItemCodeSummary>()));

@@ -146,10 +146,17 @@
                     Changing it signs you out of the portal.
                 </p>
                 <div class="cpd-form-actions">
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" ButtonType="ButtonType.Submit"
-                               Disabled="@isSavingPassword">
-                        @(isSavingPassword ? "Updating..." : "Update password")
-                    </MudButton>
+                    <button type="submit" class="btn btn-primary" disabled="@isSavingPassword">
+                        @if (isSavingPassword)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            <span>Updating</span>
+                        }
+                        else
+                        {
+                            <span>Update password</span>
+                        }
+                    </button>
                 </div>
             </EditForm>
         </section>
