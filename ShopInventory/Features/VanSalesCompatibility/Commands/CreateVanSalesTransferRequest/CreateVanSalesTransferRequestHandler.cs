@@ -33,17 +33,29 @@ public sealed class CreateVanSalesTransferRequestHandler(
                 "An assigned destination warehouse is required for stock transfer requests.");
         }
 
-        if (string.IsNullOrWhiteSpace(command.Request.Warehouse))
+        // The depot the van loads from, from the account rather than the payload. The handset's own
+        // warehouse field was a picker over one hardcoded name — "Graniteside Center" — which is not a
+        // code SAP knows and was wrong for every Bulawayo van regardless. Whatever it sends is ignored.
+        var sourceWarehouseCode = VanSalesCompatibilityMapper.ResolveSupplyingWarehouseCode(user);
+        if (string.IsNullOrWhiteSpace(sourceWarehouseCode))
         {
             return Error.Validation(
                 "VanSalesCompatibility.MissingSourceWarehouse",
-                "A source warehouse is required for stock transfer requests.");
+                "This van has no supplying warehouse assigned. Set one on the account before requesting stock.");
+        }
+
+        if (string.Equals(sourceWarehouseCode, destinationWarehouseCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return Error.Validation(
+                "VanSalesCompatibility.SourceIsDestination",
+                "The van's supplying warehouse is the van itself. Correct the assignment on the account.");
         }
 
         var transferRequest = VanSalesCompatibilityMapper.MapTransferRequest(
             command.Request,
             user,
-            destinationWarehouseCode);
+            destinationWarehouseCode,
+            sourceWarehouseCode);
 
         var result = await mediator.Send(
             new CreateTransferRequestCommand(transferRequest, command.UserId.ToString()),

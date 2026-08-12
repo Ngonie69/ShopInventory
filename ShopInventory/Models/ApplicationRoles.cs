@@ -166,6 +166,14 @@ public static class ApplicationRoles
     public static bool RequiresAssignedCostCentreCode(string? role)
         => UsesLegacyRouteCustomerScope(role);
 
+    /// <summary>
+    /// Whether the role is loaded from a depot, and so needs the depot naming itself on the account.
+    /// Only the van roles are: everyone else either issues transfer requests by hand, choosing a source
+    /// each time, or never issues one at all.
+    /// </summary>
+    public static bool RequiresSupplyingWarehouseCode(string? role)
+        => UsesLegacyRouteCustomerScope(role);
+
     public static string DescribeAssignableRoles() => string.Join(", ", AssignableRoles);
 
     private static bool Contains(IEnumerable<string> roles, string? role)

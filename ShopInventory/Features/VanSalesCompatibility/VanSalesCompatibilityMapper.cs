@@ -58,7 +58,8 @@ public static partial class VanSalesCompatibilityMapper
                 AssignedCustomerCodes = assignedCustomerCodes,
                 AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
                 AssignedBusinessPartnerName = assignedBusinessPartnerName ?? string.Empty,
-                AssignedCostCentreCode = user.AssignedCostCentreCode
+                AssignedCostCentreCode = user.AssignedCostCentreCode,
+                SupplyingWarehouseCode = ResolveSupplyingWarehouseCode(user)
             },
             Token = authResponse.AccessToken,
             Shop = shops.ToList(),
@@ -195,10 +196,19 @@ public static partial class VanSalesCompatibilityMapper
         };
     }
 
+    /// <summary>
+    /// A van's stock request: from the depot it is loaded at, to the van itself.
+    /// </summary>
+    /// <remarks>
+    /// The source is passed in from the account's assignment rather than read off the request. The
+    /// handset's own warehouse field named a warehouse in words ("Graniteside Center"), which is not a
+    /// code SAP knows, and a van's depot is fixed anyway — so whatever it sends there is ignored.
+    /// </remarks>
     public static CreateDesktopTransferRequestDto MapTransferRequest(
         VanSalesTransferRequest request,
         User user,
-        string destinationWarehouseCode)
+        string destinationWarehouseCode,
+        string sourceWarehouseCode)
     {
         var requesterName = string.Join(" ", new[] { user.FirstName, user.LastName }
             .Where(value => !string.IsNullOrWhiteSpace(value)))
@@ -206,7 +216,7 @@ public static partial class VanSalesCompatibilityMapper
 
         return new CreateDesktopTransferRequestDto
         {
-            FromWarehouse = request.Warehouse.Trim(),
+            FromWarehouse = sourceWarehouseCode,
             ToWarehouse = destinationWarehouseCode,
             DocDate = NormalizeDocumentDate(request.DocDate),
             DueDate = NormalizeDocumentDate(request.DocDate),
@@ -220,7 +230,7 @@ public static partial class VanSalesCompatibilityMapper
             {
                 ItemCode = item.Code.Trim(),
                 Quantity = item.Quantity ?? 0,
-                FromWarehouseCode = request.Warehouse.Trim(),
+                FromWarehouseCode = sourceWarehouseCode,
                 ToWarehouseCode = destinationWarehouseCode
             }).ToList()
         };
@@ -566,6 +576,18 @@ public static partial class VanSalesCompatibilityMapper
         return string.IsNullOrWhiteSpace(user.AssignedCostCentreCode)
             ? null
             : user.AssignedCostCentreCode.Trim();
+    }
+
+    /// <summary>
+    /// The depot the van is loaded from. Null when the account has not been assigned one — there is
+    /// nothing sensible to guess: sending a Bulawayo van's request to the Harare depot would have it
+    /// picked and packed 440km from the van waiting for it.
+    /// </summary>
+    public static string? ResolveSupplyingWarehouseCode(User user)
+    {
+        return string.IsNullOrWhiteSpace(user.SupplyingWarehouseCode)
+            ? null
+            : user.SupplyingWarehouseCode.Trim();
     }
 
     /// <summary>

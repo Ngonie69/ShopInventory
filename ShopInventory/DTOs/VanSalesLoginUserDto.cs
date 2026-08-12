@@ -52,4 +52,15 @@ public class VanSalesLoginUserDto
 
     [JsonPropertyName("assigned_cost_centre_code")]
     public string? AssignedCostCentreCode { get; set; }
+
+    /// <summary>
+    /// The depot this van is loaded from — where its stock requests draw from.
+    /// </summary>
+    /// <remarks>
+    /// The handset used to choose this itself from a hardcoded list of one, and sent a warehouse *name*
+    /// rather than a code. It is assigned per van on the server now, so the handset only displays it.
+    /// Empty when the account has no assignment, which the stock request endpoint rejects outright.
+    /// </remarks>
+    [JsonPropertyName("supplying_warehouse_code")]
+    public string? SupplyingWarehouseCode { get; set; }
 }

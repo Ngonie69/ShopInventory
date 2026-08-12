@@ -496,6 +496,8 @@ public class UserModel
     public List<string> AssignedCustomerCodes { get; set; } = new();
     public string? AssignedBusinessPartnerCode { get; set; }
     public string? AssignedCostCentreCode { get; set; }
+    /// <summary>The depot a van loads from — the source of its stock transfer requests.</summary>
+    public string? SupplyingWarehouseCode { get; set; }
     public DateTime? LastLoginAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }

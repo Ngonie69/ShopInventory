@@ -681,6 +681,28 @@
                                                             <small class="um-form-hint">The cost centre applied to this van sales user’s orders and
                                                                 invoices</small>
                                                             </div>
+
+                                                        <div class="um-form-field">
+                                                            <label>Supplying Warehouse <span class="required">*</span></label>
+                                                            @if (isLoadingWarehouses)
+                                                            {
+                                                                <div class="um-spinner-sm"></div>
+                                                            }
+                                                            else
+                                                            {
+                                                                <InputSelect class="um-input" @bind-Value="userModel.SupplyingWarehouseCode">
+                                                                    <option value="">-- Select Warehouse --</option>
+                                                                    @foreach (var wh in SupplyingWarehouseOptions)
+                                                                    {
+                                                                        <option value="@wh.WarehouseCode">@wh.WarehouseCode - @wh.WarehouseName</option>
+                                                                    }
+                                                                </InputSelect>
+                                                            }
+                                                            <ValidationMessage For="@(() => userModel.SupplyingWarehouseCode)" />
+                                                            <small class="um-form-hint">The depot this van is loaded from. Its stock requests are
+                                                                raised against this warehouse — Bulawayo vans from KEFBYC, the rest from
+                                                                KEFGRC</small>
+                                                            </div>
                                                         }
 
                                                     </div>
@@ -1110,6 +1132,39 @@ StringComparison.OrdinalIgnoreCase)))
         }
     }
 
+    /// <summary>
+    /// The depots a van can be loaded from. The van's own warehouse is left out — a transfer request
+    /// from VAN010 to VAN010 moves nothing — and a code already on the account is kept on the list even
+    /// when the warehouse master no longer offers it, so editing an account cannot silently blank it.
+    /// </summary>
+    private IEnumerable<WarehouseDto> SupplyingWarehouseOptions
+    {
+        get
+        {
+            var vanWarehouseCode = userModel.AssignedWarehouseCodes.FirstOrDefault();
+            var selectedWarehouseCode = userModel.SupplyingWarehouseCode;
+
+            var options = availableWarehouses
+                .Where(wh => string.IsNullOrWhiteSpace(vanWarehouseCode) ||
+                             !string.Equals(wh.WarehouseCode, vanWarehouseCode, StringComparison.OrdinalIgnoreCase));
+
+            if (string.IsNullOrWhiteSpace(selectedWarehouseCode) ||
+                options.Any(wh => string.Equals(wh.WarehouseCode, selectedWarehouseCode, StringComparison.OrdinalIgnoreCase)))
+            {
+                return options;
+            }
+
+            return new[]
+            {
+                new WarehouseDto
+                {
+                    WarehouseCode = selectedWarehouseCode,
+                    WarehouseName = "Currently assigned"
+                }
+            }.Concat(options);
+        }
+    }
+
     private async Task LoadCustomers()
     {
         isLoadingCustomers = true;
@@ -1213,7 +1268,8 @@ StringComparison.OrdinalIgnoreCase)))
                 AssignedSection = u.AssignedSection,
                 AssignedCustomerCodes = u.AssignedCustomerCodes ?? new(),
                 AssignedBusinessPartnerCode = u.AssignedBusinessPartnerCode,
-                AssignedCostCentreCode = u.AssignedCostCentreCode
+                AssignedCostCentreCode = u.AssignedCostCentreCode,
+                SupplyingWarehouseCode = u.SupplyingWarehouseCode
             }).ToList() ?? new List<UserDisplayModel>();
             totalPages = result.TotalPages;
         }
@@ -1319,7 +1375,8 @@ StringComparison.OrdinalIgnoreCase)))
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
-            AssignedCostCentreCode = user.AssignedCostCentreCode
+            AssignedCostCentreCode = user.AssignedCostCentreCode,
+            SupplyingWarehouseCode = user.SupplyingWarehouseCode
         };
         showUserModal = true;
     }
@@ -1611,7 +1668,8 @@ StringComparison.OrdinalIgnoreCase)))
                             AssignedSection = user.AssignedSection,
                 AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes),
                 AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
-                AssignedCostCentreCode = user.AssignedCostCentreCode
+                AssignedCostCentreCode = user.AssignedCostCentreCode,
+                SupplyingWarehouseCode = user.SupplyingWarehouseCode
             };
             NormalizeRoleSpecificAssignments(form);
             await UserService.UpdateUserAsync(user.Id, form);
@@ -1658,6 +1716,7 @@ StringComparison.OrdinalIgnoreCase)))
         {
             model.AssignedBusinessPartnerCode = null;
             model.AssignedCostCentreCode = null;
+            model.SupplyingWarehouseCode = null;
         }
         else
         {
@@ -1743,6 +1802,7 @@ StringComparison.OrdinalIgnoreCase)))
         public List<string> AssignedCustomerCodes { get; set; } = new();
         public string? AssignedBusinessPartnerCode { get; set; }
         public string? AssignedCostCentreCode { get; set; }
+        public string? SupplyingWarehouseCode { get; set; }
     }
 
     public class UserFormModel : IValidatableObject
@@ -1775,6 +1835,12 @@ StringComparison.OrdinalIgnoreCase)))
         public List<string> AssignedCustomerCodes { get; set; } = new();
         public string? AssignedBusinessPartnerCode { get; set; }
         public string? AssignedCostCentreCode { get; set; }
+
+        /// <summary>
+        /// The depot the van loads from — the source of its stock transfer requests, as opposed to
+        /// <see cref="AssignedWarehouseCodes"/>, which is the van itself and so their destination.
+        /// </summary>
+        public string? SupplyingWarehouseCode { get; set; }
 
         /// <summary>
         /// Flag to indicate this is a new user (password required)
@@ -1820,6 +1886,18 @@ nameof(AssignedBusinessPartnerCode) });
             {
                 yield return new ValidationResult($"An assigned cost centre is required for {Role} role", new[] {
 nameof(AssignedCostCentreCode) });
+            }
+            if ((Role == "ADR" || Role == "Sales") && string.IsNullOrWhiteSpace(SupplyingWarehouseCode))
+            {
+                yield return new ValidationResult($"A supplying warehouse is required for {Role} role", new[] {
+nameof(SupplyingWarehouseCode) });
+            }
+            if ((Role == "ADR" || Role == "Sales") &&
+                !string.IsNullOrWhiteSpace(SupplyingWarehouseCode) &&
+                AssignedWarehouseCodes.Any(code => string.Equals(code, SupplyingWarehouseCode, StringComparison.OrdinalIgnoreCase)))
+            {
+                yield return new ValidationResult("The supplying warehouse cannot be the van's own warehouse", new[] {
+nameof(SupplyingWarehouseCode) });
             }
         }
     }

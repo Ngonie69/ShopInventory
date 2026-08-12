@@ -400,6 +400,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.Property(u => u.AssignedCostCentreCode)
                 .HasMaxLength(50);
 
+      entity.Property(u => u.SupplyingWarehouseCode)
+                .HasMaxLength(50);
+
       entity.Ignore(u => u.AssignedWarehouseCode);
     });
 

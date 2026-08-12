@@ -115,6 +115,12 @@ public sealed class CreateUserHandler(
             return Errors.UserManagement.CreationFailed($"An assigned cost centre code is required for {request.Role} role");
         }
 
+        if (ApplicationRoles.RequiresSupplyingWarehouseCode(request.Role) &&
+            string.IsNullOrWhiteSpace(request.SupplyingWarehouseCode))
+        {
+            return Errors.UserManagement.CreationFailed($"A supplying warehouse code is required for {request.Role} role");
+        }
+
         List<string> permissions;
         if (request.Permissions is { Count: > 0 })
         {
@@ -167,6 +173,11 @@ public sealed class CreateUserHandler(
         {
             user.AssignedBusinessPartnerCode = request.AssignedBusinessPartnerCode?.Trim();
             user.AssignedCostCentreCode = request.AssignedCostCentreCode?.Trim();
+        }
+
+        if (ApplicationRoles.RequiresSupplyingWarehouseCode(request.Role))
+        {
+            user.SupplyingWarehouseCode = request.SupplyingWarehouseCode?.Trim();
         }
 
         context.Users.Add(user);
@@ -226,6 +237,7 @@ public sealed class CreateUserHandler(
             AssignedCustomerCodes = user.GetCustomerCodes(),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
             AssignedCostCentreCode = user.AssignedCostCentreCode,
+            SupplyingWarehouseCode = user.SupplyingWarehouseCode,
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
             LastLoginAt = user.LastLoginAt
