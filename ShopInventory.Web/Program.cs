@@ -350,6 +350,10 @@ try
     builder.Services.AddScoped<IThemeService, ThemeService>();
     builder.Services.AddScoped<ILocalizationService, LocalizationService>();
 
+    // Which sidebar groups the user has collapsed. Per circuit rather than per
+    // NavMenu: the shell rebuilds the nav when it crosses the md breakpoint.
+    builder.Services.AddScoped<NavSectionState>();
+
     // Add AI service
     builder.Services.Configure<AISettings>(builder.Configuration.GetSection("AI"));
     builder.Services.AddScoped<IAIService, AIService>();
