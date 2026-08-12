@@ -281,6 +281,43 @@ public class ReportExportWorkbookTests
     }
 
     [Fact]
+    public void A_ledger_writes_document_numbers_as_numbers_but_not_at_the_cost_of_the_code()
+    {
+        var ledger = Ledger(l =>
+        {
+            var line = l.Lines[0];
+            l.Lines =
+            [
+                line,
+                // SAP's originating-document number is a varchar. A leading zero is part of the
+                // code, so this one has to stay text however much it looks like a number.
+                new GLAccountLedgerLine { Date = line.Date, DocumentNumber = "0041", OriginCode = "IN", DocumentType = "A/R Invoice", Balance = 1819.34m },
+                new GLAccountLedgerLine { Date = line.Date, DocumentNumber = "JE/2026/07", OriginCode = "JE", DocumentType = "Journal Entry", Balance = 1819.34m },
+            ];
+        });
+
+        using var workbook = Open(_service.ExportGLAccountLedgerToExcel(ledger));
+        var sheet = workbook.Worksheet("Ledger");
+
+        var headerRow = sheet.CellsUsed().First(c => c.GetString() == "Balance").Address.RowNumber;
+        var firstLine = headerRow + 2; // the brought-forward row sits between the header and the lines
+
+        // A number, so Excel stops flagging the column and the code still reads as itself.
+        Assert.Equal(XLDataType.Number, sheet.Cell(firstLine, 2).DataType);
+        Assert.Equal("872071", sheet.Cell(firstLine, 2).GetFormattedString());
+        Assert.Equal(XLDataType.Number, sheet.Cell(firstLine, 8).DataType);
+
+        Assert.Equal(XLDataType.Text, sheet.Cell(firstLine + 1, 2).DataType);
+        Assert.Equal("0041", sheet.Cell(firstLine + 1, 2).GetString());
+        Assert.Equal(XLDataType.Text, sheet.Cell(firstLine + 2, 2).DataType);
+        Assert.Equal("JE/2026/07", sheet.Cell(firstLine + 2, 2).GetString());
+
+        // Converted or not, the column reads down one edge.
+        Assert.Equal(XLAlignmentHorizontalValues.Left, sheet.Cell(firstLine, 2).Style.Alignment.Horizontal);
+        Assert.Equal(XLAlignmentHorizontalValues.Left, sheet.Cell(firstLine + 1, 2).Style.Alignment.Horizontal);
+    }
+
+    [Fact]
     public void A_ledger_that_disagrees_with_SAP_says_so_in_the_sheet()
     {
         var ledger = Ledger(l =>

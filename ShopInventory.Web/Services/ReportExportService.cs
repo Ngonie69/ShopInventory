@@ -436,6 +436,41 @@ public class ReportExportService : IReportExportService
     }
 
     /// <summary>
+    /// Writes an identifier that is usually all digits — a document number, a user code — as a
+    /// number wherever it truly is one, so Excel stops flagging the column as "number stored as
+    /// text" and marking every row with a green triangle.
+    /// </summary>
+    /// <remarks>
+    /// Only when the digits round-trip exactly. "0041" is not the number 41: a code with a leading
+    /// zero loses its identity the moment it is written as one, and SAP's originating-document
+    /// number is a varchar that is free to hold something that is not a number at all. Alignment is
+    /// set on both branches, or a column that converted some of its rows and not others would sit
+    /// half left and half right.
+    /// </remarks>
+    private static void WriteIdentifier(
+        IXLCell cell,
+        string? value,
+        XLAlignmentHorizontalValues alignment = XLAlignmentHorizontalValues.Left)
+    {
+        var text = value?.Trim() ?? string.Empty;
+
+        if (text.Length > 0
+            && long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var number)
+            && number.ToString(CultureInfo.InvariantCulture) == text)
+        {
+            cell.Value = number;
+            // No thousands separator: "872,071" is not a number anybody can look up.
+            cell.Style.NumberFormat.Format = "0";
+        }
+        else
+        {
+            cell.Value = text.Length == 0 ? "-" : text;
+        }
+
+        cell.Style.Alignment.Horizontal = alignment;
+    }
+
+    /// <summary>
     /// A full-width advisory band — the sheet's version of the banner a page shows above its
     /// figures. Returns the next free row.
     /// </summary>
@@ -7457,11 +7492,11 @@ public class ReportExportService : IReportExportService
         {
             ws.Cell(row, 1).Value = line.Date;
             ws.Cell(row, 1).Style.NumberFormat.Format = FormatDate;
-            ws.Cell(row, 2).Value = line.DocumentNumber;
+            WriteIdentifier(ws.Cell(row, 2), line.DocumentNumber);
             ws.Cell(row, 2).Style.Font.Bold = true;
 
-            // A number so it sorts as one, but with no thousands separator: this is SAP's journal
-            // number, and "872,071" is not a number anybody can look up.
+            // Already an int on the way in, so it needs no parsing — but the same format, for the
+            // same reason as the column beside it.
             ws.Cell(row, 3).Value = line.TransactionNumber;
             ws.Cell(row, 3).Style.NumberFormat.Format = "0";
             ws.Cell(row, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
@@ -7471,7 +7506,7 @@ public class ReportExportService : IReportExportService
             ws.Cell(row, 5).Value = line.DocumentType;
             ws.Cell(row, 6).Value = line.PartnerCode ?? "-";
             ws.Cell(row, 7).Value = line.Description ?? string.Empty;
-            ws.Cell(row, 8).Value = line.CreatedBy ?? "-";
+            WriteIdentifier(ws.Cell(row, 8), line.CreatedBy);
             ws.Cell(row, 9).Value = line.OffsetAccount ?? "-";
             ws.Cell(row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
