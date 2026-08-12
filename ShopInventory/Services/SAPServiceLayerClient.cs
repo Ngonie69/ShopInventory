@@ -10702,9 +10702,16 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             lines.Add(linePayload);
         }
 
+        // Parsed and re-emitted rather than forwarded as sent. SAP accepts only ISO here and answers
+        // anything else with "Invalid date format in property 'DocDate' of 'StockTransfer'", while
+        // callers legitimately send other separators — the handset sent yyyy/MM/dd for years. The
+        // invoice path has always resolved its dates this way; transfers were the path that did not.
+        var docDate = FormatSapDocumentDate(
+            ResolveSapDocumentDate(request.DocDate, nameof(request.DocDate), GetCurrentSapBusinessDate()));
+
         var payload = new Dictionary<string, object>
         {
-            ["DocDate"] = request.DocDate ?? DateTime.Today.ToString("yyyy-MM-dd"),
+            ["DocDate"] = docDate,
             ["FromWarehouse"] = request.FromWarehouse ?? "01",
             ["ToWarehouse"] = request.ToWarehouse!,
             ["StockTransferLines"] = lines
@@ -10712,7 +10719,8 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         if (!string.IsNullOrWhiteSpace(request.DueDate))
         {
-            payload["DueDate"] = request.DueDate;
+            payload["DueDate"] = FormatSapDocumentDate(
+                ResolveSapDocumentDate(request.DueDate, nameof(request.DueDate), GetCurrentSapBusinessDate()));
         }
 
         if (!string.IsNullOrWhiteSpace(request.Comments))
@@ -10980,9 +10988,16 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             lines.Add(linePayload);
         }
 
+        // Parsed and re-emitted rather than forwarded as sent. SAP accepts only ISO here and answers
+        // anything else with "Invalid date format in property 'DocDate' of 'StockTransfer'", while
+        // callers legitimately send other separators — the handset sent yyyy/MM/dd for years. The
+        // invoice path has always resolved its dates this way; transfers were the path that did not.
+        var docDate = FormatSapDocumentDate(
+            ResolveSapDocumentDate(request.DocDate, nameof(request.DocDate), GetCurrentSapBusinessDate()));
+
         var payload = new Dictionary<string, object>
         {
-            ["DocDate"] = request.DocDate ?? DateTime.Today.ToString("yyyy-MM-dd"),
+            ["DocDate"] = docDate,
             ["FromWarehouse"] = request.FromWarehouse ?? "01",
             ["ToWarehouse"] = request.ToWarehouse!,
             ["StockTransferLines"] = lines
@@ -10990,7 +11005,8 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         if (!string.IsNullOrWhiteSpace(request.DueDate))
         {
-            payload["DueDate"] = request.DueDate;
+            payload["DueDate"] = FormatSapDocumentDate(
+                ResolveSapDocumentDate(request.DueDate, nameof(request.DueDate), GetCurrentSapBusinessDate()));
         }
 
         // Build comments including requester info (SAP doesn't have dedicated requester fields)
