@@ -31,11 +31,11 @@ public interface IFiscalizationService
     /// <summary>
     /// Fiscalises an invoice that does not exist in SAP yet, from a full receipt payload.
     /// </summary>
-    /// <param name="externalReference">
-    /// Stable identifier for the document. It becomes the receipt's permanent fiscal identity and part
-    /// of the platform's idempotency key, so it must be identical on every retry and must never be
-    /// regenerated.
-    /// </param>
+    /// <remarks>
+    /// <paramref name="externalReference"/> is the stable identifier for the document. It becomes the
+    /// receipt's permanent fiscal identity and part of the platform's idempotency key, so it must be
+    /// identical on every retry and must never be regenerated.
+    /// </remarks>
     Task<FiscalizationResult> FiscalizePreSapInvoiceAsync(
         InvoiceDto invoice,
         string externalReference,
@@ -45,11 +45,12 @@ public interface IFiscalizationService
     /// <summary>
     /// Fiscalises a credit note that has already been posted to SAP.
     /// </summary>
-    /// <param name="originalInvoiceNumber">
-    /// The invoice being credited. Advisory only — recorded for traceability. The platform recovers the
-    /// fiscal link itself from the SAP document's BaseType/BaseEntry, across all devices, which is
-    /// strictly better than anything this app can compute.
-    /// </param>
+    /// <remarks>
+    /// <paramref name="originalInvoiceNumber"/> is the invoice being credited. Advisory only — recorded
+    /// for traceability. The platform recovers the fiscal link itself from the SAP document's
+    /// BaseType/BaseEntry, across all devices, which is strictly better than anything this app can
+    /// compute.
+    /// </remarks>
     Task<FiscalizationResult> FiscalizeCreditNoteAsync(
         InvoiceDto creditNote,
         string originalInvoiceNumber,

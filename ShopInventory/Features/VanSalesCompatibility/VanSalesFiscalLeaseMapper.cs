@@ -46,12 +46,11 @@ public static class VanSalesFiscalLeaseMapper
     /// Maps each item to an FDMS tax id through its SAP VAT group, using the same settings the online
     /// path already fiscalises with — so an offline receipt carries the tax and HS code the server would
     /// have given the identical sale.
+    ///
+    /// <paramref name="unmappedVatGroups"/> returns the groups that resolved to nothing. Reported rather
+    /// than swallowed: it is the only signal that a slice of the catalogue cannot be sold offline, and
+    /// the fix is a configuration change nobody will make if it is invisible.
     /// </summary>
-    /// <param name="unmappedVatGroups">
-    /// The groups that resolved to nothing. Reported rather than swallowed: it is the only signal that a
-    /// slice of the catalogue cannot be sold offline, and the fix is a configuration change nobody will
-    /// make if it is invisible.
-    /// </param>
     public static List<VanSalesFiscalItemTaxDto> BuildItemTaxes(
         IReadOnlyDictionary<string, string> vatGroupsByItem,
         FiscalisationSettings settings,

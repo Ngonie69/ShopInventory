@@ -138,6 +138,11 @@ try
     builder.Services.AddExceptionHandler<DependencyExceptionHandler>();
     builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
     builder.Services.AddEndpointsApiExplorer();
+    // AV0013 wants an explicit .AddMvc() for controller-based versioning. AddApiExplorer() below
+    // already calls it — every MVC versioning service is registered either way, and adding the call
+    // ourselves only registers ApplyContentTypeVersionActionFilter a second time, so the filter would
+    // run twice on every action. The analyzer is matching on the syntax, not on what is registered.
+#pragma warning disable AV0013
     builder.Services.AddApiVersioning(options =>
     {
         options.DefaultApiVersion = new ApiVersion(1, 0);
@@ -151,6 +156,7 @@ try
         options.GroupNameFormat = "'v'VVV";
         options.SubstituteApiVersionInUrl = false;
     });
+#pragma warning restore AV0013
     builder.Services.AddTransient<IConfigureOptions<Swashbuckle.AspNetCore.SwaggerGen.SwaggerGenOptions>, ConfigureSwaggerOptions>();
 
     // Add response compression for bandwidth savings on JSON payloads
@@ -890,13 +896,13 @@ try
     app.UseFileUploadValidation(); // Validate file uploads
     app.UseSecurityHeaders();    // Add security headers to responses
 
-    var apiVersionDescriptionProvider = app.Services.GetRequiredService<IApiVersionDescriptionProvider>();
+    var apiVersionDescriptions = app.DescribeApiVersions();
 
     // Configure the HTTP request pipeline.
     app.UseSwagger();
     app.UseSwaggerUI(options =>
     {
-        foreach (var description in apiVersionDescriptionProvider.ApiVersionDescriptions)
+        foreach (var description in apiVersionDescriptions)
         {
             options.SwaggerEndpoint(
                 $"/swagger/{description.GroupName}/swagger.json",

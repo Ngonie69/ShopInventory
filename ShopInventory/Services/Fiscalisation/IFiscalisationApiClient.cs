@@ -44,10 +44,11 @@ public interface IFiscalisationApiClient
     /// <summary>
     /// Looks up whether a document was already fiscalised.
     /// </summary>
-    /// <param name="deviceId">
-    /// Pass 0 to search every device. A document may have been fiscalised on a device other than the
-    /// one it was submitted to, so anything narrower can report a fiscalised document as missing.
-    /// </param>
+    /// <remarks>
+    /// Pass <paramref name="deviceId"/> 0 to search every device. A document may have been fiscalised on
+    /// a device other than the one it was submitted to, so anything narrower can report a fiscalised
+    /// document as missing.
+    /// </remarks>
     Task<CheckFiscalisedReceiptApiResponse> CheckReceiptAsync(
         int deviceId,
         string invoiceNo,

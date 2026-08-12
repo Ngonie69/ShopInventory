@@ -304,7 +304,14 @@ public class PushNotificationService : IPushNotificationService
         {
             var message = new MulticastMessage
             {
+                // The deprecation points at Fids, which is a different identifier: a Firebase
+                // installation id, not the FCM registration token a handset sends us at sign-in and
+                // which is what PushDeviceRegistration.DeviceToken holds. Sending our tokens as Fids
+                // would address nobody and fail silently, so this stays until we have a reason —
+                // and a migration — to store installation ids instead.
+#pragma warning disable CS0618
                 Tokens = batch.ToList(),
+#pragma warning restore CS0618
                 Notification = notification,
                 Data = data,
                 // A silent message carries no tray entry and makes no sound: the platform config
