@@ -5,7 +5,15 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
 
-<PageTitle>Timesheets</PageTitle>
+<PageTitle>Merchandiser Timesheets</PageTitle>
+
+@* Merchandiser visits only.
+
+   This page used to claim to be merchandiser activity while showing van sales reps as well: both
+   check in through the same table, and until the Channel column existed nothing on a row said which
+   was which. The two are measured on different things — a merchandiser on shelf time, a van on call
+   compliance and takings — so the van side now has its own pages under /van-sales and this one is
+   narrowed to what its title always said it was. *@
 
 <div class="ts-container">
     <!-- Header -->
@@ -13,9 +21,9 @@
         <div class="ts-header-left">
             <h2 class="ts-title">
                 <MudIcon Icon="@Icons.Material.Filled.Schedule" Class="ts-title-icon" />
-                Timesheets
+                Merchandiser Timesheets
             </h2>
-            <p class="ts-subtitle">View merchandiser check-in and check-out activity</p>
+            <p class="ts-subtitle">Check-in and check-out activity for merchandisers. Van sales rounds are under Van Sales.</p>
         </div>
     </div>
 
@@ -162,7 +170,23 @@
                                 }
                                 @if (!entry.CheckInLatitude.HasValue && !entry.CheckOutLatitude.HasValue)
                                 {
-                                    <span class="ts-no-location">—</span>
+                                    <MudTooltip Text="@(entry.LocationUnavailableReason ?? "No GPS fix was recorded")">
+                                        <span class="ts-no-location">—</span>
+                                    </MudTooltip>
+                                }
+                                @* A remembered fix is not a fix taken at the door, and a map pin looks
+                                   identical either way. Say so rather than let the pin imply precision. *@
+                                @if (entry.CheckInFixIsStale)
+                                {
+                                    <MudTooltip Text="@entry.LocationQualityNote">
+                                        <MudIcon Icon="@Icons.Material.Filled.GpsNotFixed" Color="Color.Warning" Size="Size.Small" />
+                                    </MudTooltip>
+                                }
+                                @if (entry.WasCapturedOffline)
+                                {
+                                    <MudTooltip Text="Recorded on the handset with no signal and synced later.">
+                                        <MudIcon Icon="@Icons.Material.Filled.CloudOff" Color="Color.Default" Size="Size.Small" />
+                                    </MudTooltip>
                                 }
                             </td>
                             <td class="ts-cell-notes">
@@ -284,7 +308,8 @@
                 username: isAdmin ? filterUsername : null,
                 customerCode: filterCustomerCode,
                 fromDate: fromDate,
-                toDate: adjustedToDate);
+                toDate: adjustedToDate,
+                channel: TimesheetChannel.Merchandiser);
 
             if (timesheetData is not null)
             {

@@ -16,5 +16,12 @@ public class ConvertSalesOrderToInvoiceRequest
     public string? DocCurrency { get; set; }
     public int? SalesPersonCode { get; set; }
     public bool Fiscalize { get; set; } = true;
+
+    /// <summary>
+    /// How the customer paid, as a brand. Same purpose as on the direct invoice: a van sale invoiced
+    /// through this path is still a van sale and still owes the day's takings a tender.
+    /// </summary>
+    [MaxLength(50)]
+    public string? PaymentMethod { get; set; }
     public List<CreateDesktopInvoiceLineRequest>? Lines { get; set; }
 }

@@ -329,6 +329,9 @@ try
     // Add Timesheet service
     builder.Services.AddScoped<ITimesheetService, TimesheetService>();
 
+    // Van sales reporting — the departure compliance report and the route master
+    builder.Services.AddScoped<IVanSalesReportService, VanSalesReportService>();
+
     // Add Email service with MailKit
     builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
     builder.Services.AddScoped<IEmailService, EmailService>();

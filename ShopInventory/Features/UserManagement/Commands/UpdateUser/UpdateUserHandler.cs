@@ -180,10 +180,17 @@ public sealed class UpdateUserHandler(
         if (ApplicationRoles.RequiresSupplyingWarehouseCode(user.Role))
         {
             user.SupplyingWarehouseCode = command.Request.SupplyingWarehouseCode?.Trim();
+
+            // Optional, so only a positive id is taken — an unset picker posts 0, which would be a
+            // foreign key to nothing.
+            user.RouteId = command.Request.RouteId is > 0 ? command.Request.RouteId : null;
         }
         else
         {
             user.SupplyingWarehouseCode = null;
+
+            // A route belongs to a van. A user moved off a van role keeps no claim on one.
+            user.RouteId = null;
         }
 
         if (ApplicationRoles.RequiresWarehouseAssignments(user.Role) && user.GetWarehouseCodes().Count == 0)
@@ -282,6 +289,7 @@ public sealed class UpdateUserHandler(
                 .SetProperty(x => x.AssignedBusinessPartnerCode, user.AssignedBusinessPartnerCode)
                 .SetProperty(x => x.AssignedCostCentreCode, user.AssignedCostCentreCode)
                 .SetProperty(x => x.SupplyingWarehouseCode, user.SupplyingWarehouseCode)
+                .SetProperty(x => x.RouteId, user.RouteId)
                 .SetProperty(x => x.Permissions, user.Permissions)
                 .SetProperty(x => x.UpdatedAt, user.UpdatedAt),
                 cancellationToken);

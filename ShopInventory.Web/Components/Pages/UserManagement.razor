@@ -13,6 +13,7 @@
 @inject IAppSettingsProvider AppSettings
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
+@inject IVanSalesReportService VanSalesReportService
 @rendermode InteractiveServer
 
 <PageTitle>User Management - Shop Inventory</PageTitle>
@@ -703,6 +704,31 @@
                                                                 raised against this warehouse — Bulawayo vans from KEFBYC, the rest from
                                                                 KEFGRC</small>
                                                             </div>
+
+                                                        @* Optional, unlike the fields above: a van without a route still
+                                                           sells, it just has no territory or truck registration to head
+                                                           its compliance sheet with. Making it required would lock out
+                                                           every existing van until the route master is populated. *@
+                                                        <div class="um-form-field">
+                                                            <label>Selling Route</label>
+                                                            @if (isLoadingRoutes)
+                                                            {
+                                                                <div class="um-spinner-sm"></div>
+                                                            }
+                                                            else
+                                                            {
+                                                                <InputSelect class="um-input" @bind-Value="userModel.RouteId">
+                                                                    <option value="">-- No route --</option>
+                                                                    @foreach (var route in RouteOptions)
+                                                                    {
+                                                                        <option value="@route.Id">@route.Code - @route.DisplayLabel</option>
+                                                                    }
+                                                                </InputSelect>
+                                                            }
+                                                            <small class="um-form-hint">The round this van runs. Its territory and truck
+                                                                registration come from here, and the departure compliance report groups
+                                                                by it — set it up under Van Sales → Routes</small>
+                                                            </div>
                                                         }
 
                                                     </div>
@@ -896,6 +922,8 @@
     private string customerSearchTerm = string.Empty;
     private List<CostCentreDto> availableCostCentres = new();
     private bool isLoadingCostCentres = false;
+    private List<RouteDto> RouteOptions = new();
+    private bool isLoadingRoutes = false;
     private Dictionary<string, List<PermissionModel>>? permissionCategories;
 
     private bool showUserModal = false;
@@ -1060,6 +1088,7 @@ List<string>(AdminAvailableRoles);
                     await LoadWarehouses();
                     await LoadCustomers();
                     await LoadCostCentres();
+                    await LoadRoutes();
                     StateHasChanged();
                 });
             }
@@ -1081,6 +1110,27 @@ List<string>(AdminAvailableRoles);
         finally
         {
             isLoadingWarehouses = false;
+        }
+    }
+
+    /// <summary>
+    /// The routes a van can be put on. Active only — a retired route takes no new vans, though the
+    /// report still offers it as a filter because it heads days that already happened.
+    /// </summary>
+    private async Task LoadRoutes()
+    {
+        isLoadingRoutes = true;
+        try
+        {
+            RouteOptions = await VanSalesReportService.GetRoutesAsync(includeInactive: false);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load routes: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingRoutes = false;
         }
     }
 
@@ -1269,7 +1319,8 @@ StringComparison.OrdinalIgnoreCase)))
                 AssignedCustomerCodes = u.AssignedCustomerCodes ?? new(),
                 AssignedBusinessPartnerCode = u.AssignedBusinessPartnerCode,
                 AssignedCostCentreCode = u.AssignedCostCentreCode,
-                SupplyingWarehouseCode = u.SupplyingWarehouseCode
+                SupplyingWarehouseCode = u.SupplyingWarehouseCode,
+                RouteId = u.RouteId
             }).ToList() ?? new List<UserDisplayModel>();
             totalPages = result.TotalPages;
         }
@@ -1376,7 +1427,8 @@ StringComparison.OrdinalIgnoreCase)))
             AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
             AssignedCostCentreCode = user.AssignedCostCentreCode,
-            SupplyingWarehouseCode = user.SupplyingWarehouseCode
+            SupplyingWarehouseCode = user.SupplyingWarehouseCode,
+            RouteId = user.RouteId
         };
         showUserModal = true;
     }
@@ -1669,7 +1721,8 @@ StringComparison.OrdinalIgnoreCase)))
                 AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes),
                 AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
                 AssignedCostCentreCode = user.AssignedCostCentreCode,
-                SupplyingWarehouseCode = user.SupplyingWarehouseCode
+                SupplyingWarehouseCode = user.SupplyingWarehouseCode,
+            RouteId = user.RouteId
             };
             NormalizeRoleSpecificAssignments(form);
             await UserService.UpdateUserAsync(user.Id, form);
@@ -1717,6 +1770,8 @@ StringComparison.OrdinalIgnoreCase)))
             model.AssignedBusinessPartnerCode = null;
             model.AssignedCostCentreCode = null;
             model.SupplyingWarehouseCode = null;
+            // A route belongs to a van; a user who is no longer one must not keep it.
+            model.RouteId = null;
         }
         else
         {
@@ -1803,6 +1858,9 @@ StringComparison.OrdinalIgnoreCase)))
         public string? AssignedBusinessPartnerCode { get; set; }
         public string? AssignedCostCentreCode { get; set; }
         public string? SupplyingWarehouseCode { get; set; }
+
+        /// <summary>The selling route this van runs, or null. Managed under Van Sales → Routes.</summary>
+        public int? RouteId { get; set; }
     }
 
     public class UserFormModel : IValidatableObject
@@ -1841,6 +1899,16 @@ StringComparison.OrdinalIgnoreCase)))
         /// <see cref="AssignedWarehouseCodes"/>, which is the van itself and so their destination.
         /// </summary>
         public string? SupplyingWarehouseCode { get; set; }
+
+        /// <summary>
+        /// The selling route this van runs — where its territory and truck registration come from,
+        /// and what the departure compliance report groups by.
+        ///
+        /// Optional, unlike the three fields above. A van with no route still sells; it just heads
+        /// its compliance sheet with blanks. Requiring it would lock out every existing van until
+        /// the route master has been populated.
+        /// </summary>
+        public int? RouteId { get; set; }
 
         /// <summary>
         /// Flag to indicate this is a new user (password required)

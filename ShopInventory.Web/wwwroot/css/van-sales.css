@@ -1,0 +1,587 @@
+/* ==========================================================================
+   Van sales — Nocturne
+
+   Two pages: /van-sales/activity (the round as it happened, visit by visit) and
+   /van-sales/compliance (the departure compliance sheet, one card per rep-day).
+   One sheet because they are one section and share their card, chip and meter
+   vocabulary; the `vs-` prefix is not shared with any other sheet.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for the
+   whole system, and there is no `.dark-theme .vs` block at all: these tokens
+   flip at the root and every alias resolves against whichever scheme is in
+   force. That is also why nothing here is defined only inside a media query.
+
+   Rules live here rather than in an inline Razor <style> block for the reason
+   the sibling sheets give: app.css carries global `.dark-theme input` rules at
+   (0,1,1) that would otherwise repaint every field, so each control carries a
+   class and each control selector is two classes deep, winning regardless of
+   load order. Headings are pinned to Nocturne's 500 because Bootstrap's global
+   `h1-h6 { font-weight: 600 }` would bolden them past the weight this system
+   allows, and every class is namespaced for the reason `.btn-primary` cannot be:
+   Bootstrap already owns that name.
+
+   The compliance figures carry a deliberate distinction the design has to hold:
+   a rate with no denominator is *unavailable*, not zero. A van whose route had
+   no customers assigned when the day opened has no CCR, and showing 0% would
+   read as total failure rather than as missing data. Those render as an em dash
+   in `.vs-metric-none`, which is muted rather than red for the same reason.
+   ========================================================================== */
+
+.vs {
+    /* — Grounds and ink — */
+    --vs-bg: var(--noct-bg);
+    --vs-surface: var(--noct-surface);
+    --vs-wash: var(--noct-wash);
+    --vs-ink: var(--noct-ink);
+    --vs-ink-2: var(--noct-ink-2);
+    --vs-mute: var(--noct-mute);
+    --vs-mute-2: var(--noct-mute-2);
+    --vs-mute-3: var(--noct-mute-3);
+    --vs-faint: var(--noct-faint);
+    --vs-placeholder: var(--noct-placeholder);
+
+    /* — Lines and films — */
+    --vs-divider: var(--noct-divider);
+    --vs-rule: var(--noct-rule);
+    --vs-hover: var(--noct-hover);
+
+    /* — Fields — */
+    --vs-field-bg: var(--noct-field-bg);
+    --vs-field-edge: var(--noct-field-edge);
+    --vs-field-edge-hi: var(--noct-field-edge-hi);
+
+    /* — Accent — */
+    --vs-accent: var(--noct-accent);
+    --vs-accent-rgb: var(--noct-accent-rgb);
+    --vs-accent-text: var(--noct-accent-text);
+    --vs-on-accent: var(--noct-on-accent);
+
+    /* — Families — */
+    --vs-good: var(--noct-fam-good);
+    --vs-good-rgb: var(--noct-fam-good-rgb);
+    --vs-warn: var(--noct-fam-warn);
+    --vs-warn-rgb: var(--noct-fam-warn-rgb);
+    --vs-bad: var(--noct-fam-bad);
+    --vs-bad-rgb: var(--noct-fam-bad-rgb);
+    --vs-info: var(--noct-fam-info);
+    --vs-info-rgb: var(--noct-fam-info-rgb);
+    --vs-neutral: var(--noct-fam-neutral);
+    --vs-neutral-rgb: var(--noct-fam-neutral-rgb);
+
+    /* — Geometry — */
+    --vs-r-sm: var(--noct-r-sm);
+    --vs-r-md: var(--noct-r-md);
+    --vs-r-lg: var(--noct-r-lg);
+
+    /* — Fitting the shared controls to this filter bar —
+       NocturneDateField and NocturneSelect default to audit-trail.css's input,
+       which is shorter than the 38px field below; left alone they sit a few
+       pixels proud of the button beside them. These are the supported
+       adjustment: fallbacks read by the components, set from the page root so
+       the closed control fits this page while the calendar and the menu stay
+       identical to every other page's. Nothing under the trigger is touched.
+
+       Deliberately not `Class="ndf-bs"` / `nsel-bs`: those variants exist for
+       the pages still built out of Bootstrap rows and hardcode app.css's white
+       fill and border, which would put a #fff field in the middle of a sheet
+       that paints everything else from the tokens above. */
+    --ndf-h: 38px;
+    --ndf-fs: 0.88rem;
+    --ndf-pad-x: 11px;
+    --ndf-radius: var(--noct-r-md);
+    --ndf-fill: var(--noct-field-bg);
+    --ndf-edge: var(--noct-field-edge);
+
+    --nsel-h: 38px;
+    --nsel-fs: 0.88rem;
+    --nsel-pad-x: 11px;
+    --nsel-radius: var(--noct-r-md);
+    --nsel-fill: var(--noct-field-bg);
+    --nsel-edge: var(--noct-field-edge);
+    --nsel-edge-hi: var(--noct-field-edge-hi);
+
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+    /* Never min-height:100vh — a drawer or scrim carrying this class would
+       inherit it and hang a topbar below the fold. */
+    color: var(--vs-ink);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* — Page head ————————————————————————————————————————————————— */
+
+.vs .vs-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.vs .vs-title {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--vs-ink);
+}
+
+.vs .vs-subtitle {
+    margin: 6px 0 0;
+    font-size: 0.85rem;
+    color: var(--vs-mute-2);
+    max-width: 68ch;
+}
+
+/* — Filter bar ———————————————————————————————————————————————— */
+
+.vs .vs-filters {
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-divider);
+    border-radius: var(--vs-r-lg);
+    padding: 18px 20px;
+    margin-bottom: 22px;
+}
+
+.vs .vs-filter-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+}
+
+/* Two classes deep so app.css's `.dark-theme input` cannot repaint the fill. */
+.vs .vs-field {
+    width: 100%;
+    height: 38px;
+    padding: 0 11px;
+    border: 1px solid var(--vs-field-edge);
+    border-radius: var(--vs-r-md);
+    background: var(--vs-field-bg);
+    color: var(--vs-ink);
+    font-size: 0.88rem;
+    font-family: inherit;
+}
+
+.vs .vs-field:hover {
+    border-color: var(--vs-field-edge-hi);
+}
+
+.vs .vs-field:focus {
+    outline: none;
+    border-color: var(--vs-accent);
+    box-shadow: 0 0 0 3px rgba(var(--vs-accent-rgb), .16);
+}
+
+.vs .vs-field::placeholder {
+    color: var(--vs-placeholder);
+}
+
+/* A native select needs its own caret painted, because the platform's is not
+   theme-aware and reads as a foreign control on the dark ground. */
+.vs select.vs-field {
+    appearance: none;
+    background-image: var(--noct-caret);
+    background-repeat: no-repeat;
+    background-position: right 11px center;
+    padding-right: 30px;
+}
+
+.vs .vs-actions {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.vs .vs-btn {
+    height: 38px;
+    padding: 0 16px;
+    border-radius: var(--vs-r-md);
+    border: 1px solid var(--vs-field-edge);
+    background: var(--vs-surface);
+    color: var(--vs-ink);
+    font-size: 0.85rem;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.vs .vs-btn:hover:not(:disabled) {
+    background: var(--vs-hover);
+    border-color: var(--vs-field-edge-hi);
+}
+
+.vs .vs-btn:disabled {
+    opacity: .55;
+    cursor: default;
+}
+
+.vs .vs-btn-accent {
+    background: var(--vs-accent);
+    border-color: var(--vs-accent);
+    color: var(--vs-on-accent);
+}
+
+.vs .vs-btn-accent:hover:not(:disabled) {
+    background: var(--vs-accent);
+    filter: brightness(1.08);
+    border-color: var(--vs-accent);
+}
+
+/* — Period summary ———————————————————————————————————————————— */
+
+.vs .vs-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+}
+
+.vs .vs-summary-cell {
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-divider);
+    border-radius: var(--vs-r-lg);
+    padding: 16px 18px;
+}
+
+.vs .vs-summary-value {
+    font-size: 1.55rem;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vs-summary-label {
+    margin-top: 3px;
+    font-size: 0.74rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+}
+
+/* — The compliance card ——————————————————————————————————————— */
+
+.vs .vs-day {
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-divider);
+    border-radius: var(--vs-r-lg);
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+
+.vs .vs-day-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--vs-rule);
+    background: var(--vs-wash);
+}
+
+.vs .vs-day-who {
+    font-size: 1.02rem;
+    font-weight: 500;
+    color: var(--vs-ink);
+}
+
+.vs .vs-day-where {
+    margin-top: 2px;
+    font-size: 0.79rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vs-day-when {
+    text-align: right;
+    font-size: 0.79rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vs-day-date {
+    font-size: 0.92rem;
+    font-weight: 500;
+    color: var(--vs-ink-2);
+}
+
+/* The sheet proper: label above figure, in the order the paper form reads. */
+.vs .vs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    gap: 1px;
+    background: var(--vs-rule);
+}
+
+.vs .vs-cell {
+    background: var(--vs-surface);
+    padding: 13px 16px;
+}
+
+.vs .vs-cell-label {
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+    margin-bottom: 5px;
+}
+
+.vs .vs-cell-value {
+    font-size: 1.05rem;
+    font-weight: 500;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vs-cell-note {
+    margin-top: 3px;
+    font-size: 0.72rem;
+    color: var(--vs-mute-3);
+}
+
+/* Unavailable, not zero. Muted rather than red: missing data is not a failure. */
+.vs .vs-metric-none {
+    color: var(--vs-faint);
+    font-weight: 400;
+}
+
+/* — Rate meters ——————————————————————————————————————————————— */
+
+.vs .vs-meter {
+    height: 4px;
+    margin-top: 7px;
+    border-radius: 999px;
+    background: var(--vs-rule);
+    overflow: hidden;
+}
+
+.vs .vs-meter-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--vs-good);
+}
+
+.vs .vs-meter-fill.vs-is-warn {
+    background: var(--vs-warn);
+}
+
+.vs .vs-meter-fill.vs-is-bad {
+    background: var(--vs-bad);
+}
+
+/* — Chips ————————————————————————————————————————————————————— */
+
+.vs .vs-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.71rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.vs .vs-chip-good {
+    background: rgba(var(--vs-good-rgb), .13);
+    color: var(--vs-good);
+}
+
+.vs .vs-chip-warn {
+    background: rgba(var(--vs-warn-rgb), .14);
+    color: var(--vs-warn);
+}
+
+.vs .vs-chip-bad {
+    background: rgba(var(--vs-bad-rgb), .13);
+    color: var(--vs-bad);
+}
+
+.vs .vs-chip-info {
+    background: rgba(var(--vs-info-rgb), .13);
+    color: var(--vs-info);
+}
+
+.vs .vs-chip-neutral {
+    background: rgba(var(--vs-neutral-rgb), .12);
+    color: var(--vs-neutral);
+}
+
+/* — Money reconciliation strip ————————————————————————————————— */
+
+.vs .vs-money {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 22px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--vs-rule);
+    background: var(--vs-wash);
+}
+
+.vs .vs-money-item {
+    min-width: 118px;
+}
+
+.vs .vs-money-label {
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+}
+
+.vs .vs-money-value {
+    margin-top: 3px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vs-money-declared {
+    margin-top: 2px;
+    font-size: 0.73rem;
+    color: var(--vs-mute-3);
+}
+
+.vs .vs-variance-over {
+    color: var(--vs-warn);
+}
+
+.vs .vs-variance-short {
+    color: var(--vs-bad);
+}
+
+.vs .vs-variance-level {
+    color: var(--vs-good);
+}
+
+/* — Tables ———————————————————————————————————————————————————— */
+
+.vs .vs-table-wrap {
+    border: 1px solid var(--vs-divider);
+    border-radius: var(--vs-r-lg);
+    /* Wide content scrolls inside its own box; the page body never does. */
+    overflow-x: auto;
+    background: var(--vs-surface);
+}
+
+.vs .vs-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0;
+}
+
+.vs .vs-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--vs-surface);
+    padding: 11px 16px;
+    text-align: left;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+    border-bottom: 1px solid var(--vs-divider);
+    white-space: nowrap;
+}
+
+.vs .vs-table tbody td {
+    padding: 11px 16px;
+    font-size: 0.85rem;
+    color: var(--vs-ink);
+    border-bottom: 1px solid var(--vs-rule);
+    vertical-align: middle;
+}
+
+.vs .vs-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.vs .vs-table tbody tr:hover td {
+    background: var(--vs-hover);
+}
+
+.vs .vs-num {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.vs .vs-primary {
+    font-weight: 500;
+}
+
+.vs .vs-meta {
+    font-size: 0.74rem;
+    color: var(--vs-mute-3);
+}
+
+/* — Empty, loading, error ————————————————————————————————————— */
+
+.vs .vs-empty {
+    padding: 56px 20px;
+    text-align: center;
+    color: var(--vs-mute-2);
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-divider);
+    border-radius: var(--vs-r-lg);
+}
+
+.vs .vs-empty-title {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--vs-ink-2);
+    margin-bottom: 6px;
+}
+
+.vs .vs-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 44px;
+    color: var(--vs-mute-2);
+}
+
+.vs .vs-notice {
+    padding: 13px 16px;
+    border-radius: var(--vs-r-md);
+    border: 1px solid rgba(var(--vs-bad-rgb), .3);
+    background: rgba(var(--vs-bad-rgb), .08);
+    color: var(--vs-bad);
+    font-size: 0.86rem;
+    margin-bottom: 18px;
+}
+
+.vs .vs-warning {
+    padding: 11px 15px;
+    border-radius: var(--vs-r-md);
+    border: 1px solid var(--noct-warn-edge);
+    background: var(--noct-warn-bg);
+    color: var(--noct-warn-ink);
+    font-size: 0.82rem;
+    margin-bottom: 16px;
+}
+
+/* — Narrow screens ———————————————————————————————————————————— */
+
+@media (max-width: 720px) {
+    .vs {
+        padding: 16px;
+    }
+
+    .vs .vs-day-when {
+        text-align: left;
+    }
+}

@@ -2,11 +2,13 @@ using System.Globalization;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Mobile;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Timesheets.Commands.CheckIn;
 using ShopInventory.Features.Timesheets.Commands.CheckOut;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCustomers;
+using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.VanSalesCompatibility.Commands.PostVanSalesAttendance;
 
@@ -38,6 +40,15 @@ public sealed class PostVanSalesAttendanceHandler(
 
         var latitude = ParseCoordinate(command.Request.Latitude);
         var longitude = ParseCoordinate(command.Request.Longitude);
+
+        // What the handset says about when and where this happened. Empty on an older build, in which
+        // case CheckInHandler falls back to the server clock exactly as it did before.
+        var capture = new CaptureContext(
+            OccurredAt: CaptureClock.Parse(command.Request.CapturedAt),
+            ClientReference: command.Request.ClientReference,
+            LocationSource: command.Request.LocationSource,
+            AccuracyMetres: command.Request.AccuracyMetres,
+            LocationUnavailableReason: command.Request.LocationUnavailableReason);
 
         if (normalizedType == "IN")
         {
@@ -72,7 +83,9 @@ public sealed class PostVanSalesAttendanceHandler(
                     shop.Name,
                     latitude,
                     longitude,
-                    null),
+                    null,
+                    TimesheetChannel.VanSales,
+                    capture),
                 cancellationToken);
 
             if (checkInResult.IsError)
@@ -93,7 +106,8 @@ public sealed class PostVanSalesAttendanceHandler(
                 user.Username,
                 latitude,
                 longitude,
-                null),
+                null,
+                capture),
             cancellationToken);
 
         if (checkOutResult.IsError)

@@ -1,5 +1,6 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Features.Timesheets.Commands.CheckIn;
 
 namespace ShopInventory.Features.Timesheets.Commands.CheckOut;
 
@@ -8,7 +9,8 @@ public sealed record CheckOutCommand(
     string Username,
     double? Latitude,
     double? Longitude,
-    string? Notes
+    string? Notes,
+    CaptureContext? Capture = null
 ) : IRequest<ErrorOr<CheckOutResult>>;
 
 public sealed record CheckOutResult(
@@ -19,5 +21,6 @@ public sealed record CheckOutResult(
     DateTime CheckOutTime,
     double DurationMinutes,
     double? Latitude,
-    double? Longitude
+    double? Longitude,
+    bool WasReplay = false
 );

@@ -41,6 +41,14 @@ public class CreateDesktopInvoiceRequest
     public int? SalesPersonCode { get; set; }
     public bool Fiscalize { get; set; } = true;
 
+    /// <summary>
+    /// How the customer paid, as a brand — "Cash", "Ecocash", "Innbucks". Optional: older handsets
+    /// send nothing, and the compliance report reports an untendered sale as unallocated rather than
+    /// assuming it was cash.
+    /// </summary>
+    [MaxLength(50)]
+    public string? PaymentMethod { get; set; }
+
     [Required(ErrorMessage = "At least one line item is required")]
     [MinLength(1)]
     public List<CreateDesktopInvoiceLineRequest> Lines { get; set; } = new();

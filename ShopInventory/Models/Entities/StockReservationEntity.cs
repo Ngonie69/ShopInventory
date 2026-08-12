@@ -101,6 +101,20 @@ public class StockReservationEntity
     public string? Currency { get; set; }
 
     /// <summary>
+    /// How the customer paid, as the brand the handset named — "Cash", "Ecocash", "Innbucks".
+    ///
+    /// Added because an online van sale posts straight to SAP and leaves no <c>DesktopSaleEntity</c>,
+    /// so this row is the only local record of it. Without a tender here, every online sale landed in
+    /// the compliance report's unallocated column and the day's cash split could not be reconciled.
+    ///
+    /// Free text rather than an enum, matching <c>DesktopSaleEntity.PaymentMethod</c>, because it is
+    /// a brand and not a fiscal money type: ZIMRA knows only <c>MobileWallet</c>, and telling Ecocash
+    /// from Innbucks is exactly what the report exists to do. Null on every non-van reservation.
+    /// </summary>
+    [MaxLength(50)]
+    public string? PaymentMethod { get; set; }
+
+    /// <summary>
     /// Current status of the reservation
     /// </summary>
     [Required]
