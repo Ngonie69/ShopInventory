@@ -1,10 +1,7 @@
-using MediatR;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using ShopInventory.Web.Common;
-using ShopInventory.Web.Components.Dashboard;
 using ShopInventory.Web.Data;
-using ShopInventory.Web.Features.Reports.Queries.GetFiscalTransactionLog;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
 
@@ -14,8 +11,8 @@ namespace ShopInventory.Web.Components.Pages;
 /// The cashier's dashboard at /cashier-dashboard.
 ///
 /// Every figure is nullable until its read lands, so the page shows "—" rather
-/// than a zero that is about to jump — a zero on the fiscalisation cards would
-/// read as "nothing failed", which is not the same as not knowing yet.
+/// than a zero that is about to jump — a zero would read as "nothing waiting",
+/// which is not the same as not knowing yet.
 ///
 /// Each read is caught separately so one dead service cannot blank the page,
 /// and each catch logs.
@@ -26,7 +23,6 @@ public partial class CashierDashboard
     [Inject] private IPaymentService PaymentService { get; set; } = default!;
     [Inject] private ICreditNoteService CreditNoteService { get; set; } = default!;
     [Inject] private ISalesOrderService SalesOrderService { get; set; } = default!;
-    [Inject] private ISender Mediator { get; set; } = default!;
     [Inject] private IAuditService AuditService { get; set; } = default!;
     [Inject] private ILogger<CashierDashboard> Logger { get; set; } = default!;
 
@@ -48,9 +44,6 @@ public partial class CashierDashboard
     private (string? Text, int Direction) creditNoteTrend;
 
     private int? awaitingInvoiceCount;
-
-    private int? fiscalFailedCount;
-    private int? notFiscalisedCount;
 
     private List<InvoiceDto>? recentInvoices;
     private List<IncomingPaymentDto>? recentPayments;
@@ -83,7 +76,6 @@ public partial class CashierDashboard
             LoadPaymentStatsAsync(),
             LoadCreditNoteCountAsync(),
             LoadAwaitingInvoiceCountAsync(),
-            LoadFiscalCountsAsync(),
             LoadRecentInvoicesAsync(),
             LoadRecentPaymentsAsync());
 
@@ -206,46 +198,6 @@ public partial class CashierDashboard
         }
     }
 
-    private async Task LoadFiscalCountsAsync()
-    {
-        try
-        {
-            // The handler computes its summary over the whole filtered set before
-            // it pages, so a page size of one still returns accurate counts for
-            // the day. Only the summary is read here.
-            var today = DateTime.Today;
-            var result = await Mediator.Send(new GetFiscalTransactionLogQuery(
-                FromDate: today,
-                ToDate: today,
-                Search: null,
-                Status: null,
-                DocumentType: null,
-                SourceSystem: null,
-                ClientTransactionPrefix: null,
-                Page: 1,
-                PageSize: 1));
-
-            if (result.IsError)
-            {
-                Logger.LogWarning(
-                    "Cashier dashboard could not read the fiscal transaction summary: {Error}",
-                    result.FirstError.Description);
-                return;
-            }
-
-            fiscalFailedCount = result.Value.Summary.FailedCount;
-            notFiscalisedCount = result.Value.Summary.NotFiscalisedCount;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Cashier dashboard could not read the fiscal transaction summary.");
-        }
-        finally
-        {
-            await InvokeAsync(StateHasChanged);
-        }
-    }
-
     private async Task LoadRecentInvoicesAsync()
     {
         try
@@ -325,35 +277,4 @@ public partial class CashierDashboard
         }
     }
 
-    private StatTone FiscalTone => fiscalFailedCount switch
-    {
-        null => StatTone.Neutral,
-        0 => StatTone.Ok,
-        _ => StatTone.Critical
-    };
-
-    private string? FiscalNote => fiscalFailedCount switch
-    {
-        null => null,
-        0 => "Nothing failed today",
-        _ => "Rejected by the fiscal device"
-    };
-
-    /// <summary>
-    /// Not-fiscalised is weaker news than failed: an invoice can be waiting its
-    /// turn rather than rejected. It only earns a warning once there are some.
-    /// </summary>
-    private StatTone NotFiscalisedTone => notFiscalisedCount switch
-    {
-        null => StatTone.Neutral,
-        0 => StatTone.Ok,
-        _ => StatTone.Warn
-    };
-
-    private string? NotFiscalisedNote => notFiscalisedCount switch
-    {
-        null => null,
-        0 => "All receipted",
-        _ => "Waiting on the device"
-    };
 }

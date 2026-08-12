@@ -92,7 +92,6 @@ explicit opt-out, `[SapBackgroundWork]`, applied to:
 - `ReportController` (whole controller — every report scans months of SAP documents)
 - `POST /api/invoice/pods/validate-bulk`
 - `POST /api/merchandiser/backfill-product-details`
-- `POST /api/desktopintegration/fiscal-transactions/backfill`
 - `POST /api/desktopintegration/stock/fetch-daily`
 - `GET /health/dependencies` — the one health endpoint whose checks reach SAP, and it is polled by
   monitoring rather than waited on by a person

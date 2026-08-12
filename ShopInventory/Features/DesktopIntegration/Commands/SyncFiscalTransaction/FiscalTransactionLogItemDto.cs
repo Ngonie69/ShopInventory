@@ -1,6 +1,11 @@
-namespace ShopInventory.Web.Features.Reports.Queries.GetFiscalTransactionLog;
+namespace ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 
-public sealed class FiscalTransactionLogItemModel
+/// <summary>
+/// The row a desktop client gets back when it syncs a fiscal transaction. It
+/// outlived the read endpoints that used to share it, so it lives with its
+/// only remaining caller.
+/// </summary>
+public sealed class FiscalTransactionLogItemDto
 {
     public int Id { get; init; }
     public string ClientTransactionId { get; init; } = string.Empty;

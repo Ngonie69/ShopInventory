@@ -390,8 +390,7 @@ public class NotificationService : INotificationService
                                                 n.ActionUrl.StartsWith("/purchase-requests") ||
                                                 n.ActionUrl.StartsWith("/purchase-quotations") ||
                                                 n.ActionUrl.StartsWith("/goods-receipt-pos") ||
-                                                n.ActionUrl.StartsWith("/purchase-invoices") ||
-                                                n.ActionUrl.StartsWith("/fiscalized-sales-report"))) ||
+                                                n.ActionUrl.StartsWith("/purchase-invoices"))) ||
                 (canSeePodBroadcasts && (n.ActionUrl.StartsWith("/pod-dashboard") ||
                                          n.ActionUrl.StartsWith("/pods") ||
                                          n.ActionUrl.StartsWith("/pod-report"))) ||

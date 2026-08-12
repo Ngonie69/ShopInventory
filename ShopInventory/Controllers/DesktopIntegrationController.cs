@@ -52,15 +52,12 @@ using ShopInventory.Features.DesktopIntegration.Queries.ValidateInvoice;
 using ShopInventory.Features.DesktopIntegration.Queries.ValidateStockAvailability;
 using ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
-using ShopInventory.Features.DesktopIntegration.Commands.BackfillFiscalTransactions;
 using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
 using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 using ShopInventory.Middleware;
-using ShopInventory.Features.DesktopIntegration.Queries.GetFiscalTransactions;
-using ShopInventory.Features.DesktopIntegration.Queries.GetFiscalizedSalesReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
 using ShopInventory.Features.DesktopIntegration.Queries.GetMonitoredWarehouses;
 using ShopInventory.Features.Prices.Queries.GetPricesByPriceList;
@@ -285,70 +282,12 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Detailed report of all fiscalized sales. Supports daily, weekly, monthly, and custom date ranges.
-    /// </summary>
-    [HttpGet("reports/fiscalized-sales")]
-    public async Task<IActionResult> GetFiscalizedSalesReport(
-        [FromQuery] ReportPeriod period = ReportPeriod.Daily,
-        [FromQuery] DateTime? date = null,
-        [FromQuery] DateTime? fromDate = null,
-        [FromQuery] DateTime? toDate = null,
-        [FromQuery] string? cardCode = null,
-        [FromQuery] string? warehouseCode = null,
-        [FromQuery] bool? isConsolidated = null,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 50,
-        CancellationToken cancellationToken = default)
-    {
-        var result = await mediator.Send(new GetFiscalizedSalesReportQuery(
-            period, date, fromDate, toDate, cardCode, warehouseCode, isConsolidated, page, pageSize),
-            cancellationToken);
-        return result.Match(value => Ok(value), errors => Problem(errors));
-    }
-
     [HttpPost("fiscal-transactions")]
     public async Task<IActionResult> SyncFiscalTransaction(
         [FromBody] SyncFiscalTransactionRequest request,
         CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new SyncFiscalTransactionCommand(request, GetUserId(), GetUsername()), cancellationToken);
-        return result.Match(value => Ok(value), errors => Problem(errors));
-    }
-
-    [HttpGet("fiscal-transactions")]
-    public async Task<IActionResult> GetFiscalTransactions(
-        [FromQuery] string? search = null,
-        [FromQuery] string? status = null,
-        [FromQuery] string? documentType = null,
-        [FromQuery] string? sourceSystem = null,
-        [FromQuery] string? clientTransactionPrefix = null,
-        [FromQuery] DateTime? fromUtc = null,
-        [FromQuery] DateTime? toUtc = null,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 50,
-        CancellationToken cancellationToken = default)
-    {
-        var result = await mediator.Send(
-            new GetFiscalTransactionsQuery(search, status, documentType, sourceSystem, clientTransactionPrefix, fromUtc, toUtc, page, pageSize),
-            cancellationToken);
-        return result.Match(value => Ok(value), errors => Problem(errors));
-    }
-
-    [HttpPost("fiscal-transactions/backfill")]
-    [SapBackgroundWork]
-    [Authorize(Roles = "Admin,Manager")]
-    public async Task<IActionResult> BackfillFiscalTransactions(
-        [FromBody] BackfillFiscalTransactionsRequest? request,
-        CancellationToken cancellationToken = default)
-    {
-        var result = await mediator.Send(
-            new BackfillFiscalTransactionsCommand(
-                request ?? new BackfillFiscalTransactionsRequest(),
-                GetUserId(),
-                GetUsername()),
-            cancellationToken);
-
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

@@ -298,8 +298,7 @@ public static class NotificationAudienceRules
             normalizedActionUrl.StartsWith("/purchase-requests", StringComparison.OrdinalIgnoreCase) ||
             normalizedActionUrl.StartsWith("/purchase-quotations", StringComparison.OrdinalIgnoreCase) ||
             normalizedActionUrl.StartsWith("/goods-receipt-pos", StringComparison.OrdinalIgnoreCase) ||
-            normalizedActionUrl.StartsWith("/purchase-invoices", StringComparison.OrdinalIgnoreCase) ||
-            normalizedActionUrl.StartsWith("/fiscalized-sales-report", StringComparison.OrdinalIgnoreCase))
+            normalizedActionUrl.StartsWith("/purchase-invoices", StringComparison.OrdinalIgnoreCase))
         {
             return PurchasingAudienceRoles;
         }
