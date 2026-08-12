@@ -43,6 +43,7 @@ public interface IReportExportService
     byte[] ExportRouteSalesSummaryToExcel(
         RouteCustomerSalesSummaryModel summary,
         IReadOnlyDictionary<string, string> routeLabels);
+    byte[] ExportGLAccountLedgerToExcel(GLAccountLedgerResponse ledger);
     string GeneratePrintableHtml(string title, string content, DateTime? fromDate = null, DateTime? toDate = null);
 }
 
@@ -432,6 +433,42 @@ public class ReportExportService : IReportExportService
         ws.Range(row, 1, row, lastCol).Style.Border.BottomBorder = XLBorderStyleValues.Thin;
         ws.Range(row, 1, row, lastCol).Style.Border.BottomBorderColor = LightNavy;
         ws.Row(row).Height = 20;
+    }
+
+    /// <summary>
+    /// A full-width advisory band — the sheet's version of the banner a page shows above its
+    /// figures. Returns the next free row.
+    /// </summary>
+    /// <remarks>
+    /// For the caveat that has to travel with the numbers rather than sit beside them on a screen:
+    /// once a workbook has been mailed on, a sheet that does not say its figures are in doubt is
+    /// read as a sheet whose figures are sound.
+    /// </remarks>
+    private static int WriteNotice(IXLWorksheet ws, int row, int colSpan, string text, XLColor accent)
+    {
+        var band = ws.Range(row, 1, row, colSpan);
+        band.Merge();
+        band.Style.Fill.BackgroundColor = KpiBackground;
+        band.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        band.Style.Border.OutsideBorderColor = ReportBorder;
+        band.Style.Border.LeftBorder = XLBorderStyleValues.Thick;
+        band.Style.Border.LeftBorderColor = accent;
+
+        ws.Cell(row, 1).Value = text;
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.FontColor = accent;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Cell(row, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        ws.Cell(row, 1).Style.Alignment.Indent = 1;
+
+        // A merged cell does not grow to fit its own wrapped text, so the height is measured here
+        // or the notice is clipped to its first line — which is the half that says there is a
+        // problem without saying what it is. Ten characters a column is about what these sheets
+        // settle at once FinalizeSheet has clamped the widths.
+        var lines = Math.Max(1, (int)Math.Ceiling(text.Length / (double)(colSpan * 10)));
+        ws.Row(row).Height = Math.Max(18, lines * 13);
+
+        return row + 1;
     }
 
     /// <summary>
@@ -7342,5 +7379,210 @@ public class ReportExportService : IReportExportService
             .Select(group => new { Currency = group.Key, Gross = group.Sum(total => total.Gross) })
             .OrderByDescending(total => total.Gross)
             .Select(total => $"{total.Currency} {total.Gross.ToString("N2", CultureInfo.InvariantCulture)}"));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // G/L ACCOUNT LEDGER
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// One G/L account's journal lines over a period, with the balance they carry.
+    /// </summary>
+    /// <remarks>
+    /// The screen pages this table fifty rows at a time; the workbook carries every line the API
+    /// returned, which is most of the reason to export it. What it must not lose on the way out is
+    /// the reconciliation against SAP — on the page that is a banner nobody can miss, and a file of
+    /// figures that does not repeat it reads as a file of figures that agree.
+    /// </remarks>
+    public byte[] ExportGLAccountLedgerToExcel(GLAccountLedgerResponse ledger)
+    {
+        var title = string.IsNullOrWhiteSpace(ledger.AccountName)
+            ? $"G/L ledger — {ledger.AccountCode}"
+            : $"G/L ledger — {ledger.AccountCode} {ledger.AccountName}";
+
+        using var workbook = NewWorkbook(title);
+        var ws = AddSheet(workbook, "Ledger");
+        const int cols = 12;
+
+        var money = MoneyFormatFor(ledger.Currency);
+
+        var row = WriteReportHeader(ws, title, cols, ledger.FromDate, ledger.ToDate);
+
+        WriteKpiCard(ws, row, 1, "Opening balance", ledger.OpeningBalance, money);
+        WriteKpiCard(ws, row, 2, "Debits", ledger.TotalDebits, money);
+        WriteKpiCard(ws, row, 3, "Credits", ledger.TotalCredits, money);
+        WriteKpiCard(ws, row, 4, "Closing balance", ledger.ClosingBalance, money);
+        WriteKpiCard(ws, row, 5, "SAP balance", ledger.SapBalance, money, ReconciliationColour(ledger));
+        row += 3;
+
+        // Stated whichever way it came out. "Agrees with SAP" is worth the line: an export with no
+        // verdict on it cannot be told apart from one whose verdict was bad.
+        row = WriteNotice(ws, row, cols, ReconciliationNotice(ledger), ReconciliationColour(ledger));
+
+        if (ledger.IsTruncated)
+        {
+            row = WriteNotice(ws, row, cols,
+                $"This period holds more than {ledger.LineLimit:N0} lines and only the first "
+                + $"{ledger.LineLimit:N0} were read, so the closing balance below stops short of "
+                + $"{ledger.ToDate:dd MMM yyyy}. Export a narrower date range to see the rest.",
+                WarningOrange);
+        }
+
+        row++;
+
+        var headers = new[]
+        {
+            "Date", "Document", "Journal", "Type", "Document type", "Partner",
+            "Details", "Posted by", "Offset", "Debit", "Credit", "Balance"
+        };
+
+        for (var i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(row, i + 1).Value = headers[i];
+        }
+        StyleTableHeader(ws, row, cols);
+        var headerRow = row;
+        row++;
+
+        // The brought-forward line. Balance is a running total, so without the figure it starts
+        // from there is no way to check a single number in that column against the sheet itself.
+        var openingRow = row;
+        ws.Cell(row, 7).Value = $"Opening balance brought forward from before {ledger.FromDate:dd MMM yyyy}";
+        ws.Cell(row, 12).Value = ledger.OpeningBalance;
+        ws.Cell(row, 12).Style.NumberFormat.Format = money;
+        row++;
+
+        var firstLineRow = row;
+        foreach (var line in ledger.Lines)
+        {
+            ws.Cell(row, 1).Value = line.Date;
+            ws.Cell(row, 1).Style.NumberFormat.Format = FormatDate;
+            ws.Cell(row, 2).Value = line.DocumentNumber;
+            ws.Cell(row, 2).Style.Font.Bold = true;
+
+            // A number so it sorts as one, but with no thousands separator: this is SAP's journal
+            // number, and "872,071" is not a number anybody can look up.
+            ws.Cell(row, 3).Value = line.TransactionNumber;
+            ws.Cell(row, 3).Style.NumberFormat.Format = "0";
+            ws.Cell(row, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+            ws.Cell(row, 4).Value = line.OriginCode;
+            ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 5).Value = line.DocumentType;
+            ws.Cell(row, 6).Value = line.PartnerCode ?? "-";
+            ws.Cell(row, 7).Value = line.Description ?? string.Empty;
+            ws.Cell(row, 8).Value = line.CreatedBy ?? "-";
+            ws.Cell(row, 9).Value = line.OffsetAccount ?? "-";
+            ws.Cell(row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+            // The other side is left empty rather than zeroed, as it is on screen. A column of
+            // 0.00s beside the real figures is the thing that makes a ledger unreadable, and a
+            // zero in the debit column of a credit line is not a posting of nothing.
+            if (line.Debit != 0)
+            {
+                ws.Cell(row, 10).Value = line.Debit;
+                ws.Cell(row, 10).Style.NumberFormat.Format = money;
+            }
+
+            if (line.Credit != 0)
+            {
+                ws.Cell(row, 11).Value = line.Credit;
+                ws.Cell(row, 11).Style.NumberFormat.Format = money;
+            }
+
+            ws.Cell(row, 12).Value = line.Balance;
+            ws.Cell(row, 12).Style.NumberFormat.Format = money;
+            if (line.Balance < 0)
+            {
+                ws.Cell(row, 12).Style.Font.FontColor = DangerRed;
+            }
+
+            row++;
+        }
+
+        var lastLineRow = row - 1;
+
+        // No filter dropdowns, alone among these registers. The Balance column only means anything
+        // in posting order, so a sort or a filter would leave every figure in it wrong while the
+        // sheet still looked sound — the same reason the page refuses to make its table sortable.
+        row = FinishTable(ws, headerRow, openingRow, row, cols, filter: false);
+
+        // After FinishTable: the stripe is painted over the whole data range and would take this
+        // fill with it.
+        var opening = ws.Range(openingRow, 1, openingRow, cols);
+        opening.Style.Fill.BackgroundColor = AccentBlue;
+        opening.Style.Font.Italic = true;
+        ws.Cell(openingRow, 12).Style.Font.Bold = true;
+
+        if (ledger.Lines.Count == 0)
+        {
+            // FinishTable's own empty message cannot fire here, because the brought-forward line is
+            // a row. Without this the sheet would show an opening balance and simply stop, which
+            // reads as a truncated export rather than as a quiet month.
+            row = WriteNotice(ws, row, cols,
+                $"Nothing was posted to this account between {ledger.FromDate:dd MMM yyyy} and "
+                + $"{ledger.ToDate:dd MMM yyyy}. The balance below is the one it carried in.",
+                MutedText);
+        }
+
+        ws.Cell(row, 1).Value = "TOTAL";
+        ws.Cell(row, 9).Value = "Closing balance";
+        ws.Cell(row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+        WriteSubtotal(ws, row, 10, firstLineRow, lastLineRow, money);
+        WriteSubtotal(ws, row, 11, firstLineRow, lastLineRow, money);
+        ws.Cell(row, 12).Value = ledger.ClosingBalance;
+        ws.Cell(row, 12).Style.NumberFormat.Format = money;
+        StyleTotalsRow(ws, row, cols);
+        row++;
+
+        WriteFooter(ws, row - 1, cols);
+        FinalizeSheet(ws, cols, headerRow, landscape: true);
+        return WorkbookToBytes(workbook);
+    }
+
+    /// <summary>
+    /// The money format for an account's own currency, so a figure read out of context still says
+    /// what it is denominated in.
+    /// </summary>
+    /// <remarks>
+    /// SAP writes "##" on an account that is not held to one currency. That falls through to the
+    /// unlabelled format on purpose — naming a currency there would be a guess.
+    /// </remarks>
+    private static string MoneyFormatFor(string? currency) => currency?.Trim().ToUpperInvariant() switch
+    {
+        "USD" => FormatUsd,
+        "ZWG" or "ZIG" or "ZWL" => FormatZig,
+        _ => FormatMoney
+    };
+
+    private static XLColor ReconciliationColour(GLAccountLedgerResponse ledger) => ledger switch
+    {
+        { IsReconciled: false } => WarningOrange,
+        { ReconciliationDifference: 0 } => SuccessGreen,
+        _ => DangerRed
+    };
+
+    private static string ReconciliationNotice(GLAccountLedgerResponse ledger)
+    {
+        var sapBalance = ledger.SapBalance.ToString("N2", CultureInfo.InvariantCulture);
+        var journalBalance = ledger.ComputedBalanceToday.ToString("N2", CultureInfo.InvariantCulture);
+        var difference = Math.Abs(ledger.ReconciliationDifference).ToString("N2", CultureInfo.InvariantCulture);
+
+        if (!ledger.IsReconciled)
+        {
+            return "SAP would not give up this account's own balance, so the totals here could not "
+                + "be checked against it. The lines themselves are unaffected.";
+        }
+
+        if (ledger.ReconciliationDifference == 0)
+        {
+            return $"Agrees with SAP. Summing every journal line up to today gives {journalBalance}, "
+                + "which is what SAP reports for this account.";
+        }
+
+        return $"These figures do not agree with SAP. SAP reports a balance of {sapBalance} for this "
+            + $"account; summing every journal line up to today gives {journalBalance}, a difference "
+            + $"of {difference}. Treat the balances here as unreliable until that is explained — "
+            + "the individual lines are read directly from the journal and are not in question.";
     }
 }

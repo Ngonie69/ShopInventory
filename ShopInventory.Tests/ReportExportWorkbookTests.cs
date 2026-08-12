@@ -40,7 +40,46 @@ public class ReportExportWorkbookTests
         { "Desktop Sales", s => s.ExportDesktopSalesToExcel([], null, From, To) },
         { "Local Stock", s => s.ExportLocalStockToExcel(new LocalStockResultDto { WarehouseCode = "01", SnapshotDate = To }) },
         { "Mobile Orders", s => s.ExportMobileOrdersToExcel([], "Mobile Orders") },
+        { "G/L Ledger", s => s.ExportGLAccountLedgerToExcel(new GLAccountLedgerResponse { AccountCode = "701421", FromDate = From, ToDate = To, IsReconciled = true }) },
     };
+
+    private static GLAccountLedgerResponse Ledger(Action<GLAccountLedgerResponse>? adjust = null)
+    {
+        var ledger = new GLAccountLedgerResponse
+        {
+            AccountCode = "701421",
+            AccountName = "Ecocash -Kefalos Van Sales 9",
+            Currency = "USD",
+            FromDate = From,
+            ToDate = To,
+            OpeningBalance = 1452.20m,
+            TotalDebits = 367.14m,
+            ClosingBalance = 1819.34m,
+            SapBalance = 1819.34m,
+            ComputedBalanceToday = 1819.34m,
+            IsReconciled = true,
+            LineLimit = 2000,
+            Lines =
+            [
+                new GLAccountLedgerLine
+                {
+                    Date = new DateTime(2026, 7, 3),
+                    TransactionNumber = 872071,
+                    OriginCode = "JE",
+                    DocumentType = "Journal Entry",
+                    DocumentNumber = "872071",
+                    OffsetAccount = "VAN019",
+                    Description = "Ecocash Bulawayo UPC",
+                    CreatedBy = "915765",
+                    Debit = 367.14m,
+                    Balance = 1819.34m,
+                },
+            ],
+        };
+
+        adjust?.Invoke(ledger);
+        return ledger;
+    }
 
     [Theory]
     [MemberData(nameof(EmptyReports))]
@@ -222,5 +261,61 @@ public class ReportExportWorkbookTests
 
         // One per currency, never a single sum across both.
         Assert.Equal(2, totals.Count);
+    }
+
+    [Fact]
+    public void A_ledger_carries_the_balance_its_running_column_starts_from()
+    {
+        using var workbook = Open(_service.ExportGLAccountLedgerToExcel(Ledger()));
+        var sheet = workbook.Worksheet("Ledger");
+
+        var headerRow = sheet.CellsUsed().First(c => c.GetString() == "Balance").Address.RowNumber;
+        var broughtForward = sheet.Cell(headerRow + 1, 12);
+
+        Assert.Contains("Opening balance brought forward", sheet.Cell(headerRow + 1, 7).GetString());
+        Assert.Equal(1452.20m, broughtForward.GetValue<decimal>());
+
+        // No dropdowns: sorting or filtering a running balance leaves every figure in it wrong
+        // while the sheet still looks sound.
+        Assert.False(sheet.AutoFilter.IsEnabled, "the ledger offers to sort its running balance away");
+    }
+
+    [Fact]
+    public void A_ledger_that_disagrees_with_SAP_says_so_in_the_sheet()
+    {
+        var ledger = Ledger(l =>
+        {
+            l.SapBalance = 1820.51m;
+            l.ReconciliationDifference = 1.17m;
+        });
+
+        using var workbook = Open(_service.ExportGLAccountLedgerToExcel(ledger));
+        var sheet = workbook.Worksheet("Ledger");
+
+        var text = string.Join("\n", sheet.CellsUsed().Select(c => c.GetFormattedString()));
+        Assert.Contains("These figures do not agree with SAP", text);
+        Assert.Contains("1.17", text);
+
+        // And the agreeing case states its verdict too, or the two are indistinguishable.
+        using var agreeing = Open(_service.ExportGLAccountLedgerToExcel(Ledger()));
+        var agreeingText = string.Join("\n", agreeing.Worksheet("Ledger").CellsUsed().Select(c => c.GetFormattedString()));
+        Assert.Contains("Agrees with SAP", agreeingText);
+    }
+
+    [Fact]
+    public void A_ledger_period_with_no_postings_says_so_rather_than_stopping_at_the_opening_balance()
+    {
+        var ledger = Ledger(l =>
+        {
+            l.Lines = [];
+            l.TotalDebits = 0;
+            l.ClosingBalance = l.OpeningBalance;
+        });
+
+        using var workbook = Open(_service.ExportGLAccountLedgerToExcel(ledger));
+        var sheet = workbook.Worksheet("Ledger");
+
+        var text = string.Join("\n", sheet.CellsUsed().Select(c => c.GetFormattedString()));
+        Assert.Contains("Nothing was posted to this account", text);
     }
 }
