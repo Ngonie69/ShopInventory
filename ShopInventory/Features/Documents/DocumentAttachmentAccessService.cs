@@ -55,7 +55,6 @@ public sealed class DocumentAttachmentAccessService(
         var accessResult = await EnsureEntityAccessInternalAsync(
             attachment.EntityType,
             attachment.EntityId,
-            attachment.ExternalReference,
             attachment.UploadedByUserId,
             isWriteOperation,
             cancellationToken);
@@ -71,13 +70,12 @@ public sealed class DocumentAttachmentAccessService(
         bool isWriteOperation,
         CancellationToken cancellationToken)
     {
-        return EnsureEntityAccessInternalAsync(entityType, entityId, null, null, isWriteOperation, cancellationToken);
+        return EnsureEntityAccessInternalAsync(entityType, entityId, null, isWriteOperation, cancellationToken);
     }
 
     private async Task<ErrorOr<bool>> EnsureEntityAccessInternalAsync(
         string entityType,
         int entityId,
-        string? externalReference,
         Guid? uploadedByUserId,
         bool isWriteOperation,
         CancellationToken cancellationToken)
@@ -117,12 +115,12 @@ public sealed class DocumentAttachmentAccessService(
 
         if (string.Equals(normalizedEntityType, "ExternalPurchaseOrder", StringComparison.OrdinalIgnoreCase))
         {
-            return await EnsureExternalPurchaseOrderAccessAsync(role, isWriteOperation, GetPermissionsAsync, cancellationToken);
+            return await EnsureExternalPurchaseOrderAccessAsync(role, isWriteOperation, GetPermissionsAsync);
         }
 
         if (string.Equals(normalizedEntityType, CrateTrackingConstants.AttachmentEntityTypeCrateTransaction, StringComparison.OrdinalIgnoreCase))
         {
-            return await EnsureCrateTransactionAccessAsync(entityId, userId, role, isWriteOperation, cancellationToken);
+            return await EnsureCrateTransactionAccessAsync(entityId, role, isWriteOperation, cancellationToken);
         }
 
         if (string.Equals(normalizedEntityType, CrateTrackingConstants.AttachmentEntityTypeCratePodSubmission, StringComparison.OrdinalIgnoreCase))
@@ -245,8 +243,7 @@ public sealed class DocumentAttachmentAccessService(
     private async Task<ErrorOr<bool>> EnsureExternalPurchaseOrderAccessAsync(
         string role,
         bool isWriteOperation,
-        Func<Task<IReadOnlyCollection<string>>> getPermissionsAsync,
-        CancellationToken cancellationToken)
+        Func<Task<IReadOnlyCollection<string>>> getPermissionsAsync)
     {
         if (!isWriteOperation && ExternalPurchaseOrderReadRoles.Contains(role))
         {
@@ -272,9 +269,23 @@ public sealed class DocumentAttachmentAccessService(
                 : "You do not have permission to view purchase order attachments.");
     }
 
+    /// <summary>
+    /// Access to a crate transaction's attachments, which is decided by role alone.
+    /// </summary>
+    /// <remarks>
+    /// The two methods below scope a Driver to their own submissions, so the absence of any such check
+    /// here reads like an omission. It is not. A CrateTransaction attachment is an opening-balance
+    /// document: it is only ever created, replaced or deleted through the three
+    /// <c>crates/opening-balances</c> endpoints, all of which are <c>[Authorize(Roles = "Admin")]</c>.
+    /// It records a shop's starting crate count, so there is no owning user to compare against — the
+    /// uploader is an administrator acting on the shop's behalf, not a party to the document.
+    ///
+    /// A Driver is denied outright rather than narrowed, because an opening balance is not theirs to
+    /// see at all. Do not add a userId comparison here expecting it to tighten anything; it would only
+    /// deny the administrators this is for.
+    /// </remarks>
     private async Task<ErrorOr<bool>> EnsureCrateTransactionAccessAsync(
         int entityId,
-        Guid userId,
         string role,
         bool isWriteOperation,
         CancellationToken cancellationToken)
