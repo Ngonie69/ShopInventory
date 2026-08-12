@@ -326,11 +326,14 @@ try
     // Add Desktop Integration service (for viewing desktop app transactions)
     builder.Services.AddScoped<IDesktopIntegrationService, DesktopIntegrationService>();
 
-    // Add Timesheet service
+    // Merchandiser timesheets. Van sales attendance is a separate service below, on purpose.
     builder.Services.AddScoped<ITimesheetService, TimesheetService>();
 
     // Van sales reporting — the departure compliance report and the route master
     builder.Services.AddScoped<IVanSalesReportService, VanSalesReportService>();
+
+    // Van sales check-in/check-out
+    builder.Services.AddScoped<IVanSalesAttendanceService, VanSalesAttendanceService>();
 
     // Add Email service with MailKit
     builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));

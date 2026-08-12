@@ -1,5 +1,6 @@
 @page "/van-sales/compliance"
-@attribute [Authorize(Roles = "Admin,Manager,SalesRep")]
+@* Admin and Manager only — see VanSalesActivity.razor. *@
+@attribute [Authorize(Roles = "Admin,Manager")]
 @rendermode InteractiveServer
 @using ShopInventory.Web.Models
 @inject IVanSalesReportService VanSalesReportService

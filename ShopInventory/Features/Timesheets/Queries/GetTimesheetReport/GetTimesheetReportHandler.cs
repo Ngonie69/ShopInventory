@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Data;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.Timesheets.Queries.GetTimesheetReport;
 
@@ -13,8 +14,12 @@ public sealed class GetTimesheetReportHandler(
         GetTimesheetReportQuery request,
         CancellationToken cancellationToken)
     {
+        // Merchandiser rows only, pinned rather than passed in. This report totalled both operations
+        // and printed the result under the heading "Merchandisers", so a van rep's calls were counted
+        // as shelf visits by every page that read it.
         var query = db.TimesheetEntries
             .AsNoTracking()
+            .Where(t => t.Channel == TimesheetChannel.Merchandiser)
             .Where(t => t.CheckInTime >= request.FromDate && t.CheckInTime <= request.ToDate);
 
         if (request.UserId.HasValue)

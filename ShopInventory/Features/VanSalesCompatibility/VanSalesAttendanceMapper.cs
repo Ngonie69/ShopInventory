@@ -1,9 +1,9 @@
 using System.Globalization;
 using ShopInventory.DTOs;
-using ShopInventory.Features.Timesheets.Commands.CheckIn;
-using ShopInventory.Features.Timesheets.Commands.CheckOut;
-using ShopInventory.Features.Timesheets.Queries.GetActiveCheckIn;
-using ShopInventory.Features.Timesheets.Queries.GetTimesheets;
+using ShopInventory.Features.VanSalesAttendance.Commands.VanCheckIn;
+using ShopInventory.Features.VanSalesAttendance.Commands.VanCheckOut;
+using ShopInventory.Features.VanSalesAttendance.Queries.GetActiveVanVisit;
+using ShopInventory.Features.VanSalesAttendance.Queries.GetVanVisits;
 using ShopInventory.Models;
 using ShopInventory.Services;
 
@@ -12,7 +12,7 @@ namespace ShopInventory.Features.VanSalesCompatibility;
 public static class VanSalesAttendanceMapper
 {
     public static VanSalesAttendanceListResponse MapListResponse(
-        TimesheetListResult result,
+        VanVisitListResult result,
         User user)
     {
         var records = BuildApiRecords(result.Entries, user);
@@ -32,7 +32,7 @@ public static class VanSalesAttendanceMapper
     }
 
     public static VanSalesAttendanceByDateResponse MapByDateResponse(
-        IReadOnlyCollection<TimesheetEntryDto> entries,
+        IReadOnlyCollection<VanVisitDto> entries,
         User user)
     {
         return new VanSalesAttendanceByDateResponse
@@ -44,7 +44,7 @@ public static class VanSalesAttendanceMapper
     }
 
     public static VanSalesAttendanceStatusResponse MapStatusResponse(
-        ActiveCheckInResult? activeCheckIn,
+        ActiveVanVisitResult? activeCheckIn,
         User user)
     {
         var hasOpenCheckins = activeCheckIn is not null;
@@ -90,7 +90,7 @@ public static class VanSalesAttendanceMapper
     }
 
     public static VanSalesAttendanceCheckResponse MapCheckInResponse(
-        CheckInResult result,
+        VanCheckInResult result,
         User user,
         VanSalesShopDto? shop,
         string? requestedVan)
@@ -119,7 +119,7 @@ public static class VanSalesAttendanceMapper
     }
 
     public static VanSalesAttendanceCheckResponse MapCheckOutResponse(
-        CheckOutResult result,
+        VanCheckOutResult result,
         User user,
         string? requestedVan)
     {
@@ -197,7 +197,7 @@ public static class VanSalesAttendanceMapper
     }
 
     private static List<VanSalesAttendanceApiRecord> BuildApiRecords(
-        IEnumerable<TimesheetEntryDto> entries,
+        IEnumerable<VanVisitDto> entries,
         User user)
     {
         var records = new List<VanSalesAttendanceApiRecord>();

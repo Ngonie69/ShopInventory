@@ -2,22 +2,22 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Mobile;
 
-namespace ShopInventory.Features.Timesheets.Commands.CheckOut;
+namespace ShopInventory.Features.VanSalesAttendance.Commands.VanCheckOut;
 
 /// <summary>
-/// A merchandiser leaving a shop. Merchandiser only — see <see cref="CheckIn.CheckInCommand"/>.
+/// A van sales rep leaving a call. See <see cref="VanCheckIn.VanCheckInCommand"/> for why this is its
+/// own command and not a flag on the merchandiser's.
 /// </summary>
-
-public sealed record CheckOutCommand(
+public sealed record VanCheckOutCommand(
     Guid UserId,
     string Username,
     double? Latitude,
     double? Longitude,
     string? Notes,
     CaptureContext? Capture = null
-) : IRequest<ErrorOr<CheckOutResult>>;
+) : IRequest<ErrorOr<VanCheckOutResult>>;
 
-public sealed record CheckOutResult(
+public sealed record VanCheckOutResult(
     int Id,
     string CustomerCode,
     string CustomerName,

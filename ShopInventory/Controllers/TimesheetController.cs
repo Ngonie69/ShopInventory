@@ -15,6 +15,14 @@ using System.Security.Claims;
 
 namespace ShopInventory.Controllers;
 
+/// <summary>
+/// Merchandiser check-in and check-out.
+///
+/// Merchandiser only, at every route on it. There is no channel parameter to pass and no way to ask
+/// this controller for a van sales rep's day — that lives on <c>VanSalesAttendanceController</c>
+/// behind its own permission. Holding <c>timesheets.view</c> gets you merchandiser visits and nothing
+/// else.
+/// </summary>
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
 [Produces("application/json")]
@@ -35,8 +43,6 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
 
         var username = User.FindFirstValue(ClaimTypes.Name) ?? "unknown";
 
-        // Merchandiser, because this is the merchandiser route. A van rep's handset checks in through
-        // /api/vansales/attendance, which stamps VanSales on its own way past.
         var command = new CheckInCommand(
             userId.Value,
             username,
@@ -44,8 +50,7 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
             request.CustomerName,
             request.Latitude,
             request.Longitude,
-            request.Notes,
-            TimesheetChannel.Merchandiser);
+            request.Notes);
 
         var result = await mediator.Send(command, cancellationToken);
 
@@ -126,7 +131,6 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
         [FromQuery] string? customerCode = null,
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null,
-        [FromQuery] TimesheetChannel? channel = null,
         CancellationToken cancellationToken = default)
     {
         // Merchandiser can only see their own timesheets
@@ -141,7 +145,7 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
         var utcToDate = toDate.HasValue ? DateTime.SpecifyKind(toDate.Value, DateTimeKind.Utc) : toDate;
 
         var result = await mediator.Send(
-            new GetTimesheetsQuery(page, pageSize, userId, username, customerCode, utcFromDate, utcToDate, channel),
+            new GetTimesheetsQuery(page, pageSize, userId, username, customerCode, utcFromDate, utcToDate),
             cancellationToken);
 
         return result.Match(

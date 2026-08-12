@@ -1,39 +1,48 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Mobile;
 using ShopInventory.Data;
-using ShopInventory.Models.Entities;
-using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using ShopInventory.Models;
+using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
-namespace ShopInventory.Features.Timesheets.Commands.CheckIn;
+namespace ShopInventory.Features.VanSalesAttendance.Commands.VanCheckIn;
 
-public sealed class CheckInHandler(
+/// <summary>
+/// Records a van sales call.
+///
+/// Deliberately a sibling of the merchandiser's <c>CheckInHandler</c> rather than a call into it. The
+/// error codes are shared because they are a wire contract the handset already keys on, but nothing
+/// else is: every query below is pinned to <see cref="TimesheetChannel.VanSales"/>, so this handler
+/// can neither read nor close a merchandiser's visit, and a change made for the vans cannot reach the
+/// merchandiser side by accident.
+/// </summary>
+public sealed class VanCheckInHandler(
     ApplicationDbContext db,
     IAuditService auditService,
-    ILogger<CheckInHandler> logger
-) : IRequestHandler<CheckInCommand, ErrorOr<CheckInResult>>
+    ILogger<VanCheckInHandler> logger
+) : IRequestHandler<VanCheckInCommand, ErrorOr<VanCheckInResult>>
 {
-    public async Task<ErrorOr<CheckInResult>> Handle(
-        CheckInCommand command,
+    public async Task<ErrorOr<VanCheckInResult>> Handle(
+        VanCheckInCommand command,
         CancellationToken cancellationToken)
     {
         var capture = command.Capture ?? CaptureContext.Live;
 
         try
         {
-            // A queued visit that reached the server but lost its reply comes back on the next sync.
+            // A queued call that reached the server but lost its reply comes back on the next sync.
             // Answering with the row already stored is the whole point of the client reference: the
-            // alternative is a second visit to the same shop, which inflates the call count the
-            // compliance report is built on.
+            // alternative is a second call at the same shop, which inflates the call count the
+            // departure compliance report is built on.
             if (!string.IsNullOrWhiteSpace(capture.ClientReference))
             {
                 var existing = await db.TimesheetEntries
                     .AsNoTracking()
-                    .Where(t => t.Channel == TimesheetChannel.Merchandiser)
+                    .Where(t => t.Channel == TimesheetChannel.VanSales)
                     .FirstOrDefaultAsync(
                         t => t.CheckInClientReference == capture.ClientReference,
                         cancellationToken);
@@ -41,7 +50,7 @@ public sealed class CheckInHandler(
                 if (existing is not null)
                 {
                     logger.LogInformation(
-                        "Replayed check-in {ClientReference} for {Username}; returning entry {EntryId}",
+                        "Replayed van check-in {ClientReference} for {Username}; returning entry {EntryId}",
                         capture.ClientReference, command.Username, existing.Id);
 
                     return ToResult(existing, wasReplay: true);
@@ -51,7 +60,7 @@ public sealed class CheckInHandler(
             var hasActiveCheckIn = await db.TimesheetEntries
                 .AnyAsync(
                     t => t.UserId == command.UserId
-                         && t.Channel == TimesheetChannel.Merchandiser
+                         && t.Channel == TimesheetChannel.VanSales
                          && t.CheckOutTime == null,
                     cancellationToken);
 
@@ -62,9 +71,7 @@ public sealed class CheckInHandler(
 
             var entry = new TimesheetEntryEntity
             {
-                // Not a parameter. This handler is the merchandiser's and only the merchandiser's;
-                // a van visit is written by VanCheckInHandler, which stamps its own channel.
-                Channel = TimesheetChannel.Merchandiser,
+                Channel = TimesheetChannel.VanSales,
                 UserId = command.UserId,
                 Username = command.Username,
                 CustomerCode = command.CustomerCode,
@@ -86,7 +93,7 @@ public sealed class CheckInHandler(
             db.TimesheetEntries.Add(entry);
             await db.SaveChangesAsync(cancellationToken);
 
-            logger.LogInformation("User {Username} checked in at {CustomerCode} ({CustomerName})",
+            logger.LogInformation("Van rep {Username} checked in at {CustomerCode} ({CustomerName})",
                 command.Username, command.CustomerCode, command.CustomerName);
 
             try
@@ -97,9 +104,9 @@ public sealed class CheckInHandler(
 
                 await auditService.LogAsync(
                     AuditActions.CheckIn,
-                    "Timesheet",
+                    "VanSalesAttendance",
                     entry.Id.ToString(),
-                    $"Checked in at {entry.CustomerCode} ({entry.CustomerName}).{lateSuffix}",
+                    $"Van checked in at {entry.CustomerCode} ({entry.CustomerName}).{lateSuffix}",
                     true);
             }
             catch
@@ -110,20 +117,20 @@ public sealed class CheckInHandler(
         }
         catch (DbUpdateException ex) when (IsActiveCheckInConstraintViolation(ex))
         {
-            logger.LogInformation("Concurrent check-in prevented for user {Username}", command.Username);
+            logger.LogInformation("Concurrent van check-in prevented for user {Username}", command.Username);
             return Errors.Timesheet.AlreadyCheckedIn;
         }
         catch (DbUpdateException ex) when (IsClientReferenceConstraintViolation(ex))
         {
-            // Two syncs of the same queued visit racing. The reference lookup above missed because
+            // Two syncs of the same queued call racing. The reference lookup above missed because
             // neither had committed yet; the loser reads the winner's row rather than failing.
             logger.LogInformation(
-                "Concurrent replay of check-in {ClientReference} for {Username}",
+                "Concurrent replay of van check-in {ClientReference} for {Username}",
                 capture.ClientReference, command.Username);
 
             var winner = await db.TimesheetEntries
                 .AsNoTracking()
-                .Where(t => t.Channel == TimesheetChannel.Merchandiser)
+                .Where(t => t.Channel == TimesheetChannel.VanSales)
                 .FirstOrDefaultAsync(
                     t => t.CheckInClientReference == capture.ClientReference,
                     cancellationToken);
@@ -134,12 +141,13 @@ public sealed class CheckInHandler(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error checking in user {Username} at {CustomerCode}", command.Username, command.CustomerCode);
+            logger.LogError(ex, "Error checking in van rep {Username} at {CustomerCode}",
+                command.Username, command.CustomerCode);
             return Errors.Timesheet.CheckInFailed(ex.Message);
         }
     }
 
-    private static CheckInResult ToResult(TimesheetEntryEntity entry, bool wasReplay) => new(
+    private static VanCheckInResult ToResult(TimesheetEntryEntity entry, bool wasReplay) => new(
         entry.Id,
         entry.CheckInTime,
         entry.CustomerCode,

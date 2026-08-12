@@ -476,8 +476,13 @@
 
             @* Its own group rather than a pair of links under Sales: a van's day is
                measured on different things from a merchandiser's, and the two used
-               to share one page that could only ever suit one of them. *@
-            <AuthorizeView Roles="Admin,Manager,SalesRep" Context="vanSalesCtx">
+               to share one page that could only ever suit one of them.
+
+               No SalesRep. A sales rep supervises merchandisers — they create the
+               accounts and read the timesheets — and has no part in the vans. They
+               used to be listed here, which is how a rep who was meant to see only
+               merchandiser check-in/out got the van section in their sidebar. *@
+            <AuthorizeView Roles="Admin,Manager" Context="vanSalesCtx">
                 <Authorized>
                     <div class="nav-section-label">Van Sales</div>
                     @* ph-truck rather than ph-van: this sheet only loads the Phosphor
@@ -488,6 +493,12 @@
                             <i class="ph ph-truck" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Van Activity</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/van-sales/attendance-report" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <i class="ph ph-chart-bar" aria-hidden="true"></i>
+                        </span>
+                        <span class="snav-text">Attendance Report</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/van-sales/compliance" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">

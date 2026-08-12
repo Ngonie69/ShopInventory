@@ -109,9 +109,13 @@ public static class Permissions
     public const string RestoreBackups = "backups.restore";
     public const string DeleteBackups = "backups.delete";
 
-    // Timesheets
+    // Timesheets — merchandiser visits only. Van sales attendance has its own permission below,
+    // deliberately: holding this one must never be enough to read a van's day.
     public const string ViewTimesheets = "timesheets.view";
     public const string ManageTimesheets = "timesheets.manage";
+
+    // Van sales attendance
+    public const string ViewVanSalesAttendance = "vansales.attendance.view";
 
     /// <summary>
     /// Get all permissions grouped by category
@@ -224,8 +228,12 @@ public static class Permissions
             },
             ["Timesheets"] = new()
             {
-                new(ViewTimesheets, "View Timesheets", "View sales rep check-in/check-out timesheets"),
+                new(ViewTimesheets, "View Timesheets", "View merchandiser check-in/check-out timesheets"),
                 new(ManageTimesheets, "Manage Timesheets", "Manage timesheet entries")
+            },
+            ["Van Sales"] = new()
+            {
+                new(ViewVanSalesAttendance, "View Van Sales Attendance", "View van sales check-in/check-out activity and departure compliance")
             },
             ["System"] = new()
             {
@@ -271,7 +279,10 @@ public static class Permissions
                 ViewUsers,
                 ViewSettings, EditSettings,
                 ViewAuditLogs,
-                ViewSyncStatus
+                ViewSyncStatus,
+                // Van sales attendance, and only van sales attendance. A manager oversees the vans;
+                // merchandiser timesheets are the sales rep's to read.
+                ViewVanSalesAttendance
             },
             ApplicationRoles.User => new List<string>
             {
@@ -482,6 +493,9 @@ public static class Permission
     // Timesheets
     public const string ViewTimesheets = Permissions.ViewTimesheets;
     public const string ManageTimesheets = Permissions.ManageTimesheets;
+
+    // Van sales attendance
+    public const string ViewVanSalesAttendance = Permissions.ViewVanSalesAttendance;
 
     /// <summary>
     /// Get all permissions grouped by category (delegates to Permissions)
