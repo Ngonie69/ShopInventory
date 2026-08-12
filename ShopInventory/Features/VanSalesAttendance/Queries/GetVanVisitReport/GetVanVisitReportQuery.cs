@@ -58,7 +58,12 @@ public sealed record VanVisitReportRepSummary(
 );
 
 /// <param name="Date">The CAT trading day. A date, not an instant — it carries no time of day.</param>
+/// <param name="CallCount">Every call checked in that day, open ones included.</param>
+/// <param name="DistinctCustomers">Customer codes, counted once each — a return visit is one customer, two calls.</param>
+/// <param name="OpenCalls">Calls never checked out.</param>
+/// <param name="TotalMinutes">Summed over the calls that closed; an open call has no duration to add.</param>
 /// <param name="FirstCheckIn">UTC, like every other instant the API sends. The page converts.</param>
+/// <param name="LastCheckOut">UTC as well, and null until a call on that day closes.</param>
 public sealed record VanVisitReportDaySummary(
     DateTime Date,
     int CallCount,
