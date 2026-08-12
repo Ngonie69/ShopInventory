@@ -75,6 +75,14 @@ public class CreateStockReservationRequest
     public string? Currency { get; set; }
 
     /// <summary>
+    /// How the customer paid, as a brand — "Cash", "Ecocash", "Innbucks". Carried onto the confirmed
+    /// reservation because an online van sale leaves no other local record to hold it, and the
+    /// compliance report cannot split a day's takings without one.
+    /// </summary>
+    [MaxLength(50)]
+    public string? PaymentMethod { get; set; }
+
+    /// <summary>
     /// How long to hold the reservation (in minutes). Default: 60 minutes
     /// Maximum: 1440 minutes (24 hours)
     /// </summary>

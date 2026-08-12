@@ -498,6 +498,9 @@ public class UserModel
     public string? AssignedCostCentreCode { get; set; }
     /// <summary>The depot a van loads from — the source of its stock transfer requests.</summary>
     public string? SupplyingWarehouseCode { get; set; }
+
+    /// <summary>The selling route a van runs — the source of its territory and truck registration.</summary>
+    public int? RouteId { get; set; }
     public DateTime? LastLoginAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }

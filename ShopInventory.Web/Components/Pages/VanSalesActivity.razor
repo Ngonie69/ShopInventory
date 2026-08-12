@@ -1,0 +1,368 @@
+@page "/van-sales/activity"
+@attribute [Authorize(Roles = "Admin,Manager,SalesRep")]
+@rendermode InteractiveServer
+@using ShopInventory.Web.Models
+@inject ITimesheetService TimesheetService
+
+<PageTitle>Van Sales Activity - Shop Inventory</PageTitle>
+
+@* The round as it happened, call by call.
+
+   Carried by wwwroot/css/van-sales.css (linked from App.razor) in both schemes.
+
+   Grouped by rep and day rather than listed flat, because a van's unit of work
+   is the round: seventeen rows in check-in order say far less than "Tinashe,
+   Tuesday, fourteen calls, first at 07:41, last at 18:05". The compliance
+   report answers how the day scored; this answers what actually happened in it.
+
+   Two markers earn their place on every row. A last-known GPS fix is not a fix
+   taken at the door and a map pin looks identical either way, so it is labelled.
+   And a visit queued on a handset with no signal is marked as such — its time is
+   the rep's own clock rather than the server's, which is the right answer but
+   one a supervisor should be able to see they are relying on. *@
+
+<div class="vs">
+
+    <div class="vs-head">
+        <div>
+            <h2 class="vs-title">Van sales activity</h2>
+            <p class="vs-subtitle">
+                Check-in and check-out for the vans, grouped into rounds.
+                Merchandiser visits are on the Timesheets page.
+            </p>
+        </div>
+    </div>
+
+    <div class="vs-filters">
+        <div class="row g-3">
+            @* NocturneDateField, never <input type="date"> — see the compliance page for why. *@
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vsa-from">From</label>
+                <NocturneDateField Id="vsa-from" @bind-Date="fromDate" AriaLabel="From date" />
+            </div>
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vsa-to">To</label>
+                <NocturneDateField Id="vsa-to" @bind-Date="toDate" AriaLabel="To date" />
+            </div>
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsa-user">Rep</label>
+                <input id="vsa-user" class="vs-field" @bind="filterUsername" placeholder="Username" />
+            </div>
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsa-cust">Customer</label>
+                <input id="vsa-cust" class="vs-field" @bind="filterCustomerCode" placeholder="Code" />
+            </div>
+            <div class="col-md-2 vs-actions">
+                <button class="vs-btn vs-btn-accent" @onclick="() => GoToPageAsync(1)" disabled="@isLoading">
+                    @(isLoading ? "Loading…" : "Search")
+                </button>
+                <button class="vs-btn" @onclick="ClearAsync" disabled="@isLoading">Clear</button>
+            </div>
+        </div>
+    </div>
+
+    @if (loadError is not null)
+    {
+        <div class="vs-notice">@loadError</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Reading the rounds…</span>
+        </div>
+    }
+    else if (data is null || data.Entries.Count == 0)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">No van visits found</div>
+            <div>No van rep checked in against these dates.</div>
+        </div>
+    }
+    else
+    {
+        <div class="vs-summary">
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@data.TotalCount</div>
+                <div class="vs-summary-label">Calls in period</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@rounds.Count</div>
+                <div class="vs-summary-label">Rounds on this page</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@openVisits</div>
+                <div class="vs-summary-label">Still open</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@offlineVisits</div>
+                <div class="vs-summary-label">Captured offline</div>
+            </div>
+        </div>
+
+        @foreach (var round in rounds)
+        {
+            <div class="vs-day">
+                <div class="vs-day-head">
+                    <div>
+                        <div class="vs-day-who">@round.DisplayName</div>
+                        <div class="vs-day-where">
+                            @round.Visits.Count @(round.Visits.Count == 1 ? "call" : "calls")
+                            · @round.DistinctCustomers @(round.DistinctCustomers == 1 ? "customer" : "customers")
+                            · @FormatMinutes(round.TotalMinutes) on site
+                        </div>
+                    </div>
+                    <div class="vs-day-when">
+                        <div class="vs-day-date">@round.Date.ToString("ddd dd MMM yyyy")</div>
+                        <div>
+                            First @round.FirstCheckIn.ToString("HH:mm")
+                            @if (round.LastCheckOut is { } last)
+                            {
+                                <span> · last out @last.ToString("HH:mm")</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="vs-table-wrap">
+                    <table class="vs-table">
+                        <thead>
+                            <tr>
+                                <th>Customer</th>
+                                <th>In</th>
+                                <th>Out</th>
+                                <th>Duration</th>
+                                <th>Position</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var visit in round.Visits)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="vs-primary">@visit.CustomerName</div>
+                                        <div class="vs-meta">@visit.CustomerCode</div>
+                                    </td>
+                                    <td class="vs-num">@ToCat(visit.CheckInTime).ToString("HH:mm")</td>
+                                    <td class="vs-num">
+                                        @if (visit.CheckOutTime is { } outTime)
+                                        {
+                                            @ToCat(outTime).ToString("HH:mm")
+                                        }
+                                        else
+                                        {
+                                            <span class="vs-chip vs-chip-info">Open</span>
+                                        }
+                                    </td>
+                                    <td class="vs-num">@visit.DurationDisplay</td>
+                                    <td>
+                                        @if (visit.CheckInLatitude is { } lat && visit.CheckInLongitude is { } lon)
+                                        {
+                                            <a class="vs-meta" href="@GoogleMapsLink(lat, lon)" target="_blank" rel="noopener">
+                                                @lat.ToString("F5"), @lon.ToString("F5")
+                                            </a>
+                                            @if (visit.CheckInFixIsStale)
+                                            {
+                                                <div><span class="vs-chip vs-chip-warn">Last known</span></div>
+                                            }
+                                            else if (visit.CheckInLocationAccuracyMetres is { } metres)
+                                            {
+                                                <div class="vs-meta">±@metres.ToString("F0")m</div>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span class="vs-chip vs-chip-bad">No fix</span>
+                                            @if (!string.IsNullOrWhiteSpace(visit.LocationUnavailableReason))
+                                            {
+                                                <div class="vs-meta">@visit.LocationUnavailableReason</div>
+                                            }
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (visit.WasCapturedOffline)
+                                        {
+                                            <div><span class="vs-chip vs-chip-neutral">Offline</span></div>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(visit.CheckInNotes))
+                                        {
+                                            <div class="vs-meta">In: @visit.CheckInNotes</div>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(visit.CheckOutNotes))
+                                        {
+                                            <div class="vs-meta">Out: @visit.CheckOutNotes</div>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        @if (totalPages > 1)
+        {
+            <div class="vs-actions" style="justify-content:center; margin-top:18px;">
+                <button class="vs-btn" disabled="@(currentPage <= 1)" @onclick="() => GoToPageAsync(currentPage - 1)">
+                    Previous
+                </button>
+                <span class="vs-meta" style="align-self:center;">
+                    Page @currentPage of @totalPages — @data.TotalCount calls
+                </span>
+                <button class="vs-btn" disabled="@(currentPage >= totalPages)" @onclick="() => GoToPageAsync(currentPage + 1)">
+                    Next
+                </button>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private TimesheetListResponse? data;
+    private List<Round> rounds = [];
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string? filterUsername;
+    private string? filterCustomerCode;
+
+    private bool isLoading;
+    private string? loadError;
+
+    private int currentPage = 1;
+    private const int PageSize = 100;
+    private int totalPages;
+
+    private int openVisits;
+    private int offlineVisits;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = DateTime.UtcNow.AddHours(2).Date;
+        fromDate = today.AddDays(-6);
+        toDate = today;
+
+        await LoadAsync();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        currentPage = Math.Max(1, page);
+        await LoadAsync();
+    }
+
+    private async Task ClearAsync()
+    {
+        var today = DateTime.UtcNow.AddHours(2).Date;
+        fromDate = today.AddDays(-6);
+        toDate = today;
+        filterUsername = null;
+        filterCustomerCode = null;
+        currentPage = 1;
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        StateHasChanged();
+
+        try
+        {
+            // Inclusive of the whole closing day, and expressed as the UTC window the API filters on.
+            var fromUtc = fromDate?.AddHours(-2);
+            var toUtc = toDate?.AddDays(1).AddHours(-2).AddSeconds(-1);
+
+            data = await TimesheetService.GetTimesheetsAsync(
+                currentPage, PageSize,
+                username: filterUsername,
+                customerCode: filterCustomerCode,
+                fromDate: fromUtc,
+                toDate: toUtc,
+                channel: TimesheetChannel.VanSales);
+
+            if (data is null)
+            {
+                loadError = "Van sales activity could not be loaded. Check that the API is reachable.";
+                rounds = [];
+                return;
+            }
+
+            totalPages = (int)Math.Ceiling((double)data.TotalCount / PageSize);
+            openVisits = data.Entries.Count(entry => entry.CheckOutTime is null);
+            offlineVisits = data.Entries.Count(entry => entry.WasCapturedOffline);
+            rounds = BuildRounds(data.Entries);
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Failed to load van sales activity: {ex.Message}";
+            rounds = [];
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Group the page's visits into rounds — one rep, one CAT trading day.
+    ///
+    /// Grouped on the CAT date rather than the raw UTC one, or every evening call after 22:00 local
+    /// starts a second round on the following day.
+    /// </summary>
+    private static List<Round> BuildRounds(List<TimesheetEntryDto> entries) =>
+        entries
+            .GroupBy(entry => new { entry.UserId, Date = ToCat(entry.CheckInTime).Date })
+            .Select(group =>
+            {
+                var visits = group.OrderBy(entry => entry.CheckInTime).ToList();
+                var first = visits[0];
+
+                return new Round(
+                    first.UserId,
+                    string.IsNullOrWhiteSpace(first.FullName) ? first.Username : first.FullName!,
+                    group.Key.Date,
+                    ToCat(visits[0].CheckInTime),
+                    visits.Where(visit => visit.CheckOutTime.HasValue)
+                          .Select(visit => ToCat(visit.CheckOutTime!.Value))
+                          .DefaultIfEmpty()
+                          .Max() is { Ticks: > 0 } last ? last : null,
+                    visits.Select(visit => visit.CustomerCode)
+                          .Distinct(StringComparer.OrdinalIgnoreCase)
+                          .Count(),
+                    visits.Where(visit => visit.DurationMinutes.HasValue)
+                          .Sum(visit => visit.DurationMinutes!.Value),
+                    visits);
+            })
+            .OrderByDescending(round => round.Date)
+            .ThenBy(round => round.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private sealed record Round(
+        Guid UserId,
+        string DisplayName,
+        DateTime Date,
+        DateTime FirstCheckIn,
+        DateTime? LastCheckOut,
+        int DistinctCustomers,
+        double TotalMinutes,
+        List<TimesheetEntryDto> Visits);
+
+    /// <summary>
+    /// The API stores UTC and this page shows CAT. A fixed offset is correct here: Zimbabwe has never
+    /// observed daylight saving, and it matches what the rest of the portal already does.
+    /// </summary>
+    private static DateTime ToCat(DateTime utc) => utc.AddHours(2);
+
+    private static string FormatMinutes(double minutes) =>
+        $"{(int)(minutes / 60)}h {(int)(minutes % 60)}m";
+
+    private static string GoogleMapsLink(double lat, double lon) =>
+        $"https://www.google.com/maps?q={lat.ToString(System.Globalization.CultureInfo.InvariantCulture)},{lon.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+}

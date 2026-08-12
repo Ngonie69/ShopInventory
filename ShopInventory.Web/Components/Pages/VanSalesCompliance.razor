@@ -1,0 +1,432 @@
+@page "/van-sales/compliance"
+@attribute [Authorize(Roles = "Admin,Manager,SalesRep")]
+@rendermode InteractiveServer
+@using ShopInventory.Web.Models
+@inject IVanSalesReportService VanSalesReportService
+
+<PageTitle>Departure Compliance - Shop Inventory</PageTitle>
+
+@* The departure compliance sheet, as data.
+
+   Carried by wwwroot/css/van-sales.css (linked from App.razor) in both schemes.
+
+   The card is the paper form, in its order: who and where at the top, then the
+   day's figures, then the money. That ordering is not decoration — a supervisor
+   reads these against a stack of the handwritten ones, and a field that has
+   moved is a field they have to hunt for.
+
+   Two distinctions the page has to hold, and both are about honesty rather than
+   layout:
+
+   - A rate with no denominator is unavailable, not zero. A van whose route had
+     no customers assigned when the day opened has no CCR at all, and 0% would
+     read as total failure. Those show an em dash.
+   - A day with no departure record still gets a card. The rep checked in and
+     sold without ever tapping Start Day, so the mileage and the times are
+     genuinely missing — which is the finding, and dropping the row would hide
+     it. Those are marked "No departure record". *@
+
+<div class="vs">
+
+    <div class="vs-head">
+        <div>
+            <h2 class="vs-title">Departure compliance</h2>
+            <p class="vs-subtitle">
+                One row per rep per trading day: the round they ran, the calls they made,
+                and what came back. Call compliance is customers visited over customers planned;
+                productive call rate is the calls that bought over the calls made.
+            </p>
+        </div>
+    </div>
+
+    <div class="vs-filters">
+        <div class="row g-3">
+            @* NocturneDateField, never <input type="date">: the native calendar is a platform
+               window no page stylesheet reaches into, so it arrives looking like Windows in the
+               middle of a Nocturne page and its glyph is unreadable on the dark ground. *@
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vs-from">From</label>
+                <NocturneDateField Id="vs-from" @bind-Date="fromDate" AriaLabel="From date" />
+            </div>
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vs-to">To</label>
+                <NocturneDateField Id="vs-to" @bind-Date="toDate" AriaLabel="To date" />
+            </div>
+            @* A filter-bar dropdown is a control the reader scans, so it is the component rather
+               than a native <select> — whose popup would composite this sheet's translucent field
+               fill onto white and hand back an unreadable list in dark theme. *@
+            <div class="col-md-4">
+                <label class="vs-filter-label" for="vs-route">Route</label>
+                <NocturneSelect Id="vs-route" Class="nsel-block" TValue="string"
+                                Options="RouteFilterOptions" @bind-Value="selectedRouteCode"
+                                OnChanged="LoadAsync" AriaLabel="Filter by route"
+                                Placeholder="All routes" />
+            </div>
+            <div class="col-md-2 vs-actions">
+                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
+                    @(isLoading ? "Loading…" : "Run")
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (loadError is not null)
+    {
+        <div class="vs-notice">@loadError</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Reading the rounds…</span>
+        </div>
+    }
+    else if (report is null)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">Nothing loaded yet</div>
+            <div>Choose a period and run the report.</div>
+        </div>
+    }
+    else if (report.Days.Count == 0)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">No trading days in this period</div>
+            <div>No van recorded a departure, a call or a sale between these dates.</div>
+        </div>
+    }
+    else
+    {
+        var summary = report.Summary;
+
+        <div class="vs-summary">
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@summary.DayCount</div>
+                <div class="vs-summary-label">Trading days</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@FormatRate(summary.CallComplianceRate)</div>
+                <div class="vs-summary-label">CCR</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@FormatRate(summary.ProductiveCallRate)</div>
+                <div class="vs-summary-label">PCR</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@FormatMoney(summary.AverageOrderValue)</div>
+                <div class="vs-summary-label">AOV</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@summary.TotalSales.ToString("N2")</div>
+                <div class="vs-summary-label">Total sales</div>
+            </div>
+            <div class="vs-summary-cell">
+                <div class="vs-summary-value">@(summary.KilometresTravelled?.ToString("N0") ?? "—")</div>
+                <div class="vs-summary-label">Kilometres</div>
+            </div>
+        </div>
+
+        @* The period's rates are recomputed from its totals, not averaged across
+           days — a day with four planned calls and one with two hundred are not
+           equal opinions about the same number. *@
+
+        @foreach (var day in report.Days)
+        {
+            <div class="vs-day">
+                <div class="vs-day-head">
+                    <div>
+                        <div class="vs-day-who">@day.DisplayName</div>
+                        <div class="vs-day-where">
+                            @if (!string.IsNullOrWhiteSpace(day.Territory))
+                            {
+                                <span>Territory @day.Territory</span>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(day.RouteName))
+                            {
+                                <span> · Route @day.RouteName</span>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(day.TruckRegNo))
+                            {
+                                <span> · @day.TruckRegNo</span>
+                            }
+                            @if (!day.HasDayRecord)
+                            {
+                                <span class="vs-chip vs-chip-warn ms-2">No departure record</span>
+                            }
+                            else if (!day.IsClosed)
+                            {
+                                <span class="vs-chip vs-chip-info ms-2">Day still open</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="vs-day-when">
+                        <div class="vs-day-date">@day.TradingDate.ToString("ddd dd MMM yyyy")</div>
+                        <div>
+                            Out @FormatTime(day.TimeOut) · In @FormatTime(day.TimeIn)
+                        </div>
+                    </div>
+                </div>
+
+                <div class="vs-grid">
+                    <div class="vs-cell">
+                        <div class="vs-cell-label">Customers</div>
+                        <div class="vs-cell-value">@day.PlannedCustomerCount</div>
+                        <div class="vs-cell-note">@day.CustomersVisited visited</div>
+                    </div>
+
+                    <div class="vs-cell">
+                        <div class="vs-cell-label">CCR</div>
+                        <div class="vs-cell-value @(day.CallComplianceRate is null ? "vs-metric-none" : "")">
+                            @FormatRate(day.CallComplianceRate)
+                        </div>
+                        @RenderMeter(day.CallComplianceRate, 0.95, 0.85)
+                    </div>
+
+                    <div class="vs-cell">
+                        <div class="vs-cell-label">PCR</div>
+                        <div class="vs-cell-value @(day.ProductiveCallRate is null ? "vs-metric-none" : "")">
+                            @FormatRate(day.ProductiveCallRate)
+                        </div>
+                        @RenderMeter(day.ProductiveCallRate, 0.90, 0.75)
+                    </div>
+
+                    <div class="vs-cell">
+                        <div class="vs-cell-label">AOV</div>
+                        <div class="vs-cell-value @(day.AverageOrderValue is null ? "vs-metric-none" : "")">
+                            @FormatMoney(day.AverageOrderValue)
+                        </div>
+                        <div class="vs-cell-note">@day.ProductiveCalls productive</div>
+                    </div>
+
+                    <div class="vs-cell">
+                        <div class="vs-cell-label">RTI</div>
+                        <div class="vs-cell-value @(day.RtiOut is null ? "vs-metric-none" : "")">
+                            @(day.RtiOut?.ToString() ?? "—")
+                        </div>
+                        <div class="vs-cell-note">
+                            @if (day.RtiOutstanding is { } outstanding)
+                            {
+                                <span class="@(outstanding > 0 ? "vs-variance-short" : "vs-variance-level")">
+                                    @(outstanding > 0 ? $"{outstanding} outstanding" : "all returned")
+                                </span>
+                            }
+                            else
+                            {
+                                <span>not counted back</span>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="vs-cell">
+                        <div class="vs-cell-label">New customers</div>
+                        <div class="vs-cell-value">@(day.NewCustomers == 0 ? "None" : day.NewCustomers.ToString())</div>
+                    </div>
+
+                    <div class="vs-cell">
+                        <div class="vs-cell-label">Mileage</div>
+                        <div class="vs-cell-value @(day.KilometresTravelled is null ? "vs-metric-none" : "")">
+                            @(day.KilometresTravelled is { } km ? $"{km:N0} km" : "—")
+                        </div>
+                        <div class="vs-cell-note">
+                            @if (day.StartingMileage is { } start)
+                            {
+                                <span>@start.ToString("N0") → @(day.ClosingMileage?.ToString("N0") ?? "—")</span>
+                            }
+                            else
+                            {
+                                <span>no odometer reading</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="vs-money">
+                    <div class="vs-money-item">
+                        <div class="vs-money-label">Cash</div>
+                        <div class="vs-money-value">@day.SystemCash.ToString("N2")</div>
+                        @RenderDeclared(day.DeclaredCash, day.SystemCash)
+                    </div>
+                    <div class="vs-money-item">
+                        <div class="vs-money-label">Ecocash</div>
+                        <div class="vs-money-value">@day.SystemEcocash.ToString("N2")</div>
+                        @RenderDeclared(day.DeclaredEcocash, day.SystemEcocash)
+                    </div>
+                    <div class="vs-money-item">
+                        <div class="vs-money-label">Innbucks</div>
+                        <div class="vs-money-value">@day.SystemInnbucks.ToString("N2")</div>
+                        @RenderDeclared(day.DeclaredInnbucks, day.SystemInnbucks)
+                    </div>
+                    @if (day.SystemOther > 0)
+                    {
+                        <div class="vs-money-item">
+                            <div class="vs-money-label">Unallocated</div>
+                            <div class="vs-money-value">@day.SystemOther.ToString("N2")</div>
+                            @* Online direct invoices carry no payment method, so they cannot be
+                               attributed to a tender. Shown as its own figure rather than folded
+                               into cash, which would be a guess presented as a fact. *@
+                            <div class="vs-money-declared">no tender recorded</div>
+                        </div>
+                    }
+                    <div class="vs-money-item">
+                        <div class="vs-money-label">Total day sales</div>
+                        <div class="vs-money-value">@day.SystemTotalSales.ToString("N2") @day.Currency</div>
+                        @if (day.DeclaredVariance is { } variance)
+                        {
+                            <div class="vs-money-declared @VarianceClass(variance)">
+                                Declared @day.DeclaredTotal!.Value.ToString("N2")
+                                (@(variance >= 0 ? "+" : "")@variance.ToString("N2"))
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="vs-money-declared">nothing declared</div>
+                        }
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(day.Notes))
+                {
+                    <div class="vs-money">
+                        <div class="vs-meta">@day.Notes</div>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private DepartureComplianceReportResponse? report;
+    private List<RouteDto> routes = [];
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string? selectedRouteCode;
+
+    private bool isLoading;
+    private string? loadError;
+
+    /// <summary>
+    /// The route picker's rows. Rebuilt from the loaded routes rather than cached, because the list
+    /// is small and the page loads it once.
+    ///
+    /// The "All routes" row is <c>IsUnset</c> so the trigger does not sit in its accent
+    /// "a filter is set" state from first paint, and carries a rule after it to separate the
+    /// no-filter sentinel from the routes themselves. No family on the rest: a route is a name, not
+    /// a status, and a coloured swatch would imply a meaning it does not have.
+    /// </summary>
+    private IEnumerable<INocturneSelectOption<string>> RouteFilterOptions =>
+        new[]
+            {
+                new NocturneSelectOption<string>(string.Empty, "All routes", "neutral")
+                {
+                    RuleAfter = true,
+                    IsUnset = true
+                }
+            }
+            .Concat(routes.Select(route => new NocturneSelectOption<string>(
+                route.Code,
+                route.IsActive ? route.DisplayLabel : $"{route.DisplayLabel} (retired)")));
+
+    protected override async Task OnInitializedAsync()
+    {
+        // CAT, not the server's clock: a trading day belongs to the van.
+        var today = DateTime.UtcNow.AddHours(2).Date;
+        fromDate = today.AddDays(-13);
+        toDate = today;
+
+        routes = await VanSalesReportService.GetRoutesAsync(includeInactive: true);
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        StateHasChanged();
+
+        try
+        {
+            report = await VanSalesReportService.GetComplianceReportAsync(
+                fromDate,
+                toDate,
+                routeCode: string.IsNullOrWhiteSpace(selectedRouteCode) ? null : selectedRouteCode);
+
+            if (report is null)
+            {
+                loadError = "The compliance report could not be loaded. Check that the API is reachable.";
+            }
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Failed to load the compliance report: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>An em dash, not 0% — a rate with no denominator is unavailable, not a failure.</summary>
+    private static string FormatRate(double? rate) =>
+        rate is null ? "—" : $"{rate.Value * 100:0.#}%";
+
+    private static string FormatMoney(decimal? amount) =>
+        amount is null ? "—" : amount.Value.ToString("N2");
+
+    private static string FormatTime(DateTime? catTime) =>
+        catTime?.ToString("HH:mm") ?? "—";
+
+    private static string VarianceClass(decimal variance) => variance switch
+    {
+        > 0 => "vs-variance-over",
+        < 0 => "vs-variance-short",
+        _ => "vs-variance-level"
+    };
+
+    /// <summary>
+    /// A bar under a rate. Thresholds are per-metric because the two are not held to the same
+    /// standard: nearly every planned call should be made, while converting three quarters of them
+    /// is a good day.
+    /// </summary>
+    private RenderFragment RenderMeter(double? rate, double good, double fair) => builder =>
+    {
+        if (rate is null)
+        {
+            return;
+        }
+
+        var value = Math.Clamp(rate.Value, 0, 1);
+        var tone = value >= good ? "" : value >= fair ? " vs-is-warn" : " vs-is-bad";
+
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "vs-meter");
+        builder.OpenElement(2, "div");
+        builder.AddAttribute(3, "class", $"vs-meter-fill{tone}");
+        builder.AddAttribute(4, "style", $"width:{value * 100:0.#}%");
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    private RenderFragment RenderDeclared(decimal? declared, decimal system) => builder =>
+    {
+        builder.OpenElement(0, "div");
+
+        if (declared is null)
+        {
+            builder.AddAttribute(1, "class", "vs-money-declared");
+            builder.AddContent(2, "not declared");
+        }
+        else
+        {
+            var variance = decimal.Round(declared.Value - system, 2);
+            builder.AddAttribute(1, "class", $"vs-money-declared {VarianceClass(variance)}");
+            builder.AddContent(2, $"counted {declared.Value:N2} ({(variance >= 0 ? "+" : "")}{variance:N2})");
+        }
+
+        builder.CloseElement();
+    };
+}

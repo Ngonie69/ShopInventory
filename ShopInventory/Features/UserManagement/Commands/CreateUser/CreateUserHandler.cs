@@ -178,6 +178,10 @@ public sealed class CreateUserHandler(
         if (ApplicationRoles.RequiresSupplyingWarehouseCode(request.Role))
         {
             user.SupplyingWarehouseCode = request.SupplyingWarehouseCode?.Trim();
+
+            // Optional, so only a positive id is taken — an unset picker posts 0, which would be a
+            // foreign key to nothing.
+            user.RouteId = request.RouteId is > 0 ? request.RouteId : null;
         }
 
         context.Users.Add(user);
@@ -238,6 +242,7 @@ public sealed class CreateUserHandler(
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
             AssignedCostCentreCode = user.AssignedCostCentreCode,
             SupplyingWarehouseCode = user.SupplyingWarehouseCode,
+            RouteId = user.RouteId,
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
             LastLoginAt = user.LastLoginAt

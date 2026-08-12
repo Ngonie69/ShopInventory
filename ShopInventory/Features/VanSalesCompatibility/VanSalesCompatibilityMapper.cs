@@ -139,6 +139,11 @@ public static partial class VanSalesCompatibilityMapper
             NumAtCard = request.VanOrder,
             Comments = BuildInvoiceComments(request),
             DocCurrency = string.IsNullOrWhiteSpace(request.Currency) ? "USD" : request.Currency.Trim(),
+            // Null from a handset that predates the payment step. Left null rather than defaulted to
+            // cash: an assumed tender in a cash-control report is worse than an absent one.
+            PaymentMethod = string.IsNullOrWhiteSpace(request.PaymentMethod)
+                ? null
+                : request.PaymentMethod.Trim(),
             Fiscalize = true,
             Lines = request.Items.Select((item, index) => MapServerAllocatedInvoiceLine(
                 item,
@@ -166,6 +171,9 @@ public static partial class VanSalesCompatibilityMapper
                 ? $"Van sales conversion {request.VanOrder}".Trim()
                 : $"Van sales conversion from {request.SalesOrder}".Trim(),
             DocCurrency = string.IsNullOrWhiteSpace(request.Currency) ? "USD" : request.Currency.Trim(),
+            PaymentMethod = string.IsNullOrWhiteSpace(request.PaymentMethod)
+                ? null
+                : request.PaymentMethod.Trim(),
             Fiscalize = true,
             Lines = request.Items.Count == 0
                 ? null

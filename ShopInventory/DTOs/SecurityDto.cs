@@ -261,6 +261,9 @@ public class UserDetailDto
     public string? AssignedCostCentreCode { get; set; }
     /// <summary>The depot a van loads from — the source of its transfer requests.</summary>
     public string? SupplyingWarehouseCode { get; set; }
+
+    /// <summary>The selling route a van runs — the source of its territory and truck registration.</summary>
+    public int? RouteId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
@@ -328,6 +331,12 @@ public class CreateUserDetailRequest
     public string? SupplyingWarehouseCode { get; set; }
 
     /// <summary>
+    /// The selling route this van runs, or null to clear it. Optional, unlike the assignments above:
+    /// a van with no route still sells, it just has no territory or truck for its compliance sheet.
+    /// </summary>
+    public int? RouteId { get; set; }
+
+    /// <summary>
     /// Whether to send welcome email
     /// </summary>
     public bool SendWelcomeEmail { get; set; } = true;
@@ -388,6 +397,12 @@ public class UpdateUserDetailRequest
     /// The warehouse an ADR/Sales van is loaded from, and so the source of its transfer requests.
     /// </summary>
     public string? SupplyingWarehouseCode { get; set; }
+
+    /// <summary>
+    /// The selling route this van runs, or null to clear it. Optional, unlike the assignments above:
+    /// a van with no route still sells, it just has no territory or truck for its compliance sheet.
+    /// </summary>
+    public int? RouteId { get; set; }
 }
 
 /// <summary>

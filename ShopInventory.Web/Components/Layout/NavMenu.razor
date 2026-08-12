@@ -474,6 +474,40 @@
                 </Authorized>
             </AuthorizeView>
 
+            @* Its own group rather than a pair of links under Sales: a van's day is
+               measured on different things from a merchandiser's, and the two used
+               to share one page that could only ever suit one of them. *@
+            <AuthorizeView Roles="Admin,Manager,SalesRep" Context="vanSalesCtx">
+                <Authorized>
+                    <div class="nav-section-label">Van Sales</div>
+                    @* ph-truck rather than ph-van: this sheet only loads the Phosphor
+                       glyphs the app already uses, and an absent one renders as blank
+                       space rather than as a missing-icon box. *@
+                    <NavLink class="snav-link" href="/van-sales/activity" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <i class="ph ph-truck" aria-hidden="true"></i>
+                        </span>
+                        <span class="snav-text">Van Activity</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/van-sales/compliance" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <i class="ph ph-clipboard-text" aria-hidden="true"></i>
+                        </span>
+                        <span class="snav-text">Departure Compliance</span>
+                    </NavLink>
+                    <AuthorizeView Roles="Admin,Manager" Context="vanRoutesCtx">
+                        <Authorized>
+                            <NavLink class="snav-link" href="/van-sales/routes" Match="NavLinkMatch.Prefix">
+                                <span class="snav-icon">
+                                    <i class="ph ph-signpost" aria-hidden="true"></i>
+                                </span>
+                                <span class="snav-text">Routes</span>
+                            </NavLink>
+                        </Authorized>
+                    </AuthorizeView>
+                </Authorized>
+            </AuthorizeView>
+
             <AuthorizeView Roles="SalesRep" Context="salesRepDeliveryCtx">
                 <Authorized>
                     <div class="nav-section-label">Delivery</div>

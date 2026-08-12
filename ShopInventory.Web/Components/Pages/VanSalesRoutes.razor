@@ -1,0 +1,224 @@
+@page "/van-sales/routes"
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+@using ShopInventory.Web.Models
+@inject IVanSalesReportService VanSalesReportService
+
+<PageTitle>Selling Routes - Shop Inventory</PageTitle>
+
+@* The route master.
+
+   Carried by wwwroot/css/van-sales.css (linked from App.razor) in both schemes.
+
+   Small on purpose — four fields — but the compliance report cannot say a word
+   about territory, route or truck registration without it, because none of the
+   three existed as data anywhere before this. A van points at a route; the route
+   says these things once, so a report can group by them without free text
+   fragmenting "Guruve" into three routes.
+
+   There is no delete. A route names trading days that have already happened, and
+   those days keep a snapshot of its code and name so a rename cannot rewrite
+   history — but removing the row would still orphan the live assignments. Retire
+   it instead, which the server refuses while vans are still on it. *@
+
+<div class="vs">
+
+    <div class="vs-head">
+        <div>
+            <h2 class="vs-title">Selling routes</h2>
+            <p class="vs-subtitle">
+                The round each van runs, its territory and the truck normally assigned to it.
+                A van is put on a route from its user account.
+            </p>
+        </div>
+        <div class="vs-actions">
+            <button class="vs-btn vs-btn-accent" @onclick="StartNew" disabled="@isSaving">Add route</button>
+        </div>
+    </div>
+
+    @if (error is not null)
+    {
+        <div class="vs-notice">@error</div>
+    }
+
+    @if (editing is not null)
+    {
+        <div class="vs-filters">
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <label class="vs-filter-label" for="vsr-code">Code</label>
+                    <input id="vsr-code" class="vs-field" @bind="editing.Code" placeholder="GUR" />
+                </div>
+                <div class="col-md-3">
+                    <label class="vs-filter-label" for="vsr-name">Name</label>
+                    <input id="vsr-name" class="vs-field" @bind="editing.Name" placeholder="Guruve" />
+                </div>
+                <div class="col-md-3">
+                    <label class="vs-filter-label" for="vsr-terr">Territory</label>
+                    <input id="vsr-terr" class="vs-field" @bind="editing.Territory" placeholder="UPC" />
+                </div>
+                <div class="col-md-2">
+                    <label class="vs-filter-label" for="vsr-truck">Truck reg</label>
+                    <input id="vsr-truck" class="vs-field" @bind="editing.TruckRegNo" placeholder="AHF0218" />
+                </div>
+                <div class="col-md-2 vs-actions">
+                    <button class="vs-btn vs-btn-accent" @onclick="SaveAsync" disabled="@isSaving">
+                        @(isSaving ? "Saving…" : "Save")
+                    </button>
+                    <button class="vs-btn" @onclick="CancelEdit" disabled="@isSaving">Cancel</button>
+                </div>
+                <div class="col-12">
+                    <label class="vs-meta">
+                        <input type="checkbox" @bind="editing.IsActive" />
+                        Active — a retired route stays on its historical days but takes no new ones
+                    </label>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Loading routes…</span>
+        </div>
+    }
+    else if (routes.Count == 0)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">No routes yet</div>
+            <div>Add one, then assign it to a van from its user account.</div>
+        </div>
+    }
+    else
+    {
+        <div class="vs-table-wrap">
+            <table class="vs-table">
+                <thead>
+                    <tr>
+                        <th>Code</th>
+                        <th>Route</th>
+                        <th>Territory</th>
+                        <th>Truck</th>
+                        <th>Vans</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var route in routes)
+                    {
+                        <tr>
+                            <td class="vs-primary">@route.Code</td>
+                            <td>@route.Name</td>
+                            <td>@(string.IsNullOrWhiteSpace(route.Territory) ? "—" : route.Territory)</td>
+                            <td>@(string.IsNullOrWhiteSpace(route.TruckRegNo) ? "—" : route.TruckRegNo)</td>
+                            <td class="vs-num">@route.AssignedUserCount</td>
+                            <td>
+                                <span class="vs-chip @(route.IsActive ? "vs-chip-good" : "vs-chip-neutral")">
+                                    @(route.IsActive ? "Active" : "Retired")
+                                </span>
+                            </td>
+                            <td>
+                                <button class="vs-btn" @onclick="() => StartEdit(route)" disabled="@isSaving">Edit</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private List<RouteDto> routes = [];
+    private RouteDto? editing;
+
+    private bool isLoading;
+    private bool isSaving;
+    private string? error;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            routes = await VanSalesReportService.GetRoutesAsync(includeInactive: true);
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void StartNew()
+    {
+        error = null;
+        editing = new RouteDto { IsActive = true };
+    }
+
+    /// <summary>Edit a copy, so cancelling leaves the row on screen as it stands on the server.</summary>
+    private void StartEdit(RouteDto route)
+    {
+        error = null;
+        editing = new RouteDto
+        {
+            Id = route.Id,
+            Code = route.Code,
+            Name = route.Name,
+            Territory = route.Territory,
+            TruckRegNo = route.TruckRegNo,
+            IsActive = route.IsActive,
+            AssignedUserCount = route.AssignedUserCount
+        };
+    }
+
+    private void CancelEdit()
+    {
+        editing = null;
+        error = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (editing is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(editing.Code) || string.IsNullOrWhiteSpace(editing.Name))
+        {
+            error = "A route needs both a code and a name.";
+            return;
+        }
+
+        isSaving = true;
+        error = null;
+        StateHasChanged();
+
+        try
+        {
+            var (saved, failure) = await VanSalesReportService.SaveRouteAsync(editing);
+
+            if (saved is null)
+            {
+                error = failure ?? "The route could not be saved.";
+                return;
+            }
+
+            editing = null;
+            await LoadAsync();
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+}

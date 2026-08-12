@@ -15,6 +15,9 @@ public sealed class GetTimesheetsHandler(
     {
         var query = db.TimesheetEntries.AsNoTracking().AsQueryable();
 
+        if (request.Channel.HasValue)
+            query = query.Where(t => t.Channel == request.Channel.Value);
+
         if (request.UserId.HasValue)
             query = query.Where(t => t.UserId == request.UserId.Value);
 
@@ -51,7 +54,15 @@ public sealed class GetTimesheetsHandler(
                 t.CheckOutLongitude,
                 t.CheckInNotes,
                 t.CheckOutNotes,
-                t.DurationMinutes))
+                t.DurationMinutes,
+                t.Channel,
+                t.CheckInLocationSource,
+                t.CheckOutLocationSource,
+                t.CheckInLocationAccuracyMetres,
+                t.CheckOutLocationAccuracyMetres,
+                t.LocationUnavailableReason,
+                t.CheckInRecordedAt,
+                t.CheckOutRecordedAt))
             .ToListAsync(cancellationToken);
 
         return new TimesheetListResult(entries, totalCount, request.Page, request.PageSize);

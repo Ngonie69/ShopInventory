@@ -82,6 +82,7 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
                 CardCode = order.CardCode,
                 CardName = order.CardName,
                 Currency = request.DocCurrency ?? order.Currency,
+                PaymentMethod = request.PaymentMethod,
                 ReservationDurationMinutes = 60,
                 RequiresFiscalization = request.Fiscalize,
                 Notes = request.Comments ?? $"Converted from Sales Order {order.OrderNumber}",

@@ -42,6 +42,9 @@ public sealed class CreateInvoiceDirectHandler(
                 RouteCustomerCode = request.RouteCustomerCode,
                 RouteCustomerName = request.RouteCustomerName,
                 Currency = request.DocCurrency,
+                // For the same reason as the route customer above: the confirmed reservation is the
+                // only local record an online van sale leaves, so an untravelled tender is a lost one.
+                PaymentMethod = request.PaymentMethod,
                 ReservationDurationMinutes = sapCircuitBreakerState.IsOpen ? 60 : 5,
                 Lines = request.Lines.Select(l => new CreateStockReservationLineRequest
                 {
