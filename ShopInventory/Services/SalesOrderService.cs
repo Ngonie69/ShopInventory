@@ -523,6 +523,11 @@ public class SalesOrderService : ISalesOrderService
                             : null,
                         CardCode = request.CardCode,
                         CardName = request.CardName,
+                        // Van sales only, already validated by the handler that set them: CardCode above
+                        // is the van's own business partner on those orders, not the shop.
+                        RouteCustomerId = request.RouteCustomerId,
+                        RouteCustomerCode = request.RouteCustomerCode,
+                        RouteCustomerName = request.RouteCustomerName,
                         CustomerRefNo = request.CustomerRefNo,
                         Comments = request.Comments,
                         SalesPersonCode = request.SalesPersonCode,

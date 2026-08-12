@@ -35,6 +35,12 @@ public sealed class CreateInvoiceDirectHandler(
                 DocumentType = ReservationDocumentType.Invoice,
                 CardCode = request.CardCode,
                 CardName = request.CardName,
+                // Van sales only, and already validated by the handler that set them. The confirmed
+                // reservation is the sole local record of an online van sale, so if the shop does not
+                // travel this far it is lost.
+                RouteCustomerId = request.RouteCustomerId,
+                RouteCustomerCode = request.RouteCustomerCode,
+                RouteCustomerName = request.RouteCustomerName,
                 Currency = request.DocCurrency,
                 ReservationDurationMinutes = sapCircuitBreakerState.IsOpen ? 60 : 5,
                 Lines = request.Lines.Select(l => new CreateStockReservationLineRequest

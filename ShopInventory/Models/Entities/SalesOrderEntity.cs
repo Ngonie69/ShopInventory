@@ -82,6 +82,25 @@ public class SalesOrderEntity
     public string? CustomerRefNo { get; set; }
 
     /// <summary>
+    /// The route customer this order was taken from, when a van raised it.
+    ///
+    /// <see cref="CardCode"/> holds the van's own business partner for these orders — that is the account
+    /// SAP bills — so it says which van sold, not who bought. This is the only record of the shop.
+    /// Null for every order that did not come from a route-customer van.
+    /// </summary>
+    public int? RouteCustomerId { get; set; }
+
+    /// <summary>
+    /// Code and name as they stood when the order was taken. Snapshots: route customers are hard-deleted,
+    /// which nulls the id above, and renaming one must not rewrite the orders it already placed.
+    /// </summary>
+    [MaxLength(50)]
+    public string? RouteCustomerCode { get; set; }
+
+    [MaxLength(200)]
+    public string? RouteCustomerName { get; set; }
+
+    /// <summary>
     /// Order status
     /// </summary>
     public SalesOrderStatus Status { get; set; } = SalesOrderStatus.Draft;
@@ -250,6 +269,7 @@ public class SalesOrderEntity
     public virtual InvoiceEntity? Invoice { get; set; }
     public virtual User? CreatedByUser { get; set; }
     public virtual User? ApprovedByUser { get; set; }
+    public virtual RouteCustomerEntity? RouteCustomer { get; set; }
 }
 
 /// <summary>

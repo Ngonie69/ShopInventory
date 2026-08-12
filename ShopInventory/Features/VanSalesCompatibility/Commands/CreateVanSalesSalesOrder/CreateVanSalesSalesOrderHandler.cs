@@ -51,11 +51,11 @@ public sealed class CreateVanSalesSalesOrderHandler(
                 "An assigned cost centre is required for van sales sales orders.");
         }
 
-        var cardCode = await ResolvePostingCustomerCodeAsync(
+        var customer = await ResolveCustomerAsync(
             command.Request,
             user,
             cancellationToken);
-        if (string.IsNullOrWhiteSpace(cardCode))
+        if (customer is null)
         {
             return Error.Validation(
                 "VanSalesCompatibility.InvalidCustomer",
@@ -64,7 +64,7 @@ public sealed class CreateVanSalesSalesOrderHandler(
 
         var salesOrderRequest = VanSalesCompatibilityMapper.MapSalesOrderRequest(
             command.Request,
-            cardCode,
+            customer,
             warehouseCode,
             costCentreCode);
 
@@ -80,7 +80,7 @@ public sealed class CreateVanSalesSalesOrderHandler(
         return VanSalesCompatibilityMapper.MapLegacySalesOrder(result.Value);
     }
 
-    private async Task<string?> ResolvePostingCustomerCodeAsync(
+    private async Task<VanSalesCustomerResolution?> ResolveCustomerAsync(
         VanSalesOrderRequest request,
         Models.User user,
         CancellationToken cancellationToken)
@@ -88,10 +88,13 @@ public sealed class CreateVanSalesSalesOrderHandler(
         if (VanSalesRouteCustomerScope.UsesLocalRouteCustomers(user))
         {
             var routeCustomers = await VanSalesRouteCustomerScope.GetAssignedRouteCustomersAsync(db, user, cancellationToken);
-            var selectedCustomer = routeCustomers.FirstOrDefault(customer => MatchesRequestedCustomer(request, customer.Code));
-            return selectedCustomer is null
+            var selectedCustomer = routeCustomers.FirstOrDefault(
+                customer => VanSalesCompatibilityMapper.MatchesRequestedCustomer(request, customer.Code));
+
+            var postingCardCode = user.AssignedBusinessPartnerCode?.Trim();
+            return selectedCustomer is null || string.IsNullOrWhiteSpace(postingCardCode)
                 ? null
-                : user.AssignedBusinessPartnerCode?.Trim();
+                : new VanSalesCustomerResolution(postingCardCode, selectedCustomer);
         }
 
         var effectiveCustomerCodes = await MobileAssignedCustomerScope.GetEffectiveCustomerCodesAsync(
@@ -110,21 +113,13 @@ public sealed class CreateVanSalesSalesOrderHandler(
         {
             var requestedCode = request.CustomerCode.Trim();
             return normalizedCodes.Contains(requestedCode, StringComparer.OrdinalIgnoreCase)
-                ? requestedCode
+                ? new VanSalesCustomerResolution(requestedCode, null)
                 : null;
         }
 
-        return normalizedCodes.FirstOrDefault(code => VanSalesCompatibilityMapper.EncodeCompatibilityId(code) == request.Customer);
-    }
+        var encodedMatch = normalizedCodes.FirstOrDefault(
+            code => VanSalesCompatibilityMapper.EncodeCompatibilityId(code) == request.Customer);
 
-    private static bool MatchesRequestedCustomer(VanSalesOrderRequest request, string code)
-    {
-        if (!string.IsNullOrWhiteSpace(request.CustomerCode) &&
-            string.Equals(request.CustomerCode.Trim(), code, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return VanSalesCompatibilityMapper.EncodeCompatibilityId(code) == request.Customer;
+        return encodedMatch is null ? null : new VanSalesCustomerResolution(encodedMatch, null);
     }
 }

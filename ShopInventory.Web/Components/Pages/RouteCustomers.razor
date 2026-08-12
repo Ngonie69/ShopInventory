@@ -29,6 +29,10 @@
         </div>
         <div class="ops-hero-actions">
             <span class="ops-count">@FilteredCustomerCount customer(s)</span>
+            <a class="ops-btn ops-btn-ghost" href="/route-sales-report">
+                <i class="ph ph-chart-bar" aria-hidden="true"></i>
+                <span>Sales report</span>
+            </a>
         </div>
     </div>
 
@@ -111,6 +115,11 @@
                                     <th>Code</th>
                                     <th>Contact</th>
                                     <th>Address</th>
+                                    @* The window is named in the header rather than left to be guessed.
+                                       A bare "Sales" beside a customer captured last year would read as
+                                       all time, and it is not. *@
+                                    <th class="ops-mid">Sales (@TradingWindowDays d)</th>
+                                    <th>Last sale</th>
                                     <th>Captured</th>
                                     <th class="ops-mid">Actions</th>
                                 </tr>
@@ -118,9 +127,17 @@
                             <tbody>
                                 @foreach (var customer in group.Customers)
                                 {
+                                    var trading = GetTrading(customer);
+
                                     <tr>
                                         <td>
-                                            <div class="ops-name">@customer.Name</div>
+                                            @* The name is the way in to the customer's history. It is a
+                                               link rather than a row click so it can be opened in a new
+                                               tab, and so the edit and delete buttons in the last column
+                                               stay unambiguous. *@
+                                            <a class="ops-link ops-name" href="@($"/route-customers/{customer.Id}/sales")">
+                                                @customer.Name
+                                            </a>
                                             @if (!string.IsNullOrWhiteSpace(customer.VatNumber))
                                             {
                                                 <div class="ops-sub">VAT @customer.VatNumber</div>
@@ -134,6 +151,37 @@
                                             </div>
                                         </td>
                                         <td>@(string.IsNullOrWhiteSpace(customer.Address) ? "—" : customer.Address)</td>
+                                        <td class="ops-mid">
+                                            @if (isLoadingTrading)
+                                            {
+                                                <span class="ops-sub">&hellip;</span>
+                                            }
+                                            else if (trading is null)
+                                            {
+                                                @* The figures failed to load. A dash here would read as
+                                                   zero sales, which is a claim this page cannot make. *@
+                                                <span class="ops-sub" title="Sales figures unavailable">?</span>
+                                            }
+                                            else
+                                            {
+                                                <span>@trading.SaleCount</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (trading?.LastSaleAt is { } lastSale)
+                                            {
+                                                <div>@lastSale.ToString("dd MMM yyyy")</div>
+                                                <div class="ops-sub">@DescribeGap(trading.DaysSinceLastSale)</div>
+                                            }
+                                            else if (trading is not null)
+                                            {
+                                                <span class="ops-badge ops-fam-warn">Never bought</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="ops-sub">&mdash;</span>
+                                            }
+                                        </td>
                                         <td>
                                             <div>@customer.CreatedAt.ToString("dd MMM yyyy HH:mm")</div>
                                             <div class="ops-sub">
@@ -319,6 +367,17 @@
 @code {
     private List<RouteCustomerModel> routeCustomers = [];
     private Dictionary<string, string> routeDisplayNames = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Each customer's trading, keyed by id. Loaded after the list rather than with it: the list is the
+    /// page and must paint whether or not the sales roll-up answers.
+    ///
+    /// A missing entry is not zero. It means the figures could not be read, and the row says so rather
+    /// than printing a nought — this page is where someone decides a shop has stopped buying.
+    /// </summary>
+    private Dictionary<int, RouteCustomerSalesRowModel> tradingByCustomerId = [];
+    private bool isLoadingTrading = true;
+
     private bool isLoading = true;
     private string? errorMessage;
     private string? selectedRouteCode;
@@ -357,7 +416,56 @@
         await LoadRouteNamesAsync();
         await LoadCustomersAsync();
         await AuditService.LogAsync(AuditActions.ViewCustomers, "RouteCustomer", null);
+
+        // After the first render's worth of work, and never blocking it. The trading figures are two
+        // extra columns on a page whose job is the customer list.
+        await LoadTradingAsync();
     }
+
+    /// <summary>
+    /// How far back the two trading columns look. Stated here and printed in the column header, because
+    /// a sales count with an unnamed window is a number nobody can act on. The full picture, and any
+    /// other window, is a click away on the sales report.
+    /// </summary>
+    private const int TradingWindowDays = 90;
+
+    private async Task LoadTradingAsync()
+    {
+        isLoadingTrading = true;
+
+        try
+        {
+            var summary = await RouteCustomerService.GetSalesSummaryAsync(
+                from: DateTime.Today.AddDays(-(TradingWindowDays - 1)),
+                to: DateTime.Today);
+
+            tradingByCustomerId = summary.Routes
+                .SelectMany(route => route.Customers)
+                .Where(customer => customer.RouteCustomerId.HasValue)
+                .GroupBy(customer => customer.RouteCustomerId!.Value)
+                .ToDictionary(group => group.Key, group => group.First());
+        }
+        catch
+        {
+            // Left empty on purpose, so every row reports "unknown" rather than "no sales".
+            tradingByCustomerId = [];
+        }
+        finally
+        {
+            isLoadingTrading = false;
+        }
+    }
+
+    private RouteCustomerSalesRowModel? GetTrading(RouteCustomerModel customer) =>
+        tradingByCustomerId.GetValueOrDefault(customer.Id);
+
+    private static string DescribeGap(int? daysSinceLastSale) => daysSinceLastSale switch
+    {
+        null => string.Empty,
+        0 => "Today",
+        1 => "Yesterday",
+        var days => $"{days} days ago"
+    };
 
     private async Task LoadRouteNamesAsync()
     {

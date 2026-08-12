@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using ShopInventory.Common.Mobile;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -117,7 +118,7 @@ public static partial class VanSalesCompatibilityMapper
 
     public static CreateDesktopInvoiceRequest MapInvoiceRequest(
         VanSalesOrderRequest request,
-        string cardCode,
+        VanSalesCustomerResolution customer,
         string warehouseCode,
         string costCentreCode)
     {
@@ -125,8 +126,13 @@ public static partial class VanSalesCompatibilityMapper
         {
             ExternalReferenceId = request.VanOrder,
             SourceSystem = "KefalosVanSales",
-            CardCode = cardCode,
+            CardCode = customer.PostingCardCode,
+            // The shop, carried alongside the account being billed. `ref` is whatever the handset chose to
+            // label the sale with and is not a substitute — only these three say who bought.
             CardName = request.Reference,
+            RouteCustomerId = customer.RouteCustomerId,
+            RouteCustomerCode = customer.RouteCustomerCode,
+            RouteCustomerName = customer.RouteCustomerName,
             DocDate = NormalizeDocumentDate(request.DueDate),
             DocDueDate = NormalizeDocumentDate(request.DueDate),
             NumAtCard = request.VanOrder,
@@ -286,15 +292,20 @@ public static partial class VanSalesCompatibilityMapper
 
     public static CreateSalesOrderRequest MapSalesOrderRequest(
         VanSalesOrderRequest request,
-        string cardCode,
+        VanSalesCustomerResolution customer,
         string warehouseCode,
         string costCentreCode)
     {
+        var cardCode = customer.PostingCardCode;
+
         return new CreateSalesOrderRequest
         {
             DeliveryDate = ParseLegacyDate(request.DueDate),
             CardCode = cardCode,
             CardName = string.IsNullOrWhiteSpace(request.Reference) ? cardCode : request.Reference.Trim(),
+            RouteCustomerId = customer.RouteCustomerId,
+            RouteCustomerCode = customer.RouteCustomerCode,
+            RouteCustomerName = customer.RouteCustomerName,
             CustomerRefNo = string.IsNullOrWhiteSpace(request.VanOrder) ? null : request.VanOrder.Trim(),
             Comments = string.IsNullOrWhiteSpace(request.VanOrder)
                 ? "Van sales sales order"
@@ -493,6 +504,23 @@ public static partial class VanSalesCompatibilityMapper
             CreatedAt = AuditService.ToCAT(transaction.TimestampUtc),
             UpdatedAt = AuditService.ToCAT(transaction.LastSyncedAtUtc)
         };
+    }
+
+    /// <summary>
+    /// Whether a request names this customer, by code or by the hashed id the legacy app was given.
+    ///
+    /// The handset sends whichever it holds — newer builds send <c>customer_code</c>, older ones only the
+    /// encoded <c>customer</c> id — so both are accepted rather than one being assumed.
+    /// </summary>
+    public static bool MatchesRequestedCustomer(VanSalesOrderRequest request, string code)
+    {
+        if (!string.IsNullOrWhiteSpace(request.CustomerCode) &&
+            string.Equals(request.CustomerCode.Trim(), code, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return EncodeCompatibilityId(code) == request.Customer;
     }
 
     public static int EncodeCompatibilityId(string value)

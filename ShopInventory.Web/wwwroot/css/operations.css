@@ -1,15 +1,25 @@
 /* ==========================================================================
    Operations — Nocturne
 
-   The seven operational pages, on one sheet:
+   The nine operational pages, on one sheet:
 
-     /gl-accounts           `.ops.ops-gl`     chart of accounts, synced from SAP
-     /gl-accounts/{code}    `.ops.ops-glled`  one account's journal postings
-     /prices                `.ops.ops-prc`    a price list's items
-     /stock                 `.ops.ops-stk`    stock levels for one warehouse
-     /route-customers       `.ops.ops-rc`     locally captured customers by route
-     /desktop-transactions  `.ops.ops-dt`     the desktop sync queues
-     /desktop-sales         `.ops.ops-ds`     invoices fiscalized on the desktops
+     /gl-accounts             `.ops.ops-gl`     chart of accounts, synced from SAP
+     /gl-accounts/{code}      `.ops.ops-glled`  one account's journal postings
+     /prices                  `.ops.ops-prc`    a price list's items
+     /stock                   `.ops.ops-stk`    stock levels for one warehouse
+     /route-customers         `.ops.ops-rc`     locally captured customers by route
+     /route-customers/{id}/…  `.ops.ops-rcs`    one route customer's sales
+     /route-sales-report      `.ops.ops-rsr`    route trading, dormancy, product mix
+     /desktop-transactions    `.ops.ops-dt`     the desktop sync queues
+     /desktop-sales           `.ops.ops-ds`     invoices fiscalized on the desktops
+
+   The last two of the first seven arrived with the route-customer sales work.
+   They are derivations like their siblings — same hero, same figures, same
+   filter row, same long table — so between them they added four rules that are
+   genuinely new: a breadcrumb kicker, a figure whose value is a per-currency
+   stack rather than one number, an expandable sale row, and a route header
+   carrying its own takings. Everything else is the shared vocabulary already
+   below.
 
    The first five are a derivation, not an import: no design existed for any of
    them, so they follow the documented fallback and take their vocabulary from
@@ -1588,6 +1598,158 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   /route-customers/{id}/sales — `.ops-rcs`
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* One route customer's trading. Almost all of it is the shared vocabulary —
+   hero, figures, panel, table, badges — because it is the same page shape as
+   its five siblings. What is genuinely its own is below: a breadcrumb kicker,
+   a figure whose value is a stack rather than a number, and a row that opens
+   to show the lines beneath it. */
+
+.ops-rcs .ops-rcs-crumb-sep {
+    margin: 0 6px;
+    color: var(--ops-mute-3);
+}
+
+/* A van trades in USD and ZWG, and those cannot be added. The value figure
+   therefore holds one row per currency where its siblings hold one number, at
+   a size that still reads as the tile's headline with two rows in it. */
+
+.ops-rcs .ops-rcs-money-stack {
+    margin-top: var(--ops-s4);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.ops-rcs .ops-rcs-money-line {
+    display: flex;
+    align-items: baseline;
+    gap: var(--ops-s3);
+    line-height: 1.15;
+}
+
+.ops-rcs .ops-rcs-money-cur {
+    flex: none;
+    min-width: 34px;
+    font-size: 11px;
+    letter-spacing: .08em;
+    color: var(--ops-mute-2);
+}
+
+.ops-rcs .ops-rcs-money-val {
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-fam, var(--ops-ink));
+}
+
+/* The expander column. Sized to its button so the sold date, which is what the
+   eye tracks down, still starts near the left edge. */
+.ops-rcs .ops-rcs-expand {
+    width: 40px;
+    padding-right: 0;
+    text-align: center;
+}
+
+/* An open row and the lines under it read as one block, so the row loses its
+   bottom rule and both take the same wash. */
+.ops-rcs .ops-rcs-row.is-open>td {
+    border-bottom-color: transparent;
+    background: var(--ops-hover);
+}
+
+.ops-rcs .ops-rcs-lines-row>td {
+    padding: 0;
+    background: var(--ops-hover);
+}
+
+.ops-rcs .ops-rcs-lines {
+    padding: 0 var(--ops-s8) var(--ops-s5) calc(40px + var(--ops-s8));
+    overflow-x: auto;
+}
+
+/* The nested table is the same table, quieter: it is detail inside a row, not
+   a second list competing with the first. */
+.ops-rcs .ops-rcs-lines-table {
+    background: transparent;
+}
+
+.ops-rcs .ops-rcs-lines-table thead th {
+    font-size: 10px;
+    background: transparent;
+    border-bottom-color: var(--ops-divider);
+}
+
+.ops-rcs .ops-rcs-lines-table tbody td {
+    font-size: 12.5px;
+    padding-top: var(--ops-s3);
+    padding-bottom: var(--ops-s3);
+}
+
+.ops-rcs .ops-rcs-lines-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   /route-sales-report — `.ops-rsr`
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* Three questions about the same rows — who is trading, who has stopped, and
+   what they buy — so it is one page with a tab strip rather than three pages
+   that would each have to be filtered separately and could disagree. */
+
+.ops-rsr .ops-rsr-routes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s6);
+}
+
+.ops-rsr .ops-rsr-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--ops-s4);
+    flex-wrap: wrap;
+    padding: var(--ops-s4) var(--ops-s8);
+}
+
+.ops-rsr .ops-rsr-title {
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.ops-rsr .ops-rsr-key {
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+}
+
+/* The route's takings, one chip per currency for the same reason the figure
+   above stacks: two currencies do not add up to a third. */
+.ops-rsr .ops-rsr-totals {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    flex-wrap: wrap;
+}
+
+.ops-rsr .ops-rsr-total {
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-ink-2);
+}
+
+.ops-rsr .ops-rsr-total-cur {
+    margin-right: 4px;
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    color: var(--ops-mute-3);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    /desktop-transactions — `.ops-dt`
    ═════════════════════════════════════════════════════════════════════════ */
 
@@ -2580,8 +2742,15 @@
     .ops-panel-head,
     .ops-filters,
     .ops-foot,
-    .ops-rc .ops-rc-head {
+    .ops-rc .ops-rc-head,
+    .ops-rsr .ops-rsr-head {
         padding-inline: 14px;
+    }
+
+    /* Follows the first-cell padding above, or the lines would keep an indent
+       measured against a gutter that is no longer there. */
+    .ops-rcs .ops-rcs-lines {
+        padding: 0 14px var(--ops-s5) calc(40px + 14px);
     }
 
     .ops .ops-table thead th:first-child,

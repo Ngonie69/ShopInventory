@@ -28,6 +28,14 @@ namespace ShopInventory.Features.VanSalesCompatibility.Commands.IngestVanSalesOf
 ///     <c>duplicate</c> so the handset clears its queue instead of retrying forever.
 ///  3. <b>One bad row does not fail the batch.</b> A van's backlog is a day's takings; rejecting all of
 ///     it because one sale references an unassigned customer would strand the rest on the handset.
+///  4. <b>Who bought is recorded separately from who is billed.</b> A route-customer van invoices its own
+///     business partner, so <c>CardCode</c> is the same on every sale it makes and cannot answer "what did
+///     this shop buy". The route customer named in <c>customer_code</c> is resolved and stored alongside
+///     it. That code was previously rejected outright — only the posting account was accepted — which
+///     both lost the attribution and stranded the takings of any handset that reported the shop. Where
+///     the account is sent instead, the sale's <c>customer_name</c> is tried and used only if exactly one
+///     customer on the route answers to it; anything less certain is left unattributed rather than
+///     guessed, because a sale credited to the wrong shop is worse than one credited to none.
 /// </summary>
 public sealed class IngestVanSalesOfflineSalesHandler(
     ApplicationDbContext db,
@@ -75,9 +83,15 @@ public sealed class IngestVanSalesOfflineSalesHandler(
                 "An assigned cost centre is required for van sales invoicing.");
         }
 
-        var permittedCustomerCodes = await ResolvePermittedCustomerCodesAsync(user, cancellationToken);
+        var resolveCustomer = await BuildCustomerResolverAsync(user, cancellationToken);
 
         var response = new VanSalesOfflineSaleBatchResponse();
+
+        // How the batch attributed, counted rather than logged one by one. A van that names its own
+        // business partner on every sale is a handset on an older build: the takings are right either
+        // way, but whether the per-customer report can see them is worth saying once per upload.
+        var unattributed = 0;
+        var matchedByName = 0;
 
         // Which of these references the database already holds. Read once for the whole batch: a van
         // reconnecting after a day out of coverage sends its entire backlog, and the overlap with what
@@ -125,7 +139,7 @@ public sealed class IngestVanSalesOfflineSalesHandler(
                 continue;
             }
 
-            var validationError = Validate(sale, permittedCustomerCodes);
+            var validationError = Validate(sale, resolveCustomer, out var customer);
             if (validationError is not null)
             {
                 response.Results.Add(Reject(reference, validationError));
@@ -133,7 +147,25 @@ public sealed class IngestVanSalesOfflineSalesHandler(
                 continue;
             }
 
-            db.DesktopSales.Add(BuildSale(sale, reference, user, warehouseCode!, costCentreCode!));
+            if (VanSalesRouteCustomerScope.UsesLocalRouteCustomers(user))
+            {
+                if (customer!.RouteCustomer is null)
+                {
+                    unattributed++;
+                }
+                else if (!string.Equals(
+                             customer.RouteCustomerCode,
+                             sale.CustomerCode?.Trim(),
+                             StringComparison.OrdinalIgnoreCase))
+                {
+                    // The shop was found by name, not by the code that arrived — so the handset is still
+                    // sending the posting account. Counted apart from the outright failures because it
+                    // is the same underlying gap and the fix is the same one.
+                    matchedByName++;
+                }
+            }
+
+            db.DesktopSales.Add(BuildSale(sale, reference, customer, user, warehouseCode!, costCentreCode!));
 
             // Accepted either way — the customer paid and the money has to reach SAP — but a sale with no
             // usable signature is a receipt ZIMRA can never be given, and that has to be said out loud
@@ -178,11 +210,30 @@ public sealed class IngestVanSalesOfflineSalesHandler(
             response.Duplicates,
             response.Rejected);
 
+        if (unattributed > 0 || matchedByName > 0)
+        {
+            logger.LogWarning(
+                "{Unattributed} of {Accepted} sales in this batch could not be attributed to a shop and " +
+                "{MatchedByName} were attributed by customer_name alone. All of them named the van's " +
+                "business partner {BusinessPartnerCode} in customer_code, so the handset is sending the " +
+                "posting account rather than the route customer's own code. The name fallback is a " +
+                "bridge, not a fix — it goes quiet the moment two shops on a route share a name.",
+                unattributed,
+                response.Accepted,
+                matchedByName,
+                user.AssignedBusinessPartnerCode);
+        }
+
         return response;
     }
 
-    private static string? Validate(VanSalesOfflineSaleRequest sale, IReadOnlyCollection<string> permittedCustomerCodes)
+    private static string? Validate(
+        VanSalesOfflineSaleRequest sale,
+        Func<string, string?, VanSalesCustomerResolution?> resolveCustomer,
+        out VanSalesCustomerResolution? customer)
     {
+        customer = null;
+
         if (sale.Items is null || sale.Items.Count == 0)
         {
             return "At least one line item is required.";
@@ -209,7 +260,8 @@ public sealed class IngestVanSalesOfflineSalesHandler(
             return "customer_code is required.";
         }
 
-        if (!permittedCustomerCodes.Contains(customerCode, StringComparer.OrdinalIgnoreCase))
+        customer = resolveCustomer(customerCode, sale.CustomerName);
+        if (customer is null)
         {
             return $"Customer {customerCode} is not assigned to this user.";
         }
@@ -228,6 +280,7 @@ public sealed class IngestVanSalesOfflineSalesHandler(
     private static DesktopSaleEntity BuildSale(
         VanSalesOfflineSaleRequest sale,
         string reference,
+        VanSalesCustomerResolution customer,
         Models.User user,
         string warehouseCode,
         string costCentreCode)
@@ -254,8 +307,17 @@ public sealed class IngestVanSalesOfflineSalesHandler(
         {
             ExternalReferenceId = reference,
             SourceSystem = SaleSourceSystems.VanSales,
-            CardCode = sale.CustomerCode!.Trim(),
+            // The account SAP bills, which for a route-customer van is the van's own business partner
+            // whatever the handset put in customer_code.
+            CardCode = customer.PostingCardCode,
             CardName = sale.CustomerName,
+            // The shop. All three or none: a name without a code would read to the report as a customer
+            // that was deleted, when in fact none was ever identified. When the handset names the posting
+            // account instead of a route customer the sale still stands, it just cannot be attributed,
+            // and whatever it called the customer stays in CardName above.
+            RouteCustomerId = customer.RouteCustomerId,
+            RouteCustomerCode = customer.RouteCustomerCode,
+            RouteCustomerName = customer.RouteCustomerName,
             // The trading day is the handset's, not the server's. A sale made near midnight and uploaded
             // the next morning belongs to the day it was sold on, which is also the fiscal day its ZIMRA
             // receipt was stamped into.
@@ -298,27 +360,102 @@ public sealed class IngestVanSalesOfflineSalesHandler(
         };
     }
 
-    private async Task<IReadOnlyCollection<string>> ResolvePermittedCustomerCodesAsync(
+    /// <summary>
+    /// Turns a sale's <c>customer_code</c> and <c>customer_name</c> into the two parties it needs: the
+    /// account it posts against, and the shop it was sold to. Returns null if the code is not one this
+    /// van may sell to.
+    ///
+    /// Built once for the batch — a van's backlog is a day of trading against a handful of customers, and
+    /// the assigned list is the same for every row in it.
+    ///
+    /// For a route-customer van the code may be either the van's own business partner or one of its route
+    /// customers. Both are accepted: the online path hands the handset a shop list carrying both, and
+    /// rejecting either would strand a day's takings on the device.
+    ///
+    /// Only the route customer's own code identifies the shop outright. Where the account was sent
+    /// instead, the name is tried — see <see cref="MatchByName"/> — and where that cannot answer safely
+    /// the sale is still accepted, still posts, and reports as unattributed.
+    /// </summary>
+    private async Task<Func<string, string?, VanSalesCustomerResolution?>> BuildCustomerResolverAsync(
         Models.User user,
         CancellationToken cancellationToken)
     {
-        // A route-customer van invoices its own business partner account rather than the individual shop,
-        // exactly as the online path does in CreateVanSalesDirectInvoiceHandler.
         if (VanSalesRouteCustomerScope.UsesLocalRouteCustomers(user))
         {
-            var assigned = user.AssignedBusinessPartnerCode?.Trim();
-            return string.IsNullOrWhiteSpace(assigned)
-                ? []
-                : new HashSet<string>([assigned], StringComparer.OrdinalIgnoreCase);
+            var postingCardCode = user.AssignedBusinessPartnerCode?.Trim();
+            if (string.IsNullOrWhiteSpace(postingCardCode))
+            {
+                return (_, _) => null;
+            }
+
+            var routeCustomers = await VanSalesRouteCustomerScope.GetAssignedRouteCustomersAsync(
+                db, user, cancellationToken);
+
+            var byCode = routeCustomers
+                .GroupBy(customer => customer.Code.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+            return (code, name) =>
+            {
+                if (byCode.TryGetValue(code, out var routeCustomer))
+                {
+                    return new VanSalesCustomerResolution(postingCardCode, routeCustomer);
+                }
+
+                if (!string.Equals(code, postingCardCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    return null;
+                }
+
+                return new VanSalesCustomerResolution(postingCardCode, MatchByName(routeCustomers, name));
+            };
         }
 
         var effectiveCustomerCodes = await MobileAssignedCustomerScope.GetEffectiveCustomerCodesAsync(
             db, user, logger, cancellationToken);
 
-        return effectiveCustomerCodes
+        var permitted = effectiveCustomerCodes
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .Select(code => code.Trim())
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // These customers are real business partners, so the posting account is the customer and there is
+        // no route customer to record.
+        return (code, _) => permitted.TryGetValue(code, out var permittedCode)
+            ? new VanSalesCustomerResolution(permittedCode, null)
+            : null;
+    }
+
+    /// <summary>
+    /// Last resort for a handset that reported the posting account rather than the shop: find the shop by
+    /// the name the sale carries.
+    ///
+    /// Worth doing because the alternative is a whole route's history arriving as one undivided figure,
+    /// and because the name on the sale is the route customer's own — the app copies it from the same
+    /// record it took the code from.
+    ///
+    /// <b>Only where exactly one customer on the route answers to it.</b> Names are free text, editable,
+    /// and not unique within a route. Two shops called "Tuck Shop" would make any choice between them a
+    /// coin toss recorded as fact, and a sale credited to the wrong shop is worse than one credited to
+    /// none: nobody goes looking for a figure that is already there. Ambiguity therefore returns null and
+    /// the sale reports as unattributed, which is true.
+    /// </summary>
+    private static RouteCustomerEntity? MatchByName(
+        IReadOnlyCollection<RouteCustomerEntity> routeCustomers,
+        string? name)
+    {
+        var trimmedName = name?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedName))
+        {
+            return null;
+        }
+
+        var matches = routeCustomers
+            .Where(customer => string.Equals(customer.Name.Trim(), trimmedName, StringComparison.OrdinalIgnoreCase))
+            .Take(2)
+            .ToList();
+
+        return matches.Count == 1 ? matches[0] : null;
     }
 
     private static VanSalesOfflineSaleResultDto Reject(string reference, string message) => new()

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.DTOs;
@@ -88,6 +89,26 @@ public class CreateSalesOrderRequest
     public string CardCode { get; set; } = null!;
 
     public string? CardName { get; set; }
+
+    /// <summary>
+    /// The route customer a van took this order from. <see cref="CardCode"/> is the van's own business
+    /// partner on those orders, so it cannot say who ordered.
+    ///
+    /// <c>[JsonIgnore]</c>: set in-process by <c>CreateVanSalesSalesOrderHandler</c> from a customer
+    /// it has already checked the van is assigned to. Nothing downstream re-validates them, so a value
+    /// bound from a request body would be an unchecked claim about who ordered.
+    /// </summary>
+    [JsonIgnore]
+    public int? RouteCustomerId { get; set; }
+
+    [JsonIgnore]
+    [MaxLength(50)]
+    public string? RouteCustomerCode { get; set; }
+
+    [JsonIgnore]
+    [MaxLength(200)]
+    public string? RouteCustomerName { get; set; }
+
     public string? CustomerRefNo { get; set; }
     public string? Comments { get; set; }
     public int? SalesPersonCode { get; set; }
