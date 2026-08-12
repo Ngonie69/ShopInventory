@@ -115,6 +115,27 @@ public static class QuartzConfiguration
 
                 AddCronJob<VanSalesEndOfDayPostingJob>(
                     q, "van-sales-eod-mopup", BuildDailyCron(vanSalesPosting.MopUpTimeCAT, "19:30"));
+
+                // Since van sales fiscalise on the handset and are held rather than posted on the
+                // request, waiting for the evening would leave SAP knowing nothing about a trading day
+                // until it was over. This posts through the day.
+                //
+                // Attached as a second trigger on the 18:00 job rather than as a job of its own, and the
+                // distinction matters: DisallowConcurrentExecution is enforced per job key, so a separate
+                // key could run alongside the evening pass. Ninety minutes apart that was theoretical;
+                // every half hour it is not, and two runs posting one sale at once could both ask SAP for
+                // the van_order, both be told it does not exist, and both create it.
+                if (vanSalesPosting.IntervalMinutes > 0)
+                {
+                    AddIntervalTriggerForJob<VanSalesEndOfDayPostingJob>(
+                        q,
+                        "van-sales-eod-posting",
+                        "van-sales-interval-posting",
+                        TimeSpan.FromMinutes(vanSalesPosting.IntervalMinutes),
+                        // Past the startup rush, and long enough after a restart that handsets have had a
+                        // chance to upload before the first pass looks for work.
+                        startDelay: TimeSpan.FromMinutes(5));
+                }
             }
 
             // After the daily stock snapshot, so it measures the figures the day is starting from.
@@ -156,6 +177,50 @@ public static class QuartzConfiguration
                 .WithSimpleSchedule(schedule => schedule
                     .WithInterval(interval)
                     .RepeatForever()
+                    .WithMisfireHandlingInstructionNextWithRemainingCount());
+
+            if (startDelay is { } delay && delay > TimeSpan.Zero)
+            {
+                trigger.StartAt(DateTimeOffset.UtcNow.Add(delay));
+            }
+            else
+            {
+                trigger.StartNow();
+            }
+        });
+    }
+
+    /// <summary>
+    /// Adds a repeating trigger to a job that has already been declared elsewhere in this method.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="AddIntervalJob{TJob}"/> this does not declare the job, because declaring it
+    /// twice under one key is what it is avoiding. Quartz enforces
+    /// <see cref="DisallowConcurrentExecutionAttribute"/> per job key, so two schedules that must never
+    /// overlap have to hang off the same key — which is the whole reason this helper exists.
+    ///
+    /// The caller is responsible for having registered <paramref name="jobName"/> first; a trigger
+    /// pointing at a key no job was declared under simply never fires.
+    /// </remarks>
+    private static void AddIntervalTriggerForJob<TJob>(
+        IServiceCollectionQuartzConfigurator quartz,
+        string jobName,
+        string triggerName,
+        TimeSpan interval,
+        TimeSpan? startDelay = null)
+        where TJob : IJob
+    {
+        var jobKey = new JobKey(jobName);
+
+        quartz.AddTrigger(trigger =>
+        {
+            trigger.ForJob(jobKey)
+                .WithIdentity($"{triggerName}-trigger")
+                .WithSimpleSchedule(schedule => schedule
+                    .WithInterval(interval)
+                    .RepeatForever()
+                    // A run that overruns its slot skips the missed firings rather than queueing them:
+                    // catching up would stack passes over the same sales to no purpose.
                     .WithMisfireHandlingInstructionNextWithRemainingCount());
 
             if (startDelay is { } delay && delay > TimeSpan.Zero)
