@@ -664,11 +664,27 @@ public static partial class VanSalesCompatibilityMapper
             ? value
             : DateTime.SpecifyKind(AuditService.ToCAT(value), DateTimeKind.Unspecified);
 
+    /// <summary>
+    /// Renders a handset-supplied date as the ISO string SAP will accept.
+    /// </summary>
+    /// <remarks>
+    /// This trimmed a supplied value and passed it on, which normalized nothing: handsets send
+    /// yyyy/MM/dd, and on the transfer path that reached SAP untouched and came back rejected. An
+    /// unparseable value is still forwarded as sent, so the caller sees SAP's own complaint about
+    /// the date rather than a mapping error inventing one.
+    /// </remarks>
     private static string NormalizeDocumentDate(string? value)
     {
-        return string.IsNullOrWhiteSpace(value)
-            ? DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
-            : value.Trim();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
+
+        var trimmed = value.Trim();
+
+        return DateTime.TryParse(trimmed, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+            ? parsed.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+            : trimmed;
     }
 
     private static string BuildInvoiceComments(VanSalesOrderRequest request)

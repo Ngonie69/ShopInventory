@@ -186,6 +186,22 @@ public sealed class VanSalesSupplyingWarehouseTests : IDisposable
         Assert.Equal("KEFBYC", mediator.LastTransferRequest.FromWarehouse);
     }
 
+    /// <summary>
+    /// The handset dates its request yyyy/MM/dd. SAP takes ISO and nothing else, and answered the
+    /// slashes with "Invalid date format in property 'DocDate' of 'StockTransfer'" — the request
+    /// never reached the depot. Both dates are checked because SAP validates them separately.
+    /// </summary>
+    [Fact]
+    public async Task A_handset_date_is_rewritten_as_the_ISO_date_SAP_accepts()
+    {
+        await AddVanAsync(supplyingWarehouse: "KEFBYC");
+
+        var (_, mediator) = await RequestStockAsync(BuildRequest());
+
+        Assert.Equal("2026-08-12", mediator.LastTransferRequest.DocDate);
+        Assert.Equal("2026-08-12", mediator.LastTransferRequest.DueDate);
+    }
+
     /// <summary>Records the transfer request the van sales layer delegated, without posting it.</summary>
     private sealed class RecordingMediator : IMediator
     {
