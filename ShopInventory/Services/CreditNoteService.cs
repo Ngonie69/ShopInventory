@@ -101,11 +101,13 @@ public class CreditNoteService : ICreditNoteService
     }
 
     public async Task<CreditNoteListResponseDto> GetAllAsync(int page, int pageSize, CreditNoteStatus? status = null,
-        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
+        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool includeLines = false,
+        CancellationToken cancellationToken = default)
     {
         // The local projection answers this list in one Postgres query. SAP is the fallback, for
-        // when the projection is switched off, still backfilling, or stale.
-        if (await IsProjectionReadableAsync(cancellationToken))
+        // when the projection is switched off, still backfilling, or stale — and for a caller that
+        // needs the lines, because the line snapshot carries no quantity to aggregate.
+        if (!includeLines && await IsProjectionReadableAsync(cancellationToken))
         {
             try
             {

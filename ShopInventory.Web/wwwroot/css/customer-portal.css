@@ -153,6 +153,46 @@
     --cpx-scheme: dark;
 }
 
+/* The shared Nocturne controls, on the portal's palette ---------------------
+   NocturneDateField and NocturneSelect are drawn for any Nocturne page, so they
+   read their colours from `--noct-*` (nocturne-tokens.css) — which is a violet
+   accent on a blue-grey ground, and arrives looking like a visitor on a teal
+   page. A component cannot see `--cpx-*` from inside itself, but it does see
+   whatever `--noct-*` is in force where it sits, so the portal restates that
+   layer over its own tokens here and both controls come out in the portal's
+   colours: the selected day, the chosen row, the focus ring, the menu.
+
+   Only the tokens those two read are listed, and only the ones that carry the
+   palette — the radii, the family swatches and the pop shadow are the system's
+   and stay. Every value is an alias, so the dark theme comes free: these
+   re-resolve when `.dark-theme .cpx` above swaps the portal's own.
+
+   On the element rather than in the block above it purely to keep the portal's
+   own palette readable as one list. A declaration here beats the `:root` one by
+   inheritance, not by specificity — different elements — so load order against
+   nocturne-tokens.css does not come into it. */
+.cpx {
+    --noct-surface: var(--cpx-surface);
+    --noct-ink: var(--cpx-ink);
+    --noct-ink-2: var(--cpx-ink-2);
+    --noct-mute: var(--cpx-mute);
+    --noct-mute-2: var(--cpx-mute-2);
+    --noct-mute-3: var(--cpx-mute-2);
+    --noct-faint: var(--cpx-faint);
+    --noct-placeholder: var(--cpx-placeholder);
+    --noct-divider: var(--cpx-divider);
+    --noct-rule: var(--cpx-rowline);
+    --noct-hover: var(--cpx-hover);
+    --noct-press: var(--cpx-press);
+    --noct-field-bg: var(--cpx-field);
+    --noct-field-edge: var(--cpx-edge-hi);
+    --noct-thumb: var(--cpx-edge-hi);
+    --noct-accent: var(--cpx-accent);
+    --noct-accent-rgb: var(--cpx-accent-rgb);
+    --noct-accent-text: var(--cpx-accent-text);
+    --noct-on-accent: var(--cpx-on-accent);
+}
+
 /* ==========================================================================
    Shell
 
@@ -1263,58 +1303,28 @@
     color: var(--cpx-accent);
 }
 
+/* Inside a filled button that colour is the ground the spinner is standing on,
+   so a loading button showed its label and nothing turning beside it. The
+   button's own ink instead — `currentColor` in a `color` property resolves to
+   the inherited value, which is what `.btn-primary` set. The outline buttons
+   are left alone: accent on transparent is exactly right. */
+.cpx .btn-primary .spinner-border {
+    color: currentColor;
+}
+
 /* MudBlazor controls ------------------------------------------------------
-   Two classes deep so these out-specify app.css's global `.dark-theme`
-   control rules regardless of stylesheet order. */
+   The `.mud-input-*` and `.mud-button-*` block that used to sit here is gone.
+   No portal page renders a MudBlazor input or button any more: the filter
+   dropdowns are NocturneSelect, the dates NocturneDateField, and every button
+   is a `.btn` dressed by this sheet. Those rules were dressing a control that
+   is no longer in the portal, and left behind they would say the opposite.
 
-.cpx .mud-input-outlined-border {
-    border-color: var(--cpx-edge) !important;
-    border-radius: var(--cpx-r-md) !important;
-}
-
-.cpx .mud-input-outlined:hover .mud-input-outlined-border {
-    border-color: var(--cpx-edge-hi) !important;
-}
-
-.cpx .mud-input.mud-input-outlined {
-    background: var(--cpx-field);
-    border-radius: var(--cpx-r-md);
-    color: var(--cpx-ink);
-}
-
-.cpx .mud-input-root,
-.cpx .mud-select-input .mud-input-slot {
-    color: var(--cpx-ink) !important;
-    font-size: var(--cpx-text-sm);
-}
-
-.cpx .mud-input-label {
-    color: var(--cpx-mute-2) !important;
-    font-size: var(--cpx-text-sm);
-}
-
-.cpx .mud-input-control:focus-within .mud-input-outlined-border {
-    border-color: var(--cpx-accent) !important;
-    border-width: 1px !important;
-}
-
-.cpx .mud-button-root {
-    border-radius: var(--cpx-r-md);
-    font-weight: 600;
-    letter-spacing: 0;
-    text-transform: none;
-    min-height: 40px;
-}
-
-.cpx .mud-button-filled.mud-button-filled-primary {
-    background-color: var(--cpx-accent);
-    color: var(--cpx-on-accent);
-}
-
-.cpx .mud-button-filled.mud-button-filled-dark {
-    background-color: var(--cpx-ink);
-    color: var(--cpx-bg);
-}
+   MudBlazor still owns the frame — MudLayout, MudAppBar and MudDrawer, which
+   `.cpx` sits on — so the rules that negotiate with it are still live, up in
+   the Shell block: --mud-drawer-width-left, .mud-main-content's padding and
+   the app bar's toolbar height. The providers (dialog, snackbar, popover) are
+   rendered outside `.cpx` by CustomerPortalLayout, so nothing scoped here
+   reaches them at all. */
 
 /* Pagination -------------------------------------------------------------- */
 
@@ -1670,6 +1680,23 @@
     font-size: var(--cpx-text-sm);
     color: var(--cpx-mute-2);
     white-space: nowrap;
+}
+
+/* A panel head that carries a control as well as a total: the two travel
+   together on the trailing edge, so the total keeps the position it has on
+   every other panel and the control does not crowd the title. The auto margin
+   moves to the group — two of them in one flex row would split the slack
+   between them and leave the control adrift in the middle. */
+.cpx .cpd-panel-tools {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--cpx-s2) var(--cpx-s4);
+    margin-left: auto;
+}
+
+.cpx .cpd-panel-tools .cpd-panel-total {
+    margin-left: 0;
 }
 
 .cpx .cpd-panel-total strong {
@@ -2100,6 +2127,45 @@
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 11.5rem), 1fr));
     gap: var(--cpx-s4);
     align-items: end;
+
+    /* The shared controls' metrics, so a calendar field, a dropdown and a
+       `.cpd-input` on the same row are one box: the portal's field, the
+       portal's edge and radius, at one height. Both components read these as
+       `var()` fallbacks at the control, which is what lets a row set them for
+       whatever it happens to hold.
+
+       The height is stated rather than left to each control's own padding:
+       `.cpd-input` is a Bootstrap-line-height box around fluid type, so it
+       lands between 41 and 42px across the clamp's range while the two
+       components sit on their own line-height — a row that agreed at one
+       window width would be a pixel out at another. 42px is where the tallest
+       of them settles, so nothing is squeezed.
+
+       Every portal filter row reads these now. A page that passed `ndf-bs` /
+       `nsel-bs` would declare the same names on the control itself and keep
+       the 44px Bootstrap fit instead — none do, since /customer-portal/pods
+       moved onto this vocabulary. */
+    --cpd-field-h: 42px;
+
+    --ndf-h: var(--cpd-field-h);
+    --ndf-pad-y: var(--cpx-s3);
+    --ndf-pad-x: var(--cpx-s4);
+    --ndf-fs: var(--cpx-text-sm);
+    --ndf-radius: var(--cpx-r-md);
+    --ndf-fill: var(--cpx-field);
+    --ndf-edge: var(--cpx-edge);
+
+    --nsel-h: var(--cpd-field-h);
+    --nsel-pad-y: var(--cpx-s3);
+    --nsel-pad-x: var(--cpx-s4);
+    --nsel-fs: var(--cpx-text-sm);
+    --nsel-radius: var(--cpx-r-md);
+    --nsel-fill: var(--cpx-field);
+    --nsel-edge: var(--cpx-edge);
+    --nsel-edge-hi: var(--cpx-edge-hi);
+    /* The grid cell already sets the width; the trigger's own 150px floor would
+       only stop the row collapsing on a narrow screen. */
+    --nsel-min-w: 0;
 }
 
 .cpx .cpd-field {
@@ -2123,17 +2189,18 @@
     justify-content: flex-end;
 }
 
-.cpx .cpd-field-action .btn,
-.cpx .cpd-field-action .mud-button-root {
+.cpx .cpd-field-action .btn {
     width: 100%;
 }
 
-/* MudSelect renders its own floating label, so a `cpd-field-label` above it
-   would state the same word twice. Those fields carry the label only on the
-   control — this keeps the control's own box the same height as a
-   NocturneDateField beside it. */
-.cpx .cpd-field .mud-input-control {
-    margin: 0;
+/* The two controls a filter row holds that are not the shared components: the
+   plain input and the load button. Same height as the rest of the row, from the
+   same value — `.btn`'s own 40px floor and `.cpd-input`'s 40px would each land
+   a pixel or two short of it. The fallback is that floor, so a `.cpd-field` in
+   some other grid keeps the height it has today. */
+.cpx .cpd-filters .cpd-input,
+.cpx .cpd-filters .cpd-field-action .btn {
+    min-height: var(--cpd-field-h, 40px);
 }
 
 /* Pager --------------------------------------------------------------------

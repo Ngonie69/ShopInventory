@@ -99,7 +99,12 @@ public sealed class GetInvoicesByCustomerHandler(
             }
             else if (filterFromDate.HasValue && filterToDate.HasValue)
             {
-                invoices = await sapClient.GetInvoicesByCustomerAsync(request.CardCode, filterFromDate.Value, filterToDate.Value, cancellationToken);
+                invoices = await sapClient.GetInvoicesByCustomerAsync(
+                    request.CardCode,
+                    filterFromDate.Value,
+                    filterToDate.Value,
+                    request.IncludeLines,
+                    cancellationToken);
                 currentPage = 1;
                 currentPageSize = invoices.Count;
                 totalCount = invoices.Count;

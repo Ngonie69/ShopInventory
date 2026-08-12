@@ -93,48 +93,44 @@
                     <span class="cpd-tag">@TotalCount @Plural(TotalCount, "document")</span>
                 }
             </div>
+            @* Every control here is one of the portal's own. NocturneDateField keeps the
+               shorthand entry FlexibleDatePicker was written for and draws the portal's
+               calendar; NocturneSelect draws its menu in page DOM, so the row is one
+               height and one palette. See .claude/skills/nocturne-dropdowns-and-dates. *@
             <div class="cpd-filters">
-                @* NocturneDateField rather than FlexibleDatePicker: it keeps the shorthand
-                   entry that component was written for and draws the same calendar as the
-                   rest of the portal, instead of MudBlazor's. *@
                 <div class="cpd-field">
                     <label class="cpd-field-label" for="cpod-f-from">From</label>
-                    <NocturneDateField Id="cpod-f-from" Class="ndf-bs" @bind-Date="fromDate" />
+                    <NocturneDateField Id="cpod-f-from" @bind-Date="fromDate" AriaLabel="From date" />
                 </div>
                 <div class="cpd-field">
                     <label class="cpd-field-label" for="cpod-f-to">To</label>
-                    <NocturneDateField Id="cpod-f-to" Class="ndf-bs" @bind-Date="toDate" />
+                    <NocturneDateField Id="cpod-f-to" @bind-Date="toDate" AriaLabel="To date" />
                 </div>
                 @if (isMultiAccount && linkedAccounts.Any())
                 {
                     <div class="cpd-field">
-                        <MudSelect T="string" Label="Account" Value="@selectedAccountFilter"
-                                   ValueChanged="OnAccountFilterChanged" Variant="Variant.Outlined" Dense="true"
-                                   AnchorOrigin="Origin.BottomCenter">
-                            <MudSelectItem T="string" Value="@("")">All accounts</MudSelectItem>
-                            @foreach (var account in linkedAccounts)
-                            {
-                                <MudSelectItem T="string" Value="@account.CardCode">
-                                    @account.CardName @(!string.IsNullOrEmpty(account.Currency) ? $"({account.Currency})" : "")
-                                    — @account.CardCode
-                                </MudSelectItem>
-                            }
-                        </MudSelect>
+                        <label class="cpd-field-label" for="cpod-f-account">Account</label>
+                        @* The lambda is not a style choice: passing the method group makes
+                           TValue inference fail on an error that names EventCallback. *@
+                        <NocturneSelect Id="cpod-f-account" Class="nsel-block" TValue="string"
+                                        Options="AccountFilterOptions" Value="@selectedAccountFilter"
+                                        ValueChanged="@(code => OnAccountFilterChanged(code ?? string.Empty))"
+                                        Caption="Filter by account" AriaLabel="Filter by account"
+                                        Placeholder="All accounts" />
                     </div>
                 }
                 <div class="cpd-field cpd-field-action">
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadData"
-                               Disabled="@isLoading">
+                    <button type="button" class="btn btn-primary" @onclick="LoadData" disabled="@isLoading">
                         @if (isLoading)
                         {
-                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                            <span>Loading...</span>
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            <span>Loading</span>
                         }
                         else
                         {
                             <span>@(hasLoaded ? "Reload PODs" : "Load PODs")</span>
                         }
-                    </MudButton>
+                    </button>
                 </div>
             </div>
         </section>
@@ -375,10 +371,10 @@
 
             <div class="cpd-sheet-foot">
                 <button type="button" class="btn btn-outline-primary" @onclick="CloseViewer">Close</button>
-                <MudButton ButtonType="ButtonType.Button" Variant="Variant.Filled" Color="Color.Primary"
-                           OnClick="() => DownloadPod(viewerPod!)" Disabled="@(viewerPod is null)">
+                <button type="button" class="btn btn-primary" @onclick="() => DownloadPod(viewerPod!)"
+                        disabled="@(viewerPod is null)">
                     Download
-                </MudButton>
+                </button>
             </div>
         </div>
     </div>
@@ -400,6 +396,10 @@
     private List<LinkedAccountInfo> linkedAccounts = new();
     private string? loadErrorMessage;
     private DateTime? lastUpdated;
+
+    // Computed rather than static: the list arrives with the session.
+    private IEnumerable<NocturneSelectOption<string>> AccountFilterOptions =>
+        PortalFilterOptions.Accounts(linkedAccounts);
 
     // The newest upload in the whole period, not merely on the page in hand: the
     // API orders newest first, so page one carries it, and paging never changes

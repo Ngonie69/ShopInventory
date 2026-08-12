@@ -62,8 +62,13 @@ public interface ICreditNoteService
     Task<CreditNoteDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
     Task<CreditNoteDto?> GetByCreditNoteNumberAsync(string creditNoteNumber, CancellationToken cancellationToken = default);
     Task<List<CreditNoteDto>> GetByInvoiceIdAsync(int invoiceId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// The credit-note list. <paramref name="includeLines"/> asks for the document lines as well;
+    /// the local projection stores no line quantities, so asking for them reads SAP.
+    /// </summary>
     Task<CreditNoteListResponseDto> GetAllAsync(int page, int pageSize, CreditNoteStatus? status = null,
-        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+        string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool includeLines = false,
+        CancellationToken cancellationToken = default);
     Task<CreditNoteDto> CreateAsync(CreateCreditNoteRequest request, Guid userId, CancellationToken cancellationToken = default);
     Task<CreditNoteDto> CreateFromInvoiceAsync(int invoiceId, List<CreateCreditNoteLineRequest> lines, string reason,
         Guid userId, CancellationToken cancellationToken = default);

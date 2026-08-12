@@ -5,7 +5,7 @@ namespace ShopInventory.Web.Services;
 
 public interface ICreditNoteService
 {
-    Task<CreditNoteListResponse?> GetCreditNotesAsync(int page = 1, int pageSize = 20, CreditNoteStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
+    Task<CreditNoteListResponse?> GetCreditNotesAsync(int page = 1, int pageSize = 20, CreditNoteStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool includeLines = false);
     Task<CreditNoteDto?> GetCreditNoteByIdAsync(int id);
     Task<CreditNoteDto?> GetCreditNoteByNumberAsync(string creditNoteNumber);
     Task<CreditNotesByInvoiceResponse?> GetCreditNotesForInvoiceAsync(int invoiceId);
@@ -26,8 +26,13 @@ public class CreditNoteService : ICreditNoteService
         _logger = logger;
     }
 
+    /// <summary>
+    /// The credit-note list. <paramref name="includeLines"/> asks for the document lines too, which
+    /// the API can only answer from SAP — only ask when the caller aggregates by item.
+    /// </summary>
     public async Task<CreditNoteListResponse?> GetCreditNotesAsync(int page = 1, int pageSize = 20,
-        CreditNoteStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null)
+        CreditNoteStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
+        bool includeLines = false)
     {
         try
         {
@@ -41,6 +46,8 @@ public class CreditNoteService : ICreditNoteService
                 queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
             if (toDate.HasValue)
                 queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+            if (includeLines)
+                queryParams.Add("includeLines=true");
 
             var url = $"api/creditnote?{string.Join("&", queryParams)}";
             return await _httpClient.GetFromJsonAsync<CreditNoteListResponse>(url);
