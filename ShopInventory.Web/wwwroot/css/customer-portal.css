@@ -934,9 +934,7 @@
 .cpx.customer-shell .table.staff-table tbody tr,
 .cpx.customer-shell .table.staff-table tbody tr:hover,
 .cpx.customer-shell .table.invoice-items-table tbody tr,
-.cpx.customer-shell .table.invoice-items-table tbody tr:hover,
-.cpx.customer-shell .cpod-table tbody tr,
-.cpx.customer-shell .cpod-table tbody tr:hover {
+.cpx.customer-shell .table.invoice-items-table tbody tr:hover {
     background: transparent;
 }
 
@@ -946,31 +944,30 @@
     background: var(--cpx-hover);
 }
 
-/* Three tables the redesign never reached — the activity log, the invoice
-   detail drawer and the POD list. They were left on app.css's styling, which in
-   dark is the same slate the rules above are fighting, so inside the portal
-   they rendered as navy panels next to teal ones. Only their colours are
-   brought across; their own padding and type sizing are their business. In
-   light this moves almost nothing (#f8fafc -> #f8fafb on one header fill, and a
-   label from #4a4a4a to the portal's mute), which is the point — the defect was
-   only ever in dark. */
+/* Two tables the redesign never reached — the activity log and the invoice
+   detail drawer. They were left on app.css's styling, which in dark is the same
+   slate the rules above are fighting, so inside the portal they rendered as
+   navy panels next to teal ones. Only their colours are brought across; their
+   own padding and type sizing are their business. In light this moves almost
+   nothing (#f8fafc -> #f8fafb on one header fill, and a label from #4a4a4a to
+   the portal's mute), which is the point — the defect was only ever in dark.
+
+   The POD list was the third. It is on the page vocabulary now, so its
+   `.cpod-table` selectors have gone from these three rules. */
 .cpx.customer-shell .staff-table thead th,
-.cpx.customer-shell .invoice-items-table thead th,
-.cpx.customer-shell .cpod-table thead th {
+.cpx.customer-shell .invoice-items-table thead th {
     border-bottom-color: var(--cpx-divider) !important;
     background: var(--cpx-surface-2) !important;
     color: var(--cpx-mute-2) !important;
 }
 
 .cpx.customer-shell .staff-table tbody td,
-.cpx.customer-shell .invoice-items-table tbody td,
-.cpx.customer-shell .cpod-table tbody td {
+.cpx.customer-shell .invoice-items-table tbody td {
     border-bottom-color: var(--cpx-rowline) !important;
     color: var(--cpx-ink);
 }
 
-.cpx.customer-shell .staff-table.table-hover tbody tr:hover td,
-.cpx.customer-shell .cpod-table tbody tr:hover td {
+.cpx.customer-shell .staff-table.table-hover tbody tr:hover td {
     background: var(--cpx-hover);
 }
 
@@ -1910,6 +1907,29 @@
     color: var(--cpx-ink);
 }
 
+/* [c] a third time, and the one the ≤992px block below could not cover.
+   app.css paints `.dark-theme .mobile-card-table tbody tr` #0f172a at (0,2,2)
+   from the **top level** of the file, even though the card layout those rules
+   belong to is inside its own ≤992px block. So a ledger that borrows
+   `mobile-card-table` for the phone was also getting slate rows in the table
+   layout on a desktop — the panel in the portal's dark surface, the rows in
+   app.css's, which reads as a mis-skinned table rather than as a bug. Dark
+   only, since light paints no row at this width.
+
+   Stated for the table layout alone: below 992px the row *is* the card and
+   takes `--cpx-surface` from the block further up, which is equally specific
+   and would lose to this one on source order.
+
+   Verified with a computed-style probe: rows rgb(15,23,42) against a
+   rgb(26,37,36) panel before, transparent after. */
+@media (min-width: 992px) {
+
+    .cpx.customer-shell .cpd-table.mobile-card-table tbody tr,
+    .cpx.customer-shell .cpd-table.mobile-card-table tfoot tr {
+        background: transparent;
+    }
+}
+
 /* The row as well as the cell: app.css tints `table tbody tr:hover` at (0,3,3)
    in the portal's own teal, and a transparent cell lets it through. */
 .cpx.customer-shell .cpd-table tbody tr:hover,
@@ -1947,6 +1967,23 @@
 
 .cpx .cpd-strong {
     font-weight: 600;
+}
+
+/* A row that ends in more than one control — the POD list offers view and
+   download on the same document. The buttons sit at the column's right edge
+   with the other trailing cells, and go back to the reading edge below 992px,
+   where the cell is a labelled grid track rather than a column. */
+.cpx .cpd-rowacts {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--cpx-s2);
+}
+
+@media (max-width: 991.98px) {
+    .cpx .cpd-rowacts {
+        justify-content: flex-start;
+    }
 }
 
 /* Status is an outlined tag rather than a filled badge: five of these stacked
@@ -2273,6 +2310,56 @@
     gap: var(--cpx-s2);
     padding: var(--cpx-s4) var(--cpx-pad);
     border-top: 1px solid var(--cpx-divider);
+}
+
+/* Document viewer ----------------------------------------------------------
+   The POD sheet holds one scanned page rather than a set of facts, so it takes
+   the width the invoice sheet doesn't need and the body gives its contents the
+   whole of it.
+
+   The stage is recessed rather than white: a photographed delivery note is
+   usually paper on a dark surface, and a white mat around it in light theme
+   left the document's own edge invisible. The PDF frame keeps its white — a
+   PDF paints its own page, and a transparent frame shows the browser's. */
+
+.cpx .cpd-sheet-doc {
+    width: min(72rem, 100%);
+    max-height: min(54rem, 94vh);
+}
+
+/* File names are long, arbitrary and not worth truncating to a tooltip — the
+   heading wraps instead, and the close button keeps its place on the first
+   line because the head is a flex row. */
+.cpx .cpd-sheet-doc .cpd-sheet-head h5 {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.cpx .cpd-stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: min(58vh, 26rem);
+    padding: var(--cpx-s3);
+    border-radius: var(--cpx-r-md);
+    background: var(--cpx-surface-2);
+    box-shadow: inset 0 0 0 1px var(--cpx-divider);
+    overflow: auto;
+}
+
+.cpx .cpd-stage img {
+    max-width: 100%;
+    max-height: min(70vh, 34rem);
+    object-fit: contain;
+    border-radius: var(--cpx-r-sm);
+}
+
+.cpx .cpd-stage iframe {
+    width: 100%;
+    height: min(70vh, 34rem);
+    border: none;
+    border-radius: var(--cpx-r-sm);
+    background: #fff;
 }
 
 /* A heading inside the sheet, between its sections. */
