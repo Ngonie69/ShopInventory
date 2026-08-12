@@ -7,6 +7,7 @@ using ShopInventory.DTOs;
 using ShopInventory.Features.VanSalesCompatibility.Commands.IngestVanSalesOfflineSales;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Tests;
 
@@ -24,6 +25,7 @@ public sealed class VanSalesOfflineIngestTests : IDisposable
 
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
+    private readonly RecordingAuditService _audit = new();
 
     public VanSalesOfflineIngestTests()
     {
@@ -60,7 +62,7 @@ public sealed class VanSalesOfflineIngestTests : IDisposable
     }
 
     private IngestVanSalesOfflineSalesHandler BuildHandler() =>
-        new(_context, NullLogger<IngestVanSalesOfflineSalesHandler>.Instance);
+        new(_context, _audit, NullLogger<IngestVanSalesOfflineSalesHandler>.Instance);
 
     private async Task<VanSalesOfflineSaleBatchResponse> IngestAsync(params VanSalesOfflineSaleRequest[] sales)
     {
@@ -317,5 +319,153 @@ public sealed class VanSalesOfflineIngestTests : IDisposable
 
         // Still held for posting: the money is real whatever the fiscal side says.
         Assert.Equal(DesktopSaleConsolidationStatus.Pending, stored.ConsolidationStatus);
+    }
+
+    /// <summary>
+    /// A day's takings used to arrive as one anonymous POST. The batch row is what makes an upload
+    /// answerable afterwards: how much arrived, and whether any of it was turned away.
+    /// </summary>
+    [Fact]
+    public async Task A_clean_batch_is_audited_with_its_counts_and_value()
+    {
+        await IngestAsync(
+            BuildSale("VAN006-INV-20260810-AAA111"),
+            BuildSale("VAN006-INV-20260810-CCC333", receiptGlobalNo: 503));
+
+        var batch = _audit.Single(AuditActions.IngestVanSalesOfflineBatch);
+
+        Assert.True(batch.IsSuccess);
+        Assert.Equal("VanSalesOfflineSaleBatch", batch.EntityType);
+        Assert.Equal("VAN006", batch.EntityId);
+        Assert.Contains("2 accepted, 0 duplicate, 0 rejected", batch.Details);
+        Assert.Contains("200.00 USD", batch.Details);
+    }
+
+    /// <summary>
+    /// The one outcome that is stored nowhere else. A rejected sale exists only in the reply the handset
+    /// is about to receive, so if the audit trail does not name it and its reason, a lost reply takes the
+    /// takings with it and leaves nothing to investigate.
+    /// </summary>
+    [Fact]
+    public async Task A_rejected_sale_is_audited_by_reference_and_reason()
+    {
+        var bad = BuildSale("VAN006-INV-20260810-BBB222", receiptGlobalNo: 502);
+        bad.CustomerCode = "OTHER001";
+
+        await IngestAsync(BuildSale("VAN006-INV-20260810-AAA111"), bad);
+
+        var rejection = _audit.Single(AuditActions.RejectVanSalesOfflineSale);
+
+        Assert.False(rejection.IsSuccess);
+        Assert.Equal("VAN006-INV-20260810-BBB222", rejection.EntityId);
+        Assert.Contains("not assigned", rejection.Details);
+
+        // And the batch row carries the failure too, so the upload reads as needing attention without
+        // having to open the individual sales.
+        var batch = _audit.Single(AuditActions.IngestVanSalesOfflineBatch);
+        Assert.False(batch.IsSuccess);
+        Assert.Contains("VAN006-INV-20260810-BBB222", batch.Details);
+        Assert.Contains("1 sale rejected", batch.ErrorMessage);
+    }
+
+    /// <summary>
+    /// Accepted, but its receipt can never reach ZIMRA. That is a fiscal day that will close short, and
+    /// until now it was visible only to whoever was reading the server logs.
+    /// </summary>
+    [Fact]
+    public async Task An_unsignable_receipt_is_audited_against_the_sale()
+    {
+        var sale = BuildSale("VAN006-INV-20260810-AAA111");
+        sale.DeviceSignatureHash = null;
+        sale.DeviceSignatureValue = null;
+
+        await IngestAsync(sale);
+
+        var unsignable = _audit.Single(AuditActions.UnsignableVanSalesOfflineSale);
+
+        Assert.False(unsignable.IsSuccess);
+        Assert.Equal("VAN006-INV-20260810-AAA111", unsignable.EntityId);
+
+        var batch = _audit.Single(AuditActions.IngestVanSalesOfflineBatch);
+        Assert.False(batch.IsSuccess);
+        Assert.Contains("cannot reach ZIMRA", batch.Details);
+    }
+
+    /// <summary>
+    /// A van turned away for a misconfigured user keeps its whole day on the handset and the rep sees
+    /// only a failed upload. Somebody has to be able to find that from the audit trail.
+    /// </summary>
+    [Fact]
+    public async Task A_batch_refused_for_a_misconfigured_van_is_audited()
+    {
+        var van = await _context.Users.SingleAsync(u => u.Id == VanUser);
+        van.AssignedWarehouseCode = null;
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var result = await BuildHandler().Handle(
+            new IngestVanSalesOfflineSalesCommand(
+                new VanSalesOfflineSaleBatchRequest { Sales = [BuildSale("VAN006-INV-20260810-AAA111")] },
+                VanUser),
+            CancellationToken.None);
+
+        Assert.True(result.IsError);
+
+        var batch = _audit.Single(AuditActions.IngestVanSalesOfflineBatch);
+        Assert.False(batch.IsSuccess);
+        Assert.Contains("no assigned warehouse", batch.Details);
+        Assert.Contains("stay on the handset", batch.Details);
+    }
+
+    /// <summary>
+    /// A batch of duplicates is a handset retrying, not a problem. It must not read as a failure or the
+    /// trail fills with alarms for the one thing this endpoint is designed to absorb.
+    /// </summary>
+    [Fact]
+    public async Task A_batch_of_duplicates_is_audited_as_a_success()
+    {
+        await IngestAsync(BuildSale("VAN006-INV-20260810-AAA111"));
+        _audit.Clear();
+
+        await IngestAsync(BuildSale("VAN006-INV-20260810-AAA111"));
+
+        var batch = _audit.Single(AuditActions.IngestVanSalesOfflineBatch);
+
+        Assert.True(batch.IsSuccess);
+        Assert.Null(batch.ErrorMessage);
+        Assert.Contains("0 accepted, 1 duplicate, 0 rejected", batch.Details);
+    }
+
+    private sealed record AuditEntry(
+        string Action,
+        string? EntityType,
+        string? EntityId,
+        string? Details,
+        bool IsSuccess,
+        string? ErrorMessage);
+
+    private sealed class RecordingAuditService : IAuditService
+    {
+        private readonly List<AuditEntry> _entries = [];
+
+        public AuditEntry Single(string action) =>
+            Assert.Single(_entries, entry => entry.Action == action);
+
+        public void Clear() => _entries.Clear();
+
+        public Task LogAsync(string action, string username, string userRole, string? entityType = null,
+            string? entityId = null, string? details = null, string? endpoint = null,
+            bool isSuccess = true, string? errorMessage = null)
+        {
+            _entries.Add(new AuditEntry(action, entityType, entityId, details, isSuccess, errorMessage));
+            return Task.CompletedTask;
+        }
+
+        public Task LogAsync(string action, string? entityType = null, string? entityId = null) =>
+            LogAsync(action, string.Empty, string.Empty, entityType, entityId);
+
+        public Task LogAsync(string action, string? entityType, string? entityId, string? details,
+            bool isSuccess, string? errorMessage = null) =>
+            LogAsync(action, string.Empty, string.Empty, entityType, entityId, details, null, isSuccess, errorMessage);
     }
 }
