@@ -1,10 +1,18 @@
 /* ==========================================================================
    Van sales — Nocturne
 
-   Two pages: /van-sales/activity (the round as it happened, visit by visit) and
-   /van-sales/compliance (the departure compliance sheet, one card per rep-day).
-   One sheet because they are one section and share their card, chip and meter
-   vocabulary; the `vs-` prefix is not shared with any other sheet.
+   Four pages, not two, whatever this header used to say: /van-sales/activity
+   (the audit ledger — one row per round, the day drawn as a strip),
+   /van-sales/compliance (the departure compliance sheet, one card per rep-day),
+   /van-sales/routes and the attendance report. One sheet because they are one
+   section and share their card, chip and meter vocabulary; the `vs-` prefix is
+   not shared with any other sheet.
+
+   The ledger's own vocabulary is `vsa-`, at the foot of this file, and is the
+   only part of the sheet the other three pages do not touch. Everything above
+   it is shared — `vs-table`, `vs-field`, `vs-primary` and `vs-num` all read as
+   activity-page leftovers after that rebuild and are nothing of the kind, so
+   check with a grep across all four pages before removing anything here.
 
    Palette and spacing come from nocturne-tokens.css — the block below aliases
    them rather than restating them, so a colour is corrected in one place for the
@@ -68,6 +76,17 @@
     --vs-info-rgb: var(--noct-fam-info-rgb);
     --vs-neutral: var(--noct-fam-neutral);
     --vs-neutral-rgb: var(--noct-fam-neutral-rgb);
+
+    /* — The ledger's drawn marks —
+       A filled control's fill and the ink on it, which is what a timeline block
+       and a map pin both are: `--noct-box` is a step darker than the accent, and
+       that is what lets `--noct-on-box` stay near-white in both schemes while
+       `--vs-on-accent` has to invert. `--vs-map-line` is read from JavaScript
+       (van-map.js), so the route the pins are joined by follows the theme with
+       everything else rather than being a hex in a script. */
+    --vs-block: var(--noct-box);
+    --vs-on-block: var(--noct-on-box);
+    --vs-map-line: var(--noct-box);
 
     /* — Geometry — */
     --vs-r-sm: var(--noct-r-sm);
@@ -418,6 +437,26 @@
     color: var(--vs-neutral);
 }
 
+/* "Nothing to look at" — outlined rather than filled, because a clean round
+   should be the quietest thing in its row and a fill would give it the same
+   weight as the findings beside it. */
+.vs .vs-chip-clean {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--vs-field-edge-hi);
+    color: var(--vs-mute-3);
+    font-weight: 500;
+}
+
+/* A measurement, not a verdict: an accuracy figure gets no chip treatment at
+   all, so that the two that do — No fix, Last known — stay the only marks in
+   the column that carry colour. */
+.vs .vs-chip-quiet {
+    padding: 0;
+    background: none;
+    color: var(--vs-mute-3);
+    font-weight: 400;
+}
+
 /* — Money reconciliation strip ————————————————————————————————— */
 
 .vs .vs-money {
@@ -574,7 +613,818 @@
     margin-bottom: 16px;
 }
 
+/* ==========================================================================
+   The audit ledger — /van-sales/activity only
+
+   Van Activity.dc.html, concept 1a. Everything below is prefixed `vsa-` and is
+   used by that one page; the three other van pages share only what is above.
+
+   The ledger is a grid rather than a table because two of its eight columns are
+   drawings — the status rail and the round strip — and a <td> that has to be a
+   positioning context for absolutely-placed blocks fights its own display type
+   the whole way. The column track is stated once, in `.vsa-grid`, and the header
+   row, every round row and the axis under the list all read it, so a column
+   cannot drift out of alignment with its own heading.
+   ========================================================================== */
+
+.vs .vsa-head-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+/* — Filter bar ———————————————————————————————————————————————— */
+
+.vs .vsa-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 9px 10px;
+    border-radius: var(--vs-r-md);
+    background: var(--vs-wash);
+    box-shadow: inset 0 0 0 1px var(--vs-divider);
+}
+
+.vs .vsa-seg {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: var(--vs-r-md);
+    background: var(--vs-bg);
+    box-shadow: inset 0 0 0 1px var(--vs-divider);
+}
+
+.vs .vsa-seg-btn {
+    height: 28px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: var(--vs-r-sm);
+    background: transparent;
+    color: var(--vs-mute-3);
+    font-family: inherit;
+    font-size: 0.79rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.vs .vsa-seg-btn:hover:not(:disabled):not(.vsa-seg-on) {
+    color: var(--vs-ink);
+}
+
+.vs .vsa-seg-btn:disabled {
+    cursor: default;
+}
+
+.vs .vsa-seg-on {
+    background: rgba(var(--vs-accent-rgb), .18);
+    color: var(--vs-accent-text);
+    box-shadow: inset 0 0 0 1px rgba(var(--vs-accent-rgb), .45);
+}
+
+.vs .vsa-search {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex: 1;
+    min-width: 190px;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: var(--vs-r-md);
+    background: var(--vs-bg);
+    box-shadow: inset 0 0 0 1px var(--vs-field-edge-hi);
+}
+
+.vs .vsa-search:focus-within {
+    box-shadow: inset 0 0 0 1px var(--vs-accent), 0 0 0 3px rgba(var(--vs-accent-rgb), .16);
+}
+
+.vs .vsa-search-icon {
+    color: var(--vs-faint);
+    font-size: 0.85rem;
+}
+
+/* Two classes deep, like every other field on this sheet, so app.css's global
+   `.dark-theme input` rule cannot paint a slate fill over the inset ground. */
+.vs .vsa-search-input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--vs-ink);
+    font-family: inherit;
+    font-size: 0.82rem;
+}
+
+.vs .vsa-search-input::placeholder {
+    color: var(--vs-placeholder);
+}
+
+.vs .vsa-flags {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.vs .vsa-flag {
+    height: 32px;
+    padding: 0 11px;
+    border: 1px solid var(--vs-field-edge-hi);
+    border-radius: var(--vs-r-md);
+    background: transparent;
+    color: var(--vs-mute-3);
+    font-family: inherit;
+    font-size: 0.78rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.vs .vsa-flag:hover:not(.vsa-flag-on) {
+    color: var(--vs-ink);
+    border-color: var(--vs-accent);
+}
+
+.vs .vsa-flag-on {
+    background: rgba(var(--vs-accent-rgb), .18);
+    border-color: rgba(var(--vs-accent-rgb), .5);
+    color: var(--vs-accent-text);
+}
+
+.vs .vsa-flag-count {
+    margin-left: 5px;
+    opacity: .65;
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsa-reset {
+    height: 32px;
+    padding: 0 12px;
+    font-size: 0.78rem;
+}
+
+.vs .vsa-custom {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    padding: 14px 16px;
+    border-radius: var(--vs-r-md);
+    background: var(--vs-wash);
+    box-shadow: inset 0 0 0 1px var(--vs-divider);
+}
+
+.vs .vsa-custom-field {
+    min-width: 172px;
+}
+
+.vs .vsa-summary-line {
+    margin: 10px 0 18px;
+    font-size: 0.78rem;
+    color: var(--vs-faint);
+}
+
+/* — The five figures ——————————————————————————————————————————— */
+
+.vs .vsa-metrics {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1px;
+    margin-bottom: 20px;
+    border-radius: var(--vs-r-md);
+    background: var(--vs-divider);
+    overflow: hidden;
+}
+
+.vs .vsa-metric {
+    background: var(--vs-surface);
+    padding: 14px 16px 12px;
+}
+
+.vs .vsa-metric-top {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+}
+
+.vs .vsa-metric-value {
+    font-size: 1.6rem;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsa-metric-aside {
+    font-size: 0.72rem;
+    color: var(--vs-faint);
+}
+
+.vs .vsa-metric-track {
+    margin: 8px 0 7px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--vs-rule);
+    overflow: hidden;
+}
+
+.vs .vsa-metric-bar {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--vs-block);
+}
+
+.vs .vsa-metric-label {
+    font-size: 0.66rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+}
+
+/* Tone is carried by a class rather than an inline colour so that a figure and
+   the bar under it can never say two different things. */
+.vs .vsa-tone-info {
+    color: var(--vs-info);
+    background: var(--vs-info);
+}
+
+.vs .vsa-tone-bad {
+    color: var(--vs-bad);
+    background: var(--vs-bad);
+}
+
+.vs .vsa-tone-neutral {
+    color: var(--vs-neutral);
+    background: var(--vs-neutral);
+}
+
+/* Zero of something is not a finding, so it is drawn as quietly as the label. */
+.vs .vsa-tone-none {
+    color: var(--vs-mute-3);
+    background: transparent;
+}
+
+.vs .vsa-metric-value.vsa-tone-info,
+.vs .vsa-metric-value.vsa-tone-bad,
+.vs .vsa-metric-value.vsa-tone-neutral,
+.vs .vsa-metric-value.vsa-tone-none {
+    background: none;
+}
+
+/* — Ledger and rail ———————————————————————————————————————————— */
+
+.vs .vsa-body {
+    display: flex;
+    gap: 18px;
+    align-items: flex-start;
+}
+
+.vs .vsa-ledger {
+    flex: 1;
+    min-width: 0;
+    /* Wide content scrolls inside its own box; the page body never does. */
+    overflow-x: auto;
+}
+
+.vs .vsa-rail {
+    flex: none;
+    width: 340px;
+    position: sticky;
+    top: 16px;
+}
+
+/* The one statement of the column track. Everything in the ledger reads it. */
+.vs .vsa-grid {
+    display: grid;
+    grid-template-columns: 3px 168px 84px minmax(180px, 1fr) 56px 78px 164px 18px;
+    align-items: center;
+    gap: 12px;
+    min-width: 824px;
+}
+
+.vs .vsa-cols {
+    padding: 0 12px 8px;
+    font-size: 0.66rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--vs-faint);
+}
+
+.vs .vsa-right {
+    text-align: right;
+}
+
+.vs .vsa-rule {
+    height: 1px;
+    min-width: 824px;
+    background: linear-gradient(90deg, transparent, var(--vs-divider) 6%, var(--vs-divider) 94%, transparent);
+}
+
+/* — A round —————————————————————————————————————————————————— */
+
+.vs .vsa-rowbtn,
+.vs .vsa-callbtn {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.vs .vsa-rowbtn:focus-visible,
+.vs .vsa-callbtn:focus-visible {
+    outline: 2px solid var(--vs-accent);
+    outline-offset: -2px;
+    border-radius: var(--vs-r-md);
+}
+
+.vs .vsa-callbtn-flat {
+    cursor: default;
+}
+
+.vs .vsa-row {
+    padding: 9px 12px;
+    border-radius: var(--vs-r-md);
+}
+
+.vs .vsa-rowbtn:hover .vsa-row {
+    background: var(--vs-hover);
+}
+
+.vs .vsa-row-on,
+.vs .vsa-rowbtn:hover .vsa-row-on {
+    background: var(--vs-wash);
+}
+
+/* The rail down the left of a round: the only mark on the row that is read
+   before anything is read at all, so a clean round shows nothing rather than a
+   green tick — an audit page should draw attention to the exceptions only. */
+.vs .vsa-status {
+    width: 3px;
+    height: 30px;
+    border-radius: 2px;
+    background: transparent;
+}
+
+.vs .vsa-status-flag {
+    background: var(--vs-bad);
+}
+
+.vs .vsa-status-watch {
+    background: var(--vs-warn);
+}
+
+.vs .vsa-cell {
+    display: block;
+    min-width: 0;
+}
+
+.vs .vsa-who {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--vs-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vs .vsa-where {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--vs-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vs .vsa-day {
+    display: block;
+    font-size: 0.79rem;
+    color: var(--vs-mute);
+    white-space: nowrap;
+}
+
+.vs .vsa-num {
+    font-size: 0.82rem;
+    color: var(--vs-mute);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.vs .vsa-chips {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+
+.vs .vsa-chevron {
+    font-size: 1rem;
+    color: var(--vs-mute-3);
+    text-align: center;
+    transition: transform .15s;
+}
+
+.vs .vsa-chevron-on {
+    transform: rotate(90deg);
+}
+
+/* — The round drawn as a strip ————————————————————————————————— */
+
+.vs .vsa-strip {
+    position: relative;
+    display: block;
+    height: 22px;
+    border-radius: var(--vs-r-sm);
+    background: var(--vs-bg);
+    box-shadow: inset 0 0 0 1px var(--vs-divider);
+}
+
+.vs .vsa-strip-tick {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--vs-divider);
+}
+
+.vs .vsa-block {
+    position: absolute;
+    top: 6px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--vs-block);
+}
+
+.vs .vsa-block-bad {
+    background: var(--vs-bad);
+}
+
+.vs .vsa-block-warn {
+    background: var(--vs-warn);
+}
+
+.vs .vsa-block-neutral {
+    background: var(--vs-faint);
+}
+
+/* Open means unfinished, so it is drawn as an outline with nothing inside it —
+   the one block on the strip that claims no time on site. */
+.vs .vsa-block-open {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--vs-info);
+}
+
+.vs .vsa-axis-row {
+    padding: 6px 12px 0;
+}
+
+.vs .vsa-axis {
+    position: relative;
+    height: 15px;
+    font-size: 0.66rem;
+    color: var(--vs-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsa-axis-mark {
+    position: absolute;
+}
+
+/* — The calls under a round ———————————————————————————————————— */
+
+.vs .vsa-detail {
+    margin: 2px 0 12px 15px;
+    padding: 13px 15px 8px;
+    border-radius: var(--vs-r-md);
+    background: var(--vs-wash);
+    box-shadow: inset 0 0 0 1px var(--vs-divider);
+}
+
+.vs .vsa-detail-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 11px;
+}
+
+.vs .vsa-detail-line {
+    font-size: 0.79rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsa-detail-hint {
+    font-size: 0.72rem;
+    color: var(--vs-faint);
+}
+
+/* The calls carry their own track: seven columns against the round's eight, and
+   nothing lines up between the two on purpose — the detail is a different table,
+   not a continuation of the row above it. */
+.vs .vsa-call-cols,
+.vs .vsa-call {
+    grid-template-columns: 26px minmax(140px, 1fr) 56px 56px 104px minmax(178px, 200px) minmax(120px, 1fr);
+    min-width: 744px;
+}
+
+.vs .vsa-call-cols {
+    padding: 0 8px 7px;
+    font-size: 0.66rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--vs-faint);
+}
+
+.vs .vsa-call {
+    padding: 8px;
+    border-radius: var(--vs-r-sm);
+}
+
+.vs .vsa-callbtn:hover:not(.vsa-callbtn-flat) .vsa-call {
+    background: var(--vs-hover);
+}
+
+.vs .vsa-call-on,
+.vs .vsa-callbtn:hover .vsa-call-on {
+    background: rgba(var(--vs-accent-rgb), .13);
+    box-shadow: inset 0 0 0 1px rgba(var(--vs-accent-rgb), .35);
+}
+
+.vs .vsa-call-n {
+    color: var(--vs-faint);
+    font-size: 0.72rem;
+}
+
+.vs .vsa-call-name {
+    display: block;
+    font-size: 0.82rem;
+    color: var(--vs-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vs .vsa-dur-track {
+    display: block;
+    height: 2px;
+    margin-top: 4px;
+    border-radius: 2px;
+    background: var(--vs-rule);
+    overflow: hidden;
+}
+
+.vs .vsa-dur-bar {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--vs-block);
+}
+
+.vs .vsa-dur-bar.vsa-tone-info {
+    background: var(--vs-info);
+}
+
+/* Wraps rather than truncating. A coordinate is the evidence this column exists
+   to show, and "-17.82622, 30.9…" beside a "Last known" chip is the one pairing
+   that overflows — cutting the longitude to keep the chip on the same line loses
+   exactly the digits a reader came for. */
+.vs .vsa-pos {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.vs .vsa-note {
+    font-size: 0.72rem;
+    color: var(--vs-mute-3);
+}
+
+/* — Foot ——————————————————————————————————————————————————————— */
+
+.vs .vsa-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+    padding-top: 13px;
+    border-top: 1px solid var(--vs-divider);
+}
+
+.vs .vsa-foot-label {
+    font-size: 0.78rem;
+    color: var(--vs-faint);
+}
+
+.vs .vsa-foot-actions {
+    display: flex;
+    gap: 7px;
+}
+
+/* — The map rail ——————————————————————————————————————————————— */
+
+.vs .vsa-map-card {
+    border-radius: var(--vs-r-md);
+    background: var(--vs-surface);
+    box-shadow: inset 0 0 0 1px var(--vs-divider);
+    overflow: hidden;
+}
+
+.vs .vsa-map-head {
+    padding: 12px 14px 11px;
+}
+
+.vs .vsa-map-kicker {
+    font-size: 0.66rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--vs-faint);
+}
+
+.vs .vsa-map-title {
+    margin-top: 4px;
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: var(--vs-ink);
+}
+
+.vs .vsa-map {
+    height: 330px;
+    background: var(--vs-wash);
+}
+
+.vs .vsa-map-blank {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 24px;
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--vs-faint);
+}
+
+/* Set by van-map.js when Leaflet could not be fetched at all. Says so, rather
+   than leaving a panel that looks like a round with nothing in it. */
+.vs .vs-map-failed::after {
+    content: "The map could not be loaded.";
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    font-size: 0.8rem;
+    color: var(--vs-faint);
+}
+
+.vs .vsa-legend {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 11px 14px;
+    font-size: 0.7rem;
+    color: var(--vs-faint);
+}
+
+.vs .vsa-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.vs .vsa-legend-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: var(--vs-block);
+    box-shadow: 0 0 0 1px var(--vs-accent);
+}
+
+.vs .vsa-legend-stale {
+    background: transparent;
+    border: 1px dashed var(--vs-warn);
+    box-shadow: none;
+}
+
+.vs .vsa-legend-stat {
+    margin-left: auto;
+}
+
+/* — Leaflet, dressed for this page —————————————————————————————
+   leaflet.css is injected into <head> at first render, so it lands after this
+   sheet. Every selector here is therefore two classes deep or better, and wins
+   on specificity rather than on order — which is the only thing that could be
+   relied on either way. */
+
+.vs .vsa-map .leaflet-container {
+    background: var(--vs-wash);
+    font-family: inherit;
+}
+
+.vs .vsa-map .leaflet-control-attribution {
+    background: rgba(var(--noct-accent-rgb), .04);
+    backdrop-filter: blur(6px);
+    color: var(--vs-faint);
+    font-size: 9.5px;
+}
+
+.vs .vsa-map .leaflet-control-attribution a {
+    color: var(--vs-mute-3);
+}
+
+.vs .vsa-map .leaflet-bar a {
+    background: var(--vs-surface);
+    color: var(--vs-mute);
+    border-color: var(--vs-divider);
+}
+
+.vs .vsa-map .leaflet-bar a:hover {
+    background: var(--vs-hover);
+    color: var(--vs-accent-text);
+}
+
+.vs .vsa-map .leaflet-tooltip {
+    padding: 5px 8px;
+    border: 0;
+    border-radius: var(--vs-r-sm);
+    background: var(--vs-surface);
+    box-shadow: var(--noct-shadow-pop);
+    color: var(--vs-ink);
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+
+.vs .vsa-map .leaflet-tooltip-top::before {
+    border-top-color: var(--vs-surface);
+}
+
+/* A pin is a filled control carrying a number, so it takes the fill/ink pair
+   rather than the accent — that is what keeps the digit legible in both schemes
+   without the fill having to invert. */
+.vs .vsa-map .vs-pin {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: var(--vs-block);
+    color: var(--vs-on-block);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    box-shadow: 0 0 0 1px var(--vs-accent), 0 2px 6px rgba(0, 0, 0, .45);
+}
+
+/* A remembered fix is not a fix taken at the door, and a solid pin would claim
+   it was. Dashed, and opaque enough to stay readable over map imagery. */
+.vs .vsa-map .vs-pin-stale {
+    background: var(--vs-surface);
+    border: 1px dashed var(--vs-warn);
+    color: var(--vs-warn);
+    box-shadow: none;
+}
+
+/* Selected. Distinguished by its ring and its size — set in JS, which is the
+   only place that knows the icon box — rather than by hue alone, because the
+   accent fill is already this pin's resting state on paper. */
+.vs .vsa-map .vs-pin-on {
+    background: var(--vs-accent);
+    color: var(--vs-on-accent);
+    box-shadow: 0 0 0 2px var(--vs-accent-text), 0 0 14px rgba(var(--vs-accent-rgb), .55);
+}
+
 /* — Narrow screens ———————————————————————————————————————————— */
+
+@media (max-width: 1180px) {
+    .vs .vsa-body {
+        flex-direction: column;
+    }
+
+    .vs .vsa-rail {
+        width: 100%;
+        position: static;
+    }
+
+    .vs .vsa-map {
+        height: 300px;
+    }
+}
+
+@media (max-width: 900px) {
+    .vs .vsa-metrics {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
 
 @media (max-width: 720px) {
     .vs {
@@ -583,5 +1433,18 @@
 
     .vs .vs-day-when {
         text-align: left;
+    }
+
+    .vs .vsa-bar {
+        align-items: stretch;
+    }
+
+    .vs .vsa-search {
+        order: -1;
+        width: 100%;
+    }
+
+    .vs .vsa-metrics {
+        grid-template-columns: 1fr;
     }
 }

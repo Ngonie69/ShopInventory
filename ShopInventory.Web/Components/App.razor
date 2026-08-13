@@ -243,6 +243,10 @@
     <script src="js/app.js?v=9"></script>
     <script src="js/passkeys.js?v=1"></script>
     <script src="js/signature-pad.js?v=2"></script>
+    @* /van-sales/activity's round map. Tiny on its own — it pulls Leaflet out of
+       wwwroot/lib on first render, so the pages that never draw a map never pay
+       for it. See wwwroot/lib/leaflet/README.md for why that copy is vendored. *@
+    <script src="js/van-map.js?v=1"></script>
 
     <!-- Loading screen shown while Blazor connects -->
     <div id="blazor-loading"
