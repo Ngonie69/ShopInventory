@@ -54,7 +54,21 @@ public sealed record VanVisitDto(
     double? CheckOutLocationAccuracyMetres = null,
     string? LocationUnavailableReason = null,
     DateTime? CheckInRecordedAt = null,
-    DateTime? CheckOutRecordedAt = null
+    DateTime? CheckOutRecordedAt = null,
+
+    // --- The round this call belongs to ---
+    //
+    // Not on the call itself: a van's round is one rep for one CAT trading day, and the route and
+    // truck for that day are snapshotted on VanRouteDayEntity when the rep starts the day. Carried
+    // here so a reader can name the round without a second request per row.
+    //
+    // Taken from the snapshot rather than from the rep's current RouteId, for the reason the entity
+    // gives for snapshotting at all: a rep moved to another route this morning must not rewrite the
+    // route on every call they made last month. Null when the rep checked into customers without
+    // starting a day on the handset, which is itself a finding rather than an error.
+    string? RouteCode = null,
+    string? RouteName = null,
+    string? TruckRegNo = null
 )
 {
     /// <summary>

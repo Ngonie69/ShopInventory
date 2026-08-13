@@ -37,6 +37,18 @@ public class VanVisitDto
     public DateTime? CheckInRecordedAt { get; set; }
     public DateTime? CheckOutRecordedAt { get; set; }
 
+    /// <summary>
+    /// The route and truck the round ran on, as they stood on the day.
+    ///
+    /// All three are nullable and all three are routinely null: they come from the rep's Start Day on
+    /// the handset, and a rep who checks into customers without opening a day has calls but no round.
+    /// The page says "Route not recorded" rather than leaving the line blank, because a blank reads as
+    /// a rendering fault and this is a fact about the day.
+    /// </summary>
+    public string? RouteCode { get; set; }
+    public string? RouteName { get; set; }
+    public string? TruckRegNo { get; set; }
+
     public string StatusDisplay => CheckOutTime.HasValue ? "Completed" : "Open";
 
     public string DurationDisplay => DurationMinutes.HasValue
