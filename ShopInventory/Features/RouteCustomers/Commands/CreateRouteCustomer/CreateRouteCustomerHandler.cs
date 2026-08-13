@@ -36,8 +36,23 @@ public sealed class CreateRouteCustomerHandler(
             return Errors.RouteCustomers.UserInactive;
         }
 
-        var assignedBusinessPartnerCode = NullIfWhiteSpace(command.Request.AssignedBusinessPartnerCode)
-            ?? NullIfWhiteSpace(user.AssignedBusinessPartnerCode);
+        // A caller that is itself scoped to a route may only add to that route. Before this handler had
+        // an administrative entry point its only caller was the van app, which never sent a business
+        // partner at all, so the fallback below was the whole story. Now that the body can name one, an
+        // operator holding CreateCustomers — which ADR, Sales and Cashier all do — could otherwise add
+        // a vendor to somebody else's route, where it would be immediately billable, or squat a code so
+        // that route's own administrator is refused.
+        var requestedBusinessPartnerCode = NullIfWhiteSpace(command.Request.AssignedBusinessPartnerCode);
+        var ownBusinessPartnerCode = NullIfWhiteSpace(user.AssignedBusinessPartnerCode);
+
+        if (ApplicationRoles.UsesRouteCustomerScope(user.Role) &&
+            requestedBusinessPartnerCode is not null &&
+            !string.Equals(requestedBusinessPartnerCode, ownBusinessPartnerCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return Errors.RouteCustomers.RouteBusinessPartnerNotOwned(requestedBusinessPartnerCode);
+        }
+
+        var assignedBusinessPartnerCode = requestedBusinessPartnerCode ?? ownBusinessPartnerCode;
         if (string.IsNullOrWhiteSpace(assignedBusinessPartnerCode))
         {
             return Errors.RouteCustomers.RouteBusinessPartnerRequired;

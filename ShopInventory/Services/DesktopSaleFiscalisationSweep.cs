@@ -34,9 +34,17 @@ public sealed class DesktopSaleFiscalisationSweep(
         var pending = await context.DesktopSales
             .Include(s => s.Lines)
             .Where(s => s.DocDate >= cutoff &&
-                        s.SourceSystem != null &&
-                        SaleSourceSystems.PostedByDesktopSaleJob.Contains(s.SourceSystem) &&
-                        s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Pending &&
+                        // Vending only, and specifically NOT the set the posting job claims. A shop
+                        // till sale is committed Pending and stays that way for the whole ZIMRA round
+                        // trip it is making inline; if this swept those too it would submit the same
+                        // receipt while the request still had it in flight, and a duplicate fiscal
+                        // receipt cannot be withdrawn.
+                        s.SourceSystem == SaleSourceSystems.Vending &&
+                        // Failed as well as Pending. A failure sets Failed, so selecting on Pending
+                        // alone made a single transient error terminal — the sale was never retried,
+                        // never invoiced, and the attempt budget below was unreachable.
+                        (s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Pending ||
+                         s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Failed) &&
                         // Never retried: the receipt may already exist at FDMS and a second
                         // submission cannot be withdrawn.
                         !s.FiscalizationRequiresReconciliation &&
@@ -61,7 +69,30 @@ public sealed class DesktopSaleFiscalisationSweep(
                 break;
             }
 
-            await fiscaliser.FiscaliseAsync(sale, cancellationToken);
+            // Whether an earlier attempt may already have reached the platform. Read before the call,
+            // because FiscaliseAsync increments it.
+            var isRetry = sale.FiscalizationAttempts > 0;
+
+            try
+            {
+                await fiscaliser.FiscaliseAsync(sale, cancellationToken, isRetry);
+            }
+            catch (Exception ex)
+            {
+                // Only the pre-submission lookup throws — FiscaliseAsync swallows everything from the
+                // submission itself. So this means we could not establish whether a receipt already
+                // exists, and submitting blind is the one thing that must not happen. Leave the sale
+                // exactly as it was for the next pass.
+                logger.LogWarning(
+                    ex,
+                    "Skipped fiscalising sale {ExternalReference}: could not establish whether it has "
+                    + "already been signed.",
+                    sale.ExternalReferenceId);
+
+                context.Entry(sale).State = EntityState.Unchanged;
+                result.Failed++;
+                continue;
+            }
 
             switch (sale.FiscalizationStatus)
             {

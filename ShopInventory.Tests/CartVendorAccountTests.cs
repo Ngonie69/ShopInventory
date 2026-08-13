@@ -222,6 +222,25 @@ public sealed class CartVendorAccountTests : IDisposable
             _context, "VEND-BP", code, CancellationToken.None));
     }
 
+    // ---- Who may add a vendor, and where ----------------------------------------------------------
+
+    [Fact]
+    public void A_route_scoped_account_is_confined_to_its_own_route()
+    {
+        // Exposing the create handler on an administrative endpoint removed the containment it used to
+        // have by accident: its only previous caller, the van handset, never sent a business partner
+        // at all. ADR, Sales and Cashier all hold CreateCustomers, so without a scope check an
+        // operator could add a vendor to somebody else's route — immediately billable there — or squat
+        // a code so that route's own administrator is refused.
+        Assert.True(ApplicationRoles.UsesRouteCustomerScope(ApplicationRoles.Adr));
+        Assert.True(ApplicationRoles.UsesRouteCustomerScope(ApplicationRoles.Sales));
+        Assert.True(ApplicationRoles.UsesRouteCustomerScope(ApplicationRoles.CartVendor));
+
+        // Someone who manages routes rather than selling on one is not scoped, and may name any.
+        Assert.False(ApplicationRoles.UsesRouteCustomerScope(ApplicationRoles.Admin));
+        Assert.False(ApplicationRoles.UsesRouteCustomerScope(ApplicationRoles.Manager));
+    }
+
     [Fact]
     public async Task An_account_with_no_business_partner_sees_no_vendors()
     {

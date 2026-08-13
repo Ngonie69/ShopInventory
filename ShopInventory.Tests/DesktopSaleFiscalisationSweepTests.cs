@@ -74,16 +74,25 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
         return sale;
     }
 
-    private DesktopSaleFiscalisationSweep BuildSweep(Func<FiscalizationResult> respond, int callBudget = 50)
+    private DesktopSaleFiscalisationSweep BuildSweep(
+        Func<FiscalizationResult> respond,
+        int callBudget = 50,
+        Func<FiscalizationResult?>? existingReceipt = null)
     {
         var calls = 0;
 
         var fiscalisation = StubProxy.For<IFiscalizationService>((method, _) => method.Name switch
         {
+            // The pre-submission lookup. Answering null means "the platform positively has no receipt
+            // for this sale", which is what lets the submission proceed.
+            nameof(IFiscalizationService.FindPreSapReceiptAsync) =>
+                (object)Task.FromResult<FiscalizationResult?>(existingReceipt?.Invoke()),
+
             nameof(IFiscalizationService.FiscalizePreSapInvoiceAsync) =>
                 ++calls <= callBudget
                     ? Task.FromResult(respond())
                     : throw new InvalidOperationException($"The platform was called more than {callBudget} time(s)."),
+
             _ => throw new InvalidOperationException($"IFiscalizationService.{method.Name} was not expected.")
         });
 
@@ -206,6 +215,86 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
         var result = await BuildSweep(Signed, callBudget: 0).FiscalisePendingSalesAsync(CancellationToken.None);
 
         Assert.Equal(0, result.Total);
+    }
+
+    [Fact]
+    public async Task A_shop_till_sale_is_never_swept()
+    {
+        // The one that matters most. A till sale is committed Pending and stays Pending for the whole
+        // ZIMRA round trip it is making inline, so if the sweep claimed it too a tick landing in that
+        // window would submit the same receipt while the request still had it in flight — two fiscal
+        // receipts for one sale, and a duplicate cannot be withdrawn.
+        Seed("TILL-20260813-0001", sourceSystem: SaleSourceSystems.ShopTill);
+        await _context.SaveChangesAsync();
+
+        var result = await BuildSweep(Signed, callBudget: 0).FiscalisePendingSalesAsync(CancellationToken.None);
+
+        Assert.Equal(0, result.Total);
+    }
+
+    [Fact]
+    public async Task A_failed_vending_sale_is_retried()
+    {
+        // A failure sets Failed, so selecting on Pending alone made one transient error terminal: the
+        // sale was never signed, never invoiced, and the attempt budget was unreachable.
+        Seed("VEND-20260813-0008", status: DesktopSaleFiscalizationStatus.Failed, attempts: 1);
+        await _context.SaveChangesAsync();
+
+        var result = await BuildSweep(Signed).FiscalisePendingSalesAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.Fiscalised);
+        var sale = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(DesktopSaleFiscalizationStatus.Success, sale.FiscalizationStatus);
+    }
+
+    [Fact]
+    public async Task A_receipt_an_earlier_attempt_already_signed_is_adopted_not_signed_again()
+    {
+        // The window the retry itself opens: an attempt reached the platform and its outcome never
+        // reached us, so the row still looks unsigned. Submitting again would sign a second receipt.
+        Seed("VEND-20260813-0009", attempts: 1);
+        await _context.SaveChangesAsync();
+
+        var sweep = BuildSweep(
+            Signed,
+            callBudget: 0, // any submission fails the test
+            existingReceipt: () => new FiscalizationResult
+            {
+                Success = true,
+                ReceiptGlobalNo = "812",
+                FiscalDayNo = "12"
+            });
+
+        var result = await sweep.FiscalisePendingSalesAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.Fiscalised);
+        var sale = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(DesktopSaleFiscalizationStatus.Success, sale.FiscalizationStatus);
+        Assert.Equal("812", sale.FiscalReceiptNumber);
+    }
+
+    [Fact]
+    public async Task A_sale_is_left_alone_when_the_platform_cannot_be_asked_whether_it_signed()
+    {
+        // "I could not check" must never be read as "there is nothing there" — that is exactly how the
+        // duplicate gets signed. The sale is left untouched for the next pass, and the failed lookup
+        // does not spend an attempt.
+        Seed("VEND-20260813-0010", attempts: 1);
+        await _context.SaveChangesAsync();
+
+        var sweep = BuildSweep(
+            Signed,
+            callBudget: 0,
+            existingReceipt: () => throw new InvalidOperationException("the platform is unreachable"));
+
+        var result = await sweep.FiscalisePendingSalesAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.Failed);
+        _context.ChangeTracker.Clear();
+
+        var sale = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(DesktopSaleFiscalizationStatus.Pending, sale.FiscalizationStatus);
+        Assert.Equal(1, sale.FiscalizationAttempts);
     }
 
     [Fact]

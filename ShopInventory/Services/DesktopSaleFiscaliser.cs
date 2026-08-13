@@ -26,8 +26,38 @@ public sealed class DesktopSaleFiscaliser(
     /// <summary>
     /// Fiscalises the sale, moving it out of <see cref="DesktopSaleFiscalizationStatus.Pending"/>.
     /// </summary>
-    public async Task FiscaliseAsync(DesktopSaleEntity sale, CancellationToken cancellationToken)
+    /// <param name="sale">The sale to sign. Mutated in place; the caller saves.</param>
+    /// <param name="cancellationToken">Cancellation for the platform call.</param>
+    /// <param name="isRetry">
+    /// Whether an earlier attempt may already have reached the platform. When true the platform is
+    /// asked for an existing receipt first, and one that is found is adopted rather than signed again.
+    /// </param>
+    public async Task FiscaliseAsync(
+        DesktopSaleEntity sale,
+        CancellationToken cancellationToken,
+        bool isRetry = false)
     {
+        // Outside the try, deliberately. A previous attempt was made and we never learned its outcome
+        // — the process died, the save failed, the request was abandoned — so submitting again could
+        // sign a second receipt for one sale, which cannot be withdrawn. If the platform cannot be
+        // asked, that has to reach the caller as a failure to CHECK rather than be recorded as a
+        // failure to fiscalise: the sale must be left exactly as it was, not marked Failed and not
+        // charged an attempt, so the next pass tries the question again.
+        if (isRetry)
+        {
+            var existing = await fiscalizationService.FindPreSapReceiptAsync(
+                sale.ExternalReferenceId!, cancellationToken);
+
+            if (existing is not null)
+            {
+                sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Success;
+                sale.FiscalReceiptNumber = existing.ReceiptGlobalNo;
+                sale.FiscalDayNo = existing.FiscalDayNo;
+                sale.FiscalError = null;
+                return;
+            }
+        }
+
         sale.FiscalizationAttempts++;
 
         try

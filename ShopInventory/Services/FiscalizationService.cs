@@ -67,6 +67,24 @@ public interface IFiscalizationService
     /// Whether a document has already been fiscalised, on any device.
     /// </summary>
     Task<bool> IsInvoiceFiscalizedAsync(string invoiceNumber, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Looks for a receipt an earlier attempt may have signed for this sale, so it can be adopted
+    /// rather than signed again.
+    /// </summary>
+    /// <remarks>
+    /// For the case where a submission was made but its outcome never reached us — the process died,
+    /// the save failed, the connection dropped. Resubmitting then risks a second fiscal receipt, which
+    /// cannot be withdrawn.
+    ///
+    /// Returns null only when the platform positively says there is no such receipt. If it cannot be
+    /// asked, this THROWS: treating "I could not check" as "there is nothing there" is exactly how the
+    /// duplicate gets signed. <see cref="IsInvoiceFiscalizedAsync"/> answers false in that case, which
+    /// is why it is not used here.
+    /// </remarks>
+    Task<FiscalizationResult?> FindPreSapReceiptAsync(
+        string externalReference,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -346,6 +364,58 @@ public class FiscalizationService : IFiscalizationService
         {
             return Unexpected(ex, invoiceNo, rawRequestJson);
         }
+    }
+
+    public async Task<FiscalizationResult?> FindPreSapReceiptAsync(
+        string externalReference,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(externalReference) || !_settings.Enabled)
+        {
+            return null;
+        }
+
+        var invoiceNo = BuildPreSapInvoiceNo(externalReference);
+
+        CheckFiscalisedReceiptApiResponse response;
+        try
+        {
+            // Device 0 searches every device: an earlier attempt may have failed over.
+            response = await _client.CheckReceiptAsync(
+                0, invoiceNo, ReceiptType.FiscalInvoice, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new InvalidOperationException(
+                $"Not fiscalising {invoiceNo}: the platform could not be asked whether it already holds "
+                + $"this receipt. {ex.Message}", ex);
+        }
+
+        if (!response.IsFiscalised)
+        {
+            return null;
+        }
+
+        var match = response.Matches.FirstOrDefault();
+
+        _logger.LogWarning(
+            "Adopting an existing fiscal receipt for {InvoiceNo} rather than signing it again "
+            + "(receipt {ReceiptGlobalNo}, source {Source}).",
+            invoiceNo,
+            match?.ReceiptGlobalNo,
+            response.Source);
+
+        // No QR or verification code: the check returns the archived record, not the signature. For a
+        // sale that prints nothing this is complete enough, and it is in every case better than a
+        // second receipt.
+        return new FiscalizationResult
+        {
+            Success = true,
+            Message = $"Receipt {match?.ReceiptGlobalNo} was already signed for this sale; adopted it.",
+            InvoiceNumber = invoiceNo,
+            ReceiptGlobalNo = match?.ReceiptGlobalNo.ToString(),
+            FiscalDayNo = match?.FiscalDayNo.ToString()
+        };
     }
 
     public async Task<bool> IsInvoiceFiscalizedAsync(
