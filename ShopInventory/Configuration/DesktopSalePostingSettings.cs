@@ -20,6 +20,13 @@ public class DesktopSalePostingSettings
     public int IntervalSeconds { get; set; } = 60;
 
     /// <summary>
+    /// How often to sign the sales that were stored unsigned — vending, which prints nothing. Faster
+    /// than the posting interval because nothing can post until it has fiscalised, so this delay is
+    /// added to that one.
+    /// </summary>
+    public int FiscalisationIntervalSeconds { get; set; } = 30;
+
+    /// <summary>
     /// An end-of-day mop-up, in case a sale spent the day failing.
     /// </summary>
     public string SweepTimeCAT { get; set; } = "20:00";
@@ -32,6 +39,14 @@ public class DesktopSalePostingSettings
     /// exhaust the budget for the whole day's takings within minutes.
     /// </summary>
     public int MaxPostingAttempts { get; set; } = 6;
+
+    /// <summary>
+    /// After this many attempts a vending sale stops being offered to the fiscalisation platform and
+    /// waits for a human. Separate from <see cref="MaxPostingAttempts"/> because the two failures are
+    /// different: a SAP post can be retried freely, while every fiscalisation attempt is a submission
+    /// to ZIMRA.
+    /// </summary>
+    public int MaxFiscalisationAttempts { get; set; } = 5;
 
     /// <summary>
     /// How far back a pass looks. More than a day so a sale that failed just before midnight is not

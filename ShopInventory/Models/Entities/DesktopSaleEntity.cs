@@ -171,6 +171,23 @@ public class DesktopSaleEntity
     public string? FiscalError { get; set; }
 
     /// <summary>
+    /// How many times fiscalisation has been attempted. A shop till fiscalises inline and so is
+    /// normally 1; a vending sale is fiscalised by a background sweep, which needs somewhere to give
+    /// up rather than re-offering the same broken sale to the platform forever.
+    /// </summary>
+    public int FiscalizationAttempts { get; set; }
+
+    /// <summary>
+    /// The platform could not say whether the receipt was signed, so this sale must not be retried.
+    /// </summary>
+    /// <remarks>
+    /// The one failure that is worse to retry than to leave alone. A receipt may already exist at FDMS
+    /// under this sale's reference, and a second submission cannot be withdrawn — so the sweep skips
+    /// these and a human looks the receipt up instead.
+    /// </remarks>
+    public bool FiscalizationRequiresReconciliation { get; set; }
+
+    /// <summary>
     /// The ZIMRA receipt's global number, and the counter within its fiscal day.
     ///
     /// Only van sales carry these, and they are what make a posted SAP invoice traceable back to the

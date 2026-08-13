@@ -628,6 +628,11 @@ try
     // till has already fiscalised and printed them.
     builder.Services.AddScoped<DesktopSalePostingService>();
 
+    // Signing a till or vending sale, and the sweep that signs the ones left for later. Shared so the
+    // inline path and the background path cannot drift on how a result is recorded.
+    builder.Services.AddScoped<DesktopSaleFiscaliser>();
+    builder.Services.AddScoped<DesktopSaleFiscalisationSweep>();
+
     // Hands the fiscalisation platform the receipts vans signed for themselves offline, which is the only
     // route by which those receipts ever reach ZIMRA.
     builder.Services.AddScoped<VanSalesSignedReceiptIngestService>();

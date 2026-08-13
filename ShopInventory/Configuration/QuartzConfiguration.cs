@@ -152,6 +152,24 @@ public static class QuartzConfiguration
             // picked up by nothing, silently. A source has exactly one route or it has none.
             if (sap.Enabled)
             {
+                // Signs the sales that were stored unsigned — vending, which prints nothing and so has
+                // no reason to hold a request open while the platform works. Registered next to the
+                // posting job because it feeds it: the posting service only takes sales that have
+                // fiscalised, so a vending sale this never reaches never reaches SAP either.
+                //
+                // Its own job key, unlike the two posting triggers, because it is a different piece of
+                // work — and it must run whether or not a posting pass is in flight. AddIntervalJob
+                // rather than AddIntervalTriggerForJob: the latter only adds a trigger, and one
+                // pointing at a key no job was declared under never fires at all.
+                if (desktopSalePosting.FiscalisationIntervalSeconds > 0)
+                {
+                    AddIntervalJob<DesktopSaleFiscalisationJob>(
+                        q,
+                        "desktop-sale-fiscalisation",
+                        TimeSpan.FromSeconds(desktopSalePosting.FiscalisationIntervalSeconds),
+                        startDelay: TimeSpan.FromMinutes(1));
+                }
+
                 AddCronJob<DesktopSalePostingJob>(
                     q, "desktop-sale-posting", BuildDailyCron(desktopSalePosting.SweepTimeCAT, "20:00"));
 

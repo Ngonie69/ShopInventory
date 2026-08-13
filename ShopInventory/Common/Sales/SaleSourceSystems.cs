@@ -60,6 +60,17 @@ public static class SaleSourceSystems
         TillSources.Any(source => string.Equals(sourceSystem?.Trim(), source, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
+    /// Whether this source's sales are fiscalised by the background sweep rather than in the request.
+    /// </summary>
+    /// <remarks>
+    /// A shop till fiscalises inline because the receipt has to print before the customer walks away,
+    /// so the request cannot return until the platform has signed it. Vending prints nothing and has
+    /// no one waiting, so holding the request open buys nothing and costs the operator the wait.
+    /// </remarks>
+    public static bool FiscalisesInBackground(string? sourceSystem) =>
+        string.Equals(sourceSystem?.Trim(), Vending, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// What a sale created before this route existed identifies itself as. Consolidated at 18:00, as
     /// it always has been.
     /// </summary>

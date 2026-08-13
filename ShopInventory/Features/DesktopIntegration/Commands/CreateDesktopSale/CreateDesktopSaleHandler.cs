@@ -18,11 +18,10 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 
 public sealed class CreateDesktopSaleHandler(
     ApplicationDbContext context,
-    IFiscalizationService fiscalizationService,
+    DesktopSaleFiscaliser fiscaliser,
     IInventoryLockService lockService,
     IHubContext<NotificationHub> hubContext,
     IIdempotencyRequestStore idempotencyRequestStore,
-    INotificationService notificationService,
     IOptions<TaxSettings> taxSettings,
     ILogger<CreateDesktopSaleHandler> logger
 ) : IRequestHandler<CreateDesktopSaleCommand, ErrorOr<DesktopSaleResponseDto>>
@@ -343,15 +342,24 @@ public sealed class CreateDesktopSaleHandler(
         context.DesktopSales.Add(sale);
         await context.SaveChangesAsync(ct);
 
-        // Fiscalize immediately if requested
-        if (req.Fiscalize)
+        if (!req.Fiscalize)
         {
-            await FiscalizeSaleAsync(sale, ct);
+            sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Skipped;
+            await context.SaveChangesAsync(ct);
+        }
+        else if (SaleSourceSystems.FiscalisesInBackground(sale.SourceSystem))
+        {
+            // Left Pending for DesktopSaleFiscalisationSweep. Vending prints nothing and has nobody
+            // waiting at a counter, so holding the request open while the platform signs buys nothing
+            // and costs the operator the wait. The sale cannot reach SAP until it has fiscalised, so
+            // the sweep is what completes it.
             await context.SaveChangesAsync(ct);
         }
         else
         {
-            sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Skipped;
+            // A shop till fiscalises here, in the request. The receipt has to print before the
+            // customer walks away, so there is nothing to defer.
+            await fiscaliser.FiscaliseAsync(sale, ct);
             await context.SaveChangesAsync(ct);
         }
 
@@ -458,120 +466,5 @@ public sealed class CreateDesktopSaleHandler(
         }
 
         await context.SaveChangesAsync(ct);
-    }
-
-    private async Task FiscalizeSaleAsync(DesktopSaleEntity sale, CancellationToken ct)
-    {
-        try
-        {
-            // Build an InvoiceDto from local sale data for the fiscalization service.
-            //
-            // DocNum/DocEntry are deliberately left unset. A desktop sale has no SAP document yet, and
-            // the local primary key is not a SAP identifier: passing it as a DocEntry would make the
-            // fiscalisation platform look up — and fiscalise — whichever unrelated SAP invoice happens
-            // to hold that number.
-            var invoiceDto = new DTOs.InvoiceDto
-            {
-                DocDate = sale.DocDate.ToString("yyyy-MM-dd"),
-                CardCode = sale.CardCode,
-                CardName = sale.CardName,
-                DocTotal = sale.TotalAmount,
-                VatSum = sale.VatAmount,
-                DocCurrency = sale.Currency,
-                Comments = sale.Comments,
-                Lines = sale.Lines.Select(l => new DTOs.InvoiceLineDto
-                {
-                    LineNum = l.LineNum,
-                    ItemCode = l.ItemCode,
-                    ItemDescription = l.ItemDescription,
-                    Quantity = l.Quantity,
-                    UnitPrice = l.UnitPrice,
-                    LineTotal = l.LineTotal,
-                    WarehouseCode = l.WarehouseCode,
-                    DiscountPercent = l.DiscountPercent
-                }).ToList()
-            };
-
-            // The external reference is the invoice number: unique, traceable, and stable across
-            // retries, which is what the platform's idempotency key requires.
-            var result = await fiscalizationService.FiscalizePreSapInvoiceAsync(
-                invoiceDto,
-                sale.ExternalReferenceId!,
-                paymentType: TenderTypes.ToMoneyType(sale.PaymentMethod),
-                cancellationToken: ct);
-
-            if (result.Success && !result.Skipped)
-            {
-                sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Success;
-                sale.FiscalReceiptNumber = result.ReceiptGlobalNo;
-                sale.FiscalDeviceNumber = result.DeviceSerial;
-                sale.FiscalQRCode = result.QRCode;
-                sale.FiscalVerificationCode = result.VerificationCode;
-                sale.FiscalDayNo = result.FiscalDayNo;
-            }
-            else if (result.Skipped)
-            {
-                sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Skipped;
-            }
-            else
-            {
-                sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Failed;
-                sale.FiscalError = result.Message ?? result.ErrorDetails;
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Fiscalization failed for desktop sale {SaleId}", sale.Id);
-            sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Failed;
-            sale.FiscalError = ex.Message;
-        }
-
-        if (sale.FiscalizationStatus == DesktopSaleFiscalizationStatus.Failed)
-        {
-            await NotifyFiscalizationFailedAsync(sale, ct);
-        }
-    }
-
-    /// <summary>
-    /// A till sale that did not fiscalize needs someone to act on it, and until now it existed only
-    /// in the log and in the row's FiscalError.
-    /// </summary>
-    /// <remarks>
-    /// Only the failures are notified. The sales themselves are far too frequent to put in the bell
-    /// — they already reach the Web as a live "DesktopSaleCreated" hub event, which is the right
-    /// shape for a feed.
-    /// </remarks>
-    private async Task NotifyFiscalizationFailedAsync(DesktopSaleEntity sale, CancellationToken ct)
-    {
-        try
-        {
-            await notificationService.CreateNotificationAsync(
-                ModuleNotificationFactory.CreateBroadcastNotification(
-                    $"Desktop Sale Not Fiscalized: {sale.ExternalReferenceId}",
-                    $"Sale {sale.ExternalReferenceId} for " +
-                    $"{ModuleNotificationFactory.DescribeBusinessPartner(sale.CardCode, sale.CardName)} " +
-                    $"totaling {ModuleNotificationFactory.DescribeMoney(sale.Currency, sale.TotalAmount)} " +
-                    $"could not be fiscalized: {sale.FiscalError ?? "no detail was returned"}.",
-                    "Error",
-                    "SalesOrder",
-                    "DesktopSale",
-                    sale.Id.ToString(),
-                    "/desktop-sales",
-                    new Dictionary<string, string>
-                    {
-                        ["saleId"] = sale.Id.ToString(),
-                        ["externalReferenceId"] = sale.ExternalReferenceId ?? string.Empty,
-                        ["cardCode"] = sale.CardCode ?? string.Empty,
-                        ["cardName"] = sale.CardName ?? string.Empty,
-                        ["currency"] = sale.Currency ?? string.Empty,
-                        ["totalAmount"] = sale.TotalAmount.ToString(CultureInfo.InvariantCulture),
-                        ["fiscalError"] = sale.FiscalError ?? string.Empty
-                    }),
-                ct);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to publish fiscalization failure notification for desktop sale {SaleId}", sale.Id);
-        }
     }
 }
