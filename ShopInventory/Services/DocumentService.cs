@@ -523,22 +523,46 @@ public class DocumentService : IDocumentService
         var storedFileName = $"{Guid.NewGuid()}{fileExtension}";
         var attachmentPath = Path.Combine(_uploadPath, "attachments", request.EntityType, request.EntityId.ToString());
 
-        // Ensure directory exists
-        Directory.CreateDirectory(attachmentPath);
+        // Ensure directory exists. The attachment root is a network location in production, so an
+        // unreachable store fails here for every upload at once rather than for one bad file — which
+        // is a retryable outage, not a bad request. Nothing reads the client stream yet, so an IO
+        // failure at this point is always storage.
+        try
+        {
+            Directory.CreateDirectory(attachmentPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new AttachmentStorageUnavailableException(attachmentPath, ex);
+        }
 
         var fullPath = Path.Combine(attachmentPath, storedFileName);
 
-        if (isCompressibleImage)
+        try
         {
-            // Compress and resize the image before saving
-            await CompressAndSaveImageAsync(fileStream, fullPath, cancellationToken);
-            mimeType = "image/jpeg";
+            if (isCompressibleImage)
+            {
+                // Compress and resize the image before saving
+                await CompressAndSaveImageAsync(fileStream, fullPath, cancellationToken);
+                mimeType = "image/jpeg";
+            }
+            else
+            {
+                // Save non-image files as-is
+                using var fileStreamDisk = File.Create(fullPath);
+                await fileStream.CopyToAsync(fileStreamDisk, cancellationToken);
+            }
         }
-        else
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            && !cancellationToken.IsCancellationRequested)
         {
-            // Save non-image files as-is
-            using var fileStreamDisk = File.Create(fullPath);
-            await fileStream.CopyToAsync(fileStreamDisk, cancellationToken);
+            // The cancellation guard matters here and not above: this block reads the request body,
+            // and Kestrel's ConnectionResetException derives from IOException, so a caller that
+            // walks away mid-upload would otherwise be logged as a storage outage. A share that dies
+            // mid-write also leaves a truncated file behind — drop it so the content hash on the
+            // retry does not match a partial upload.
+            TryDeleteStoredFile(fullPath);
+            throw new AttachmentStorageUnavailableException(attachmentPath, ex);
         }
 
         // Get file size

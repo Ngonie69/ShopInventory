@@ -1,6 +1,7 @@
 using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using ShopInventory.Common.Security;
 
 namespace ShopInventory.Common.ProblemDetails;
 
@@ -46,8 +47,8 @@ public sealed class ValidationExceptionHandler(
 
         logger.LogInformation(
             "Validation failed for {Method} {Path} with {ErrorCount} error(s).",
-            httpContext.Request.Method,
-            httpContext.Request.Path,
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Method),
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Path),
             failures.Count);
 
         var problemDetails = new ValidationProblemDetails(errors)

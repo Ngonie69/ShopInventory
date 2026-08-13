@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using ShopInventory.Common.Security;
 
 namespace ShopInventory.Common.ProblemDetails;
 
@@ -20,8 +21,8 @@ public sealed class RequestInputExceptionHandler(
         logger.LogInformation(
             exception,
             "Request input error for {Method} {Path}.",
-            httpContext.Request.Method,
-            httpContext.Request.Path);
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Method),
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Path));
 
         var problemDetails = new Microsoft.AspNetCore.Mvc.ProblemDetails
         {

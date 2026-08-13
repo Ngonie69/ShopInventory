@@ -16,6 +16,11 @@ public static class ProblemDetailsDefaults
         problemDetails.Status ??= httpContext.Response.StatusCode;
         problemDetails.Type ??= GetType(problemDetails.Status);
         problemDetails.Title ??= GetTitle(problemDetails.Status);
+        // Deliberately not passed through SensitiveDataSanitizer.SanitizeIdentifierForLog, unlike
+        // every Request.Path in the handlers around this file. This one is not a log entry: it is
+        // the RFC 9457 "instance" member, echoed back to the caller who sent the path, and the JSON
+        // writer escapes it. Sanitising here would corrupt legitimate paths in the response to fix
+        // an injection that cannot happen.
         problemDetails.Instance ??= httpContext.Request.Path.Value;
 
         if (!problemDetails.Extensions.ContainsKey("traceId"))
