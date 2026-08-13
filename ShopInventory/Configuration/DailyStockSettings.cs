@@ -20,12 +20,19 @@ public class DailyStockSettings
     /// <summary>
     /// Warehouses to include in daily snapshot.
     /// </summary>
+    /// <remarks>
+    /// Every warehouse a till sells from has to be here. A sale validates against the day's snapshot,
+    /// so a missing warehouse reads as zero stock and refuses every line — silently, until someone
+    /// tries to sell. <c>KEFBYS</c> (Bulawayo shop) is not <c>KEFBYC</c> (the Bulawayo depot the vans
+    /// load from); the two are one character apart and share a site, which is how the shop stayed off
+    /// this list.
+    /// </remarks>
     public List<string> MonitoredWarehouses { get; set; } = new()
     {
         "KEFSHOP", "CORMACH", "CORMACH2", "KEFGRS", "KEFGRC",
         "VAN001", "VAN004", "VAN005", "VAN006", "VAN013",
         "VAN014", "VAN015", "VAN016", "VAN018",
-        "KEFBYC", "VAN008", "VAN009", "VAN010", "VAN011", "VAN012"
+        "KEFBYC", "KEFBYS", "VAN008", "VAN009", "VAN010", "VAN011", "VAN012"
     };
 
     /// <summary>

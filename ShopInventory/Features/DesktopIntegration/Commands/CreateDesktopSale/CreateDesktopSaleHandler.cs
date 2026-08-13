@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Idempotency;
+using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.Notifications;
@@ -243,7 +244,11 @@ public sealed class CreateDesktopSaleHandler(
             VatAmount = vatAmount,
             Currency = req.DocCurrency ?? "ZWG",
             WarehouseCode = req.WarehouseCode,
-            PaymentMethod = req.PaymentMethod,
+            // Stored in its canonical spelling so reporting can group on it and the posting job can
+            // match on it, rather than every till's casing becoming a distinct payment method.
+            PaymentMethod = TenderTypes.TryNormalize(req.PaymentMethod, out var tender)
+                ? tender
+                : req.PaymentMethod,
             PaymentReference = req.PaymentReference,
             AmountPaid = req.AmountPaid,
             CreatedBy = createdBy,
@@ -408,6 +413,7 @@ public sealed class CreateDesktopSaleHandler(
             var result = await fiscalizationService.FiscalizePreSapInvoiceAsync(
                 invoiceDto,
                 sale.ExternalReferenceId!,
+                paymentType: TenderTypes.ToMoneyType(sale.PaymentMethod),
                 cancellationToken: ct);
 
             if (result.Success && !result.Skipped)

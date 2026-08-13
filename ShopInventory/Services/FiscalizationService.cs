@@ -35,11 +35,17 @@ public interface IFiscalizationService
     /// <paramref name="externalReference"/> is the stable identifier for the document. It becomes the
     /// receipt's permanent fiscal identity and part of the platform's idempotency key, so it must be
     /// identical on every retry and must never be regenerated.
+    ///
+    /// <paramref name="paymentType"/> is the money type declared to ZIMRA. Pass the sale's own tender,
+    /// mapped through <see cref="ShopInventory.Common.Sales.TenderTypes.ToMoneyType"/>. A caller with
+    /// no tender to declare passes null and the receipt falls back to cash — which is only right for a
+    /// till that takes nothing else, so pass the real tender wherever one was captured.
     /// </remarks>
     Task<FiscalizationResult> FiscalizePreSapInvoiceAsync(
         InvoiceDto invoice,
         string externalReference,
         CustomerFiscalDetails? customerDetails = null,
+        MoneyType? paymentType = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -266,6 +272,7 @@ public class FiscalizationService : IFiscalizationService
         InvoiceDto invoice,
         string externalReference,
         CustomerFiscalDetails? customerDetails = null,
+        MoneyType? paymentType = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(invoice);
@@ -306,7 +313,10 @@ public class FiscalizationService : IFiscalizationService
                 : invoice.DocCurrency,
             ReceiptDate = ParseDocDate(invoice.DocDate),
             TaxInclusive = true,
-            PaymentType = MoneyType.Cash,
+            // The receipt declares to ZIMRA how the customer paid, so it follows the sale's tender.
+            // Cash is the fallback for a caller that captured none — historically every caller, which
+            // is why this was a constant.
+            PaymentType = paymentType ?? MoneyType.Cash,
             PaymentAmount = lines.Sum(line => RoundCurrency(line.Price * line.Quantity)),
             Lines = lines,
             Buyer = MapBuyer(customerDetails),
