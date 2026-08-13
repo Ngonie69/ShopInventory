@@ -846,6 +846,7 @@ add_bullet('Printing – Default printer, paper size, and document templates')
 doc.add_heading('Integration', level=3)
 add_bullet('Payments – Payment gateway credentials and merchant codes')
 add_bullet('SAP – Connection settings and sync frequency')
+add_bullet('Fiscalisation – API key for the ZIMRA fiscalisation platform, with a key check')
 add_bullet('Email – SMTP server, sender address, and credentials')
 
 doc.add_heading('11.7 Customer Portal Management', level=2)

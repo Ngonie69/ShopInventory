@@ -1966,7 +1966,50 @@ platform's own console, behind its own login. They are not exposed through ShopI
 | Device configuration (QR base URL, serial, active taxes) | `GET /api/fiscal-config?deviceId=` |
 
 Authentication is an `X-API-Key` header. The key is configured as `Fiscalisation__ApiKey` and needs the
-`receipt.submit`, `sap.fiscalise` and `device.read` scopes.
+`receipt.submit`, `sap.fiscalise` and `device.read` scopes, and no device allowlist — a device-scoped key
+forces an explicit device id on every call, which breaks failover.
+
+**Managing that key**
+
+**Base route:** `/api/fiscalisation-settings`
+**Auth:** Bearer + Admin role
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/fiscalisation-settings` | Current fiscalisation settings; the API key comes back masked |
+| PUT | `/api/fiscalisation-settings` | Store a new API key |
+| POST | `/api/fiscalisation-settings/test-connection` | Check a key against the platform |
+
+The key is written into `web.config`'s `environmentVariables`, the same way SAP connection settings are,
+so it survives a deployment without being committed. It is live once the app pool recycles, which
+rewriting `web.config` triggers on its own. `GET` always reports the key the process is *running* with,
+which is what makes a pending change visible.
+
+**Settings Response:**
+
+```json
+{
+  "enabled": true,
+  "baseUrl": "https://fiscal.kefaloscheese.com/",
+  "apiKeyMasked": "••••••••4e6f",
+  "isConfigured": true,
+  "defaultDeviceId": 0
+}
+```
+
+**Update Request:**
+
+```json
+{
+  "apiKey": "fsk_live_…",
+  "testConnection": true
+}
+```
+
+With `testConnection`, the key is read against `GET /api/fiscal-config` before being stored. A key the
+platform *refuses* (401/403) is not stored and comes back as a validation error; a platform that cannot
+be reached leaves the key stored with `connectionTestPassed: null`, because an outage says nothing about
+the key. `POST /test-connection` with a blank or absent `apiKey` tests the key already in force.
 
 **VAT Rate:** 15.5%, configured at `Tax:VatRate`.
 

@@ -13,6 +13,7 @@
 @inject IAppSettingsProvider AppSettingsProvider
 @inject IJSRuntime JS
 @inject ISAPSettingsService SAPSettingsService
+@inject IFiscalisationSettingsService FiscalisationSettingsService
 @inject IMobileVersionPolicySettingsService MobileVersionPolicySettingsService
 @inject IPodReportEmailService PodEmailService
 @inject IPodReportEmailScheduleService PodReportEmailScheduleService
@@ -98,6 +99,10 @@
                 <button type="button" class="stg-nav-item @Active(SAPCategory)"
                         @onclick="() => SelectCategory(SAPCategory)">
                     <i class="ph ph-cloud-arrow-up"></i><span>SAP Connection</span>
+                </button>
+                <button type="button" class="stg-nav-item @Active(FiscalisationCategory)"
+                        @onclick="() => SelectCategory(FiscalisationCategory)">
+                    <i class="ph ph-receipt"></i><span>Fiscalisation</span>
                 </button>
                 <button type="button" class="stg-nav-item @Active(MobileAppCategory)"
                         @onclick="() => SelectCategory(MobileAppCategory)">
@@ -795,6 +800,155 @@
                     </section>
                 }
 
+                @* ── Fiscalisation ───────────────────────────────────── *@
+                else if (selectedCategory == FiscalisationCategory)
+                {
+                    <section class="stg-card">
+                        <div class="stg-section-head">
+                            <span class="stg-section-icon"><i class="ph ph-receipt"></i></span>
+                            <div class="stg-section-text">
+                                <h2>Fiscalisation</h2>
+                                <p>The key this app authenticates to the ZIMRA fiscalisation platform with.</p>
+                            </div>
+                        </div>
+
+                        @if (isLoadingFiscalisationSettings)
+                        {
+                            <div class="stg-pane-loading"><span class="stg-spin"></span><span>Loading fiscalisation settings…</span></div>
+                        }
+                        else
+                        {
+                            @if (fiscalisationTested)
+                            {
+                                @* Three outcomes, not two: a key stored without the platform confirming it
+                                   is neither a success nor a failure, and green would hide that. *@
+                                <div class="stg-alert @FiscalisationAlertClass">
+                                    <i class="ph @FiscalisationAlertIcon"></i>
+                                    <span>@fiscalisationTestMessage</span>
+                                    <button type="button" class="stg-alert-close" @onclick="() => fiscalisationTested = false"><i class="ph ph-x"></i></button>
+                                </div>
+                            }
+
+                            @if (!fiscalisationEnabled)
+                            {
+                                <div class="stg-alert stg-alert-warn">
+                                    <i class="ph ph-warning"></i>
+                                    <span>
+                                        Fiscalisation is switched off for this deployment, so nothing is being sent to
+                                        ZIMRA whatever key is saved here. That switch is deployment configuration —
+                                        <strong>Fiscalisation:Enabled</strong> — not a setting on this page.
+                                    </span>
+                                </div>
+                            }
+                            else if (!fiscalisationConfigured)
+                            {
+                                <div class="stg-alert stg-alert-warn">
+                                    <i class="ph ph-warning"></i>
+                                    <span>
+                                        No API key is configured. Fiscalisation is on, so every invoice and credit note
+                                        will be refused by the platform until a key is saved here.
+                                    </span>
+                                </div>
+                            }
+
+                            <div class="stg-row">
+                                <div class="stg-row-info">
+                                    <div class="stg-row-label"><span>Current API Key</span></div>
+                                    <span class="stg-row-desc">
+                                        The key this API is running with. Only its last characters are ever shown — a
+                                        saved key cannot be read back out, so keep the console's copy.
+                                    </span>
+                                </div>
+                                <div class="stg-row-control">
+                                    @if (fiscalisationConfigured)
+                                    {
+                                        <span class="stg-tag stg-tag-neutral">@fiscalisationApiKeyMasked</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="stg-tag stg-tag-danger">Not configured</span>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="stg-row">
+                                <div class="stg-row-info">
+                                    <div class="stg-row-label"><span>New API Key</span></div>
+                                    <span class="stg-row-desc">
+                                        Issued from the console's API Keys page. It needs the <strong>receipt.submit</strong>,
+                                        <strong>sap.fiscalise</strong> and <strong>device.read</strong> scopes, and no device
+                                        allowlist — a device-scoped key pins every call to one device and breaks failover.
+                                    </span>
+                                </div>
+                                <div class="stg-row-control">
+                                    <input class="stg-input" placeholder="Paste the key to replace the current one"
+                                           @bind="fiscalisationApiKey" @bind:event="oninput"
+                                           type="@(showFiscalisationApiKey ? "text" : "password")"
+                                           autocomplete="off" spellcheck="false" />
+                                    <button type="button" class="stg-btn stg-btn-ghost stg-btn-icon"
+                                            title="@(showFiscalisationApiKey ? "Hide key" : "Show key")"
+                                            @onclick="() => showFiscalisationApiKey = !showFiscalisationApiKey">
+                                        <i class="ph @(showFiscalisationApiKey ? "ph-eye-slash" : "ph-eye")"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="stg-row">
+                                <div class="stg-row-info">
+                                    <div class="stg-row-label"><span>Verify Before Saving</span></div>
+                                    <span class="stg-row-desc">
+                                        Read the platform's device configuration with the key first. A key the platform
+                                        refuses is not stored; one it cannot be asked about is stored with a warning.
+                                    </span>
+                                </div>
+                                <div class="stg-row-control">
+                                    <label class="stg-switch">
+                                        <input type="checkbox" @bind="fiscalisationTestOnSave" />
+                                        <span class="stg-switch-track"></span>
+                                        <span class="stg-switch-text">Verify on save</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="stg-dialog-actions">
+                                <button type="button" class="stg-btn stg-btn-secondary" @onclick="TestFiscalisationApiKey"
+                                        disabled="@isFiscalisationTesting">
+                                    @if (isFiscalisationTesting)
+                                    {
+                                        <span class="stg-spin"></span>
+                                    }
+                                    else
+                                    {
+                                        <i class="ph ph-plugs-connected"></i>
+                                    }
+                                    @(string.IsNullOrWhiteSpace(fiscalisationApiKey) ? "Test current key" : "Test this key")
+                                </button>
+                                <button type="button" class="stg-btn stg-btn-primary" @onclick="SaveFiscalisationApiKey"
+                                        disabled="@(isFiscalisationSaving || string.IsNullOrWhiteSpace(fiscalisationApiKey))">
+                                    @if (isFiscalisationSaving)
+                                    {
+                                        <span class="stg-spin"></span>
+                                    }
+                                    else
+                                    {
+                                        <i class="ph ph-floppy-disk"></i>
+                                    }
+                                    Save API key
+                                </button>
+                            </div>
+
+                            <div class="stg-footnote">
+                                <i class="ph ph-info"></i>
+                                <span>
+                                    Console address <strong>@fiscalisationBaseUrl</strong> is deployment configuration and
+                                    is not editable here. A saved key goes live when the app pool recycles, which
+                                    rewriting the configuration triggers on its own.
+                                </span>
+                            </div>
+                        }
+                    </section>
+                }
+
                 @* ── Mobile App ──────────────────────────────────────── *@
                 else if (selectedCategory == MobileAppCategory)
                 {
@@ -1486,6 +1640,7 @@
     private const string DangerZoneCategory = "Danger Zone";
     private const string PaymentsCategory = "Payments";
     private const string SAPCategory = "SAP Connection";
+    private const string FiscalisationCategory = "Fiscalisation";
     private const string MobileAppCategory = "Mobile App";
 
     /// <summary>Default send time for a brand-new POD schedule: 06:00 local.</summary>
@@ -1607,6 +1762,30 @@
     private bool sapConnectionSuccess = false;
     private string? sapConnectionMessage;
 
+    // Fiscalisation settings fields
+    private bool fiscalisationEnabled = true;
+    private bool fiscalisationConfigured = false;
+    private string fiscalisationBaseUrl = string.Empty;
+    private string? fiscalisationApiKeyMasked;
+    private string fiscalisationApiKey = string.Empty;
+    private bool showFiscalisationApiKey = false;
+    private bool fiscalisationTestOnSave = true;
+    private bool isLoadingFiscalisationSettings = false;
+    private bool isFiscalisationSaving = false;
+    private bool isFiscalisationTesting = false;
+    private bool fiscalisationTested = false;
+    private bool fiscalisationTestSuccess = false;
+    private bool fiscalisationTestUnverified = false;
+    private string? fiscalisationTestMessage;
+
+    private string FiscalisationAlertClass => !fiscalisationTestSuccess
+        ? "stg-alert-error"
+        : fiscalisationTestUnverified ? "stg-alert-warn" : "stg-alert-success";
+
+    private string FiscalisationAlertIcon => !fiscalisationTestSuccess
+        ? "ph-warning-circle"
+        : fiscalisationTestUnverified ? "ph-warning" : "ph-check-circle";
+
     // Mobile app version policy fields
     private readonly Dictionary<string, string> mobileVersionPolicyApps = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -1660,6 +1839,7 @@
         await LoadLastSyncTimes();
         await LoadPaymentSettingsData();
         await LoadSAPSettings();
+        await LoadFiscalisationSettings();
         await LoadMobileVersionPolicySettings();
         await LogAudit(AuditActions.ViewSettings);
     }
@@ -2550,6 +2730,113 @@
         finally
         {
             isSAPTesting = false;
+            StateHasChanged();
+        }
+    }
+
+    // ── Fiscalisation settings ──────────────────────────────────────────
+
+    private async Task LoadFiscalisationSettings()
+    {
+        isLoadingFiscalisationSettings = true;
+        try
+        {
+            var settings = await FiscalisationSettingsService.GetSettingsAsync();
+            if (settings != null)
+            {
+                fiscalisationEnabled = settings.Enabled;
+                fiscalisationConfigured = settings.IsConfigured;
+                fiscalisationBaseUrl = settings.BaseUrl ?? string.Empty;
+                fiscalisationApiKeyMasked = settings.ApiKeyMasked;
+                fiscalisationApiKey = string.Empty; // The key is never sent back, so there is nothing to pre-fill
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load fiscalisation settings: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingFiscalisationSettings = false;
+        }
+    }
+
+    private async Task SaveFiscalisationApiKey()
+    {
+        isFiscalisationSaving = true;
+        fiscalisationTested = false;
+        StateHasChanged();
+
+        try
+        {
+            var result = await FiscalisationSettingsService.UpdateApiKeyAsync(new FiscalisationSettingsUpdateRequest
+            {
+                ApiKey = fiscalisationApiKey.Trim(),
+                TestConnection = fiscalisationTestOnSave
+            });
+
+            fiscalisationTested = true;
+            fiscalisationTestSuccess = result.Success;
+            // Stored but not confirmed — the platform was not asked, or could not answer. Amber, because
+            // red would send an administrator hunting a problem that may not exist, and green would hide
+            // one that does.
+            fiscalisationTestUnverified = result.Success && result.ConnectionTestPassed != true;
+            fiscalisationTestMessage = result.Message;
+
+            if (result.Success)
+            {
+                fiscalisationApiKey = string.Empty; // Clear the key once it is stored
+                showFiscalisationApiKey = false;
+                fiscalisationConfigured = true;
+                fiscalisationApiKeyMasked = result.ApiKeyMasked ?? fiscalisationApiKeyMasked;
+                await LogAudit(AuditActions.UpdateSettings, "Updated the Fiscalisation API key");
+            }
+        }
+        catch (Exception ex)
+        {
+            fiscalisationTested = true;
+            fiscalisationTestSuccess = false;
+            fiscalisationTestUnverified = false;
+            fiscalisationTestMessage = $"Error saving the Fiscalisation API key: {ex.Message}";
+        }
+        finally
+        {
+            isFiscalisationSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TestFiscalisationApiKey()
+    {
+        isFiscalisationTesting = true;
+        fiscalisationTested = false;
+        StateHasChanged();
+
+        try
+        {
+            var result = await FiscalisationSettingsService.TestConnectionAsync(new FiscalisationTestConnectionRequest
+            {
+                // Blank tests the key the API is already running with, which is the useful question when
+                // the box is empty.
+                ApiKey = string.IsNullOrWhiteSpace(fiscalisationApiKey) ? null : fiscalisationApiKey.Trim()
+            });
+
+            fiscalisationTested = true;
+            // Testing is binary: the platform either served the request with this key or it did not.
+            fiscalisationTestSuccess = result.Connected;
+            fiscalisationTestUnverified = false;
+            fiscalisationTestMessage = result.Message;
+        }
+        catch (Exception ex)
+        {
+            fiscalisationTested = true;
+            fiscalisationTestSuccess = false;
+            fiscalisationTestUnverified = false;
+            fiscalisationTestMessage = $"Key test error: {ex.Message}";
+        }
+        finally
+        {
+            isFiscalisationTesting = false;
             StateHasChanged();
         }
     }

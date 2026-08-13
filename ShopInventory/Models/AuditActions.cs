@@ -112,6 +112,7 @@ public static class AuditActions
     // Settings actions
     public const string UpdateSAPSettings = "UpdateSAPSettings";
     public const string UpdateMobileVersionPolicy = "UpdateMobileVersionPolicy";
+    public const string UpdateFiscalisationSettings = "UpdateFiscalisationSettings";
 
     // Timesheet actions
     public const string CheckIn = "CheckIn";
