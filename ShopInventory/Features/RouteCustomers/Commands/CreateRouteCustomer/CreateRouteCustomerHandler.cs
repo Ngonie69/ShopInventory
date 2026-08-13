@@ -139,9 +139,13 @@ public sealed class CreateRouteCustomerHandler(
         {
             var recipients = await context.Users
                 .AsNoTracking()
+                // Every role scoped to this route, not the two van ones by name. A role that sells
+                // from this list and is missed here simply never hears that a customer was added —
+                // nothing fails, the vendor just does not appear until someone refreshes.
                 .Where(candidate => candidate.IsActive
                     && candidate.AssignedBusinessPartnerCode == entity.AssignedBusinessPartnerCode
-                    && (candidate.Role == ApplicationRoles.Adr || candidate.Role == ApplicationRoles.Sales)
+                    && candidate.Role != null
+                    && ApplicationRoles.RouteCustomerScopedRoles.Contains(candidate.Role)
                     && candidate.Username != null
                     && candidate.Username != string.Empty)
                 .Select(candidate => new

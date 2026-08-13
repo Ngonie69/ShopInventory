@@ -36,6 +36,17 @@ public class CreateDesktopSaleRequest
     public string WarehouseCode { get; set; } = string.Empty;
     public string? PaymentMethod { get; set; }
     public string? PaymentReference { get; set; }
+
+    /// <summary>
+    /// The vendor being invoiced, for vending. Required there and ignored elsewhere.
+    /// </summary>
+    /// <remarks>
+    /// A code, not an id: it is what the operator picks and what an administrator manages, and it is
+    /// resolved server-side against the vendors assigned to this account's business partner. Naming a
+    /// vendor that is not on that list — or one that has been deactivated — is refused, which is what
+    /// makes deactivating a vendor code actually stop it trading.
+    /// </remarks>
+    public string? VendorCode { get; set; }
     public decimal AmountPaid { get; set; }
     public List<CreateDesktopSaleLineRequest> Lines { get; set; } = new();
 }

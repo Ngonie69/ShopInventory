@@ -1,4 +1,4 @@
-namespace ShopInventory.Models;
+﻿namespace ShopInventory.Models;
 
 /// <summary>
 /// Canonical backend role definitions.
@@ -18,6 +18,12 @@ public static class ApplicationRoles
     public const string SalesRep = "SalesRep";
     public const string MerchandiserPurchaseOrderViewer = "MerchandiserPurchaseOrderViewer";
     public const string Lab = "Lab";
+
+    /// <summary>
+    /// A cart vendor operator. Invoices the vendors assigned to its business partner, cash only, and
+    /// prints nothing — its sales fiscalise in the background rather than at a counter.
+    /// </summary>
+    public const string CartVendor = "CartVendor";
 
     // Legacy compatibility roles retained for existing records and workflows.
     public const string User = "User";
@@ -39,7 +45,8 @@ public static class ApplicationRoles
         Merchandiser,
         SalesRep,
         MerchandiserPurchaseOrderViewer,
-        Lab
+        Lab,
+        CartVendor
     ];
 
     // Roles that can continue to exist on managed users during compatibility cleanup.
@@ -79,7 +86,8 @@ public static class ApplicationRoles
         MerchandiserPurchaseOrderViewer,
         Lab,
         Adr,
-        Sales
+        Sales,
+        CartVendor
     ];
 
     public static readonly string[] ApiAccessWithOperatorRoles =
@@ -99,7 +107,8 @@ public static class ApplicationRoles
         MerchandiserPurchaseOrderViewer,
         Lab,
         Adr,
-        Sales
+        Sales,
+        CartVendor
     ];
 
     public static readonly string[] ScopedPodViewerRoles =
@@ -114,7 +123,36 @@ public static class ApplicationRoles
         PodOperator
     ];
 
-    public static readonly string[] LegacyVanSalesRoles =
+    /// <summary>
+    /// Roles that sell to a named customer from a fixed list of their own, rather than to whoever
+    /// walks in.
+    /// </summary>
+    /// <remarks>
+    /// Membership here is load-bearing: it is what makes a business partner and a cost centre
+    /// required on the account, and what scopes the account to its own route customers. A role that
+    /// sells this way and is left out silently gets an empty customer list.
+    ///
+    /// Named for what it does rather than for the van app it started in — <see cref="CartVendor"/>
+    /// is not legacy and not a van.
+    /// </remarks>
+    public static readonly string[] RouteCustomerScopedRoles =
+    [
+        Adr,
+        Sales,
+        CartVendor
+    ];
+
+    /// <summary>
+    /// Roles whose stock is loaded from a depot, and which therefore need that depot named on the
+    /// account.
+    /// </summary>
+    /// <remarks>
+    /// A subset of <see cref="RouteCustomerScopedRoles"/>, not the same list. A van is loaded at a
+    /// depot before it goes out, and the handset cannot be trusted to pick which one. A cart vendor
+    /// sells from its own business partner's warehouse and is never loaded from somewhere else, so
+    /// requiring a supplying warehouse on that account would demand a value nothing reads.
+    /// </remarks>
+    public static readonly string[] DepotLoadedRoles =
     [
         Adr,
         Sales
@@ -139,11 +177,14 @@ public static class ApplicationRoles
     public static bool IsLegacyManagedRole(string? role)
         => Contains([User, ReadOnly, Adr, Sales], role);
 
+    // CartVendor is here because SellingAccountResolver refuses to sell without exactly one assigned
+    // warehouse. Leaving it out would let an account be created that passes every check at creation
+    // and then cannot ring up a single sale.
     public static bool RequiresWarehouseAssignments(string? role)
-        => Contains([StockController, DepotController, Adr, Sales], role);
+        => Contains([StockController, DepotController, Adr, Sales, CartVendor], role);
 
     public static bool SupportsWarehouseAssignments(string? role)
-        => Contains([StockController, DepotController, Merchandiser, Adr, Sales], role);
+        => Contains([StockController, DepotController, Merchandiser, Adr, Sales, CartVendor], role);
 
     public static bool RequiresCustomerAssignments(string? role)
         => Contains([Merchandiser], role);
@@ -157,14 +198,14 @@ public static class ApplicationRoles
     public static bool UsesBlanketMobileScope(string? role)
         => Contains(DriverScopedRoles, role);
 
-    public static bool UsesLegacyRouteCustomerScope(string? role)
-        => Contains(LegacyVanSalesRoles, role);
+    public static bool UsesRouteCustomerScope(string? role)
+        => Contains(RouteCustomerScopedRoles, role);
 
     public static bool RequiresAssignedBusinessPartnerCode(string? role)
-        => UsesLegacyRouteCustomerScope(role);
+        => UsesRouteCustomerScope(role);
 
     public static bool RequiresAssignedCostCentreCode(string? role)
-        => UsesLegacyRouteCustomerScope(role);
+        => UsesRouteCustomerScope(role);
 
     /// <summary>
     /// Whether the role is loaded from a depot, and so needs the depot naming itself on the account.
@@ -172,7 +213,7 @@ public static class ApplicationRoles
     /// each time, or never issues one at all.
     /// </summary>
     public static bool RequiresSupplyingWarehouseCode(string? role)
-        => UsesLegacyRouteCustomerScope(role);
+        => Contains(DepotLoadedRoles, role);
 
     public static string DescribeAssignableRoles() => string.Join(", ", AssignableRoles);
 

@@ -86,6 +86,22 @@ public static partial class Errors
         /// silently corrected: a till that believes it sold from one warehouse while the server sold
         /// from another is the confusion deriving these from the account exists to remove.
         /// </summary>
+        /// <summary>
+        /// Vending invoices a named vendor, so a sale without one has nobody to bill.
+        /// </summary>
+        public static Error VendorRequired =>
+            Error.Validation("DesktopSales.VendorRequired",
+                "A vendor code is required for a vending sale.");
+
+        /// <remarks>
+        /// Deliberately does not distinguish "no such vendor" from "that vendor is deactivated". Both
+        /// mean the same thing to the operator — it is not one you may invoice — and separating them
+        /// would let a caller enumerate the vendors of a business partner it is not assigned to.
+        /// </remarks>
+        public static Error VendorNotAvailable(string vendorCode) =>
+            Error.Validation("DesktopSales.VendorNotAvailable",
+                $"Vendor '{vendorCode}' is not one this account can invoice. It may have been deactivated.");
+
         public static Error AssignmentMismatch(string field, string requested, string assigned) =>
             Error.Validation("DesktopSales.AssignmentMismatch",
                 $"The request specified {field} '{requested}' but this account sells as '{assigned}'. Omit it and the account's own value is used.");

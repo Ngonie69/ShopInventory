@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Idempotency;
+using ShopInventory.Common.Mobile;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
@@ -57,6 +58,18 @@ public sealed class CreateDesktopSaleHandler(
         {
             return mismatch.Value;
         }
+
+        // Vending bills a named vendor rather than whoever walks in, so the vendor is resolved here —
+        // against the ones assigned to this account's business partner and still active. Resolving it
+        // server-side is what makes deactivating a vendor stop it trading: a till holding a stale list,
+        // or a caller naming a code directly, is refused rather than obeyed.
+        var vendorResult = await ResolveVendorAsync(req, account, cancellationToken);
+        if (vendorResult.IsError)
+        {
+            return vendorResult.Errors;
+        }
+
+        var vendor = vendorResult.Value;
 
         var normalizedExternalReference = string.IsNullOrWhiteSpace(req.ExternalReferenceId)
             ? null
@@ -151,7 +164,7 @@ public sealed class CreateDesktopSaleHandler(
             {
                 // Validate + deduct inside the lock with retry on concurrency conflict
                 var result = await ValidateDeductAndCreateSaleAsync(
-                    req, externalRef, today, docDate, vatRate, account, cancellationToken);
+                    req, externalRef, today, docDate, vatRate, account, vendor, cancellationToken);
 
                 if (!result.IsError && idempotencyRequestId.HasValue)
                 {
@@ -203,6 +216,47 @@ public sealed class CreateDesktopSaleHandler(
     /// warehouse while the server sold from another is exactly the confusion this exists to remove.
     /// Sending nothing is the normal case and always succeeds.
     /// </remarks>
+    /// <summary>
+    /// Resolves the vendor a vending sale is billed to, or null when the sale is not a vending one.
+    /// </summary>
+    /// <remarks>
+    /// Scoped to the caller's own business partner and to active vendors only, by reusing the same
+    /// query the vendor list is drawn from — so the list an operator sees and the set the server will
+    /// accept cannot drift apart.
+    /// </remarks>
+    private async Task<ErrorOr<RouteCustomerEntity?>> ResolveVendorAsync(
+        CreateDesktopSaleRequest req,
+        SellingAccountAssignments account,
+        CancellationToken cancellationToken)
+    {
+        var isVending = SaleSourceSystems.FiscalisesInBackground(
+            SaleSourceSystems.NormalizeTillSource(req.SourceSystem));
+
+        var vendorCode = string.IsNullOrWhiteSpace(req.VendorCode) ? null : req.VendorCode.Trim();
+
+        if (!isVending)
+        {
+            // A shop till bills the walk-in customer its account stands for. A vendor code here means
+            // the caller thinks it is doing something this endpoint will not do, so say so rather than
+            // dropping it.
+            return vendorCode is null
+                ? (RouteCustomerEntity?)null
+                : Errors.DesktopSales.VendorNotAvailable(vendorCode);
+        }
+
+        if (vendorCode is null)
+        {
+            return Errors.DesktopSales.VendorRequired;
+        }
+
+        var vendor = await VanSalesRouteCustomerScope.FindAssignableAsync(
+            context, account.CardCode, vendorCode, cancellationToken);
+
+        return vendor is null
+            ? Errors.DesktopSales.VendorNotAvailable(vendorCode)
+            : vendor;
+    }
+
     /// <remarks>
     /// Internal rather than private so the line-warehouse rewrite can be asserted directly. It is the
     /// step that decides which stock is deducted, and it is not worth reaching through a fully mocked
@@ -251,6 +305,7 @@ public sealed class CreateDesktopSaleHandler(
         DateTime docDate,
         decimal vatRate,
         SellingAccountAssignments account,
+        RouteCustomerEntity? vendor,
         CancellationToken ct)
     {
         for (int attempt = 1; attempt <= MaxRetries; attempt++)
@@ -316,6 +371,13 @@ public sealed class CreateDesktopSaleHandler(
             SourceSystem = SaleSourceSystems.NormalizeTillSource(req.SourceSystem),
             CardCode = account.CardCode,
             CardName = req.CardName,
+            // Who actually bought, for vending. CardCode above says which business partner sold, so
+            // without these a route's takings are one undifferentiated number and no vendor has a
+            // history. Snapshotted rather than joined: vendors are renamed, and a sale must keep the
+            // name it happened under.
+            RouteCustomerId = vendor?.Id,
+            RouteCustomerCode = vendor?.Code,
+            RouteCustomerName = vendor?.Name,
             DocDate = docDate,
             SalesPersonCode = req.SalesPersonCode,
             NumAtCard = req.NumAtCard,

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Authentication;
 using ShopInventory.Common.Security;
 using ShopInventory.DTOs;
+using ShopInventory.Features.RouteCustomers.Commands.CreateRouteCustomer;
 using ShopInventory.Features.RouteCustomers.Commands.DeleteRouteCustomer;
 using ShopInventory.Features.RouteCustomers.Commands.UpdateRouteCustomer;
 using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerProductMix;
@@ -87,6 +88,39 @@ public class RouteCustomersController(ISender mediator) : ApiControllerBase
             cancellationToken);
 
         return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// Adds a vendor to a business partner's list.
+    /// </summary>
+    /// <remarks>
+    /// The handler was already here, reached only by the legacy van app's own capture endpoint, so a
+    /// vendor could be created from a handset but not by an administrator. Same handler, so the
+    /// behaviour an administrator gets is the behaviour the route already has: a code that collides
+    /// with a live one is refused, and a code matching a vendor that was removed reactivates that row
+    /// rather than forking a second — which is what keeps a returning vendor's trading history
+    /// attached to it.
+    ///
+    /// The business partner comes from the body here rather than from the caller: an administrator is
+    /// not themselves assigned to the route they are adding a vendor to.
+    /// </remarks>
+    [HttpPost]
+    [RequirePermission(Permission.CreateCustomers)]
+    public async Task<IActionResult> CreateRouteCustomer(
+        [FromBody] CreateRouteCustomerRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new CreateRouteCustomerCommand(request, userId.Value),
+            cancellationToken);
+
+        return result.Match(
+            created => CreatedAtAction(nameof(GetRouteCustomers), new { id = created.Id }, created),
+            Problem);
     }
 
     [HttpPut("{id:int}")]
