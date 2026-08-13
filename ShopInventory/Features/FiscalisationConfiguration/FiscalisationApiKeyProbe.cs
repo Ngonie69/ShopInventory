@@ -52,9 +52,13 @@ public static class FiscalisationApiKeyProbe
             var taxpayer = string.IsNullOrWhiteSpace(config.TaxPayerName)
                 ? "the configured taxpayer"
                 : config.TaxPayerName;
+
+            // Naming a device here would be a lie when we did not ask for one: the platform picked it,
+            // and it is free to pick a different one next time.
+            var named = deviceId > 0 ? $"device {deviceId}" : "the console's own device";
             var device = string.IsNullOrWhiteSpace(config.DeviceSerialNo)
-                ? $"device {deviceId}"
-                : $"device {deviceId} ({config.DeviceSerialNo})";
+                ? named
+                : $"{named} ({config.DeviceSerialNo})";
 
             return new FiscalisationApiKeyProbeResult(
                 FiscalisationApiKeyVerdict.Accepted,
@@ -91,7 +95,8 @@ public static class FiscalisationApiKeyProbe
                 ex.ErrorCode);
 
             var reason = ex.HasProblemDocument
-                ? $"reading {(deviceId == 0 ? "the default device" : $"device {deviceId}")} failed: {ex.Message}"
+                ? $"reading {(deviceId > 0 ? $"device {deviceId}" : "the console's own device")} failed: "
+                  + ex.Message
                 : $"the platform at this address answered HTTP {(int)ex.StatusCode} with no explanation, "
                   + "which usually means it is not a Fiscalisation console.";
 

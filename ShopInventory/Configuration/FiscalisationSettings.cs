@@ -27,11 +27,24 @@ public class FiscalisationSettings
     public string ApiKey { get; set; } = string.Empty;
 
     /// <summary>
-    /// Device to fiscalise on when the caller cannot let the platform choose.
-    ///
-    /// Only the pre-SAP desktop path needs this. Documents that already exist in SAP are submitted
-    /// with device 0, which lets the platform fiscalise on whichever of its devices is healthy.
+    /// Pins fiscalisation to one device. Leave unset — the default — to use any device the console has.
     /// </summary>
+    /// <remarks>
+    /// Unset is the setting we want, and it is not merely a fallback. A submission that names no device
+    /// makes the platform walk every device it has configured, in order, and fiscalise on the first one
+    /// that takes the receipt: a device whose certificate has expired, whose fiscal day will not open,
+    /// or that FDMS is refusing simply steps aside for the next. It only ever moves on when it knows
+    /// FDMS recorded nothing, so failing over cannot duplicate a receipt, and it will not cross to a
+    /// device registered to a different taxpayer. Naming a device here throws all of that away and
+    /// fiscalisation stops with it.
+    ///
+    /// The device that actually took the receipt comes back on the response, so the QR payload and the
+    /// serial on the document follow the failover rather than this setting.
+    ///
+    /// Set it only to force one device deliberately, and expect no failover while it is set. Reads —
+    /// the fiscal configuration and day status — treat 0 as "the console's own device" instead, since
+    /// there is nothing to fail over on a lookup.
+    /// </remarks>
     public int DefaultDeviceId { get; set; }
 
     /// <summary>

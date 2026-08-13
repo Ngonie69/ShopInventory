@@ -79,6 +79,54 @@ public class FiscalisationApiKeySettingTests
         Assert.Equal(["installed-key"], handler.ApiKeys);
     }
 
+    // ── Reading without pinning a device ────────────────────────────────
+
+    /// <summary>
+    /// An unpinned deployment must name no device at all. <c>deviceId=0</c> is a supplied value to the
+    /// platform, so it skips its own fallback and refuses the read outright — which is how a good key
+    /// came back unverifiable on a deployment that had never set a device id.
+    /// </summary>
+    [Fact]
+    public async Task AnUnpinnedConfigReadNamesNoDeviceOnTheWire()
+    {
+        var handler = new CapturingHandler(HttpStatusCode.OK, FiscalConfigJson);
+
+        await Client(handler, "installed-key").GetFiscalConfigWithApiKeyAsync("candidate-key", deviceId: 0);
+
+        Assert.DoesNotContain("deviceId", handler.Paths.Single());
+    }
+
+    [Fact]
+    public async Task AnUnpinnedStatusReadNamesNoDeviceOnTheWire()
+    {
+        var handler = new CapturingHandler(HttpStatusCode.OK, FiscalStatusJson);
+
+        await Client(handler, "installed-key").GetFiscalStatusAsync(deviceId: 0);
+
+        Assert.DoesNotContain("deviceId", handler.Paths.Single());
+    }
+
+    [Fact]
+    public async Task APinnedStatusReadStillNamesItsDevice()
+    {
+        var handler = new CapturingHandler(HttpStatusCode.OK, FiscalStatusJson);
+
+        await Client(handler, "installed-key").GetFiscalStatusAsync(deviceId: 7);
+
+        Assert.Contains("deviceId=7", handler.Paths.Single());
+    }
+
+    [Fact]
+    public async Task AnUnpinnedProbeReportsTheDeviceThePlatformChose()
+    {
+        var probe = await Probe(new CapturingHandler(HttpStatusCode.OK, FiscalConfigJson), deviceId: 0);
+
+        Assert.Equal(FiscalisationApiKeyVerdict.Accepted, probe.Verdict);
+        // Not "device 0", which names a device nobody chose and no console has.
+        Assert.DoesNotContain("device 0", probe.Message);
+        Assert.Contains("ZIM-0001", probe.Message);
+    }
+
     // ── What each platform answer means for the key ─────────────────────
 
     [Fact]
@@ -202,6 +250,14 @@ public class FiscalisationApiKeySettingTests
         }
         """;
 
+    private const string FiscalStatusJson = """
+        {
+          "deviceId": 36189,
+          "fiscalDayNo": 12,
+          "fiscalDayStatus": "FiscalDayOpened"
+        }
+        """;
+
     private static FiscalisationSettings Settings(string configuredKey) => new()
     {
         BaseUrl = "https://fiscal.example/",
@@ -228,11 +284,11 @@ public class FiscalisationApiKeySettingTests
             NullLogger<FiscalisationApiClient>.Instance);
     }
 
-    private static Task<FiscalisationApiKeyProbeResult> Probe(CapturingHandler handler)
+    private static Task<FiscalisationApiKeyProbeResult> Probe(CapturingHandler handler, int deviceId = 1)
         => FiscalisationApiKeyProbe.RunAsync(
             Client(handler, "installed-key"),
             "candidate-key",
-            deviceId: 1,
+            deviceId,
             NullLogger.Instance,
             CancellationToken.None);
 

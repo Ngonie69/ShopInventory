@@ -1963,11 +1963,25 @@ platform's own console, behind its own login. They are not exposed through ShopI
 | Fiscalise an invoice or credit note already in SAP | `POST /api/sap/receipts/fiscalise` — takes only the SAP `DocEntry`; the platform reads the document from SAP itself |
 | Fiscalise a desktop/POS invoice before it reaches SAP | `POST /api/receipts/submit` — full receipt payload |
 | Read fiscal status back | `GET /api/receipts/check?deviceId=0&invoiceNo=…&receiptType=…` |
-| Device configuration (QR base URL, serial, active taxes) | `GET /api/fiscal-config?deviceId=` |
+| Device configuration (QR base URL, serial, active taxes) | `GET /api/fiscal-config` — no `deviceId` unless one is pinned |
 
 Authentication is an `X-API-Key` header. The key is configured as `Fiscalisation__ApiKey` and needs the
 `receipt.submit`, `sap.fiscalise` and `device.read` scopes, and no device allowlist — a device-scoped key
 forces an explicit device id on every call, which breaks failover.
+
+**Which device fiscalises**
+
+`Fiscalisation__DefaultDeviceId` is unset by default and should stay that way: a submission that names no
+device makes the platform try every device it has, in order, until one takes the receipt, and it only
+moves on where it knows FDMS recorded nothing. The device that actually took it comes back on the
+response, so the QR payload and the serial on the document follow the failover.
+
+Zero means different things on the two kinds of call, which is why this API never sends it literally.
+On a submission it means "any device". On a read it is a validation error — `GET /api/fiscal-config` and
+`GET /api/fiscal-status` fall back to the console's own device only when `deviceId` is *absent*, and
+answer `400 ValidationFailed` ("DeviceId is required and must be greater than 0") to an explicit
+`deviceId=0`. `GET /api/receipts/check` is the exception that does take `deviceId=0`, meaning "search
+every device".
 
 **Managing that key**
 
