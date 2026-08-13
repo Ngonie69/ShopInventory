@@ -690,14 +690,28 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// <summary>
     /// Create a desktop sale — validates against local stock, deducts quantities, and fiscalizes immediately.
     /// </summary>
+    /// <remarks>
+    /// The customer, warehouse and cost centre come from the signed-in account, not the body, so this
+    /// needs a real user rather than the loose claim read the other actions use: an API key carries no
+    /// user identity and cannot be attributed to a selling account.
+    /// </remarks>
     [HttpPost("sales")]
     public async Task<IActionResult> CreateDesktopSale(
         [FromBody] CreateDesktopSaleRequest request,
         CancellationToken cancellationToken)
     {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
         var result = await mediator.Send(
-            new CreateDesktopSaleCommand(request, GetUserId()), cancellationToken);
-        return result.Match(value => CreatedAtAction(nameof(GetLocalStock), new { warehouseCode = request.WarehouseCode }, value), errors => Problem(errors));
+            new CreateDesktopSaleCommand(request, userId.Value), cancellationToken);
+
+        // The location names the warehouse the sale actually drew from, which is the account's — the
+        // body's value may have been absent, and is refused outright if it disagreed.
+        return result.Match(
+            value => CreatedAtAction(nameof(GetLocalStock), new { warehouseCode = value.WarehouseCode }, value),
+            errors => Problem(errors));
     }
 
     /// <summary>

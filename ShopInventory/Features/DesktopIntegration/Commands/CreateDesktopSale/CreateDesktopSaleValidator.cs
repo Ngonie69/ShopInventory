@@ -7,8 +7,10 @@ public sealed class CreateDesktopSaleValidator : AbstractValidator<CreateDesktop
 {
     public CreateDesktopSaleValidator()
     {
-        RuleFor(x => x.Request.CardCode).NotEmpty().WithMessage("Customer code is required");
-        RuleFor(x => x.Request.WarehouseCode).NotEmpty().WithMessage("Warehouse code is required");
+        // No rule on CardCode or WarehouseCode, here or on the lines. Both are read from the signed-in
+        // account by the handler, and a till is expected to send neither — requiring them here would
+        // reject exactly the well-formed requests this endpoint now wants. The handler still refuses a
+        // request that names a customer or warehouse other than the account's.
         RuleFor(x => x.Request.Lines).NotEmpty().WithMessage("At least one line item is required");
 
         // The tender stays optional — a till that predates tender capture sends nothing, and the
@@ -31,7 +33,6 @@ public sealed class CreateDesktopSaleValidator : AbstractValidator<CreateDesktop
         {
             line.RuleFor(l => l.ItemCode).NotEmpty();
             line.RuleFor(l => l.Quantity).GreaterThan(0);
-            line.RuleFor(l => l.WarehouseCode).NotEmpty();
             line.RuleFor(l => l.UnitPrice).GreaterThanOrEqualTo(0);
             line.RuleFor(l => l.DiscountPercent).InclusiveBetween(0, 100);
         });

@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using ErrorOr;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
@@ -35,6 +35,30 @@ public sealed class CreateDesktopSaleHandler(
         CancellationToken cancellationToken)
     {
         var req = command.Request;
+
+        // A till sells as the account that signed in. Who the sale invoices, which warehouse the
+        // stock leaves and which cost centre it books to are read from there — the request used to
+        // say all three and nothing checked them, so any authenticated till could sell from any
+        // warehouse as any customer. Resolved before the idempotency acquire so an account that
+        // cannot sell is turned away without leaving a request record behind.
+        var user = await context.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == command.UserId, cancellationToken);
+
+        var assignments = SellingAccountResolver.Resolve(user);
+        if (assignments.IsError)
+        {
+            return assignments.Errors;
+        }
+
+        var account = assignments.Value;
+
+        var mismatch = ApplyAccountToRequest(req, account);
+        if (mismatch is not null)
+        {
+            return mismatch.Value;
+        }
+
         var normalizedExternalReference = string.IsNullOrWhiteSpace(req.ExternalReferenceId)
             ? null
             : req.ExternalReferenceId.Trim();
@@ -128,7 +152,7 @@ public sealed class CreateDesktopSaleHandler(
             {
                 // Validate + deduct inside the lock with retry on concurrency conflict
                 var result = await ValidateDeductAndCreateSaleAsync(
-                    req, externalRef, today, docDate, vatRate, command.CreatedBy, cancellationToken);
+                    req, externalRef, today, docDate, vatRate, account, cancellationToken);
 
                 if (!result.IsError && idempotencyRequestId.HasValue)
                 {
@@ -167,13 +191,67 @@ public sealed class CreateDesktopSaleHandler(
         }
     }
 
+    /// <summary>
+    /// Points the request at the account's own customer and warehouse, refusing it if it asked for
+    /// different ones. Returns null when the request is now consistent with the account.
+    /// </summary>
+    /// <remarks>
+    /// Rewriting the LINE warehouses is the part that matters. Lock acquisition, stock validation and
+    /// the snapshot deduction all key on <see cref="CreateDesktopSaleLineRequest.WarehouseCode"/>, so
+    /// deriving only the header would leave what actually gets deducted in the caller's hands.
+    ///
+    /// A conflict is refused rather than quietly corrected: a till that believes it sold from one
+    /// warehouse while the server sold from another is exactly the confusion this exists to remove.
+    /// Sending nothing is the normal case and always succeeds.
+    /// </remarks>
+    /// <remarks>
+    /// Internal rather than private so the line-warehouse rewrite can be asserted directly. It is the
+    /// step that decides which stock is deducted, and it is not worth reaching through a fully mocked
+    /// handler to check it.
+    /// </remarks>
+    internal static Error? ApplyAccountToRequest(
+        CreateDesktopSaleRequest req,
+        SellingAccountAssignments account)
+    {
+        if (!string.IsNullOrWhiteSpace(req.CardCode) &&
+            !string.Equals(req.CardCode.Trim(), account.CardCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return Errors.DesktopSales.AssignmentMismatch("customer", req.CardCode.Trim(), account.CardCode);
+        }
+
+        if (!string.IsNullOrWhiteSpace(req.WarehouseCode) &&
+            !string.Equals(req.WarehouseCode.Trim(), account.WarehouseCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return Errors.DesktopSales.AssignmentMismatch("warehouse", req.WarehouseCode.Trim(), account.WarehouseCode);
+        }
+
+        foreach (var line in req.Lines)
+        {
+            if (!string.IsNullOrWhiteSpace(line.WarehouseCode) &&
+                !string.Equals(line.WarehouseCode.Trim(), account.WarehouseCode, StringComparison.OrdinalIgnoreCase))
+            {
+                return Errors.DesktopSales.AssignmentMismatch("warehouse", line.WarehouseCode.Trim(), account.WarehouseCode);
+            }
+        }
+
+        req.CardCode = account.CardCode;
+        req.WarehouseCode = account.WarehouseCode;
+
+        foreach (var line in req.Lines)
+        {
+            line.WarehouseCode = account.WarehouseCode;
+        }
+
+        return null;
+    }
+
     private async Task<ErrorOr<DesktopSaleResponseDto>> ValidateDeductAndCreateSaleAsync(
         CreateDesktopSaleRequest req,
         string externalRef,
         DateTime snapshotDate,
         DateTime docDate,
         decimal vatRate,
-        string? createdBy,
+        SellingAccountAssignments account,
         CancellationToken ct)
     {
         for (int attempt = 1; attempt <= MaxRetries; attempt++)
@@ -234,7 +312,7 @@ public sealed class CreateDesktopSaleHandler(
         {
             ExternalReferenceId = externalRef,
             SourceSystem = req.SourceSystem ?? "DESKTOP_APP",
-            CardCode = req.CardCode,
+            CardCode = account.CardCode,
             CardName = req.CardName,
             DocDate = docDate,
             SalesPersonCode = req.SalesPersonCode,
@@ -243,7 +321,8 @@ public sealed class CreateDesktopSaleHandler(
             TotalAmount = totalAmount,
             VatAmount = vatAmount,
             Currency = req.DocCurrency ?? "ZWG",
-            WarehouseCode = req.WarehouseCode,
+            WarehouseCode = account.WarehouseCode,
+            CostCentreCode = account.CostCentreCode,
             // Stored in its canonical spelling so reporting can group on it and the posting job can
             // match on it, rather than every till's casing becoming a distinct payment method.
             PaymentMethod = TenderTypes.TryNormalize(req.PaymentMethod, out var tender)
@@ -251,7 +330,7 @@ public sealed class CreateDesktopSaleHandler(
                 : req.PaymentMethod,
             PaymentReference = req.PaymentReference,
             AmountPaid = req.AmountPaid,
-            CreatedBy = createdBy,
+            CreatedBy = account.UserId.ToString(),
             CreatedAt = DateTime.UtcNow,
             FiscalizationStatus = DesktopSaleFiscalizationStatus.Pending,
             ConsolidationStatus = DesktopSaleConsolidationStatus.Pending,
@@ -278,6 +357,7 @@ public sealed class CreateDesktopSaleHandler(
             SaleId = sale.Id,
             ExternalReferenceId = sale.ExternalReferenceId,
             CardCode = sale.CardCode,
+            WarehouseCode = sale.WarehouseCode,
             TotalAmount = sale.TotalAmount,
             VatAmount = sale.VatAmount,
             FiscalizationStatus = sale.FiscalizationStatus.ToString(),
@@ -310,6 +390,7 @@ public sealed class CreateDesktopSaleHandler(
             SaleId = sale.Id,
             ExternalReferenceId = sale.ExternalReferenceId,
             CardCode = sale.CardCode,
+            WarehouseCode = sale.WarehouseCode,
             TotalAmount = sale.TotalAmount,
             VatAmount = sale.VatAmount,
             FiscalizationStatus = sale.FiscalizationStatus.ToString(),

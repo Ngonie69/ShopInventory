@@ -53,5 +53,41 @@ public static partial class Errors
         public static Error SaleNotFound(string externalRef) =>
             Error.NotFound("DesktopSales.SaleNotFound",
                 $"Sale with reference '{externalRef}' not found");
+
+        // --- Who is selling, and on whose behalf ---
+        //
+        // A till sells as the account it signed in as. The customer, the warehouse the stock leaves
+        // and the cost centre it is booked to all come from that account, so an account missing one
+        // cannot sell at all — better a clear refusal at the first sale than a day of takings booked
+        // against the wrong business partner.
+
+        public static Error Unauthenticated =>
+            Error.Unauthorized("DesktopSales.Unauthenticated",
+                "The sale could not be attributed to a signed-in user");
+
+        public static Error MissingCustomerAssignment =>
+            Error.Validation("DesktopSales.MissingCustomerAssignment",
+                "This account has no assigned business partner, so it cannot sell. Ask an administrator to assign one.");
+
+        public static Error MissingWarehouseAssignment =>
+            Error.Validation("DesktopSales.MissingWarehouseAssignment",
+                "This account has no assigned warehouse, so there is no stock for it to sell from. Ask an administrator to assign one.");
+
+        /// <summary>
+        /// Each business partner draws stock from its own warehouse, so an account holding several is
+        /// a configuration mistake rather than a choice the till can be asked to make.
+        /// </summary>
+        public static Error AmbiguousWarehouseAssignment(int count) =>
+            Error.Validation("DesktopSales.AmbiguousWarehouseAssignment",
+                $"This account is assigned {count} warehouses. A selling account must be assigned exactly one.");
+
+        /// <summary>
+        /// The request named a customer or warehouse that is not the account's. Refused rather than
+        /// silently corrected: a till that believes it sold from one warehouse while the server sold
+        /// from another is the confusion deriving these from the account exists to remove.
+        /// </summary>
+        public static Error AssignmentMismatch(string field, string requested, string assigned) =>
+            Error.Validation("DesktopSales.AssignmentMismatch",
+                $"The request specified {field} '{requested}' but this account sells as '{assigned}'. Omit it and the account's own value is used.");
     }
 }
