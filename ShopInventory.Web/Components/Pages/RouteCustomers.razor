@@ -55,6 +55,15 @@
                                 @bind-Value="selectedRouteCode" Caption="Filter by route"
                                 AriaLabel="Filter by route" Placeholder="All routes" />
             </div>
+            @* Removed customers are still loaded — they are the page's only way back to a shop that
+               stopped trading, and to the button that puts it back on the vans. They start hidden
+               because the everyday question is who the vans are selling to now. *@
+            <div class="ops-field">
+                <label class="ops-label" for="rc-status">Status</label>
+                <NocturneSelect Id="rc-status" Class="nsel-block" Options="StatusFilterOptions"
+                                @bind-Value="statusFilter" Caption="Filter by status"
+                                AriaLabel="Filter by status" />
+            </div>
             <div class="ops-field">
                 <label class="ops-label" for="rc-search">Search</label>
                 <div class="ops-search">
@@ -86,8 +95,22 @@
     {
         <div class="ops-empty">
             <i class="ph ph-signpost" aria-hidden="true"></i>
-            <h3>No route customers</h3>
-            <p>Captured customers appear here once they are booked against an assigned route.</p>
+            @if (routeCustomers.Count == 0)
+            {
+                <h3>No route customers</h3>
+                <p>Captured customers appear here once they are booked against an assigned route.</p>
+            }
+            else
+            {
+                @* There are customers loaded — a filter is hiding them. "None captured" here would
+                   send someone hunting a data problem that is a dropdown. *@
+                <h3>Nothing matches these filters</h3>
+                <p>
+                    @(statusFilter == RemovedStatusFilter
+                        ? "No customer here has been removed from the vans."
+                        : "Widen the route, status or search filter to see the rest.")
+                </p>
+            }
         </div>
     }
     else
@@ -138,6 +161,13 @@
                                             <a class="ops-link ops-name" href="@($"/route-customers/{customer.Id}/sales")">
                                                 @customer.Name
                                             </a>
+                                            @if (!customer.IsActive)
+                                            {
+                                                @* Said on the row rather than left to the filter, because
+                                                   the two states are shown together under "All". *@
+                                                <span class="ops-badge ops-fam-neutral"
+                                                      title="Removed from the vans. Kept here for reporting.">Removed</span>
+                                            }
                                             @if (!string.IsNullOrWhiteSpace(customer.VatNumber))
                                             {
                                                 <div class="ops-sub">VAT @customer.VatNumber</div>
@@ -196,11 +226,32 @@
                                                         @onclick="() => BeginEdit(customer)">
                                                     <i class="ph ph-pencil-simple" aria-hidden="true"></i>
                                                 </button>
-                                                <button type="button" class="ops-icon-btn ops-icon-btn-danger" title="Delete"
-                                                        aria-label="@($"Delete {customer.Name}")"
-                                                        @onclick="() => PromptDelete(customer)">
-                                                    <i class="ph ph-trash" aria-hidden="true"></i>
-                                                </button>
+                                                @if (customer.IsActive)
+                                                {
+                                                    <button type="button" class="ops-icon-btn ops-icon-btn-danger" title="Remove from the vans"
+                                                            aria-label="@($"Remove {customer.Name} from the vans")"
+                                                            @onclick="() => PromptDelete(customer)">
+                                                        <i class="ph ph-trash" aria-hidden="true"></i>
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    @* No confirmation: putting a shop back on the vans is
+                                                       undone by the button beside it. *@
+                                                    <button type="button" class="ops-icon-btn" title="Put back on the vans"
+                                                            aria-label="@($"Put {customer.Name} back on the vans")"
+                                                            disabled="@(restoringCustomerId == customer.Id)"
+                                                            @onclick="() => RestoreRouteCustomerAsync(customer)">
+                                                        @if (restoringCustomerId == customer.Id)
+                                                        {
+                                                            <span class="ops-spin"></span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i>
+                                                        }
+                                                    </button>
+                                                }
                                             </div>
                                         </td>
                                     </tr>
@@ -314,10 +365,10 @@
 @if (customerPendingDelete is not null)
 {
     <div class="ops-overlay ops-overlay-center" @onclick="CancelDelete">
-        <div class="ops-dialog" role="dialog" aria-modal="true" aria-label="Delete route customer"
+        <div class="ops-dialog" role="dialog" aria-modal="true" aria-label="Remove route customer"
              @onclick:stopPropagation="true">
             <div class="ops-dialog-head">
-                <h2>Delete route customer</h2>
+                <h2>Remove route customer</h2>
                 <button type="button" class="ops-x" aria-label="Close" @onclick="CancelDelete" disabled="@isDeleting">
                     <i class="ph ph-x" aria-hidden="true"></i>
                 </button>
@@ -332,15 +383,22 @@
                     </div>
                 }
 
+                @* What actually happens, in both directions. The old wording said "removes the
+                   locally captured customer only", which described a hard delete this no longer
+                   is — and the sales history it keeps is the reason someone would agree to it. *@
                 <div class="ops-msg ops-fam-warn">
                     <i class="ph ph-warning" aria-hidden="true"></i>
                     <div class="ops-msg-body">
-                        Delete <strong>@customerPendingDelete.Name</strong>
+                        Remove <strong>@customerPendingDelete.Name</strong>
                         (<span class="ops-code">@customerPendingDelete.Code</span>) from route
                         <strong>@GetRouteDisplayName(customerPendingDelete.AssignedBusinessPartnerCode)</strong>?
-                        This removes the locally captured customer only.
+                        The vans stop seeing this customer at their next sync and can no longer sell to it.
                     </div>
                 </div>
+                <p class="ops-sub">
+                    Their sales stay in every report, and you can put them back on the vans from the
+                    <strong>Removed</strong> filter.
+                </p>
             </div>
 
             <div class="ops-dialog-foot">
@@ -351,12 +409,12 @@
                     @if (isDeleting)
                     {
                         <span class="ops-spin"></span>
-                        <span>Deleting&hellip;</span>
+                        <span>Removing&hellip;</span>
                     }
                     else
                     {
                         <i class="ph ph-trash" aria-hidden="true"></i>
-                        <span>Delete customer</span>
+                        <span>Remove customer</span>
                     }
                 </button>
             </div>
@@ -391,6 +449,23 @@
     private RouteCustomerModel? customerPendingDelete;
     private string? deleteErrorMessage;
     private bool isDeleting;
+    private int? restoringCustomerId;
+
+    /// <summary>
+    /// Which status the list is showing. Defaults to the active customers, which is the page as it
+    /// has always read — the removed ones are a deliberate look back, not the default view.
+    /// </summary>
+    private string statusFilter = ActiveStatusFilter;
+
+    private const string ActiveStatusFilter = "active";
+    private const string RemovedStatusFilter = "removed";
+
+    private IEnumerable<NocturneSelectOption<string>> StatusFilterOptions =>
+    [
+        NocturneSelectOption.All("All customers"),
+        new NocturneSelectOption<string>(ActiveStatusFilter, "On the vans", "good"),
+        new NocturneSelectOption<string>(RemovedStatusFilter, "Removed", "neutral")
+    ];
 
     private IEnumerable<string> AvailableEditRouteCodes => routeDisplayNames.Keys
         .Concat(routeCustomers.Select(customer => customer.AssignedBusinessPartnerCode))
@@ -493,7 +568,9 @@
 
         try
         {
-            routeCustomers = await RouteCustomerService.GetRouteCustomersAsync();
+            // Both states in one fetch. Removed customers are a filter away rather than a round
+            // trip away, and a delete can grey its row out without reloading the page.
+            routeCustomers = await RouteCustomerService.GetRouteCustomersAsync(activeOnly: false);
         }
         catch (Exception ex)
         {
@@ -511,6 +588,7 @@
         var filteredCustomers = routeCustomers
             .Where(customer => string.IsNullOrWhiteSpace(selectedRouteCode)
                 || string.Equals(customer.AssignedBusinessPartnerCode, selectedRouteCode, StringComparison.OrdinalIgnoreCase))
+            .Where(MatchesStatus)
             .Where(MatchesSearch)
             .OrderBy(customer => customer.AssignedBusinessPartnerCode, StringComparer.OrdinalIgnoreCase)
             .ThenBy(customer => customer.Name, StringComparer.OrdinalIgnoreCase)
@@ -523,6 +601,13 @@
                 RouteLabel: GetRouteDisplayName(group.Key),
                 Customers: group.ToList()));
     }
+
+    private bool MatchesStatus(RouteCustomerModel customer) => statusFilter switch
+    {
+        ActiveStatusFilter => customer.IsActive,
+        RemovedStatusFilter => !customer.IsActive,
+        _ => true
+    };
 
     private bool MatchesSearch(RouteCustomerModel customer)
     {
@@ -642,10 +727,13 @@
         try
         {
             await RouteCustomerService.DeleteRouteCustomerAsync(customerToDelete.Id);
-            routeCustomers.RemoveAll(customer => customer.Id == customerToDelete.Id);
+
+            // Kept in the list, deactivated — the server did the same. Dropping it here would put
+            // the page out of step with the reports, which still count this customer.
+            customerToDelete.IsActive = false;
             NormalizeSelectedRoute();
             ResetDeleteState();
-            SetFeedback($"Deleted {customerToDelete.Name}.", false);
+            SetFeedback($"Removed {customerToDelete.Name} from the vans. Their sales history is kept.", false);
 
             try
             {
@@ -653,7 +741,7 @@
                     AuditActions.DeleteRouteCustomer,
                     "RouteCustomer",
                     customerToDelete.Id.ToString(),
-                    $"Deleted route customer {customerToDelete.Code}",
+                    $"Removed route customer {customerToDelete.Code} from the vans",
                     true);
             }
             catch
@@ -667,6 +755,58 @@
         finally
         {
             isDeleting = false;
+        }
+    }
+
+    /// <summary>
+    /// Puts a removed customer back on the vans, under the details it already had.
+    ///
+    /// This is the edit dialog's active checkbox with the other fields left alone — there is no
+    /// restore endpoint and there does not need to be, because reactivating is what the update
+    /// already does.
+    /// </summary>
+    private async Task RestoreRouteCustomerAsync(RouteCustomerModel customer)
+    {
+        ClearFeedback();
+        restoringCustomerId = customer.Id;
+
+        try
+        {
+            var restored = await RouteCustomerService.UpdateRouteCustomerAsync(customer.Id, new UpdateRouteCustomerRequest
+            {
+                AssignedBusinessPartnerCode = customer.AssignedBusinessPartnerCode,
+                Code = customer.Code,
+                Name = customer.Name,
+                Phone = customer.Phone,
+                Email = customer.Email,
+                Address = customer.Address,
+                VatNumber = customer.VatNumber,
+                IsActive = true
+            });
+
+            UpsertRouteCustomer(restored);
+            SetFeedback($"{restored.Name} is back on the vans from their next sync.", false);
+
+            try
+            {
+                await AuditService.LogAsync(
+                    AuditActions.UpdateRouteCustomer,
+                    "RouteCustomer",
+                    restored.Id.ToString(),
+                    $"Restored route customer {restored.Code} to the vans",
+                    true);
+            }
+            catch
+            {
+            }
+        }
+        catch (Exception ex)
+        {
+            SetFeedback(ex.Message, true);
+        }
+        finally
+        {
+            restoringCustomerId = null;
         }
     }
 
