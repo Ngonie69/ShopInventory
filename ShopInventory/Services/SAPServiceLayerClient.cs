@@ -2699,7 +2699,11 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         // SqlText body: the Service Layer executes the stored query text and ignores SqlText on
         // /List, which silently broke this duplicate check.
         var safeValue = SanitizeODataValue(vanSaleOrder);
-        var url = $"Invoices?$filter=U_Van_saleorder eq '{safeValue}' and Cancelled eq 'tNO'&$orderby=DocEntry desc&$top=1&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocCurrency,U_Van_saleorder";
+        // PaidToDate is load-bearing, not decoration: it is what the per-sale posting service checks
+        // before settling an adopted invoice, and Invoice.PaidToDate is a non-nullable decimal, so
+        // leaving it out of the projection makes it deserialize as 0 and the guard read every invoice
+        // as unpaid — which would settle an already-settled one a second time.
+        var url = $"Invoices?$filter=U_Van_saleorder eq '{safeValue}' and Cancelled eq 'tNO'&$orderby=DocEntry desc&$top=1&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,PaidToDate,DocCurrency,U_Van_saleorder";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");

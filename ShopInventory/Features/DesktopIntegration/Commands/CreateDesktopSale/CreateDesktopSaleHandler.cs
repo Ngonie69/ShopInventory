@@ -311,7 +311,10 @@ public sealed class CreateDesktopSaleHandler(
         var sale = new DesktopSaleEntity
         {
             ExternalReferenceId = externalRef,
-            SourceSystem = req.SourceSystem ?? "DESKTOP_APP",
+            // Decides which route takes this sale to SAP, so it has to be one of the known spellings:
+            // a value neither the posting service nor the 18:00 consolidation recognises would leave
+            // the sale fiscalised and never invoiced.
+            SourceSystem = SaleSourceSystems.NormalizeTillSource(req.SourceSystem),
             CardCode = account.CardCode,
             CardName = req.CardName,
             DocDate = docDate,

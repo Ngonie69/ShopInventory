@@ -33,6 +33,8 @@ public static class QuartzConfiguration
             .Get<LowStockAlertSettings>() ?? new LowStockAlertSettings();
         var vanSalesPosting = configuration.GetSection(VanSalesPostingSettings.SectionName)
             .Get<VanSalesPostingSettings>() ?? new VanSalesPostingSettings();
+        var desktopSalePosting = configuration.GetSection(DesktopSalePostingSettings.SectionName)
+            .Get<DesktopSalePostingSettings>() ?? new DesktopSalePostingSettings();
 
         services.AddQuartz(q =>
         {
@@ -135,6 +137,37 @@ public static class QuartzConfiguration
                         // Past the startup rush, and long enough after a restart that handsets have had a
                         // chance to upload before the first pass looks for work.
                         startDelay: TimeSpan.FromMinutes(5));
+                }
+            }
+
+            // Shop till and vending sales post one invoice each, like van sales, and are filtered out of
+            // the consolidation above by the same source-system test. The interval is much shorter than
+            // the van one: a till fiscalises, prints and hands over the receipt while the sale exists
+            // only here, so every minute it is not in SAP is a minute the two disagree about what the
+            // shop has sold.
+            //
+            // Registered whenever SAP is on, with no flag of its own. A flag here would be a way to
+            // strand money: the sources it claims are excluded from the consolidation unconditionally,
+            // so turning the job off would leave those sales fiscalised, refused by the 18:00 run and
+            // picked up by nothing, silently. A source has exactly one route or it has none.
+            if (sap.Enabled)
+            {
+                AddCronJob<DesktopSalePostingJob>(
+                    q, "desktop-sale-posting", BuildDailyCron(desktopSalePosting.SweepTimeCAT, "20:00"));
+
+                if (desktopSalePosting.IntervalSeconds > 0)
+                {
+                    // Second trigger on the same job key, for the reason spelled out above: the guard
+                    // against posting one sale twice is DisallowConcurrentExecution, and Quartz enforces
+                    // it per key. A key of its own would let the interval pass and the evening sweep run
+                    // together, both ask SAP for the same reference, both be told it does not exist, and
+                    // both create it.
+                    AddIntervalTriggerForJob<DesktopSalePostingJob>(
+                        q,
+                        "desktop-sale-posting",
+                        "desktop-sale-interval-posting",
+                        TimeSpan.FromSeconds(desktopSalePosting.IntervalSeconds),
+                        startDelay: TimeSpan.FromMinutes(2));
                 }
             }
 

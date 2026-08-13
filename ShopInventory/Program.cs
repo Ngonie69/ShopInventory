@@ -258,6 +258,8 @@ try
     builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection("Security"));
     builder.Services.Configure<TaxSettings>(builder.Configuration.GetSection(TaxSettings.SectionName));
     builder.Services.Configure<DailyStockSettings>(builder.Configuration.GetSection("DailyStock"));
+    builder.Services.Configure<DesktopSalePostingSettings>(
+        builder.Configuration.GetSection(DesktopSalePostingSettings.SectionName));
     builder.Services.Configure<PodReportCacheSettings>(
         builder.Configuration.GetSection(PodReportCacheSettings.SectionName));
     builder.Services.Configure<CreditNoteSyncSettings>(
@@ -621,6 +623,10 @@ try
     // the DesktopIntegrationController "run now" endpoint.
     builder.Services.AddScoped<EndOfDayConsolidationService>();
     builder.Services.AddScoped<VanSalesEndOfDayPostingService>();
+
+    // Carries shop till and vending sales to SAP, one invoice and one payment each, shortly after the
+    // till has already fiscalised and printed them.
+    builder.Services.AddScoped<DesktopSalePostingService>();
 
     // Hands the fiscalisation platform the receipts vans signed for themselves offline, which is the only
     // route by which those receipts ever reach ZIMRA.

@@ -80,5 +80,19 @@ public static partial class Errors
                 + "fiscalised before reaching SAP, under their own receipt numbers. Fiscalising it would submit "
                 + "the same sales to FDMS a second time under a different invoice number, which cannot be "
                 + "reversed. The receipts it consolidates are recorded against it in the fiscal transaction log.");
+
+        /// <remarks>
+        /// The same refusal for the routes that post one invoice per sale — van sales, shop tills and
+        /// vending. The sale was fiscalised under its own reference before it reached SAP, so the
+        /// platform's duplicate guard cannot recognise the SAP document number as the same receipt and
+        /// would sign it again.
+        /// </remarks>
+        public static Error AlreadyFiscalisedAsSale(int docNum, string externalReference, string? receiptNumber) =>
+            Error.Conflict(
+                "Invoice.AlreadyFiscalisedAsSale",
+                $"Invoice {docNum} records till sale {externalReference}, which was already fiscalised before "
+                + $"reaching SAP{(string.IsNullOrWhiteSpace(receiptNumber) ? string.Empty : $" as receipt {receiptNumber}")}. "
+                + "Fiscalising it would submit the same sale to FDMS a second time under a different invoice "
+                + "number, which cannot be reversed.");
     }
 }

@@ -138,37 +138,8 @@ public sealed class VanSalesEndOfDayPostingService(
             invoice.DocNum);
     }
 
-    private static CreateInvoiceRequest BuildInvoiceRequest(DesktopSaleEntity sale) => new()
-    {
-        CardCode = sale.CardCode,
-        DocDate = sale.DocDate.ToString("yyyy-MM-dd"),
-        DocDueDate = sale.DocDate.ToString("yyyy-MM-dd"),
-        NumAtCard = sale.ExternalReferenceId,
-        // Both the SAP-side duplicate guard and the local idempotency key. Set from the handset's own
-        // reference so a retry, a mop-up and a manual re-run all collapse onto the same document.
-        U_Van_saleorder = sale.ExternalReferenceId,
-        ClientRequestId = sale.ExternalReferenceId,
-        DocCurrency = sale.Currency,
-        Comments = BuildComments(sale),
-        Lines = sale.Lines
-            .OrderBy(l => l.LineNum)
-            .Select(l => new CreateInvoiceLineRequest
-            {
-                ItemCode = l.ItemCode,
-                Quantity = l.Quantity,
-                UnitPrice = l.UnitPrice,
-                WarehouseCode = string.IsNullOrWhiteSpace(l.WarehouseCode) ? sale.WarehouseCode : l.WarehouseCode,
-                TaxCode = l.TaxCode,
-                DiscountPercent = l.DiscountPercent,
-                UoMCode = l.UoMCode,
-                CostCentreCode = sale.CostCentreCode,
-                // FEFO server-side, matching the online van sales path. The handset does not choose
-                // batches: it sells from a van whose stock it tracks by item, not by batch.
-                AutoAllocateBatches = true,
-                BatchNumbers = null
-            })
-            .ToList()
-    };
+    private static CreateInvoiceRequest BuildInvoiceRequest(DesktopSaleEntity sale) =>
+        DesktopSaleInvoiceRequestBuilder.Build(sale, BuildComments(sale));
 
     /// <summary>
     /// Carries the ZIMRA receipt onto the SAP document so the link is visible to anyone reading the
