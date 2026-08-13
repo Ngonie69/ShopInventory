@@ -17,8 +17,10 @@ public sealed class LowStockAlertSettings
     /// <summary>
     /// Runs the sweep. It reads the cached per-warehouse stock the reports already use rather than
     /// querying SAP item by item, so the cost is the same as opening the low-stock report once.
+    /// Off by default: in practice the alerts were not wanted — most of what the sweep found was
+    /// items sitting at zero that nobody intends to restock, and the report is there on demand.
     /// </summary>
-    public bool Enabled { get; set; } = true;
+    public bool Enabled { get; set; } = false;
 
     /// <summary>
     /// When the sweep runs, CAT. Defaults to 07:30 — after the 07:00 daily stock snapshot, so it
