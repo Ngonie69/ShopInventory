@@ -765,10 +765,26 @@ try
     builder.Services.Configure<FiscalisationSettings>(
         builder.Configuration.GetSection(FiscalisationSettings.SectionName));
 
+    // Every fiscalisation call comes back 401 without a key, so say so once, here. This check used
+    // to live in the AddHttpClient callback below, which runs per client creation and not at
+    // startup: the fiscalisation background service polls every ten seconds, so on 2026-08-13 it
+    // wrote 2,019 identical warnings in a two-hour production log — about two thirds of every
+    // warning and error in the file — and buried a total POD upload outage underneath them.
+    var fiscalisationStartupSettings = builder.Configuration
+        .GetSection(FiscalisationSettings.SectionName)
+        .Get<FiscalisationSettings>();
+
+    if (fiscalisationStartupSettings?.Enabled == true
+        && string.IsNullOrWhiteSpace(fiscalisationStartupSettings.ApiKey))
+    {
+        Log.Warning(
+            "Fiscalisation is enabled but no API key is configured. Set Fiscalisation__ApiKey. "
+            + "Fiscalisation requests will be rejected until it is supplied.");
+    }
+
     builder.Services.AddHttpClient<IFiscalisationApiClient, FiscalisationApiClient>((serviceProvider, client) =>
     {
         var fiscalisationSettings = serviceProvider.GetRequiredService<IOptions<FiscalisationSettings>>().Value;
-        var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
 
         client.BaseAddress = new Uri(fiscalisationSettings.BaseUrl.TrimEnd('/') + "/");
         client.Timeout = TimeSpan.FromSeconds(Math.Max(fiscalisationSettings.TimeoutSeconds, 1));
@@ -777,14 +793,6 @@ try
         if (!string.IsNullOrWhiteSpace(fiscalisationSettings.ApiKey))
         {
             client.DefaultRequestHeaders.Add("X-API-Key", fiscalisationSettings.ApiKey.Trim());
-        }
-        else if (fiscalisationSettings.Enabled)
-        {
-            // Every call will come back 401 without this. Say so at startup rather than letting it
-            // surface one document at a time.
-            logger.LogWarning(
-                "Fiscalisation is enabled but no API key is configured. Set Fiscalisation__ApiKey. "
-                + "Fiscalisation requests will be rejected until it is supplied.");
         }
     });
 
