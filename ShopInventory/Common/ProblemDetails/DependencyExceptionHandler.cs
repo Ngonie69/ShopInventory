@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Diagnostics;
+using ShopInventory.Common.Security;
 using ShopInventory.Services;
 
 namespace ShopInventory.Common.ProblemDetails;
@@ -37,8 +38,8 @@ public sealed class DependencyExceptionHandler(
         logger.LogError(
             exception,
             "Attachment storage is unavailable for {Method} {Path}; the upload was rejected as retryable. Store: {AttachmentPath}",
-            httpContext.Request.Method,
-            httpContext.Request.Path,
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Method),
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Path),
             exception.AttachmentPath);
 
         var problemDetails = new Microsoft.AspNetCore.Mvc.ProblemDetails
@@ -67,8 +68,8 @@ public sealed class DependencyExceptionHandler(
         logger.LogWarning(
             exception,
             "Dependency timeout for {Method} {Path}.",
-            httpContext.Request.Method,
-            httpContext.Request.Path);
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Method),
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Path));
 
         var problemDetails = new Microsoft.AspNetCore.Mvc.ProblemDetails
         {
@@ -95,8 +96,8 @@ public sealed class DependencyExceptionHandler(
         logger.LogWarning(
             exception,
             "OpenWA gateway request failed for {Method} {Path} with upstream status {StatusCode}.",
-            httpContext.Request.Method,
-            httpContext.Request.Path,
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Method),
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Path),
             (int)exception.StatusCode);
 
         var problemDetails = new Microsoft.AspNetCore.Mvc.ProblemDetails
@@ -129,8 +130,8 @@ public sealed class DependencyExceptionHandler(
         logger.LogWarning(
             exception,
             "HTTP dependency request failed for {Method} {Path}.",
-            httpContext.Request.Method,
-            httpContext.Request.Path);
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Method),
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Path));
 
         var problemDetails = new Microsoft.AspNetCore.Mvc.ProblemDetails
         {
