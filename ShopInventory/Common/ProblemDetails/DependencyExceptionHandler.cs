@@ -14,6 +14,8 @@ public sealed class DependencyExceptionHandler(
     {
         return exception switch
         {
+            AttachmentStorageUnavailableException storageException =>
+                HandleAttachmentStorageAsync(httpContext, storageException, cancellationToken),
             TimeoutException => HandleTimeoutAsync(httpContext, exception, cancellationToken),
             TaskCanceledException when !httpContext.RequestAborted.IsCancellationRequested =>
                 HandleTimeoutAsync(httpContext, exception, cancellationToken),
@@ -23,6 +25,38 @@ public sealed class DependencyExceptionHandler(
                 HandleHttpDependencyAsync(httpContext, httpRequestException, cancellationToken),
             _ => ValueTask.FromResult(false)
         };
+    }
+
+    private ValueTask<bool> HandleAttachmentStorageAsync(
+        HttpContext httpContext,
+        AttachmentStorageUnavailableException exception,
+        CancellationToken cancellationToken)
+    {
+        // Error rather than warning: one unreachable store blocks every upload on the instance, and
+        // the client-facing response deliberately says nothing about where the files live.
+        logger.LogError(
+            exception,
+            "Attachment storage is unavailable for {Method} {Path}; the upload was rejected as retryable. Store: {AttachmentPath}",
+            httpContext.Request.Method,
+            httpContext.Request.Path,
+            exception.AttachmentPath);
+
+        var problemDetails = new Microsoft.AspNetCore.Mvc.ProblemDetails
+        {
+            Status = StatusCodes.Status503ServiceUnavailable,
+            Title = "Attachment storage is temporarily unavailable.",
+            Type = ProblemDetailsDefaults.GetType(StatusCodes.Status503ServiceUnavailable),
+            Detail = "The file could not be stored because the attachment store could not be reached. "
+                + "Nothing was saved — send the upload again."
+        };
+        problemDetails.Extensions["retryable"] = true;
+
+        return ProblemDetailsDefaults.WriteAsync(
+            problemDetailsService,
+            httpContext,
+            exception,
+            problemDetails,
+            cancellationToken);
     }
 
     private ValueTask<bool> HandleTimeoutAsync(
