@@ -380,9 +380,42 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
     }
 
     /// <summary>
-    /// A deleted route customer nulls the link on its sales but leaves the snapshots. Those takings
-    /// happened and still belong to the route, so they get a row of their own rather than disappearing
-    /// out of the total.
+    /// Deleting a route customer takes it off the vans by deactivating it, and this is the half of
+    /// that the office cares about: the shop stays a customer of the route, keeps its own name, and
+    /// its takings stay attributed to it rather than falling into an unnamed remainder.
+    ///
+    /// Deleted, not orphaned — <c>IsDeleted</c> is the reconstructed-from-snapshots row below, and
+    /// telling a removed customer apart from one whose record is gone is the difference between a
+    /// shop that can be put back and one that cannot.
+    /// </summary>
+    [Fact]
+    public async Task A_customer_removed_from_the_vans_keeps_its_sales_in_the_route_trend()
+    {
+        await IngestAsync(BuildUpload("VAN010-INV-1", "TUCK01"));
+
+        var tuckShop = await _context.RouteCustomers.SingleAsync(customer => customer.Id == _tuckShopId);
+        tuckShop.IsActive = false;
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var summary = await SummaryAsync();
+        var removed = summary.Routes.Single().Customers.Single(customer => customer.Code == "TUCK01");
+
+        Assert.False(removed.IsActive);
+        Assert.False(removed.IsDeleted);
+        Assert.Equal("Tuck Shop", removed.Name);
+        Assert.Equal(1, removed.SaleCount);
+        Assert.Equal(100m, removed.TotalsByCurrency.Single().Gross);
+
+        // And the drill-down still answers, which a hard delete's 404 did not.
+        Assert.Equal(1, (await DrillDownAsync(_tuckShopId)).SaleCount);
+    }
+
+    /// <summary>
+    /// A route customer whose row is gone — which the delete no longer does, but historic data has.
+    /// The link on its sales is nulled and only the snapshots remain. Those takings happened and
+    /// still belong to the route, so they get a row of their own rather than disappearing out of
+    /// the total.
     /// </summary>
     [Fact]
     public async Task Sales_whose_customer_was_deleted_still_appear_in_the_route_total()
