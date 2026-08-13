@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Diagnostics;
+using ShopInventory.Common.Security;
 using ShopInventory.Services;
 
 namespace ShopInventory.Common.ProblemDetails;
@@ -34,8 +35,8 @@ public sealed class SapExceptionHandler(
         logger.LogWarning(
             exception,
             "SAP posting period rejected request {Method} {Path} for document date {DocDate}.",
-            httpContext.Request.Method,
-            httpContext.Request.Path,
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Method),
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Path),
             exception.DocDate);
 
         var problemDetails = new Microsoft.AspNetCore.Mvc.ProblemDetails
@@ -68,8 +69,8 @@ public sealed class SapExceptionHandler(
         logger.LogWarning(
             exception,
             "SAP circuit is open for {Method} {Path}.",
-            httpContext.Request.Method,
-            httpContext.Request.Path);
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Method),
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Path));
 
         var problemDetails = new Microsoft.AspNetCore.Mvc.ProblemDetails
         {

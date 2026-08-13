@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Diagnostics;
+using ShopInventory.Common.Security;
 
 namespace ShopInventory.Common.ProblemDetails;
 
@@ -15,8 +16,8 @@ public sealed class GlobalExceptionHandler(
         logger.LogError(
             exception,
             "Unhandled exception for {Method} {Path}.",
-            httpContext.Request.Method,
-            httpContext.Request.Path);
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Method),
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Path));
 
         var problemDetails = new Microsoft.AspNetCore.Mvc.ProblemDetails
         {

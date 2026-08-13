@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Diagnostics;
+using ShopInventory.Common.Security;
 
 namespace ShopInventory.Common.ProblemDetails;
 
@@ -19,8 +20,8 @@ public sealed class RequestCanceledExceptionHandler(
 
         logger.LogInformation(
             "Request cancelled by client for {Method} {Path}.",
-            httpContext.Request.Method,
-            httpContext.Request.Path);
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Method),
+            SensitiveDataSanitizer.SanitizeIdentifierForLog(httpContext.Request.Path));
 
         if (!httpContext.Response.HasStarted)
         {
