@@ -436,6 +436,10 @@ public sealed class VanSalesSignedReceiptIngestTests : IDisposable
             int deviceId, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("No config read expected.");
 
+        public Task<FiscalConfigApiResponse> GetFiscalConfigWithApiKeyAsync(
+            string? apiKey, int deviceId, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("No config read expected.");
+
         public Task<FiscalStatusApiResponse> GetFiscalStatusAsync(
             int deviceId, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("No status read expected.");

@@ -63,6 +63,22 @@ public interface IFiscalisationApiClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The same lookup, made with a caller-supplied API key instead of the configured one.
+    /// </summary>
+    /// <remarks>
+    /// Only the settings screen needs this. An administrator types a key there and wants to know it
+    /// works *before* it is saved, and the configured client cannot answer that: its key is fixed on
+    /// the HttpClient's default headers when the client is built, and a saved key is not live until
+    /// the app pool recycles anyway.
+    ///
+    /// Pass null or blank to probe with the configured key.
+    /// </remarks>
+    Task<FiscalConfigApiResponse> GetFiscalConfigWithApiKeyAsync(
+        string? apiKey,
+        int deviceId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Live fiscal day status for a device.
     /// </summary>
     Task<FiscalStatusApiResponse> GetFiscalStatusAsync(

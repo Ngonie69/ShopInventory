@@ -98,6 +98,28 @@ public class FiscalisationApiClient : IFiscalisationApiClient
         return await ReadResponseAsync<FiscalConfigApiResponse>(response, cancellationToken);
     }
 
+    public async Task<FiscalConfigApiResponse> GetFiscalConfigWithApiKeyAsync(
+        string? apiKey,
+        int deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"api/fiscal-config?deviceId={deviceId}");
+
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            // HttpClient copies a default header onto a request only when the request does not already
+            // carry it, so setting it here is what keeps the configured key out of this call — which is
+            // the whole point of the method.
+            request.Headers.TryAddWithoutValidation("X-API-Key", apiKey.Trim());
+        }
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        return await ReadResponseAsync<FiscalConfigApiResponse>(response, cancellationToken);
+    }
+
     public async Task<FiscalStatusApiResponse> GetFiscalStatusAsync(
         int deviceId,
         CancellationToken cancellationToken = default)

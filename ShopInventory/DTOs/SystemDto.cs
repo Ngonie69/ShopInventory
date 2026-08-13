@@ -157,6 +157,50 @@ public class SAPSettingsDto
 }
 
 /// <summary>
+/// Fiscalisation platform settings (read-only; the API key is never returned in full).
+/// </summary>
+public class FiscalisationSettingsDto
+{
+    public bool Enabled { get; set; }
+
+    public string? BaseUrl { get; set; }
+
+    /// <summary>
+    /// The configured key with everything but its last few characters replaced, or null when none is
+    /// configured. Enough to tell one key from another when rotating; never enough to use.
+    /// </summary>
+    public string? ApiKeyMasked { get; set; }
+
+    public bool IsConfigured { get; set; }
+
+    public int DefaultDeviceId { get; set; }
+}
+
+/// <summary>
+/// Request to store a new Fiscalisation platform API key.
+/// </summary>
+public class UpdateFiscalisationSettingsRequest
+{
+    [Required]
+    public string ApiKey { get; set; } = null!;
+
+    /// <summary>Verify the key against the platform before storing it.</summary>
+    public bool TestConnection { get; set; } = true;
+}
+
+/// <summary>
+/// Request to check an API key against the Fiscalisation platform.
+/// </summary>
+public class TestFiscalisationConnectionRequest
+{
+    /// <summary>The key to test. Blank tests the one the API is currently running with.</summary>
+    public string? ApiKey { get; set; }
+
+    /// <summary>Device to read configuration for. Null uses the configured default device.</summary>
+    public int? DeviceId { get; set; }
+}
+
+/// <summary>
 /// Email settings DTO
 /// </summary>
 public class EmailSettingsDto

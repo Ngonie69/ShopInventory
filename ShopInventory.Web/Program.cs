@@ -310,6 +310,7 @@ try
     builder.Services.AddScoped<IBackupService, BackupService>();
     builder.Services.AddScoped<IMobileVersionPolicySettingsService, MobileVersionPolicySettingsService>();
     builder.Services.AddScoped<ISAPSettingsService, SAPSettingsService>();
+    builder.Services.AddScoped<IFiscalisationSettingsService, FiscalisationSettingsService>();
     builder.Services.AddScoped<IWebhookService, WebhookService>();
     builder.Services.AddScoped<IWhatsAppAdminService, WhatsAppAdminService>();
 

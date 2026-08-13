@@ -84,6 +84,10 @@ public class PreSapFiscalInvoiceNumberTests
             int deviceId, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("No network call expected.");
 
+        public Task<FiscalConfigApiResponse> GetFiscalConfigWithApiKeyAsync(
+            string? apiKey, int deviceId, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("No network call expected.");
+
         public Task<FiscalStatusApiResponse> GetFiscalStatusAsync(
             int deviceId, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("No network call expected.");
