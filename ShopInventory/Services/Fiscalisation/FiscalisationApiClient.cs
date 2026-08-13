@@ -92,7 +92,7 @@ public class FiscalisationApiClient : IFiscalisationApiClient
         CancellationToken cancellationToken = default)
     {
         using var response = await _httpClient.GetAsync(
-            $"api/fiscal-config?deviceId={deviceId}",
+            "api/fiscal-config" + DeviceQuery(deviceId),
             cancellationToken);
 
         return await ReadResponseAsync<FiscalConfigApiResponse>(response, cancellationToken);
@@ -105,7 +105,7 @@ public class FiscalisationApiClient : IFiscalisationApiClient
     {
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
-            $"api/fiscal-config?deviceId={deviceId}");
+            "api/fiscal-config" + DeviceQuery(deviceId));
 
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
@@ -125,11 +125,29 @@ public class FiscalisationApiClient : IFiscalisationApiClient
         CancellationToken cancellationToken = default)
     {
         using var response = await _httpClient.GetAsync(
-            $"api/fiscal-status?deviceId={deviceId}",
+            "api/fiscal-status" + DeviceQuery(deviceId),
             cancellationToken);
 
         return await ReadResponseAsync<FiscalStatusApiResponse>(response, cancellationToken);
     }
+
+    /// <summary>
+    /// The device selector for a read, left off entirely when no device is pinned.
+    /// </summary>
+    /// <remarks>
+    /// The platform takes this as a nullable parameter and falls back to its own configured device only
+    /// when it is <em>absent</em>. Sending <c>deviceId=0</c> is not the same thing: it is a supplied
+    /// value, so the fallback is skipped and the request is refused with "DeviceId is required and must
+    /// be greater than 0". That is why an unpinned deployment could read nothing at all — including the
+    /// settings screen's key test, which reported a perfectly good key as unverifiable.
+    ///
+    /// Submissions are the other way round and deliberately so: there a zero device id means "any of
+    /// them", and the platform walks every configured device until one succeeds.
+    /// </remarks>
+    private static string DeviceQuery(int deviceId) =>
+        deviceId > 0
+            ? $"?deviceId={deviceId.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
+            : string.Empty;
 
     private async Task<TResponse> PostWithTransientRetryAsync<TRequest, TResponse>(
         string requestUri,

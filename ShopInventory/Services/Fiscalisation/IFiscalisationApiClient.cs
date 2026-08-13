@@ -58,6 +58,11 @@ public interface IFiscalisationApiClient
     /// <summary>
     /// Device configuration, including the QR base URL needed to compose receipt QR payloads.
     /// </summary>
+    /// <remarks>
+    /// Pass <paramref name="deviceId"/> 0 for "whichever device the console is set up on" — no device
+    /// is named on the wire and the platform answers for its own primary one. Name a device only when
+    /// the answer has to be about that device specifically, such as a van handset's own configuration.
+    /// </remarks>
     Task<FiscalConfigApiResponse> GetFiscalConfigAsync(
         int deviceId,
         CancellationToken cancellationToken = default);
@@ -71,7 +76,8 @@ public interface IFiscalisationApiClient
     /// the HttpClient's default headers when the client is built, and a saved key is not live until
     /// the app pool recycles anyway.
     ///
-    /// Pass null or blank to probe with the configured key.
+    /// Pass null or blank to probe with the configured key, and <paramref name="deviceId"/> 0 to let
+    /// the platform answer for its own device.
     /// </remarks>
     Task<FiscalConfigApiResponse> GetFiscalConfigWithApiKeyAsync(
         string? apiKey,
@@ -79,7 +85,8 @@ public interface IFiscalisationApiClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Live fiscal day status for a device.
+    /// Live fiscal day status for a device, or for the console's own device when
+    /// <paramref name="deviceId"/> is 0.
     /// </summary>
     Task<FiscalStatusApiResponse> GetFiscalStatusAsync(
         int deviceId,
