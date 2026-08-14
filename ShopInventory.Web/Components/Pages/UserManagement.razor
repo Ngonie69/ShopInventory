@@ -912,9 +912,11 @@
     // The API decides which roles may be assigned and serves them from /api/user/roles; this page
     // asks it rather than holding a second list, because the two drifted — the page offered ADR and
     // Sales, which the API then refused to create, and never offered Manager, which it accepts.
-    // UserRoles.AllRoles is only the fallback for a failed lookup, and is pinned equal to the API's
-    // list by UserRoleCatalogueTests.
-    private static readonly List<string> AdminAvailableRoles = UserRoles.AllRoles.ToList();
+    // UserRoles.AssignableRoles is only the fallback for a failed lookup, and is pinned equal to
+    // the API's list by UserRoleCatalogueTests. Note it is not UserRoles.AllRoles: that one is
+    // every role an account can be found holding, which is what addressing existing users needs
+    // and is a superset of what may be put on a new one.
+    private static readonly List<string> AdminAvailableRoles = UserRoles.AssignableRoles.ToList();
     private static readonly List<string> PodOperatorAvailableRoles = new() { "Driver" };
     private List<string> availableRoles = new(AdminAvailableRoles);
     private List<string> availableSections = AssignedSectionOptions.All.ToList();

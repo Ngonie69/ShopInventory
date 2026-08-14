@@ -63,6 +63,33 @@ public static class UserRoles
     public const string MerchandiserPurchaseOrderViewer = "MerchandiserPurchaseOrderViewer";
 
     /// <summary>
+    /// Van sales rep working from a handset. <see cref="Adr"/> and <see cref="Sales"/>
+    /// are the same job under two names — both are offered on the user management page
+    /// and both are held by live accounts, so anything addressing van sales has to
+    /// name the pair.
+    /// </summary>
+    public const string Adr = "ADR";
+
+    /// <inheritdoc cref="Adr"/>
+    public const string Sales = "Sales";
+
+    /// <summary>
+    /// Legacy POD role. Not offered for new accounts, but still runtime-supported and
+    /// still landing on the POD list — see <c>RoleLandingRoutes.For</c>.
+    /// </summary>
+    public const string Operator = "Operator";
+
+    /// <summary>
+    /// Legacy default role carried by older accounts.
+    /// </summary>
+    public const string User = "User";
+
+    /// <summary>
+    /// Legacy read-only role carried by older accounts.
+    /// </summary>
+    public const string ReadOnly = "ReadOnly";
+
+    /// <summary>
     /// Comma-separated role strings for use in [Authorize(Roles = "...")] attributes
     /// </summary>
     /// <summary>
@@ -101,17 +128,50 @@ public static class UserRoles
     public const string MerchandiserAccountManagementRoles = "Admin,SalesRep";
 
     /// <summary>
-    /// Van sales rep. Named ADR on the account for historical reasons.
+    /// Every role a user account can be holding: the ones an administrator can pick on
+    /// the user management page, plus the legacy ones no longer offered there but still
+    /// carried by existing accounts.
     /// </summary>
-    public const string Adr = "ADR";
+    /// <remarks>
+    /// Anything that addresses users <em>by role</em> has to work from this list rather
+    /// than a hand-typed one, because a role left out is a set of accounts that cannot be
+    /// reached at all — silently, since the send succeeds and simply matches nobody. The
+    /// mobile push composer is the case that reached production: its own list of ten
+    /// omitted ADR and Sales, so no van sales handset in the field could be sent an alert.
+    ///
+    /// Ordered field roles first, then the office ones, then the legacy names — the phones
+    /// are what a push is for, and a caller rendering this straight into a picker wants
+    /// them at the top.
+    /// </remarks>
+    public static IReadOnlyList<string> AllRoles =>
+    [
+        Driver,
+        PodOperator,
+        Operator,
+        Merchandiser,
+        SalesRep,
+        Adr,
+        Sales,
+        Manager,
+        Cashier,
+        StockController,
+        DepotController,
+        Lab,
+        MerchandiserPurchaseOrderViewer,
+        Admin,
+        User,
+        ReadOnly
+    ];
 
     /// <summary>
-    /// Van sales, the wider-permission half of the pair with <see cref="Adr"/>.
+    /// The roles an administrator may put on a <em>new</em> account — a strict subset of
+    /// <see cref="AllRoles"/>, which is every role an account can be found holding.
     /// </summary>
-    public const string Sales = "Sales";
-
-    /// <summary>
-    /// Every role an administrator may put on a new account.
+    /// <remarks>
+    /// The two lists answer different questions and must not be conflated. Addressing existing
+    /// users by role needs <see cref="AllRoles"/>, or the legacy names are unreachable; offering a
+    /// role in the create form needs this one, or the API refuses the account. Operator, User and
+    /// ReadOnly are the difference: still held, no longer handed out.
     ///
     /// The API owns this list — <c>ApplicationRoles.AssignableRoles</c>, served from
     /// <c>GET /api/user/roles</c> — and the user management page reads it from there, so this copy
@@ -119,8 +179,23 @@ public static class UserRoles
     /// role picker empty and no account could be created at all. This project takes no reference on
     /// the API project, so the two cannot share the array; <c>UserRoleCatalogueTests</c> pins them
     /// equal instead, which is what keeps the fallback honest.
-    /// </summary>
-    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager, PodOperator, Driver, Merchandiser, SalesRep, MerchandiserPurchaseOrderViewer, Lab, Adr, Sales };
+    /// </remarks>
+    public static IReadOnlyList<string> AssignableRoles =>
+    [
+        Admin,
+        Manager,
+        Cashier,
+        StockController,
+        DepotController,
+        PodOperator,
+        Driver,
+        Merchandiser,
+        SalesRep,
+        MerchandiserPurchaseOrderViewer,
+        Lab,
+        Adr,
+        Sales
+    ];
 
     /// <summary>
     /// Whether <paramref name="user"/> may read a report across every customer.
