@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Crates;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Idempotency;
+using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -42,6 +43,31 @@ public sealed class CreateInvoiceHandler(
         request.U_Van_saleorder = string.IsNullOrWhiteSpace(request.U_Van_saleorder)
             ? null
             : request.U_Van_saleorder.Trim();
+
+        // U_Van_saleorder is not just a label. Several routes search on it to decide whether SAP
+        // already holds a document, and it is this handler's own idempotency key a few lines below.
+        // A caller writing a value the system generates for itself would make one of those searches
+        // find the wrong invoice and adopt it — the quiet failure, where a sale is marked posted
+        // against a document that has nothing to do with it and nothing looks wrong.
+        if (request.U_Van_saleorder is { } saleReference)
+        {
+            if (SaleReferenceNamespace.IsReserved(saleReference))
+            {
+                return Errors.Invoice.ReservedSaleReference(saleReference);
+            }
+
+            // Prefixes cover what the server generates. A till's reference has whatever shape the
+            // client chose, so it is caught by looking it up instead — which needs no agreement
+            // between the two codebases about formats. ExternalReferenceId is uniquely indexed.
+            var belongsToASale = await context.DesktopSales
+                .AsNoTracking()
+                .AnyAsync(sale => sale.ExternalReferenceId == saleReference, cancellationToken);
+
+            if (belongsToASale)
+            {
+                return Errors.Invoice.ReservedSaleReference(saleReference);
+            }
+        }
 
         List<string>? acquiredLockTokens = null;
         long? idempotencyRequestId = null;
