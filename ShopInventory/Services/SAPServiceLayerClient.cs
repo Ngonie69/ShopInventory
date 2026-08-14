@@ -8326,127 +8326,150 @@ ORDER BY T0.""ItemCode""";
 
         var currentSession = _sessionId;
 
-        // Build IN clause for item codes - sanitize each code
-        var inClause = string.Join(",", codes.Select(c => $"'{SanitizeSqlValue(c)}'"));
+        // One query object per item-code family rather than one per requested set. Embedding the
+        // codes made the statement unique per request, and a SQLQueries object cannot be deleted,
+        // so every call left a permanent OUQR row behind — see SqlItemCodePrefixCover. The buckets
+        // fetch a superset, which is filtered back to the requested codes below.
+        var prefixes = SqlItemCodePrefixCover.Cover(codes);
 
-        // SQL query to get total packaging material stock across ALL warehouses
-        // This is important because packaging materials are often stored in different warehouses than finished goods
-        var sqlText = $@"SELECT 
-            T0.""ItemCode"", 
-            T0.""ItemName"", 
-            SUM(T1.""OnHand"") as ""InStock"",
-            SUM(T1.""OnHand"") as ""Available"",
-            T0.""InvntryUom"" as ""UoM""
-        FROM OITM T0 
-        INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
-        WHERE T0.""ItemCode"" IN ({inClause})
-        GROUP BY T0.""ItemCode"", T0.""ItemName"", T0.""InvntryUom""";
-
-        var queryCode = BuildContentAddressedQueryCode("PKG_STK", sqlText);
-
-        _logger.LogInformation("Fetching packaging material stock for {Count} items: {Items}", codes.Count, string.Join(", ", codes.Take(10)));
+        _logger.LogInformation(
+            "Fetching packaging material stock for {Count} items in {BucketCount} bucket(s): {Items}",
+            codes.Count,
+            prefixes.Count,
+            string.Join(", ", codes.Take(10)));
 
         try
         {
-            await EnsureSqlQueryAsync(queryCode, "Packaging Material Stock", sqlText, cancellationToken);
-
-            // Execute the query with pagination to get all results
-            var skip = 0;
-            bool hasMore = true;
-
-            _logger.LogInformation("Starting pagination for packaging material stock query...");
-
-            while (hasMore)
+            foreach (var prefix in prefixes)
             {
-                var url = skip == 0
-                    ? $"SQLQueries('{queryCode}')/List"
-                    : $"SQLQueries('{queryCode}')/List?$skip={skip}";
-
-                _logger.LogInformation("Fetching packaging stock page at skip={Skip}, url={Url}", skip, url);
-
-                HttpRequestMessage CreateRequest()
-                {
-                    var request = new HttpRequestMessage(HttpMethod.Get, url);
-                    request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                    request.Headers.Add("Prefer", "odata.maxpagesize=100");
-                    return request;
-                }
-
-                var response = await SendSapRequestWithTransientRetryAsync(
-                    _httpClient,
-                    CreateRequest,
-                    HttpCompletionOption.ResponseContentRead,
-                    $"read packaging material stock from row {skip}",
-                    cancellationToken);
-
-                if (response.StatusCode == HttpStatusCode.Unauthorized)
-                {
-                    await HandleAuthFailureAsync(currentSession, cancellationToken);
-                    response.Dispose();
-
-                    response = await SendSapRequestWithTransientRetryAsync(
-                        _httpClient,
-                        CreateRequest,
-                        HttpCompletionOption.ResponseContentRead,
-                        $"read packaging material stock from row {skip} after SAP re-authentication",
-                        cancellationToken);
-                }
-
-                using var responseOwner = response;
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                    _logger.LogWarning("Failed to get packaging material stock: {Status} - {Content}", response.StatusCode, errorContent);
-                    break;
-                }
-
-                var content = await response.Content.ReadAsStringAsync(cancellationToken);
-                var pageResults = ParsePackagingMaterialStockFromSqlResult(content);
-
-                foreach (var kvp in pageResults)
-                {
-                    result[kvp.Key] = kvp.Value;
-                }
-
-                _logger.LogInformation("Page at skip={Skip}: retrieved {PageCount} items, total so far: {Total}",
-                    skip, pageResults.Count, result.Count);
-
-                // Check for more pages using nextLink
-                using var doc = JsonDocument.Parse(content);
-                var hasNextLink = doc.RootElement.TryGetProperty("odata.nextLink", out var nextLinkProp) ||
-                                  doc.RootElement.TryGetProperty("@odata.nextLink", out nextLinkProp);
-
-                if (hasNextLink)
-                {
-                    var nextLink = nextLinkProp.GetString();
-                    _logger.LogInformation("NextLink found: {NextLink}", nextLink);
-                    skip += pageResults.Count > 0 ? pageResults.Count : 20;
-                    hasMore = true;
-                }
-                else
-                {
-                    _logger.LogInformation("No nextLink found, pagination complete");
-                    hasMore = false;
-                }
-
-                // Safety check
-                if (pageResults.Count == 0)
-                {
-                    _logger.LogInformation("Empty page received, stopping pagination");
-                    hasMore = false;
-                }
+                await FetchPackagingMaterialStockBucketAsync(prefix, result, currentSession, cancellationToken);
             }
 
-            _logger.LogInformation("Total packaging material stock items retrieved: {Count}", result.Count);
+            _logger.LogInformation("Total packaging material stock rows retrieved: {Count}", result.Count);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to get packaging material stock for items");
         }
 
+        // The buckets return every code in each family, so drop the surplus. Ordinal, matching the
+        // case-sensitive Distinct above and how SAP compared the codes when they were listed.
+        var requested = new HashSet<string>(codes, StringComparer.Ordinal);
+        foreach (var extra in result.Keys.Where(code => !requested.Contains(code)).ToList())
+        {
+            result.Remove(extra);
+        }
+
         return result;
+    }
+
+    /// <summary>
+    /// Reads one item-code family's packaging stock into <paramref name="result"/>.
+    /// </summary>
+    /// <remarks>
+    /// Scoped by the family rather than the caller's item list, so the SAP query object recurs
+    /// across requests instead of a new one being minted per distinct set — see
+    /// <see cref="SqlItemCodePrefixCover"/>. That means it returns a superset, and the caller drops
+    /// the codes it did not ask for.
+    /// </remarks>
+    private async Task FetchPackagingMaterialStockBucketAsync(
+        string prefix,
+        Dictionary<string, PackagingMaterialStockDto> result,
+        string? currentSession,
+        CancellationToken cancellationToken)
+    {
+        // Total packaging material stock across ALL warehouses. Packaging materials are often
+        // stored in different warehouses than the finished goods they belong to.
+        var sqlText = $@"SELECT
+            T0.""ItemCode"",
+            T0.""ItemName"",
+            SUM(T1.""OnHand"") as ""InStock"",
+            SUM(T1.""OnHand"") as ""Available"",
+            T0.""InvntryUom"" as ""UoM""
+        FROM OITM T0
+        INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
+        WHERE T0.""ItemCode"" LIKE '{SanitizeSqlValue(prefix)}%'
+        GROUP BY T0.""ItemCode"", T0.""ItemName"", T0.""InvntryUom""";
+
+        var queryCode = BuildContentAddressedQueryCode("PKG_STK", sqlText);
+
+        await EnsureSqlQueryAsync(queryCode, $"Packaging Material Stock {prefix}", sqlText, cancellationToken);
+
+        var skip = 0;
+        var hasMore = true;
+
+        while (hasMore)
+        {
+            var url = skip == 0
+                ? $"SQLQueries('{queryCode}')/List"
+                : $"SQLQueries('{queryCode}')/List?$skip={skip}";
+
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", "odata.maxpagesize=100");
+                return request;
+            }
+
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read packaging material stock for {prefix} from row {skip}",
+                cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
+
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"read packaging material stock for {prefix} from row {skip} after SAP re-authentication",
+                    cancellationToken);
+            }
+
+            using var responseOwner = response;
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("Failed to get packaging material stock: {Status} - {Content}", response.StatusCode, errorContent);
+                break;
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var pageResults = ParsePackagingMaterialStockFromSqlResult(content);
+
+            foreach (var kvp in pageResults)
+            {
+                result[kvp.Key] = kvp.Value;
+            }
+
+            using var doc = JsonDocument.Parse(content);
+            var hasNextLink = doc.RootElement.TryGetProperty("odata.nextLink", out var nextLinkProp) ||
+                              doc.RootElement.TryGetProperty("@odata.nextLink", out nextLinkProp);
+
+            if (hasNextLink)
+            {
+                skip += pageResults.Count > 0 ? pageResults.Count : 20;
+                hasMore = true;
+            }
+            else
+            {
+                hasMore = false;
+            }
+
+            // Safety check
+            if (pageResults.Count == 0)
+            {
+                hasMore = false;
+            }
+        }
     }
 
     private Dictionary<string, PackagingMaterialStockDto> ParsePackagingMaterialStockFromSqlResult(string jsonContent)
