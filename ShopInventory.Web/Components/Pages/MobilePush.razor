@@ -218,7 +218,14 @@
 
 @code {
     private readonly MobilePushForm form = new();
-    private readonly string[] roleOptions = ["Driver", "PodOperator", "Merchandiser", "SalesRep", "Manager", "Cashier", "StockController", "DepotController", "Admin", "User"];
+
+    // Every role an account can hold, from UserRoles.AllRoles rather than a list typed
+    // here. The list this replaced was missing the van sales roles — ADR and Sales — so
+    // the one group of users who are on a handset all day and nowhere near a screen
+    // could not be sent an alert at all, and the send reported success while reaching
+    // nobody. Lab, MerchandiserPurchaseOrderViewer and the legacy Operator were missing
+    // with them.
+    private static readonly IReadOnlyList<string> roleOptions = UserRoles.AllRoles;
     private bool isSending;
     private bool isSendingTest;
     private string? statusMessage;
