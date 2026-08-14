@@ -3761,8 +3761,6 @@ ORDER BY T0.""ItemCode""";
         string warehouseCode,
         CancellationToken cancellationToken = default)
     {
-        // Sorted so a given set of items maps to one SAP query object however the caller listed
-        // them — see GetStockQuantitiesForItemsInWarehouseAsync.
         var codes = itemCodes
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -3777,20 +3775,32 @@ ORDER BY T0.""ItemCode""";
         await EnsureAuthenticatedAsync(cancellationToken);
 
         var safeWarehouse = SanitizeSqlValue(warehouseCode);
-        var safeItemCodes = string.Join(", ", codes.Select(code => $"'{SanitizeSqlValue(code)}'"));
-        var sqlText = $@"SELECT T0.""ItemCode"", T2.""ItemName"", T0.""DistNumber"" as ""BatchNum"", T1.""Quantity"" as ""InStock"", T1.""WhsCode"",
+
+        // Scoped by warehouse and item-code family rather than by the requested set, which used to
+        // go into the SQL text and mint a permanent OUQR row per distinct set — see
+        // SqlItemCodePrefixCover. Each bucket returns every batch in the family, filtered below.
+        var batches = new List<BatchNumber>();
+        foreach (var prefix in SqlItemCodePrefixCover.Cover(codes))
+        {
+            var sqlText = $@"SELECT T0.""ItemCode"", T2.""ItemName"", T0.""DistNumber"" as ""BatchNum"", T1.""Quantity"" as ""InStock"", T1.""WhsCode"",
 T0.""ExpDate"", T0.""MnfDate"", T0.""InDate"", T0.""Notes""
 FROM OBTN T0 INNER JOIN OBTQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
 INNER JOIN OITM T2 ON T0.""ItemCode"" = T2.""ItemCode""
-WHERE T1.""WhsCode"" = '{safeWarehouse}' AND T1.""Quantity"" > 0 AND T0.""ItemCode"" IN ({safeItemCodes})
+WHERE T1.""WhsCode"" = '{safeWarehouse}' AND T1.""Quantity"" > 0 AND T0.""ItemCode"" LIKE '{SanitizeSqlValue(prefix)}%'
 ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
-        var queryCode = BuildContentAddressedQueryCode(
-            $"WHS_BATCHES_{warehouseCode.Replace("-", "_").Replace("/", "_").ToUpperInvariant()}",
-            sqlText);
+            var queryCode = BuildContentAddressedQueryCode(
+                $"WHS_BATCHES_{warehouseCode.Replace("-", "_").Replace("/", "_").ToUpperInvariant()}",
+                sqlText);
 
-        await EnsureSqlQueryAsync(queryCode, $"Batches for {warehouseCode} page items", sqlText, cancellationToken);
-        return await ExecuteBatchQueryAsync(queryCode, warehouseCode, cancellationToken);
+            await EnsureSqlQueryAsync(queryCode, $"Batches for {warehouseCode} items {prefix}", sqlText, cancellationToken);
+            batches.AddRange(await ExecuteBatchQueryAsync(queryCode, warehouseCode, cancellationToken));
+        }
+
+        var requested = new HashSet<string>(codes, StringComparer.OrdinalIgnoreCase);
+        return batches
+            .Where(batch => !string.IsNullOrWhiteSpace(batch.ItemCode) && requested.Contains(batch.ItemCode))
+            .ToList();
     }
 
     private async Task<List<BatchNumber>> GetBatchNumbersForItemFallbackAsync(
@@ -7455,11 +7465,6 @@ ORDER BY T0.""ItemCode""";
         IEnumerable<string> itemCodes,
         CancellationToken cancellationToken = default)
     {
-        // Sorted as well as deduplicated: the codes go into the SQL text and the SAP query object
-        // is keyed on a hash of that text, so {A,B} and {B,A} would otherwise be two permanent
-        // objects answering one question. Ordering canonically means a given set of items maps to
-        // a single object however the caller happened to list them. GetItemsByCodesAsync already
-        // does this for the same reason.
         var codes = itemCodes
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -7473,39 +7478,50 @@ ORDER BY T0.""ItemCode""";
 
         await EnsureAuthenticatedAsync(cancellationToken);
 
-        var stocks = new List<StockQuantityDto>();
-        foreach (var batch in codes.Chunk(100))
-        {
-            var safeWarehouse = SanitizeSqlValue(warehouseCode);
-            var safeItemCodes = string.Join(", ", batch.Select(code => $"'{SanitizeSqlValue(code)}'"));
+        var safeWarehouse = SanitizeSqlValue(warehouseCode);
 
-            var customFieldsSql = _settings.UseCustomFields
-                ? @",
+        var customFieldsSql = _settings.UseCustomFields
+            ? @",
             T0.""U_PackagingCode"" as ""PackagingCode"",
             T0.""U_PackagingCodeLabels"" as ""PackagingCodeLabels"",
             T0.""U_PackagingCodeLids"" as ""PackagingCodeLids"""
-                : "";
+            : "";
 
-            var sqlText = $@"SELECT 
-            T0.""ItemCode"", 
-            T0.""ItemName"", 
+        // Scoped by warehouse and item-code family rather than by the requested set. The codes used
+        // to go into the SQL text, and a SAP query object is keyed on a hash of that text and
+        // cannot be deleted, so every distinct set left a permanent OUQR row behind — and the sets
+        // shift with stock, so it never converged. One object per warehouse × family instead, which
+        // recurs; see SqlItemCodePrefixCover. Each bucket returns a superset, filtered below.
+        var stocks = new List<StockQuantityDto>();
+        foreach (var prefix in SqlItemCodePrefixCover.Cover(codes))
+        {
+            var sqlText = $@"SELECT
+            T0.""ItemCode"",
+            T0.""ItemName"",
             T0.""CodeBars"" as ""BarCode"",
             T1.""WhsCode"" as ""WarehouseCode"",
             T1.""OnHand"" as ""InStock"",
             T1.""IsCommited"" as ""Committed"",
             T1.""OnOrder"" as ""Ordered"",
             T0.""InvntryUom"" as ""UoM""{customFieldsSql}
-        FROM OITM T0 
+        FROM OITM T0
         INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
         WHERE T1.""WhsCode"" = '{safeWarehouse}'
-          AND T0.""ItemCode"" IN ({safeItemCodes})
+          AND T0.""ItemCode"" LIKE '{SanitizeSqlValue(prefix)}%'
         ORDER BY T0.""ItemCode""";
 
             var queryCode = BuildContentAddressedQueryCode("STK_ITEMS", sqlText);
 
-            await EnsureSqlQueryAsync(queryCode, $"Stock validation items in {warehouseCode}", sqlText, cancellationToken);
+            await EnsureSqlQueryAsync(queryCode, $"Stock validation items {prefix} in {warehouseCode}", sqlText, cancellationToken);
             stocks.AddRange(await ExecuteStockQueryAsync(queryCode, warehouseCode, cancellationToken));
         }
+
+        // Drop the codes the buckets returned that nobody asked for. Case-insensitive, matching the
+        // Distinct above.
+        var requested = new HashSet<string>(codes, StringComparer.OrdinalIgnoreCase);
+        stocks = stocks
+            .Where(stock => !string.IsNullOrWhiteSpace(stock.ItemCode) && requested.Contains(stock.ItemCode))
+            .ToList();
 
         _logger.LogInformation("Retrieved stock quantities for {ItemCount} requested items in warehouse {Warehouse}, matched {MatchedCount}",
             codes.Count, warehouseCode, stocks.Count);
@@ -10190,25 +10206,27 @@ ORDER BY T1."ItemCode"
             .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        var safeWarehouse = SanitizeSqlValue(warehouseCode);
+
+        // Scoped by warehouse and item-code family rather than by the requested set. Chunking the
+        // codes into the SQL text minted a permanent OUQR row per distinct chunk, and the chunks
+        // shift with the transfer's lines, so it never converged — see SqlItemCodePrefixCover. Each
+        // bucket returns every serial in the family, filtered below.
         var serials = new List<SerialNumber>();
-        foreach (var chunk in codes.Chunk(100))
+        foreach (var prefix in SqlItemCodePrefixCover.Cover(codes))
         {
-            var safeItemCodes = string.Join(
-                ", ",
-                chunk.Select(code => $"'{SanitizeSqlValue(code)}'"));
-            var safeWarehouse = SanitizeSqlValue(warehouseCode);
             var sqlText = $@"SELECT T0.""ItemCode"", T0.""DistNumber"", T1.""Quantity"", T1.""WhsCode"",
 T0.""AbsEntry"" as ""SystemNumber"", T0.""IntrSerial"" as ""InternalSerialNumber"",
 T0.""MnfSerial"" as ""ManufacturerSerialNumber""
 FROM OSRN T0 INNER JOIN OSRQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
-WHERE T0.""ItemCode"" IN ({safeItemCodes})
+WHERE T0.""ItemCode"" LIKE '{SanitizeSqlValue(prefix)}%'
   AND T1.""WhsCode"" = '{safeWarehouse}'
   AND T1.""Quantity"" > 0
 ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             var rows = await ExecuteScopedRawSqlQueryAsync(
                 "TRF_SERIALS",
-                $"Transfer serials in {warehouseCode}",
+                $"Transfer serials {prefix} in {warehouseCode}",
                 sqlText,
                 cancellationToken);
 
@@ -10227,7 +10245,10 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             }
         }
 
-        return serials;
+        var requested = new HashSet<string>(codes, StringComparer.OrdinalIgnoreCase);
+        return serials
+            .Where(serial => !string.IsNullOrWhiteSpace(serial.ItemCode) && requested.Contains(serial.ItemCode))
+            .ToList();
     }
 
     private static string? GetSapSqlString(
