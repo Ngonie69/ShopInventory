@@ -182,6 +182,27 @@ public class UserManagementService : IUserManagementService
             return ServiceResult<UserDetailDto>.Failure($"An assigned section is required for {request.Role} role");
         }
 
+        // Van sales assignments. The request carries all three, so they are validated and stored
+        // here as well rather than the role being refused — an ADR or Sales account without them
+        // has no route-customer scope and no depot to draw its stock from.
+        if (ApplicationRoles.RequiresAssignedBusinessPartnerCode(request.Role) &&
+            string.IsNullOrWhiteSpace(request.AssignedBusinessPartnerCode))
+        {
+            return ServiceResult<UserDetailDto>.Failure($"An assigned business partner code is required for {request.Role} role");
+        }
+
+        if (ApplicationRoles.RequiresAssignedCostCentreCode(request.Role) &&
+            string.IsNullOrWhiteSpace(request.AssignedCostCentreCode))
+        {
+            return ServiceResult<UserDetailDto>.Failure($"An assigned cost centre code is required for {request.Role} role");
+        }
+
+        if (ApplicationRoles.RequiresSupplyingWarehouseCode(request.Role) &&
+            string.IsNullOrWhiteSpace(request.SupplyingWarehouseCode))
+        {
+            return ServiceResult<UserDetailDto>.Failure($"A supplying warehouse code is required for {request.Role} role");
+        }
+
         // Determine permissions
         List<string> permissions;
         if (request.Permissions != null && request.Permissions.Count > 0)
@@ -225,6 +246,21 @@ public class UserManagementService : IUserManagementService
 
         if (ApplicationRoles.RequiresAssignedSection(request.Role))
             user.AssignedSection = request.AssignedSection;
+
+        if (ApplicationRoles.RequiresAssignedBusinessPartnerCode(request.Role))
+        {
+            user.AssignedBusinessPartnerCode = request.AssignedBusinessPartnerCode?.Trim();
+            user.AssignedCostCentreCode = request.AssignedCostCentreCode?.Trim();
+        }
+
+        if (ApplicationRoles.RequiresSupplyingWarehouseCode(request.Role))
+        {
+            user.SupplyingWarehouseCode = request.SupplyingWarehouseCode?.Trim();
+
+            // Optional, so only a positive id is taken — an unset picker posts 0, which would be a
+            // foreign key to nothing.
+            user.RouteId = request.RouteId is > 0 ? request.RouteId : null;
+        }
 
         _context.Users.Add(user);
         await _context.SaveChangesAsync();

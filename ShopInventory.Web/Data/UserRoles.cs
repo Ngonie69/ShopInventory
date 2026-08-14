@@ -164,6 +164,40 @@ public static class UserRoles
     ];
 
     /// <summary>
+    /// The roles an administrator may put on a <em>new</em> account — a strict subset of
+    /// <see cref="AllRoles"/>, which is every role an account can be found holding.
+    /// </summary>
+    /// <remarks>
+    /// The two lists answer different questions and must not be conflated. Addressing existing
+    /// users by role needs <see cref="AllRoles"/>, or the legacy names are unreachable; offering a
+    /// role in the create form needs this one, or the API refuses the account. Operator, User and
+    /// ReadOnly are the difference: still held, no longer handed out.
+    ///
+    /// The API owns this list — <c>ApplicationRoles.AssignableRoles</c>, served from
+    /// <c>GET /api/user/roles</c> — and the user management page reads it from there, so this copy
+    /// is only the fallback for when that call fails; without one a failed lookup would leave the
+    /// role picker empty and no account could be created at all. This project takes no reference on
+    /// the API project, so the two cannot share the array; <c>UserRoleCatalogueTests</c> pins them
+    /// equal instead, which is what keeps the fallback honest.
+    /// </remarks>
+    public static IReadOnlyList<string> AssignableRoles =>
+    [
+        Admin,
+        Manager,
+        Cashier,
+        StockController,
+        DepotController,
+        PodOperator,
+        Driver,
+        Merchandiser,
+        SalesRep,
+        MerchandiserPurchaseOrderViewer,
+        Lab,
+        Adr,
+        Sales
+    ];
+
+    /// <summary>
     /// Whether <paramref name="user"/> may read a report across every customer.
     /// </summary>
     /// <remarks>
