@@ -101,9 +101,26 @@ public static class UserRoles
     public const string MerchandiserAccountManagementRoles = "Admin,SalesRep";
 
     /// <summary>
-    /// Get all available roles
+    /// Van sales rep. Named ADR on the account for historical reasons.
     /// </summary>
-    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager, PodOperator, Driver, Merchandiser, SalesRep, MerchandiserPurchaseOrderViewer, Lab };
+    public const string Adr = "ADR";
+
+    /// <summary>
+    /// Van sales, the wider-permission half of the pair with <see cref="Adr"/>.
+    /// </summary>
+    public const string Sales = "Sales";
+
+    /// <summary>
+    /// Every role an administrator may put on a new account.
+    ///
+    /// The API owns this list — <c>ApplicationRoles.AssignableRoles</c>, served from
+    /// <c>GET /api/user/roles</c> — and the user management page reads it from there, so this copy
+    /// is only the fallback for when that call fails; without one a failed lookup would leave the
+    /// role picker empty and no account could be created at all. This project takes no reference on
+    /// the API project, so the two cannot share the array; <c>UserRoleCatalogueTests</c> pins them
+    /// equal instead, which is what keeps the fallback honest.
+    /// </summary>
+    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager, PodOperator, Driver, Merchandiser, SalesRep, MerchandiserPurchaseOrderViewer, Lab, Adr, Sales };
 
     /// <summary>
     /// Whether <paramref name="user"/> may read a report across every customer.

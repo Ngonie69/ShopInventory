@@ -63,6 +63,16 @@ public sealed class CreateUserHandler(
             return Errors.User.CreationFailed($"An assigned section is required for {request.Role} role");
         }
 
+        // A van account is only complete with a business partner, a cost centre and a supplying
+        // warehouse on it, and CreateUserRequest carries none of the three. Accepting the role
+        // here would open a van rep with no route-customer scope and no depot to draw stock from,
+        // which fails later and silently, so refuse and name the path that does take the full form.
+        if (ApplicationRoles.UsesLegacyRouteCustomerScope(request.Role))
+        {
+            return Errors.User.CreationFailed(
+                $"{request.Role} accounts need van sales assignments this endpoint cannot set. Create them through /api/usermanagement.");
+        }
+
         var user = new User
         {
             Id = Guid.NewGuid(),

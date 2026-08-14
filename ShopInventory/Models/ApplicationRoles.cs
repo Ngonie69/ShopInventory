@@ -27,6 +27,13 @@ public static class ApplicationRoles
 
     // Exposed for normal user creation flows. Operator remains runtime-supported but is not
     // surfaced from the standard user-role catalog until its management UX is normalized.
+    //
+    // ADR and Sales are declared above as legacy because of the scope mechanism they use — the
+    // route-customer scope, see UsesLegacyRouteCustomerScope — not because the roles are closed.
+    // Van sales is a live, actively developed workflow and new vans need accounts, so both are
+    // assignable. Only the /api/usermanagement create path can take a complete one: it is the
+    // only request shape carrying the business partner, cost centre and supplying warehouse a
+    // van account needs, and the other create paths reject these two roles for that reason.
     public static readonly string[] AssignableRoles =
     [
         Admin,
@@ -39,7 +46,9 @@ public static class ApplicationRoles
         Merchandiser,
         SalesRep,
         MerchandiserPurchaseOrderViewer,
-        Lab
+        Lab,
+        Adr,
+        Sales
     ];
 
     // Roles that can continue to exist on managed users during compatibility cleanup.

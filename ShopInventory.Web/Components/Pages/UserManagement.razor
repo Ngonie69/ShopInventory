@@ -909,9 +909,12 @@
     private string activeTab = "users";
     private string currentUserRole = string.Empty;
 
-    private static readonly List<string> AdminAvailableRoles = new() { "Admin", "Cashier", "StockController",
-"DepotController", "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab", "ADR",
-"Sales" };
+    // The API decides which roles may be assigned and serves them from /api/user/roles; this page
+    // asks it rather than holding a second list, because the two drifted — the page offered ADR and
+    // Sales, which the API then refused to create, and never offered Manager, which it accepts.
+    // UserRoles.AllRoles is only the fallback for a failed lookup, and is pinned equal to the API's
+    // list by UserRoleCatalogueTests.
+    private static readonly List<string> AdminAvailableRoles = UserRoles.AllRoles.ToList();
     private static readonly List<string> PodOperatorAvailableRoles = new() { "Driver" };
     private List<string> availableRoles = new(AdminAvailableRoles);
     private List<string> availableSections = AssignedSectionOptions.All.ToList();
@@ -1083,6 +1086,7 @@ List<string>(AdminAvailableRoles);
             {
                 _ = InvokeAsync(async () =>
                 {
+                    await LoadAssignableRoles();
                     await LoadPermissions();
                     await LoadSecurityStats();
                     await LoadWarehouses();
@@ -1092,6 +1096,28 @@ List<string>(AdminAvailableRoles);
                     StateHasChanged();
                 });
             }
+        }
+    }
+
+    /// <summary>
+    /// The roles this page may offer, taken from the API so the picker cannot offer one the create
+    /// endpoint would refuse. Only the admin view asks: /api/user/roles is AdminOnly, and a POD
+    /// operator is held to Driver regardless. On failure the fallback already in
+    /// <c>availableRoles</c> stands, so the picker is never empty.
+    /// </summary>
+    private async Task LoadAssignableRoles()
+    {
+        try
+        {
+            var roles = await UserService.GetRolesAsync();
+            if (roles.Count > 0)
+            {
+                availableRoles = roles;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load assignable roles: {ex.Message}");
         }
     }
 
