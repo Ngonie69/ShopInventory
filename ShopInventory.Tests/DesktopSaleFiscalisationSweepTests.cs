@@ -103,7 +103,10 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
         });
 
         var fiscaliser = new DesktopSaleFiscaliser(
-            fiscalisation, notifications, NullLogger<DesktopSaleFiscaliser>.Instance);
+            fiscalisation,
+            notifications,
+            Options.Create(new TaxSettings()),
+            NullLogger<DesktopSaleFiscaliser>.Instance);
 
         return new DesktopSaleFiscalisationSweep(
             _context,

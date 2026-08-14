@@ -135,8 +135,6 @@ public sealed class CreateDesktopSaleHandler(
                 ? DateTime.Parse(req.DocDate).Date
                 : today;
 
-            var vatRate = taxSettings.Value.VatRate;
-
             // Acquire per-item/warehouse locks to serialize concurrent sales affecting the same stock
             var lockRequests = req.Lines
                 .Select(l => new InventoryLockRequest
@@ -164,7 +162,7 @@ public sealed class CreateDesktopSaleHandler(
             {
                 // Validate + deduct inside the lock with retry on concurrency conflict
                 var result = await ValidateDeductAndCreateSaleAsync(
-                    req, externalRef, today, docDate, vatRate, account, vendor, cancellationToken);
+                    req, externalRef, today, docDate, account, vendor, cancellationToken);
 
                 if (!result.IsError && idempotencyRequestId.HasValue)
                 {
@@ -303,7 +301,6 @@ public sealed class CreateDesktopSaleHandler(
         string externalRef,
         DateTime snapshotDate,
         DateTime docDate,
-        decimal vatRate,
         SellingAccountAssignments account,
         RouteCustomerEntity? vendor,
         CancellationToken ct)
@@ -337,6 +334,8 @@ public sealed class CreateDesktopSaleHandler(
             }
         }
 
+        var tax = taxSettings.Value;
+
         // Calculate totals
         var lines = req.Lines.Select((l, idx) =>
         {
@@ -352,13 +351,20 @@ public sealed class CreateDesktopSaleHandler(
                 LineTotal = lineTotal,
                 WarehouseCode = l.WarehouseCode,
                 TaxCode = l.TaxCode,
+                // Recorded on the line, not just implied by the total, so the basket can be explained
+                // afterwards and the receipt can be rebuilt without re-deriving it.
+                TaxPercent = tax.RateFor(l.TaxCode) * 100m,
                 DiscountPercent = l.DiscountPercent,
                 UoMCode = l.UoMCode
             };
         }).ToList();
 
         var subtotal = lines.Sum(l => l.LineTotal);
-        var vatAmount = Math.Round(subtotal * (decimal)vatRate, 2);
+
+        // Per line, at its own code's rate. A flat rate across the basket charges VAT on zero-rated
+        // and exempt goods — the customer is overcharged, and the receipt declared to ZIMRA says
+        // something the basket does not.
+        var vatAmount = lines.Sum(l => tax.VatOn(l.LineTotal, l.TaxCode));
         var totalAmount = subtotal + vatAmount;
 
         // Create the sale entity

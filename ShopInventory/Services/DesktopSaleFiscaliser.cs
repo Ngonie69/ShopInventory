@@ -1,5 +1,7 @@
 using System.Globalization;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Notifications;
 using ShopInventory.Models.Entities;
@@ -21,6 +23,7 @@ namespace ShopInventory.Services;
 public sealed class DesktopSaleFiscaliser(
     IFiscalizationService fiscalizationService,
     INotificationService notificationService,
+    IOptions<TaxSettings> tax,
     ILogger<DesktopSaleFiscaliser> logger)
 {
     /// <summary>
@@ -74,16 +77,31 @@ public sealed class DesktopSaleFiscaliser(
                 VatSum = sale.VatAmount,
                 DocCurrency = sale.Currency,
                 Comments = sale.Comments,
-                Lines = sale.Lines.Select(l => new InvoiceLineDto
+                Lines = sale.Lines.Select(l =>
                 {
-                    LineNum = l.LineNum,
-                    ItemCode = l.ItemCode,
-                    ItemDescription = l.ItemDescription,
-                    Quantity = l.Quantity,
-                    UnitPrice = l.UnitPrice,
-                    LineTotal = l.LineTotal,
-                    WarehouseCode = l.WarehouseCode,
-                    DiscountPercent = l.DiscountPercent
+                    // The receipt is submitted TaxInclusive, and the platform reads GrossPrice in
+                    // preference to UnitPrice. A sale's UnitPrice is net and carries a separate
+                    // discount, so sending it raw declared a price that was neither discounted nor
+                    // taxed: the customer's VAT was understated on every receipt, and a discounted
+                    // line was declared at its undiscounted price.
+                    var effectivePrice = l.UnitPrice * (1 - l.DiscountPercent / 100m);
+                    var rate = tax.Value.RateFor(l.TaxCode);
+
+                    return new InvoiceLineDto
+                    {
+                        LineNum = l.LineNum,
+                        ItemCode = l.ItemCode,
+                        ItemDescription = l.ItemDescription,
+                        Quantity = l.Quantity,
+                        UnitPrice = l.UnitPrice,
+                        GrossPrice = Math.Round(effectivePrice * (1 + rate), 2, MidpointRounding.AwayFromZero),
+                        LineTotal = l.LineTotal,
+                        WarehouseCode = l.WarehouseCode,
+                        // Without this every line fell through to the standard-rated default tax id,
+                        // so a zero-rated item was declared to ZIMRA as standard-rated.
+                        TaxCode = l.TaxCode,
+                        DiscountPercent = l.DiscountPercent
+                    };
                 }).ToList()
             };
 
