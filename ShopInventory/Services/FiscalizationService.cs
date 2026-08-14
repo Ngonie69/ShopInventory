@@ -335,7 +335,15 @@ public class FiscalizationService : IFiscalizationService
             // Cash is the fallback for a caller that captured none — historically every caller, which
             // is why this was a constant.
             PaymentType = paymentType ?? MoneyType.Cash,
-            PaymentAmount = lines.Sum(line => RoundCurrency(line.Price * line.Quantity)),
+            // The amount actually taken, when the caller knows it. Re-deriving it from the line prices
+            // declares a different number: a line price is per unit and rounded to the cent, while the
+            // sale rounds tax once over the whole line, so multiplying the rounded unit price back out
+            // drifts by up to half a cent per unit — 100 x $1.99 is charged $229.85 and would be
+            // declared $230.00. The customer paid one specific amount and that is what the receipt has
+            // to say; the per-line breakdown stays in cents, as a printed receipt must.
+            PaymentAmount = invoice.DocTotal > 0m
+                ? RoundCurrency(invoice.DocTotal)
+                : lines.Sum(line => RoundCurrency(line.Price * line.Quantity)),
             Lines = lines,
             Buyer = MapBuyer(customerDetails),
             ReceiptNotes = invoice.Comments,

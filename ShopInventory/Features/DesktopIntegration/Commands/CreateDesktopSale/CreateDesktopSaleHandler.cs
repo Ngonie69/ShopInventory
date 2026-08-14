@@ -340,7 +340,14 @@ public sealed class CreateDesktopSaleHandler(
         var lines = req.Lines.Select((l, idx) =>
         {
             var effectivePrice = l.UnitPrice * (1 - l.DiscountPercent / 100m);
-            var lineTotal = l.Quantity * effectivePrice;
+
+            // Rounded to money here, not left as a raw product. A fractional quantity — anything
+            // weighed — or a discount that does not divide gives a line total with sub-cent digits,
+            // and the customer cannot pay those: 1.234 kg at $3.45 came to $4.9173. The column is
+            // decimal(18,2), so the database silently rounded it anyway, leaving the total the till
+            // was told and the total that was stored two different numbers, with the VAT worked out
+            // on a base neither of them kept.
+            var lineTotal = Math.Round(l.Quantity * effectivePrice, 2, MidpointRounding.AwayFromZero);
             return new DesktopSaleLineEntity
             {
                 LineNum = l.LineNum > 0 ? l.LineNum : idx + 1,
