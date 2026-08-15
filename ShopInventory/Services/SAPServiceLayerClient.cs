@@ -3765,8 +3765,6 @@ ORDER BY T0.""ItemCode""";
         string warehouseCode,
         CancellationToken cancellationToken = default)
     {
-        // Sorted so a given set of items maps to one SAP query object however the caller listed
-        // them — see GetStockQuantitiesForItemsInWarehouseAsync.
         var codes = itemCodes
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -3781,20 +3779,32 @@ ORDER BY T0.""ItemCode""";
         await EnsureAuthenticatedAsync(cancellationToken);
 
         var safeWarehouse = SanitizeSqlValue(warehouseCode);
-        var safeItemCodes = string.Join(", ", codes.Select(code => $"'{SanitizeSqlValue(code)}'"));
-        var sqlText = $@"SELECT T0.""ItemCode"", T2.""ItemName"", T0.""DistNumber"" as ""BatchNum"", T1.""Quantity"" as ""InStock"", T1.""WhsCode"",
+
+        // Scoped by warehouse and item-code family rather than by the requested set, which used to
+        // go into the SQL text and mint a permanent OUQR row per distinct set — see
+        // SqlItemCodePrefixCover. Each bucket returns every batch in the family, filtered below.
+        var batches = new List<BatchNumber>();
+        foreach (var prefix in SqlItemCodePrefixCover.Cover(codes))
+        {
+            var sqlText = $@"SELECT T0.""ItemCode"", T2.""ItemName"", T0.""DistNumber"" as ""BatchNum"", T1.""Quantity"" as ""InStock"", T1.""WhsCode"",
 T0.""ExpDate"", T0.""MnfDate"", T0.""InDate"", T0.""Notes""
 FROM OBTN T0 INNER JOIN OBTQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
 INNER JOIN OITM T2 ON T0.""ItemCode"" = T2.""ItemCode""
-WHERE T1.""WhsCode"" = '{safeWarehouse}' AND T1.""Quantity"" > 0 AND T0.""ItemCode"" IN ({safeItemCodes})
+WHERE T1.""WhsCode"" = '{safeWarehouse}' AND T1.""Quantity"" > 0 AND T0.""ItemCode"" LIKE '{SanitizeSqlValue(prefix)}%'
 ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
-        var queryCode = BuildContentAddressedQueryCode(
-            $"WHS_BATCHES_{warehouseCode.Replace("-", "_").Replace("/", "_").ToUpperInvariant()}",
-            sqlText);
+            var queryCode = BuildContentAddressedQueryCode(
+                $"WHS_BATCHES_{warehouseCode.Replace("-", "_").Replace("/", "_").ToUpperInvariant()}",
+                sqlText);
 
-        await EnsureSqlQueryAsync(queryCode, $"Batches for {warehouseCode} page items", sqlText, cancellationToken);
-        return await ExecuteBatchQueryAsync(queryCode, warehouseCode, cancellationToken);
+            await EnsureSqlQueryAsync(queryCode, $"Batches for {warehouseCode} items {prefix}", sqlText, cancellationToken);
+            batches.AddRange(await ExecuteBatchQueryAsync(queryCode, warehouseCode, cancellationToken));
+        }
+
+        var requested = new HashSet<string>(codes, StringComparer.OrdinalIgnoreCase);
+        return batches
+            .Where(batch => !string.IsNullOrWhiteSpace(batch.ItemCode) && requested.Contains(batch.ItemCode))
+            .ToList();
     }
 
     private async Task<List<BatchNumber>> GetBatchNumbersForItemFallbackAsync(
@@ -7459,11 +7469,6 @@ ORDER BY T0.""ItemCode""";
         IEnumerable<string> itemCodes,
         CancellationToken cancellationToken = default)
     {
-        // Sorted as well as deduplicated: the codes go into the SQL text and the SAP query object
-        // is keyed on a hash of that text, so {A,B} and {B,A} would otherwise be two permanent
-        // objects answering one question. Ordering canonically means a given set of items maps to
-        // a single object however the caller happened to list them. GetItemsByCodesAsync already
-        // does this for the same reason.
         var codes = itemCodes
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -7477,39 +7482,50 @@ ORDER BY T0.""ItemCode""";
 
         await EnsureAuthenticatedAsync(cancellationToken);
 
-        var stocks = new List<StockQuantityDto>();
-        foreach (var batch in codes.Chunk(100))
-        {
-            var safeWarehouse = SanitizeSqlValue(warehouseCode);
-            var safeItemCodes = string.Join(", ", batch.Select(code => $"'{SanitizeSqlValue(code)}'"));
+        var safeWarehouse = SanitizeSqlValue(warehouseCode);
 
-            var customFieldsSql = _settings.UseCustomFields
-                ? @",
+        var customFieldsSql = _settings.UseCustomFields
+            ? @",
             T0.""U_PackagingCode"" as ""PackagingCode"",
             T0.""U_PackagingCodeLabels"" as ""PackagingCodeLabels"",
             T0.""U_PackagingCodeLids"" as ""PackagingCodeLids"""
-                : "";
+            : "";
 
-            var sqlText = $@"SELECT 
-            T0.""ItemCode"", 
-            T0.""ItemName"", 
+        // Scoped by warehouse and item-code family rather than by the requested set. The codes used
+        // to go into the SQL text, and a SAP query object is keyed on a hash of that text and
+        // cannot be deleted, so every distinct set left a permanent OUQR row behind — and the sets
+        // shift with stock, so it never converged. One object per warehouse × family instead, which
+        // recurs; see SqlItemCodePrefixCover. Each bucket returns a superset, filtered below.
+        var stocks = new List<StockQuantityDto>();
+        foreach (var prefix in SqlItemCodePrefixCover.Cover(codes))
+        {
+            var sqlText = $@"SELECT
+            T0.""ItemCode"",
+            T0.""ItemName"",
             T0.""CodeBars"" as ""BarCode"",
             T1.""WhsCode"" as ""WarehouseCode"",
             T1.""OnHand"" as ""InStock"",
             T1.""IsCommited"" as ""Committed"",
             T1.""OnOrder"" as ""Ordered"",
             T0.""InvntryUom"" as ""UoM""{customFieldsSql}
-        FROM OITM T0 
+        FROM OITM T0
         INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
         WHERE T1.""WhsCode"" = '{safeWarehouse}'
-          AND T0.""ItemCode"" IN ({safeItemCodes})
+          AND T0.""ItemCode"" LIKE '{SanitizeSqlValue(prefix)}%'
         ORDER BY T0.""ItemCode""";
 
             var queryCode = BuildContentAddressedQueryCode("STK_ITEMS", sqlText);
 
-            await EnsureSqlQueryAsync(queryCode, $"Stock validation items in {warehouseCode}", sqlText, cancellationToken);
+            await EnsureSqlQueryAsync(queryCode, $"Stock validation items {prefix} in {warehouseCode}", sqlText, cancellationToken);
             stocks.AddRange(await ExecuteStockQueryAsync(queryCode, warehouseCode, cancellationToken));
         }
+
+        // Drop the codes the buckets returned that nobody asked for. Case-insensitive, matching the
+        // Distinct above.
+        var requested = new HashSet<string>(codes, StringComparer.OrdinalIgnoreCase);
+        stocks = stocks
+            .Where(stock => !string.IsNullOrWhiteSpace(stock.ItemCode) && requested.Contains(stock.ItemCode))
+            .ToList();
 
         _logger.LogInformation("Retrieved stock quantities for {ItemCount} requested items in warehouse {Warehouse}, matched {MatchedCount}",
             codes.Count, warehouseCode, stocks.Count);
@@ -8330,127 +8346,150 @@ ORDER BY T0.""ItemCode""";
 
         var currentSession = _sessionId;
 
-        // Build IN clause for item codes - sanitize each code
-        var inClause = string.Join(",", codes.Select(c => $"'{SanitizeSqlValue(c)}'"));
+        // One query object per item-code family rather than one per requested set. Embedding the
+        // codes made the statement unique per request, and a SQLQueries object cannot be deleted,
+        // so every call left a permanent OUQR row behind — see SqlItemCodePrefixCover. The buckets
+        // fetch a superset, which is filtered back to the requested codes below.
+        var prefixes = SqlItemCodePrefixCover.Cover(codes);
 
-        // SQL query to get total packaging material stock across ALL warehouses
-        // This is important because packaging materials are often stored in different warehouses than finished goods
-        var sqlText = $@"SELECT 
-            T0.""ItemCode"", 
-            T0.""ItemName"", 
-            SUM(T1.""OnHand"") as ""InStock"",
-            SUM(T1.""OnHand"") as ""Available"",
-            T0.""InvntryUom"" as ""UoM""
-        FROM OITM T0 
-        INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
-        WHERE T0.""ItemCode"" IN ({inClause})
-        GROUP BY T0.""ItemCode"", T0.""ItemName"", T0.""InvntryUom""";
-
-        var queryCode = BuildContentAddressedQueryCode("PKG_STK", sqlText);
-
-        _logger.LogInformation("Fetching packaging material stock for {Count} items: {Items}", codes.Count, string.Join(", ", codes.Take(10)));
+        _logger.LogInformation(
+            "Fetching packaging material stock for {Count} items in {BucketCount} bucket(s): {Items}",
+            codes.Count,
+            prefixes.Count,
+            string.Join(", ", codes.Take(10)));
 
         try
         {
-            await EnsureSqlQueryAsync(queryCode, "Packaging Material Stock", sqlText, cancellationToken);
-
-            // Execute the query with pagination to get all results
-            var skip = 0;
-            bool hasMore = true;
-
-            _logger.LogInformation("Starting pagination for packaging material stock query...");
-
-            while (hasMore)
+            foreach (var prefix in prefixes)
             {
-                var url = skip == 0
-                    ? $"SQLQueries('{queryCode}')/List"
-                    : $"SQLQueries('{queryCode}')/List?$skip={skip}";
-
-                _logger.LogInformation("Fetching packaging stock page at skip={Skip}, url={Url}", skip, url);
-
-                HttpRequestMessage CreateRequest()
-                {
-                    var request = new HttpRequestMessage(HttpMethod.Get, url);
-                    request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                    request.Headers.Add("Prefer", "odata.maxpagesize=100");
-                    return request;
-                }
-
-                var response = await SendSapRequestWithTransientRetryAsync(
-                    _httpClient,
-                    CreateRequest,
-                    HttpCompletionOption.ResponseContentRead,
-                    $"read packaging material stock from row {skip}",
-                    cancellationToken);
-
-                if (response.StatusCode == HttpStatusCode.Unauthorized)
-                {
-                    await HandleAuthFailureAsync(currentSession, cancellationToken);
-                    response.Dispose();
-
-                    response = await SendSapRequestWithTransientRetryAsync(
-                        _httpClient,
-                        CreateRequest,
-                        HttpCompletionOption.ResponseContentRead,
-                        $"read packaging material stock from row {skip} after SAP re-authentication",
-                        cancellationToken);
-                }
-
-                using var responseOwner = response;
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                    _logger.LogWarning("Failed to get packaging material stock: {Status} - {Content}", response.StatusCode, errorContent);
-                    break;
-                }
-
-                var content = await response.Content.ReadAsStringAsync(cancellationToken);
-                var pageResults = ParsePackagingMaterialStockFromSqlResult(content);
-
-                foreach (var kvp in pageResults)
-                {
-                    result[kvp.Key] = kvp.Value;
-                }
-
-                _logger.LogInformation("Page at skip={Skip}: retrieved {PageCount} items, total so far: {Total}",
-                    skip, pageResults.Count, result.Count);
-
-                // Check for more pages using nextLink
-                using var doc = JsonDocument.Parse(content);
-                var hasNextLink = doc.RootElement.TryGetProperty("odata.nextLink", out var nextLinkProp) ||
-                                  doc.RootElement.TryGetProperty("@odata.nextLink", out nextLinkProp);
-
-                if (hasNextLink)
-                {
-                    var nextLink = nextLinkProp.GetString();
-                    _logger.LogInformation("NextLink found: {NextLink}", nextLink);
-                    skip += pageResults.Count > 0 ? pageResults.Count : 20;
-                    hasMore = true;
-                }
-                else
-                {
-                    _logger.LogInformation("No nextLink found, pagination complete");
-                    hasMore = false;
-                }
-
-                // Safety check
-                if (pageResults.Count == 0)
-                {
-                    _logger.LogInformation("Empty page received, stopping pagination");
-                    hasMore = false;
-                }
+                await FetchPackagingMaterialStockBucketAsync(prefix, result, currentSession, cancellationToken);
             }
 
-            _logger.LogInformation("Total packaging material stock items retrieved: {Count}", result.Count);
+            _logger.LogInformation("Total packaging material stock rows retrieved: {Count}", result.Count);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to get packaging material stock for items");
         }
 
+        // The buckets return every code in each family, so drop the surplus. Ordinal, matching the
+        // case-sensitive Distinct above and how SAP compared the codes when they were listed.
+        var requested = new HashSet<string>(codes, StringComparer.Ordinal);
+        foreach (var extra in result.Keys.Where(code => !requested.Contains(code)).ToList())
+        {
+            result.Remove(extra);
+        }
+
         return result;
+    }
+
+    /// <summary>
+    /// Reads one item-code family's packaging stock into <paramref name="result"/>.
+    /// </summary>
+    /// <remarks>
+    /// Scoped by the family rather than the caller's item list, so the SAP query object recurs
+    /// across requests instead of a new one being minted per distinct set — see
+    /// <see cref="SqlItemCodePrefixCover"/>. That means it returns a superset, and the caller drops
+    /// the codes it did not ask for.
+    /// </remarks>
+    private async Task FetchPackagingMaterialStockBucketAsync(
+        string prefix,
+        Dictionary<string, PackagingMaterialStockDto> result,
+        string? currentSession,
+        CancellationToken cancellationToken)
+    {
+        // Total packaging material stock across ALL warehouses. Packaging materials are often
+        // stored in different warehouses than the finished goods they belong to.
+        var sqlText = $@"SELECT
+            T0.""ItemCode"",
+            T0.""ItemName"",
+            SUM(T1.""OnHand"") as ""InStock"",
+            SUM(T1.""OnHand"") as ""Available"",
+            T0.""InvntryUom"" as ""UoM""
+        FROM OITM T0
+        INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
+        WHERE T0.""ItemCode"" LIKE '{SanitizeSqlValue(prefix)}%'
+        GROUP BY T0.""ItemCode"", T0.""ItemName"", T0.""InvntryUom""";
+
+        var queryCode = BuildContentAddressedQueryCode("PKG_STK", sqlText);
+
+        await EnsureSqlQueryAsync(queryCode, $"Packaging Material Stock {prefix}", sqlText, cancellationToken);
+
+        var skip = 0;
+        var hasMore = true;
+
+        while (hasMore)
+        {
+            var url = skip == 0
+                ? $"SQLQueries('{queryCode}')/List"
+                : $"SQLQueries('{queryCode}')/List?$skip={skip}";
+
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", "odata.maxpagesize=100");
+                return request;
+            }
+
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read packaging material stock for {prefix} from row {skip}",
+                cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
+
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"read packaging material stock for {prefix} from row {skip} after SAP re-authentication",
+                    cancellationToken);
+            }
+
+            using var responseOwner = response;
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("Failed to get packaging material stock: {Status} - {Content}", response.StatusCode, errorContent);
+                break;
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var pageResults = ParsePackagingMaterialStockFromSqlResult(content);
+
+            foreach (var kvp in pageResults)
+            {
+                result[kvp.Key] = kvp.Value;
+            }
+
+            using var doc = JsonDocument.Parse(content);
+            var hasNextLink = doc.RootElement.TryGetProperty("odata.nextLink", out var nextLinkProp) ||
+                              doc.RootElement.TryGetProperty("@odata.nextLink", out nextLinkProp);
+
+            if (hasNextLink)
+            {
+                skip += pageResults.Count > 0 ? pageResults.Count : 20;
+                hasMore = true;
+            }
+            else
+            {
+                hasMore = false;
+            }
+
+            // Safety check
+            if (pageResults.Count == 0)
+            {
+                hasMore = false;
+            }
+        }
     }
 
     private Dictionary<string, PackagingMaterialStockDto> ParsePackagingMaterialStockFromSqlResult(string jsonContent)
@@ -10171,25 +10210,27 @@ ORDER BY T1."ItemCode"
             .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        var safeWarehouse = SanitizeSqlValue(warehouseCode);
+
+        // Scoped by warehouse and item-code family rather than by the requested set. Chunking the
+        // codes into the SQL text minted a permanent OUQR row per distinct chunk, and the chunks
+        // shift with the transfer's lines, so it never converged — see SqlItemCodePrefixCover. Each
+        // bucket returns every serial in the family, filtered below.
         var serials = new List<SerialNumber>();
-        foreach (var chunk in codes.Chunk(100))
+        foreach (var prefix in SqlItemCodePrefixCover.Cover(codes))
         {
-            var safeItemCodes = string.Join(
-                ", ",
-                chunk.Select(code => $"'{SanitizeSqlValue(code)}'"));
-            var safeWarehouse = SanitizeSqlValue(warehouseCode);
             var sqlText = $@"SELECT T0.""ItemCode"", T0.""DistNumber"", T1.""Quantity"", T1.""WhsCode"",
 T0.""AbsEntry"" as ""SystemNumber"", T0.""IntrSerial"" as ""InternalSerialNumber"",
 T0.""MnfSerial"" as ""ManufacturerSerialNumber""
 FROM OSRN T0 INNER JOIN OSRQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
-WHERE T0.""ItemCode"" IN ({safeItemCodes})
+WHERE T0.""ItemCode"" LIKE '{SanitizeSqlValue(prefix)}%'
   AND T1.""WhsCode"" = '{safeWarehouse}'
   AND T1.""Quantity"" > 0
 ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             var rows = await ExecuteScopedRawSqlQueryAsync(
                 "TRF_SERIALS",
-                $"Transfer serials in {warehouseCode}",
+                $"Transfer serials {prefix} in {warehouseCode}",
                 sqlText,
                 cancellationToken);
 
@@ -10208,7 +10249,10 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             }
         }
 
-        return serials;
+        var requested = new HashSet<string>(codes, StringComparer.OrdinalIgnoreCase);
+        return serials
+            .Where(serial => !string.IsNullOrWhiteSpace(serial.ItemCode) && requested.Contains(serial.ItemCode))
+            .ToList();
     }
 
     private static string? GetSapSqlString(

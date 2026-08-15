@@ -25,6 +25,14 @@ public sealed class RegisterHandler(
             return Errors.Auth.InvalidRole(command.Role);
         }
 
+        // Register takes a username, an email and a password and nothing else, so it cannot carry
+        // the business partner, cost centre and supplying warehouse a van account is defined by.
+        // Those two roles are assignable, but only through /api/usermanagement.
+        if (ApplicationRoles.UsesLegacyRouteCustomerScope(command.Role))
+        {
+            return Errors.Auth.InvalidRole(command.Role);
+        }
+
         var user = await authService.RegisterUserAsync(
             command.Username,
             command.Email ?? string.Empty,

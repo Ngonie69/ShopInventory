@@ -33,6 +33,13 @@ public static class ApplicationRoles
 
     // Exposed for normal user creation flows. Operator remains runtime-supported but is not
     // surfaced from the standard user-role catalog until its management UX is normalized.
+    //
+    // ADR and Sales are declared above as legacy because of the scope mechanism they use — the
+    // route-customer scope, see UsesLegacyRouteCustomerScope — not because the roles are closed.
+    // Van sales is a live, actively developed workflow and new vans need accounts, so both are
+    // assignable. Only the /api/usermanagement create path can take a complete one: it is the
+    // only request shape carrying the business partner, cost centre and supplying warehouse a
+    // van account needs, and the other create paths reject these two roles for that reason.
     public static readonly string[] AssignableRoles =
     [
         Admin,
@@ -46,6 +53,8 @@ public static class ApplicationRoles
         SalesRep,
         MerchandiserPurchaseOrderViewer,
         Lab,
+        Adr,
+        Sales,
         CartVendor
     ];
 
@@ -67,7 +76,8 @@ public static class ApplicationRoles
         User,
         ReadOnly,
         Adr,
-        Sales
+        Sales,
+        CartVendor
     ];
 
     public static readonly string[] ApiAccessRoles =
@@ -200,6 +210,20 @@ public static class ApplicationRoles
 
     public static bool UsesRouteCustomerScope(string? role)
         => Contains(RouteCustomerScopedRoles, role);
+
+    /// <summary>
+    /// The name this predicate had before the two role catalogues were separated.
+    /// </summary>
+    /// <remarks>
+    /// Kept because callers on main use it, and it asks the route-customer question, which is what
+    /// this list answers. It is not a straight rename: the old single list also decided whether a
+    /// role needed a supplying warehouse, and that is now <see cref="DepotLoadedRoles"/>, because a
+    /// cart vendor is scoped to route customers but loads from no depot. Anything still asking the
+    /// depot question through this name would get the wrong answer, so there is nothing routed
+    /// through it but the scope check.
+    /// </remarks>
+    public static bool UsesLegacyRouteCustomerScope(string? role)
+        => UsesRouteCustomerScope(role);
 
     public static bool RequiresAssignedBusinessPartnerCode(string? role)
         => UsesRouteCustomerScope(role);
