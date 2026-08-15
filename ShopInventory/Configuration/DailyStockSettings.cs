@@ -1,4 +1,4 @@
-namespace ShopInventory.Configuration;
+﻿namespace ShopInventory.Configuration;
 
 /// <summary>
 /// Configuration for daily stock snapshot and end-of-day consolidation.
@@ -26,6 +26,10 @@ public class DailyStockSettings
     /// tries to sell. <c>KEFBYS</c> (Bulawayo shop) is not <c>KEFBYC</c> (the Bulawayo depot the vans
     /// load from); the two are one character apart and share a site, which is how the shop stayed off
     /// this list.
+    ///
+    /// This default is only used when configuration supplies nothing. appsettings.json overrides the
+    /// whole list rather than merging into it, so adding a warehouse here and not there changes
+    /// nothing in a deployed environment — both have to carry it.
     /// </remarks>
     public List<string> MonitoredWarehouses { get; set; } = new()
     {
