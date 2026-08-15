@@ -44,6 +44,19 @@
     <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.10" />
   </ItemGroup>
   <ItemGroup>
+    <!--
+      MonitoredWarehouseConfigTests reads the deployed appsettings.json to check it against the code
+      default, so the file has to be in the test output. It was there on a development machine by
+      accident — a side effect of having built the app into the same tree — and absent in a clean
+      CI checkout, where all nine of those tests failed on the missing file while passing locally.
+      Copying it explicitly is what makes the fixture the test's own rather than the environment's.
+    -->
+    <Content Include="..\ShopInventory\appsettings.json" Link="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\ShopInventory\ShopInventory.csproj" />
     <!--
       The Blazor app, so its non-UI logic can be tested too. Both projects hand-mirror the same
