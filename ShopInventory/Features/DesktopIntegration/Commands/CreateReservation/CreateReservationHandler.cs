@@ -101,7 +101,7 @@ public sealed class CreateReservationHandler(
             {
                 try
                 {
-                    await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, cancellationToken);
+                    await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, CancellationToken.None);
                 }
                 catch (Exception releaseException)
                 {

@@ -161,7 +161,7 @@ public sealed class ReceiveOpenWAWebhookHandler(
             {
                 try
                 {
-                    await _idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, cancellationToken);
+                    await _idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, CancellationToken.None);
                 }
                 catch (Exception releaseException)
                 {
