@@ -237,7 +237,18 @@ try
     builder.Services.AddAuthorizationCore();
     builder.Services.AddAuthorization();
 
-    builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
+    // MediatR 13+ is commercial and warns at every start without a licence key; the key comes from
+    // user-secrets or the MediatR__LicenseKey environment variable (see SECRETS.md), as in the API.
+    builder.Services.AddMediatR(cfg =>
+    {
+        cfg.RegisterServicesFromAssembly(typeof(Program).Assembly);
+
+        var mediatRLicenseKey = builder.Configuration["MediatR:LicenseKey"];
+        if (!string.IsNullOrWhiteSpace(mediatRLicenseKey))
+        {
+            cfg.LicenseKey = mediatRLicenseKey.Trim();
+        }
+    });
     builder.Services.AddValidatorsFromAssembly(typeof(Program).Assembly);
     builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
     builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(LoggingBehavior<,>));

@@ -266,8 +266,6 @@ try
         builder.Configuration.GetSection(CreditNoteSyncSettings.SectionName));
     builder.Services.Configure<CreditLimitSettings>(
         builder.Configuration.GetSection(CreditLimitSettings.SectionName));
-    builder.Services.Configure<LowStockAlertSettings>(
-        builder.Configuration.GetSection(LowStockAlertSettings.SectionName));
     builder.Services.Configure<MobileVersionPolicyOptions>(builder.Configuration.GetSection(MobileVersionPolicyOptions.SectionName));
 
     // Get JWT settings for authentication configuration
@@ -479,8 +477,19 @@ try
     // Register IHttpContextAccessor for audit service
     builder.Services.AddHttpContextAccessor();
 
-    // Register MediatR + pipeline behaviors
-    builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
+    // Register MediatR + pipeline behaviors. MediatR 13+ is commercial and warns at every start
+    // without a licence key; the key is a secret like any other, so it comes from user-secrets or
+    // the MediatR__LicenseKey environment variable (see SECRETS.md), never appsettings.json.
+    builder.Services.AddMediatR(cfg =>
+    {
+        cfg.RegisterServicesFromAssembly(typeof(Program).Assembly);
+
+        var mediatRLicenseKey = builder.Configuration["MediatR:LicenseKey"];
+        if (!string.IsNullOrWhiteSpace(mediatRLicenseKey))
+        {
+            cfg.LicenseKey = mediatRLicenseKey.Trim();
+        }
+    });
     builder.Services.AddValidatorsFromAssembly(typeof(Program).Assembly);
     builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
     builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(LoggingBehavior<,>));
@@ -982,7 +991,23 @@ try
 
     if (securitySettings.EnforceHttps)
     {
-        app.UseHttpsRedirection();
+        // The middleware can only redirect to a port it knows: ASPNETCORE_HTTPS_PORT, the
+        // ANCM_HTTPS_PORT that IIS's module sets when the site has an https binding, or an https
+        // URL Kestrel is listening on. Without one it redirects nothing and the framework warns
+        // "Failed to determine the https port for redirect" once per start — which is what the
+        // production API site logs, because Deploy-IIS.ps1 gives it a plain-http binding and TLS,
+        // where there is any, terminates in front of it. Registering a middleware that cannot act
+        // buys only that warning, so say what the situation is and move on.
+        if (HttpsPortIsKnown(builder.Configuration))
+        {
+            app.UseHttpsRedirection();
+        }
+        else
+        {
+            Log.Information(
+                "HTTPS redirection is not active: this process has no https port to redirect to (no https binding, "
+                + "ASPNETCORE_HTTPS_PORT or https URL). Set Security:EnforceHttps to false where TLS terminates in front of the API.");
+        }
     }
 
     // Apply CORS
@@ -1127,6 +1152,31 @@ static bool IsRateLimitWhitelisted(HttpContext httpContext, RateLimitSettings se
     var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
     return !string.IsNullOrWhiteSpace(ipAddress)
         && settings.IpWhitelist.Contains(ipAddress, StringComparer.OrdinalIgnoreCase);
+}
+
+/// <summary>
+/// Whether the HTTPS redirection middleware would have a port to redirect to: the same sources it
+/// consults itself — ASPNETCORE_HTTPS_PORT, ANCM_HTTPS_PORT (set by IIS's module from the site's
+/// https binding), or an https URL among the ones Kestrel is asked to listen on.
+/// </summary>
+static bool HttpsPortIsKnown(IConfiguration configuration)
+{
+    if (!string.IsNullOrWhiteSpace(configuration["HTTPS_PORT"])
+        || !string.IsNullOrWhiteSpace(configuration["ASPNETCORE_HTTPS_PORT"])
+        || !string.IsNullOrWhiteSpace(configuration["ANCM_HTTPS_PORT"]))
+    {
+        return true;
+    }
+
+    var urls = configuration["urls"] ?? configuration["ASPNETCORE_URLS"] ?? string.Empty;
+    if (urls.Contains("https://", StringComparison.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    return configuration.GetSection("Kestrel:Endpoints")
+        .GetChildren()
+        .Any(endpoint => (endpoint["Url"] ?? string.Empty).StartsWith("https://", StringComparison.OrdinalIgnoreCase));
 }
 
 static void ApplyThreadPoolTuning(ThreadPoolPerformanceOptions options)
