@@ -90,7 +90,10 @@ public sealed class GetPodDashboardHandler(
                 TotalFileSize = g.Sum(a => a.FileSizeBytes),
                 UniqueInvoices = g.Select(a => a.EntityId).Distinct().Count()
             })
-            .FirstOrDefaultAsync(cancellationToken);
+            // Single, not First: one group means one row or none, and EF warns on a predicate-less
+            // First over a GroupBy — "without 'OrderBy' and filter operators" — every time a new
+            // shape of this query compiles.
+            .SingleOrDefaultAsync(cancellationToken);
 
         var recentAttachments = await baseQuery
             .OrderByDescending(a => a.UploadedAt)
@@ -174,7 +177,10 @@ public sealed class GetPodDashboardHandler(
 
         if (duplicateDocEntries > 0)
         {
-            logger.LogWarning(
+            // Debug, not Warning — see the same guard in DocumentService: the DocEntry lookup below
+            // resolves each to a single row deterministically, so a cache duplicate changes nothing
+            // the dashboard shows.
+            logger.LogDebug(
                 "Detected {DuplicateCount} duplicate cached invoice doc entries while loading POD dashboard for user {UserId}",
                 duplicateDocEntries,
                 userId);
