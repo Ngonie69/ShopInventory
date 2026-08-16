@@ -402,16 +402,20 @@
 
 @code {
     /// <summary>
-    /// The targets the rates are scored against, from the design's own defaults.
+    /// The targets the rates are scored against.
     ///
     /// They are policy rather than measurement, which is why they are stated here as two named
     /// numbers instead of being buried in the comparisons: a supervisor who wants the bar moved
     /// should have one place to move it. They are deliberately not equal — nearly every planned
-    /// call should be made, while converting more than half of them is a good day.
+    /// call should be made, while converting three in four of them is a good day.
+    ///
+    /// The design's own default for the PCR was 55%, which was set aside as too soft: on this
+    /// route book more than half the calls buying is an ordinary day and would have left the
+    /// column marking almost nothing. 75% is the figure the round is actually held to.
     /// </summary>
     private const double CcrTarget = 0.90;
 
-    private const double PcrTarget = 0.55;
+    private const double PcrTarget = 0.75;
 
     /// <summary>
     /// After this, a departure counts as late. Also policy, and also the design's figure: the vans
