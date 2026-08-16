@@ -1154,11 +1154,9 @@ static bool IsRateLimitWhitelisted(HttpContext httpContext, RateLimitSettings se
         && settings.IpWhitelist.Contains(ipAddress, StringComparer.OrdinalIgnoreCase);
 }
 
-/// <summary>
-/// Whether the HTTPS redirection middleware would have a port to redirect to: the same sources it
-/// consults itself — ASPNETCORE_HTTPS_PORT, ANCM_HTTPS_PORT (set by IIS's module from the site's
-/// https binding), or an https URL among the ones Kestrel is asked to listen on.
-/// </summary>
+// Whether the HTTPS redirection middleware would have a port to redirect to: the same sources it
+// consults itself — ASPNETCORE_HTTPS_PORT, ANCM_HTTPS_PORT (set by IIS's module from the site's
+// https binding), or an https URL among the ones Kestrel is asked to listen on.
 static bool HttpsPortIsKnown(IConfiguration configuration)
 {
     if (!string.IsNullOrWhiteSpace(configuration["HTTPS_PORT"])

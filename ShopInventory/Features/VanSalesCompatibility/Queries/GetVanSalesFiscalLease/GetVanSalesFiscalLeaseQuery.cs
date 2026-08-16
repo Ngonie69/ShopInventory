@@ -4,6 +4,7 @@ using ShopInventory.DTOs;
 
 namespace ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesFiscalLease;
 
+/// <param name="UserId">The handset user asking for its lease.</param>
 /// <param name="PendingSales">
 /// Signed receipts this handset is still carrying, as it reports them. Null when it did not say — an
 /// older build that predates the nomination — which is recorded as unknown rather than as none.
