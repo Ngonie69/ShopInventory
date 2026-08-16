@@ -346,22 +346,39 @@ function Resolve-ApiKeyExpiry {
         [string]$AppSettingsPath
     )
 
+    # The expiry is applied to the deployed web.config as Security__ApiKeys__<n>__ExpiresAt, and ASP.NET
+    # binds configuration arrays by position, so <n> has to be MainIntegration's own index in this file.
+    # It is read here rather than assumed, because stamping the expiry onto whichever key happens to sit
+    # at index 0 would hand MainIntegration's date to a different key and surface as a 401 in production
+    # rather than as a failure at deploy time. appsettings.json is required even when the expiry itself
+    # was supplied on the command line, since there is nowhere else to learn the index from.
+    if (-not (Test-Path -LiteralPath $AppSettingsPath)) {
+        throw "appsettings.json was not found at $AppSettingsPath, so the MainIntegration API key's position could not be determined."
+    }
+
+    try {
+        $settings = Get-Content -LiteralPath $AppSettingsPath -Raw | ConvertFrom-Json
+        $apiKeys = @($settings.Security.ApiKeys)
+    }
+    catch {
+        throw "Could not read Security.ApiKeys from $AppSettingsPath. $($_.Exception.Message)"
+    }
+
+    $mainIntegrationIndex = -1
+    for ($i = 0; $i -lt $apiKeys.Count; $i++) {
+        if ($apiKeys[$i].Name -eq 'MainIntegration') {
+            $mainIntegrationIndex = $i
+            break
+        }
+    }
+
+    if ($mainIntegrationIndex -lt 0) {
+        throw "No API key named 'MainIntegration' in $AppSettingsPath. Add it, or the deployed expiry would land on another key."
+    }
+
     $expiryText = $ConfiguredExpiry
     if ([string]::IsNullOrWhiteSpace($expiryText)) {
-        if (-not (Test-Path -LiteralPath $AppSettingsPath)) {
-            throw "API key expiry was not supplied and appsettings.json was not found at $AppSettingsPath."
-        }
-
-        try {
-            $settings = Get-Content -LiteralPath $AppSettingsPath -Raw | ConvertFrom-Json
-            $mainIntegration = @($settings.Security.ApiKeys) |
-                Where-Object { $_.Name -eq 'MainIntegration' } |
-                Select-Object -First 1
-            $expiryText = if ($null -ne $mainIntegration) { [string]$mainIntegration.ExpiresAt } else { $null }
-        }
-        catch {
-            throw "Could not read MainIntegration ExpiresAt from $AppSettingsPath. $($_.Exception.Message)"
-        }
+        $expiryText = [string]$apiKeys[$mainIntegrationIndex].ExpiresAt
     }
 
     if ([string]::IsNullOrWhiteSpace($expiryText)) {
@@ -379,7 +396,10 @@ function Resolve-ApiKeyExpiry {
         throw "MainIntegration ExpiresAt '$($expiry.ToString('O'))' is not in the future. Renew the key expiry before deploying."
     }
 
-    return $expiry.ToString('yyyy-MM-ddTHH:mm:ssZ')
+    return [pscustomobject]@{
+        Expiry = $expiry.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        Index  = $mainIntegrationIndex
+    }
 }
 
 if ([string]::IsNullOrWhiteSpace($WebEmailSmtpPassword) -and -not [string]::IsNullOrWhiteSpace($env:Email__SmtpPassword)) {
@@ -850,10 +870,12 @@ $ApiProjectPath = Join-Path $RootDir "ShopInventory\ShopInventory.csproj"
 $WebProjectPath = Join-Path $RootDir "ShopInventory.Web\ShopInventory.Web.csproj"
 $PublishPath = Join-Path $RootDir "publish"
 $MigrationBundlePath = Join-Path $PublishPath "migrations"
-$apiKeyExpiryToDeploy = Resolve-ApiKeyExpiry `
+$resolvedApiKey = Resolve-ApiKeyExpiry `
     -ConfiguredExpiry $ApiKeyExpiresAt `
     -AppSettingsPath (Join-Path $RootDir "ShopInventory\appsettings.json")
-Write-Host "MainIntegration expiry to apply to API slots: $apiKeyExpiryToDeploy" -ForegroundColor Gray
+$apiKeyExpiryToDeploy = $resolvedApiKey.Expiry
+$apiKeyIndexToDeploy = $resolvedApiKey.Index
+Write-Host "MainIntegration expiry to apply to API slots: $apiKeyExpiryToDeploy (Security__ApiKeys__${apiKeyIndexToDeploy}__ExpiresAt)" -ForegroundColor Gray
 
 # API and Web own separate Postgres databases, each with its own EF migration history.
 $migrationBundleDefinitions = @{
@@ -1486,7 +1508,7 @@ try {
 
         Write-Host "  Deploying to inactive slot and warming it up..." -ForegroundColor Gray
         $cutoverResult = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
-            param($ZipFile, $Plan, $DatabaseConnectionOverrides, $WebEmailConfigOverrides, $ApiKeyExpiryToDeploy)
+            param($ZipFile, $Plan, $DatabaseConnectionOverrides, $WebEmailConfigOverrides, $ApiKeyExpiryToDeploy, $ApiKeyIndexToDeploy)
 
             Import-Module WebAdministration
 
@@ -1919,7 +1941,7 @@ try {
                     foreach ($apiWebConfigPath in ($apiWebConfigPaths | Select-Object -Unique)) {
                         Set-WebConfigEnvironmentVariableValue `
                             -WebConfigPath $apiWebConfigPath `
-                            -Name 'Security__ApiKeys__0__ExpiresAt' `
+                            -Name "Security__ApiKeys__${ApiKeyIndexToDeploy}__ExpiresAt" `
                             -Value $ApiKeyExpiryToDeploy
                         Write-Host "  Applied MainIntegration API-key expiry to $apiWebConfigPath" -ForegroundColor Green
                     }
@@ -2047,7 +2069,7 @@ try {
                 Remove-Item -Path $tempPath -Recurse -Force -ErrorAction SilentlyContinue
                 Remove-Item -Path $zipFullPath -Force -ErrorAction SilentlyContinue
             }
-        } -ArgumentList $zipFileName, $deploymentPlan, $databaseConnectionOverrides, $webEmailConfigOverrides, $apiKeyExpiryToDeploy -ErrorAction Stop
+        } -ArgumentList $zipFileName, $deploymentPlan, $databaseConnectionOverrides, $webEmailConfigOverrides, $apiKeyExpiryToDeploy, $apiKeyIndexToDeploy -ErrorAction Stop
 
         $cutoverResults += $cutoverResult
 
