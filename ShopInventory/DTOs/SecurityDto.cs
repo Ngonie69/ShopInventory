@@ -264,6 +264,9 @@ public class UserDetailDto
 
     /// <summary>The selling route a van runs — the source of its territory and truck registration.</summary>
     public int? RouteId { get; set; }
+
+    /// <summary>The ZIMRA fiscal device this van's handset signs as, or null if it stamps nothing itself.</summary>
+    public int? FiscalDeviceId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
@@ -337,6 +340,13 @@ public class CreateUserDetailRequest
     public int? RouteId { get; set; }
 
     /// <summary>
+    /// The ZIMRA fiscal device this van's handset is registered as, or null if it never stamps its own
+    /// receipts. Optional, and rejected if another account already carries it — a device's receipt
+    /// chain has exactly one writer.
+    /// </summary>
+    public int? FiscalDeviceId { get; set; }
+
+    /// <summary>
     /// Whether to send welcome email
     /// </summary>
     public bool SendWelcomeEmail { get; set; } = true;
@@ -403,6 +413,12 @@ public class UpdateUserDetailRequest
     /// a van with no route still sells, it just has no territory or truck for its compliance sheet.
     /// </summary>
     public int? RouteId { get; set; }
+
+    /// <summary>
+    /// The ZIMRA fiscal device this van's handset is registered as, or null to clear it. Rejected if
+    /// another account already carries it — a device's receipt chain has exactly one writer.
+    /// </summary>
+    public int? FiscalDeviceId { get; set; }
 }
 
 /// <summary>

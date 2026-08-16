@@ -193,6 +193,33 @@ public sealed class UpdateUserHandler(
             user.RouteId = null;
         }
 
+        if (ApplicationRoles.SupportsFiscalDevice(user.Role))
+        {
+            // Optional, so an empty field posts null and a cleared one posts 0 — neither is a device.
+            var requestedDevice = command.Request.FiscalDeviceId is > 0
+                ? command.Request.FiscalDeviceId
+                : null;
+
+            if (requestedDevice != user.FiscalDeviceId)
+            {
+                var conflict = await FindFiscalDeviceHolderAsync(requestedDevice, user.Id, cancellationToken);
+                if (conflict is not null)
+                {
+                    return Errors.UserManagement.UpdateFailed(
+                        $"Fiscal device {requestedDevice} is already registered to {conflict}. A device's " +
+                        "receipt chain has one writer: two handsets signing as it would each sign a different " +
+                        "receipt as the same number, and ZIMRA refuses the whole fiscal day. Clear it there first.");
+                }
+            }
+
+            user.FiscalDeviceId = requestedDevice;
+        }
+        else
+        {
+            // A device is registered to a handset that sells. A user moved off a van role stops being one.
+            user.FiscalDeviceId = null;
+        }
+
         if (ApplicationRoles.RequiresWarehouseAssignments(user.Role) && user.GetWarehouseCodes().Count == 0)
         {
             return Errors.UserManagement.UpdateFailed($"At least one assigned warehouse code is required for {user.Role} role");
@@ -290,6 +317,7 @@ public sealed class UpdateUserHandler(
                 .SetProperty(x => x.AssignedCostCentreCode, user.AssignedCostCentreCode)
                 .SetProperty(x => x.SupplyingWarehouseCode, user.SupplyingWarehouseCode)
                 .SetProperty(x => x.RouteId, user.RouteId)
+                .SetProperty(x => x.FiscalDeviceId, user.FiscalDeviceId)
                 .SetProperty(x => x.Permissions, user.Permissions)
                 .SetProperty(x => x.UpdatedAt, user.UpdatedAt),
                 cancellationToken);
@@ -364,6 +392,33 @@ public sealed class UpdateUserHandler(
         }
 
         return Result.Success;
+    }
+
+    /// <summary>
+    /// The account already registered as <paramref name="deviceId"/>, if any, named the way an admin
+    /// can act on.
+    /// </summary>
+    /// <remarks>
+    /// Deactivated accounts count. A device id sitting on a dormant account is still the id ZIMRA has
+    /// registered, and reactivating that account behind a second holder is exactly the fork this guard
+    /// exists to prevent — so it is refused here and cleared by hand, deliberately.
+    /// </remarks>
+    private async Task<string?> FindFiscalDeviceHolderAsync(
+        int? deviceId,
+        Guid excludingUserId,
+        CancellationToken cancellationToken)
+    {
+        if (deviceId is null)
+        {
+            return null;
+        }
+
+        return await context.Users
+            .AsNoTracking()
+            .Where(other => other.Id != excludingUserId && other.FiscalDeviceId == deviceId)
+            .OrderBy(other => other.Username)
+            .Select(other => other.Username)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private static string GetEffectivePermissionsCacheKey(Guid userId)

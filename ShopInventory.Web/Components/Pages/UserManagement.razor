@@ -729,6 +729,22 @@
                                                                 registration come from here, and the departure compliance report groups
                                                                 by it — set it up under Van Sales → Routes</small>
                                                             </div>
+
+                                                        @* Also optional, and left blank for most vans: only a handset that
+                                                           stamps its own receipts out of coverage needs one. Nominating
+                                                           which of them may actually sign is a separate decision, made
+                                                           under Offline Signing. *@
+                                                        <div class="um-form-field">
+                                                            <label>Fiscal Device</label>
+                                                            <InputNumber class="um-input" @bind-Value="userModel.FiscalDeviceId"
+                                                                         placeholder="Leave blank if this van never trades offline" />
+                                                            <ValidationMessage For="@(() => userModel.FiscalDeviceId)" />
+                                                            <small class="um-form-hint">The ZIMRA device id this handset signs receipts
+                                                                as, from the fiscalisation platform. One device per handset and never
+                                                                shared — two vans on one id sign different receipts as the same number
+                                                                and ZIMRA refuses the whole day. Without it this van cannot trade out
+                                                                of coverage at all</small>
+                                                            </div>
                                                         }
 
                                                     </div>
@@ -1348,7 +1364,8 @@ StringComparison.OrdinalIgnoreCase)))
                 AssignedBusinessPartnerCode = u.AssignedBusinessPartnerCode,
                 AssignedCostCentreCode = u.AssignedCostCentreCode,
                 SupplyingWarehouseCode = u.SupplyingWarehouseCode,
-                RouteId = u.RouteId
+                RouteId = u.RouteId,
+                FiscalDeviceId = u.FiscalDeviceId
             }).ToList() ?? new List<UserDisplayModel>();
             totalPages = result.TotalPages;
         }
@@ -1456,7 +1473,8 @@ StringComparison.OrdinalIgnoreCase)))
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
             AssignedCostCentreCode = user.AssignedCostCentreCode,
             SupplyingWarehouseCode = user.SupplyingWarehouseCode,
-            RouteId = user.RouteId
+            RouteId = user.RouteId,
+            FiscalDeviceId = user.FiscalDeviceId
         };
         showUserModal = true;
     }
@@ -1750,7 +1768,8 @@ StringComparison.OrdinalIgnoreCase)))
                 AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
                 AssignedCostCentreCode = user.AssignedCostCentreCode,
                 SupplyingWarehouseCode = user.SupplyingWarehouseCode,
-            RouteId = user.RouteId
+            RouteId = user.RouteId,
+            FiscalDeviceId = user.FiscalDeviceId
             };
             NormalizeRoleSpecificAssignments(form);
             await UserService.UpdateUserAsync(user.Id, form);
@@ -1800,6 +1819,8 @@ StringComparison.OrdinalIgnoreCase)))
             model.SupplyingWarehouseCode = null;
             // A route belongs to a van; a user who is no longer one must not keep it.
             model.RouteId = null;
+            // Nor a fiscal device: a receipt chain is signed by a handset that sells.
+            model.FiscalDeviceId = null;
         }
         else
         {
@@ -1889,6 +1910,9 @@ StringComparison.OrdinalIgnoreCase)))
 
         /// <summary>The selling route this van runs, or null. Managed under Van Sales → Routes.</summary>
         public int? RouteId { get; set; }
+
+        /// <summary>The ZIMRA device this van's handset signs as, or null if it stamps nothing itself.</summary>
+        public int? FiscalDeviceId { get; set; }
     }
 
     public class UserFormModel : IValidatableObject
@@ -1937,6 +1961,16 @@ StringComparison.OrdinalIgnoreCase)))
         /// the route master has been populated.
         /// </summary>
         public int? RouteId { get; set; }
+
+        /// <summary>
+        /// The ZIMRA fiscal device this van's handset is registered as — what it signs offline receipts
+        /// with, and what the offline signing nomination is made against.
+        ///
+        /// Optional, and blank for most vans: a handset that never leaves coverage fiscalises through
+        /// the platform and needs no device of its own. Uniqueness is the API's to enforce, since only
+        /// it can see the other accounts.
+        /// </summary>
+        public int? FiscalDeviceId { get; set; }
 
         /// <summary>
         /// Flag to indicate this is a new user (password required)
@@ -1994,6 +2028,13 @@ nameof(SupplyingWarehouseCode) });
             {
                 yield return new ValidationResult("The supplying warehouse cannot be the van's own warehouse", new[] {
 nameof(SupplyingWarehouseCode) });
+            }
+            // Zero and negatives are typos rather than devices, and the lease handler reads them as
+            // "unregistered" — so they would save cleanly and fail later, on the road.
+            if (FiscalDeviceId is <= 0)
+            {
+                yield return new ValidationResult("A fiscal device id is a positive number — leave it blank instead", new[] {
+nameof(FiscalDeviceId) });
             }
         }
     }

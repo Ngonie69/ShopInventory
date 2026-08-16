@@ -123,6 +123,7 @@ public sealed class GetUsersHandler(
             AssignedCostCentreCode = user.AssignedCostCentreCode,
             SupplyingWarehouseCode = user.SupplyingWarehouseCode,
             RouteId = user.RouteId,
+            FiscalDeviceId = user.FiscalDeviceId,
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
             LastLoginAt = lastLoginAt

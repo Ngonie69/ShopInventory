@@ -121,6 +121,31 @@ public sealed class CreateUserHandler(
             return Errors.UserManagement.CreationFailed($"A supplying warehouse code is required for {request.Role} role");
         }
 
+        // Optional, so an empty field posts null and a cleared one posts 0 — neither is a device.
+        var fiscalDeviceId = ApplicationRoles.SupportsFiscalDevice(request.Role) && request.FiscalDeviceId is > 0
+            ? request.FiscalDeviceId
+            : null;
+
+        if (fiscalDeviceId is not null)
+        {
+            // Deactivated accounts count: the id ZIMRA has registered does not lapse with the account,
+            // and reactivating one behind a second holder forks the chain this guard exists to protect.
+            var deviceHolder = await context.Users
+                .AsNoTracking()
+                .Where(user => user.FiscalDeviceId == fiscalDeviceId)
+                .OrderBy(user => user.Username)
+                .Select(user => user.Username)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (deviceHolder is not null)
+            {
+                return Errors.UserManagement.CreationFailed(
+                    $"Fiscal device {fiscalDeviceId} is already registered to {deviceHolder}. A device's " +
+                    "receipt chain has one writer: two handsets signing as it would each sign a different " +
+                    "receipt as the same number, and ZIMRA refuses the whole fiscal day. Clear it there first.");
+            }
+        }
+
         List<string> permissions;
         if (request.Permissions is { Count: > 0 })
         {
@@ -184,6 +209,8 @@ public sealed class CreateUserHandler(
             user.RouteId = request.RouteId is > 0 ? request.RouteId : null;
         }
 
+        user.FiscalDeviceId = fiscalDeviceId;
+
         context.Users.Add(user);
         await context.SaveChangesAsync(cancellationToken);
 
@@ -243,6 +270,7 @@ public sealed class CreateUserHandler(
             AssignedCostCentreCode = user.AssignedCostCentreCode,
             SupplyingWarehouseCode = user.SupplyingWarehouseCode,
             RouteId = user.RouteId,
+            FiscalDeviceId = user.FiscalDeviceId,
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
             LastLoginAt = user.LastLoginAt
