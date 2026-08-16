@@ -57,6 +57,33 @@ internal static class FiscalReceiptLookup
         {
             throw;
         }
+        catch (FiscalisationApiException ex) when (
+            string.Equals(ex.ErrorCode, FiscalisationApiClient.ApiKeyNotConfiguredErrorCode, StringComparison.Ordinal))
+        {
+            // Startup already warned, once, that fiscalisation is on with no key. Saying it again per
+            // document — 133 times in one production day, each with a stack trace — told nobody anything
+            // new and buried the warnings that did.
+            logger.LogDebug(
+                "Fiscal receipt lookup for {ReceiptType} {DocNum} skipped: no Fiscalisation API key is configured",
+                receiptType,
+                docNum);
+
+            return null;
+        }
+        catch (FiscalisationApiException ex)
+        {
+            // The platform answered and refused. Its status, code and detail are the whole story; the
+            // stack underneath is HttpClient's own and the same every time.
+            logger.LogWarning(
+                "Fiscal receipt lookup failed for {ReceiptType} {DocNum}: HTTP {StatusCode} {ErrorCode}: {Detail}",
+                receiptType,
+                docNum,
+                (int)ex.StatusCode,
+                ex.ErrorCode ?? "-",
+                ex.Message);
+
+            return null;
+        }
         catch (Exception ex)
         {
             logger.LogWarning(
