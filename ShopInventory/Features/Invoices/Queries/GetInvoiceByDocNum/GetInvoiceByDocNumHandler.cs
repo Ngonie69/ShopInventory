@@ -65,11 +65,17 @@ public sealed class GetInvoiceByDocNumHandler(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error retrieving invoice by DocNum {DocNum}", request.DocNum);
-
             // Some SAP invoices contain line-level values that cannot be deserialized into the
-            // full Invoice model. Retry with the existing header-only bulk lookup before treating
-            // a document that exists in OINV as unavailable to the POD workflow.
+            // full Invoice model, and SAP itself sometimes answers a read with a 500 it would not
+            // repeat. Either way the header-only bulk lookup is tried before a document that exists
+            // in OINV is treated as unavailable to the POD workflow — so this is a warning until
+            // that and the cache have both come up empty, not an error logged twice for a lookup
+            // that then succeeded.
+            logger.LogWarning(
+                "Full SAP lookup for invoice {DocNum} failed ({Error}); trying the header-only lookup",
+                request.DocNum,
+                ex.Message);
+
             var headerInvoice = await TryGetSapInvoiceHeaderAsync(request.DocNum, cancellationToken);
             if (headerInvoice is not null)
                 return await AuthorizeAndEnrichInvoiceAsync(headerInvoice.ToDto(), request, cancellationToken);
@@ -78,6 +84,7 @@ public sealed class GetInvoiceByDocNumHandler(
             if (cachedResult.HasValue)
                 return cachedResult.Value;
 
+            logger.LogError(ex, "Error retrieving invoice by DocNum {DocNum}; neither the header-only lookup nor the local cache could supply it", request.DocNum);
             return Errors.Invoice.CreationFailed(ex.Message);
         }
 
