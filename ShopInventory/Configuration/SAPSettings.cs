@@ -113,4 +113,16 @@ public class SAPSettings
     /// How long the local SAP circuit remains open before probing again.
     /// </summary>
     public int CircuitBreakDurationSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// The SAP credit card code a shop's card swipe settles against.
+    /// </summary>
+    /// <remarks>
+    /// Null until someone confirms the real code in the company database. Until then a swipe sale is
+    /// invoiced but left unsettled, visible as <c>Unmapped</c>, rather than being booked against a
+    /// guessed code or quietly folded into the cash till — either of which puts real money in the
+    /// wrong account and is only findable by reconciling by hand. Set it and the waiting sales settle
+    /// themselves on the next pass.
+    /// </remarks>
+    public int? SwipeCreditCardCode { get; set; }
 }

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Quartz;
+using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
@@ -119,8 +120,9 @@ public sealed class InvoicePostingJob : IJob
                 var fiscalResult = await fiscalizationService.FiscalizePreSapInvoiceAsync(
                     invoiceDto,
                     queueEntry.ExternalReference,
-                    null,
-                    stoppingToken);
+                    customerDetails: null,
+                    paymentType: TenderTypes.ToMoneyType(request.PaymentMethod),
+                    cancellationToken: stoppingToken);
 
                 if (fiscalResult.Success)
                 {

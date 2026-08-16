@@ -36,8 +36,23 @@ public sealed class CreateRouteCustomerHandler(
             return Errors.RouteCustomers.UserInactive;
         }
 
-        var assignedBusinessPartnerCode = NullIfWhiteSpace(command.Request.AssignedBusinessPartnerCode)
-            ?? NullIfWhiteSpace(user.AssignedBusinessPartnerCode);
+        // A caller that is itself scoped to a route may only add to that route. Before this handler had
+        // an administrative entry point its only caller was the van app, which never sent a business
+        // partner at all, so the fallback below was the whole story. Now that the body can name one, an
+        // operator holding CreateCustomers — which ADR, Sales and Cashier all do — could otherwise add
+        // a vendor to somebody else's route, where it would be immediately billable, or squat a code so
+        // that route's own administrator is refused.
+        var requestedBusinessPartnerCode = NullIfWhiteSpace(command.Request.AssignedBusinessPartnerCode);
+        var ownBusinessPartnerCode = NullIfWhiteSpace(user.AssignedBusinessPartnerCode);
+
+        if (ApplicationRoles.UsesRouteCustomerScope(user.Role) &&
+            requestedBusinessPartnerCode is not null &&
+            !string.Equals(requestedBusinessPartnerCode, ownBusinessPartnerCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return Errors.RouteCustomers.RouteBusinessPartnerNotOwned(requestedBusinessPartnerCode);
+        }
+
+        var assignedBusinessPartnerCode = requestedBusinessPartnerCode ?? ownBusinessPartnerCode;
         if (string.IsNullOrWhiteSpace(assignedBusinessPartnerCode))
         {
             return Errors.RouteCustomers.RouteBusinessPartnerRequired;
@@ -139,9 +154,13 @@ public sealed class CreateRouteCustomerHandler(
         {
             var recipients = await context.Users
                 .AsNoTracking()
+                // Every role scoped to this route, not the two van ones by name. A role that sells
+                // from this list and is missed here simply never hears that a customer was added —
+                // nothing fails, the vendor just does not appear until someone refreshes.
                 .Where(candidate => candidate.IsActive
                     && candidate.AssignedBusinessPartnerCode == entity.AssignedBusinessPartnerCode
-                    && (candidate.Role == ApplicationRoles.Adr || candidate.Role == ApplicationRoles.Sales)
+                    && candidate.Role != null
+                    && ApplicationRoles.RouteCustomerScopedRoles.Contains(candidate.Role)
                     && candidate.Username != null
                     && candidate.Username != string.Empty)
                 .Select(candidate => new

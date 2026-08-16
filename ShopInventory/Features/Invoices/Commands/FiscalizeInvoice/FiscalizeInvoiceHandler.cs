@@ -64,6 +64,33 @@ public sealed class FiscalizeInvoiceHandler(
             return refusal;
         }
 
+        // The same refusal for the one-invoice-per-sale routes. Their sales are fiscalised under their
+        // own external reference before reaching SAP, so a lookup by this DocNum finds nothing at the
+        // platform and the shortcut below would not fire — the sale would be signed a second time.
+        var fiscalisedSale = await PerSaleInvoiceRegistry.FindByDocNumAsync(
+            dbContext,
+            invoice.DocNum,
+            cancellationToken);
+
+        if (fiscalisedSale is not null)
+        {
+            var refusal = Errors.Invoice.AlreadyFiscalisedAsSale(
+                invoice.DocNum,
+                fiscalisedSale.ExternalReferenceId,
+                fiscalisedSale.FiscalReceiptNumber);
+
+            logger.LogWarning(
+                "Refused manual fiscalisation of invoice {DocNum} requested by {Username}; it records sale "
+                + "{ExternalReference}, already fiscalised pre-SAP as receipt {ReceiptNumber}",
+                invoice.DocNum,
+                command.Username,
+                fiscalisedSale.ExternalReferenceId,
+                fiscalisedSale.FiscalReceiptNumber);
+
+            await TryAuditAsync(invoice, isSuccess: false, refusal.Description, command);
+            return refusal;
+        }
+
         if (string.Equals(invoice.FiscalizationStatus, FiscalisedStatus, StringComparison.OrdinalIgnoreCase))
         {
             var skippedResult = new FiscalizationResult

@@ -34,6 +34,7 @@ internal static class FiscalDocumentStatusProjector
             cancellationToken);
 
         await ApplyConsolidatedInvoiceStatusAsync(dbContext, invoiceList, cancellationToken);
+        await ApplyPerSaleInvoiceStatusAsync(dbContext, invoiceList, cancellationToken);
     }
 
     public static Task EnrichInvoiceAsync(
@@ -158,6 +159,52 @@ internal static class FiscalDocumentStatusProjector
         {
             // Only the verdict. The QR code, receipt number and timestamp stay as the log left them,
             // because none of them belong to this document — they belong to its constituent receipts.
+            invoice.IsFiscalized = true;
+            invoice.FiscalizationStatus = FiscalisedStatus;
+        }
+    }
+
+    /// <summary>
+    /// Marks an invoice that records a single already-fiscalised sale as fiscalised.
+    /// </summary>
+    /// <remarks>
+    /// The same job as <see cref="ApplyConsolidatedInvoiceStatusAsync"/>, for the routes that post one
+    /// invoice per sale — van sales, shop tills and vending. Without it the invoice reads "Unknown",
+    /// the backfill writes it down as "Not Fiscalised" (its lookup is by SAP DocNum, and the receipt
+    /// was signed under the sale's own reference, so it finds nothing), and the Fiscalise button
+    /// appears on a sale the customer is already holding a receipt for.
+    ///
+    /// Runs after the consolidated pass, and only widens: a document already marked fiscalised there
+    /// is untouched.
+    /// </remarks>
+    private static async Task ApplyPerSaleInvoiceStatusAsync(
+        ApplicationDbContext dbContext,
+        IReadOnlyList<InvoiceDto> invoices,
+        CancellationToken cancellationToken)
+    {
+        var unresolved = invoices
+            .Where(invoice => invoice.IsFiscalized != true)
+            .ToList();
+
+        if (unresolved.Count == 0)
+        {
+            return;
+        }
+
+        var perSaleDocNums = await PerSaleInvoiceRegistry.FindPerSaleDocNumsAsync(
+            dbContext,
+            unresolved.Select(invoice => invoice.DocNum),
+            cancellationToken);
+
+        if (perSaleDocNums.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var invoice in unresolved.Where(invoice => perSaleDocNums.Contains(invoice.DocNum)))
+        {
+            // Only the verdict, as above. The receipt's own number and QR belong to the sale, and are
+            // read from there rather than restated on the SAP document.
             invoice.IsFiscalized = true;
             invoice.FiscalizationStatus = FiscalisedStatus;
         }

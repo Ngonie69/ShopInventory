@@ -86,7 +86,7 @@ public static class MobileAssignedCustomerScope
 
     private static List<string> NormalizeAssignedBusinessPartnerScope(User user)
     {
-        if (!ApplicationRoles.UsesLegacyRouteCustomerScope(user.Role))
+        if (!ApplicationRoles.UsesRouteCustomerScope(user.Role))
         {
             return new List<string>();
         }

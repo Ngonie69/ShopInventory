@@ -66,6 +66,8 @@ public enum DesktopSaleReceiptIngestStatus
 [Index(nameof(CardCode))]
 [Index(nameof(ConsolidationStatus))]
 [Index(nameof(DocDate))]
+// Read on every page of invoices, to recognise the ones whose sale was already fiscalised.
+[Index(nameof(SapDocNum))]
 [Index(nameof(WarehouseCode))]
 // The drain walks one device's receipts in signing order, so it filters on the status and sorts on the
 // global number. Both together, because a van's day is a few dozen rows in a table of every sale ever made.
@@ -169,6 +171,23 @@ public class DesktopSaleEntity
     public string? FiscalError { get; set; }
 
     /// <summary>
+    /// How many times fiscalisation has been attempted. A shop till fiscalises inline and so is
+    /// normally 1; a vending sale is fiscalised by a background sweep, which needs somewhere to give
+    /// up rather than re-offering the same broken sale to the platform forever.
+    /// </summary>
+    public int FiscalizationAttempts { get; set; }
+
+    /// <summary>
+    /// The platform could not say whether the receipt was signed, so this sale must not be retried.
+    /// </summary>
+    /// <remarks>
+    /// The one failure that is worse to retry than to leave alone. A receipt may already exist at FDMS
+    /// under this sale's reference, and a second submission cannot be withdrawn — so the sweep skips
+    /// these and a human looks the receipt up instead.
+    /// </remarks>
+    public bool FiscalizationRequiresReconciliation { get; set; }
+
+    /// <summary>
     /// The ZIMRA receipt's global number, and the counter within its fiscal day.
     ///
     /// Only van sales carry these, and they are what make a posted SAP invoice traceable back to the
@@ -249,6 +268,11 @@ public class DesktopSaleEntity
     /// </summary>
     public int? SapDocEntry { get; set; }
 
+    /// <remarks>
+    /// Read back by <c>PerSaleInvoiceRegistry</c> to recognise a SAP invoice as one whose sale was
+    /// already fiscalised, which is what keeps the Fiscalise button off it. That lookup runs for every
+    /// page of invoices, hence the index.
+    /// </remarks>
     public int? SapDocNum { get; set; }
 
     public DateTime? PostedAt { get; set; }
@@ -261,6 +285,32 @@ public class DesktopSaleEntity
 
     [MaxLength(2000)]
     public string? LastPostingError { get; set; }
+
+    // --- The incoming payment that settles the invoice ---
+    //
+    // Held separately from the invoice fields above because the two steps fail independently: the
+    // invoice can post and the payment fail, leaving a real open A/R document that must not be
+    // re-invoiced on the next pass. SAP has no business key for a payment — ClientRequestId is not
+    // forwarded and there is no get-by-reference — so unlike the invoice a payment cannot be probed
+    // for afterwards. These fields are the only record that one was attempted.
+
+    public int? PaymentSapDocEntry { get; set; }
+
+    public int? PaymentSapDocNum { get; set; }
+
+    public DateTime? PaymentPostedAt { get; set; }
+
+    /// <summary>
+    /// Where the settlement got to: null (not attempted), <c>Posted</c>, <c>PostedUnconfirmed</c>
+    /// (SAP already showed the invoice settled, so nothing was sent), <c>Failed</c>, or
+    /// <c>Unmapped</c> (the tender does not map to a SAP payment means — see
+    /// <see cref="ShopInventory.Common.Sales.TenderTypes"/>).
+    /// </summary>
+    [MaxLength(50)]
+    public string? PaymentStatus { get; set; }
+
+    [MaxLength(2000)]
+    public string? LastPaymentError { get; set; }
 
     // --- Warehouse / Payment ---
 

@@ -7,9 +7,15 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 /// <summary>
 /// Creates a local desktop sale, validates against stock snapshot, and fiscalizes immediately.
 /// </summary>
+/// <param name="Request">The basket, tender and document details the till submitted.</param>
+/// <param name="UserId">
+/// The signed-in account. The sale's customer, warehouse and cost centre are read from it rather than
+/// from <paramref name="Request"/>, so this is the identity the whole sale hangs off — not just an
+/// audit stamp.
+/// </param>
 public sealed record CreateDesktopSaleCommand(
     CreateDesktopSaleRequest Request,
-    string? CreatedBy
+    Guid UserId
 ) : IRequest<ErrorOr<DesktopSaleResponseDto>>;
 
 /// <summary>
@@ -30,6 +36,17 @@ public class CreateDesktopSaleRequest
     public string WarehouseCode { get; set; } = string.Empty;
     public string? PaymentMethod { get; set; }
     public string? PaymentReference { get; set; }
+
+    /// <summary>
+    /// The vendor being invoiced, for vending. Required there and ignored elsewhere.
+    /// </summary>
+    /// <remarks>
+    /// A code, not an id: it is what the operator picks and what an administrator manages, and it is
+    /// resolved server-side against the vendors assigned to this account's business partner. Naming a
+    /// vendor that is not on that list — or one that has been deactivated — is refused, which is what
+    /// makes deactivating a vendor code actually stop it trading.
+    /// </remarks>
+    public string? VendorCode { get; set; }
     public decimal AmountPaid { get; set; }
     public List<CreateDesktopSaleLineRequest> Lines { get; set; } = new();
 }
@@ -55,6 +72,13 @@ public class DesktopSaleResponseDto
     public int SaleId { get; set; }
     public string ExternalReferenceId { get; set; } = string.Empty;
     public string CardCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The warehouse the sale actually drew from, which is the account's rather than anything the
+    /// request asked for. Returned so a caller can see what it sold from without inferring it.
+    /// </summary>
+    public string WarehouseCode { get; set; } = string.Empty;
+
     public decimal TotalAmount { get; set; }
     public decimal VatAmount { get; set; }
     public string FiscalizationStatus { get; set; } = string.Empty;

@@ -46,16 +46,20 @@ public sealed class ConsolidateDailySalesHandler(
 
         // Get all pending desktop sales for the date.
         //
-        // Van sales are deliberately excluded. They live in this table with the same Pending status, but
-        // they post to SAP one-to-one so that each SAP invoice still maps to exactly one ZIMRA receipt
-        // (VanSalesEndOfDayPostingService). Both routes run at 18:00, so without this filter a van sale
-        // would be consolidated here *and* posted there — fiscalised once, invoiced twice, undoable only
-        // by a manual credit note.
+        // Sales that post to SAP one-to-one are deliberately excluded — van sales, shop till sales and
+        // vending. They live in this table with the same Pending status, but each already maps to
+        // exactly one ZIMRA receipt and reaches SAP through its own posting service. Without this
+        // filter a sale would be consolidated here *and* posted there — fiscalised once, invoiced
+        // twice, undoable only by a manual credit note.
+        //
+        // Written as an explicit null test rather than a bare negated Contains: a NOT IN against a
+        // nullable column follows SQL's three-valued logic, and the rows with no source at all are
+        // precisely the legacy ones that must keep consolidating.
         var pendingSales = await context.DesktopSales
             .Include(s => s.Lines)
             .Where(s => s.DocDate == consolidationDate &&
                         s.ConsolidationStatus == DesktopSaleConsolidationStatus.Pending &&
-                        s.SourceSystem != SaleSourceSystems.VanSales)
+                        (s.SourceSystem == null || !SaleSourceSystems.PostedPerSale.Contains(s.SourceSystem)))
             .ToListAsync(cancellationToken);
 
         // Also get fiscalized queued invoices for the date

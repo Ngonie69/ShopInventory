@@ -80,5 +80,32 @@ public static partial class Errors
                 + "fiscalised before reaching SAP, under their own receipt numbers. Fiscalising it would submit "
                 + "the same sales to FDMS a second time under a different invoice number, which cannot be "
                 + "reversed. The receipts it consolidates are recorded against it in the fiscal transaction log.");
+
+        /// <remarks>
+        /// <c>U_Van_saleorder</c> is what several routes search on to decide whether SAP already holds
+        /// a document, so a caller writing into the part of that namespace the system generates for
+        /// itself would make one of those searches find the wrong invoice and adopt it — leaving a
+        /// sale marked posted against a document that has nothing to do with it.
+        /// </remarks>
+        public static Error ReservedSaleReference(string reference) =>
+            Error.Validation(
+                "Invoice.ReservedSaleReference",
+                $"'{reference}' is reserved: it identifies a sale or a consolidated invoice this system "
+                + "posts itself, and is what the duplicate-invoice guards search on. Use a reference of "
+                + "your own for U_Van_saleorder, or leave it unset.");
+
+        /// <remarks>
+        /// The same refusal for the routes that post one invoice per sale — van sales, shop tills and
+        /// vending. The sale was fiscalised under its own reference before it reached SAP, so the
+        /// platform's duplicate guard cannot recognise the SAP document number as the same receipt and
+        /// would sign it again.
+        /// </remarks>
+        public static Error AlreadyFiscalisedAsSale(int docNum, string externalReference, string? receiptNumber) =>
+            Error.Conflict(
+                "Invoice.AlreadyFiscalisedAsSale",
+                $"Invoice {docNum} records till sale {externalReference}, which was already fiscalised before "
+                + $"reaching SAP{(string.IsNullOrWhiteSpace(receiptNumber) ? string.Empty : $" as receipt {receiptNumber}")}. "
+                + "Fiscalising it would submit the same sale to FDMS a second time under a different invoice "
+                + "number, which cannot be reversed.");
     }
 }

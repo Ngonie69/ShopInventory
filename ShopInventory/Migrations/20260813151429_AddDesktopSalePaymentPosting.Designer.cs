@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ShopInventory.Data;
@@ -11,9 +12,11 @@ using ShopInventory.Data;
 namespace ShopInventory.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260813151429_AddDesktopSalePaymentPosting")]
+    partial class AddDesktopSalePaymentPosting
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1444,12 +1447,6 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
-                    b.Property<int>("FiscalizationAttempts")
-                        .HasColumnType("integer");
-
-                    b.Property<bool>("FiscalizationRequiresReconciliation")
-                        .HasColumnType("boolean");
-
                     b.Property<int>("FiscalizationStatus")
                         .HasColumnType("integer");
 
@@ -1570,8 +1567,6 @@ namespace ShopInventory.Migrations
                         .IsUnique();
 
                     b.HasIndex("RouteCustomerCode");
-
-                    b.HasIndex("SapDocNum");
 
                     b.HasIndex("WarehouseCode");
 

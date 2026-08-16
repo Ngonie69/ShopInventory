@@ -422,10 +422,15 @@ public sealed class VanSalesSignedReceiptIngestService(
     /// type does not enter the signature, and refusing a valid receipt over it would be a worse trade
     /// than a mis-stated money-type counter.
     /// </summary>
+    /// <remarks>
+    /// This used to parse the payment method as a <see cref="MoneyType"/> name, which only ever
+    /// matched the sales that paid in cash: a handset records the brand the customer paid with
+    /// ("Ecocash", "Innbucks", "Swipe"), and none of those are enum names, so every one of them
+    /// fell through to <see cref="MoneyType.Cash"/> and was declared to ZIMRA as cash.
+    /// <see cref="TenderTypes"/> maps the brands the tills actually send.
+    /// </remarks>
     private static MoneyType ResolveMoneyType(string? paymentMethod) =>
-        Enum.TryParse<MoneyType>(paymentMethod?.Trim(), ignoreCase: true, out var moneyType)
-            ? moneyType
-            : MoneyType.Cash;
+        TenderTypes.ToMoneyType(paymentMethod) ?? MoneyType.Cash;
 
     private static void MarkUnsignable(DesktopSaleEntity sale, string reason)
     {

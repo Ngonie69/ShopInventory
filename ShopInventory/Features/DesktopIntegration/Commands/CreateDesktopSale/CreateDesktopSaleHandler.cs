@@ -1,10 +1,12 @@
-using System.Globalization;
+﻿using System.Globalization;
 using ErrorOr;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Idempotency;
+using ShopInventory.Common.Mobile;
+using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.Notifications;
@@ -17,11 +19,10 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 
 public sealed class CreateDesktopSaleHandler(
     ApplicationDbContext context,
-    IFiscalizationService fiscalizationService,
+    DesktopSaleFiscaliser fiscaliser,
     IInventoryLockService lockService,
     IHubContext<NotificationHub> hubContext,
     IIdempotencyRequestStore idempotencyRequestStore,
-    INotificationService notificationService,
     IOptions<TaxSettings> taxSettings,
     ILogger<CreateDesktopSaleHandler> logger
 ) : IRequestHandler<CreateDesktopSaleCommand, ErrorOr<DesktopSaleResponseDto>>
@@ -34,6 +35,42 @@ public sealed class CreateDesktopSaleHandler(
         CancellationToken cancellationToken)
     {
         var req = command.Request;
+
+        // A till sells as the account that signed in. Who the sale invoices, which warehouse the
+        // stock leaves and which cost centre it books to are read from there — the request used to
+        // say all three and nothing checked them, so any authenticated till could sell from any
+        // warehouse as any customer. Resolved before the idempotency acquire so an account that
+        // cannot sell is turned away without leaving a request record behind.
+        var user = await context.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == command.UserId, cancellationToken);
+
+        var assignments = SellingAccountResolver.Resolve(user);
+        if (assignments.IsError)
+        {
+            return assignments.Errors;
+        }
+
+        var account = assignments.Value;
+
+        var mismatch = ApplyAccountToRequest(req, account);
+        if (mismatch is not null)
+        {
+            return mismatch.Value;
+        }
+
+        // Vending bills a named vendor rather than whoever walks in, so the vendor is resolved here —
+        // against the ones assigned to this account's business partner and still active. Resolving it
+        // server-side is what makes deactivating a vendor stop it trading: a till holding a stale list,
+        // or a caller naming a code directly, is refused rather than obeyed.
+        var vendorResult = await ResolveVendorAsync(req, account, cancellationToken);
+        if (vendorResult.IsError)
+        {
+            return vendorResult.Errors;
+        }
+
+        var vendor = vendorResult.Value;
+
         var normalizedExternalReference = string.IsNullOrWhiteSpace(req.ExternalReferenceId)
             ? null
             : req.ExternalReferenceId.Trim();
@@ -98,8 +135,6 @@ public sealed class CreateDesktopSaleHandler(
                 ? DateTime.Parse(req.DocDate).Date
                 : today;
 
-            var vatRate = taxSettings.Value.VatRate;
-
             // Acquire per-item/warehouse locks to serialize concurrent sales affecting the same stock
             var lockRequests = req.Lines
                 .Select(l => new InventoryLockRequest
@@ -127,7 +162,7 @@ public sealed class CreateDesktopSaleHandler(
             {
                 // Validate + deduct inside the lock with retry on concurrency conflict
                 var result = await ValidateDeductAndCreateSaleAsync(
-                    req, externalRef, today, docDate, vatRate, command.CreatedBy, cancellationToken);
+                    req, externalRef, today, docDate, account, vendor, cancellationToken);
 
                 if (!result.IsError && idempotencyRequestId.HasValue)
                 {
@@ -166,13 +201,108 @@ public sealed class CreateDesktopSaleHandler(
         }
     }
 
+    /// <summary>
+    /// Points the request at the account's own customer and warehouse, refusing it if it asked for
+    /// different ones. Returns null when the request is now consistent with the account.
+    /// </summary>
+    /// <remarks>
+    /// Rewriting the LINE warehouses is the part that matters. Lock acquisition, stock validation and
+    /// the snapshot deduction all key on <see cref="CreateDesktopSaleLineRequest.WarehouseCode"/>, so
+    /// deriving only the header would leave what actually gets deducted in the caller's hands.
+    ///
+    /// A conflict is refused rather than quietly corrected: a till that believes it sold from one
+    /// warehouse while the server sold from another is exactly the confusion this exists to remove.
+    /// Sending nothing is the normal case and always succeeds.
+    /// </remarks>
+    /// <summary>
+    /// Resolves the vendor a vending sale is billed to, or null when the sale is not a vending one.
+    /// </summary>
+    /// <remarks>
+    /// Scoped to the caller's own business partner and to active vendors only, by reusing the same
+    /// query the vendor list is drawn from — so the list an operator sees and the set the server will
+    /// accept cannot drift apart.
+    /// </remarks>
+    private async Task<ErrorOr<RouteCustomerEntity?>> ResolveVendorAsync(
+        CreateDesktopSaleRequest req,
+        SellingAccountAssignments account,
+        CancellationToken cancellationToken)
+    {
+        var isVending = SaleSourceSystems.FiscalisesInBackground(
+            SaleSourceSystems.NormalizeTillSource(req.SourceSystem));
+
+        var vendorCode = string.IsNullOrWhiteSpace(req.VendorCode) ? null : req.VendorCode.Trim();
+
+        if (!isVending)
+        {
+            // A shop till bills the walk-in customer its account stands for. A vendor code here means
+            // the caller thinks it is doing something this endpoint will not do, so say so rather than
+            // dropping it.
+            return vendorCode is null
+                ? (RouteCustomerEntity?)null
+                : Errors.DesktopSales.VendorNotAvailable(vendorCode);
+        }
+
+        if (vendorCode is null)
+        {
+            return Errors.DesktopSales.VendorRequired;
+        }
+
+        var vendor = await VanSalesRouteCustomerScope.FindAssignableAsync(
+            context, account.CardCode, vendorCode, cancellationToken);
+
+        return vendor is null
+            ? Errors.DesktopSales.VendorNotAvailable(vendorCode)
+            : vendor;
+    }
+
+    /// <remarks>
+    /// Internal rather than private so the line-warehouse rewrite can be asserted directly. It is the
+    /// step that decides which stock is deducted, and it is not worth reaching through a fully mocked
+    /// handler to check it.
+    /// </remarks>
+    internal static Error? ApplyAccountToRequest(
+        CreateDesktopSaleRequest req,
+        SellingAccountAssignments account)
+    {
+        if (!string.IsNullOrWhiteSpace(req.CardCode) &&
+            !string.Equals(req.CardCode.Trim(), account.CardCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return Errors.DesktopSales.AssignmentMismatch("customer", req.CardCode.Trim(), account.CardCode);
+        }
+
+        if (!string.IsNullOrWhiteSpace(req.WarehouseCode) &&
+            !string.Equals(req.WarehouseCode.Trim(), account.WarehouseCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return Errors.DesktopSales.AssignmentMismatch("warehouse", req.WarehouseCode.Trim(), account.WarehouseCode);
+        }
+
+        foreach (var line in req.Lines)
+        {
+            if (!string.IsNullOrWhiteSpace(line.WarehouseCode) &&
+                !string.Equals(line.WarehouseCode.Trim(), account.WarehouseCode, StringComparison.OrdinalIgnoreCase))
+            {
+                return Errors.DesktopSales.AssignmentMismatch("warehouse", line.WarehouseCode.Trim(), account.WarehouseCode);
+            }
+        }
+
+        req.CardCode = account.CardCode;
+        req.WarehouseCode = account.WarehouseCode;
+
+        foreach (var line in req.Lines)
+        {
+            line.WarehouseCode = account.WarehouseCode;
+        }
+
+        return null;
+    }
+
     private async Task<ErrorOr<DesktopSaleResponseDto>> ValidateDeductAndCreateSaleAsync(
         CreateDesktopSaleRequest req,
         string externalRef,
         DateTime snapshotDate,
         DateTime docDate,
-        decimal vatRate,
-        string? createdBy,
+        SellingAccountAssignments account,
+        RouteCustomerEntity? vendor,
         CancellationToken ct)
     {
         for (int attempt = 1; attempt <= MaxRetries; attempt++)
@@ -204,11 +334,20 @@ public sealed class CreateDesktopSaleHandler(
             }
         }
 
+        var tax = taxSettings.Value;
+
         // Calculate totals
         var lines = req.Lines.Select((l, idx) =>
         {
             var effectivePrice = l.UnitPrice * (1 - l.DiscountPercent / 100m);
-            var lineTotal = l.Quantity * effectivePrice;
+
+            // Rounded to money here, not left as a raw product. A fractional quantity — anything
+            // weighed — or a discount that does not divide gives a line total with sub-cent digits,
+            // and the customer cannot pay those: 1.234 kg at $3.45 came to $4.9173. The column is
+            // decimal(18,2), so the database silently rounded it anyway, leaving the total the till
+            // was told and the total that was stored two different numbers, with the VAT worked out
+            // on a base neither of them kept.
+            var lineTotal = Math.Round(l.Quantity * effectivePrice, 2, MidpointRounding.AwayFromZero);
             return new DesktopSaleLineEntity
             {
                 LineNum = l.LineNum > 0 ? l.LineNum : idx + 1,
@@ -219,22 +358,39 @@ public sealed class CreateDesktopSaleHandler(
                 LineTotal = lineTotal,
                 WarehouseCode = l.WarehouseCode,
                 TaxCode = l.TaxCode,
+                // Recorded on the line, not just implied by the total, so the basket can be explained
+                // afterwards and the receipt can be rebuilt without re-deriving it.
+                TaxPercent = tax.RateFor(l.TaxCode) * 100m,
                 DiscountPercent = l.DiscountPercent,
                 UoMCode = l.UoMCode
             };
         }).ToList();
 
         var subtotal = lines.Sum(l => l.LineTotal);
-        var vatAmount = Math.Round(subtotal * (decimal)vatRate, 2);
+
+        // Per line, at its own code's rate. A flat rate across the basket charges VAT on zero-rated
+        // and exempt goods — the customer is overcharged, and the receipt declared to ZIMRA says
+        // something the basket does not.
+        var vatAmount = lines.Sum(l => tax.VatOn(l.LineTotal, l.TaxCode));
         var totalAmount = subtotal + vatAmount;
 
         // Create the sale entity
         var sale = new DesktopSaleEntity
         {
             ExternalReferenceId = externalRef,
-            SourceSystem = req.SourceSystem ?? "DESKTOP_APP",
-            CardCode = req.CardCode,
+            // Decides which route takes this sale to SAP, so it has to be one of the known spellings:
+            // a value neither the posting service nor the 18:00 consolidation recognises would leave
+            // the sale fiscalised and never invoiced.
+            SourceSystem = SaleSourceSystems.NormalizeTillSource(req.SourceSystem),
+            CardCode = account.CardCode,
             CardName = req.CardName,
+            // Who actually bought, for vending. CardCode above says which business partner sold, so
+            // without these a route's takings are one undifferentiated number and no vendor has a
+            // history. Snapshotted rather than joined: vendors are renamed, and a sale must keep the
+            // name it happened under.
+            RouteCustomerId = vendor?.Id,
+            RouteCustomerCode = vendor?.Code,
+            RouteCustomerName = vendor?.Name,
             DocDate = docDate,
             SalesPersonCode = req.SalesPersonCode,
             NumAtCard = req.NumAtCard,
@@ -242,11 +398,16 @@ public sealed class CreateDesktopSaleHandler(
             TotalAmount = totalAmount,
             VatAmount = vatAmount,
             Currency = req.DocCurrency ?? "ZWG",
-            WarehouseCode = req.WarehouseCode,
-            PaymentMethod = req.PaymentMethod,
+            WarehouseCode = account.WarehouseCode,
+            CostCentreCode = account.CostCentreCode,
+            // Stored in its canonical spelling so reporting can group on it and the posting job can
+            // match on it, rather than every till's casing becoming a distinct payment method.
+            PaymentMethod = TenderTypes.TryNormalize(req.PaymentMethod, out var tender)
+                ? tender
+                : req.PaymentMethod,
             PaymentReference = req.PaymentReference,
             AmountPaid = req.AmountPaid,
-            CreatedBy = createdBy,
+            CreatedBy = account.UserId.ToString(),
             CreatedAt = DateTime.UtcNow,
             FiscalizationStatus = DesktopSaleFiscalizationStatus.Pending,
             ConsolidationStatus = DesktopSaleConsolidationStatus.Pending,
@@ -256,15 +417,24 @@ public sealed class CreateDesktopSaleHandler(
         context.DesktopSales.Add(sale);
         await context.SaveChangesAsync(ct);
 
-        // Fiscalize immediately if requested
-        if (req.Fiscalize)
+        if (!req.Fiscalize)
         {
-            await FiscalizeSaleAsync(sale, ct);
+            sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Skipped;
+            await context.SaveChangesAsync(ct);
+        }
+        else if (SaleSourceSystems.FiscalisesInBackground(sale.SourceSystem))
+        {
+            // Left Pending for DesktopSaleFiscalisationSweep. Vending prints nothing and has nobody
+            // waiting at a counter, so holding the request open while the platform signs buys nothing
+            // and costs the operator the wait. The sale cannot reach SAP until it has fiscalised, so
+            // the sweep is what completes it.
             await context.SaveChangesAsync(ct);
         }
         else
         {
-            sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Skipped;
+            // A shop till fiscalises here, in the request. The receipt has to print before the
+            // customer walks away, so there is nothing to defer.
+            await fiscaliser.FiscaliseAsync(sale, ct);
             await context.SaveChangesAsync(ct);
         }
 
@@ -273,6 +443,7 @@ public sealed class CreateDesktopSaleHandler(
             SaleId = sale.Id,
             ExternalReferenceId = sale.ExternalReferenceId,
             CardCode = sale.CardCode,
+            WarehouseCode = sale.WarehouseCode,
             TotalAmount = sale.TotalAmount,
             VatAmount = sale.VatAmount,
             FiscalizationStatus = sale.FiscalizationStatus.ToString(),
@@ -305,6 +476,7 @@ public sealed class CreateDesktopSaleHandler(
             SaleId = sale.Id,
             ExternalReferenceId = sale.ExternalReferenceId,
             CardCode = sale.CardCode,
+            WarehouseCode = sale.WarehouseCode,
             TotalAmount = sale.TotalAmount,
             VatAmount = sale.VatAmount,
             FiscalizationStatus = sale.FiscalizationStatus.ToString(),
@@ -369,119 +541,5 @@ public sealed class CreateDesktopSaleHandler(
         }
 
         await context.SaveChangesAsync(ct);
-    }
-
-    private async Task FiscalizeSaleAsync(DesktopSaleEntity sale, CancellationToken ct)
-    {
-        try
-        {
-            // Build an InvoiceDto from local sale data for the fiscalization service.
-            //
-            // DocNum/DocEntry are deliberately left unset. A desktop sale has no SAP document yet, and
-            // the local primary key is not a SAP identifier: passing it as a DocEntry would make the
-            // fiscalisation platform look up — and fiscalise — whichever unrelated SAP invoice happens
-            // to hold that number.
-            var invoiceDto = new DTOs.InvoiceDto
-            {
-                DocDate = sale.DocDate.ToString("yyyy-MM-dd"),
-                CardCode = sale.CardCode,
-                CardName = sale.CardName,
-                DocTotal = sale.TotalAmount,
-                VatSum = sale.VatAmount,
-                DocCurrency = sale.Currency,
-                Comments = sale.Comments,
-                Lines = sale.Lines.Select(l => new DTOs.InvoiceLineDto
-                {
-                    LineNum = l.LineNum,
-                    ItemCode = l.ItemCode,
-                    ItemDescription = l.ItemDescription,
-                    Quantity = l.Quantity,
-                    UnitPrice = l.UnitPrice,
-                    LineTotal = l.LineTotal,
-                    WarehouseCode = l.WarehouseCode,
-                    DiscountPercent = l.DiscountPercent
-                }).ToList()
-            };
-
-            // The external reference is the invoice number: unique, traceable, and stable across
-            // retries, which is what the platform's idempotency key requires.
-            var result = await fiscalizationService.FiscalizePreSapInvoiceAsync(
-                invoiceDto,
-                sale.ExternalReferenceId!,
-                cancellationToken: ct);
-
-            if (result.Success && !result.Skipped)
-            {
-                sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Success;
-                sale.FiscalReceiptNumber = result.ReceiptGlobalNo;
-                sale.FiscalDeviceNumber = result.DeviceSerial;
-                sale.FiscalQRCode = result.QRCode;
-                sale.FiscalVerificationCode = result.VerificationCode;
-                sale.FiscalDayNo = result.FiscalDayNo;
-            }
-            else if (result.Skipped)
-            {
-                sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Skipped;
-            }
-            else
-            {
-                sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Failed;
-                sale.FiscalError = result.Message ?? result.ErrorDetails;
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Fiscalization failed for desktop sale {SaleId}", sale.Id);
-            sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Failed;
-            sale.FiscalError = ex.Message;
-        }
-
-        if (sale.FiscalizationStatus == DesktopSaleFiscalizationStatus.Failed)
-        {
-            await NotifyFiscalizationFailedAsync(sale, ct);
-        }
-    }
-
-    /// <summary>
-    /// A till sale that did not fiscalize needs someone to act on it, and until now it existed only
-    /// in the log and in the row's FiscalError.
-    /// </summary>
-    /// <remarks>
-    /// Only the failures are notified. The sales themselves are far too frequent to put in the bell
-    /// — they already reach the Web as a live "DesktopSaleCreated" hub event, which is the right
-    /// shape for a feed.
-    /// </remarks>
-    private async Task NotifyFiscalizationFailedAsync(DesktopSaleEntity sale, CancellationToken ct)
-    {
-        try
-        {
-            await notificationService.CreateNotificationAsync(
-                ModuleNotificationFactory.CreateBroadcastNotification(
-                    $"Desktop Sale Not Fiscalized: {sale.ExternalReferenceId}",
-                    $"Sale {sale.ExternalReferenceId} for " +
-                    $"{ModuleNotificationFactory.DescribeBusinessPartner(sale.CardCode, sale.CardName)} " +
-                    $"totaling {ModuleNotificationFactory.DescribeMoney(sale.Currency, sale.TotalAmount)} " +
-                    $"could not be fiscalized: {sale.FiscalError ?? "no detail was returned"}.",
-                    "Error",
-                    "SalesOrder",
-                    "DesktopSale",
-                    sale.Id.ToString(),
-                    "/desktop-sales",
-                    new Dictionary<string, string>
-                    {
-                        ["saleId"] = sale.Id.ToString(),
-                        ["externalReferenceId"] = sale.ExternalReferenceId ?? string.Empty,
-                        ["cardCode"] = sale.CardCode ?? string.Empty,
-                        ["cardName"] = sale.CardName ?? string.Empty,
-                        ["currency"] = sale.Currency ?? string.Empty,
-                        ["totalAmount"] = sale.TotalAmount.ToString(CultureInfo.InvariantCulture),
-                        ["fiscalError"] = sale.FiscalError ?? string.Empty
-                    }),
-                ct);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to publish fiscalization failure notification for desktop sale {SaleId}", sale.Id);
-        }
     }
 }

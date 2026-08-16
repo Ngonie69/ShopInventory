@@ -302,6 +302,16 @@ public static class Permissions
                 ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders,
                 ViewReports
             },
+            // Narrower than Cashier on purpose. A cart vendor invoices vendors from a list somebody
+            // else maintains, takes cash only, and prints nothing — so it needs no rights over
+            // customers, sales orders or payments beyond raising the sale itself.
+            ApplicationRoles.CartVendor => new List<string>
+            {
+                ViewDashboard, ViewProducts,
+                ViewInvoices, CreateInvoices,
+                ViewStock, ViewInventory,
+                ViewCustomers
+            },
             ApplicationRoles.StockController => new List<string>
             {
                 ViewDashboard, ViewProducts,

@@ -35,11 +35,17 @@ public interface IFiscalizationService
     /// <paramref name="externalReference"/> is the stable identifier for the document. It becomes the
     /// receipt's permanent fiscal identity and part of the platform's idempotency key, so it must be
     /// identical on every retry and must never be regenerated.
+    ///
+    /// <paramref name="paymentType"/> is the money type declared to ZIMRA. Pass the sale's own tender,
+    /// mapped through <see cref="ShopInventory.Common.Sales.TenderTypes.ToMoneyType"/>. A caller with
+    /// no tender to declare passes null and the receipt falls back to cash — which is only right for a
+    /// till that takes nothing else, so pass the real tender wherever one was captured.
     /// </remarks>
     Task<FiscalizationResult> FiscalizePreSapInvoiceAsync(
         InvoiceDto invoice,
         string externalReference,
         CustomerFiscalDetails? customerDetails = null,
+        MoneyType? paymentType = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -61,6 +67,24 @@ public interface IFiscalizationService
     /// Whether a document has already been fiscalised, on any device.
     /// </summary>
     Task<bool> IsInvoiceFiscalizedAsync(string invoiceNumber, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Looks for a receipt an earlier attempt may have signed for this sale, so it can be adopted
+    /// rather than signed again.
+    /// </summary>
+    /// <remarks>
+    /// For the case where a submission was made but its outcome never reached us — the process died,
+    /// the save failed, the connection dropped. Resubmitting then risks a second fiscal receipt, which
+    /// cannot be withdrawn.
+    ///
+    /// Returns null only when the platform positively says there is no such receipt. If it cannot be
+    /// asked, this THROWS: treating "I could not check" as "there is nothing there" is exactly how the
+    /// duplicate gets signed. <see cref="IsInvoiceFiscalizedAsync"/> answers false in that case, which
+    /// is why it is not used here.
+    /// </remarks>
+    Task<FiscalizationResult?> FindPreSapReceiptAsync(
+        string externalReference,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -266,6 +290,7 @@ public class FiscalizationService : IFiscalizationService
         InvoiceDto invoice,
         string externalReference,
         CustomerFiscalDetails? customerDetails = null,
+        MoneyType? paymentType = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(invoice);
@@ -306,8 +331,19 @@ public class FiscalizationService : IFiscalizationService
                 : invoice.DocCurrency,
             ReceiptDate = ParseDocDate(invoice.DocDate),
             TaxInclusive = true,
-            PaymentType = MoneyType.Cash,
-            PaymentAmount = lines.Sum(line => RoundCurrency(line.Price * line.Quantity)),
+            // The receipt declares to ZIMRA how the customer paid, so it follows the sale's tender.
+            // Cash is the fallback for a caller that captured none — historically every caller, which
+            // is why this was a constant.
+            PaymentType = paymentType ?? MoneyType.Cash,
+            // The amount actually taken, when the caller knows it. Re-deriving it from the line prices
+            // declares a different number: a line price is per unit and rounded to the cent, while the
+            // sale rounds tax once over the whole line, so multiplying the rounded unit price back out
+            // drifts by up to half a cent per unit — 100 x $1.99 is charged $229.85 and would be
+            // declared $230.00. The customer paid one specific amount and that is what the receipt has
+            // to say; the per-line breakdown stays in cents, as a printed receipt must.
+            PaymentAmount = invoice.DocTotal > 0m
+                ? RoundCurrency(invoice.DocTotal)
+                : lines.Sum(line => RoundCurrency(line.Price * line.Quantity)),
             Lines = lines,
             Buyer = MapBuyer(customerDetails),
             ReceiptNotes = invoice.Comments,
@@ -336,6 +372,58 @@ public class FiscalizationService : IFiscalizationService
         {
             return Unexpected(ex, invoiceNo, rawRequestJson);
         }
+    }
+
+    public async Task<FiscalizationResult?> FindPreSapReceiptAsync(
+        string externalReference,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(externalReference) || !_settings.Enabled)
+        {
+            return null;
+        }
+
+        var invoiceNo = BuildPreSapInvoiceNo(externalReference);
+
+        CheckFiscalisedReceiptApiResponse response;
+        try
+        {
+            // Device 0 searches every device: an earlier attempt may have failed over.
+            response = await _client.CheckReceiptAsync(
+                0, invoiceNo, ReceiptType.FiscalInvoice, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new InvalidOperationException(
+                $"Not fiscalising {invoiceNo}: the platform could not be asked whether it already holds "
+                + $"this receipt. {ex.Message}", ex);
+        }
+
+        if (!response.IsFiscalised)
+        {
+            return null;
+        }
+
+        var match = response.Matches.FirstOrDefault();
+
+        _logger.LogWarning(
+            "Adopting an existing fiscal receipt for {InvoiceNo} rather than signing it again "
+            + "(receipt {ReceiptGlobalNo}, source {Source}).",
+            invoiceNo,
+            match?.ReceiptGlobalNo,
+            response.Source);
+
+        // No QR or verification code: the check returns the archived record, not the signature. For a
+        // sale that prints nothing this is complete enough, and it is in every case better than a
+        // second receipt.
+        return new FiscalizationResult
+        {
+            Success = true,
+            Message = $"Receipt {match?.ReceiptGlobalNo} was already signed for this sale; adopted it.",
+            InvoiceNumber = invoiceNo,
+            ReceiptGlobalNo = match?.ReceiptGlobalNo.ToString(),
+            FiscalDayNo = match?.FiscalDayNo.ToString()
+        };
     }
 
     public async Task<bool> IsInvoiceFiscalizedAsync(

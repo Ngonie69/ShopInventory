@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 
 namespace ShopInventory.Web.Data;
 
@@ -72,6 +72,7 @@ public static class UserRoles
 
     /// <inheritdoc cref="Adr"/>
     public const string Sales = "Sales";
+    public const string CartVendor = "CartVendor";
 
     /// <summary>
     /// Legacy POD role. Not offered for new accounts, but still runtime-supported and
@@ -152,6 +153,7 @@ public static class UserRoles
         SalesRep,
         Adr,
         Sales,
+        CartVendor,
         Manager,
         Cashier,
         StockController,
@@ -194,7 +196,8 @@ public static class UserRoles
         MerchandiserPurchaseOrderViewer,
         Lab,
         Adr,
-        Sales
+        Sales,
+        CartVendor
     ];
 
     /// <summary>

@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -12,7 +12,7 @@ public static class VanSalesRouteCustomerScope
 
     public static bool UsesLocalRouteCustomers(string? role, string? assignedBusinessPartnerCode)
         => !string.IsNullOrWhiteSpace(assignedBusinessPartnerCode) &&
-           ApplicationRoles.UsesLegacyRouteCustomerScope(role);
+           ApplicationRoles.UsesRouteCustomerScope(role);
 
     public static string? GetAssignedBusinessPartnerCode(User user)
         => UsesLocalRouteCustomers(user)
@@ -36,5 +36,36 @@ public static class VanSalesRouteCustomerScope
             .OrderBy(customer => customer.Name)
             .ThenBy(customer => customer.Code)
             .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Finds one customer a business partner may invoice, by code, or null if it may not.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately next to <see cref="GetAssignedRouteCustomersAsync"/> and filtered the same way.
+    /// The list is what an operator picks from and this is what the server accepts, so if the two
+    /// ever disagreed a deactivated customer would keep trading for anyone holding a stale list.
+    /// </remarks>
+    public static async Task<RouteCustomerEntity?> FindAssignableAsync(
+        ApplicationDbContext db,
+        string? assignedBusinessPartnerCode,
+        string? code,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(assignedBusinessPartnerCode) || string.IsNullOrWhiteSpace(code))
+        {
+            return null;
+        }
+
+        var trimmedCode = code.Trim();
+        var trimmedBusinessPartner = assignedBusinessPartnerCode.Trim();
+
+        return await db.RouteCustomers
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                customer => customer.AssignedBusinessPartnerCode == trimmedBusinessPartner
+                    && customer.IsActive
+                    && customer.Code == trimmedCode,
+                cancellationToken);
     }
 }

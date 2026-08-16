@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using ShopInventory.Models;
 using ShopInventory.Web.Data;
 
@@ -181,20 +181,40 @@ public sealed class UserRoleCatalogueTests
     /// endpoint, which is the bug this whole pairing exists to prevent.
     /// </summary>
     [Fact]
-    public void Only_the_van_roles_carry_the_van_sales_assignments()
+    public void Only_the_route_customer_roles_carry_the_route_customer_assignments()
     {
-        var vanRoles = ApplicationRoles.AssignableRoles
-            .Where(ApplicationRoles.UsesLegacyRouteCustomerScope)
+        var scopedRoles = ApplicationRoles.AssignableRoles
+            .Where(ApplicationRoles.UsesRouteCustomerScope)
             .OrderBy(role => role, StringComparer.Ordinal);
 
-        Assert.Equal(new[] { ApplicationRoles.Adr, ApplicationRoles.Sales }, vanRoles);
+        Assert.Equal(
+            new[] { ApplicationRoles.Adr, ApplicationRoles.CartVendor, ApplicationRoles.Sales },
+            scopedRoles);
 
-        foreach (var role in new[] { ApplicationRoles.Adr, ApplicationRoles.Sales })
+        // Everything scoped to route customers invoices one, so all three need a business partner
+        // and a cost centre.
+        foreach (var role in new[] { ApplicationRoles.Adr, ApplicationRoles.CartVendor, ApplicationRoles.Sales })
         {
             Assert.True(ApplicationRoles.RequiresAssignedBusinessPartnerCode(role), role);
             Assert.True(ApplicationRoles.RequiresAssignedCostCentreCode(role), role);
+        }
+    }
+
+    [Fact]
+    public void Only_the_depot_loaded_roles_need_a_supplying_warehouse()
+    {
+        // The distinction the two catalogues exist for, and the reason one list could not serve
+        // both questions. A van is loaded at a depot each morning and must name it; a cart vendor
+        // is scoped to route customers exactly as a van is, but loads from no depot at all.
+        // Requiring a supplying warehouse of one would block the account from ever being created.
+        foreach (var role in new[] { ApplicationRoles.Adr, ApplicationRoles.Sales })
+        {
             Assert.True(ApplicationRoles.RequiresSupplyingWarehouseCode(role), role);
             Assert.True(ApplicationRoles.RequiresWarehouseAssignments(role), role);
         }
+
+        Assert.False(
+            ApplicationRoles.RequiresSupplyingWarehouseCode(ApplicationRoles.CartVendor),
+            "a cart vendor loads from no depot");
     }
 }
