@@ -2,41 +2,62 @@
 @* Admin and Manager only — see VanSalesActivity.razor. *@
 @attribute [Authorize(Roles = "Admin,Manager")]
 @rendermode InteractiveServer
+@using System.Globalization
+@using System.Text
 @using ShopInventory.Web.Models
 @inject IVanSalesReportService VanSalesReportService
+@inject IJSRuntime JS
 
 <PageTitle>Departure Compliance - Shop Inventory</PageTitle>
 
-@* The departure compliance sheet, as data.
+@* The departure compliance sheet, as data. Departure Compliance.dc.html.
 
    Carried by wwwroot/css/van-sales.css (linked from App.razor) in both schemes.
 
-   The card is the paper form, in its order: who and where at the top, then the
-   day's figures, then the money. That ordering is not decoration — a supervisor
-   reads these against a stack of the handwritten ones, and a field that has
-   moved is a field they have to hunt for.
+   A row per rep-day, not a card per rep-day. The paper form this replaces is
+   read down a column — every CCR in the period at once, to find the two rounds
+   worth asking about — and a stack of cards can only be read one at a time. All
+   of the form's fields are still here, in the drawer under the row, in the
+   order the paper reads: the departure record, then the calls, then the money.
+   That ordering is not decoration; a supervisor reads these against a stack of
+   the handwritten ones, and a field that has moved is a field they have to hunt
+   for.
 
-   Two distinctions the page has to hold, and both are about honesty rather than
-   layout:
+   Three distinctions the page has to hold, and all three are about honesty
+   rather than layout:
 
    - A rate with no denominator is unavailable, not zero. A van whose route had
      no customers assigned when the day opened has no CCR at all, and 0% would
-     read as total failure. Those show an em dash.
-   - A day with no departure record still gets a card. The rep checked in and
+     read as total failure. Those show a muted em dash, and they sort to the end
+     of the CCR and PCR columns either way up rather than below the worst score.
+   - A day with no departure record still gets a row. The rep checked in and
      sold without ever tapping Start Day, so the mileage and the times are
      genuinely missing — which is the finding, and dropping the row would hide
-     it. Those are marked "No departure record". *@
+     it. Those are washed and marked "No departure record".
+   - Every figure on screen is recomputed from the rows on screen. The rates are
+     taken from the period's totals rather than averaged across days — a day
+     with four planned calls and one with two hundred are not equal opinions
+     about the same number — which is the API's own definition, kept identical
+     here on purpose. *@
 
-<div class="vs">
+<div class="vs vsc">
 
     <div class="vs-head">
         <div>
             <h2 class="vs-title">Departure compliance</h2>
             <p class="vs-subtitle">
-                One row per rep per trading day: the round they ran, the calls they made,
-                and what came back. Call compliance is customers visited over customers planned;
-                productive call rate is the calls that bought over the calls made.
+                One row per rep per trading day — the round they ran, the calls they made
+                and what came back.
+                <abbr class="vsc-abbr" title="Call compliance rate: customers visited ÷ customers planned">CCR</abbr>
+                is visited over planned;
+                <abbr class="vsc-abbr" title="Productive call rate: calls that bought ÷ calls made">PCR</abbr>
+                is the calls that bought over the calls made.
             </p>
+        </div>
+        <div class="vs-actions">
+            <button class="vs-btn" @onclick="ExportAsync" disabled="@(isLoading || VisibleRows.Count == 0)">
+                Export
+            </button>
         </div>
     </div>
 
@@ -45,23 +66,36 @@
             @* NocturneDateField, never <input type="date">: the native calendar is a platform
                window no page stylesheet reaches into, so it arrives looking like Windows in the
                middle of a Nocturne page and its glyph is unreadable on the dark ground. *@
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="vs-filter-label" for="vs-from">From</label>
                 <NocturneDateField Id="vs-from" @bind-Date="fromDate" AriaLabel="From date" />
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="vs-filter-label" for="vs-to">To</label>
                 <NocturneDateField Id="vs-to" @bind-Date="toDate" AriaLabel="To date" />
             </div>
             @* A filter-bar dropdown is a control the reader scans, so it is the component rather
                than a native <select> — whose popup would composite this sheet's translucent field
                fill onto white and hand back an unreadable list in dark theme. *@
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <label class="vs-filter-label" for="vs-route">Route</label>
                 <NocturneSelect Id="vs-route" Class="nsel-block" TValue="string"
                                 Options="RouteFilterOptions" @bind-Value="selectedRouteCode"
                                 OnChanged="LoadAsync" AriaLabel="Filter by route"
                                 Placeholder="All routes" />
+            </div>
+            @* The rep list is the one the period actually holds, not the staff list: it is built
+               from the loaded rows, so it can only offer someone with a rep-day to look at, and
+               choosing one costs no round trip. The route filter next to it goes to the server
+               instead, because it means something this page cannot work out — a row with no day
+               record carries no route, so the API drops it rather than showing it under a route
+               nothing says it belongs to. *@
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vs-rep">Rep</label>
+                <NocturneSelect Id="vs-rep" Class="nsel-block" TValue="string"
+                                Options="RepFilterOptions" @bind-Value="selectedRepId"
+                                AriaLabel="Filter by rep"
+                                Placeholder="All reps" />
             </div>
             <div class="col-md-2 vs-actions">
                 <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
@@ -90,7 +124,7 @@
             <div>Choose a period and run the report.</div>
         </div>
     }
-    else if (report.Days.Count == 0)
+    else if (allRows.Count == 0)
     {
         <div class="vs-empty">
             <div class="vs-empty-title">No trading days in this period</div>
@@ -99,211 +133,311 @@
     }
     else
     {
-        var summary = report.Summary;
+        var rows = VisibleRows;
+        var totals = Summarise(rows);
 
-        <div class="vs-summary">
-            <div class="vs-summary-cell">
-                <div class="vs-summary-value">@summary.DayCount</div>
-                <div class="vs-summary-label">Trading days</div>
+        <div class="vsc-kpis">
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark"></div>
+                <div class="vsc-kpi-value">@totals.TradingDays</div>
+                <div class="vsc-kpi-label">Trading days</div>
+                <div class="vsc-kpi-sub">@totals.RepDays rep-@(totals.RepDays == 1 ? "day" : "days")</div>
             </div>
-            <div class="vs-summary-cell">
-                <div class="vs-summary-value">@FormatRate(summary.CallComplianceRate)</div>
-                <div class="vs-summary-label">CCR</div>
+
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark @Ink(totals.Gaps > 0)"></div>
+                <div class="vsc-kpi-value">@totals.Clean/@totals.RepDays</div>
+                <div class="vsc-kpi-label">Compliant</div>
+                <div class="vsc-kpi-sub @Ink(totals.Gaps > 0)">
+                    @(totals.Gaps > 0 ? $"{totals.Gaps} need a look" : "all clear")
+                </div>
             </div>
-            <div class="vs-summary-cell">
-                <div class="vs-summary-value">@FormatRate(summary.ProductiveCallRate)</div>
-                <div class="vs-summary-label">PCR</div>
+
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark @Ink(Under(totals.Ccr, CcrTarget))"></div>
+                <div class="vsc-kpi-value @NoneClass(totals.Ccr)">@FormatRate(totals.Ccr)</div>
+                <div class="vsc-kpi-label">CCR</div>
+                <div class="vsc-kpi-sub @Ink(Under(totals.Ccr, CcrTarget))">target @FormatRate(CcrTarget)</div>
             </div>
-            <div class="vs-summary-cell">
-                <div class="vs-summary-value">@FormatMoney(summary.AverageOrderValue)</div>
-                <div class="vs-summary-label">AOV</div>
+
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark @Ink(Under(totals.Pcr, PcrTarget))"></div>
+                <div class="vsc-kpi-value @NoneClass(totals.Pcr)">@FormatRate(totals.Pcr)</div>
+                <div class="vsc-kpi-label">PCR</div>
+                <div class="vsc-kpi-sub @Ink(Under(totals.Pcr, PcrTarget))">target @FormatRate(PcrTarget)</div>
             </div>
-            <div class="vs-summary-cell">
-                <div class="vs-summary-value">@summary.TotalSales.ToString("N2")</div>
-                <div class="vs-summary-label">Total sales</div>
+
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark"></div>
+                <div class="vsc-kpi-value">@totals.Sales.ToString("N0")</div>
+                <div class="vsc-kpi-label">Total sales</div>
+                <div class="vsc-kpi-sub">AOV @FormatMoney(totals.Aov)</div>
             </div>
-            <div class="vs-summary-cell">
-                <div class="vs-summary-value">@(summary.KilometresTravelled?.ToString("N0") ?? "—")</div>
-                <div class="vs-summary-label">Kilometres</div>
+
+            <div class="vsc-kpi">
+                <div class="vsc-kpi-mark"></div>
+                <div class="vsc-kpi-value @NoneClass(totals.Kilometres)">
+                    @(totals.Kilometres?.ToString("N0") ?? "—")
+                </div>
+                <div class="vsc-kpi-label">Kilometres</div>
+                @* Averaged over the rounds that gave a reading, not over every round: a day with
+                   no odometer contributed nothing to the total and must not drag the average
+                   down as though the van had stood still. *@
+                <div class="vsc-kpi-sub">
+                    @(totals.Kilometres is { } km
+                        ? $"{km / (decimal)totals.KilometreRows:N0} per round read"
+                        : "no readings")
+                </div>
             </div>
         </div>
 
-        @* The period's rates are recomputed from its totals, not averaged across
-           days — a day with four planned calls and one with two hundred are not
-           equal opinions about the same number. *@
+        <div class="vsc-chips">
+            <span class="vsc-chips-label">Exceptions</span>
+            @foreach (var filter in GapFilters)
+            {
+                var count = CountFor(filter);
+                var on = filter.Key == activeGapFilter;
 
-        @foreach (var day in report.Days)
-        {
-            <div class="vs-day">
-                <div class="vs-day-head">
-                    <div>
-                        <div class="vs-day-who">@day.DisplayName</div>
-                        <div class="vs-day-where">
-                            @if (!string.IsNullOrWhiteSpace(day.Territory))
-                            {
-                                <span>Territory @day.Territory</span>
-                            }
-                            @if (!string.IsNullOrWhiteSpace(day.RouteName))
-                            {
-                                <span> · Route @day.RouteName</span>
-                            }
-                            @if (!string.IsNullOrWhiteSpace(day.TruckRegNo))
-                            {
-                                <span> · @day.TruckRegNo</span>
-                            }
-                            @if (!day.HasDayRecord)
-                            {
-                                <span class="vs-chip vs-chip-warn ms-2">No departure record</span>
-                            }
-                            else if (!day.IsClosed)
-                            {
-                                <span class="vs-chip vs-chip-info ms-2">Day still open</span>
-                            }
-                        </div>
-                    </div>
-                    <div class="vs-day-when">
-                        <div class="vs-day-date">@day.TradingDate.ToString("ddd dd MMM yyyy")</div>
-                        <div>
-                            Out @FormatTime(day.TimeOut) · In @FormatTime(day.TimeIn)
-                        </div>
-                    </div>
+                <button type="button"
+                        class="vsc-chip @(on ? "vsc-chip-on" : "")"
+                        disabled="@(count == 0 && !on)"
+                        aria-pressed="@on"
+                        @onclick="() => SetGapFilter(filter.Key)">
+                    @filter.Label
+                    <span class="vsc-chip-count @Ink(count > 0 && filter.Key != AllRepDays)">@count</span>
+                </button>
+            }
+            <span class="vsc-period">@PeriodSummary()</span>
+        </div>
+
+        <div class="vsc-sheet">
+
+            <div class="vsc-track vsc-cols">
+                @SortHeader(SortKey.Day, "Day")
+                @SortHeader(SortKey.Rep, "Rep & route")
+                <span>Out — in</span>
+                @SortHeader(SortKey.Ccr, "CCR", "Call compliance rate")
+                @SortHeader(SortKey.Pcr, "PCR", "Productive call rate")
+                <span class="vsc-right" title="Average order value">AOV</span>
+                @SortHeader(SortKey.Sales, "Sales", null, atEnd: true)
+                <span class="vsc-right">Km</span>
+                <span>Declared</span>
+                <span></span>
+            </div>
+
+            @if (rows.Count == 0)
+            {
+                <div class="vsc-blank">
+                    <div class="vs-empty-title">No rep-days match this filter</div>
+                    <div>Clear the exception filter, or widen the period.</div>
                 </div>
+            }
 
-                <div class="vs-grid">
-                    <div class="vs-cell">
-                        <div class="vs-cell-label">Customers</div>
-                        <div class="vs-cell-value">@day.PlannedCustomerCount</div>
-                        <div class="vs-cell-note">@day.CustomersVisited visited</div>
-                    </div>
+            @foreach (var row in rows)
+            {
+                var day = row.Day;
+                var key = RowKey(day);
+                var isOpen = key == openRow;
+                var flag = PrimaryFlag(row.Gaps);
+                var declared = day.DeclaredTotal;
+                var variance = day.DeclaredVariance;
+                var missing = row.Gaps.HasFlag(Gaps.NoDeparture);
+                var declarationOff = declared is null ? day.SystemTotalSales > 0 : variance != 0;
 
-                    <div class="vs-cell">
-                        <div class="vs-cell-label">CCR</div>
-                        <div class="vs-cell-value @(day.CallComplianceRate is null ? "vs-metric-none" : "")">
-                            @FormatRate(day.CallComplianceRate)
-                        </div>
-                        @RenderMeter(day.CallComplianceRate, 0.95, 0.85)
-                    </div>
+                <div @key="key">
+                    <button type="button" class="vsc-rowbtn" aria-expanded="@isOpen"
+                            @onclick="() => ToggleRow(key)">
+                        <span class="vsc-track vsc-row @(missing ? "vsc-row-flagged" : "")">
 
-                    <div class="vs-cell">
-                        <div class="vs-cell-label">PCR</div>
-                        <div class="vs-cell-value @(day.ProductiveCallRate is null ? "vs-metric-none" : "")">
-                            @FormatRate(day.ProductiveCallRate)
-                        </div>
-                        @RenderMeter(day.ProductiveCallRate, 0.90, 0.75)
-                    </div>
+                            <span class="vsc-cell">
+                                <span class="vsc-day">@day.TradingDate.ToString("ddd dd MMM")</span>
+                                <span class="vsc-sub">week @ISOWeek.GetWeekOfYear(day.TradingDate)</span>
+                            </span>
 
-                    <div class="vs-cell">
-                        <div class="vs-cell-label">AOV</div>
-                        <div class="vs-cell-value @(day.AverageOrderValue is null ? "vs-metric-none" : "")">
-                            @FormatMoney(day.AverageOrderValue)
-                        </div>
-                        <div class="vs-cell-note">@day.ProductiveCalls productive</div>
-                    </div>
-
-                    <div class="vs-cell">
-                        <div class="vs-cell-label">RTI</div>
-                        <div class="vs-cell-value @(day.RtiOut is null ? "vs-metric-none" : "")">
-                            @(day.RtiOut?.ToString() ?? "—")
-                        </div>
-                        <div class="vs-cell-note">
-                            @if (day.RtiOutstanding is { } outstanding)
-                            {
-                                <span class="@(outstanding > 0 ? "vs-variance-short" : "vs-variance-level")">
-                                    @(outstanding > 0 ? $"{outstanding} outstanding" : "all returned")
+                            <span class="vsc-who">
+                                <span class="vsc-avatar @(missing ? "vsc-avatar-flagged" : "")">
+                                    @Initials(day.DisplayName)
                                 </span>
-                            }
-                            else
-                            {
-                                <span>not counted back</span>
-                            }
-                        </div>
-                    </div>
+                                <span class="vsc-cell">
+                                    <span class="vsc-name">
+                                        <span class="vsc-name-text">@day.DisplayName</span>
+                                        @if (flag is { } mark)
+                                        {
+                                            <span class="vsc-flag @(mark.Strong ? "vsc-flag-strong" : "")">@mark.Label</span>
+                                        }
+                                    </span>
+                                    <span class="vsc-where">@RouteLine(day)</span>
+                                </span>
+                            </span>
 
-                    <div class="vs-cell">
-                        <div class="vs-cell-label">New customers</div>
-                        <div class="vs-cell-value">@(day.NewCustomers == 0 ? "None" : day.NewCustomers.ToString())</div>
-                    </div>
+                            <span class="vsc-time @Ink(missing)">@TimeSpanText(day)</span>
 
-                    <div class="vs-cell">
-                        <div class="vs-cell-label">Mileage</div>
-                        <div class="vs-cell-value @(day.KilometresTravelled is null ? "vs-metric-none" : "")">
-                            @(day.KilometresTravelled is { } km ? $"{km:N0} km" : "—")
-                        </div>
-                        <div class="vs-cell-note">
-                            @if (day.StartingMileage is { } start)
-                            {
-                                <span>@start.ToString("N0") → @(day.ClosingMileage?.ToString("N0") ?? "—")</span>
-                            }
-                            else
-                            {
-                                <span>no odometer reading</span>
-                            }
-                        </div>
-                    </div>
-                </div>
+                            <span class="vsc-cell">
+                                <span class="vsc-rate">
+                                    <span class="vsc-rate-value @RateInk(day.CallComplianceRate, CcrTarget)">
+                                        @FormatRate(day.CallComplianceRate)
+                                    </span>
+                                    <span class="vsc-rate-note">
+                                        @(day.PlannedCustomerCount > 0
+                                            ? $"{day.CustomersVisited}/{day.PlannedCustomerCount}"
+                                            : "no plan")
+                                    </span>
+                                </span>
+                                @RenderBar(day.CallComplianceRate, CcrTarget)
+                            </span>
 
-                <div class="vs-money">
-                    <div class="vs-money-item">
-                        <div class="vs-money-label">Cash</div>
-                        <div class="vs-money-value">@day.SystemCash.ToString("N2")</div>
-                        @RenderDeclared(day.DeclaredCash, day.SystemCash)
-                    </div>
-                    <div class="vs-money-item">
-                        <div class="vs-money-label">Ecocash</div>
-                        <div class="vs-money-value">@day.SystemEcocash.ToString("N2")</div>
-                        @RenderDeclared(day.DeclaredEcocash, day.SystemEcocash)
-                    </div>
-                    <div class="vs-money-item">
-                        <div class="vs-money-label">Innbucks</div>
-                        <div class="vs-money-value">@day.SystemInnbucks.ToString("N2")</div>
-                        @RenderDeclared(day.DeclaredInnbucks, day.SystemInnbucks)
-                    </div>
-                    @if (day.SystemOther > 0)
+                            <span class="vsc-cell">
+                                <span class="vsc-rate">
+                                    <span class="vsc-rate-value @RateInk(day.ProductiveCallRate, PcrTarget)">
+                                        @FormatRate(day.ProductiveCallRate)
+                                    </span>
+                                    <span class="vsc-rate-note">
+                                        @(day.CustomersVisited > 0
+                                            ? $"{day.ProductiveCalls}/{day.CustomersVisited}"
+                                            : "no calls")
+                                    </span>
+                                </span>
+                                @RenderBar(day.ProductiveCallRate, PcrTarget)
+                            </span>
+
+                            <span class="vsc-num vsc-right @NoneClass(day.AverageOrderValue)">
+                                @FormatMoney(day.AverageOrderValue)
+                            </span>
+
+                            <span class="vsc-strong vsc-right">@day.SystemTotalSales.ToString("N2")</span>
+
+                            <span class="vsc-num vsc-right @KilometreInk(day)">
+                                @(day.KilometresTravelled?.ToString("N0") ?? "—")
+                            </span>
+
+                            <span class="vsc-cell">
+                                <span class="vsc-num @NoneClass(declared)">@FormatMoney(declared)</span>
+                                <span class="vsc-sub @Ink(declarationOff)">@VarianceText(day)</span>
+                            </span>
+
+                            <span class="vsc-caret @(isOpen ? "vsc-caret-on" : "")" aria-hidden="true">›</span>
+                        </span>
+                    </button>
+
+                    @if (isOpen)
                     {
-                        <div class="vs-money-item">
-                            <div class="vs-money-label">Unallocated</div>
-                            <div class="vs-money-value">@day.SystemOther.ToString("N2")</div>
-                            @* Online direct invoices carry no payment method, so they cannot be
-                               attributed to a tender. Shown as its own figure rather than folded
-                               into cash, which would be a guess presented as a fact. *@
-                            <div class="vs-money-declared">no tender recorded</div>
+                        <div class="vsc-detail">
+                            <div class="vsc-panels">
+
+                                <div>
+                                    <div class="vsc-panel-title">Departure record</div>
+                                    @Item("Out", FormatTime(day.TimeOut), !day.HasDayRecord)
+                                    @Item("Back in", day.HasDayRecord && !day.IsClosed ? "still out" : FormatTime(day.TimeIn), day.HasDayRecord && !day.IsClosed)
+                                    @Item("Odometer out", day.StartingMileage?.ToString("N0") ?? "—", false)
+                                    @Item("Odometer in", day.ClosingMileage?.ToString("N0") ?? "—", false)
+                                    @Item("Distance",
+                                          day.KilometresTravelled is { } travelled ? $"{travelled:N0} km" : "no reading",
+                                          row.Gaps.HasFlag(Gaps.NoOdometer))
+                                    @Item("Truck", string.IsNullOrWhiteSpace(day.TruckRegNo) ? "—" : day.TruckRegNo, false)
+                                </div>
+
+                                <div>
+                                    <div class="vsc-panel-title">Calls</div>
+                                    @Item("Customers planned", day.PlannedCustomerCount.ToString("N0"), false)
+                                    @Item("Customers visited", day.CustomersVisited.ToString("N0"), false)
+                                    @Item("Productive calls", day.ProductiveCalls.ToString("N0"), false)
+                                    @Item("New customers", day.NewCustomers == 0 ? "none" : day.NewCustomers.ToString("N0"), false)
+                                    @* Returns the van carried out and what came back on it. Neither
+                                       figure is derived: both are keyed on the handset, so "not
+                                       counted back" is a real state and not a zero. *@
+                                    @Item("Returns out (RTI)", day.RtiOut?.ToString("N0") ?? "—", false)
+                                    @Item("Returns back",
+                                          day.RtiOutstanding is { } outstanding
+                                              ? (outstanding > 0 ? $"{outstanding:N0} outstanding" : "all returned")
+                                              : "not counted back",
+                                          day.RtiOutstanding > 0)
+                                </div>
+
+                                <div>
+                                    <div class="vsc-panel-title">Money back</div>
+                                    @TenderItem("Cash", day.SystemCash, day.DeclaredCash)
+                                    @TenderItem("Ecocash", day.SystemEcocash, day.DeclaredEcocash)
+                                    @TenderItem("Innbucks", day.SystemInnbucks, day.DeclaredInnbucks)
+                                    @if (day.SystemOther > 0)
+                                    {
+                                        @* Online direct invoices carry no payment method, so they cannot be
+                                           attributed to a tender. Shown as its own figure rather than folded
+                                           into cash, which would be a guess presented as a fact. *@
+                                        @ItemWithNote("Unallocated", day.SystemOther.ToString("N2"), "no tender recorded", false)
+                                    }
+                                    @Item("Day sales",
+                                          $"{day.SystemTotalSales:N2}{(string.IsNullOrWhiteSpace(day.Currency) ? "" : " " + day.Currency)}",
+                                          false)
+                                    @ItemWithNote("Total declared", FormatMoney(declared), VarianceText(day), declarationOff)
+                                </div>
+                            </div>
+
+                            <div class="vsc-detail-foot">@DayNote(day)</div>
                         </div>
                     }
-                    <div class="vs-money-item">
-                        <div class="vs-money-label">Total day sales</div>
-                        <div class="vs-money-value">@day.SystemTotalSales.ToString("N2") @day.Currency</div>
-                        @if (day.DeclaredVariance is { } variance)
-                        {
-                            <div class="vs-money-declared @VarianceClass(variance)">
-                                Declared @day.DeclaredTotal!.Value.ToString("N2")
-                                (@(variance >= 0 ? "+" : "")@variance.ToString("N2"))
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="vs-money-declared">nothing declared</div>
-                        }
-                    </div>
                 </div>
+            }
 
-                @if (!string.IsNullOrWhiteSpace(day.Notes))
-                {
-                    <div class="vs-money">
-                        <div class="vs-meta">@day.Notes</div>
-                    </div>
-                }
+            <div class="vsc-track vsc-foot">
+                <span class="vsc-foot-label">Period</span>
+                <span class="vs-meta">
+                    @(totals.Gaps > 0
+                        ? $"{totals.Gaps} of {totals.RepDays} rep-days carry a flag"
+                        : "every rep-day complete")
+                </span>
+                <span></span>
+                <span class="vsc-num @NoneClass(totals.Ccr)">@FormatRate(totals.Ccr)</span>
+                <span class="vsc-num @NoneClass(totals.Pcr)">@FormatRate(totals.Pcr)</span>
+                <span class="vsc-num vsc-right @NoneClass(totals.Aov)">@FormatMoney(totals.Aov)</span>
+                <span class="vsc-strong vsc-right">@totals.Sales.ToString("N2")</span>
+                <span class="vsc-num vsc-right @NoneClass(totals.Kilometres)">
+                    @(totals.Kilometres?.ToString("N0") ?? "—")
+                </span>
+                <span class="vsc-num @NoneClass(totals.Declared)">@FormatMoney(totals.Declared)</span>
+                <span></span>
             </div>
-        }
+        </div>
     }
 </div>
 
 @code {
+    /// <summary>
+    /// The targets the rates are scored against, from the design's own defaults.
+    ///
+    /// They are policy rather than measurement, which is why they are stated here as two named
+    /// numbers instead of being buried in the comparisons: a supervisor who wants the bar moved
+    /// should have one place to move it. They are deliberately not equal — nearly every planned
+    /// call should be made, while converting more than half of them is a good day.
+    /// </summary>
+    private const double CcrTarget = 0.90;
+
+    private const double PcrTarget = 0.55;
+
+    /// <summary>
+    /// After this, a departure counts as late. Also policy, and also the design's figure: the vans
+    /// are loaded overnight to leave at first light, and a round that starts at eight arrives at
+    /// the far end of the route after the shops have taken their morning delivery from someone else.
+    /// </summary>
+    private static readonly TimeSpan LatestDeparture = new(7, 0, 0);
+
+    private const string AllRepDays = "all";
+
     private DepartureComplianceReportResponse? report;
     private List<RouteDto> routes = [];
+
+    /// <summary>Every row the API returned, with its gaps worked out once.</summary>
+    private List<ComplianceRow> allRows = [];
 
     private DateTime? fromDate;
     private DateTime? toDate;
     private string? selectedRouteCode;
+    private string? selectedRepId;
+    private string activeGapFilter = AllRepDays;
+
+    private SortKey sortKey = SortKey.Day;
+    private bool sortDescending = true;
+
+    private string? openRow;
 
     private bool isLoading;
     private string? loadError;
@@ -318,17 +452,44 @@
     /// a status, and a coloured swatch would imply a meaning it does not have.
     /// </summary>
     private IEnumerable<INocturneSelectOption<string>> RouteFilterOptions =>
-        new[]
-            {
-                new NocturneSelectOption<string>(string.Empty, "All routes", "neutral")
-                {
-                    RuleAfter = true,
-                    IsUnset = true
-                }
-            }
+        new[] { NocturneSelectOption.All("All routes") }
             .Concat(routes.Select(route => new NocturneSelectOption<string>(
                 route.Code,
                 route.IsActive ? route.DisplayLabel : $"{route.DisplayLabel} (retired)")));
+
+    /// <summary>
+    /// The reps the loaded period actually holds, each with how many rep-days they own. Built from
+    /// the rows rather than from the staff list, so the picker cannot offer a rep with nothing to
+    /// look at.
+    /// </summary>
+    private IEnumerable<INocturneSelectOption<string>> RepFilterOptions =>
+        new[] { NocturneSelectOption.All("All reps") }
+            .Concat(allRows
+                .GroupBy(row => row.Day.UserId)
+                .Select(group => new
+                {
+                    Id = group.Key,
+                    Name = group.First().Day.DisplayName,
+                    Days = group.Count()
+                })
+                .OrderBy(rep => rep.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(rep => new NocturneSelectOption<string>(rep.Id.ToString("N"), rep.Name)
+                {
+                    Hint = rep.Days.ToString("N0")
+                }));
+
+    /// <summary>The rows the rep picker leaves, before the exception chips are applied.</summary>
+    private List<ComplianceRow> FilteredRows =>
+        string.IsNullOrWhiteSpace(selectedRepId)
+            ? allRows
+            : allRows.Where(row => row.Day.UserId.ToString("N") == selectedRepId).ToList();
+
+    private GapFilter ActiveFilter =>
+        GapFilters.FirstOrDefault(filter => filter.Key == activeGapFilter) ?? GapFilters[0];
+
+    /// <summary>What is on screen: rep filter, then exception chip, then the chosen sort.</summary>
+    private List<ComplianceRow> VisibleRows =>
+        Arrange(FilteredRows.Where(row => ActiveFilter.Test(row.Gaps)));
 
     protected override async Task OnInitializedAsync()
     {
@@ -358,11 +519,36 @@
             if (report is null)
             {
                 loadError = "The compliance report could not be loaded. Check that the API is reachable.";
+                allRows = [];
+                return;
             }
+
+            allRows = report.Days
+                .Select(day => new ComplianceRow(day, GapsOf(day)))
+                .ToList();
+
+            // The rep picker's rows come from this list, so a rep who has no day in the new period
+            // would otherwise leave the filter set to someone the page can no longer show — an
+            // empty table with no visible reason for being empty.
+            if (!string.IsNullOrWhiteSpace(selectedRepId)
+                && allRows.All(row => row.Day.UserId.ToString("N") != selectedRepId))
+            {
+                selectedRepId = null;
+            }
+
+            // Same reasoning as the rep filter: an exception the new period does not contain would
+            // leave the reader looking at an empty table with the reason two rows above it.
+            if (CountFor(ActiveFilter) == 0)
+            {
+                activeGapFilter = AllRepDays;
+            }
+
+            openRow = null;
         }
         catch (Exception ex)
         {
             loadError = $"Failed to load the compliance report: {ex.Message}";
+            allRows = [];
         }
         finally
         {
@@ -371,9 +557,298 @@
         }
     }
 
+    private void ToggleRow(string key) => openRow = openRow == key ? null : key;
+
+    private void SetGapFilter(string key)
+    {
+        activeGapFilter = key;
+        openRow = null;
+    }
+
+    private void SortBy(SortKey key)
+    {
+        if (sortKey == key)
+        {
+            sortDescending = !sortDescending;
+            return;
+        }
+
+        sortKey = key;
+
+        // A name reads down the page from A; everything else reads best — or newest — first.
+        sortDescending = key != SortKey.Rep;
+    }
+
+    private static string RowKey(DepartureComplianceDay day) =>
+        $"{day.UserId:N}|{day.TradingDate:yyyyMMdd}";
+
+    // — Ordering ————————————————————————————————————————————————————————
+
+    private List<ComplianceRow> Arrange(IEnumerable<ComplianceRow> rows)
+    {
+        var ordered = sortKey switch
+        {
+            SortKey.Rep => sortDescending
+                ? rows.OrderByDescending(row => row.Day.DisplayName, StringComparer.OrdinalIgnoreCase)
+                : rows.OrderBy(row => row.Day.DisplayName, StringComparer.OrdinalIgnoreCase),
+            SortKey.Ccr => ByRate(rows, row => row.Day.CallComplianceRate),
+            SortKey.Pcr => ByRate(rows, row => row.Day.ProductiveCallRate),
+            SortKey.Sales => sortDescending
+                ? rows.OrderByDescending(row => row.Day.SystemTotalSales)
+                : rows.OrderBy(row => row.Day.SystemTotalSales),
+            _ => sortDescending
+                ? rows.OrderByDescending(row => row.Day.TradingDate)
+                : rows.OrderBy(row => row.Day.TradingDate)
+        };
+
+        return ordered
+            .ThenByDescending(row => row.Day.TradingDate)
+            .ThenBy(row => row.Day.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Sorts by a rate, parking the unavailable ones at the end whichever way the column is turned.
+    /// Sorting by CCR asks who scored worst, or best; a row with no denominator answers neither, and
+    /// treating it as zero would file it under the worst rounds of the period.
+    /// </summary>
+    private IOrderedEnumerable<ComplianceRow> ByRate(
+        IEnumerable<ComplianceRow> rows,
+        Func<ComplianceRow, double?> rate)
+    {
+        var placed = rows.OrderBy(row => rate(row) is null);
+
+        return sortDescending
+            ? placed.ThenByDescending(row => rate(row) ?? 0)
+            : placed.ThenBy(row => rate(row) ?? 0);
+    }
+
+    // — Gaps ————————————————————————————————————————————————————————————
+
+    /// <summary>
+    /// What is wrong with a rep-day, if anything.
+    /// </summary>
+    /// <remarks>
+    /// A missing declaration is only a gap where money came in: a rep who was on the road all day
+    /// and sold nothing has nothing to declare, and flagging that would put a mark on the one row
+    /// where the takings and the declaration already agree. The same reasoning keeps the odometer
+    /// and the late departure off a day with no departure record at all — there was no Start Day to
+    /// carry either, which is what "No departure record" already says.
+    /// </remarks>
+    private static Gaps GapsOf(DepartureComplianceDay day)
+    {
+        var gaps = Gaps.None;
+
+        if (!day.HasDayRecord)
+        {
+            gaps |= Gaps.NoDeparture;
+        }
+        else
+        {
+            if (day.KilometresTravelled is null)
+            {
+                gaps |= Gaps.NoOdometer;
+            }
+
+            if (day.TimeOut is { } departed && departed.TimeOfDay > LatestDeparture)
+            {
+                gaps |= Gaps.LateOut;
+            }
+        }
+
+        if (day.SystemTotalSales > 0)
+        {
+            if (day.DeclaredTotal is null)
+            {
+                gaps |= Gaps.NothingDeclared;
+            }
+            else if (day.DeclaredVariance < 0)
+            {
+                gaps |= Gaps.ShortDeclaration;
+            }
+        }
+
+        if (day.CallComplianceRate is { } ccr && ccr < CcrTarget)
+        {
+            gaps |= Gaps.CcrUnderTarget;
+        }
+
+        if (day.ProductiveCallRate is { } pcr && pcr < PcrTarget)
+        {
+            gaps |= Gaps.PcrUnderTarget;
+        }
+
+        return gaps;
+    }
+
+    /// <summary>
+    /// The one badge a row carries, in a stated order of precedence. A rate under target never
+    /// becomes the badge: the figure itself is already marked, in its own column, next to the
+    /// numbers that explain it.
+    /// </summary>
+    private static (string Label, bool Strong)? PrimaryFlag(Gaps gaps)
+    {
+        if (gaps.HasFlag(Gaps.NoDeparture)) return ("No departure record", true);
+        if (gaps.HasFlag(Gaps.NothingDeclared)) return ("Nothing declared", true);
+        if (gaps.HasFlag(Gaps.ShortDeclaration)) return ("Short declaration", true);
+        if (gaps.HasFlag(Gaps.LateOut)) return ("Late out", false);
+        if (gaps.HasFlag(Gaps.NoOdometer)) return ("No odometer", false);
+
+        return null;
+    }
+
+    private static readonly GapFilter[] GapFilters =
+    [
+        new(AllRepDays, "All rep-days", _ => true),
+        new("departure", "No departure record", gaps => gaps.HasFlag(Gaps.NoDeparture)),
+        new("money", "Money not accounted for",
+            gaps => gaps.HasFlag(Gaps.NothingDeclared) || gaps.HasFlag(Gaps.ShortDeclaration)),
+        new("ccr", "CCR under target", gaps => gaps.HasFlag(Gaps.CcrUnderTarget)),
+        new("pcr", "PCR under target", gaps => gaps.HasFlag(Gaps.PcrUnderTarget)),
+        new("odometer", "No odometer", gaps => gaps.HasFlag(Gaps.NoOdometer))
+    ];
+
+    /// <summary>
+    /// Counted against the rep filter but not against the chips, so the numbers stay put as the
+    /// chips are pressed. A count that changed every time one was chosen would be telling the reader
+    /// how many of the rows they can currently see also have this other problem, which is a question
+    /// nobody asked.
+    /// </summary>
+    private int CountFor(GapFilter filter) => FilteredRows.Count(row => filter.Test(row.Gaps));
+
+    // — Totals ——————————————————————————————————————————————————————————
+
+    /// <summary>
+    /// The period's figures, over the rows on screen.
+    ///
+    /// The rates are recomputed from the totals rather than averaged across the rows, which is the
+    /// API's own definition kept identical here: a day with four planned calls and one with two
+    /// hundred are not equal opinions about the same number.
+    /// </summary>
+    private static PeriodTotals Summarise(IReadOnlyList<ComplianceRow> rows)
+    {
+        var totals = new PeriodTotals
+        {
+            RepDays = rows.Count,
+            TradingDays = rows.Select(row => row.Day.TradingDate).Distinct().Count(),
+            Clean = rows.Count(row => row.Gaps == Gaps.None)
+        };
+
+        foreach (var row in rows)
+        {
+            var day = row.Day;
+
+            totals.Planned += day.PlannedCustomerCount;
+            totals.Visited += day.CustomersVisited;
+            totals.Productive += day.ProductiveCalls;
+            totals.Sales += day.SystemTotalSales;
+
+            if (day.KilometresTravelled is { } kilometres)
+            {
+                totals.KilometresRead += kilometres;
+                totals.KilometreRows++;
+            }
+
+            if (day.DeclaredTotal is { } declared)
+            {
+                totals.DeclaredRead += declared;
+                totals.DeclaredRows++;
+            }
+        }
+
+        return totals;
+    }
+
+    // — Row text ————————————————————————————————————————————————————————
+
+    private static string RouteLine(DepartureComplianceDay day)
+    {
+        var parts = new[] { day.RouteName, day.Territory, day.TruckRegNo }
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .ToList();
+
+        return parts.Count == 0 ? "No route recorded" : string.Join(" · ", parts);
+    }
+
+    private static string TimeSpanText(DepartureComplianceDay day)
+    {
+        if (!day.HasDayRecord)
+        {
+            return "not captured";
+        }
+
+        return day.IsClosed
+            ? $"{FormatTime(day.TimeOut)} — {FormatTime(day.TimeIn)}"
+            : $"{FormatTime(day.TimeOut)} — still out";
+    }
+
+    private static string VarianceText(DepartureComplianceDay day)
+    {
+        if (day.DeclaredTotal is null)
+        {
+            return day.SystemTotalSales > 0 ? "not declared" : "nothing to declare";
+        }
+
+        var variance = day.DeclaredVariance ?? 0;
+
+        return variance switch
+        {
+            0 => "balanced",
+            < 0 => $"short {Math.Abs(variance):N2}",
+            _ => $"over {variance:N2}"
+        };
+    }
+
+    private static string DayNote(DepartureComplianceDay day)
+    {
+        if (!string.IsNullOrWhiteSpace(day.Notes))
+        {
+            return day.Notes;
+        }
+
+        if (!day.HasDayRecord)
+        {
+            return "No Start Day was recorded on the handset. The calls and the takings below are "
+                   + "what the check-ins and the sales say; the times and the mileage are simply absent.";
+        }
+
+        return day.IsClosed
+            ? "Recorded on the handset at the start and the end of the round."
+            : "The round has not been closed off on the handset, so the return leg is still open.";
+    }
+
+    private static string Initials(string name)
+    {
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        return words.Length switch
+        {
+            0 => "?",
+            1 => words[0][..Math.Min(2, words[0].Length)].ToUpperInvariant(),
+            _ => $"{words[0][0]}{words[^1][0]}".ToUpperInvariant()
+        };
+    }
+
+    private string PeriodSummary()
+    {
+        if (report is null)
+        {
+            return string.Empty;
+        }
+
+        var rows = FilteredRows;
+        var reps = rows.Select(row => row.Day.UserId).Distinct().Count();
+
+        return $"{report.FromDate:d MMM} – {report.ToDate:d MMM yyyy} · "
+               + $"{rows.Count} rep-{(rows.Count == 1 ? "day" : "days")} · "
+               + $"{reps} rep{(reps == 1 ? "" : "s")}";
+    }
+
+    // — Formatting ——————————————————————————————————————————————————————
+
     /// <summary>An em dash, not 0% — a rate with no denominator is unavailable, not a failure.</summary>
     private static string FormatRate(double? rate) =>
-        rate is null ? "—" : $"{rate.Value * 100:0.#}%";
+        rate is null ? "—" : $"{rate.Value * 100:0}%";
 
     private static string FormatMoney(decimal? amount) =>
         amount is null ? "—" : amount.Value.ToString("N2");
@@ -381,53 +856,325 @@
     private static string FormatTime(DateTime? catTime) =>
         catTime?.ToString("HH:mm") ?? "—";
 
-    private static string VarianceClass(decimal variance) => variance switch
+    /// <summary>Muted, not marked: a figure that was never taken is missing data, not a finding.</summary>
+    private static string NoneClass(object? value) => value is null ? "vs-metric-none" : string.Empty;
+
+    /// <summary>The page's one mark. Ink, a rule and a bar fill all take it from here.</summary>
+    private static string Ink(bool flagged) => flagged ? "vsc-flagged" : string.Empty;
+
+    private static bool Under(double? rate, double target) => rate is { } value && value < target;
+
+    private static string RateInk(double? rate, double target) =>
+        rate is null ? "vs-metric-none" : Ink(rate.Value < target);
+
+    private static string KilometreInk(DepartureComplianceDay day) =>
+        day.KilometresTravelled is not null
+            ? string.Empty
+            : day.HasDayRecord ? "vsc-flagged" : "vs-metric-none";
+
+    // — Fragments ———————————————————————————————————————————————————————
+
+    private RenderFragment SortHeader(SortKey key, string label, string? title = null, bool atEnd = false) =>
+        builder =>
+        {
+            var on = sortKey == key;
+
+            builder.OpenElement(0, "button");
+            builder.AddAttribute(1, "type", "button");
+            builder.AddAttribute(2, "class",
+                $"vsc-sort{(atEnd ? " vsc-sort-end" : "")}{(on ? " vsc-sort-on" : "")}");
+
+            if (title is not null)
+            {
+                builder.AddAttribute(3, "title", title);
+            }
+
+            builder.AddAttribute(4, "onclick",
+                EventCallback.Factory.Create<MouseEventArgs>(this, () => SortBy(key)));
+
+            builder.AddContent(5, label);
+
+            // The arrow is text rather than a glyph so that it reaches a screen reader with the
+            // heading it belongs to, which an aria-sort on a <button> would not: this is a grid,
+            // not a table, and nothing here is a columnheader for that attribute to describe.
+            if (on)
+            {
+                builder.AddContent(6, sortDescending ? " ↓" : " ↑");
+            }
+
+            builder.CloseElement();
+        };
+
+    private static RenderFragment RenderBar(double? rate, double target) => builder =>
     {
-        > 0 => "vs-variance-over",
-        < 0 => "vs-variance-short",
-        _ => "vs-variance-level"
+        builder.OpenElement(0, "span");
+        builder.AddAttribute(1, "class", "vsc-bar");
+
+        // No denominator, no bar to draw — but the track stays, so the rows keep their height and
+        // the column reads as a column rather than as a list with holes in it.
+        if (rate is { } value)
+        {
+            var width = Math.Clamp(value, 0, 1) * 100;
+
+            builder.OpenElement(2, "span");
+            builder.AddAttribute(3, "class", $"vsc-bar-fill {Ink(value < target)}");
+            builder.AddAttribute(4, "style", $"width:{width.ToString("0.#", CultureInfo.InvariantCulture)}%");
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
     };
 
+    private static RenderFragment Item(string label, string value, bool flagged) =>
+        ItemWithNote(label, value, null, flagged);
+
+    private static RenderFragment ItemWithNote(string label, string value, string? note, bool flagged) =>
+        builder =>
+        {
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "vsc-item");
+
+            builder.OpenElement(2, "span");
+            builder.AddAttribute(3, "class", "vsc-item-label");
+            builder.AddContent(4, label);
+            builder.CloseElement();
+
+            builder.OpenElement(5, "span");
+            builder.AddAttribute(6, "class", "vsc-item-value");
+
+            builder.OpenElement(7, "span");
+            builder.AddAttribute(8, "class", $"vsc-item-figure {Ink(flagged && note is null)}");
+            builder.AddContent(9, value);
+            builder.CloseElement();
+
+            if (note is not null)
+            {
+                builder.OpenElement(10, "span");
+                builder.AddAttribute(11, "class", $"vsc-item-note {Ink(flagged)}");
+                builder.AddContent(12, note);
+                builder.CloseElement();
+            }
+
+            builder.CloseElement();
+            builder.CloseElement();
+        };
+
     /// <summary>
-    /// A bar under a rate. Thresholds are per-metric because the two are not held to the same
-    /// standard: nearly every planned call should be made, while converting three quarters of them
-    /// is a good day.
+    /// A tender, with what the till says over what was counted back. The pair is the finding —
+    /// either figure on its own is just a number.
     /// </summary>
-    private RenderFragment RenderMeter(double? rate, double good, double fair) => builder =>
+    private static RenderFragment TenderItem(string label, decimal system, decimal? declared)
     {
-        if (rate is null)
+        if (declared is null)
+        {
+            return ItemWithNote(label, system.ToString("N2"), "not declared", system > 0);
+        }
+
+        var variance = decimal.Round(declared.Value - system, 2);
+
+        var note = variance == 0
+            ? $"counted {declared.Value:N2}"
+            : $"counted {declared.Value:N2} ({(variance > 0 ? "+" : "−")}{Math.Abs(variance):N2})";
+
+        return ItemWithNote(label, system.ToString("N2"), note, variance != 0);
+    }
+
+    // — Export ——————————————————————————————————————————————————————————
+
+    /// <summary>
+    /// The rows on screen, as they are on screen — the same filter, the same order.
+    /// </summary>
+    /// <remarks>
+    /// Exporting the whole period regardless of the filters would be the more generous reading of
+    /// the button, and the wrong one: someone who has narrowed the page to the eleven rounds with
+    /// nothing declared and then presses Export is asking for those eleven. Both figures go out for
+    /// every tender — what the sales say and what was counted — because a reconciliation done in a
+    /// spreadsheet needs the two columns the page puts on two lines.
+    /// </remarks>
+    private async Task ExportAsync()
+    {
+        var rows = VisibleRows;
+
+        if (rows.Count == 0)
         {
             return;
         }
 
-        var value = Math.Clamp(rate.Value, 0, 1);
-        var tone = value >= good ? "" : value >= fair ? " vs-is-warn" : " vs-is-bad";
+        var csv = BuildCsv(rows);
 
-        builder.OpenElement(0, "div");
-        builder.AddAttribute(1, "class", "vs-meter");
-        builder.OpenElement(2, "div");
-        builder.AddAttribute(3, "class", $"vs-meter-fill{tone}");
-        builder.AddAttribute(4, "style", $"width:{value * 100:0.#}%");
-        builder.CloseElement();
-        builder.CloseElement();
-    };
+        var bytes = Encoding.UTF8.GetPreamble()
+            .Concat(Encoding.UTF8.GetBytes(csv))
+            .ToArray();
 
-    private RenderFragment RenderDeclared(decimal? declared, decimal system) => builder =>
+        var fileName = $"DepartureCompliance_{DateTime.UtcNow.AddHours(2):yyyyMMdd_HHmmss}.csv";
+
+        try
+        {
+            await JS.InvokeVoidAsync("downloadFile", fileName, "text/csv;charset=utf-8",
+                Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            loadError = $"The export could not be downloaded: {ex.Message}";
+        }
+    }
+
+    private static string BuildCsv(IEnumerable<ComplianceRow> rows)
     {
-        builder.OpenElement(0, "div");
+        var csv = new StringBuilder();
 
-        if (declared is null)
+        csv.AppendLine(
+            "Trading date,Rep,Username,Territory,Route code,Route,Truck,Time out,Time in,Day closed,"
+            + "Customers planned,Customers visited,Productive calls,CCR %,PCR %,AOV,"
+            + "Sales,Currency,Cash,Ecocash,Innbucks,Unallocated,"
+            + "Declared cash,Declared ecocash,Declared innbucks,Declared total,Variance,"
+            + "Odometer out,Odometer in,Kilometres,New customers,Returns out,Returns back,Flags,Notes");
+
+        foreach (var row in rows)
         {
-            builder.AddAttribute(1, "class", "vs-money-declared");
-            builder.AddContent(2, "not declared");
-        }
-        else
-        {
-            var variance = decimal.Round(declared.Value - system, 2);
-            builder.AddAttribute(1, "class", $"vs-money-declared {VarianceClass(variance)}");
-            builder.AddContent(2, $"counted {declared.Value:N2} ({(variance >= 0 ? "+" : "")}{variance:N2})");
+            var day = row.Day;
+
+            csv.AppendJoin(',',
+                Csv(day.TradingDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
+                Csv(day.DisplayName),
+                Csv(day.Username),
+                Csv(day.Territory),
+                Csv(day.RouteCode),
+                Csv(day.RouteName),
+                Csv(day.TruckRegNo),
+                Csv(day.TimeOut?.ToString("HH:mm", CultureInfo.InvariantCulture)),
+                Csv(day.TimeIn?.ToString("HH:mm", CultureInfo.InvariantCulture)),
+                Csv(day.HasDayRecord ? (day.IsClosed ? "yes" : "no") : "no day record"),
+                Number(day.PlannedCustomerCount),
+                Number(day.CustomersVisited),
+                Number(day.ProductiveCalls),
+                Percent(day.CallComplianceRate),
+                Percent(day.ProductiveCallRate),
+                Number(day.AverageOrderValue),
+                Number(day.SystemTotalSales),
+                Csv(day.Currency),
+                Number(day.SystemCash),
+                Number(day.SystemEcocash),
+                Number(day.SystemInnbucks),
+                Number(day.SystemOther),
+                Number(day.DeclaredCash),
+                Number(day.DeclaredEcocash),
+                Number(day.DeclaredInnbucks),
+                Number(day.DeclaredTotal),
+                Number(day.DeclaredVariance),
+                Number(day.StartingMileage),
+                Number(day.ClosingMileage),
+                Number(day.KilometresTravelled),
+                Number(day.NewCustomers),
+                Number(day.RtiOut),
+                Number(day.RtiReturned),
+                Csv(FlagList(row.Gaps)),
+                Csv(day.Notes));
+
+            csv.AppendLine();
         }
 
-        builder.CloseElement();
-    };
+        return csv.ToString();
+    }
+
+    private static string FlagList(Gaps gaps)
+    {
+        if (gaps == Gaps.None)
+        {
+            return string.Empty;
+        }
+
+        var names = new List<string>();
+
+        if (gaps.HasFlag(Gaps.NoDeparture)) names.Add("No departure record");
+        if (gaps.HasFlag(Gaps.NothingDeclared)) names.Add("Nothing declared");
+        if (gaps.HasFlag(Gaps.ShortDeclaration)) names.Add("Short declaration");
+        if (gaps.HasFlag(Gaps.LateOut)) names.Add("Late out");
+        if (gaps.HasFlag(Gaps.NoOdometer)) names.Add("No odometer");
+        if (gaps.HasFlag(Gaps.CcrUnderTarget)) names.Add("CCR under target");
+        if (gaps.HasFlag(Gaps.PcrUnderTarget)) names.Add("PCR under target");
+
+        return string.Join("; ", names);
+    }
+
+    /// <summary>Blank, not zero: a figure that was never taken must not arrive in a spreadsheet as one.</summary>
+    private static string Number(decimal? value) =>
+        value is null ? string.Empty : value.Value.ToString("0.00", CultureInfo.InvariantCulture);
+
+    private static string Number(int? value) =>
+        value is null ? string.Empty : value.Value.ToString(CultureInfo.InvariantCulture);
+
+    private static string Percent(double? rate) =>
+        rate is null ? string.Empty : (rate.Value * 100).ToString("0.#", CultureInfo.InvariantCulture);
+
+    private static string Csv(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return string.Empty;
+        }
+
+        return value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r')
+            ? $"\"{value.Replace("\"", "\"\"")}\""
+            : value;
+    }
+
+    // — Shapes ——————————————————————————————————————————————————————————
+
+    private sealed record ComplianceRow(DepartureComplianceDay Day, Gaps Gaps);
+
+    private sealed record GapFilter(string Key, string Label, Func<Gaps, bool> Test);
+
+    private enum SortKey
+    {
+        Day,
+        Rep,
+        Ccr,
+        Pcr,
+        Sales
+    }
+
+    [Flags]
+    private enum Gaps
+    {
+        None = 0,
+        NoDeparture = 1,
+        NothingDeclared = 2,
+        ShortDeclaration = 4,
+        LateOut = 8,
+        NoOdometer = 16,
+        CcrUnderTarget = 32,
+        PcrUnderTarget = 64
+    }
+
+    private sealed class PeriodTotals
+    {
+        public int RepDays { get; init; }
+        public int TradingDays { get; init; }
+        public int Clean { get; init; }
+
+        public int Planned { get; set; }
+        public int Visited { get; set; }
+        public int Productive { get; set; }
+        public decimal Sales { get; set; }
+
+        public int KilometresRead { get; set; }
+        public int KilometreRows { get; set; }
+
+        public decimal DeclaredRead { get; set; }
+        public int DeclaredRows { get; set; }
+
+        public int Gaps => RepDays - Clean;
+
+        public double? Ccr => Planned > 0 ? (double)Visited / Planned : null;
+
+        public double? Pcr => Visited > 0 ? (double)Productive / Visited : null;
+
+        public decimal? Aov => Productive > 0 ? decimal.Round(Sales / Productive, 2) : null;
+
+        /// <summary>Null where nothing was read, so the total cannot read as a period of zero mileage.</summary>
+        public int? Kilometres => KilometreRows > 0 ? KilometresRead : null;
+
+        public decimal? Declared => DeclaredRows > 0 ? DeclaredRead : null;
+    }
 }

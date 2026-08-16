@@ -3,16 +3,23 @@
 
    Four pages, not two, whatever this header used to say: /van-sales/activity
    (the audit ledger — one row per round, the day drawn as a strip),
-   /van-sales/compliance (the departure compliance sheet, one card per rep-day),
+   /van-sales/compliance (the departure compliance sheet, one row per rep-day),
    /van-sales/routes and the attendance report. One sheet because they are one
    section and share their card, chip and meter vocabulary; the `vs-` prefix is
    not shared with any other sheet.
 
-   The ledger's own vocabulary is `vsa-`, at the foot of this file, and is the
-   only part of the sheet the other three pages do not touch. Everything above
-   it is shared — `vs-table`, `vs-field`, `vs-primary` and `vs-num` all read as
+   Two of the four carry a page-only vocabulary at the foot of this file: `vsa-`
+   for the ledger, then `vsc-` for the compliance sheet. Everything above them is
+   shared — `vs-table`, `vs-field`, `vs-primary` and `vs-num` all read as
    activity-page leftovers after that rebuild and are nothing of the kind, so
    check with a grep across all four pages before removing anything here.
+
+   That grep is also what licensed the last removals. When the compliance page
+   was rebuilt from a card per rep-day into the row-and-drawer sheet at the foot
+   of this file, `vs-grid`, `vs-cell*`, `vs-money*`, `vs-variance-*` and the
+   meter's `vs-is-warn` / `vs-is-bad` tones lost their only caller and went with
+   it. `vs-meter`, `vs-metric-none` and every `vs-day*` rule read like they went
+   the same way and did not: the attendance report holds all of them.
 
    Palette and spacing come from nocturne-tokens.css — the block below aliases
    them rather than restating them, so a colour is corrected in one place for the
@@ -53,6 +60,7 @@
     --vs-divider: var(--noct-divider);
     --vs-rule: var(--noct-rule);
     --vs-hover: var(--noct-hover);
+    --vs-avatar-bg: var(--noct-avatar-bg);
 
     /* — Fields — */
     --vs-field-bg: var(--noct-field-bg);
@@ -76,6 +84,18 @@
     --vs-info-rgb: var(--noct-fam-info-rgb);
     --vs-neutral: var(--noct-fam-neutral);
     --vs-neutral-rgb: var(--noct-fam-neutral-rgb);
+
+    /* — The compliance sheet's one exception mark —
+       Every gap the compliance page can find is marked in this single colour: a
+       late departure, a rate under target, a till that came back short. That is
+       the design's choice and not an oversight of the good/warn/bad families
+       above. On a page where every row on screen is already an exception, a
+       traffic light spends three hues ranking findings that a supervisor is
+       going to read one by one anyway, and it makes the clean rows — the ones
+       that should be quietest — the loudest thing in the column. One mark says
+       "this row needs a person" and nothing else claims attention. */
+    --vs-flag: var(--noct-fam-accent);
+    --vs-flag-rgb: var(--noct-fam-accent-rgb);
 
     /* — The ledger's drawn marks —
        A filled control's fill and the ink on it, which is what a timeline block
@@ -334,40 +354,6 @@
     color: var(--vs-ink-2);
 }
 
-/* The sheet proper: label above figure, in the order the paper form reads. */
-.vs .vs-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
-    gap: 1px;
-    background: var(--vs-rule);
-}
-
-.vs .vs-cell {
-    background: var(--vs-surface);
-    padding: 13px 16px;
-}
-
-.vs .vs-cell-label {
-    font-size: 0.7rem;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--vs-mute-3);
-    margin-bottom: 5px;
-}
-
-.vs .vs-cell-value {
-    font-size: 1.05rem;
-    font-weight: 500;
-    color: var(--vs-ink);
-    font-variant-numeric: tabular-nums;
-}
-
-.vs .vs-cell-note {
-    margin-top: 3px;
-    font-size: 0.72rem;
-    color: var(--vs-mute-3);
-}
-
 /* Unavailable, not zero. Muted rather than red: missing data is not a failure. */
 .vs .vs-metric-none {
     color: var(--vs-faint);
@@ -388,14 +374,6 @@
     height: 100%;
     border-radius: 999px;
     background: var(--vs-good);
-}
-
-.vs .vs-meter-fill.vs-is-warn {
-    background: var(--vs-warn);
-}
-
-.vs .vs-meter-fill.vs-is-bad {
-    background: var(--vs-bad);
 }
 
 /* — Chips ————————————————————————————————————————————————————— */
@@ -455,54 +433,6 @@
     background: none;
     color: var(--vs-mute-3);
     font-weight: 400;
-}
-
-/* — Money reconciliation strip ————————————————————————————————— */
-
-.vs .vs-money {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 22px;
-    padding: 14px 20px;
-    border-top: 1px solid var(--vs-rule);
-    background: var(--vs-wash);
-}
-
-.vs .vs-money-item {
-    min-width: 118px;
-}
-
-.vs .vs-money-label {
-    font-size: 0.7rem;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--vs-mute-3);
-}
-
-.vs .vs-money-value {
-    margin-top: 3px;
-    font-size: 0.95rem;
-    font-weight: 500;
-    color: var(--vs-ink);
-    font-variant-numeric: tabular-nums;
-}
-
-.vs .vs-money-declared {
-    margin-top: 2px;
-    font-size: 0.73rem;
-    color: var(--vs-mute-3);
-}
-
-.vs .vs-variance-over {
-    color: var(--vs-warn);
-}
-
-.vs .vs-variance-short {
-    color: var(--vs-bad);
-}
-
-.vs .vs-variance-level {
-    color: var(--vs-good);
 }
 
 /* — Tables ———————————————————————————————————————————————————— */
@@ -1446,5 +1376,576 @@
 
     .vs .vsa-metrics {
         grid-template-columns: 1fr;
+    }
+}
+
+/* ==========================================================================
+   The departure compliance sheet — /van-sales/compliance only
+
+   Departure Compliance.dc.html. Everything below is prefixed `vsc-` and is used
+   by that one page, the same arrangement as the ledger above; the page also
+   uses the shared head, filter bar, chip and `vs-metric-none` rules.
+
+   A row per rep-day rather than a card per rep-day, which is the whole point of
+   the rebuild: the paper sheet this page replaces is read down a column — every
+   CCR in the period at once — and a stack of cards can only be read one at a
+   time. The thirty-odd fields a card used to show are still all here, in the
+   drawer under the row, in the paper form's own order: the departure record,
+   then the calls, then the money.
+
+   Like the ledger, it is a grid rather than a <table>: two of its columns are a
+   figure stacked over a drawn bar, and every row is a disclosure button with a
+   panel under it, which is not a shape a <tr> holds. The column track is stated
+   once, in `.vsc-track`, and the head, every row and the period foot all read
+   it — so a column cannot drift away from its own heading.
+
+   Colour does one job here and it is stated at `--vs-flag` above: one mark for
+   a row that needs a person. The rates carry it too, so the figure and the bar
+   under it can never say two different things.
+   ========================================================================== */
+
+/* — Head ——————————————————————————————————————————————————————— */
+
+/* The two initialisms the whole page is scored on, spelled out on hover for the
+   reader who has met them on the paper form but never in full. */
+.vs .vsc-abbr {
+    color: var(--vs-accent-text);
+    border-bottom: 1px dashed rgba(var(--vs-accent-rgb), .5);
+    text-decoration: none;
+    cursor: help;
+}
+
+/* — Filter bar ————————————————————————————————————————————————— */
+
+.vs .vsc-period {
+    margin-left: auto;
+    align-self: flex-end;
+    padding-bottom: 9px;
+    font-size: 0.78rem;
+    color: var(--vs-faint);
+}
+
+/* — The six figures ———————————————————————————————————————————— */
+
+.vs .vsc-kpis {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.vs .vsc-kpi {
+    padding: 13px 15px 14px;
+    border-radius: var(--vs-r-md);
+    background: var(--vs-surface);
+    box-shadow: inset 0 0 0 1px var(--vs-divider);
+}
+
+/* A rule rather than a bar: there is no scale under these figures for a bar to
+   measure against, and drawing one would invent a denominator. It carries the
+   flag colour when the figure it sits over is the one to look at, and a plain
+   grey otherwise — never the accent, which in the light scheme is a step away
+   from the flag and would leave the two reading as one. */
+.vs .vsc-kpi-mark {
+    width: 26px;
+    height: 2px;
+    margin-bottom: 10px;
+    border-radius: 2px;
+    background: var(--vs-field-edge-hi);
+}
+
+.vs .vsc-kpi-mark.vsc-flagged {
+    background: var(--vs-flag);
+}
+
+.vs .vsc-kpi-value {
+    font-size: 1.6rem;
+    font-weight: 500;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsc-kpi-label {
+    margin-top: 7px;
+    font-size: 0.66rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsc-kpi-sub {
+    margin-top: 3px;
+    font-size: 0.74rem;
+    color: var(--vs-faint);
+}
+
+/* — Exception filters —————————————————————————————————————————— */
+
+.vs .vsc-chips {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.vs .vsc-chips-label {
+    margin-right: 4px;
+    font-size: 0.66rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--vs-faint);
+}
+
+.vs .vsc-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 30px;
+    padding: 0 12px;
+    border: 1px solid var(--vs-field-edge);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--vs-mute-2);
+    font-family: inherit;
+    font-size: 0.79rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.vs .vsc-chip:hover:not(.vsc-chip-on) {
+    border-color: var(--vs-field-edge-hi);
+    color: var(--vs-ink);
+}
+
+.vs .vsc-chip-on {
+    background: rgba(var(--vs-accent-rgb), .16);
+    border-color: var(--vs-accent);
+    color: var(--vs-accent-text);
+}
+
+.vs .vsc-chip:disabled {
+    opacity: .5;
+    cursor: default;
+}
+
+.vs .vsc-chip-count {
+    font-size: 0.75rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--vs-faint);
+}
+
+/* A count of nothing is not a finding, so only a chip with something behind it
+   takes the mark. */
+.vs .vsc-chip-count.vsc-flagged {
+    color: var(--vs-flag);
+}
+
+.vs .vsc-chip-on .vsc-chip-count {
+    color: var(--vs-accent-text);
+}
+
+/* — The sheet —————————————————————————————————————————————————— */
+
+.vs .vsc-sheet {
+    border-radius: var(--vs-r-lg);
+    background: var(--vs-surface);
+    box-shadow: inset 0 0 0 1px var(--vs-divider);
+    /* Wide content scrolls inside its own box; the page body never does. */
+    overflow-x: auto;
+}
+
+/* The one statement of the column track. The head, every row and the foot read
+   it, and nothing else may restate it. */
+.vs .vsc-track {
+    display: grid;
+    grid-template-columns: 92px minmax(148px, 1.4fr) 104px 104px 104px 78px 92px 56px 118px 14px;
+    align-items: center;
+    /* Wide enough that the right-aligned Km column and the left-aligned Declared
+       beside it cannot read as one number. */
+    gap: 14px;
+    min-width: 1070px;
+    padding: 0 16px;
+}
+
+.vs .vsc-cols {
+    padding-top: 10px;
+    padding-bottom: 10px;
+    background: var(--vs-bg);
+    box-shadow: inset 0 -1px 0 var(--vs-divider);
+    font-size: 0.66rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--vs-faint);
+    border-radius: var(--vs-r-lg) var(--vs-r-lg) 0 0;
+}
+
+.vs .vsc-sort {
+    justify-self: start;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.vs .vsc-sort:hover {
+    color: var(--vs-ink);
+}
+
+.vs .vsc-sort-on {
+    color: var(--vs-accent-text);
+}
+
+.vs .vsc-sort-end {
+    justify-self: end;
+}
+
+.vs .vsc-right {
+    text-align: right;
+}
+
+/* — A rep-day ——————————————————————————————————————————————————— */
+
+.vs .vsc-rowbtn {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.vs .vsc-rowbtn:focus-visible {
+    outline: 2px solid var(--vs-accent);
+    outline-offset: -2px;
+}
+
+.vs .vsc-row {
+    padding-top: 9px;
+    padding-bottom: 9px;
+    box-shadow: inset 0 -1px 0 var(--vs-rule);
+}
+
+.vs .vsc-rowbtn:hover .vsc-row {
+    background: var(--vs-hover);
+}
+
+/* A day with no departure record at all is the one row that is a finding before
+   any figure on it is read, so it is washed rather than marked in a column. */
+.vs .vsc-row-flagged {
+    background: rgba(var(--vs-flag-rgb), .09);
+}
+
+.vs .vsc-rowbtn:hover .vsc-row-flagged {
+    background: rgba(var(--vs-flag-rgb), .14);
+}
+
+/* A cell that stacks. `display` is stated on everything in a row because the
+   row is a <button> and every box inside it is therefore a <span> — only the
+   track's own children are blockified by the grid, and a nested inline span
+   would not take a width, an ellipsis or a right edge. */
+.vs .vsc-cell {
+    display: block;
+    min-width: 0;
+}
+
+.vs .vsc-day {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--vs-ink);
+    white-space: nowrap;
+}
+
+.vs .vsc-sub {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--vs-faint);
+    white-space: nowrap;
+}
+
+.vs .vsc-who {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.vs .vsc-avatar {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--vs-avatar-bg);
+    color: var(--vs-mute);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.vs .vsc-avatar-flagged {
+    background: rgba(var(--vs-flag-rgb), .2);
+    color: var(--vs-flag);
+}
+
+.vs .vsc-name {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--vs-ink);
+}
+
+.vs .vsc-name-text,
+.vs .vsc-where {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vs .vsc-where {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--vs-faint);
+}
+
+/* The row's one badge. Which gap it names is decided in the page, in a stated
+   order of precedence — a day with no departure record has no odometer either,
+   and saying both would be saying the same thing twice. */
+.vs .vsc-flag {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    border-radius: var(--vs-r-sm);
+    background: var(--vs-rule);
+    color: var(--vs-mute);
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+}
+
+/* The two the money and the missing record earn: read before the row is read. */
+.vs .vsc-flag-strong {
+    background: rgba(var(--vs-flag-rgb), .2);
+    color: var(--vs-flag);
+}
+
+.vs .vsc-time {
+    font-size: 0.79rem;
+    color: var(--vs-mute);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.vs .vsc-num {
+    font-size: 0.82rem;
+    color: var(--vs-mute);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.vs .vsc-strong {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* — A rate, and the bar under it ——————————————————————————————— */
+
+.vs .vsc-rate {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    min-width: 0;
+}
+
+.vs .vsc-rate-value {
+    font-size: 0.85rem;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsc-rate-note {
+    font-size: 0.72rem;
+    color: var(--vs-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsc-bar {
+    display: block;
+    height: 3px;
+    margin-top: 5px;
+    border-radius: 2px;
+    background: var(--vs-rule);
+    overflow: hidden;
+}
+
+/* Grey at rest, and only that.
+   `--vs-block` was the obvious fill and is the wrong one: in the light scheme it
+   is #5f52c4 against the flag's #5a4bb6, so a rate under target drew a bar
+   indistinguishable from one over it — the whole point of the column, lost in
+   one theme while the dark scheme looked correct. A rate that met its target has
+   nothing to say, so it says it in grey. */
+.vs .vsc-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--vs-mute-3);
+}
+
+/* Figure and bar take the mark together, from the one class. */
+.vs .vsc-flagged {
+    color: var(--vs-flag);
+}
+
+.vs .vsc-bar-fill.vsc-flagged {
+    background: var(--vs-flag);
+}
+
+.vs .vsc-caret {
+    justify-self: end;
+    font-size: 0.95rem;
+    color: var(--vs-mute-3);
+    transition: transform .15s;
+}
+
+.vs .vsc-caret-on {
+    transform: rotate(90deg);
+}
+
+/* — The drawer ————————————————————————————————————————————————— */
+
+.vs .vsc-detail {
+    min-width: 1070px;
+    padding: 14px 16px 16px;
+    background: var(--vs-bg);
+    box-shadow: inset 0 -1px 0 var(--vs-rule);
+}
+
+.vs .vsc-panels {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.vs .vsc-panel-title {
+    margin-bottom: 9px;
+    font-size: 0.66rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--vs-accent-text);
+}
+
+.vs .vsc-item {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 5px 0;
+    box-shadow: inset 0 -1px 0 var(--vs-rule);
+}
+
+.vs .vsc-item-label {
+    font-size: 0.76rem;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsc-item-value {
+    text-align: right;
+    font-size: 0.79rem;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+/* What the till says on one line and what was counted on the next, because the
+   pair is the finding — either figure alone is just a number. Both are stated
+   `block`: the value is a flex item and so blockified already, but its two
+   children are not, and left inline they run together into "214.00not declared". */
+.vs .vsc-item-figure,
+.vs .vsc-item-note {
+    display: block;
+}
+
+.vs .vsc-item-note {
+    margin-top: 2px;
+    font-size: 0.72rem;
+    color: var(--vs-faint);
+}
+
+.vs .vsc-detail-foot {
+    margin-top: 13px;
+    padding-top: 11px;
+    border-top: 1px solid var(--vs-rule);
+    font-size: 0.74rem;
+    color: var(--vs-faint);
+}
+
+/* Sits inside the sheet's own ring, so it carries no border of its own — this is
+   the table with nothing in it, not a card beside the table. */
+.vs .vsc-blank {
+    padding: 44px 20px;
+    text-align: center;
+    color: var(--vs-mute-2);
+}
+
+/* — The period —————————————————————————————————————————————————— */
+
+.vs .vsc-foot {
+    padding-top: 12px;
+    padding-bottom: 12px;
+    background: var(--vs-bg);
+    border-radius: 0 0 var(--vs-r-lg) var(--vs-r-lg);
+}
+
+.vs .vsc-foot-label {
+    font-size: 0.66rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+}
+
+/* — Narrow screens ————————————————————————————————————————————— */
+
+@media (max-width: 1240px) {
+    .vs .vsc-kpis {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 720px) {
+    .vs .vsc-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .vs .vsc-panels {
+        grid-template-columns: 1fr;
+    }
+
+    .vs .vsc-period {
+        margin-left: 0;
+        padding-bottom: 0;
     }
 }
