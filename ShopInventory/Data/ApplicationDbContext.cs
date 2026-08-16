@@ -205,6 +205,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // Item volume reporting
   public DbSet<ItemVolumeConversionEntity> ItemVolumeConversions { get; set; }
 
+  // Which handset may sign offline on a fiscal device — one chain, one signer.
+  public DbSet<FiscalDeviceOfflineLeaseEntity> FiscalDeviceOfflineLeases { get; set; }
+
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
     base.OnModelCreating(modelBuilder);
