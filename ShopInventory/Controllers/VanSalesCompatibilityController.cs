@@ -358,13 +358,14 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
     /// Returned bare rather than wrapped in <see cref="VanSalesEnvelope{T}"/>, unlike the legacy routes
     /// beside it — nothing legacy consumes this, and the handset parses it directly.
     /// </summary>
-    [HttpGet("fiscal/lease")]
-    [Authorize(Policy = "ApiAccess")]
-    [RequirePermission(Permission.CreateInvoices)]
+    /// <param name="cancellationToken">Cancels the lease lookup if the handset drops the request.</param>
     /// <param name="pendingSales">
     /// Signed receipts the handset is still carrying. Optional, and absent from builds that predate the
     /// nomination — see <see cref="GetVanSalesFiscalLeaseQuery"/> for why it is asked for here.
     /// </param>
+    [HttpGet("fiscal/lease")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.CreateInvoices)]
     public async Task<IActionResult> GetFiscalLease(
         CancellationToken cancellationToken,
         [FromQuery] int? pendingSales = null)
