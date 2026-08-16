@@ -501,6 +501,9 @@ public class UserModel
 
     /// <summary>The selling route a van runs — the source of its territory and truck registration.</summary>
     public int? RouteId { get; set; }
+
+    /// <summary>The ZIMRA fiscal device a van's handset signs as, or null if it stamps nothing itself.</summary>
+    public int? FiscalDeviceId { get; set; }
     public DateTime? LastLoginAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }

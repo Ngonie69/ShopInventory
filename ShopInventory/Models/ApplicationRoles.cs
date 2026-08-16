@@ -239,6 +239,21 @@ public static class ApplicationRoles
     public static bool RequiresSupplyingWarehouseCode(string? role)
         => Contains(DepotLoadedRoles, role);
 
+    /// <summary>
+    /// Whether the role's handset can be registered as a ZIMRA fiscal device, and so stamp its own
+    /// receipts while it is out of coverage.
+    /// </summary>
+    /// <remarks>
+    /// The same roles as <see cref="DepotLoadedRoles"/>, asked as a different question: a van carries
+    /// a device because it drives out of signal, not because it loads at a depot. A cart vendor sells
+    /// from a fixed point and its sales fiscalise through the platform, so it has nothing to sign with.
+    ///
+    /// Optional wherever it is supported, unlike the depot. Most vans stay in coverage and never stamp
+    /// anything themselves.
+    /// </remarks>
+    public static bool SupportsFiscalDevice(string? role)
+        => Contains(DepotLoadedRoles, role);
+
     public static string DescribeAssignableRoles() => string.Join(", ", AssignableRoles);
 
     private static bool Contains(IEnumerable<string> roles, string? role)
