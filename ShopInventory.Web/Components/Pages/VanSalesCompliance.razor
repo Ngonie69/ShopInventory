@@ -406,14 +406,20 @@
     ///
     /// They are policy rather than measurement, which is why they are stated here as two named
     /// numbers instead of being buried in the comparisons: a supervisor who wants the bar moved
-    /// should have one place to move it. They are deliberately not equal — nearly every planned
-    /// call should be made, while converting three in four of them is a good day.
+    /// should have one place to move it. They are deliberately not equal — all but one of the
+    /// planned calls should be made, while converting three in four of them is a good day.
     ///
-    /// The design's own default for the PCR was 55%, which was set aside as too soft: on this
-    /// route book more than half the calls buying is an ordinary day and would have left the
-    /// column marking almost nothing. 75% is the figure the round is actually held to.
+    /// Both are above the design's own defaults of 90% and 55%, which were set aside as too
+    /// soft: on this route book more than half the calls buying is an ordinary day, and a
+    /// column that marks an ordinary day marks nothing.
+    ///
+    /// Both also sit inside the range the meter this page replaced already used, which had
+    /// two lines per rate rather than one: 95/85 for the CCR and 90/75 for the PCR. So the
+    /// CCR is now held to that meter's "good round" exactly, and the PCR to its fair/poor
+    /// line. What the rebuild changes is the shape rather than the standard — a rate is
+    /// either at its bar or under it, instead of being sorted into good, fair and poor.
     /// </summary>
-    private const double CcrTarget = 0.90;
+    private const double CcrTarget = 0.95;
 
     private const double PcrTarget = 0.75;
 
