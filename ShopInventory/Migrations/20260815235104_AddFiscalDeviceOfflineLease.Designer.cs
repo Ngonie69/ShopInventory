@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ShopInventory.Data;
@@ -11,9 +12,11 @@ using ShopInventory.Data;
 namespace ShopInventory.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260815235104_AddFiscalDeviceOfflineLease")]
+    partial class AddFiscalDeviceOfflineLease
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1444,18 +1447,8 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
-                    b.Property<int>("FiscalizationAttempts")
-                        .HasColumnType("integer");
-
-                    b.Property<bool>("FiscalizationRequiresReconciliation")
-                        .HasColumnType("boolean");
-
                     b.Property<int>("FiscalizationStatus")
                         .HasColumnType("integer");
-
-                    b.Property<string>("LastPaymentError")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
 
                     b.Property<string>("LastPostingError")
                         .HasMaxLength(2000)
@@ -1469,22 +1462,9 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<DateTime?>("PaymentPostedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<string>("PaymentReference")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
-
-                    b.Property<int?>("PaymentSapDocEntry")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("PaymentSapDocNum")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("PaymentStatus")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
 
                     b.Property<long?>("PlatformReceiptId")
                         .HasColumnType("bigint");
@@ -1570,8 +1550,6 @@ namespace ShopInventory.Migrations
                         .IsUnique();
 
                     b.HasIndex("RouteCustomerCode");
-
-                    b.HasIndex("SapDocNum");
 
                     b.HasIndex("WarehouseCode");
 

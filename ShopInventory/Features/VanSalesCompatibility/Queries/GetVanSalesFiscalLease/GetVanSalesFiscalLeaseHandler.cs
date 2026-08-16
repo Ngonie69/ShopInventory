@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 using ShopInventory.Services.Fiscalisation;
 
@@ -70,6 +71,37 @@ public sealed class GetVanSalesFiscalLeaseHandler(
                 "VanSalesCompatibility.NoFiscalDevice",
                 "This user's handset is not registered as a fiscal device, so it cannot trade offline.");
         }
+
+        // Only the nominated handset may sign on this device's chain, and it is settled before the
+        // platform is troubled for config or status: a handset that may not sign has no use for either.
+        var nomination = await db.FiscalDeviceOfflineLeases
+            .FirstOrDefaultAsync(row => row.DeviceId == deviceId, cancellationToken);
+
+        if (nomination?.HolderUserId is null)
+        {
+            return Error.Validation(
+                "VanSalesCompatibility.OfflineLeaseUnassigned",
+                "No handset is nominated to sign offline on this fiscal device. The office gives it to " +
+                "one van at a time.");
+        }
+
+        if (nomination.HolderUserId != query.UserId)
+        {
+            var holder = string.IsNullOrWhiteSpace(nomination.HolderLabel)
+                ? "Another handset"
+                : nomination.HolderLabel;
+
+            return Error.Validation(
+                "VanSalesCompatibility.OfflineLeaseHeldElsewhere",
+                $"{holder} is signing offline on this fiscal device today, and only one handset can. Ask " +
+                "the office to move it before driving out of coverage.");
+        }
+
+        // The holder checking in. Written from a query, which is not the pattern — but what it records is
+        // the handset's own queue depth, and this is the only moment the server hears it. Recorded before
+        // the platform calls below so a check-in still lands when the platform is unreachable.
+        RecordHolderCheckIn(nomination, query.PendingSales);
+        await db.SaveChangesAsync(cancellationToken);
 
         var config = await configCache.TryGetAsync(deviceId, cancellationToken);
         if (config is null)
@@ -138,6 +170,27 @@ public sealed class GetVanSalesFiscalLeaseHandler(
             lease.ItemTaxes.Count);
 
         return lease;
+    }
+
+    /// <summary>
+    /// Notes that the holder has signal and how much it is still carrying.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="pendingSales"/> being null is recorded as null and not as zero. The difference
+    /// decides whether the office can hand this device to another van without stranding signed receipts,
+    /// and a handset that never said anything has not said there is nothing.
+    ///
+    /// The release stamp is cleared whenever the queue is not empty, so it always means "was clear at this
+    /// moment" rather than "was clear once".
+    /// </remarks>
+    private static void RecordHolderCheckIn(FiscalDeviceOfflineLeaseEntity nomination, int? pendingSales)
+    {
+        var now = DateTime.UtcNow;
+
+        nomination.HolderLastSeenAtUtc = now;
+        nomination.HolderPendingSales = pendingSales;
+        nomination.ReleasedAtUtc = pendingSales == 0 ? now : null;
+        nomination.UpdatedAt = now;
     }
 
     /// <summary>

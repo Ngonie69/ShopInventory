@@ -1,0 +1,333 @@
+@page "/fiscalisation/offline-lease"
+@using ShopInventory.Web.Services
+@inject IOfflineSigningLeaseService OfflineSigningLeaseService
+@inject ILogger<OfflineSigningLease> Logger
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+<PageTitle>Offline signing - Shop Inventory</PageTitle>
+
+@* Borrows the settings stylesheet (wwwroot/css/settings.css, linked from App.razor) so this reads as
+   part of the same admin surface rather than a page of its own invention. *@
+
+<div class="stg">
+
+    <header class="stg-header">
+        <div class="stg-header-inner">
+            <div class="stg-header-title">
+                <div class="stg-header-title-row">
+                    <i class="ph ph-signature"></i>
+                    <h1>Offline signing</h1>
+                </div>
+                <p>Which van may complete sales without signal</p>
+            </div>
+            <div class="stg-header-actions">
+                <button type="button" class="stg-btn" disabled="@isLoading" @onclick="LoadAsync">
+                    <i class="ph ph-arrows-clockwise"></i> Refresh
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="stg-body">
+        <main class="stg-main">
+
+            @if (!string.IsNullOrEmpty(successMessage))
+            {
+                <div class="stg-alert stg-alert-success">
+                    <i class="ph ph-check-circle"></i>
+                    <span>@successMessage</span>
+                    <button type="button" class="stg-alert-close" @onclick="() => successMessage = null"><i class="ph ph-x"></i></button>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="stg-alert stg-alert-error">
+                    <i class="ph ph-warning-circle"></i>
+                    <span>@errorMessage</span>
+                    <button type="button" class="stg-alert-close" @onclick="() => errorMessage = null"><i class="ph ph-x"></i></button>
+                </div>
+            }
+
+            <section class="stg-card">
+                <div class="stg-section-head">
+                    <span class="stg-section-icon"><i class="ph ph-info"></i></span>
+                    <div class="stg-section-text">
+                        <h2>One device, one signer</h2>
+                        <p>
+                            A fiscal device is a single chain of receipts, each one signed over the one before it.
+                            Only the nominated handset can sign into that chain while out of coverage — every other
+                            van is refused and told who has it, which is the design working rather than a fault.
+                            Vans that are not nominated still trade normally wherever there is signal.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            @if (isLoading)
+            {
+                <div class="stg-pane-loading"><span class="stg-spin"></span><span>Loading offline signing…</span></div>
+            }
+            else if (devices.Count == 0)
+            {
+                <section class="stg-card">
+                    <div class="stg-section-head">
+                        <span class="stg-section-icon"><i class="ph ph-device-mobile-slash"></i></span>
+                        <div class="stg-section-text">
+                            <h2>No handsets are registered to a fiscal device</h2>
+                            <p>
+                                Offline signing is nominated per fiscal device, and no active user carries one yet.
+                                Until a handset is registered against a device, every van trades online only.
+                            </p>
+                        </div>
+                    </div>
+                </section>
+            }
+            else
+            {
+                @foreach (var device in devices)
+                {
+                    var deviceId = device.Lease.DeviceId;
+
+                    <section class="stg-card">
+                        <div class="stg-section-head">
+                            <span class="stg-section-icon"><i class="ph ph-receipt"></i></span>
+                            <div class="stg-section-text">
+                                <h2>Fiscal device @deviceId</h2>
+                                <p>@device.Candidates.Count handset(s) registered against this device.</p>
+                            </div>
+                        </div>
+
+                        <div class="stg-row">
+                            <div class="stg-row-info">
+                                <div class="stg-row-label"><span>Signing offline</span></div>
+                                <span class="stg-row-desc">
+                                    @if (device.Lease.HolderUserId is null)
+                                    {
+                                        <text>
+                                            Nobody is nominated, so no van can complete a sale out of coverage on this
+                                            device. Safe, but it costs the sales a dead spot would otherwise take.
+                                        </text>
+                                    }
+                                    else
+                                    {
+                                        <text>Nominated @Moment(device.Lease.AssignedAtUtc)@(string.IsNullOrWhiteSpace(device.Lease.AssignedByName) ? "" : $" by {device.Lease.AssignedByName}").</text>
+                                    }
+                                </span>
+                            </div>
+                            <div class="stg-row-control">
+                                @if (device.Lease.HolderUserId is null)
+                                {
+                                    <span class="stg-tag stg-tag-neutral">Nobody</span>
+                                }
+                                else
+                                {
+                                    <span class="stg-tag stg-tag-neutral">@device.Lease.HolderLabel</span>
+                                }
+                            </div>
+                        </div>
+
+                        @if (device.Lease.HolderUserId is not null)
+                        {
+                            <div class="stg-row">
+                                <div class="stg-row-info">
+                                    <div class="stg-row-label"><span>Receipts still on that handset</span></div>
+                                    <span class="stg-row-desc">
+                                        Signed receipts it has not yet uploaded. Offline signing cannot move to another
+                                        van until this reaches zero, or the receipts still on it are lost from the chain.
+                                        @if (device.Lease.HolderLastSeenAtUtc is not null)
+                                        {
+                                            <text> Last heard from @Moment(device.Lease.HolderLastSeenAtUtc).</text>
+                                        }
+                                    </span>
+                                </div>
+                                <div class="stg-row-control">
+                                    @* Danger on both "some" and "not reported": each one blocks a handover,
+                                       and reading silence as an empty queue is the mistake that forks a chain. *@
+                                    @if (device.Lease.HolderPendingSales is null)
+                                    {
+                                        <span class="stg-tag stg-tag-danger">Not reported</span>
+                                    }
+                                    else if (device.Lease.HolderPendingSales == 0)
+                                    {
+                                        <span class="stg-tag stg-tag-neutral">None</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="stg-tag stg-tag-danger">@device.Lease.HolderPendingSales waiting</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+
+                        <div class="stg-row">
+                            <div class="stg-row-info">
+                                <div class="stg-row-label"><span>Give it to</span></div>
+                                <span class="stg-row-desc">
+                                    The van going out of coverage. Changing this refuses every other handset a lease
+                                    from its next sync onwards.
+                                </span>
+                            </div>
+                            <div class="stg-row-control">
+                                <select class="stg-select"
+                                        disabled="@(savingDeviceId == deviceId)"
+                                        value="@SelectionFor(deviceId, device.Lease.HolderUserId)"
+                                        @onchange="e => OnSelectionChanged(deviceId, e)">
+                                    <option value="">Nobody</option>
+                                    @foreach (var candidate in device.Candidates)
+                                    {
+                                        <option value="@candidate.UserId">@candidate.Label</option>
+                                    }
+                                </select>
+                                <button type="button" class="stg-btn stg-btn-primary"
+                                        disabled="@(savingDeviceId == deviceId || !HasChange(deviceId, device.Lease.HolderUserId))"
+                                        @onclick="() => SaveAsync(deviceId, force: false)">
+                                    @if (savingDeviceId == deviceId)
+                                    {
+                                        <span class="stg-spin"></span><span>Saving…</span>
+                                    }
+                                    else
+                                    {
+                                        <text>Save</text>
+                                    }
+                                </button>
+                            </div>
+                        </div>
+
+                        @if (pendingForce.TryGetValue(deviceId, out var warning))
+                        {
+                            @* The one screen in this app where a confirm is not ceremony: the API has already
+                               refused, and going ahead loses receipts that exist on a handset somewhere. *@
+                            <div class="stg-alert stg-alert-warn">
+                                <i class="ph ph-warning"></i>
+                                <div>
+                                    <p style="margin:0 0 .5rem">@warning</p>
+                                    <button type="button" class="stg-btn stg-btn-danger"
+                                            disabled="@(savingDeviceId == deviceId)"
+                                            @onclick="() => SaveAsync(deviceId, force: true)">
+                                        Move it anyway
+                                    </button>
+                                    <button type="button" class="stg-btn" @onclick="() => CancelForce(deviceId)">
+                                        Leave it where it is
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </section>
+                }
+            }
+        </main>
+    </div>
+</div>
+
+@code {
+    private List<FiscalDeviceOfflineLeaseSummaryResponse> devices = [];
+
+    /// <summary>What the office has picked but not yet saved, per device. Empty string means nobody.</summary>
+    private readonly Dictionary<int, string> selections = [];
+
+    /// <summary>Devices where the API refused the move and said why, awaiting a deliberate second click.</summary>
+    private readonly Dictionary<int, string> pendingForce = [];
+
+    private bool isLoading = true;
+    private int? savingDeviceId;
+    private string? successMessage;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        pendingForce.Clear();
+
+        var overview = await OfflineSigningLeaseService.GetOverviewAsync();
+
+        if (overview is null)
+        {
+            errorMessage = "We couldn't read offline signing right now. Please try again.";
+            devices = [];
+        }
+        else
+        {
+            devices = overview;
+            selections.Clear();
+
+            foreach (var device in devices)
+            {
+                selections[device.Lease.DeviceId] = device.Lease.HolderUserId?.ToString() ?? string.Empty;
+            }
+        }
+
+        isLoading = false;
+    }
+
+    private string SelectionFor(int deviceId, Guid? holderUserId) =>
+        selections.TryGetValue(deviceId, out var selected)
+            ? selected
+            : holderUserId?.ToString() ?? string.Empty;
+
+    private bool HasChange(int deviceId, Guid? holderUserId) =>
+        SelectionFor(deviceId, holderUserId) != (holderUserId?.ToString() ?? string.Empty);
+
+    private void OnSelectionChanged(int deviceId, ChangeEventArgs args)
+    {
+        selections[deviceId] = args.Value?.ToString() ?? string.Empty;
+
+        // A fresh choice supersedes whatever the last refusal was about.
+        pendingForce.Remove(deviceId);
+    }
+
+    private void CancelForce(int deviceId)
+    {
+        pendingForce.Remove(deviceId);
+
+        var device = devices.FirstOrDefault(entry => entry.Lease.DeviceId == deviceId);
+        selections[deviceId] = device?.Lease.HolderUserId?.ToString() ?? string.Empty;
+    }
+
+    private async Task SaveAsync(int deviceId, bool force)
+    {
+        savingDeviceId = deviceId;
+        successMessage = null;
+        errorMessage = null;
+
+        var selected = SelectionFor(deviceId, null);
+        Guid? holderUserId = string.IsNullOrWhiteSpace(selected) ? null : Guid.Parse(selected);
+
+        var result = await OfflineSigningLeaseService.AssignAsync(deviceId, holderUserId, force);
+
+        savingDeviceId = null;
+
+        if (result.Success)
+        {
+            pendingForce.Remove(deviceId);
+
+            successMessage = result.Lease?.HolderLabel is null
+                ? $"Nobody is signing offline on device {deviceId} now."
+                : $"{result.Lease.HolderLabel} is signing offline on device {deviceId} now.";
+
+            Logger.LogInformation(
+                "Offline signing on device {DeviceId} changed from the admin screen{Forced}.",
+                deviceId,
+                force ? " (forced)" : string.Empty);
+
+            await LoadAsync();
+            return;
+        }
+
+        if (result.NeedsForce)
+        {
+            // Not an error to dismiss — a question. The message carries the consequence, so it is shown
+            // as-is rather than reworded into something reassuring.
+            pendingForce[deviceId] = result.Message;
+            return;
+        }
+
+        errorMessage = result.Message;
+    }
+
+    private static string Moment(DateTime? utc) =>
+        utc is null ? "at an unknown time" : $"on {utc.Value.ToLocalTime():dd MMM yyyy HH:mm}";
+}

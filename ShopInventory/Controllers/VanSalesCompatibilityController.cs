@@ -361,7 +361,13 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
     [HttpGet("fiscal/lease")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.CreateInvoices)]
-    public async Task<IActionResult> GetFiscalLease(CancellationToken cancellationToken)
+    /// <param name="pendingSales">
+    /// Signed receipts the handset is still carrying. Optional, and absent from builds that predate the
+    /// nomination — see <see cref="GetVanSalesFiscalLeaseQuery"/> for why it is asked for here.
+    /// </param>
+    public async Task<IActionResult> GetFiscalLease(
+        CancellationToken cancellationToken,
+        [FromQuery] int? pendingSales = null)
     {
         var userId = UserClaimReader.GetUserId(User);
         if (userId is null)
@@ -369,7 +375,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             return Unauthorized();
         }
 
-        var result = await mediator.Send(new GetVanSalesFiscalLeaseQuery(userId.Value), cancellationToken);
+        var result = await mediator.Send(
+            new GetVanSalesFiscalLeaseQuery(userId.Value, pendingSales), cancellationToken);
+
         return result.Match<IActionResult>(Ok, errors => Problem(errors));
     }
 

@@ -311,6 +311,7 @@ try
     builder.Services.AddScoped<IMobileVersionPolicySettingsService, MobileVersionPolicySettingsService>();
     builder.Services.AddScoped<ISAPSettingsService, SAPSettingsService>();
     builder.Services.AddScoped<IFiscalisationSettingsService, FiscalisationSettingsService>();
+    builder.Services.AddScoped<IOfflineSigningLeaseService, OfflineSigningLeaseService>();
     builder.Services.AddScoped<IWebhookService, WebhookService>();
     builder.Services.AddScoped<IWhatsAppAdminService, WhatsAppAdminService>();
 
