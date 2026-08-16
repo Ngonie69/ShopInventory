@@ -46,7 +46,9 @@ public class RateLimitService : IRateLimitService
                 RecentRequests = g.Where(r => r.LastRequestAt >= dayAgo).Sum(r => (int?)r.RequestCount) ?? 0,
                 TotalBlocks = g.Sum(r => (int?)r.TotalBlockedCount) ?? 0
             })
-            .FirstOrDefaultAsync(cancellationToken);
+            // Single, not First: one group is one row or none, and EF warns on a predicate-less
+            // First over a GroupBy when the query compiles.
+            .SingleOrDefaultAsync(cancellationToken);
 
         var topClients = await _context.ApiRateLimits
             .OrderByDescending(r => r.RequestCount)
@@ -351,7 +353,8 @@ public class RateLimitService : IRateLimitService
                 TotalRequestsToday = g.Where(r => r.LastRequestAt >= today).Sum(r => (int?)r.RequestCount) ?? 0,
                 TotalBlocksToday = g.Count(r => r.TotalBlockedCount > 0)
             })
-            .FirstOrDefaultAsync(cancellationToken);
+            // Single, not First — same reason as the summary in GetDashboardAsync.
+            .SingleOrDefaultAsync(cancellationToken);
 
         var stats = new RateLimitStatsDto
         {

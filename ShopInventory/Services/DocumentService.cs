@@ -974,7 +974,11 @@ public class DocumentService : IDocumentService
 
         if (duplicateDocEntries > 0)
         {
-            _logger.LogWarning(
+            // Debug, not Warning: the lookup below already resolves each DocEntry to its best row by
+            // a fixed set of tie-breakers, so a duplicate in the cache changes nothing the caller
+            // sees. It is a housekeeping observation about the local Invoices table, not a fault on
+            // this read path, and it was raising a production warning on an ordinary POD list load.
+            _logger.LogDebug(
                 "Detected {DuplicateCount} duplicate cached invoice doc entries while loading POD attachments",
                 duplicateDocEntries);
         }

@@ -9,8 +9,7 @@ namespace ShopInventory.Features.Auth.Commands.RefreshToken;
 
 public sealed class RefreshTokenHandler(
     IAuthService authService,
-    IAuditService auditService,
-    ILogger<RefreshTokenHandler> logger
+    IAuditService auditService
 ) : IRequestHandler<RefreshTokenCommand, ErrorOr<AuthLoginResponse>>
 {
     public async Task<ErrorOr<AuthLoginResponse>> Handle(
@@ -21,7 +20,10 @@ public sealed class RefreshTokenHandler(
 
         if (result is null)
         {
-            logger.LogWarning("Invalid refresh token attempt from IP: {IpAddress}", command.IpAddress);
+            // Not logged again here: AuthService has already said why — unknown token, expired,
+            // revoked, or an inactive user — and a second, vaguer line for the same attempt only
+            // doubled the count. Twelve handsets retrying once each after an administrator revoked
+            // their tokens read as twenty-four warnings.
             return Errors.Auth.InvalidRefreshToken;
         }
 

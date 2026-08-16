@@ -2,6 +2,7 @@ using System.Reflection;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -37,6 +38,11 @@ public sealed class NotificationVisibilityTests : IDisposable
 
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseSqlite(_connection)
+            // The list's count query is a GroupBy(_ => 1) aggregate. Terminated with FirstOrDefault
+            // it compiles, works, and logs "The query uses the 'First'/'FirstOrDefault' operator
+            // without 'OrderBy' and filter operators" once per shape in production — four times in
+            // one day. Throwing here turns every test below into a guard against that coming back.
+            .ConfigureWarnings(warnings => warnings.Throw(CoreEventId.FirstWithoutOrderByAndFilterWarning))
             .Options;
 
         _context = new ApplicationDbContext(options);
@@ -141,6 +147,27 @@ public sealed class NotificationVisibilityTests : IDisposable
         var stockController = await _service.GetNotificationsAsync("tchuma", ["StockController"]);
 
         Assert.Equal(2, stockController.TotalCount);
+    }
+
+    /// <summary>
+    /// Every filter combination compiles a distinct shape of the count query, and each shape used
+    /// to log EF's First-without-OrderBy warning the first time it ran. The context throws on that
+    /// warning, so a shape that regresses fails here instead of in the production log.
+    /// </summary>
+    [Theory]
+    [InlineData(false, null)]
+    [InlineData(true, null)]
+    [InlineData(false, "LowStock")]
+    [InlineData(true, "LowStock")]
+    public async Task ListCountQueryCompilesWithoutTheFirstWithoutOrderByWarning(bool unreadOnly, string? category)
+    {
+        await _service.CreateLowStockAlertAsync("ABC123", "Cheddar 1kg", currentStock: 2m, reorderLevel: 10m);
+
+        var page = await _service.GetNotificationsAsync(
+            "tchuma", ["StockController"], page: 1, pageSize: 20, unreadOnly: unreadOnly, category: category);
+
+        Assert.Equal(1, page.TotalCount);
+        Assert.Equal(1, page.UnreadCount);
     }
 
     private sealed class SilentHubContext : IHubContext<NotificationHub>

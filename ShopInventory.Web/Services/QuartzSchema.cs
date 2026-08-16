@@ -62,13 +62,23 @@ CREATE TABLE IF NOT EXISTS qrtz_triggers (
   calendar_name text NULL,
   misfire_instr smallint NULL,
   misfire_orig_fire_time bigint NULL,
+  execution_group varchar(200) NULL,
+  preferred_node varchar(200) NULL,
+  preferred_node_auto bool NOT NULL DEFAULT FALSE,
   job_data bytea NULL,
   PRIMARY KEY (sched_name, trigger_name, trigger_group),
   FOREIGN KEY (sched_name, job_name, job_group) REFERENCES qrtz_job_details (sched_name, job_name, job_group)
 );
 
+-- Columns later Quartz releases added to an existing installation's triggers table. Quartz 3.19
+-- probes for preferred_node / preferred_node_auto at startup and, finding neither, warns once per
+-- start that node affinity is unavailable; the three below are exactly what its own
+-- tables_postgres.sql declares. Adding a defaulted NOT NULL column is metadata-only on Postgres 11+.
 ALTER TABLE qrtz_triggers
-  ADD COLUMN IF NOT EXISTS misfire_orig_fire_time bigint NULL;
+  ADD COLUMN IF NOT EXISTS misfire_orig_fire_time bigint NULL,
+  ADD COLUMN IF NOT EXISTS execution_group varchar(200) NULL,
+  ADD COLUMN IF NOT EXISTS preferred_node varchar(200) NULL,
+  ADD COLUMN IF NOT EXISTS preferred_node_auto bool NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS qrtz_simple_triggers (
   sched_name text NOT NULL,
@@ -147,8 +157,12 @@ CREATE TABLE IF NOT EXISTS qrtz_fired_triggers (
   job_group text NULL,
   is_nonconcurrent bool NULL,
   requests_recovery bool NULL,
+  execution_group varchar(200) NULL,
   PRIMARY KEY (sched_name, entry_id)
 );
+
+ALTER TABLE qrtz_fired_triggers
+  ADD COLUMN IF NOT EXISTS execution_group varchar(200) NULL;
 
 CREATE TABLE IF NOT EXISTS qrtz_scheduler_state (
   sched_name text NOT NULL,

@@ -427,7 +427,9 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                 Committed = g.Count(s => s.Committed > 0),
                 OnOrder = g.Count(s => s.Ordered > 0)
             })
-            .FirstOrDefaultAsync(cancellationToken);
+            // Single, not First: one group is one row or none, and EF warns on a predicate-less
+            // First over a GroupBy when the query compiles.
+            .SingleOrDefaultAsync(cancellationToken);
 
         if (counts is null)
             return new WarehouseStockSummary(0, 0, 0, 0, 0);

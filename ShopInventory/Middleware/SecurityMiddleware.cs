@@ -144,9 +144,15 @@ public class RequestValidationMiddleware
     private readonly RequestDelegate _next;
     private readonly ILogger<RequestValidationMiddleware> _logger;
 
-    // SQL Injection patterns
+    // SQL Injection patterns.
+    //
+    // The "--" comment marker only counts when it is not wedged between two word characters. Every
+    // real payload has it at a boundary — "admin'--", "1 OR 1=1 --", "'; DROP TABLE x;--" — whereas
+    // opaque base64url tokens (SignalR connection ids, FCM tokens, JWTs) contain "--" between letters
+    // and digits as a matter of course. Matching it bare blocked a live SignalR request
+    // (?id=F9--6N_Qk3Nu71I4wABSTA) and dropped the user's hub connection.
     private static readonly Regex SqlInjectionRegex = new(
-        @"(\b(union\s+(all\s+)?select|insert\s+into|delete\s+from|update\s+.*set|drop\s+(table|database|index)|alter\s+table|create\s+(table|database)|exec(\s|\()|execute(\s|\()|xp_|sp_|0x[0-9a-f]+)\b)|('(\s|%20)*(or|and)(\s|%20)*')|(-{2})|(/\*.*\*/)|(\b(or|and)\b\s+\d+\s*=\s*\d+)",
+        @"(\b(union\s+(all\s+)?select|insert\s+into|delete\s+from|update\s+.*set|drop\s+(table|database|index)|alter\s+table|create\s+(table|database)|exec(\s|\()|execute(\s|\()|xp_|sp_|0x[0-9a-f]+)\b)|('(\s|%20)*(or|and)(\s|%20)*')|((?<![A-Za-z0-9_])-{2}|-{2}(?![A-Za-z0-9_]))|(/\*.*\*/)|(\b(or|and)\b\s+\d+\s*=\s*\d+)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(200));
 
     // XSS patterns
@@ -193,6 +199,15 @@ public class RequestValidationMiddleware
         "/api/pushnotification/unregister"
     };
 
+    // Paths whose query strings are not ours to read. SignalR puts its own opaque connection token
+    // in ?id= on every transport request after negotiate, and it validates that token itself; a
+    // pattern scan there can only ever produce false positives, and each one severs a live hub
+    // connection. The path is still checked.
+    private static readonly string[] QueryScanExcludedPaths =
+    {
+        "/hubs/"
+    };
+
     // Headers to check for injection
     private static readonly HashSet<string> SensitiveHeaders = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -220,7 +235,8 @@ public class RequestValidationMiddleware
 
         // 2. Validate query string
         var queryString = context.Request.QueryString.ToString();
-        if (IsMalicious(queryString, out var qsThreat))
+        var skipQueryScan = QueryScanExcludedPaths.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+        if (!skipQueryScan && IsMalicious(queryString, out var qsThreat))
         {
             _logger.LogWarning("Blocked {Threat} in query from IP {Ip}: {Query}", qsThreat, ip, queryString);
             await RejectRequest(context);
@@ -228,7 +244,7 @@ public class RequestValidationMiddleware
         }
 
         // 3. Check for open redirect in query parameters
-        if (!string.IsNullOrEmpty(queryString) && OpenRedirectRegex.IsMatch(Uri.UnescapeDataString(queryString)))
+        if (!skipQueryScan && !string.IsNullOrEmpty(queryString) && OpenRedirectRegex.IsMatch(Uri.UnescapeDataString(queryString)))
         {
             _logger.LogWarning("Blocked open redirect attempt from IP {Ip}: {Query}", ip, queryString);
             await RejectRequest(context);
@@ -295,7 +311,7 @@ public class RequestValidationMiddleware
         await _next(context);
     }
 
-    private static bool IsMalicious(string content, out string threatType)
+    internal static bool IsMalicious(string content, out string threatType)
     {
         threatType = string.Empty;
         if (string.IsNullOrEmpty(content))

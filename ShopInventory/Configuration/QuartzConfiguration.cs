@@ -29,8 +29,6 @@ public static class QuartzConfiguration
         var creditLimit = configuration.GetSection(CreditLimitSettings.SectionName)
             .Get<CreditLimitSettings>() ?? new CreditLimitSettings();
         var healthAlert = configuration.GetSection("SystemHealthAlert").Get<SystemHealthAlertSettings>() ?? new SystemHealthAlertSettings();
-        var lowStockAlert = configuration.GetSection(LowStockAlertSettings.SectionName)
-            .Get<LowStockAlertSettings>() ?? new LowStockAlertSettings();
         var vanSalesPosting = configuration.GetSection(VanSalesPostingSettings.SectionName)
             .Get<VanSalesPostingSettings>() ?? new VanSalesPostingSettings();
         var desktopSalePosting = configuration.GetSection(DesktopSalePostingSettings.SectionName)
@@ -189,11 +187,9 @@ public static class QuartzConfiguration
                 }
             }
 
-            // After the daily stock snapshot, so it measures the figures the day is starting from.
-            if (sap.Enabled && lowStockAlert.Enabled)
-            {
-                AddCronJob<LowStockReviewJob>(q, "low-stock-review", BuildDailyCron(lowStockAlert.ReviewTimeCAT, "07:30"));
-            }
+            // There is deliberately no scheduled low-stock sweep. One ran here at 07:30 and was removed:
+            // most of what it found was items sitting at zero that nobody intends to restock, and it
+            // wrote thousands of warnings a morning. The low-stock report stays available on demand.
 
             // After the day's invoicing and payments are in, so the balances it reports are the
             // ones tomorrow's orders will actually be measured against.
@@ -208,6 +204,12 @@ public static class QuartzConfiguration
             options.WaitForJobsToComplete = true;
             options.AwaitApplicationStarted = true;
         });
+
+        // The store is durable and clustered, so a job that stops being declared above — flag off,
+        // or deleted — would otherwise keep firing from the rows an earlier build wrote. Registered
+        // after the scheduler's own hosted service so the declared set is in the store before the
+        // sweep compares against it.
+        services.AddHostedService<QuartzStoredJobReconciler>();
 
         return services;
     }

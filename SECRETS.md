@@ -64,6 +64,16 @@ dotnet user-secrets set "Email:Password" "YOUR_SMTP_PASSWORD"
 # dotnet user-secrets set "PaymentGateways:Innbucks:ApiSecret" "YOUR_INNBUCKS_API_SECRET"
 # dotnet user-secrets set "PaymentGateways:Ecocash:ApiSecret" "YOUR_ECOCASH_API_SECRET"
 
+# Fiscalisation platform (fiscal.kefaloscheese.com) API key. Without it every fiscal
+# call is refused before it is sent, and startup warns once. Production: set the
+# Fiscalisation__ApiKey env var in the IIS web.config (the Settings page writes it there).
+# dotnet user-secrets set "Fiscalisation:ApiKey" "YOUR_FISCALISATION_API_KEY"
+
+# MediatR licence key (MediatR 13+ is commercial; obtain a key from
+# https://luckypennysoftware.com). Without it MediatR logs a licence warning at every
+# start in BOTH the API and the Web app. Same key for both projects; env var MediatR__LicenseKey.
+# dotnet user-secrets set "MediatR:LicenseKey" "YOUR_MEDIATR_LICENSE_KEY"
+
 
 # ─── Web Project (ShopInventory.Web) ────────────────────────────────────────
 # cd ShopInventory.Web

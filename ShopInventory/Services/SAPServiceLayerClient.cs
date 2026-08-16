@@ -453,12 +453,18 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             }
             catch (Exception ex) when (attempt < maxRetries && SapFailureClassifier.IsTransient(ex, cancellationToken))
             {
+                // One line, not the exception: an attempt that is about to be retried is not yet a
+                // failure, and the stack under a reset connection or an aborted read is HttpClient's
+                // own and identical every time. During one SAP outage these ran to sixty lines each,
+                // several times a minute. If the last attempt fails too, the exception reaches the
+                // caller intact and gets logged there, once, with everything attached.
                 _logger.LogWarning(
-                    ex,
-                    "Transient SAP error during {Operation} attempt {Attempt}/{MaxRetries}; retrying...",
+                    "Transient SAP error during {Operation} attempt {Attempt}/{MaxRetries}: {ErrorType}: {ErrorMessage}; retrying...",
                     operation,
                     attempt,
-                    maxRetries);
+                    maxRetries,
+                    ex.GetType().Name,
+                    ex.GetBaseException().Message);
             }
 
             await Task.Delay(TimeSpan.FromSeconds(attempt * 2), cancellationToken);
@@ -606,6 +612,14 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             await _httpClient.SendAsync(request, cancellationToken);
             _logger.LogInformation("SAP session logged out successfully");
+        }
+        catch (Exception ex) when (ex is OperationCanceledException || cancellationToken.IsCancellationRequested)
+        {
+            // The one caller is the shutdown hook, on a 5-second budget. A logout that does not
+            // finish inside it is cancelled, which is not a fault worth a warning and a stack trace
+            // on every clean restart: the session frees itself when SAP times it out regardless. The
+            // whole reason for logging out early is to free the slot a little sooner.
+            _logger.LogDebug(ex, "SAP logout did not finish before its deadline; the session will lapse on its own");
         }
         catch (Exception ex)
         {
@@ -1715,21 +1729,38 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var url = $"Invoices({docEntry})";
 
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        HttpRequestMessage CreateRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return request;
+        }
 
-        var response = await _httpClient.SendAsync(request, cancellationToken);
+        // Through the transient retry, like the stock and price-list reads: a reset connection or a
+        // 500 from a Service Layer node that has just lost its database is a blip to retry, not an
+        // answer. This read sits inside POD upload, so before that a single blip failed the upload.
+        var response = await SendSapRequestWithTransientRetryAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            $"get invoice {docEntry}",
+            cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response.Dispose();
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(request, cancellationToken);
+            response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"get invoice {docEntry} after SAP re-authentication",
+                cancellationToken);
         }
+
+        using var responseOwner = response;
 
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
@@ -1738,8 +1769,11 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         if (!response.IsSuccessStatusCode)
         {
+            // Debug, not Error: the exception carries the status and body verbatim, and every caller
+            // either logs it at the level its own fallback warrants or lets the global handler do so.
+            // Logging here as well made one recovered blip read as two errors.
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to get invoice {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
+            _logger.LogDebug("Failed to get invoice {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
             throw new Exception($"Failed to get invoice: {response.StatusCode} - {errorContent}");
         }
 
@@ -1757,26 +1791,45 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var filter = $"$filter=DocNum eq {docNum}";
         var url = $"Invoices?{filter}";
 
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        HttpRequestMessage CreateRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return request;
+        }
 
-        var response = await _httpClient.SendAsync(request, cancellationToken);
+        // Same reasoning as GetInvoiceByDocEntryAsync. On 2026-08-15 one "Fail to connect to SLD"
+        // (SAP error 312, a 500) failed this read outright while the SQL-query reads beside it
+        // retried through the same blip and succeeded.
+        var response = await SendSapRequestWithTransientRetryAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            $"get invoice by DocNum {docNum}",
+            cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response.Dispose();
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(request, cancellationToken);
+            response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"get invoice by DocNum {docNum} after SAP re-authentication",
+                cancellationToken);
         }
+
+        using var responseOwner = response;
 
         if (!response.IsSuccessStatusCode)
         {
+            // Debug for the same reason as GetInvoiceByDocEntryAsync: the caller logs this once, at
+            // the level its outcome deserves.
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to get invoice by DocNum {DocNum}: {StatusCode} - {Error}", docNum, response.StatusCode, errorContent);
+            _logger.LogDebug("Failed to get invoice by DocNum {DocNum}: {StatusCode} - {Error}", docNum, response.StatusCode, errorContent);
             throw new Exception($"Failed to get invoice: {response.StatusCode} - {errorContent}");
         }
 
@@ -2586,22 +2639,36 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             var url = $"Invoices?{filterClause}{selectClause}&$orderby=DocEntry desc&$top={remaining}&$skip={currentSkip}";
 
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Add("Prefer", "odata.maxpagesize=500");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", "odata.maxpagesize=500");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                return request;
+            }
 
-            var response = await _httpClient.SendAsync(request, cancellationToken);
+            // Through the transient retry: this is the read behind every invoice list, and on
+            // 2026-08-15 one reset TLS handshake failed a customer's list outright ("Network error
+            // connecting to SAP Service Layer") while the reads around it retried and carried on.
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"get invoices page at skip {currentSkip}",
+                cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
 
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Add("Prefer", "odata.maxpagesize=500");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                response = await _httpClient.SendAsync(request, cancellationToken);
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"get invoices page at skip {currentSkip} after SAP re-authentication",
+                    cancellationToken);
             }
 
             if (!response.IsSuccessStatusCode)
@@ -5479,11 +5546,34 @@ ORDER BY T0.""ItemCode""";
                             consecutiveFailures >= PriceListSqlFailuresBeforeFallback;
                     }
 
-                    if (resolutionSnapshot?.SqlUnavailable == true)
+                    var latched = resolutionSnapshot?.SqlUnavailable == true;
+
+                    // The budget expiring is the ordinary way this path gives up on a slow list, and it
+                    // is by design; a sixty-line HttpClient stack under it says nothing the timeout
+                    // does not. Anything else that fails here is worth the whole exception.
+                    if (ex is OperationCanceledException or TimeoutException && !cancellationToken.IsCancellationRequested)
+                    {
+                        if (latched)
+                        {
+                            _logger.LogWarning(
+                                "SQL query path for price list {PriceListNum} exceeded its {TimeoutSeconds}s budget, {FailureCount} in a row; the remaining lists in this sync will use the shared Items API fallback",
+                                priceListNum,
+                                sqlTimeoutSeconds,
+                                consecutiveFailures);
+                        }
+                        else
+                        {
+                            _logger.LogWarning(
+                                "SQL query path for price list {PriceListNum} exceeded its {TimeoutSeconds}s budget; falling back to the Items API for this list and retrying SQL on the next one",
+                                priceListNum,
+                                sqlTimeoutSeconds);
+                        }
+                    }
+                    else if (latched)
                     {
                         _logger.LogWarning(
                             ex,
-                            "SQL query path failed for price list {PriceListNum}, the {FailureCount}th in a row; the remaining lists in this sync will use the shared Items API fallback",
+                            "SQL query path failed for price list {PriceListNum}, {FailureCount} in a row; the remaining lists in this sync will use the shared Items API fallback",
                             priceListNum,
                             consecutiveFailures);
                     }
@@ -6125,7 +6215,10 @@ ORDER BY T0.""ItemCode""";
                 }
                 else
                 {
-                    _logger.LogWarning("SQL query '{QueryCode}' returned 0 items on first page. Response: {Response}",
+                    // Not a fault: a good quarter of the active lists hold no stored prices, and the
+                    // caller confirms each one against the Items API and says so at Information. This
+                    // used to be a warning with the whole response attached — 189 of them a day.
+                    _logger.LogDebug("SQL query '{QueryCode}' returned 0 items on first page. Response: {Response}",
                         queryCode, responseContent.Length > 2000 ? responseContent[..2000] : responseContent);
                 }
             }
@@ -8132,7 +8225,11 @@ ORDER BY T0.""ItemCode""";
         {
             // The query may have gone or been redefined under us; make the next caller re-probe.
             InvalidateSqlQueryVerification(queryCode);
-            _logger.LogError("Failed to get stock quantities in warehouse {Warehouse}: {StatusCode} - {Error}",
+            // Debug, not Error: the body is in the exception below, and every caller either logs
+            // it at the level its own fallback warrants or lets the global handler log it at Error.
+            // Logging Error here as well turned each recovered read into an Error paired with the
+            // caller's Warning — one warehouse blip during the morning sweep read as both.
+            _logger.LogDebug("Failed to get stock quantities in warehouse {Warehouse}: {StatusCode} - {Error}",
                 warehouseCode, response.StatusCode, content);
             throw new Exception($"Failed to get stock quantities: {response.StatusCode} - {content}");
         }
@@ -8198,7 +8295,7 @@ ORDER BY T0.""ItemCode""";
             {
                 // The query may have gone or been redefined under us; make the next caller re-probe.
                 InvalidateSqlQueryVerification(queryCode);
-                _logger.LogError("Failed to get stock quantities in warehouse {Warehouse}: {StatusCode} - {Error}",
+                _logger.LogDebug("Failed to get stock quantities in warehouse {Warehouse}: {StatusCode} - {Error}",
                     warehouseCode, response.StatusCode, content);
                 throw new Exception($"Failed to get stock quantities: {response.StatusCode} - {content}");
             }
@@ -8275,7 +8372,7 @@ ORDER BY T0.""ItemCode""";
         {
             // The query may have gone or been redefined under us; make the next caller re-probe.
             InvalidateSqlQueryVerification(queryCode);
-            _logger.LogError("Failed to get stock quantities in warehouse {Warehouse}: {StatusCode} - {Error}",
+            _logger.LogDebug("Failed to get stock quantities in warehouse {Warehouse}: {StatusCode} - {Error}",
                 warehouseCode, response.StatusCode, content);
             throw new Exception($"Failed to get stock quantities: {response.StatusCode} - {content}");
         }

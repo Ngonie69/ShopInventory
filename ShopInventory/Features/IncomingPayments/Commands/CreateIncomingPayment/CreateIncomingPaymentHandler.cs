@@ -99,7 +99,7 @@ public sealed class CreateIncomingPaymentHandler(
             {
                 try
                 {
-                    await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, cancellationToken);
+                    await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, CancellationToken.None);
                 }
                 catch (Exception releaseException)
                 {

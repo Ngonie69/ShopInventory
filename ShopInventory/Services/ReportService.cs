@@ -39,9 +39,9 @@ public class ReportService : IReportService
     private readonly IMemoryCache _memoryCache;
     private readonly ILogger<ReportService> _logger;
     /// <summary>
-    /// Stock at or below this counts as low when the caller does not say otherwise.
-    /// <see cref="Configuration.LowStockAlertSettings.ReorderThreshold"/> starts here too, so the
-    /// morning sweep and the report on the Reports page count the same thing.
+    /// Stock at or below this counts as low when the caller does not say otherwise. The low-stock
+    /// report on the Reports page is on demand only; the scheduled morning sweep that used to raise
+    /// notifications from it was removed as unwanted.
     /// </summary>
     public const decimal DefaultReorderThreshold = 10m;
 

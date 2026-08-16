@@ -221,7 +221,10 @@ public class NotificationService : INotificationService
                 TotalCount = g.Count(),
                 UnreadCount = unreadOnly ? g.Count() : g.Count(n => !n.IsRead)
             })
-            .FirstOrDefaultAsync(cancellationToken);
+            // Single, not First: one group is one row or none, and EF warns on a predicate-less
+            // First over a GroupBy each time a new shape of this query compiles — the category and
+            // unread filters give it several.
+            .SingleOrDefaultAsync(cancellationToken);
 
         var notifications = (await query
             .OrderByDescending(n => n.CreatedAt)

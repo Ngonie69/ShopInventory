@@ -348,6 +348,24 @@ public class InventoryTransferService : IInventoryTransferService
         return request.ClientRequestId;
     }
 
+    /// <summary>
+    /// Sends a write under <c>/api/inventorytransfer</c> with a fresh <c>Idempotency-Key</c>, the way
+    /// <see cref="SalesOrderService"/> sends its per-operation writes.
+    /// </summary>
+    /// <remarks>
+    /// The API treats every write under that prefix as business-critical and warns, per request, when
+    /// one arrives without a key — which every decision, edit and cancel from here did. One key per
+    /// call: these are single-shot actions on a document that already exists, so there is no draft
+    /// whose key would need to survive a retry, and a second click reaches the handler to be judged on
+    /// the transfer's actual state.
+    /// </remarks>
+    private Task<HttpResponseMessage> SendWriteAsync(HttpMethod method, string url, HttpContent? content)
+    {
+        var request = new HttpRequestMessage(method, url) { Content = content };
+        request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString("N"));
+        return _httpClient.SendAsync(request);
+    }
+
     #endregion
 
     #region Pending (approval-held) Transfer Operations
@@ -420,7 +438,8 @@ public class InventoryTransferService : IInventoryTransferService
     {
         try
         {
-            var response = await _httpClient.PatchAsJsonAsync($"api/inventorytransfer/request/{docEntry}", request);
+            var response = await SendWriteAsync(
+                HttpMethod.Patch, $"api/inventorytransfer/request/{docEntry}", JsonContent.Create(request));
 
             if (response.IsSuccessStatusCode)
             {
@@ -481,7 +500,7 @@ public class InventoryTransferService : IInventoryTransferService
     {
         try
         {
-            var response = await _httpClient.PostAsync(url, content);
+            var response = await SendWriteAsync(HttpMethod.Post, url, content);
 
             if (response.IsSuccessStatusCode)
             {
@@ -526,7 +545,7 @@ public class InventoryTransferService : IInventoryTransferService
     {
         try
         {
-            var response = await _httpClient.PostAsync(url, content);
+            var response = await SendWriteAsync(HttpMethod.Post, url, content);
 
             if (response.IsSuccessStatusCode)
             {
@@ -570,7 +589,7 @@ public class InventoryTransferService : IInventoryTransferService
             _logger.LogInformation("Creating transfer request from {FromWarehouse} to {ToWarehouse} with {LineCount} lines",
                 request.FromWarehouse, request.ToWarehouse, request.Lines.Count);
 
-            var response = await _httpClient.PostAsJsonAsync("api/inventorytransfer/request", request);
+            var response = await SendWriteAsync(HttpMethod.Post, "api/inventorytransfer/request", JsonContent.Create(request));
 
             _logger.LogInformation("Transfer request API response: {StatusCode}", response.StatusCode);
 
@@ -684,7 +703,7 @@ public class InventoryTransferService : IInventoryTransferService
         {
             _logger.LogInformation("Converting transfer request {DocEntry} to inventory transfer", docEntry);
 
-            var response = await _httpClient.PostAsync($"api/inventorytransfer/request/{docEntry}/convert", null);
+            var response = await SendWriteAsync(HttpMethod.Post, $"api/inventorytransfer/request/{docEntry}/convert", null);
 
             _logger.LogInformation("Convert transfer request API response: {StatusCode}", response.StatusCode);
 
@@ -742,7 +761,7 @@ public class InventoryTransferService : IInventoryTransferService
     {
         try
         {
-            var response = await _httpClient.PostAsync($"api/inventorytransfer/request/{docEntry}/close", null);
+            var response = await SendWriteAsync(HttpMethod.Post, $"api/inventorytransfer/request/{docEntry}/close", null);
 
             if (response.IsSuccessStatusCode)
             {

@@ -16,6 +16,14 @@ namespace ShopInventory.Services.Fiscalisation;
 /// </remarks>
 public class FiscalisationApiClient : IFiscalisationApiClient
 {
+    /// <summary>
+    /// The error code a call fails with when no API key is configured. Raised here, before anything is
+    /// sent: the platform refuses every keyless request with a 401, so the round trip only ever bought
+    /// the same answer more slowly, plus a warning and a stack trace per call — 133 of them in one
+    /// production day, each one restating what startup had already said once.
+    /// </summary>
+    public const string ApiKeyNotConfiguredErrorCode = "ApiKeyNotConfigured";
+
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _httpClient;
@@ -37,6 +45,7 @@ public class FiscalisationApiClient : IFiscalisationApiClient
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ThrowIfNoApiKey();
 
         return PostWithTransientRetryAsync<SapFiscaliseReceiptApiRequest, SubmitReceiptApiResponse>(
             "api/sap/receipts/fiscalise",
@@ -49,6 +58,7 @@ public class FiscalisationApiClient : IFiscalisationApiClient
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ThrowIfNoApiKey();
 
         return PostWithTransientRetryAsync<SubmitReceiptApiRequest, SubmitReceiptApiResponse>(
             "api/receipts/submit",
@@ -61,6 +71,7 @@ public class FiscalisationApiClient : IFiscalisationApiClient
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ThrowIfNoApiKey();
 
         return PostWithTransientRetryAsync<IngestSignedReceiptApiRequest, SubmitReceiptApiResponse>(
             "api/receipts/ingest-signed",
@@ -79,6 +90,8 @@ public class FiscalisationApiClient : IFiscalisationApiClient
             throw new ArgumentException("Invoice number is required", nameof(invoiceNo));
         }
 
+        ThrowIfNoApiKey();
+
         var encodedInvoiceNo = Uri.EscapeDataString(invoiceNo);
         using var response = await _httpClient.GetAsync(
             $"api/receipts/check?deviceId={deviceId}&invoiceNo={encodedInvoiceNo}&receiptType={receiptType}",
@@ -91,6 +104,8 @@ public class FiscalisationApiClient : IFiscalisationApiClient
         int deviceId,
         CancellationToken cancellationToken = default)
     {
+        ThrowIfNoApiKey();
+
         using var response = await _httpClient.GetAsync(
             "api/fiscal-config" + DeviceQuery(deviceId),
             cancellationToken);
@@ -114,6 +129,11 @@ public class FiscalisationApiClient : IFiscalisationApiClient
             // the whole point of the method.
             request.Headers.TryAddWithoutValidation("X-API-Key", apiKey.Trim());
         }
+        else
+        {
+            // No candidate key means the installed one goes, so there had better be one.
+            ThrowIfNoApiKey();
+        }
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
 
@@ -124,11 +144,29 @@ public class FiscalisationApiClient : IFiscalisationApiClient
         int deviceId,
         CancellationToken cancellationToken = default)
     {
+        ThrowIfNoApiKey();
+
         using var response = await _httpClient.GetAsync(
             "api/fiscal-status" + DeviceQuery(deviceId),
             cancellationToken);
 
         return await ReadResponseAsync<FiscalStatusApiResponse>(response, cancellationToken);
+    }
+
+    /// <summary>
+    /// Refuses a call outright when there is no key to send. Same status and exception type the platform
+    /// would answer with, so every caller's handling of a refused key still applies — it just no longer
+    /// costs a round trip to learn what the settings already say.
+    /// </summary>
+    private void ThrowIfNoApiKey()
+    {
+        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+        {
+            throw new FiscalisationApiException(
+                HttpStatusCode.Unauthorized,
+                ApiKeyNotConfiguredErrorCode,
+                "No Fiscalisation API key is configured; set Fiscalisation__ApiKey. The request was not sent.");
+        }
     }
 
     /// <summary>

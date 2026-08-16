@@ -267,7 +267,9 @@ public class PaymentGatewayService : IPaymentGatewayService
                 TotalCount = g.Count(),
                 TotalAmount = g.Where(t => t.Status == PaymentStatus.Success).Sum(t => (decimal?)t.Amount) ?? 0m
             })
-            .FirstOrDefaultAsync();
+            // Single, not First: one group is one row or none, and EF warns on a predicate-less
+            // First over a GroupBy each time a shape of this query compiles.
+            .SingleOrDefaultAsync();
 
         var transactions = await query
             .OrderByDescending(t => t.CreatedAt)
