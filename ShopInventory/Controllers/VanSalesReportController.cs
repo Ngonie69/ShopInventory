@@ -6,6 +6,7 @@ using ShopInventory.Common.Security;
 using ShopInventory.Features.VanSalesReports.Commands.SaveRoute;
 using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetRoutes;
+using ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport;
 using ShopInventory.Models;
@@ -154,6 +155,43 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 routeCode,
                 lapseDays,
                 granularity),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The van replenishment report: how well the depots are keeping the vans stocked, and which
+    /// restock requests are stuck.
+    /// </summary>
+    /// <remarks>
+    /// Reads the pending-transfer table rather than the daily stock snapshot. Snapshots are a
+    /// desktop-app feature that van sales never write to, and the job that fills them is off by
+    /// default — a report built on them would silently report nothing.
+    /// </remarks>
+    /// <param name="fromDate">Inclusive CAT trading day. Defaults to 30 days back.</param>
+    /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
+    /// <param name="vanWarehouseCode">One van's warehouse, or every van when omitted.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("replenishment-report")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(VanReplenishmentReportResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetReplenishmentReport(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] string? vanWarehouseCode = null,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var result = await mediator.Send(
+            new GetVanReplenishmentReportQuery(
+                fromDate?.Date ?? today.AddDays(-30),
+                toDate?.Date ?? today,
+                vanWarehouseCode),
             cancellationToken);
 
         return result.Match(
