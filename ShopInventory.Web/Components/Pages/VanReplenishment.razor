@@ -1,0 +1,324 @@
+@page "/van-sales/reports/replenishment"
+@* Admin and Manager only — see VanSalesActivity.razor. *@
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+@using System.Globalization
+@using ShopInventory.Web.Models
+@inject IVanSalesReportService VanSalesReportService
+
+<PageTitle>Van Replenishment - Shop Inventory</PageTitle>
+
+@* How well the depots are keeping the vans stocked.
+
+   Carried by wwwroot/css/van-sales.css: the shared `vs-` chrome plus `vrp-` for
+   what only this page draws. A prefix nothing else owns — `vsr-` is the routes
+   page, and sheets here are separated by prefix alone.
+
+   The worklist leads, deliberately. Everything else on this page is a measure of
+   how things have been going; the worklist is the part somebody has to act on
+   today, and a request that failed to post is surfaced nowhere else in the
+   system — it simply sits there.
+
+   Two waits, kept apart everywhere. Time to a decision is somebody's attention;
+   time from there to SAP is the posting machinery. A van kept waiting by the
+   first needs a different conversation from one kept waiting by the second, and
+   a single "lead time" figure would hide which. *@
+
+<div class="vs vrp">
+
+    <div class="vs-head">
+        <div>
+            <h2 class="vs-title">Van replenishment</h2>
+            <p class="vs-subtitle">
+                What each van asked the depot for, how long it waited, and what is still stuck.
+            </p>
+        </div>
+    </div>
+
+    <div class="vs-filters">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vrp-from">From</label>
+                <NocturneDateField Id="vrp-from" @bind-Date="fromDate" AriaLabel="From date" />
+            </div>
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vrp-to">To</label>
+                <NocturneDateField Id="vrp-to" @bind-Date="toDate" AriaLabel="To date" />
+            </div>
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vrp-van">Van</label>
+                <NocturneSelect Id="vrp-van" Class="nsel-block" TValue="string"
+                                Options="VanFilterOptions" @bind-Value="selectedVan"
+                                OnChanged="LoadAsync" AriaLabel="Filter by van"
+                                Placeholder="All vans" />
+            </div>
+            <div class="col-md-3 vs-actions">
+                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
+                    @(isLoading ? "Loading…" : "Run")
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (loadError is not null)
+    {
+        <div class="vs-notice">@loadError</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Reading the requests…</span>
+        </div>
+    }
+    else if (report is null)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">Nothing loaded yet</div>
+            <div>Choose a period and run the report.</div>
+        </div>
+    }
+    else
+    {
+        var summary = report.Summary;
+
+        <div class="vrp-kpis">
+            <div class="vrp-kpi">
+                <div class="vrp-kpi-value">@summary.RequestCount.ToString("N0")</div>
+                <div class="vrp-kpi-label">Requests raised</div>
+                <div class="vrp-kpi-sub">across @summary.VanCount.ToString("N0") vans</div>
+            </div>
+
+            <div class="vrp-kpi">
+                <div class="vrp-kpi-value">@Rate(summary.PostRate)</div>
+                <div class="vrp-kpi-label">Reached SAP</div>
+                <div class="vrp-kpi-sub">@summary.PostedCount.ToString("N0") posted</div>
+            </div>
+
+            <div class="vrp-kpi">
+                <div class="vrp-kpi-value">@Hours(summary.MedianHoursToDecision)</div>
+                <div class="vrp-kpi-label">Wait for a decision</div>
+                <div class="vrp-kpi-sub">middle request</div>
+            </div>
+
+            <div class="vrp-kpi">
+                <div class="vrp-kpi-value">@Hours(summary.MedianHoursToPosting)</div>
+                <div class="vrp-kpi-label">Wait to reach SAP</div>
+                <div class="vrp-kpi-sub">from asking to posted</div>
+            </div>
+
+            <div class="vrp-kpi @(summary.NeedingAttentionCount > 0 ? "vrp-kpi-warn" : null)">
+                <div class="vrp-kpi-value">@summary.NeedingAttentionCount.ToString("N0")</div>
+                <div class="vrp-kpi-label">Needing attention</div>
+                <div class="vrp-kpi-sub">@summary.PostFailedCount.ToString("N0") failed to post</div>
+            </div>
+
+            <div class="vrp-kpi">
+                <div class="vrp-kpi-value">@Rate(summary.RejectionRate)</div>
+                <div class="vrp-kpi-label">Rejected</div>
+                <div class="vrp-kpi-sub">@summary.RejectedCount.ToString("N0") turned down</div>
+            </div>
+        </div>
+
+        @if (!report.Quality.IsClean)
+        {
+            <div class="vrp-caveats">
+                <div class="vrp-caveats-head">What this period could not answer</div>
+                <ul class="vrp-caveats-list">
+                    @foreach (var caveat in report.Quality.Caveats)
+                    {
+                        <li>@caveat</li>
+                    }
+                </ul>
+            </div>
+        }
+
+        @* The worklist first: it is the only part of this page that is somebody's job today. *@
+        @if (report.NeedingAttention.Count > 0)
+        {
+            <h3 class="vrp-heading">Stuck now</h3>
+            <p class="vrp-note">
+                A request that failed to post was approved and then lost on its way to SAP. Nothing
+                else in the system surfaces that — it simply sits, and the van goes without.
+            </p>
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th>Van</th>
+                            <th>From depot</th>
+                            <th>Problem</th>
+                            <th>Asked by</th>
+                            <th>Asked</th>
+                            <th class="vs-num">Waiting</th>
+                            <th class="vs-num">Lines</th>
+                            <th>Last error</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var request in report.NeedingAttention)
+                        {
+                            <tr class="@(request.IsPostFailure ? "vrp-failed" : null)">
+                                <td>@request.VanWarehouseCode</td>
+                                <td>@request.DepotWarehouseCode</td>
+                                <td>
+                                    <span class="vs-chip @(request.IsPostFailure ? "vs-chip-bad" : "vs-chip-warn") vrp-inline-chip">
+                                        @request.GapLabel
+                                    </span>
+                                </td>
+                                <td>@request.RequestedBy</td>
+                                <td>@request.RequestedAt.ToString("dd MMM HH:mm")</td>
+                                <td class="vs-num">
+                                    @(request.DaysWaiting >= 1
+                                        ? $"{request.DaysWaiting:N0}d"
+                                        : $"{request.HoursWaiting:N0}h")
+                                </td>
+                                <td class="vs-num">@request.LineCount.ToString("N0")</td>
+                                <td class="vrp-error">@(request.LastError ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        <h3 class="vrp-heading">By van</h3>
+        <div class="vs-table-wrap">
+            <table class="vs-table">
+                <thead>
+                    <tr>
+                        <th>Van</th>
+                        <th>Depots</th>
+                        <th class="vs-num">Requests</th>
+                        <th class="vs-num">Posted</th>
+                        <th class="vs-num">Rejected</th>
+                        <th class="vs-num">Stuck</th>
+                        <th class="vs-num">To decide</th>
+                        <th class="vs-num">To post</th>
+                        <th class="vs-num">Slowest</th>
+                        <th>Last supplied</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var van in report.Vans)
+                    {
+                        <tr class="@(van.RequestCount == 0 ? "vrp-quiet" : null)">
+                            <td>@van.VanWarehouseCode</td>
+                            <td>@(van.DepotWarehouses.Count == 0 ? "—" : string.Join(", ", van.DepotWarehouses))</td>
+                            <td class="vs-num">@van.RequestCount.ToString("N0")</td>
+                            <td class="vs-num">@van.PostedCount.ToString("N0")</td>
+                            <td class="vs-num">@van.RejectedCount.ToString("N0")</td>
+                            <td class="vs-num @(van.NeedingAttentionCount > 0 ? "vrp-bad" : null)">
+                                @van.NeedingAttentionCount.ToString("N0")
+                            </td>
+                            <td class="vs-num @(van.MedianHoursToDecision is null ? "vs-metric-none" : null)">
+                                @Hours(van.MedianHoursToDecision)
+                            </td>
+                            <td class="vs-num @(van.MedianHoursToPosting is null ? "vs-metric-none" : null)">
+                                @Hours(van.MedianHoursToPosting)
+                            </td>
+                            <td class="vs-num">@Hours(van.SlowestHoursToPosting)</td>
+                            <td>
+                                @if (van.LastPostedAt is { } posted)
+                                {
+                                    @posted.ToString("dd MMM")
+                                    <span class="vrp-sub">@van.DaysSinceLastPosted d ago</span>
+                                }
+                                else
+                                {
+                                    @* Never supplied is a different finding from supplied long ago. *@
+                                    <span class="vs-metric-none">never</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private VanReplenishmentReportResponse? report;
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string? selectedVan;
+
+    private bool isLoading;
+    private string? loadError;
+
+    /// <summary>
+    /// The vans the loaded period holds, rebuilt from the last answer. There is no separate van list
+    /// endpoint, and this report already knows every van a rep is assigned to.
+    /// </summary>
+    private IEnumerable<INocturneSelectOption<string>> VanFilterOptions =>
+        new[] { NocturneSelectOption.All("All vans") }
+            .Concat((report?.Vans ?? [])
+                .OrderBy(van => van.VanWarehouseCode, StringComparer.OrdinalIgnoreCase)
+                .Select(van => new NocturneSelectOption<string>(van.VanWarehouseCode, van.VanWarehouseCode)
+                {
+                    Hint = van.RequestCount.ToString("N0")
+                }));
+
+    protected override async Task OnInitializedAsync()
+    {
+        // CAT, not the server's clock: a trading day belongs to the van.
+        var today = DateTime.UtcNow.AddHours(2).Date;
+        fromDate = today.AddDays(-29);
+        toDate = today;
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        StateHasChanged();
+
+        try
+        {
+            report = await VanSalesReportService.GetReplenishmentReportAsync(
+                fromDate,
+                toDate,
+                string.IsNullOrWhiteSpace(selectedVan) ? null : selectedVan);
+
+            if (report is null)
+            {
+                loadError = "The replenishment report could not be loaded. Check that the API is reachable.";
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(selectedVan)
+                && report.Vans.All(van => van.VanWarehouseCode != selectedVan))
+            {
+                selectedVan = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Failed to load the replenishment report: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string Rate(double? rate) => rate is { } value ? value.ToString("P0") : "—";
+
+    /// <summary>
+    /// A wait, in the unit that reads best at its size. Null is an em dash — a van that asked for
+    /// nothing has no waiting time, which is not the same as being served instantly.
+    /// </summary>
+    private static string Hours(double? hours) => hours switch
+    {
+        null => "—",
+        < 1 => "<1h",
+        < 48 => $"{hours.Value:N0}h",
+        _ => $"{hours.Value / 24:N1}d"
+    };
+}

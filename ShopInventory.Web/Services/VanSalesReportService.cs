@@ -26,6 +26,17 @@ public interface IVanSalesReportService
         int lapseDays = 90,
         VanSalesCoverageGranularity granularity = VanSalesCoverageGranularity.Month);
 
+    Task<VanReplenishmentReportResponse?> GetReplenishmentReportAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        string? vanWarehouseCode = null);
+
+    Task<VanStockReportResponse?> GetStockReportAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        string? vanWarehouseCode = null,
+        int deadStockDays = 14);
+
     Task<List<RouteDto>> GetRoutesAsync(bool includeInactive = false);
 
     /// <summary>Creates or updates a route. Returns the saved route, or the server's refusal.</summary>
@@ -40,7 +51,9 @@ public interface IVanSalesReportService
 /// way for this codebase to break quietly: a route that no longer exists returns 404, the catch below
 /// swallows it, and the page reports "no data" as though the vans had a quiet month. Both paths are
 /// checked against <c>VanSalesReportController</c> — <c>api/van-sales/compliance-report</c>,
-/// <c>api/van-sales/performance-report</c> and <c>api/van-sales/routes</c> — and the exception is
+/// <c>api/van-sales/performance-report</c>, <c>api/van-sales/coverage-report</c>,
+/// <c>api/van-sales/replenishment-report</c>, <c>api/van-sales/stock-report</c> and
+/// <c>api/van-sales/routes</c> — and the exception is
 /// logged rather than only returned as null, so a wrong URL leaves a trail.
 /// </remarks>
 public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReportService> logger)
@@ -135,6 +148,59 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
         catch (Exception ex)
         {
             logger.LogError(ex, "Error fetching the van sales coverage report");
+            return null;
+        }
+    }
+
+    public async Task<VanReplenishmentReportResponse?> GetReplenishmentReportAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        string? vanWarehouseCode = null)
+    {
+        try
+        {
+            var queryParams = new List<string>();
+
+            if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+            if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+            if (!string.IsNullOrWhiteSpace(vanWarehouseCode))
+                queryParams.Add($"vanWarehouseCode={Uri.EscapeDataString(vanWarehouseCode)}");
+
+            var url = queryParams.Count > 0
+                ? $"api/van-sales/replenishment-report?{string.Join("&", queryParams)}"
+                : "api/van-sales/replenishment-report";
+
+            return await httpClient.GetFromJsonAsync<VanReplenishmentReportResponse>(url);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error fetching the van replenishment report");
+            return null;
+        }
+    }
+
+    public async Task<VanStockReportResponse?> GetStockReportAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        string? vanWarehouseCode = null,
+        int deadStockDays = 14)
+    {
+        try
+        {
+            var queryParams = new List<string> { $"deadStockDays={deadStockDays}" };
+
+            if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+            if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+            if (!string.IsNullOrWhiteSpace(vanWarehouseCode))
+                queryParams.Add($"vanWarehouseCode={Uri.EscapeDataString(vanWarehouseCode)}");
+
+            var url = $"api/van-sales/stock-report?{string.Join("&", queryParams)}";
+
+            return await httpClient.GetFromJsonAsync<VanStockReportResponse>(url);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error fetching the van stock report");
             return null;
         }
     }

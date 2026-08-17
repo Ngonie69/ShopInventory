@@ -2355,3 +2355,231 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
+
+/* ==========================================================================
+   `vrp-` and `vst-` — the two stock pages
+
+   /van-sales/reports/replenishment and /van-sales/reports/stock. Two prefixes
+   rather than one shared block, because they are two pages and a shared prefix
+   is how a change to one silently restyles the other.
+
+   Their chrome is the same shape as `vsp-` and `vsg-` and takes the same alias
+   tokens from the head of this file, so both schemes come free. What is new here
+   is the staleness banner, which has no equivalent on the other pages: the stock
+   figures are read from a snapshot job that can stop, and when it does every
+   number on the page describes an older morning with nothing else to say so.
+   ========================================================================== */
+
+.vs .vrp-kpis,
+.vs .vst-kpis {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 1px;
+    margin: 1.25rem 0;
+    background: var(--vs-rule);
+    border: 1px solid var(--vs-rule);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.vs .vrp-kpi,
+.vs .vst-kpi {
+    background: var(--vs-surface);
+    padding: 0.85rem 1rem 0.95rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.vs .vrp-kpi-warn,
+.vs .vst-kpi-warn {
+    box-shadow: inset 3px 0 0 var(--vs-warn);
+}
+
+.vs .vrp-kpi-value,
+.vs .vst-kpi-value {
+    font-size: 1.3rem;
+    font-weight: 500;
+    line-height: 1.15;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.vs .vrp-kpi-label,
+.vs .vst-kpi-label {
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--vs-mute-2);
+}
+
+.vs .vrp-kpi-sub,
+.vs .vst-kpi-sub {
+    font-size: 0.78rem;
+    color: var(--vs-mute-3);
+    overflow-wrap: anywhere;
+}
+
+/* — The staleness banner —
+   Above every figure it governs, and in the bad family rather than the flag
+   colour the other pages use for caveats. This is not a limit on what a figure
+   means; it is a warning that the figure is describing a different day than the
+   reader assumes. */
+
+.vs .vst-stale {
+    margin: 1.25rem 0;
+    padding: 0.9rem 1.1rem 1rem;
+    border: 1px solid rgba(var(--vs-bad-rgb), 0.4);
+    border-left: 4px solid var(--vs-bad);
+    border-radius: 8px;
+    background: rgba(var(--vs-bad-rgb), 0.07);
+    font-size: 0.88rem;
+    line-height: 1.55;
+    color: var(--vs-ink-2);
+}
+
+.vs .vst-stale strong {
+    color: var(--vs-ink);
+    font-weight: 500;
+}
+
+.vs .vrp-caveats,
+.vs .vst-caveats {
+    margin: 1rem 0 1.25rem;
+    padding: 0.85rem 1rem 0.95rem;
+    border: 1px solid rgba(var(--vs-flag-rgb), 0.35);
+    border-left: 3px solid var(--vs-flag);
+    border-radius: 8px;
+    background: rgba(var(--vs-flag-rgb), 0.06);
+}
+
+.vs .vrp-caveats-head,
+.vs .vst-caveats-head {
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--vs-flag);
+    margin-bottom: 0.4rem;
+}
+
+.vs .vrp-caveats-list,
+.vs .vst-caveats-list {
+    margin: 0;
+    padding-left: 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.86rem;
+    color: var(--vs-ink-2);
+}
+
+.vs .vst-sections {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin: 1.25rem 0 0.85rem;
+}
+
+.vs .vst-sections .vs-chip {
+    cursor: pointer;
+    border: 0;
+    font: inherit;
+    font-size: 0.82rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.vs .vst-section-count {
+    font-size: 0.72rem;
+    color: var(--vs-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vrp-heading,
+.vs .vst-heading {
+    font-size: 0.95rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--vs-ink);
+    margin: 1.5rem 0 0.5rem;
+}
+
+.vs .vrp-note,
+.vs .vst-note {
+    font-size: 0.84rem;
+    line-height: 1.5;
+    color: var(--vs-mute-2);
+    max-width: 82ch;
+    margin: 0 0 0.85rem;
+}
+
+/* — Row states —
+   Short stock and a failed post take the bad family because both are somebody's
+   problem now. A gap in the snapshots, a quiet van and an over-count are muted:
+   none of them is a fault, and colouring them would put the loudest thing on the
+   page next to the least actionable. */
+
+.vs .vrp-bad,
+.vs .vst-bad {
+    color: var(--vs-bad);
+}
+
+.vs .vst-over {
+    color: var(--vs-warn);
+}
+
+.vs .vrp-failed td,
+.vs .vst-dead td,
+.vs .vst-expired td {
+    background: rgba(var(--vs-bad-rgb), 0.05);
+}
+
+.vs .vrp-quiet td,
+.vs .vst-gap td {
+    color: var(--vs-mute-3);
+}
+
+.vs .vrp-quiet td:first-child,
+.vs .vst-gap td:first-child {
+    color: var(--vs-ink-2);
+}
+
+.vs .vrp-inline-chip,
+.vs .vst-inline-chip {
+    margin-left: 0.4rem;
+    font-size: 0.68rem;
+    vertical-align: middle;
+}
+
+.vs .vrp-sub,
+.vs .vst-sub {
+    display: block;
+    font-size: 0.74rem;
+    color: var(--vs-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* A SAP error message, which can be long and is not worth widening a table for. */
+.vs .vrp-error {
+    font-size: 0.78rem;
+    color: var(--vs-mute-3);
+    max-width: 28ch;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 1240px) {
+    .vs .vrp-kpis,
+    .vs .vst-kpis {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 720px) {
+    .vs .vrp-kpis,
+    .vs .vst-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
