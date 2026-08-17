@@ -6,6 +6,7 @@ using ShopInventory.Common.Security;
 using ShopInventory.Features.VanSalesReports.Commands.SaveRoute;
 using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetRoutes;
+using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport;
 using ShopInventory.Models;
 using ShopInventory.Services;
 
@@ -57,6 +58,51 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 toDate?.Date ?? today,
                 userId,
                 routeCode),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The van sales performance report: what sold over a period, cut by territory and route, by rep,
+    /// by item, and over time, with the price actually achieved per item and the shape of the drops.
+    /// </summary>
+    /// <remarks>
+    /// Reads the same fact stream the compliance report does, so the two agree by construction on a
+    /// period's gross takings and its productive calls.
+    /// </remarks>
+    /// <param name="fromDate">Inclusive CAT trading day. Defaults to 30 days back.</param>
+    /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
+    /// <param name="userId">One rep, or every rep when omitted.</param>
+    /// <param name="routeCode">
+    /// One route. Sales whose rep opened no departure record are excluded when this is set, for the
+    /// same reason the compliance report excludes them — nothing on such a sale says it belonged here.
+    /// </param>
+    /// <param name="topItems">How many items to rank. Zero or less returns all of them.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("performance-report")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(VanSalesPerformanceReportResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetPerformanceReport(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] Guid? userId = null,
+        [FromQuery] string? routeCode = null,
+        [FromQuery] int topItems = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var result = await mediator.Send(
+            new GetVanSalesPerformanceReportQuery(
+                fromDate?.Date ?? today.AddDays(-30),
+                toDate?.Date ?? today,
+                userId,
+                routeCode,
+                topItems),
             cancellationToken);
 
         return result.Match(
