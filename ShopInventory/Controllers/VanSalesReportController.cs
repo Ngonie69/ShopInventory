@@ -8,6 +8,7 @@ using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceRepor
 using ShopInventory.Features.VanSalesReports.Queries.GetRoutes;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
+using ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport;
 using ShopInventory.Models;
 using ShopInventory.Services;
@@ -192,6 +193,47 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 fromDate?.Date ?? today.AddDays(-30),
                 toDate?.Date ?? today,
                 vanWarehouseCode),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The van stock report: what each van was loaded with, what sold off it, what the next morning
+    /// found, which lines are riding the round without selling, and what is about to expire.
+    /// </summary>
+    /// <remarks>
+    /// Built on the morning stock snapshot, whose running quantity no van sales path maintains — so
+    /// the load comes from the snapshot and what sold comes from the sales themselves. Reconciliation
+    /// is morning to morning and is only computed across consecutive snapshots; a missing day is
+    /// reported as a break rather than bridged.
+    /// </remarks>
+    /// <param name="fromDate">Inclusive CAT trading day. Defaults to 14 days back.</param>
+    /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
+    /// <param name="vanWarehouseCode">One van's warehouse, or every van when omitted.</param>
+    /// <param name="deadStockDays">Days carried without a sale before a line counts as dead.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("stock-report")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(VanStockReportResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetStockReport(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] string? vanWarehouseCode = null,
+        [FromQuery] int deadStockDays = 14,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var result = await mediator.Send(
+            new GetVanStockReportQuery(
+                fromDate?.Date ?? today.AddDays(-14),
+                toDate?.Date ?? today,
+                vanWarehouseCode,
+                deadStockDays),
             cancellationToken);
 
         return result.Match(
