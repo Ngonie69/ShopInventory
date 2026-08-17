@@ -379,6 +379,7 @@ Endpoints = new List<ApiEndpoint>
 new("GET", "/api/product", "Get all products"),
 new("GET", "/api/product/{itemCode}", "Get product by item code"),
 new("GET", "/api/product/groups", "Get product groups"),
+new("GET", "/api/product/van-sale-catalogue", "Every van-sale item - what a van may be sent, unpriced and not warehouse-scoped"),
 new("GET", "/api/product/warehouse/{warehouseCode}", "Get products in a warehouse"),
 new("GET", "/api/product/warehouse/{warehouseCode}/paged", "Get warehouse products with pagination"),
 new("GET", "/api/product/warehouse/{warehouseCode}/item/{itemCode}/batches", "Get batch information for an item")
@@ -790,6 +791,73 @@ new("GET", "/api/notification/unread-count", "Get the unread notification count"
 new("POST", "/api/notification/mark-read", "Mark notifications as read"),
 new("POST", "/api/notification", "Create a notification"),
 new("DELETE", "/api/notification/{id}", "Delete a notification")
+}
+}
+}
+},
+// Two surfaces, and the difference between them is the hyphen. /api/van-sales is a plain API for
+// these pages; /api/vansales speaks the handset's legacy dialect - snake_case, a {success, error}
+// envelope, and HTTP 200 on failures the rest of the API would answer 4xx to - and is fixed by
+// builds already in the field. Listed here because it exists, not because anything new should call it.
+new ApiCategory
+{
+Name = "Van Sales",
+Icon = Icons.Material.Filled.LocalShipping,
+Modules = new List<ApiModule>
+{
+new ApiModule
+{
+Name = "Van Sales Reporting",
+BasePath = "/api/van-sales",
+Description = "Departure compliance, the call ledger and the selling routes, for the /van-sales pages. Needs vansales.attendance.view; the routes list also answers to users.view or users.create_merchandiser_accounts, and editing one needs users.edit.",
+Icon = Icons.Material.Filled.Assessment,
+Color = Color.Primary,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/van-sales/compliance-report", "Departure compliance: a row per rep per trading day"),
+new("GET", "/api/van-sales/visits", "A page of van sales calls, newest first"),
+new("GET", "/api/van-sales/visits/report", "Time on the round, summarised per rep"),
+new("GET", "/api/van-sales/routes", "The selling routes"),
+new("POST", "/api/van-sales/routes", "Create a route"),
+new("PUT", "/api/van-sales/routes/{id}", "Update a route")
+}
+},
+new ApiModule
+{
+Name = "Van Sales Handset (legacy)",
+BasePath = "/api/vansales",
+Description = "The van sales handset's own surface. Legacy dialect: snake_case bodies wrapped in a {success, error} envelope, and attendance and trading-day calls report failure as HTTP 200. The controller and its VanSalesLegacy* DTOs are the only authority on the payloads.",
+Icon = Icons.Material.Filled.PhoneAndroid,
+Color = Color.Warning,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("POST", "/api/vansales/auth/login", "Sign a handset in (anonymous, rate-limited)"),
+new("POST", "/api/vansales/auth/refresh", "Refresh a handset token (anonymous, rate-limited)"),
+new("POST", "/api/vansales/auth/password", "Change own password"),
+new("GET", "/api/vansales/attendance", "The caller's own calls"),
+new("GET", "/api/vansales/attendance/date", "The caller's calls for a date (query parameter is 'value')"),
+new("GET", "/api/vansales/attendance/status", "Whether the caller is checked in"),
+new("POST", "/api/vansales/attendance", "Check in or out"),
+new("GET", "/api/vansales/day/current", "The open trading day"),
+new("POST", "/api/vansales/day/start", "Out of the depot: truck, route, opening odometer"),
+new("POST", "/api/vansales/day/end", "Back in: closing odometer and the takings counted"),
+new("GET", "/api/vansales/customer", "The shops on the caller's route"),
+new("POST", "/api/vansales/customer", "Create a route customer"),
+new("POST", "/api/vansales/sales-order", "Create a sales order"),
+new("POST", "/api/vansales/sales-order/history", "Search sales orders (a POST because the filter is a body)"),
+new("POST", "/api/vansales/order/history", "Search invoices (a POST because the filter is a body)"),
+new("GET", "/api/vansales/fiscal", "Fiscal device details for the handset"),
+new("GET", "/api/vansales/fiscal/lease", "Issue this handset's fiscal lease (returned bare, not enveloped)"),
+new("POST", "/api/vansales/pod", "Upload proof of delivery"),
+new("POST", "/api/vansales/order", "Create a direct invoice (202 when queued rather than posted)"),
+new("POST", "/api/vansales/order/with-batches", "The same action as /order, on a second route"),
+new("POST", "/api/vansales/sales", "Take custody of offline, already-ZIMRA-stamped sales"),
+new("POST", "/api/vansales/order/convert-to-invoice", "Convert a sales order to an invoice (always 202)"),
+new("POST", "/api/vansales/inventory/request", "Ask the depot for stock"),
+new("GET", "/api/vansales/inventory/request", "The caller's transfer requests"),
+new("POST", "/api/vansales/inventory/confirm", "Confirm a transfer into the van")
 }
 }
 }

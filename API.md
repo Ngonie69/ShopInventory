@@ -71,6 +71,7 @@ Examples:
   - [Customer Portal](#31-customer-portal)
   - [Fiscalisation](#32-fiscalisation)
   - [Health](#33-health)
+  - [Van Sales](#34-van-sales)
 - [DTOs Reference](#dtos-reference)
 
 ---
@@ -579,9 +580,15 @@ Change the current user's password.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/Product` | Get all products from SAP |
+| GET | `/api/Product/groups` | SAP's item groups, so a group code can be shown as a name |
+| GET | `/api/Product/van-sale-catalogue` | Every van-sale item — see [Van Sales](#34-van-sales) |
 | GET | `/api/Product/warehouse/{warehouseCode}` | Products in a specific warehouse with batch info |
+| GET | `/api/Product/warehouse/{warehouseCode}/paged` | The same, paginated (`page`, `pageSize`, `businessPartnerCode`, `priceListNum`, `vanSaleOnly`, `cursor`, `after`) |
+| GET | `/api/Product/warehouse/{warehouseCode}/item/{itemCode}/batches` | Batch information for one item in one warehouse |
 | GET | `/api/Product/{itemCode}` | Get a single product |
-| GET | `/api/Product/{itemCode}/batches` | Get batch information for a product |
+
+Batches are per item **and** warehouse — there is no route that gives an item's batches across
+every warehouse.
 
 **Product DTO:**
 
@@ -621,8 +628,14 @@ Change the current user's password.
 |--------|----------|-------------|
 | GET | `/api/Stock/warehouses` | Get all warehouses (cached 5 min) |
 | GET | `/api/Stock/warehouse-codes` | Get just warehouse codes |
-| GET | `/api/Stock/warehouse/{code}` | Get all stock in a specific warehouse |
-| GET | `/api/Stock/batch/{warehouseCode}/{itemCode}` | Get batch detail for an item in a warehouse |
+| GET | `/api/Stock/warehouse/{warehouseCode}` | Get all stock in a specific warehouse |
+| GET | `/api/Stock/warehouse/{warehouseCode}/paged` | The same, paginated (`page`, `pageSize`) |
+| GET | `/api/Stock/warehouse/{warehouseCode}/items` | Stock for named items only — `itemCodes` is a comma-separated list |
+| GET | `/api/Stock/warehouse/{warehouseCode}/sales` | Sales out of a warehouse (`fromDate`, `toDate`) |
+| POST | `/api/Stock/warehouse/{warehouseCode}/sales` | The same query with `fromDate` and `toDate` in the body |
+
+There is no batch route on this controller. Batch detail is
+`GET /api/Product/warehouse/{warehouseCode}/item/{itemCode}/batches`.
 
 **Warehouse DTO:**
 
@@ -669,8 +682,19 @@ Change the current user's password.
 |--------|----------|-------------|
 | GET | `/api/Price/cached` | Get cached prices (synced every 5 minutes) |
 | GET | `/api/Price` | Get all prices directly from SAP |
-| GET | `/api/Price/by-customer/{cardCode}` | Customer-specific pricing |
-| POST | `/api/Price/sync` | Force price sync from SAP (Admin only) |
+| GET | `/api/Price/grouped` | Prices grouped by item |
+| GET | `/api/Price/{itemCode}` | Prices for one item |
+| GET | `/api/Price/currency/{currency}` | Prices in one currency |
+| GET | `/api/Price/businesspartner/{cardCode}` | Customer-specific pricing |
+| GET | `/api/Price/pricelists` | The price lists |
+| GET | `/api/Price/pricelists/{priceListNum}/items` | Items on one price list |
+| GET | `/api/Price/pricelists/{priceListNum}/items/{itemCode}` | One item's price on one list |
+| POST | `/api/Price/sync` | Force a price sync from SAP |
+| POST | `/api/Price/pricelists/sync` | Sync the price lists |
+| POST | `/api/Price/pricelists/{priceListNum}/sync` | Sync one price list |
+
+Every route here takes `ApiAccess` and nothing more — the sync routes are **not** Admin-only, and a
+full `/api/Price/sync` runs under a 30-minute timeout.
 
 **Price DTO:**
 
@@ -690,20 +714,44 @@ Change the current user's password.
 ### 10. Invoices
 
 **Base route:** `/api/Invoice`  
-**Auth:** Bearer + permissions as noted
+**Auth:** Bearer + **roles** as noted
 
-| Method | Endpoint | Permission | Description |
-|--------|----------|-----------|-------------|
-| POST | `/api/Invoice` | Admin or Cashier role | Create a new invoice |
-| GET | `/api/Invoice` | `invoices.view` | List invoices (paginated) |
-| GET | `/api/Invoice/{id}` | `invoices.view` | Get invoice by ID |
-| GET | `/api/Invoice/docnum/{docNum}` | `invoices.view` | Get invoice by SAP DocNum |
-| GET | `/api/Invoice/date-range` | `invoices.view` | Get invoices by date range |
-| PUT | `/api/Invoice/{id}` | `invoices.edit` | Update a draft invoice |
-| DELETE | `/api/Invoice/{id}` | `invoices.delete` | Delete a draft invoice |
-| POST | `/api/Invoice/confirm` | `invoices.create` | Confirm and post invoice to SAP |
+This controller gates on `[Authorize(Roles = …)]`, not on `[RequirePermission]`. The
+`invoices.view` / `invoices.edit` / `invoices.delete` permission constants exist, but nothing on
+this controller reads them — granting one to a user changes nothing here.
 
-**Query parameters for GET list:** `page`, `pageSize`, `status`, `cardCode`, `fromDate`, `toDate`, `warehouseCode`
+| Method | Endpoint | Roles | Description |
+|--------|----------|-------|-------------|
+| POST | `/api/Invoice` | Admin, Cashier | Create a new invoice (posts to SAP) |
+| POST | `/api/Invoice/validate` | Admin, Cashier | Validate an invoice before posting |
+| GET | `/api/Invoice/paged` | Admin, Cashier, StockController, Manager | List invoices, paginated |
+| GET | `/api/Invoice/{docEntry}` | Admin, Cashier, StockController, Manager | Get invoice by SAP DocEntry |
+| GET | `/api/Invoice/by-docnum/{docNum}` | Admin, Cashier, StockController, Manager, Driver, PodOperator, Operator, ApiUser | Get invoice by SAP DocNum |
+| GET | `/api/Invoice/date-range` | Admin, Cashier, StockController, Manager | Get invoices by date range (`fromDate`, `toDate`, `page`, `pageSize`) |
+| GET | `/api/Invoice/open` | Admin, Cashier, StockController, Manager, PodOperator | Open invoices |
+| GET | `/api/Invoice/customer/{cardCode}` | Admin, Cashier, StockController, Manager, Driver, PodOperator | A customer's invoices |
+| GET | `/api/Invoice/{docEntry}/pdf` | Admin, Cashier, StockController, Manager | Download the invoice as a PDF |
+| GET | `/api/Invoice/{itemCode}/batches/{warehouseCode}` | Admin, Cashier, StockController, Manager | Batches available to allocate against a line (`strategy`, default `FEFO`) |
+| POST | `/api/Invoice/{docEntry}/fiscalize` | Admin, Cashier | Fiscalise a posted invoice |
+
+**Query parameters for `/paged`:** `page` (1), `pageSize` (20), `docNum`, `cardCode`, `fromDate`,
+`toDate`, `vanSalesOnly`
+
+There is **no update and no delete route**: an invoice is created by posting it to SAP, and
+correcting one is a credit note.
+
+**Proof of delivery and attachments** — also on this controller:
+
+| Method | Endpoint | Roles | Description |
+|--------|----------|-------|-------------|
+| POST | `/api/Invoice/{docEntry}/pod` | Admin, Cashier, PodOperator, Operator, Driver, SalesRep | Upload a POD against an invoice |
+| POST | `/api/Invoice/{docEntry}/crate-pod` | Admin, Manager, Merchandiser, PodOperator, Operator, Driver | Upload a crate POD |
+| POST | `/api/Invoice/pods/validate-bulk` | Admin, Cashier, PodOperator, Operator, Driver, SalesRep | Check a batch of invoices for existing PODs before uploading |
+| GET | `/api/Invoice/pods` | Admin, Cashier, PodOperator, Operator, Driver, SalesRep | List PODs |
+| GET | `/api/Invoice/pod-upload-status` | Admin, Cashier, PodOperator, Driver, SalesRep, ApiUser | Upload-status report |
+| GET | `/api/Invoice/pod-dashboard` | Admin, Cashier, PodOperator, Driver, SalesRep | POD dashboard figures |
+| GET | `/api/Invoice/{docEntry}/attachments` | Admin, Cashier, PodOperator, Operator, Driver, SalesRep | An invoice's attachments |
+| GET | `/api/Invoice/{docEntry}/attachments/{attachmentId}/download` | Admin, Cashier, PodOperator, Operator, Driver, SalesRep | Download one |
 
 **Create Invoice Request:**
 
@@ -1051,10 +1099,17 @@ Configurable under `CreditLimit` in `appsettings.json`: `Enabled`, `IncludeOpenO
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/IncomingPayment` | Create incoming payment (posts to SAP) |
+| GET | `/api/IncomingPayment` | List incoming payments |
 | GET | `/api/IncomingPayment/{docEntry}` | Get by SAP DocEntry |
 | GET | `/api/IncomingPayment/docnum/{docNum}` | Get by document number |
-| GET | `/api/IncomingPayment/by-invoice/{invoiceDocEntry}` | Payments for an invoice |
 | GET | `/api/IncomingPayment/customer/{cardCode}` | Customer's payments (paginated) |
+| GET | `/api/IncomingPayment/daterange` | Payments between two dates (`fromDate`, `toDate`, both required) |
+| GET | `/api/IncomingPayment/today` | Today's payments |
+| GET | `/api/IncomingPayment/queue/{externalReference}` | Queue status for a deferred payment |
+| POST | `/api/IncomingPayment/{docEntry}/attachment` | Upload an attachment against a payment |
+
+There is no route that lists the payments against a given invoice — reach them through the
+customer's payments and match on the invoice yourself.
 
 **Incoming Payment DTO:**
 
@@ -1148,8 +1203,16 @@ Configurable under `CreditLimit` in `appsettings.json`: `Enabled`, `IncludeOpenO
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/InventoryTransfer` | Submit an inventory transfer for approval (`stock.transfer` or `inventory.transfer`) |
-| GET | `/api/InventoryTransfer/{docEntry}` | Get transfer details |
-| GET | `/api/InventoryTransfer/status/{docEntry}` | Get posting status |
+| GET | `/api/InventoryTransfer/detail/{docEntry}` | Get one transfer's details |
+| GET | `/api/InventoryTransfer/{warehouseCode}` | Transfers for a warehouse — the bare `{}` segment is a **warehouse code, not a DocEntry** |
+| GET | `/api/InventoryTransfer/{warehouseCode}/paged` | The same, paginated |
+| GET | `/api/InventoryTransfer/{warehouseCode}/date/{date}` | A warehouse's transfers on one date |
+| GET | `/api/InventoryTransfer/{warehouseCode}/daterange` | A warehouse's transfers between two dates |
+| GET | `/api/InventoryTransfer/pending` | Transfers held for approval (`status`, `warehouseCode`, `mineOnly`, `page`, `pageSize`, `fromDate`, `toDate`) |
+| GET | `/api/InventoryTransfer/pending/{id}` | One held transfer, posting status included |
+| POST | `/api/InventoryTransfer/pending/{id}/decision` | Approve or reject a held transfer |
+| POST | `/api/InventoryTransfer/pending/{id}/post` | Retry the SAP post for an approved transfer |
+| POST | `/api/InventoryTransfer/pending/{id}/cancel` | Cancel a held transfer |
 | GET | `/api/InventoryTransfer/requests` | List transfer requests, newest first (`page`, `pageSize`, `status`) |
 | PATCH | `/api/InventoryTransfer/request/{docEntry}` | Change an open request's lines and warehouses. Admin, StockController, DepotController, Manager |
 | POST | `/api/InventoryTransfer/request/{docEntry}/convert` | Authorize a request and generate the SAP transfer. Admin, StockController, DepotController |
@@ -1468,7 +1531,8 @@ capped read never sees one — so a truncated period is only ever "more than the
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/Document/attachments/{entityType}/{entityId}` | List attachments for an entity |
+| GET | `/api/Document/attachments` | List attachments for an entity — `entityType` and `entityId` are **query parameters**, not path segments |
+| GET | `/api/Document/attachments/{attachmentId}/download` | Download one attachment |
 | POST | `/api/Document/attachments` | Upload attachment (multipart form) |
 | DELETE | `/api/Document/attachments/{attachmentId}` | Delete attachment |
 
@@ -1484,12 +1548,25 @@ capped read never sees one — so a truncated period is only ever "more than the
 |--------|----------|-------------|
 | GET | `/api/Report/sales-summary` | Sales summary for a date range |
 | GET | `/api/Report/top-products` | Top selling products |
-| GET | `/api/Report/low-stock` | Low stock alert items |
-| GET | `/api/Report/aging-analysis` | Customer aging analysis |
-| GET | `/api/Report/inventory-value` | Inventory valuation report |
+| GET | `/api/Report/top-customers` | Top customers |
+| GET | `/api/Report/slow-moving-products` | Products with no movement (`daysThreshold`, default 30) |
+| GET | `/api/Report/stock-summary` | Stock on hand **and its value**, optionally for one warehouse |
+| GET | `/api/Report/stock-movement` | Stock movement over a date range |
+| GET | `/api/Report/low-stock-alerts` | Low stock alert items (`warehouseCode`, `threshold`) |
+| GET | `/api/Report/receivables-aging` | Customer aging analysis |
+| GET | `/api/Report/payment-summary` | Payments over a date range |
+| GET | `/api/Report/account-sales-payments` | Sales and payments per account |
+| GET | `/api/Report/order-fulfillment` | Order fulfilment |
+| GET | `/api/Report/credit-notes` | Credit notes over a date range |
+| GET | `/api/Report/purchase-orders` | Purchase orders over a date range |
+| GET | `/api/Report/merchandiser-purchase-orders` | Merchandiser-raised purchase orders |
+| GET | `/api/Report/profit-overview` | Profit overview |
 | GET | `/api/Report/item-volume-sales` | Net quantity, converted volume and net revenue per item and business partner |
 
 **Common query parameters:** `fromDate`, `toDate`, `warehouseCode`, `top` (for top N)
+
+Inventory valuation lives on `stock-summary` — `totalStockValueUsd` / `totalStockValueZig` overall
+and `totalValueUsd` / `totalValueZig` per warehouse. There has never been an `inventory-value` route.
 
 **Item Volume & Revenue**
 
@@ -1874,9 +1951,15 @@ This controller supports stock reservations and queue-based invoice posting for 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/DesktopIntegration/reservations` | Create stock reservation (holds inventory) |
+| GET | `/api/DesktopIntegration/reservations` | List reservations (`sourceSystem`, `status`, `cardCode`, …) |
 | GET | `/api/DesktopIntegration/reservations/{reservationId}` | Get reservation details |
-| PUT | `/api/DesktopIntegration/reservations/{reservationId}/confirm` | Confirm and post to SAP |
-| DELETE | `/api/DesktopIntegration/reservations/{reservationId}` | Cancel reservation |
+| GET | `/api/DesktopIntegration/reservations/by-reference/{externalReferenceId}` | Find a reservation by the caller's own reference |
+| POST | `/api/DesktopIntegration/reservations/confirm` | Confirm and post to SAP |
+| POST | `/api/DesktopIntegration/reservations/cancel` | Cancel reservation |
+| POST | `/api/DesktopIntegration/reservations/renew` | Extend a reservation before it expires |
+
+Confirm, cancel and renew are **POSTs that take the reservation id in the body**, not verbs on
+`/reservations/{id}` — there is no `PUT` or `DELETE` anywhere on this controller's reservations.
 
 **Create Reservation Request:**
 
@@ -1915,14 +1998,25 @@ This controller supports stock reservations and queue-based invoice posting for 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/DesktopIntegration/invoices/queue` | Queue invoice for async posting |
-| GET | `/api/DesktopIntegration/invoices/queue-status/{queueId}` | Check queue status |
+| POST | `/api/DesktopIntegration/invoices` | Reserve and confirm in one call, on the request |
+| POST | `/api/DesktopIntegration/invoices/queued` | Queue an invoice for async posting (answers `202`) |
+| GET | `/api/DesktopIntegration/queue/{externalReference}` | Check queue status by the caller's own reference |
+| GET | `/api/DesktopIntegration/queue/by-reservation/{reservationId}` | Check queue status by reservation |
+| GET | `/api/DesktopIntegration/queue` | The queue |
+| GET | `/api/DesktopIntegration/queue/review` | Queue entries needing a human look |
+| GET | `/api/DesktopIntegration/queue/stats` | Queue counts |
+| POST | `/api/DesktopIntegration/queue/{id}/retry` | Retry a failed queue entry |
+| DELETE | `/api/DesktopIntegration/queue/{id}` | Drop a queue entry |
+
+The queue routes sit under `/queue`, **not** under `/invoices/queue*` — the invoice routes create,
+the queue routes track.
 
 #### Batch Validation
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/DesktopIntegration/validate-batch-allocation` | Validate batch allocations (FIFO/FEFO) |
+| POST | `/api/DesktopIntegration/invoices/validate` | Validate an invoice and its batch allocations. `autoAllocateBatches` defaults to `true` and `allocationStrategy` to `FEFO` |
+| POST | `/api/DesktopIntegration/stock/validate` | Validate stock availability for a set of lines |
 
 ---
 
@@ -2062,6 +2156,352 @@ Health check endpoint. No authentication required.
   "timestamp": "2026-04-01T10:00:00Z"
 }
 ```
+
+---
+
+### 34. Van Sales
+
+Van sales has **two API surfaces, and the difference between them is the hyphen**:
+
+| Surface | Base route | Speaks | Callers |
+|---------|-----------|--------|---------|
+| Portal | `/api/van-sales` | This API's ordinary dialect — camelCase, plain bodies, RFC 7807 problems | The web app's `/van-sales/*` pages |
+| Handset | `/api/vansales` | The legacy dialect — snake_case fields, a `{ success, error }` envelope, HTTP 200 on failure | The van sales handset (a separate repo) |
+
+They are separate controllers on purpose. The handset dialect is fixed by builds already in the
+field and is not free to change; the portal surface is a plain API and should stay one. Nothing
+should be added to `/api/vansales` that a new caller would want.
+
+#### Portal surface
+
+**Base route:** `/api/van-sales`  
+**Auth:** Bearer + `ApiAccess` policy, plus the per-endpoint permission below
+
+| Method | Endpoint | Permission | Description |
+|--------|----------|------------|-------------|
+| GET | `/api/van-sales/compliance-report` | `vansales.attendance.view` | Departure compliance: a row per rep per trading day |
+| GET | `/api/van-sales/routes` | any of `vansales.attendance.view`, `users.view`, `users.create_merchandiser_accounts` | The selling routes |
+| POST | `/api/van-sales/routes` | `users.edit` | Create a route |
+| PUT | `/api/van-sales/routes/{id}` | `users.edit` | Update a route |
+| GET | `/api/van-sales/visits` | `vansales.attendance.view` | A page of van sales calls, newest first |
+| GET | `/api/van-sales/visits/report` | `vansales.attendance.view` | Time on the round, summarised per rep |
+
+`/api/van-sales/routes` takes **any one** of its three permissions, not all three. It has two
+unrelated callers — the compliance report's filter and the user editor, where assigning a rep to a
+route is part of editing the user — and gating it on van attendance alone empties the editor's route
+picker for anyone who administers users without overseeing vans. Silently, because the portal
+service swallows the failure and returns an empty list.
+
+**Dates.** `compliance-report` and `visits/report` take **CAT trading days**, not instants: a van's
+day belongs to the van, not to the server's zone, and both van reports have to count days the same
+way or a supervisor reading them side by side sees different call counts. `visits` is the exception —
+it filters on the check-in instant and normalises what it is given to UTC.
+
+##### GET `/api/van-sales/compliance-report`
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `fromDate` | today − 30 days | Inclusive CAT trading day |
+| `toDate` | today | Inclusive CAT trading day |
+| `userId` | — | One rep by id; every rep when omitted |
+| `routeCode` | — | One route. Days with **no departure record are excluded** when this is set, because nothing on a loose visit says which route it belonged to |
+
+**Response:** `DepartureComplianceReportResult`. Rates are fractions (0.97), not percentages, and are
+**null rather than zero** where the day has no denominator — a CCR of 0% and "we cannot say" are
+different findings. Summary rates are recomputed from the period's totals, not averaged across days.
+
+```json
+{
+  "fromDate": "2026-07-18T00:00:00",
+  "toDate": "2026-08-17T00:00:00",
+  "days": [
+    {
+      "vanRouteDayId": 812,
+      "userId": "8f14e45f-ceea-467a-9575-1f2b3c4d5e6f",
+      "username": "tmoyo",
+      "fullName": "T Moyo",
+      "tradingDate": "2026-08-15T00:00:00",
+      "territory": "Harare North",
+      "routeCode": "HN02",
+      "routeName": "Harare North 2",
+      "truckRegNo": "AEK 4471",
+      "timeOut": "2026-08-15T06:40:00",
+      "timeIn": "2026-08-15T17:12:00",
+      "plannedCustomerCount": 32,
+      "customersVisited": 29,
+      "productiveCalls": 24,
+      "rtiOut": 40,
+      "rtiReturned": 38,
+      "systemCash": 1840.00,
+      "systemEcocash": 320.00,
+      "systemInnbucks": 0,
+      "systemOther": 0,
+      "systemTotalSales": 2160.00,
+      "declaredCash": 1845.00,
+      "declaredEcocash": 320.00,
+      "declaredInnbucks": null,
+      "currency": "USD",
+      "newCustomers": 1,
+      "startingMileage": 84210,
+      "closingMileage": 84357,
+      "hasDayRecord": true,
+      "isClosed": true,
+      "notes": null,
+      "callComplianceRate": 0.90625,
+      "productiveCallRate": 0.8275862068965517,
+      "averageOrderValue": 90.00,
+      "kilometresTravelled": 147,
+      "declaredTotal": 2165.00,
+      "declaredVariance": 5.00,
+      "rtiOutstanding": 2
+    }
+  ],
+  "summary": {
+    "dayCount": 22,
+    "plannedCustomerCount": 704,
+    "customersVisited": 631,
+    "productiveCalls": 512,
+    "totalSales": 47320.00,
+    "newCustomers": 14,
+    "kilometresTravelled": 3180,
+    "callComplianceRate": 0.8963068181818182,
+    "productiveCallRate": 0.8114104595879556,
+    "averageOrderValue": 92.42
+  }
+}
+```
+
+`declaredVariance` is declared minus recorded: positive means the rep counted more than the system
+sold, which is usually an unrecorded sale; negative is the one to chase.
+
+##### GET `/api/van-sales/routes`
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `includeInactive` | `false` | Bring back retired routes too; they still head historical days |
+
+**Response:** `List<RouteDto>` — `id`, `code`, `name`, `territory`, `truckRegNo`, `isActive`,
+`assignedUserCount`.
+
+##### POST `/api/van-sales/routes` · PUT `/api/van-sales/routes/{id}`
+
+**Body:** `SaveRouteRequest`. There is no delete — a route names historical days.
+
+```json
+{
+  "code": "HN02",
+  "name": "Harare North 2",
+  "territory": "Harare North",
+  "truckRegNo": "AEK 4471",
+  "isActive": true
+}
+```
+
+**Response:** `RouteDto`. `409 Conflict` on a duplicate code; `PUT` also answers `404` for an
+unknown id.
+
+##### GET `/api/van-sales/visits`
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `page` | `1` | 1-based |
+| `pageSize` | `20` | Not clamped server-side — ask for what you will render |
+| `userId` | — | One rep by id |
+| `username` | — | One rep by username |
+| `customerCode` | — | One shop |
+| `fromDate` | — | Inclusive lower bound on check-in time; taken as UTC |
+| `toDate` | — | Inclusive upper bound on check-in time; taken as UTC |
+
+**Response:** `VanVisitListResult` — `entries`, `totalCount`, `page`, `pageSize`.
+
+Every row is a van sales call and nothing else: the query is pinned to the van channel rather than
+filtered by one, so no caller can widen it to merchandiser rows. `TimesheetController` answers for
+merchandisers and is pinned the same way in the other direction; there is no query string that
+crosses between them.
+
+```json
+{
+  "entries": [
+    {
+      "id": 40122,
+      "userId": "8f14e45f-ceea-467a-9575-1f2b3c4d5e6f",
+      "username": "tmoyo",
+      "fullName": "T Moyo",
+      "customerCode": "SHP0431",
+      "customerName": "Chitungwiza Tuckshop",
+      "checkInTime": "2026-08-15T07:12:00Z",
+      "checkOutTime": "2026-08-15T07:34:00Z",
+      "checkInLatitude": -17.8252,
+      "checkInLongitude": 31.0335,
+      "checkOutLatitude": -17.8252,
+      "checkOutLongitude": 31.0335,
+      "checkInNotes": null,
+      "checkOutNotes": null,
+      "durationMinutes": 22.0,
+      "checkInLocationSource": "Gps",
+      "checkOutLocationSource": "Gps",
+      "checkInLocationAccuracyMetres": 8.0,
+      "checkOutLocationAccuracyMetres": 11.0,
+      "locationUnavailableReason": null,
+      "checkInRecordedAt": "2026-08-15T07:12:04Z",
+      "checkOutRecordedAt": "2026-08-15T09:58:41Z",
+      "routeCode": "HN02",
+      "routeName": "Harare North 2",
+      "truckRegNo": "AEK 4471",
+      "wasCapturedOffline": true,
+      "syncDelay": "02:24:41"
+    }
+  ],
+  "totalCount": 1184,
+  "page": 1,
+  "pageSize": 20
+}
+```
+
+`wasCapturedOffline` and `syncDelay` are computed from the two timestamp pairs, not stored: a call
+that reached the server more than two minutes after it happened was queued on the handset.
+`routeCode`, `routeName` and `truckRegNo` come from the round's snapshot, so a rep moved to another
+route this morning does not rewrite the route on every call they made last month; they are null when
+the rep checked into customers without starting a day on the handset.
+
+##### GET `/api/van-sales/visits/report`
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `fromDate` | today − 30 days | Inclusive CAT trading day |
+| `toDate` | today | Inclusive CAT trading day |
+| `userId` | — | One rep by id |
+| `username` | — | One rep by username |
+
+**Response:** `VanVisitReportResult` — the period's totals plus a `repSummaries` array, each rep
+carrying `days` (with the day's individual `calls`, so the page can draw the round as a strip) and
+`customers`.
+
+```json
+{
+  "fromDate": "2026-07-18T00:00:00",
+  "toDate": "2026-08-17T00:00:00",
+  "repSummaries": [
+    {
+      "userId": "8f14e45f-ceea-467a-9575-1f2b3c4d5e6f",
+      "username": "tmoyo",
+      "fullName": "T Moyo",
+      "totalCalls": 631,
+      "completedCalls": 604,
+      "openCalls": 27,
+      "offlineCalls": 88,
+      "distinctCustomers": 212,
+      "tradingDays": 22,
+      "totalMinutes": 13288.0,
+      "averageMinutesPerCall": 22.0,
+      "days": [
+        {
+          "date": "2026-08-15T00:00:00",
+          "callCount": 29,
+          "distinctCustomers": 29,
+          "openCalls": 1,
+          "totalMinutes": 616.0,
+          "firstCheckIn": "2026-08-15T07:12:00Z",
+          "lastCheckOut": "2026-08-15T15:04:00Z",
+          "calls": [
+            {
+              "customerCode": "SHP0431",
+              "customerName": "Chitungwiza Tuckshop",
+              "checkInTime": "2026-08-15T07:12:00Z",
+              "checkOutTime": "2026-08-15T07:34:00Z"
+            }
+          ],
+          "routeCode": "HN02",
+          "routeName": "Harare North 2"
+        }
+      ],
+      "customers": [
+        {
+          "customerCode": "SHP0431",
+          "customerName": "Chitungwiza Tuckshop",
+          "callCount": 4,
+          "totalMinutes": 81.0
+        }
+      ],
+      "routeCode": "HN02",
+      "routeName": "Harare North 2"
+    }
+  ],
+  "totalCalls": 1184,
+  "completedCalls": 1131,
+  "openCalls": 53,
+  "offlineCalls": 174,
+  "totalHours": 428.6,
+  "averageCallMinutes": 22.7,
+  "tradingDays": 22
+}
+```
+
+Open calls (never checked out) and offline calls (uploaded late) are counted alongside the rest
+rather than instead of them — both are routine on a van and both are worth seeing. Averages divide
+by `completedCalls`, not `totalCalls`: a call that never closed has no duration to contribute and
+dividing by it would drag the average down with time nobody spent.
+
+#### Handset surface (legacy dialect)
+
+**Base route:** `/api/vansales`  
+**Auth:** Bearer + `ApiAccess` policy on every route except the two `auth` ones, plus the
+per-endpoint permission below  
+**Audit:** every call is written to the audit log by `VanSalesAuditFilter`, outcome included
+
+Read this table for the route, the verb and the permission. **Do not treat it as the payload
+contract** — the request and response bodies are the handset's dialect, fixed by builds in the
+field, and the controller and its `VanSalesLegacy*` DTOs are the only authority on them. Two habits
+of that dialect matter before you call anything here:
+
+- Most successes come back wrapped: `{ "success": <payload>, "error": null }`.
+- The attendance and trading-day routes answer **HTTP 200 with an error string in the envelope**
+  where the rest of this API would answer 4xx. A status code is not enough to tell whether one of
+  those calls worked.
+
+| Method | Endpoint | Permission | Notes |
+|--------|----------|------------|-------|
+| POST | `/api/vansales/auth/login` | anonymous | Rate-limited under the `auth` policy |
+| POST | `/api/vansales/auth/refresh` | anonymous | Rate-limited under the `auth` policy |
+| POST | `/api/vansales/auth/password` | — (authenticated) | Change own password |
+| GET | `/api/vansales/attendance` | `timesheets.view` | The caller's own calls |
+| GET | `/api/vansales/attendance/date` | `timesheets.view` | Query parameter is `value` |
+| GET | `/api/vansales/attendance/status` | `timesheets.manage` | Whether the caller is checked in |
+| POST | `/api/vansales/attendance` | `timesheets.manage` | Check in or out |
+| GET | `/api/vansales/day/current` | `timesheets.manage` | The open trading day |
+| POST | `/api/vansales/day/start` | `timesheets.manage` | Out of the depot: truck, route, opening odometer |
+| POST | `/api/vansales/day/end` | `timesheets.manage` | Back in: closing odometer and the takings counted |
+| GET | `/api/vansales/customer` | `customers.view` | The shops on the caller's route |
+| POST | `/api/vansales/customer` | `customers.create` | Create a route customer |
+| POST | `/api/vansales/sales-order` | `salesorders.create` | Create a sales order |
+| POST | `/api/vansales/sales-order/history` | `salesorders.view` | Search — a POST because the filter is a body |
+| POST | `/api/vansales/order/history` | `invoices.view` | Invoice history; also a POST |
+| GET | `/api/vansales/fiscal` | `invoices.view` | Fiscal device details for the handset |
+| GET | `/api/vansales/fiscal/lease` | `invoices.create` | Optional `pendingSales`. Returned **bare**, not enveloped |
+| POST | `/api/vansales/pod` | `invoices.view` | Upload proof of delivery |
+| POST | `/api/vansales/order` | `invoices.create` | Direct invoice. `202` when queued rather than posted |
+| POST | `/api/vansales/order/with-batches` | `invoices.create` | The same action as `/order` — one more route on it, not a second endpoint |
+| POST | `/api/vansales/sales` | `invoices.create` | Take custody of offline, already-ZIMRA-stamped sales |
+| POST | `/api/vansales/order/convert-to-invoice` | `invoices.create` | Always `202` |
+| POST | `/api/vansales/inventory/request` | `inventory.transfer` | Ask the depot for stock. `201` |
+| GET | `/api/vansales/inventory/request` | `inventory.transfer` | The caller's transfer requests |
+| POST | `/api/vansales/inventory/confirm` | `inventory.transfer` | Confirm a transfer into the van |
+
+`POST /api/vansales/sales` is not `POST /api/vansales/order` with a flag. Nothing on it reaches SAP
+during the request — the batch is held for the end-of-day posting run — and nothing on it is
+fiscalised, because the customer is already holding the printed receipt. Per-sale outcomes come back
+individually so one bad row cannot strand a van's whole backlog on the handset.
+
+**Related routes on other controllers**
+
+| Method | Endpoint | Permission | Description |
+|--------|----------|------------|-------------|
+| GET | `/api/Product/van-sale-catalogue` | Bearer + `ApiAccess` | What a van *may be sent* — every van-sale item, not warehouse-scoped and not priced |
+
+That catalogue is deliberately not the same list as
+`/api/Product/warehouse/{code}/paged?vanSaleOnly=true`, which answers what a van *can sell* now. A
+transfer request needs the first: the items worth asking the depot for are precisely the ones the
+van has none of, and those are absent from the warehouse page by design.
 
 ---
 
