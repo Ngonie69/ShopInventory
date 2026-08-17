@@ -49,3 +49,27 @@ jobs:
           name: test-results
           path: ${{ runner.temp }}/test-results
           if-no-files-found: warn
+
+  # API.md, ApiExplorer.razor and the Web README each list endpoints by hand, and a wrong path
+  # usually still *resolves* - a bogus segment binds to a {param} route on the same controller and
+  # answers a polite domain 404 that reads like data. Nothing caught that until this script, so it
+  # runs on every PR rather than being remembered.
+  #
+  # No .NET here on purpose: the check parses the controllers as text and needs nothing built.
+  catalogues:
+    name: Route catalogues
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # pwsh is preinstalled on the GitHub-hosted ubuntu images. The explicit exit is not
+      # decoration: the script signals drift through its exit code, and relying on that code
+      # surviving a nested .ps1 invocation is exactly the kind of assumption this job exists to
+      # stop making.
+      - name: Check the route catalogues against the controllers
+        shell: pwsh
+        run: |
+          ./scripts/Test-RouteCatalogues.ps1
+          exit $LASTEXITCODE
