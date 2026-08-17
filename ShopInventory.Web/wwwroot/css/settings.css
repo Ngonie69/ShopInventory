@@ -311,6 +311,13 @@
     align-items: start;
 }
 
+/* Pages that borrow this surface without a section rail: the two-column track
+   above would otherwise sit their only child in the 208px sidebar column and
+   squeeze every card to a third of the page. */
+.stg-body-solo {
+    grid-template-columns: minmax(0, 1fr);
+}
+
 .stg-main {
     min-width: 0;
 }
