@@ -34,6 +34,8 @@ public interface IReportExportService
     byte[] ExportPodUploadStatusToExcel(PodUploadStatusReport report);
     byte[] ExportTimesheetReportToExcel(TimesheetReportResponse report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportVanAttendanceReportToExcel(VanVisitReportResponse report, DateTime? fromDate = null, DateTime? toDate = null);
+
+    byte[] ExportVanSalesPerformanceToExcel(VanSalesPerformanceReportResponse report);
     byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     byte[] ExportAccountSalesPaymentReportToExcel(GetAccountSalesPaymentReportResult report);
@@ -4533,6 +4535,468 @@ public class ReportExportService : IReportExportService
     // column of their own rather than being inferred from a completion percentage, because on a
     // van they are the finding — a rep who checked in and drove off without checking out leaves a
     // call with no duration, and the sheet has to name that rather than average it away.
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Van sales performance
+    // ═══════════════════════════════════════════════════════════════
+    //
+    // On the Ts* ramp rather than the classic one, matching the van attendance workbook beside it:
+    // both are read per rep over a period, and a reader moving between them should not have to
+    // re-learn where the figures sit.
+    //
+    // Two rules the sheets below never break, both inherited from the report itself:
+    //
+    //  - Money is written as text, per currency, not as a number. A numeric column would invite a
+    //    reader to select it and watch Excel add USD to ZiG, and the sum would be a number that
+    //    describes nothing. Where a single currency is certain — inside the drop-size sheet, which
+    //    is per currency by construction — the figures are real numbers and can be totalled.
+    //  - Quantity is written against its unit for the same reason, and van lines carry no unit, so
+    //    most rows will read "unit not recorded". That is the honest answer.
+
+    public byte[] ExportVanSalesPerformanceToExcel(VanSalesPerformanceReportResponse report)
+    {
+        using var workbook = NewWorkbook("Van Sales Performance");
+        var now = DateTime.UtcNow.AddHours(2); // CAT
+
+        BuildVanPerformanceOverviewSheet(workbook, report, now);
+        BuildVanPerformanceRepSheet(workbook, report, now);
+        BuildVanPerformanceItemSheet(workbook, report, now);
+        BuildVanPerformancePriceSheet(workbook, report, now);
+        BuildVanPerformanceTrendSheet(workbook, report, now);
+        BuildVanPerformanceDropSheet(workbook, report, now);
+
+        return WorkbookToBytes(workbook);
+    }
+
+    private static void BuildVanPerformanceOverviewSheet(
+        XLWorkbook workbook,
+        VanSalesPerformanceReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 10;
+        var ws = workbook.Worksheets.Add("Overview");
+        TsApplyDefaults(ws);
+
+        var period = $"VAN SALES PERFORMANCE  —  {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}";
+        int row = TsTitleBar(ws, period, lastCol, now);
+
+        var summary = report.Summary;
+        var lead = summary.TotalsByCurrency.FirstOrDefault();
+
+        row = TsKpiStrip(ws, row, lastCol,
+            ("Gross Takings", lead is null ? "—" : $"{lead.Currency} {lead.Gross:N0}", null),
+            ("Documents", summary.DocumentCount.ToString("N0"), null),
+            ("Productive Calls", summary.ProductiveCalls.ToString("N0"), null),
+            ("Strike Rate", summary.StrikeRate is { } rate ? $"{rate:P0}" : "—", null),
+            ("Avg Drop", lead?.AverageDropSize is { } drop ? $"{lead.Currency} {drop:N0}" : "—", null),
+            ("Outlets Bought", summary.CustomerCount.ToString("N0"), null),
+            ("New Outlets", summary.NewOutlets.ToString("N0"), null),
+            ("Items Sold", summary.ItemCount.ToString("N0"), null),
+            ("Reps", summary.RepCount.ToString("N0"), null),
+            ("Kilometres", summary.KilometresTravelled?.ToString("N0") ?? "—", null));
+
+        // The caveats first, not last. A reader who scrolls past the tables has already formed a
+        // view; what the figures could not see has to reach them before the figures do.
+        if (!report.Coverage.IsClean)
+        {
+            TsSectionTitle(ws, row, lastCol, "WHAT THIS PERIOD COULD NOT ANSWER");
+            row += 2;
+
+            foreach (var caveat in report.Coverage.Caveats)
+            {
+                ws.Cell(row, 1).Value = caveat;
+                ws.Range(row, 1, row, lastCol).Merge();
+                ws.Cell(row, 1).Style.Font.FontSize = 9;
+                ws.Cell(row, 1).Style.Font.Italic = true;
+                ws.Cell(row, 1).Style.Font.FontColor = TsOrange;
+                row++;
+            }
+
+            row++;
+        }
+
+        if (report.Territories.Count > 0)
+        {
+            TsSectionTitle(ws, row, lastCol, "TERRITORIES");
+            row += 2;
+            row = TsColumnHeaders(ws, row, lastCol,
+                ["Territory", "Routes", "Rep-Days", "Productive Calls", "Outlets", "Takings", "", "", "", ""]);
+
+            int index = 0;
+            foreach (var territory in report.Territories)
+            {
+                TsDataRow(ws, row, lastCol, index % 2 == 1);
+                ws.Cell(row, 1).Value = territory.DisplayTerritory;
+                ws.Cell(row, 2).Value = territory.RouteCount;
+                ws.Cell(row, 3).Value = territory.TradingDayCount;
+                ws.Cell(row, 4).Value = territory.ProductiveCalls;
+                ws.Cell(row, 5).Value = territory.CustomerCount;
+                ws.Cell(row, 6).Value = MoneyText(territory.TotalsByCurrency);
+                row++;
+                index++;
+            }
+
+            row++;
+        }
+
+        TsSectionTitle(ws, row, lastCol, "ROUTES");
+        row += 2;
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Route", "Territory", "Reps", "Rep-Days", "Planned", "Calls", "CCR", "PCR", "Km", "Takings"]);
+
+        int routeIndex = 0;
+        foreach (var route in report.Routes)
+        {
+            TsDataRow(ws, row, lastCol, routeIndex % 2 == 1);
+            ws.Cell(row, 1).Value = route.DisplayRoute;
+            ws.Cell(row, 2).Value = route.Territory ?? "—";
+            ws.Cell(row, 3).Value = route.RepCount;
+            ws.Cell(row, 4).Value = route.TradingDayCount;
+            ws.Cell(row, 5).Value = route.PlannedCalls?.ToString("N0") ?? "—";
+            ws.Cell(row, 6).Value = route.Calls?.ToString("N0") ?? "—";
+            ws.Cell(row, 7).Value = RateText(route.CallComplianceRate);
+            ws.Cell(row, 8).Value = RateText(route.ProductiveCallRate);
+            ws.Cell(row, 9).Value = route.KilometresTravelled?.ToString("N0") ?? "—";
+            ws.Cell(row, 10).Value = MoneyText(route.TotalsByCurrency);
+            row++;
+            routeIndex++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildVanPerformanceRepSheet(
+        XLWorkbook workbook,
+        VanSalesPerformanceReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 12;
+        var ws = workbook.Worksheets.Add("Reps");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "REP LEAGUE TABLE", lastCol, now);
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Rep", "Routes", "Days", "Calls", "Bought", "Strike Rate",
+            "Calls/Day", "Outlets", "New", "New Who Bought", "Items", "Takings"
+        ]);
+
+        int index = 0;
+        foreach (var rep in report.Reps)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = rep.DisplayName;
+            ws.Cell(row, 2).Value = rep.Routes.Count == 0 ? "—" : string.Join(", ", rep.Routes);
+            ws.Cell(row, 3).Value = rep.TradingDayCount;
+            ws.Cell(row, 4).Value = rep.Calls?.ToString("N0") ?? "—";
+            ws.Cell(row, 5).Value = rep.ProductiveCalls;
+            ws.Cell(row, 6).Value = RateText(rep.StrikeRate);
+            ws.Cell(row, 7).Value = rep.CallsPerDay is { } perDay ? perDay.ToString("N1") : "—";
+            ws.Cell(row, 8).Value = rep.CustomerCount;
+            ws.Cell(row, 9).Value = rep.NewOutlets;
+            ws.Cell(row, 10).Value = rep.NewOutletsWhoBought;
+            ws.Cell(row, 11).Value = rep.ItemCount;
+            ws.Cell(row, 12).Value = MoneyText(rep.TotalsByCurrency);
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildVanPerformanceItemSheet(
+        XLWorkbook workbook,
+        VanSalesPerformanceReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 9;
+        var ws = workbook.Worksheets.Add("Items");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "WHAT MOVED", lastCol, now);
+
+        TsSectionTitle(ws, row, lastCol, "RANKED ON REACH — LINES WRITTEN AND OUTLETS REACHED");
+        row += 2;
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["#", "Item Code", "Description", "Lines", "Outlets", "Reps", "Days", "Quantity", "Value"]);
+
+        int index = 0;
+        foreach (var item in report.Items)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = item.Rank;
+            ws.Cell(row, 2).Value = item.ItemCode;
+            ws.Cell(row, 3).Value = item.ItemDescription ?? "—";
+            ws.Cell(row, 4).Value = item.LineCount;
+            ws.Cell(row, 5).Value = item.CustomerCount;
+            ws.Cell(row, 6).Value = item.RepCount;
+            ws.Cell(row, 7).Value = item.TradingDayCount;
+            ws.Cell(row, 8).Value = QuantityText(item.QuantitiesByUoM);
+            ws.Cell(row, 9).Value = LineMoneyText(item.TotalsByCurrency);
+            row++;
+            index++;
+        }
+
+        row++;
+        TsSectionTitle(ws, row, lastCol, "STOPPED SELLING — SOLD IN THE PRECEDING PERIOD, NOT IN THIS ONE");
+        row += 2;
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Item Code", "Description", "Last Sold", "Days Ago", "Lines Before", "Outlets Before", "Value Before", "", ""]);
+
+        int lapsedIndex = 0;
+        foreach (var item in report.LapsedItems)
+        {
+            TsDataRow(ws, row, lastCol, lapsedIndex % 2 == 1);
+            ws.Cell(row, 1).Value = item.ItemCode;
+            ws.Cell(row, 2).Value = item.ItemDescription ?? "—";
+            WriteVanPerformanceDate(ws.Cell(row, 3), item.LastSoldOn);
+            ws.Cell(row, 4).Value = item.DaysSinceLastSale;
+            ws.Cell(row, 5).Value = item.PriorLineCount;
+            ws.Cell(row, 6).Value = item.PriorCustomerCount;
+            ws.Cell(row, 7).Value = LineMoneyText(item.PriorTotalsByCurrency);
+            row++;
+            lapsedIndex++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildVanPerformancePriceSheet(
+        XLWorkbook workbook,
+        VanSalesPerformanceReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 9;
+        var ws = workbook.Worksheets.Add("Price Realisation");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "PRICE REALISATION", lastCol, now);
+
+        // Said on the sheet, not only on the page. A workbook is forwarded, and whoever opens it
+        // second will not have read the page it came from.
+        ws.Cell(row, 1).Value =
+            "Peer-relative. Each rep's achieved price against what the same item, unit and currency "
+            + "fetched across everybody. Not measured against a list price — there is no trustworthy "
+            + "local one. Discounts are not reported because neither van path records one: every van "
+            + "line reads 0%.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 28;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Item Code", "Description", "Currency", "Unit", "Lines", "Average", "Lowest", "Highest", "Spread %"]);
+
+        int index = 0;
+        foreach (var price in report.ItemPrices)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = price.ItemCode;
+            ws.Cell(row, 2).Value = price.ItemDescription ?? "—";
+            ws.Cell(row, 3).Value = price.Currency;
+            ws.Cell(row, 4).Value = price.UoMCode ?? "not recorded";
+            ws.Cell(row, 5).Value = price.LineCount;
+
+            // Single item, single currency, single unit: these are safe as real numbers.
+            ws.Cell(row, 6).Value = price.WeightedAveragePrice;
+            ws.Cell(row, 7).Value = price.MinUnitPrice;
+            ws.Cell(row, 8).Value = price.MaxUnitPrice;
+            ws.Range(row, 6, row, 8).Style.NumberFormat.Format = "#,##0.00";
+
+            ws.Cell(row, 9).Value = price.PriceSpreadPercent is { } spread ? spread.ToString("N1") : "—";
+            row++;
+            index++;
+
+            foreach (var rep in price.Reps)
+            {
+                TsDataRow(ws, row, lastCol, true);
+                ws.Cell(row, 2).Value = $"   {rep.DisplayName}";
+                ws.Cell(row, 2).Style.Font.Italic = true;
+                ws.Cell(row, 5).Value = rep.LineCount;
+                ws.Cell(row, 6).Value = rep.WeightedAveragePrice;
+                ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+                ws.Cell(row, 9).Value = rep.VarianceFromItemPercent is { } variance
+                    ? variance.ToString("N1")
+                    : "—";
+                row++;
+            }
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildVanPerformanceTrendSheet(
+        XLWorkbook workbook,
+        VanSalesPerformanceReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 7;
+        var ws = workbook.Worksheets.Add("Trend");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "TREND", lastCol, now);
+
+        TsSectionTitle(ws, row, lastCol, "BY DAY OF WEEK — AVERAGES DIVIDE BY DAYS IN PERIOD, NOT DAYS TRADED");
+        row += 2;
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Day", "In Period", "Traded", "Documents", "Per Day", "Productive Calls", "Takings"]);
+
+        int index = 0;
+        foreach (var point in report.Trend.DayOfWeek)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = point.Label;
+            ws.Cell(row, 2).Value = point.CalendarDayCount;
+            ws.Cell(row, 3).Value = point.ActiveDayCount;
+            ws.Cell(row, 4).Value = point.DocumentCount;
+            ws.Cell(row, 5).Value = point.DocumentsPerCalendarDay is { } perDay ? perDay.ToString("N1") : "—";
+            ws.Cell(row, 6).Value = point.ProductiveCalls;
+            ws.Cell(row, 7).Value = MoneyText(point.TotalsByCurrency);
+            row++;
+            index++;
+        }
+
+        row++;
+        TsSectionTitle(ws, row, lastCol, "BY MONTH");
+        row += 2;
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Month", "Part Month", "Days", "Traded", "Documents", "Productive Calls", "Takings"]);
+
+        int monthIndex = 0;
+        foreach (var point in report.Trend.Monthly)
+        {
+            TsDataRow(ws, row, lastCol, monthIndex % 2 == 1);
+            ws.Cell(row, 1).Value = point.Label;
+            ws.Cell(row, 2).Value = point.IsPartial ? "yes" : "";
+            ws.Cell(row, 3).Value = point.CalendarDayCount;
+            ws.Cell(row, 4).Value = point.ActiveDayCount;
+            ws.Cell(row, 5).Value = point.DocumentCount;
+            ws.Cell(row, 6).Value = point.ProductiveCalls;
+            ws.Cell(row, 7).Value = MoneyText(point.TotalsByCurrency);
+            row++;
+            monthIndex++;
+        }
+
+        row++;
+        TsSectionTitle(ws, row, lastCol, "DAY BY DAY — SILENT DAYS INCLUDED");
+        row += 2;
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Date", "Day", "Reps Out", "Documents", "Productive Calls", "Takings", ""]);
+
+        int dayIndex = 0;
+        foreach (var point in report.Trend.Daily)
+        {
+            TsDataRow(ws, row, lastCol, dayIndex % 2 == 1);
+            WriteVanPerformanceDate(ws.Cell(row, 1), point.TradingDate);
+            ws.Cell(row, 2).Value = point.DayOfWeek.ToString();
+            ws.Cell(row, 3).Value = point.RepsTrading;
+            ws.Cell(row, 4).Value = point.DocumentCount;
+            ws.Cell(row, 5).Value = point.ProductiveCalls;
+            ws.Cell(row, 6).Value = MoneyText(point.TotalsByCurrency);
+            row++;
+            dayIndex++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildVanPerformanceDropSheet(
+        XLWorkbook workbook,
+        VanSalesPerformanceReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 6;
+        var ws = workbook.Worksheets.Add("Drop Size");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "DROP SIZE DISTRIBUTION", lastCol, now);
+
+        ws.Cell(row, 1).Value =
+            "A drop is one shop, on one day, in one currency — two invoices at the same counter "
+            + "are one drop. A median well under the mean means a few large accounts are carrying a "
+            + "long tail of calls that barely pay for the stop.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 24;
+        row += 2;
+
+        foreach (var distribution in report.DropSizes)
+        {
+            TsSectionTitle(ws, row, lastCol, distribution.Currency.ToUpperInvariant());
+            row += 2;
+
+            row = TsKpiStrip(ws, row, lastCol,
+                ("Drops", distribution.DropCount.ToString("N0"), null),
+                ("Mean", distribution.Mean.ToString("N2"), null),
+                ("Median", distribution.Median.ToString("N2"), null),
+                ("Lower Quartile", distribution.P25.ToString("N2"), null),
+                ("Upper Quartile", distribution.P75.ToString("N2"), null),
+                ("Largest", distribution.Maximum.ToString("N2"), null));
+
+            row = TsColumnHeaders(ws, row, lastCol,
+                ["Band", "Drops", "Share %", "Value", "", ""]);
+
+            int index = 0;
+            foreach (var bucket in distribution.Buckets)
+            {
+                TsDataRow(ws, row, lastCol, index % 2 == 1);
+                ws.Cell(row, 1).Value = bucket.Label;
+                ws.Cell(row, 2).Value = bucket.DropCount;
+
+                // This sheet is per currency by construction, so its money is a real number and a
+                // reader may total the column safely.
+                ws.Cell(row, 3).Value = bucket.SharePercent ?? 0;
+                ws.Cell(row, 3).Style.NumberFormat.Format = "#,##0.0";
+                ws.Cell(row, 4).Value = bucket.Total;
+                ws.Cell(row, 4).Style.NumberFormat.Format = "#,##0.00";
+                row++;
+                index++;
+            }
+
+            row++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    /// <summary>
+    /// Money as text, one entry per currency. Text rather than a number on purpose: a numeric column
+    /// carrying two currencies invites a total that describes nothing.
+    /// </summary>
+    private static string MoneyText(List<VanSalesMoney> totals) =>
+        totals.Count == 0
+            ? "—"
+            : string.Join("  |  ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
+
+    private static string LineMoneyText(List<VanSalesLineMoney> totals) =>
+        totals.Count == 0
+            ? "—"
+            : string.Join("  |  ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
+
+    /// <summary>Quantity against its unit, never summed across units.</summary>
+    private static string QuantityText(List<VanSalesQuantity> quantities) =>
+        quantities.Count == 0
+            ? "—"
+            : string.Join("  |  ", quantities.Select(q => $"{q.Quantity:N0} {q.DisplayUoM}"));
+
+    /// <summary>An em dash for a rate with no denominator. Never 0%.</summary>
+    private static string RateText(double? rate) => rate is { } value ? value.ToString("P0") : "—";
+
+    /// <summary>
+    /// A real date cell, so Excel sorts and filters it as one. The shared <c>WriteDateCell</c> parses
+    /// a string; these DTOs already carry a <c>DateTime</c>, so there is nothing to parse.
+    /// </summary>
+    private static void WriteVanPerformanceDate(IXLCell cell, DateTime date)
+    {
+        cell.Value = date.Date;
+        cell.Style.NumberFormat.Format = FormatDate;
+    }
 
     public byte[] ExportVanAttendanceReportToExcel(
         VanVisitReportResponse report,

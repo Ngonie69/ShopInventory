@@ -1949,3 +1949,223 @@
         padding-bottom: 0;
     }
 }
+
+/* ==========================================================================
+   `vsp-` — /van-sales/reports/performance
+
+   The fifth page on this sheet. Its own prefix rather than more of `vsc-`,
+   because sheets in this app are separated by prefix alone: a duplicated one
+   would silently restyle the compliance page next door.
+
+   Nothing here defines a colour outside the alias block at the head of this
+   file, so both schemes come free and there is no `.dark-theme .vsp` rule to
+   forget. Every selector is two classes deep for the reason the header gives —
+   app.css's global `.dark-theme input` rules sit at (0,1,1) and would otherwise
+   repaint anything shallower.
+
+   The page reuses `vs-table`, `vs-chip`, `vs-meter`, `vs-metric-none`,
+   `vs-empty` and the filter bar wholesale. What is below is only what those do
+   not already draw: the KPI band, the caveats strip, the section switcher and
+   the two washed row states.
+   ========================================================================== */
+
+/* — The KPI band ————————————————————————————————————————————————— */
+
+.vs .vsp-kpis {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 1px;
+    margin: 1.25rem 0;
+    background: var(--vs-rule);
+    border: 1px solid var(--vs-rule);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.vs .vsp-kpi {
+    background: var(--vs-surface);
+    padding: 0.85rem 1rem 0.95rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.vs .vsp-kpi-value {
+    font-size: 1.35rem;
+    font-weight: 500;
+    line-height: 1.15;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.vs .vsp-kpi-label {
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsp-kpi-sub {
+    font-size: 0.78rem;
+    color: var(--vs-mute-3);
+    overflow-wrap: anywhere;
+}
+
+/* — The caveats strip —
+   Shown only when there is something to say, so its presence is the signal. It
+   takes the flag colour rather than the bad family: none of these is a failure,
+   they are limits on what the figures above can be read to mean. */
+
+.vs .vsp-caveats {
+    margin: 1rem 0 1.25rem;
+    padding: 0.85rem 1rem 0.95rem;
+    border: 1px solid rgba(var(--vs-flag-rgb), 0.35);
+    border-left: 3px solid var(--vs-flag);
+    border-radius: 8px;
+    background: rgba(var(--vs-flag-rgb), 0.06);
+}
+
+.vs .vsp-caveats-head {
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--vs-flag);
+    margin-bottom: 0.4rem;
+}
+
+.vs .vsp-caveats-list {
+    margin: 0;
+    padding-left: 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.86rem;
+    color: var(--vs-ink-2);
+}
+
+/* — The section switcher ————————————————————————————————————————— */
+
+.vs .vsp-sections {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin: 1.25rem 0 0.85rem;
+}
+
+.vs .vsp-sections .vs-chip {
+    cursor: pointer;
+    border: 0;
+    font: inherit;
+    font-size: 0.82rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.vs .vsp-section-count {
+    font-size: 0.72rem;
+    color: var(--vs-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* — Headings and notes inside a section ——————————————————————————— */
+
+.vs .vsp-heading {
+    font-size: 0.95rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--vs-ink);
+    margin: 1.5rem 0 0.5rem;
+}
+
+.vs .vsp-note {
+    font-size: 0.84rem;
+    line-height: 1.5;
+    color: var(--vs-mute-2);
+    max-width: 78ch;
+    margin: 0 0 0.85rem;
+}
+
+/* — Row states —
+   Two washes, and they mean different things. `vsp-orphan` is a sale that
+   cannot be attributed to a route; `vsp-quiet` is a period that traded nothing.
+   Both are muted rather than flagged: neither is an error, and colouring them
+   as one would make a fortnight of Sundays look like a fault. */
+
+.vs .vsp-orphan td,
+.vs .vsp-quiet td {
+    color: var(--vs-mute-3);
+}
+
+.vs .vsp-orphan td:first-child {
+    color: var(--vs-ink-2);
+}
+
+.vs .vsp-inline-chip {
+    margin-left: 0.4rem;
+    font-size: 0.68rem;
+    vertical-align: middle;
+}
+
+/* A second line under a cell's main value — an item's code beneath its name,
+   or how many of a rep's new outlets actually bought. */
+.vs .vsp-sub {
+    display: block;
+    font-size: 0.74rem;
+    color: var(--vs-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* — The drop-size stat row ——————————————————————————————————————— */
+
+.vs .vsp-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    padding: 0.75rem 0 1rem;
+}
+
+.vs .vsp-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.vs .vsp-stat-value {
+    font-size: 1.05rem;
+    font-weight: 500;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsp-stat-label {
+    font-size: 0.74rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsp-bar-cell {
+    width: 22%;
+    min-width: 90px;
+}
+
+/* — Narrow screens ————————————————————————————————————————————— */
+
+@media (max-width: 1240px) {
+    .vs .vsp-kpis {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 720px) {
+    .vs .vsp-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .vs .vsp-stats {
+        gap: 1rem;
+    }
+}
