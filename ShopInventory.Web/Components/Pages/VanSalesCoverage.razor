@@ -5,6 +5,7 @@
 @using System.Globalization
 @using ShopInventory.Web.Models
 @inject IVanSalesReportService VanSalesReportService
+@inject IReportExportService ExportService
 @inject IJSRuntime JS
 
 <PageTitle>Van Sales Coverage - Shop Inventory</PageTitle>
@@ -45,6 +46,11 @@
                 Whether the base under the takings is growing or shrinking — who was reached, who was
                 missed, who is new and who has gone quiet.
             </p>
+        </div>
+        <div class="vs-actions">
+            <button class="vs-btn" @onclick="ExportAsync" disabled="@(isLoading || report is null)">
+                Export
+            </button>
         </div>
     </div>
 
@@ -723,6 +729,26 @@
         {
             isLoading = false;
             StateHasChanged();
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        if (report is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var bytes = ExportService.ExportVanSalesCoverageToExcel(report);
+            var fileName = $"VanSalesCoverage_{DateTime.UtcNow.AddHours(2):yyyyMMdd_HHmmss}.xlsx";
+
+            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            loadError = $"The export could not be downloaded: {ex.Message}";
         }
     }
 

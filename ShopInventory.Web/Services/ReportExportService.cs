@@ -36,6 +36,8 @@ public interface IReportExportService
     byte[] ExportVanAttendanceReportToExcel(VanVisitReportResponse report, DateTime? fromDate = null, DateTime? toDate = null);
 
     byte[] ExportVanSalesPerformanceToExcel(VanSalesPerformanceReportResponse report);
+
+    byte[] ExportVanSalesCoverageToExcel(VanSalesCoverageReportResponse report);
     byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     byte[] ExportAccountSalesPaymentReportToExcel(GetAccountSalesPaymentReportResult report);
@@ -4997,6 +4999,405 @@ public class ReportExportService : IReportExportService
         cell.Value = date.Date;
         cell.Style.NumberFormat.Format = FormatDate;
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Van sales coverage
+    // ═══════════════════════════════════════════════════════════════
+    //
+    // Same ramp and the same money rule as the performance workbook beside it. Two things this one
+    // has to carry that the other does not, both because a workbook gets forwarded and whoever opens
+    // it second never saw the page:
+    //
+    //  - The uncovered register is measured against today's roster, not the roster as it stood.
+    //  - The location sheet is not a geofence, and the figures on it cannot be read as one.
+    //
+    // Both are written onto their own sheets rather than only into the caveats block.
+
+    public byte[] ExportVanSalesCoverageToExcel(VanSalesCoverageReportResponse report)
+    {
+        using var workbook = NewWorkbook("Van Sales Coverage");
+        var now = DateTime.UtcNow.AddHours(2); // CAT
+
+        BuildCoverageOverviewSheet(workbook, report, now);
+        BuildCoverageRepSheet(workbook, report, now);
+        BuildCoverageUncoveredSheet(workbook, report, now);
+        BuildCoverageChurnSheet(workbook, report, now);
+        BuildCoverageConcentrationSheet(workbook, report, now);
+        BuildCoverageOutletSheet(workbook, report, now);
+        BuildCoverageLocationSheet(workbook, report, now);
+
+        return WorkbookToBytes(workbook);
+    }
+
+    private static void BuildCoverageOverviewSheet(
+        XLWorkbook workbook,
+        VanSalesCoverageReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 8;
+        var ws = workbook.Worksheets.Add("Overview");
+        TsApplyDefaults(ws);
+
+        var period = $"VAN SALES COVERAGE  —  {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}";
+        int row = TsTitleBar(ws, period, lastCol, now);
+
+        var summary = report.Summary;
+
+        row = TsKpiStrip(ws, row, lastCol,
+            ("Shops On Books", summary.RosterSize?.ToString("N0") ?? "—", null),
+            ("Called On", summary.OutletsVisited.ToString("N0"), null),
+            ("Roster Reached", RateText(summary.RosterCoverageRate), null),
+            ("Strike Rate", RateText(summary.StrikeRate), null),
+            ("New Outlets", summary.NewOutlets.ToString("N0"), TsGreen),
+            ("Lapsed Outlets", summary.LapsedOutlets.ToString("N0"), TsRed),
+            ("Returned", summary.ReactivatedOutlets.ToString("N0"), null),
+            ("Real GPS Fixes", RateText(report.LocationIntegrity.GpsFixRate), null));
+
+        TsSectionTitle(ws, row, lastCol, "WHAT THIS PERIOD COULD NOT ANSWER");
+        row += 2;
+
+        foreach (var caveat in report.Quality.Caveats)
+        {
+            ws.Cell(row, 1).Value = caveat;
+            ws.Range(row, 1, row, lastCol).Merge();
+            ws.Cell(row, 1).Style.Font.FontSize = 9;
+            ws.Cell(row, 1).Style.Font.Italic = true;
+            ws.Cell(row, 1).Style.Font.FontColor = TsOrange;
+            ws.Cell(row, 1).Style.Alignment.WrapText = true;
+            ws.Row(row).Height = 24;
+            row++;
+        }
+
+        row++;
+        TsSectionTitle(ws, row, lastCol,
+            $"RATES OVER TIME  —  LAPSED AFTER {report.LapseDays} DAYS WITHOUT BUYING");
+        row += 2;
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Period", "Reps", "Planned", "Called", "Bought", "Compliance", "Strike Rate", "Shops Bought"]);
+
+        int index = 0;
+        foreach (var point in report.Trend)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = point.IsPartial ? $"{point.Label} (part)" : point.Label;
+            ws.Cell(row, 2).Value = point.RepsTrading;
+            ws.Cell(row, 3).Value = point.PlannedCalls?.ToString("N0") ?? "—";
+            ws.Cell(row, 4).Value = point.Calls?.ToString("N0") ?? "—";
+            ws.Cell(row, 5).Value = point.ProductiveCalls;
+            ws.Cell(row, 6).Value = RateText(point.CallComplianceRate);
+            ws.Cell(row, 7).Value = RateText(point.ProductiveCallRate);
+            ws.Cell(row, 8).Value = point.OutletsBought;
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildCoverageRepSheet(
+        XLWorkbook workbook,
+        VanSalesCoverageReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 11;
+        var ws = workbook.Worksheets.Add("Reps");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "COVERAGE BY REP", lastCol, now);
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Rep", "Account", "Shop Codes?", "Roster", "Reached", "Coverage",
+            "Strike Rate", "Bought", "Missed", "Km", "Per Km"
+        ]);
+
+        int index = 0;
+        foreach (var rep in report.Reps)
+        {
+            var efficiency = rep.EfficiencyByCurrency.FirstOrDefault();
+
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = rep.DisplayName;
+            ws.Cell(row, 2).Value = rep.VanAccountCode ?? "—";
+            // Not a gap in the rep's work: a gap in what their sales record.
+            ws.Cell(row, 3).Value = rep.OutletsAttributable ? "yes" : "no shop codes";
+            ws.Cell(row, 4).Value = rep.RosterSize?.ToString("N0") ?? "—";
+            ws.Cell(row, 5).Value = rep.OutletsVisited?.ToString("N0") ?? "—";
+            ws.Cell(row, 6).Value = RateText(rep.RosterCoverageRate);
+            ws.Cell(row, 7).Value = RateText(rep.StrikeRate);
+            ws.Cell(row, 8).Value = rep.OutletsBought?.ToString("N0") ?? "—";
+            ws.Cell(row, 9).Value = rep.OutletsUncovered?.ToString("N0") ?? "—";
+            ws.Cell(row, 10).Value = rep.KilometresTravelled?.ToString("N0") ?? "—";
+            ws.Cell(row, 11).Value = efficiency?.GrossPerKilometre is { } perKm
+                ? $"{efficiency.Currency} {perKm:N2}"
+                : "—";
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildCoverageUncoveredSheet(
+        XLWorkbook workbook,
+        VanSalesCoverageReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 8;
+        var ws = workbook.Worksheets.Add("Not Reached");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "SHOPS THE PERIOD DID NOT REACH", lastCol, now);
+
+        ws.Cell(row, 1).Value =
+            "Measured against TODAY'S roster, not the roster as it stood during the period. The day "
+            + "plan is stored as a count and the list behind it was never kept, so this cannot say which "
+            + "shops were planned for a given day — only which are on the books now and were not reached. "
+            + "A shop added since reads as uncovered throughout; one removed since is absent entirely.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsOrange;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 34;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Shop", "Code", "Account", "Gap", "Last Called On", "Last Bought", "Days", "Phone"]);
+
+        int index = 0;
+        foreach (var outlet in report.UncoveredOutlets)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = outlet.DisplayName;
+            ws.Cell(row, 2).Value = outlet.OutletCode;
+            ws.Cell(row, 3).Value = outlet.VanAccountCode;
+            ws.Cell(row, 4).Value = outlet.GapLabel;
+
+            if (outlet.LastVisitedOn is { } visited)
+            {
+                WriteVanPerformanceDate(ws.Cell(row, 5), visited);
+            }
+            else
+            {
+                ws.Cell(row, 5).Value = "—";
+            }
+
+            // Never bought and long lapsed are different conversations.
+            if (outlet.HasNeverBought)
+            {
+                ws.Cell(row, 6).Value = "never";
+            }
+            else
+            {
+                WriteVanPerformanceDate(ws.Cell(row, 6), outlet.LastPurchaseOn!.Value);
+            }
+
+            ws.Cell(row, 7).Value = outlet.DaysSinceLastPurchase?.ToString("N0") ?? "—";
+            ws.Cell(row, 8).Value = outlet.Phone ?? "—";
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildCoverageChurnSheet(
+        XLWorkbook workbook,
+        VanSalesCoverageReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 9;
+        var ws = workbook.Worksheets.Add("Churn");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "THE OUTLET BASE, PERIOD BY PERIOD", lastCol, now);
+
+        TsSectionTitle(ws, row, lastCol,
+            $"LAPSED AFTER {report.LapseDays} DAYS  —  COUNTED IN THE PERIOD THE LINE WAS CROSSED");
+        row += 2;
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Period", "Opening", "New", "Returned", "Lapsed", "Closing", "Net", "Churn", "Residual"]);
+
+        int index = 0;
+        foreach (var point in report.Churn)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = point.IsCensored
+                ? $"{point.Label} (before the data starts)"
+                : point.IsPartial ? $"{point.Label} (part)" : point.Label;
+            ws.Cell(row, 2).Value = point.OpeningActiveOutlets;
+            ws.Cell(row, 3).Value = point.NewOutlets;
+            ws.Cell(row, 4).Value = point.ReactivatedOutlets;
+            ws.Cell(row, 5).Value = point.LapsedOutlets;
+            ws.Cell(row, 6).Value = point.ClosingActiveOutlets;
+            ws.Cell(row, 7).Value = point.NetMovement;
+            ws.Cell(row, 8).Value = RateText(point.ChurnRate);
+
+            // Should always be zero. Written out so a fault is visible in the workbook too.
+            ws.Cell(row, 9).Value = point.UnexplainedMovement;
+            if (point.UnexplainedMovement != 0)
+            {
+                ws.Cell(row, 9).Style.Font.FontColor = TsRed;
+                ws.Cell(row, 9).Style.Font.Bold = true;
+            }
+
+            row++;
+            index++;
+        }
+
+        row++;
+        TsSectionTitle(ws, row, lastCol, "WIN-BACK LIST  —  BIGGEST LOSS FIRST");
+        row += 2;
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Shop", "Code", "Last Bought", "Days Ago", "Buying Days",
+            "Last Drop", "Worth Before", "Sold By", "On Roster?"
+        ]);
+
+        int lapsedIndex = 0;
+        foreach (var outlet in report.LapsedOutlets)
+        {
+            TsDataRow(ws, row, lastCol, lapsedIndex % 2 == 1);
+            ws.Cell(row, 1).Value = outlet.DisplayName;
+            ws.Cell(row, 2).Value = outlet.OutletCode;
+            WriteVanPerformanceDate(ws.Cell(row, 3), outlet.LastPurchaseOn);
+            ws.Cell(row, 4).Value = outlet.DaysSinceLastPurchase;
+            ws.Cell(row, 5).Value = outlet.PriorPurchaseDayCount;
+            ws.Cell(row, 6).Value = MoneyText(outlet.LastPurchaseByCurrency);
+            ws.Cell(row, 7).Value = MoneyText(outlet.PriorTotalsByCurrency);
+            ws.Cell(row, 8).Value = outlet.LastSoldByRep ?? "—";
+            ws.Cell(row, 9).Value = outlet.StillOnRoster ? "yes" : "dropped";
+            row++;
+            lapsedIndex++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildCoverageConcentrationSheet(
+        XLWorkbook workbook,
+        VanSalesCoverageReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 9;
+        var ws = workbook.Worksheets.Add("Concentration");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "WHAT EACH ROUTE RESTS ON", lastCol, now);
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Route", "Currency", "Shops", "Half The Takings", "Top Shop %",
+            "Top 5 %", "Top 10 %", "Unattributed %", "Largest Shop"
+        ]);
+
+        int index = 0;
+        foreach (var route in report.Concentration)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = route.DisplayRoute;
+            ws.Cell(row, 2).Value = route.Currency;
+            ws.Cell(row, 3).Value = route.OutletCount;
+            ws.Cell(row, 4).Value = route.OutletsForHalfOfGross?.ToString("N0") ?? "—";
+            ws.Cell(row, 5).Value = PercentText(route.Top1SharePercent);
+            ws.Cell(row, 6).Value = PercentText(route.Top5SharePercent);
+            ws.Cell(row, 7).Value = PercentText(route.Top10SharePercent);
+            ws.Cell(row, 8).Value = PercentText(route.UnattributedSharePercent);
+            ws.Cell(row, 9).Value = route.TopOutlets.FirstOrDefault()?.DisplayName ?? "—";
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildCoverageOutletSheet(
+        XLWorkbook workbook,
+        VanSalesCoverageReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 9;
+        var ws = workbook.Worksheets.Add("Shop Behaviour");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "HOW EACH SHOP BUYS", lastCol, now);
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Shop", "Code", "Called On", "Bought On", "Conversion",
+            "Items", "Per Drop", "Days Between", "Takings"
+        ]);
+
+        int index = 0;
+        foreach (var outlet in report.Outlets)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = outlet.DisplayName;
+            ws.Cell(row, 2).Value = outlet.OutletCode;
+            ws.Cell(row, 3).Value = outlet.VisitCount?.ToString("N0") ?? "—";
+            ws.Cell(row, 4).Value = outlet.PurchaseDayCount;
+            ws.Cell(row, 5).Value = RateText(outlet.ConversionRate);
+            ws.Cell(row, 6).Value = outlet.DistinctItemCount;
+            ws.Cell(row, 7).Value = outlet.AverageItemsPerPurchase;
+            ws.Cell(row, 7).Style.NumberFormat.Format = "#,##0.0";
+            ws.Cell(row, 8).Value = outlet.AverageDaysBetweenPurchases is { } gap
+                ? gap.ToString("N1")
+                : "—";
+            ws.Cell(row, 9).Value = MoneyText(outlet.TotalsByCurrency);
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildCoverageLocationSheet(
+        XLWorkbook workbook,
+        VanSalesCoverageReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 8;
+        var ws = workbook.Worksheets.Add("Location");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "LOCATION RECORD", lastCol, now);
+
+        ws.Cell(row, 1).Value =
+            "THIS IS NOT A GEOFENCE. Shops have no recorded coordinates anywhere in this system, so "
+            + "whether a rep was at the door cannot be answered at all. What follows is whether the "
+            + $"position on a call was measured by GPS at the moment, only remembered from earlier, or "
+            + $"absent — and a fix vaguer than {report.LocationIntegrity.PoorAccuracyMetres} m is counted "
+            + "as too imprecise to place anyone.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsOrange;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 34;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Rep", "Calls", "Real Fix", "Remembered", "None", "Too Vague", "Queued Offline", "Fix Rate"]);
+
+        int index = 0;
+        foreach (var rep in report.LocationIntegrity.Reps)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = rep.DisplayName;
+            ws.Cell(row, 2).Value = rep.CallCount;
+            ws.Cell(row, 3).Value = rep.CallsWithGpsFix;
+            ws.Cell(row, 4).Value = rep.CallsWithLastKnownFix;
+            ws.Cell(row, 5).Value = rep.CallsWithNoFix;
+            ws.Cell(row, 6).Value = rep.CallsWithPoorAccuracy;
+            ws.Cell(row, 7).Value = rep.CallsCapturedOffline;
+            ws.Cell(row, 8).Value = RateText(rep.GpsFixRate);
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    /// <summary>A percentage with an em dash for the undefined case. Never 0%.</summary>
+    private static string PercentText(double? share) => share is { } value ? $"{value:N1}%" : "—";
 
     public byte[] ExportVanAttendanceReportToExcel(
         VanVisitReportResponse report,
