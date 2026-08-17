@@ -63,18 +63,18 @@ public readonly record struct VanSalesOutletKey(string VanAccountCode, string Ou
 /// <summary>
 /// One van sale, normalised across both tables it can land in, at document grain.
 ///
-/// <paramref name="RouteCustomerCode"/> is the shop. It is nullable and often is null on older
-/// history: the account on the document is the van's own, so a sale without this cannot be attributed
-/// to a shop at all and must be reported as unattributed rather than folded into one.
+/// <c>RouteCustomerCode</c> is the shop. It is nullable and often is null on older history: the
+/// account on the document is the van's own, so a sale without this cannot be attributed to a shop at
+/// all and must be reported as unattributed rather than folded into one.
+///
+/// <c>VanAccountCode</c> is the SAP business partner the van bills as — the document's own
+/// <c>CardCode</c>. Never the buyer; it is the same on every sale a given van makes. It is carried
+/// because it is half of the shop's key, per <see cref="VanSalesOutletKey"/>.
+///
+/// <c>RouteCustomerId</c> is the shop's row id where the record still exists, which is the exact
+/// identity. Null on sales whose customer record was never resolved; the code and name snapshots
+/// survive either way.
 /// </summary>
-/// <param name="VanAccountCode">
-/// The SAP business partner the van bills as — the document's own <c>CardCode</c>. Never the buyer;
-/// it is the same on every sale a given van makes. It is here because it is half of the shop's key.
-/// </param>
-/// <param name="RouteCustomerId">
-/// The shop's row id where the record still exists, which is the exact identity. Null on sales whose
-/// customer record was never resolved; the code and name snapshots survive either way.
-/// </param>
 public sealed record VanSaleFact(
     Guid UserId,
     DateTime TradingDate,

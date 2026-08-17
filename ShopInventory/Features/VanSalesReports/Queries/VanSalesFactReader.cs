@@ -303,6 +303,85 @@ public static class VanSalesFactReader
     }
 
     /// <summary>
+    /// The first day each shop ever bought, over all of history.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately unbounded, and that is not an oversight. Churn reporting has to tell a genuinely
+    /// new outlet from one returning after a long silence, and the only thing that separates them is
+    /// whether a purchase exists <em>before</em> the window. Put a floor on this scan and it
+    /// manufactures new outlets at exactly the rate the floor is short, while the report goes on
+    /// looking entirely plausible.
+    ///
+    /// A projection, not a read: this asks the database for one date per shop, never for the
+    /// documents behind it, so its cost does not grow with history the way loading the facts would.
+    ///
+    /// The two clocks are handled the way they always are here, but in the opposite order — the
+    /// minimum is taken in SQL and converted afterwards. That is safe only because CAT is a fixed
+    /// two-hour offset with no daylight saving, which makes the conversion monotonic: the earliest
+    /// instant is the earliest trading day. It would not be safe in a zone that observes DST.
+    /// </remarks>
+    public static async Task<Dictionary<VanSalesOutletKey, DateTime>> LoadFirstPurchaseDatesAsync(
+        ApplicationDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var offline = await db.DesktopSales
+            .AsNoTracking()
+            .Where(sale => sale.SourceSystem == SaleSourceSystems.VanSales
+                           && sale.RouteCustomerCode != null)
+            .GroupBy(sale => new { sale.CardCode, sale.RouteCustomerCode })
+            .Select(group => new
+            {
+                group.Key.CardCode,
+                group.Key.RouteCustomerCode,
+                First = group.Min(sale => sale.DocDate)
+            })
+            .ToListAsync(cancellationToken);
+
+        var online = await db.StockReservations
+            .AsNoTracking()
+            .Where(reservation => reservation.SourceSystem == SaleSourceSystems.VanSales
+                                  && reservation.Status == ReservationStatus.Confirmed
+                                  && reservation.RouteCustomerCode != null)
+            .GroupBy(reservation => new { reservation.CardCode, reservation.RouteCustomerCode })
+            .Select(group => new
+            {
+                group.Key.CardCode,
+                group.Key.RouteCustomerCode,
+                First = group.Min(reservation => reservation.CreatedAt)
+            })
+            .ToListAsync(cancellationToken);
+
+        var firsts = new Dictionary<VanSalesOutletKey, DateTime>();
+
+        void Record(string account, string? code, DateTime day)
+        {
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                return;
+            }
+
+            var key = new VanSalesOutletKey(account, code.Trim());
+
+            if (!firsts.TryGetValue(key, out var existing) || day < existing)
+            {
+                firsts[key] = day;
+            }
+        }
+
+        foreach (var row in offline)
+        {
+            Record(row.CardCode, row.RouteCustomerCode, row.First.Date);
+        }
+
+        foreach (var row in online)
+        {
+            Record(row.CardCode, row.RouteCustomerCode, VanSalesFacts.TradingDayOf(row.First));
+        }
+
+        return firsts;
+    }
+
+    /// <summary>
     /// Resolves the rep and applies the one-rep filter.
     ///
     /// The filter is applied here rather than in SQL because <c>CreatedBy</c> is a string column: a
