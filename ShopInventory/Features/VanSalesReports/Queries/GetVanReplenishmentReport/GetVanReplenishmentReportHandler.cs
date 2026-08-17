@@ -13,8 +13,13 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentRepo
 /// <remarks>
 /// A van's warehouse is the transfer's <c>ToWarehouse</c>; the depot it loads from is
 /// <c>FromWarehouse</c>. Vans are identified by their warehouse assignment on the user record rather
-/// than by a naming convention — real warehouse codes here are alpha-coded and only the seed data
-/// looks like VAN001, so matching on a prefix would work locally and find nothing in production.
+/// than by a naming convention.
+///
+/// Production van warehouses do in fact use <c>VAN0nn</c> codes, so a prefix match would work today.
+/// It is still not what this does, because the prefix is a convention and the assignment is the
+/// definition: a warehouse is a van when a rep is assigned to it and a depot supplies it. Reading
+/// the definition means a van that is ever coded differently — or a store that is ever coded
+/// <c>VAN…</c> — is classified correctly without anybody remembering to update a filter.
 /// </remarks>
 public sealed class GetVanReplenishmentReportHandler(
     ApplicationDbContext db

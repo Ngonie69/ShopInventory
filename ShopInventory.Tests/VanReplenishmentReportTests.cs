@@ -51,9 +51,12 @@ public sealed class VanReplenishmentReportTests : IDisposable
     }
 
     /// <summary>
-    /// A van is a warehouse a rep is assigned to that has a supplying depot behind it. Matching on a
-    /// code prefix would work against the repository's seed data and find nothing in production,
-    /// where warehouses are alpha-coded and named for places.
+    /// A van is a warehouse a rep is assigned to that has a supplying depot behind it.
+    ///
+    /// Production vans are in fact coded <c>VAN0nn</c>, so a prefix filter would work today — which
+    /// is exactly why this test uses codes that are not. The prefix is a convention; the assignment
+    /// is the definition, and a store coded <c>VAN…</c> or a van coded anything else has to be
+    /// classified on what it is rather than on what it is called.
     /// </summary>
     [Fact]
     public async Task Vans_are_found_from_their_user_assignment_not_a_code_prefix()
