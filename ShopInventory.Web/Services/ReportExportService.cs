@@ -38,6 +38,10 @@ public interface IReportExportService
     byte[] ExportVanSalesPerformanceToExcel(VanSalesPerformanceReportResponse report);
 
     byte[] ExportVanSalesCoverageToExcel(VanSalesCoverageReportResponse report);
+
+    byte[] ExportVanReplenishmentToExcel(VanReplenishmentReportResponse report);
+
+    byte[] ExportVanStockToExcel(VanStockReportResponse report);
     byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     byte[] ExportAccountSalesPaymentReportToExcel(GetAccountSalesPaymentReportResult report);
@@ -5398,6 +5402,463 @@ public class ReportExportService : IReportExportService
 
     /// <summary>A percentage with an em dash for the undefined case. Never 0%.</summary>
     private static string PercentText(double? share) => share is { } value ? $"{value:N1}%" : "—";
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Van replenishment
+    // ═══════════════════════════════════════════════════════════════
+
+    public byte[] ExportVanReplenishmentToExcel(VanReplenishmentReportResponse report)
+    {
+        using var workbook = NewWorkbook("Van Replenishment");
+        var now = DateTime.UtcNow.AddHours(2); // CAT
+
+        BuildReplenishmentWorklistSheet(workbook, report, now);
+        BuildReplenishmentVanSheet(workbook, report, now);
+
+        return WorkbookToBytes(workbook);
+    }
+
+    /// <summary>
+    /// The worklist leads the workbook as it leads the page. Everything else here records how things
+    /// have been going; this is the sheet somebody acts on, and an approved transfer that never
+    /// reached SAP is surfaced nowhere else in the system.
+    /// </summary>
+    private static void BuildReplenishmentWorklistSheet(
+        XLWorkbook workbook,
+        VanReplenishmentReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 8;
+        var ws = workbook.Worksheets.Add("Stuck Now");
+        TsApplyDefaults(ws);
+
+        var period = $"VAN REPLENISHMENT  —  {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}";
+        int row = TsTitleBar(ws, period, lastCol, now);
+
+        var summary = report.Summary;
+
+        row = TsKpiStrip(ws, row, lastCol,
+            ("Requests", summary.RequestCount.ToString("N0"), null),
+            ("Reached SAP", RateText(summary.PostRate), null),
+            ("Wait To Decide", HoursText(summary.MedianHoursToDecision), null),
+            ("Wait To Post", HoursText(summary.MedianHoursToPosting), null),
+            ("Needing Attention", summary.NeedingAttentionCount.ToString("N0"),
+                summary.NeedingAttentionCount > 0 ? TsRed : null),
+            ("Failed To Post", summary.PostFailedCount.ToString("N0"),
+                summary.PostFailedCount > 0 ? TsRed : null),
+            ("Rejected", summary.RejectedCount.ToString("N0"), null),
+            ("Vans", summary.VanCount.ToString("N0"), null));
+
+        if (!report.Quality.IsClean)
+        {
+            TsSectionTitle(ws, row, lastCol, "WHAT THIS PERIOD COULD NOT ANSWER");
+            row += 2;
+
+            foreach (var caveat in report.Quality.Caveats)
+            {
+                ws.Cell(row, 1).Value = caveat;
+                ws.Range(row, 1, row, lastCol).Merge();
+                ws.Cell(row, 1).Style.Font.FontSize = 9;
+                ws.Cell(row, 1).Style.Font.Italic = true;
+                ws.Cell(row, 1).Style.Font.FontColor = TsOrange;
+                ws.Cell(row, 1).Style.Alignment.WrapText = true;
+                ws.Row(row).Height = 24;
+                row++;
+            }
+
+            row++;
+        }
+
+        TsSectionTitle(ws, row, lastCol, "REQUESTS THAT HAVE NOT REACHED SAP");
+        row += 2;
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Van", "From Depot", "Problem", "Asked By", "Asked", "Waiting", "Lines", "Last Error"]);
+
+        int index = 0;
+        foreach (var request in report.NeedingAttention)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = request.VanWarehouseCode;
+            ws.Cell(row, 2).Value = request.DepotWarehouseCode;
+            ws.Cell(row, 3).Value = request.GapLabel;
+            ws.Cell(row, 4).Value = request.RequestedBy;
+            WriteVanPerformanceDate(ws.Cell(row, 5), request.RequestedAt);
+            ws.Cell(row, 6).Value = request.DaysWaiting >= 1
+                ? $"{request.DaysWaiting:N0}d"
+                : $"{request.HoursWaiting:N0}h";
+            ws.Cell(row, 7).Value = request.LineCount;
+            ws.Cell(row, 8).Value = request.LastError ?? "—";
+
+            if (request.IsPostFailure)
+            {
+                ws.Cell(row, 3).Style.Font.FontColor = TsRed;
+                ws.Cell(row, 3).Style.Font.Bold = true;
+            }
+
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildReplenishmentVanSheet(
+        XLWorkbook workbook,
+        VanReplenishmentReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 10;
+        var ws = workbook.Worksheets.Add("By Van");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "SERVICE LEVEL BY VAN", lastCol, now);
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Van", "Depots", "Requests", "Posted", "Rejected", "Stuck",
+            "To Decide", "To Post", "Slowest", "Last Supplied"
+        ]);
+
+        int index = 0;
+        foreach (var van in report.Vans)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = van.VanWarehouseCode;
+            ws.Cell(row, 2).Value = van.DepotWarehouses.Count == 0
+                ? "—"
+                : string.Join(", ", van.DepotWarehouses);
+            ws.Cell(row, 3).Value = van.RequestCount;
+            ws.Cell(row, 4).Value = van.PostedCount;
+            ws.Cell(row, 5).Value = van.RejectedCount;
+            ws.Cell(row, 6).Value = van.NeedingAttentionCount;
+            ws.Cell(row, 7).Value = HoursText(van.MedianHoursToDecision);
+            ws.Cell(row, 8).Value = HoursText(van.MedianHoursToPosting);
+            ws.Cell(row, 9).Value = HoursText(van.SlowestHoursToPosting);
+
+            // Never supplied is a different finding from supplied a long time ago.
+            ws.Cell(row, 10).Value = van.LastPostedAt is { } posted
+                ? $"{posted:dd MMM} ({van.DaysSinceLastPosted:N0}d ago)"
+                : "never";
+
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Van stock
+    // ═══════════════════════════════════════════════════════════════
+
+    public byte[] ExportVanStockToExcel(VanStockReportResponse report)
+    {
+        using var workbook = NewWorkbook("Van Stock");
+        var now = DateTime.UtcNow.AddHours(2); // CAT
+
+        BuildVanStockOverviewSheet(workbook, report, now);
+        BuildVanStockVarianceSheet(workbook, report, now);
+        BuildVanStockDaySheet(workbook, report, now);
+        BuildVanStockItemSheet(workbook, report, now);
+        BuildVanStockExpirySheet(workbook, report, now);
+
+        return WorkbookToBytes(workbook);
+    }
+
+    private static void BuildVanStockOverviewSheet(
+        XLWorkbook workbook,
+        VanStockReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 6;
+        var ws = workbook.Worksheets.Add("Overview");
+        TsApplyDefaults(ws);
+
+        var period = $"VAN STOCK  —  {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}";
+        int row = TsTitleBar(ws, period, lastCol, now);
+
+        // Ahead of every figure it governs. If the snapshot job stops, everything below describes an
+        // older morning and nothing else in the workbook would say so.
+        if (report.Summary.IsStale)
+        {
+            ws.Cell(row, 1).Value =
+                $"THESE FIGURES ARE {report.Summary.SnapshotAgeDays:N0} DAY(S) OLD. The newest stock "
+                + $"snapshot is from {report.Summary.LatestSnapshotDate:dddd dd MMM yyyy}, so everything "
+                + "below describes the vans as they stood then. If the snapshot job has stopped, "
+                + "nothing here will improve until it runs again.";
+            ws.Range(row, 1, row, lastCol).Merge();
+            ws.Cell(row, 1).Style.Font.FontSize = 10;
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 1).Style.Font.FontColor = TsRed;
+            ws.Cell(row, 1).Style.Alignment.WrapText = true;
+            ws.Row(row).Height = 36;
+            row += 2;
+        }
+
+        var summary = report.Summary;
+
+        row = TsKpiStrip(ws, row, lastCol,
+            ("Vans", summary.VanCount.ToString("N0"), null),
+            ("Sell-Through", RateText(summary.SellThroughRate), null),
+            ("Dead Lines", summary.DeadItemCount.ToString("N0"),
+                summary.DeadItemCount > 0 ? TsOrange : null),
+            ("Items Seen", summary.ItemCount.ToString("N0"), null),
+            ("Van-Days", summary.SnapshotDayCount.ToString("N0"), null),
+            ("Missing Days", summary.MissingSnapshotDays.ToString("N0"),
+                summary.MissingSnapshotDays > 0 ? TsOrange : null));
+
+        if (!report.Quality.IsClean)
+        {
+            TsSectionTitle(ws, row, lastCol, "WHAT THIS PERIOD COULD NOT ANSWER");
+            row += 2;
+
+            foreach (var caveat in report.Quality.Caveats)
+            {
+                ws.Cell(row, 1).Value = caveat;
+                ws.Range(row, 1, row, lastCol).Merge();
+                ws.Cell(row, 1).Style.Font.FontSize = 9;
+                ws.Cell(row, 1).Style.Font.Italic = true;
+                ws.Cell(row, 1).Style.Font.FontColor = TsOrange;
+                ws.Cell(row, 1).Style.Alignment.WrapText = true;
+                ws.Row(row).Height = 26;
+                row++;
+            }
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2);
+    }
+
+    private static void BuildVanStockVarianceSheet(
+        XLWorkbook workbook,
+        VanStockReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 10;
+        var ws = workbook.Worksheets.Add("Reconciliation");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "MORNING TO MORNING", lastCol, now);
+
+        ws.Cell(row, 1).Value =
+            "Yesterday's load, less what sold off it, plus anything that arrived, is what this morning "
+            + "should have found. Only computable across two CONSECUTIVE snapshots — where a day is "
+            + "missing the pair is shown as a break rather than reached over, because two days of "
+            + "difference reported as one reads as a single large discrepancy on the wrong date.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 32;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Van", "From", "To", "Gap", "Opened", "Sold", "Arrived", "Expected", "Found", "Variance"
+        ]);
+
+        int index = 0;
+        foreach (var variance in report.Variances)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = variance.VanWarehouseCode;
+            WriteVanPerformanceDate(ws.Cell(row, 2), variance.FromSnapshot);
+            WriteVanPerformanceDate(ws.Cell(row, 3), variance.ToSnapshot);
+            ws.Cell(row, 4).Value = variance.HasGap ? $"{variance.GapDays:N0} days" : "";
+            ws.Cell(row, 5).Value = variance.OpeningQuantity;
+            ws.Cell(row, 6).Value = variance.SoldQuantity;
+            ws.Cell(row, 7).Value = variance.AdjustmentQuantity;
+
+            // Across a gap there is nothing to expect and nothing to compare, so both read as
+            // unavailable rather than as a zero difference.
+            if (variance.ExpectedQuantity is { } expected)
+            {
+                ws.Cell(row, 8).Value = expected;
+                ws.Cell(row, 9).Value = variance.ClosingQuantity;
+                ws.Cell(row, 10).Value = variance.Variance!.Value;
+
+                if (variance.Variance < 0)
+                {
+                    ws.Cell(row, 10).Style.Font.FontColor = TsRed;
+                    ws.Cell(row, 10).Style.Font.Bold = true;
+                }
+            }
+            else
+            {
+                ws.Cell(row, 8).Value = "—";
+                ws.Cell(row, 9).Value = variance.ClosingQuantity;
+                ws.Cell(row, 10).Value = "—";
+            }
+
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildVanStockDaySheet(
+        XLWorkbook workbook,
+        VanStockReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 9;
+        var ws = workbook.Worksheets.Add("Load & Sell-Through");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "LOAD AND SELL-THROUGH, DAY BY DAY", lastCol, now);
+
+        ws.Cell(row, 1).Value =
+            "The load is the morning snapshot; what sold comes from the sales themselves, because the "
+            + "snapshot's running quantity is never decremented by a van sale.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 24;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Van", "Morning", "Complete", "Items", "Loaded", "Sold", "Arrived",
+            "Should Be Left", "Sell-Through"
+        ]);
+
+        int index = 0;
+        foreach (var day in report.Days)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = day.VanWarehouseCode;
+            WriteVanPerformanceDate(ws.Cell(row, 2), day.SnapshotDate);
+            ws.Cell(row, 3).Value = day.SnapshotComplete ? "yes" : "incomplete";
+            ws.Cell(row, 4).Value = day.ItemCount;
+            ws.Cell(row, 5).Value = day.LoadedQuantity;
+            ws.Cell(row, 6).Value = day.SoldQuantity;
+            ws.Cell(row, 7).Value = day.AdjustmentQuantity;
+            ws.Cell(row, 8).Value = day.ExpectedRemaining;
+            ws.Cell(row, 9).Value = RateText(day.SellThroughRate);
+
+            if (day.SoldBeyondLoad)
+            {
+                ws.Cell(row, 8).Style.Font.FontColor = TsOrange;
+            }
+
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildVanStockItemSheet(
+        XLWorkbook workbook,
+        VanStockReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 9;
+        var ws = workbook.Worksheets.Add("What Is Worth Carrying");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(
+            ws, $"DEADEST FIRST  —  DEAD AFTER {report.DeadStockDays} DAYS UNSOLD", lastCol, now);
+
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Item Code", "Description", "Vans", "Days Carried", "Days Sold",
+            "Days Idle", "Loaded", "Sold", "Sell-Through"
+        ]);
+
+        int index = 0;
+        foreach (var item in report.Items)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = item.ItemCode;
+            ws.Cell(row, 2).Value = item.ItemDescription ?? "—";
+            ws.Cell(row, 3).Value = item.VanCount;
+            ws.Cell(row, 4).Value = item.DaysOnVan;
+            ws.Cell(row, 5).Value = item.DaysSold;
+            ws.Cell(row, 6).Value = item.DaysOnVanWithoutSelling;
+            ws.Cell(row, 7).Value = item.LoadedQuantity;
+            ws.Cell(row, 8).Value = item.SoldQuantity;
+            ws.Cell(row, 9).Value = RateText(item.SellThroughRate);
+
+            if (item.IsDead)
+            {
+                ws.Cell(row, 1).Style.Font.FontColor = TsRed;
+                ws.Cell(row, 2).Style.Font.FontColor = TsRed;
+            }
+
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildVanStockExpirySheet(
+        XLWorkbook workbook,
+        VanStockReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 7;
+        var ws = workbook.Worksheets.Add("Expiry");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "RUNNING OUT OF TIME", lastCol, now);
+
+        ws.Cell(row, 1).Value =
+            "Batches on the newest snapshot of each van, soonest first. Read from the latest snapshot "
+            + "only, because this is a question about what is on the van now rather than what was on "
+            + "it every morning of the period.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 26;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Van", "Item Code", "Description", "Batch", "Expires", "Days Left", "Quantity"]);
+
+        int index = 0;
+        foreach (var batch in report.Expiring)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = batch.VanWarehouseCode;
+            ws.Cell(row, 2).Value = batch.ItemCode;
+            ws.Cell(row, 3).Value = batch.ItemDescription ?? "—";
+            ws.Cell(row, 4).Value = batch.BatchNumber;
+            WriteVanPerformanceDate(ws.Cell(row, 5), batch.ExpiryDate);
+            ws.Cell(row, 6).Value = batch.HasExpired
+                ? $"{-batch.DaysToExpiry:N0} past"
+                : batch.DaysToExpiry.ToString("N0");
+            ws.Cell(row, 7).Value = batch.Quantity;
+
+            if (batch.HasExpired)
+            {
+                ws.Cell(row, 6).Style.Font.FontColor = TsRed;
+                ws.Cell(row, 6).Style.Font.Bold = true;
+            }
+
+            row++;
+            index++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    /// <summary>
+    /// A wait, in the unit that reads best at its size. An em dash for null: a van that asked for
+    /// nothing has no waiting time, which is not the same as having been served instantly.
+    /// </summary>
+    private static string HoursText(double? hours) => hours switch
+    {
+        null => "—",
+        < 1 => "<1h",
+        < 48 => $"{hours.Value:N0}h",
+        _ => $"{hours.Value / 24:N1}d"
+    };
 
     public byte[] ExportVanAttendanceReportToExcel(
         VanVisitReportResponse report,
