@@ -306,22 +306,22 @@
         <div class="vna-grid">
             <div class="vna-grid-head">
                 <button type="button" class="vna-sort @SortClass(SortRep)" @onclick="() => ToggleSort(SortRep)">
-                    Rep &amp; route@Arrow(SortRep)
+                    Rep &amp; route<span class="vna-sort-arrow">@Arrow(SortRep)</span>
                 </button>
                 <button type="button" class="vna-sort vna-end @SortClass(SortDays)" @onclick="() => ToggleSort(SortDays)">
-                    Days out@Arrow(SortDays)
+                    Days out<span class="vna-sort-arrow">@Arrow(SortDays)</span>
                 </button>
                 <button type="button" class="vna-sort vna-end @SortClass(SortCalls)" @onclick="() => ToggleSort(SortCalls)">
-                    Calls@Arrow(SortCalls)
+                    Calls<span class="vna-sort-arrow">@Arrow(SortCalls)</span>
                 </button>
                 <span class="vna-end">Customers</span>
                 <button type="button" class="vna-sort vna-end @SortClass(SortOnSite)" @onclick="() => ToggleSort(SortOnSite)">
-                    On site@Arrow(SortOnSite)
+                    On site<span class="vna-sort-arrow">@Arrow(SortOnSite)</span>
                 </button>
                 <span class="vna-end">Avg per call</span>
                 <span class="vna-end">Calls / day</span>
                 <button type="button" class="vna-sort @SortClass(SortShare)" @onclick="() => ToggleSort(SortShare)">
-                    On-site share@Arrow(SortShare)
+                    On-site share<span class="vna-sort-arrow">@Arrow(SortShare)</span>
                 </button>
                 <span></span>
             </div>
@@ -1409,7 +1409,10 @@
 
     private string SortClass(string key) => sort == key ? "vna-sort-on" : string.Empty;
 
-    private string Arrow(string key) => sort == key ? (direction > 0 ? " ↑" : " ↓") : string.Empty;
+    /// <summary>The sort marker for a header, empty on the columns not being sorted by. The
+    /// space in front of it comes from the header's own gap, so that an unsorted header does
+    /// not carry one.</summary>
+    private string Arrow(string key) => sort == key ? (direction > 0 ? "↑" : "↓") : string.Empty;
 
     private static string Plural(int count, string one, string many) => count == 1 ? one : many;
 
