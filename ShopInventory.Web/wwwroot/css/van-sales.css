@@ -2169,3 +2169,189 @@
         gap: 1rem;
     }
 }
+
+/* ==========================================================================
+   `vsg-` — /van-sales/reports/coverage
+
+   The sixth page on this sheet, and the second of the two report pages. Its own
+   prefix for the reason `vsp-` has one: sheets here are separated by prefix
+   alone, and a duplicated one silently restyles a neighbour.
+
+   Same rules as `vsp-`: every colour comes from the alias block at the head of
+   this file, so both schemes come free and there is no `.dark-theme .vsg` rule
+   to forget; every selector is two classes deep so app.css's global
+   `.dark-theme input` rules cannot reach past them.
+
+   The one thing this page draws that `vsp-` does not is a movement column —
+   shops gained and lost. Those take the good and bad families rather than the
+   single flag mark the compliance sheet uses, because unlike that page these are
+   genuinely opposite findings rather than two shades of exception.
+   ========================================================================== */
+
+.vs .vsg-kpis {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 1px;
+    margin: 1.25rem 0;
+    background: var(--vs-rule);
+    border: 1px solid var(--vs-rule);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.vs .vsg-kpi {
+    background: var(--vs-surface);
+    padding: 0.85rem 1rem 0.95rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+/* A base losing more shops than it gains is the one figure on this page worth
+   colouring, because it is the finding the whole report exists to surface. */
+.vs .vsg-kpi-warn {
+    box-shadow: inset 3px 0 0 var(--vs-warn);
+}
+
+.vs .vsg-kpi-value {
+    font-size: 1.3rem;
+    font-weight: 500;
+    line-height: 1.15;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.vs .vsg-kpi-label {
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsg-kpi-sub {
+    font-size: 0.78rem;
+    color: var(--vs-mute-3);
+    overflow-wrap: anywhere;
+}
+
+.vs .vsg-caveats {
+    margin: 1rem 0 1.25rem;
+    padding: 0.85rem 1rem 0.95rem;
+    border: 1px solid rgba(var(--vs-flag-rgb), 0.35);
+    border-left: 3px solid var(--vs-flag);
+    border-radius: 8px;
+    background: rgba(var(--vs-flag-rgb), 0.06);
+}
+
+.vs .vsg-caveats-head {
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--vs-flag);
+    margin-bottom: 0.4rem;
+}
+
+.vs .vsg-caveats-list {
+    margin: 0;
+    padding-left: 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.86rem;
+    color: var(--vs-ink-2);
+}
+
+.vs .vsg-sections {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin: 1.25rem 0 0.85rem;
+}
+
+.vs .vsg-sections .vs-chip {
+    cursor: pointer;
+    border: 0;
+    font: inherit;
+    font-size: 0.82rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.vs .vsg-section-count {
+    font-size: 0.72rem;
+    color: var(--vs-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.vs .vsg-heading {
+    font-size: 0.95rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--vs-ink);
+    margin: 1.5rem 0 0.5rem;
+}
+
+.vs .vsg-note {
+    font-size: 0.84rem;
+    line-height: 1.5;
+    color: var(--vs-mute-2);
+    max-width: 82ch;
+    margin: 0 0 0.85rem;
+}
+
+/* — Movement —
+   Gained and lost, which on this page are genuine opposites rather than two
+   grades of the same exception. */
+
+.vs .vsg-good {
+    color: var(--vs-good);
+}
+
+.vs .vsg-bad {
+    color: var(--vs-bad);
+}
+
+/* — Washed rows —
+   Three different reasons a row is not a normal one, all muted rather than
+   flagged: none of them is a fault, and colouring them as one would put the
+   loudest thing on the page next to the least actionable. */
+
+.vs .vsg-unattributable td,
+.vs .vsg-censored td,
+.vs .vsg-off-roster td {
+    color: var(--vs-mute-3);
+}
+
+.vs .vsg-unattributable td:first-child,
+.vs .vsg-censored td:first-child,
+.vs .vsg-off-roster td:first-child {
+    color: var(--vs-ink-2);
+}
+
+.vs .vsg-inline-chip {
+    margin-left: 0.4rem;
+    font-size: 0.68rem;
+    vertical-align: middle;
+}
+
+.vs .vsg-sub {
+    display: block;
+    font-size: 0.74rem;
+    color: var(--vs-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1240px) {
+    .vs .vsg-kpis {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 720px) {
+    .vs .vsg-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}

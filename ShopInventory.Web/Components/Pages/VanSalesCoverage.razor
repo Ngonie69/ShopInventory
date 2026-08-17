@@ -1,0 +1,757 @@
+@page "/van-sales/reports/coverage"
+@* Admin and Manager only — see VanSalesActivity.razor. *@
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+@using System.Globalization
+@using ShopInventory.Web.Models
+@inject IVanSalesReportService VanSalesReportService
+@inject IJSRuntime JS
+
+<PageTitle>Van Sales Coverage - Shop Inventory</PageTitle>
+
+@* Who the vans are reaching, and who they are losing.
+
+   Carried by wwwroot/css/van-sales.css in both schemes: the shared `vs-` chrome
+   plus `vsg-` for what only this page draws. A prefix nothing else owns, because
+   sheets here are separated by prefix alone.
+
+   The performance report answers what sold. This one exists because a rising
+   takings figure can hide a shrinking base completely — a route can bank more
+   money from fewer shops right up until the day it cannot, and by then the shops
+   have been gone for months.
+
+   Three things the page has to say out loud rather than imply, because each is a
+   limit on what the figures mean rather than a detail of them:
+
+   - The uncovered register is measured against today's roster, not the roster as
+     it stood during the period. The day plan is a stored count and the list
+     behind it was never kept, so "these shops were planned for Tuesday and
+     missed" cannot be recovered. A shop added since reads as uncovered
+     throughout; one removed since is absent entirely.
+   - The location panel is not a geofence and must never be read as one. Outlets
+     have no coordinates anywhere in this system, so whether a rep was at the
+     shop is unanswerable. What it reports is whether the fix was measured,
+     remembered, or absent at all.
+   - A rep selling to real business partners records no shop on their sales, so
+     every outlet figure for them is unknowable rather than zero. Those rows say
+     so instead of showing a dash that reads as none. *@
+
+<div class="vs vsg">
+
+    <div class="vs-head">
+        <div>
+            <h2 class="vs-title">Coverage &amp; outlet development</h2>
+            <p class="vs-subtitle">
+                Whether the base under the takings is growing or shrinking — who was reached, who was
+                missed, who is new and who has gone quiet.
+            </p>
+        </div>
+    </div>
+
+    <div class="vs-filters">
+        <div class="row g-3">
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsg-from">From</label>
+                <NocturneDateField Id="vsg-from" @bind-Date="fromDate" AriaLabel="From date" />
+            </div>
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsg-to">To</label>
+                <NocturneDateField Id="vsg-to" @bind-Date="toDate" AriaLabel="To date" />
+            </div>
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsg-route">Route</label>
+                <NocturneSelect Id="vsg-route" Class="nsel-block" TValue="string"
+                                Options="RouteFilterOptions" @bind-Value="selectedRouteCode"
+                                OnChanged="LoadAsync" AriaLabel="Filter by route"
+                                Placeholder="All routes" />
+            </div>
+            @* Not the route-customer pages' dormancy threshold, which answers a narrower question
+               about one shop. Exposed because the right answer depends on how often a route cycles,
+               and that is the reader's knowledge rather than the report's. *@
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsg-lapse">Lapsed after</label>
+                <NocturneSelect Id="vsg-lapse" Class="nsel-block" TValue="string"
+                                Options="LapseOptions" @bind-Value="selectedLapseDays"
+                                OnChanged="LoadAsync" AriaLabel="Days without buying before a shop counts as lapsed" />
+            </div>
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsg-grain">Buckets</label>
+                <NocturneSelect Id="vsg-grain" Class="nsel-block" TValue="string"
+                                Options="GranularityOptions" @bind-Value="selectedGranularity"
+                                OnChanged="LoadAsync" AriaLabel="Bucket size" />
+            </div>
+            <div class="col-md-2 vs-actions">
+                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
+                    @(isLoading ? "Loading…" : "Run")
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (loadError is not null)
+    {
+        <div class="vs-notice">@loadError</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Reading the base…</span>
+        </div>
+    }
+    else if (report is null)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">Nothing loaded yet</div>
+            <div>Choose a period and run the report.</div>
+        </div>
+    }
+    else
+    {
+        var summary = report.Summary;
+
+        <div class="vsg-kpis">
+            <div class="vsg-kpi">
+                <div class="vsg-kpi-value">@Count(summary.RosterSize)</div>
+                <div class="vsg-kpi-label">Shops on the books</div>
+                <div class="vsg-kpi-sub">@summary.OutletsVisited.ToString("N0") called on</div>
+            </div>
+
+            <div class="vsg-kpi">
+                <div class="vsg-kpi-value">@Rate(summary.RosterCoverageRate)</div>
+                <div class="vsg-kpi-label">Roster reached</div>
+                <div class="vsg-kpi-sub">@summary.OutletsUncovered.ToString("N0") not reached</div>
+            </div>
+
+            <div class="vsg-kpi">
+                <div class="vsg-kpi-value">@Rate(summary.StrikeRate)</div>
+                <div class="vsg-kpi-label">Strike rate</div>
+                <div class="vsg-kpi-sub">@summary.ProductiveCalls.ToString("N0") of @Count(summary.Calls) calls bought</div>
+            </div>
+
+            <div class="vsg-kpi @(summary.NewOutlets >= summary.LapsedOutlets ? null : "vsg-kpi-warn")">
+                <div class="vsg-kpi-value">+@summary.NewOutlets.ToString("N0") / −@summary.LapsedOutlets.ToString("N0")</div>
+                <div class="vsg-kpi-label">New vs lapsed</div>
+                <div class="vsg-kpi-sub">@summary.ReactivatedOutlets.ToString("N0") returned</div>
+            </div>
+
+            <div class="vsg-kpi">
+                <div class="vsg-kpi-value">@Rate(summary.CallComplianceRate)</div>
+                <div class="vsg-kpi-label">Called vs planned</div>
+                <div class="vsg-kpi-sub">@Count(summary.PlannedCalls) planned</div>
+            </div>
+
+            <div class="vsg-kpi">
+                <div class="vsg-kpi-value">@Rate(report.LocationIntegrity.GpsFixRate)</div>
+                <div class="vsg-kpi-label">Calls with a real fix</div>
+                <div class="vsg-kpi-sub">@report.LocationIntegrity.CallsWithNoFix.ToString("N0") with none at all</div>
+            </div>
+        </div>
+
+        @if (!report.Quality.IsClean || report.Quality.RosterIsLive)
+        {
+            <div class="vsg-caveats">
+                <div class="vsg-caveats-head">What this period could not answer</div>
+                <ul class="vsg-caveats-list">
+                    @foreach (var caveat in report.Quality.Caveats)
+                    {
+                        <li>@caveat</li>
+                    }
+                </ul>
+            </div>
+        }
+
+        <div class="vsg-sections">
+            @foreach (var section in Sections)
+            {
+                <button type="button"
+                        class="vs-chip @(activeSection == section.Key ? "vs-chip-info" : "vs-chip-quiet")"
+                        @onclick="() => activeSection = section.Key">
+                    @section.Label
+                    <span class="vsg-section-count">@section.Count(report)</span>
+                </button>
+            }
+        </div>
+
+        @if (activeSection == SectionRates)
+        {
+            <h3 class="vsg-heading">Rates over time</h3>
+            <p class="vsg-note">
+                A day whose plan reads zero is the handset's failed count rather than a plan of none,
+                and is left out of both sides of the compliance figure instead of being counted as a
+                total miss.
+            </p>
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th>Period</th>
+                            <th class="vs-num">Reps</th>
+                            <th class="vs-num">Planned</th>
+                            <th class="vs-num">Called</th>
+                            <th class="vs-num">Bought</th>
+                            <th class="vs-num">Compliance</th>
+                            <th class="vs-num">Strike rate</th>
+                            <th class="vs-num">Shops bought</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var point in report.Trend)
+                        {
+                            <tr>
+                                <td>
+                                    @point.Label
+                                    @if (point.IsPartial)
+                                    {
+                                        <span class="vs-chip vs-chip-quiet vsg-inline-chip">part period</span>
+                                    }
+                                </td>
+                                <td class="vs-num">@point.RepsTrading.ToString("N0")</td>
+                                <td class="vs-num">@Count(point.PlannedCalls)</td>
+                                <td class="vs-num">@Count(point.Calls)</td>
+                                <td class="vs-num">@point.ProductiveCalls.ToString("N0")</td>
+                                <td class="vs-num @(point.CallComplianceRate is null ? "vs-metric-none" : null)">
+                                    @Rate(point.CallComplianceRate)
+                                </td>
+                                <td class="vs-num @(point.ProductiveCallRate is null ? "vs-metric-none" : null)">
+                                    @Rate(point.ProductiveCallRate)
+                                    @if (point.ProductiveCallRate is { } strike)
+                                    {
+                                        <span class="vs-meter">
+                                            <span class="vs-meter-fill" style="width:@(Meter(strike))%"></span>
+                                        </span>
+                                    }
+                                </td>
+                                <td class="vs-num">@point.OutletsBought.ToString("N0")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 class="vsg-heading">By rep</h3>
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th>Rep</th>
+                            <th>Account</th>
+                            <th class="vs-num">Roster</th>
+                            <th class="vs-num">Reached</th>
+                            <th class="vs-num">Coverage</th>
+                            <th class="vs-num">Strike rate</th>
+                            <th class="vs-num">Bought</th>
+                            <th class="vs-num">Missed</th>
+                            <th class="vs-num">Km</th>
+                            <th class="vs-num">Per km</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var rep in report.Reps)
+                        {
+                            var efficiency = rep.EfficiencyByCurrency.FirstOrDefault();
+                            <tr class="@(rep.OutletsAttributable ? null : "vsg-unattributable")">
+                                <td>@rep.DisplayName</td>
+                                <td>
+                                    @(rep.VanAccountCode ?? "—")
+                                    @if (!rep.OutletsAttributable)
+                                    {
+                                        @* Not a gap in this rep's work — a gap in what their sales record. *@
+                                        <span class="vs-chip vs-chip-neutral vsg-inline-chip">no shop codes</span>
+                                    }
+                                </td>
+                                <td class="vs-num">@Count(rep.RosterSize)</td>
+                                <td class="vs-num">@Count(rep.OutletsVisited)</td>
+                                <td class="vs-num @(rep.RosterCoverageRate is null ? "vs-metric-none" : null)">
+                                    @Rate(rep.RosterCoverageRate)
+                                </td>
+                                <td class="vs-num @(rep.StrikeRate is null ? "vs-metric-none" : null)">
+                                    @Rate(rep.StrikeRate)
+                                </td>
+                                <td class="vs-num">@Count(rep.OutletsBought)</td>
+                                <td class="vs-num">@Count(rep.OutletsUncovered)</td>
+                                <td class="vs-num">@Count(rep.KilometresTravelled)</td>
+                                <td class="vs-num">
+                                    @(efficiency?.GrossPerKilometre is { } perKm
+                                        ? $"{efficiency.Currency} {perKm:N2}"
+                                        : "—")
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else if (activeSection == SectionUncovered)
+        {
+            <h3 class="vsg-heading">Shops the period did not reach</h3>
+            <p class="vsg-note">
+                Measured against <strong>today's</strong> roster. The day plan is stored as a count and
+                the list behind it was never kept, so this cannot say which shops were planned for a
+                given day — only which are on the books now and were not reached. A shop added since
+                the period reads as uncovered throughout it; one removed since is absent entirely.
+            </p>
+            @if (report.UncoveredOutlets.Count == 0)
+            {
+                <div class="vs-empty">
+                    <div class="vs-empty-title">Every shop on the books was reached</div>
+                    <div>No outlet on any roster went uncalled and unsold this period.</div>
+                </div>
+            }
+            else
+            {
+                <div class="vs-table-wrap">
+                    <table class="vs-table">
+                        <thead>
+                            <tr>
+                                <th>Shop</th>
+                                <th>Account</th>
+                                <th>Gap</th>
+                                <th>Last called on</th>
+                                <th>Last bought</th>
+                                <th class="vs-num">Days</th>
+                                <th>Phone</th>
+                                <th>Who could have called</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var outlet in report.UncoveredOutlets)
+                            {
+                                <tr>
+                                    <td>
+                                        @outlet.DisplayName
+                                        <span class="vsg-sub">@outlet.OutletCode</span>
+                                    </td>
+                                    <td>@outlet.VanAccountCode</td>
+                                    <td>
+                                        <span class="vs-chip @GapTone(outlet.Gap) vsg-inline-chip">@outlet.GapLabel</span>
+                                    </td>
+                                    <td>@Date(outlet.LastVisitedOn)</td>
+                                    <td>
+                                        @if (outlet.HasNeverBought)
+                                        {
+                                            @* Never bought and long lapsed are different conversations. *@
+                                            <span class="vs-metric-none">never</span>
+                                        }
+                                        else
+                                        {
+                                            @Date(outlet.LastPurchaseOn)
+                                        }
+                                    </td>
+                                    <td class="vs-num">@Count(outlet.DaysSinceLastPurchase)</td>
+                                    <td>@(outlet.Phone ?? "—")</td>
+                                    <td>@(outlet.OwningReps.Count == 0 ? "—" : string.Join(", ", outlet.OwningReps))</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+        else if (activeSection == SectionChurn)
+        {
+            <h3 class="vsg-heading">The base, period by period</h3>
+            <p class="vsg-note">
+                A shop counts as lapsed once it has gone @report.LapseDays days without buying, and it
+                is counted in the period it crossed that line — not every period afterwards. Opening
+                plus new plus returned, less lapsed, must equal closing; the residual is shown so a
+                fault in the arithmetic is visible rather than buried.
+            </p>
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th>Period</th>
+                            <th class="vs-num">Opening</th>
+                            <th class="vs-num">New</th>
+                            <th class="vs-num">Returned</th>
+                            <th class="vs-num">Lapsed</th>
+                            <th class="vs-num">Closing</th>
+                            <th class="vs-num">Net</th>
+                            <th class="vs-num">Churn</th>
+                            <th>Takings</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var point in report.Churn)
+                        {
+                            <tr class="@(point.IsCensored ? "vsg-censored" : null)">
+                                <td>
+                                    @point.Label
+                                    @if (point.IsCensored)
+                                    {
+                                        @* Every shop trading before the data starts reads as new at the
+                                           edge. That is the data's beginning, not growth. *@
+                                        <span class="vs-chip vs-chip-quiet vsg-inline-chip">before the data starts</span>
+                                    }
+                                    @if (point.UnexplainedMovement != 0)
+                                    {
+                                        <span class="vs-chip vs-chip-bad vsg-inline-chip">
+                                            residual @point.UnexplainedMovement
+                                        </span>
+                                    }
+                                </td>
+                                <td class="vs-num">@point.OpeningActiveOutlets.ToString("N0")</td>
+                                <td class="vs-num vsg-good">+@point.NewOutlets.ToString("N0")</td>
+                                <td class="vs-num vsg-good">+@point.ReactivatedOutlets.ToString("N0")</td>
+                                <td class="vs-num vsg-bad">−@point.LapsedOutlets.ToString("N0")</td>
+                                <td class="vs-num">@point.ClosingActiveOutlets.ToString("N0")</td>
+                                <td class="vs-num @(point.NetMovement < 0 ? "vsg-bad" : null)">
+                                    @(point.NetMovement > 0 ? "+" : "")@point.NetMovement.ToString("N0")
+                                </td>
+                                <td class="vs-num @(point.ChurnRate is null ? "vs-metric-none" : null)">
+                                    @Rate(point.ChurnRate)
+                                </td>
+                                <td>@MoneyList(point.TotalsByCurrency)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 class="vsg-heading">Win-back list</h3>
+            <p class="vsg-note">
+                Shops that were buying and have stopped, biggest loss first. The last purchase is the
+                whole of that day's takings rather than one invoice — two written at the same counter
+                are one visit's money.
+            </p>
+            @if (report.LapsedOutlets.Count == 0)
+            {
+                <div class="vs-empty">
+                    <div class="vs-empty-title">Nobody has gone quiet</div>
+                    <div>Every shop that was buying is still buying.</div>
+                </div>
+            }
+            else
+            {
+                <div class="vs-table-wrap">
+                    <table class="vs-table">
+                        <thead>
+                            <tr>
+                                <th>Shop</th>
+                                <th>Last bought</th>
+                                <th class="vs-num">Days ago</th>
+                                <th class="vs-num">Buying days</th>
+                                <th>Last drop</th>
+                                <th>Worth before</th>
+                                <th>Sold by</th>
+                                <th>Route</th>
+                                <th>Phone</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var outlet in report.LapsedOutlets)
+                            {
+                                <tr class="@(outlet.StillOnRoster ? null : "vsg-off-roster")">
+                                    <td>
+                                        @outlet.DisplayName
+                                        <span class="vsg-sub">@outlet.OutletCode</span>
+                                        @if (!outlet.StillOnRoster)
+                                        {
+                                            @* Dropped from the round deliberately, so not a win-back. *@
+                                            <span class="vs-chip vs-chip-quiet vsg-inline-chip">off the roster</span>
+                                        }
+                                    </td>
+                                    <td>@outlet.LastPurchaseOn.ToString("dd MMM yyyy")</td>
+                                    <td class="vs-num">@outlet.DaysSinceLastPurchase.ToString("N0")</td>
+                                    <td class="vs-num">@outlet.PriorPurchaseDayCount.ToString("N0")</td>
+                                    <td>@MoneyList(outlet.LastPurchaseByCurrency)</td>
+                                    <td>@MoneyList(outlet.PriorTotalsByCurrency)</td>
+                                    <td>@(outlet.LastSoldByRep ?? "—")</td>
+                                    <td>@(outlet.LastRouteCode ?? "—")</td>
+                                    <td>@(outlet.Phone ?? "—")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+        else if (activeSection == SectionConcentration)
+        {
+            <h3 class="vsg-heading">What each route rests on</h3>
+            <p class="vsg-note">
+                How few shops carry half a route's takings. Sales with no shop recorded cannot be
+                ranked, so their value is reported separately rather than left out — a route whose
+                attribution is mostly missing would otherwise read as one with a very short tail.
+            </p>
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th>Route</th>
+                            <th>Currency</th>
+                            <th class="vs-num">Shops</th>
+                            <th class="vs-num">Half the takings</th>
+                            <th class="vs-num">Top shop</th>
+                            <th class="vs-num">Top 5</th>
+                            <th class="vs-num">Top 10</th>
+                            <th class="vs-num">Unattributed</th>
+                            <th>Largest shop</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in report.Concentration)
+                        {
+                            var top = row.TopOutlets.FirstOrDefault();
+                            <tr class="@(row.HasRouteDay ? null : "vsg-off-roster")">
+                                <td>@row.DisplayRoute</td>
+                                <td>@row.Currency</td>
+                                <td class="vs-num">@row.OutletCount.ToString("N0")</td>
+                                <td class="vs-num">
+                                    @(row.OutletsForHalfOfGross is { } half
+                                        ? $"{half:N0} shop{(half == 1 ? "" : "s")}"
+                                        : "—")
+                                </td>
+                                <td class="vs-num">@Percent(row.Top1SharePercent)</td>
+                                <td class="vs-num">@Percent(row.Top5SharePercent)</td>
+                                <td class="vs-num">@Percent(row.Top10SharePercent)</td>
+                                <td class="vs-num @(row.UnattributedSharePercent > 5 ? "vsg-bad" : null)">
+                                    @Percent(row.UnattributedSharePercent)
+                                </td>
+                                <td>@(top?.DisplayName ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else if (activeSection == SectionOutlets)
+        {
+            <h3 class="vsg-heading">How each shop buys</h3>
+            <p class="vsg-note">
+                Frequency is buying days, so two invoices at one counter count once. Depth is how many
+                distinct items were in a drop — never a quantity, because van lines carry no unit to
+                add up.
+            </p>
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th>Shop</th>
+                            <th class="vs-num">Called on</th>
+                            <th class="vs-num">Bought on</th>
+                            <th class="vs-num">Conversion</th>
+                            <th class="vs-num">Items</th>
+                            <th class="vs-num">Per drop</th>
+                            <th class="vs-num">Days between</th>
+                            <th>Takings</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var outlet in report.Outlets)
+                        {
+                            <tr>
+                                <td>
+                                    @outlet.DisplayName
+                                    <span class="vsg-sub">@outlet.OutletCode</span>
+                                    @if (outlet.IsNewInWindow)
+                                    {
+                                        <span class="vs-chip vs-chip-good vsg-inline-chip">new</span>
+                                    }
+                                </td>
+                                <td class="vs-num">@Count(outlet.VisitCount)</td>
+                                <td class="vs-num">@outlet.PurchaseDayCount.ToString("N0")</td>
+                                <td class="vs-num @(outlet.ConversionRate is null ? "vs-metric-none" : null)">
+                                    @Rate(outlet.ConversionRate)
+                                </td>
+                                <td class="vs-num">@outlet.DistinctItemCount.ToString("N0")</td>
+                                <td class="vs-num">@outlet.AverageItemsPerPurchase.ToString("N1")</td>
+                                <td class="vs-num">
+                                    @(outlet.AverageDaysBetweenPurchases is { } gap ? gap.ToString("N1") : "—")
+                                </td>
+                                <td>@MoneyList(outlet.TotalsByCurrency)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else if (activeSection == SectionLocation)
+        {
+            <h3 class="vsg-heading">Location record</h3>
+            <p class="vsg-note">
+                <strong>This is not a geofence.</strong> Shops have no recorded coordinates anywhere in
+                this system, so whether a rep was at the door cannot be answered at all. What is shown
+                is whether the position on a call was measured by the handset's GPS at the moment, only
+                remembered from earlier, or absent — which is what decides whether the question could
+                ever be asked. A fix over @report.LocationIntegrity.PoorAccuracyMetres m is counted as
+                too vague to place anyone.
+            </p>
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th>Rep</th>
+                            <th class="vs-num">Calls</th>
+                            <th class="vs-num">Real fix</th>
+                            <th class="vs-num">Remembered</th>
+                            <th class="vs-num">None</th>
+                            <th class="vs-num">Too vague</th>
+                            <th class="vs-num">Queued offline</th>
+                            <th class="vs-num">Fix rate</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var rep in report.LocationIntegrity.Reps)
+                        {
+                            <tr>
+                                <td>@rep.DisplayName</td>
+                                <td class="vs-num">@rep.CallCount.ToString("N0")</td>
+                                <td class="vs-num">@rep.CallsWithGpsFix.ToString("N0")</td>
+                                <td class="vs-num">@rep.CallsWithLastKnownFix.ToString("N0")</td>
+                                <td class="vs-num @(rep.CallsWithNoFix > 0 ? "vsg-bad" : null)">
+                                    @rep.CallsWithNoFix.ToString("N0")
+                                </td>
+                                <td class="vs-num">@rep.CallsWithPoorAccuracy.ToString("N0")</td>
+                                <td class="vs-num">@rep.CallsCapturedOffline.ToString("N0")</td>
+                                <td class="vs-num @(rep.GpsFixRate is null ? "vs-metric-none" : null)">
+                                    @Rate(rep.GpsFixRate)
+                                    @if (rep.GpsFixRate is { } fix)
+                                    {
+                                        <span class="vs-meter">
+                                            <span class="vs-meter-fill" style="width:@(Meter(fix))%"></span>
+                                        </span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private const string SectionRates = "rates";
+    private const string SectionUncovered = "uncovered";
+    private const string SectionChurn = "churn";
+    private const string SectionConcentration = "concentration";
+    private const string SectionOutlets = "outlets";
+    private const string SectionLocation = "location";
+
+    private sealed record Section(string Key, string Label, Func<VanSalesCoverageReportResponse, string> Count);
+
+    private static readonly Section[] Sections =
+    [
+        new(SectionRates, "Rates & reps", r => r.Reps.Count.ToString("N0")),
+        new(SectionUncovered, "Not reached", r => r.UncoveredOutlets.Count.ToString("N0")),
+        new(SectionChurn, "Churn & win-back", r => r.LapsedOutlets.Count.ToString("N0")),
+        new(SectionConcentration, "Concentration", r => r.Concentration.Count.ToString("N0")),
+        new(SectionOutlets, "Shop behaviour", r => r.Outlets.Count.ToString("N0")),
+        new(SectionLocation, "Location record", r => r.LocationIntegrity.CallCount.ToString("N0"))
+    ];
+
+    private VanSalesCoverageReportResponse? report;
+    private List<RouteDto> routes = [];
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string? selectedRouteCode;
+    private string selectedLapseDays = "90";
+    private string selectedGranularity = nameof(VanSalesCoverageGranularity.Month);
+    private string activeSection = SectionRates;
+
+    private bool isLoading;
+    private string? loadError;
+
+    private IEnumerable<INocturneSelectOption<string>> RouteFilterOptions =>
+        new[] { NocturneSelectOption.All("All routes") }
+            .Concat(routes.Select(route => new NocturneSelectOption<string>(
+                route.Code,
+                route.IsActive ? route.DisplayLabel : $"{route.DisplayLabel} (retired)")));
+
+    private static IEnumerable<INocturneSelectOption<string>> LapseOptions =>
+    [
+        new NocturneSelectOption<string>("30", "30 days"),
+        new NocturneSelectOption<string>("60", "60 days"),
+        new NocturneSelectOption<string>("90", "90 days"),
+        new NocturneSelectOption<string>("120", "120 days")
+    ];
+
+    private static IEnumerable<INocturneSelectOption<string>> GranularityOptions =>
+    [
+        new NocturneSelectOption<string>(nameof(VanSalesCoverageGranularity.Week), "Weekly"),
+        new NocturneSelectOption<string>(nameof(VanSalesCoverageGranularity.Month), "Monthly")
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        // CAT, not the server's clock: a trading day belongs to the van.
+        var today = DateTime.UtcNow.AddHours(2).Date;
+        fromDate = today.AddDays(-89);
+        toDate = today;
+
+        routes = await VanSalesReportService.GetRoutesAsync(includeInactive: true);
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        StateHasChanged();
+
+        try
+        {
+            var lapseDays = int.TryParse(selectedLapseDays, out var parsed) ? parsed : 90;
+
+            var granularity = Enum.TryParse<VanSalesCoverageGranularity>(selectedGranularity, out var grain)
+                ? grain
+                : VanSalesCoverageGranularity.Month;
+
+            report = await VanSalesReportService.GetCoverageReportAsync(
+                fromDate,
+                toDate,
+                routeCode: string.IsNullOrWhiteSpace(selectedRouteCode) ? null : selectedRouteCode,
+                lapseDays: lapseDays,
+                granularity: granularity);
+
+            if (report is null)
+            {
+                loadError = "The coverage report could not be loaded. Check that the API is reachable.";
+            }
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Failed to load the coverage report: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    // ── Formatting ──────────────────────────────────────────────────────────────
+    //
+    // An em dash for everything unavailable, and never a zero standing in for one. On this report
+    // that distinction carries most of the meaning: a rep with no roster, a rate with no
+    // denominator and a shop that has never bought all say something different from nothing.
+
+    private static string Rate(double? rate) => rate is { } value ? value.ToString("P0") : "—";
+
+    private static string Count(int? count) => count is { } value ? value.ToString("N0") : "—";
+
+    private static string Percent(double? share) => share is { } value ? $"{value:N1}%" : "—";
+
+    private static string Date(DateTime? date) => date is { } value ? value.ToString("dd MMM yyyy") : "—";
+
+    private static string MoneyList(List<VanSalesMoney> totals) =>
+        totals.Count == 0
+            ? "—"
+            : string.Join(", ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
+
+    private static string Meter(double rate) =>
+        Math.Clamp(rate * 100, 0, 100).ToString("F1", CultureInfo.InvariantCulture);
+
+    private static string GapTone(VanSalesCoverageGap gap) => gap switch
+    {
+        VanSalesCoverageGap.NeverVisited => "vs-chip-bad",
+        VanSalesCoverageGap.NotVisitedInWindow => "vs-chip-warn",
+        _ => "vs-chip-neutral"
+    };
+}

@@ -18,6 +18,14 @@ public interface IVanSalesReportService
         string? routeCode = null,
         int topItems = 50);
 
+    Task<VanSalesCoverageReportResponse?> GetCoverageReportAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        Guid? userId = null,
+        string? routeCode = null,
+        int lapseDays = 90,
+        VanSalesCoverageGranularity granularity = VanSalesCoverageGranularity.Month);
+
     Task<List<RouteDto>> GetRoutesAsync(bool includeInactive = false);
 
     /// <summary>Creates or updates a route. Returns the saved route, or the server's refusal.</summary>
@@ -94,6 +102,39 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
         catch (Exception ex)
         {
             logger.LogError(ex, "Error fetching the van sales performance report");
+            return null;
+        }
+    }
+
+    public async Task<VanSalesCoverageReportResponse?> GetCoverageReportAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        Guid? userId = null,
+        string? routeCode = null,
+        int lapseDays = 90,
+        VanSalesCoverageGranularity granularity = VanSalesCoverageGranularity.Month)
+    {
+        try
+        {
+            var queryParams = new List<string>
+            {
+                $"lapseDays={lapseDays}",
+                $"granularity={granularity}"
+            };
+
+            if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+            if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+            if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
+            if (!string.IsNullOrWhiteSpace(routeCode))
+                queryParams.Add($"routeCode={Uri.EscapeDataString(routeCode)}");
+
+            var url = $"api/van-sales/coverage-report?{string.Join("&", queryParams)}";
+
+            return await httpClient.GetFromJsonAsync<VanSalesCoverageReportResponse>(url);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error fetching the van sales coverage report");
             return null;
         }
     }

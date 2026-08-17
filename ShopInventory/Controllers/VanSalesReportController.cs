@@ -6,6 +6,7 @@ using ShopInventory.Common.Security;
 using ShopInventory.Features.VanSalesReports.Commands.SaveRoute;
 using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetRoutes;
+using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport;
 using ShopInventory.Models;
 using ShopInventory.Services;
@@ -103,6 +104,56 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 userId,
                 routeCode,
                 topItems),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The van sales coverage report: who the vans are reaching and who they are losing — the rate
+    /// trends, the shops on the books that were not reached, outlet churn, the win-back register,
+    /// route concentration and how the location record is holding up.
+    /// </summary>
+    /// <remarks>
+    /// Reads further back than the period it reports on: the base's opening state needs a full lapse
+    /// window behind it, and telling a genuinely new outlet from a returning one needs an unbounded
+    /// look at when each shop first bought. Both are local reads.
+    /// </remarks>
+    /// <param name="fromDate">Inclusive CAT trading day. Defaults to 90 days back.</param>
+    /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
+    /// <param name="userId">One rep, or every rep when omitted.</param>
+    /// <param name="routeCode">One route. Sales with no departure record are excluded when set.</param>
+    /// <param name="lapseDays">
+    /// How long a shop may go without buying before it counts as lapsed. Deliberately not the
+    /// route-customer pages' dormancy threshold, which answers a narrower question about one shop.
+    /// </param>
+    /// <param name="granularity">How the churn and rate series are bucketed: Week or Month.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("coverage-report")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(VanSalesCoverageReportResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetCoverageReport(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] Guid? userId = null,
+        [FromQuery] string? routeCode = null,
+        [FromQuery] int lapseDays = 90,
+        [FromQuery] VanSalesCoverageGranularity granularity = VanSalesCoverageGranularity.Month,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var result = await mediator.Send(
+            new GetVanSalesCoverageReportQuery(
+                fromDate?.Date ?? today.AddDays(-90),
+                toDate?.Date ?? today,
+                userId,
+                routeCode,
+                lapseDays,
+                granularity),
             cancellationToken);
 
         return result.Match(
