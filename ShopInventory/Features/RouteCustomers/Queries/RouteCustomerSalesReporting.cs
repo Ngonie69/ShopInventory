@@ -52,6 +52,16 @@ internal static class RouteCustomerSalesReporting
         (AuditService.FromCAT(fromDate.Date), AuditService.FromCAT(toDate.Date.AddDays(1)));
 
     /// <summary>
+    /// The CAT trading day one stored instant falls in — what makes an online sale's <c>CreatedAt</c>
+    /// comparable to an offline sale's <c>DocDate</c>.
+    ///
+    /// Not <c>instant.Date</c>. CAT runs two hours ahead, so a sale made at 00:30 on the 2nd is stored at
+    /// 22:30 on the 1st, and reading the date straight off the instant would file it under the day
+    /// before — the same shift <see cref="ToUtcWindow"/> exists to keep out of the window bounds.
+    /// </summary>
+    public static DateTime TradingDayOf(DateTime utcInstant) => AuditService.ToCAT(utcInstant).Date;
+
+    /// <summary>
     /// Folds per-currency subtotals into the list the DTOs carry, biggest first.
     ///
     /// Never collapses them into one figure. A van that took USD 40 and ZWG 900 did not take 940 of

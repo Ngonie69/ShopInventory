@@ -195,16 +195,30 @@ public sealed class RouteCustomerSalesRowDto
 
     public string? Phone { get; set; }
 
+    /// <summary>Sales inside the reported window. Zero does not mean the customer has never bought — see
+    /// <see cref="LastSaleAt"/>.</summary>
     public int SaleCount { get; set; }
 
     /// <summary>
     /// Lines sold, not units. Units summed across different items would add cases to bottles; the line
     /// count at least says how much was bought without pretending to a unit it does not have.
+    ///
+    /// Inside the window, like <see cref="SaleCount"/>.
     /// </summary>
     public int LineCount { get; set; }
 
+    /// <summary>
+    /// The day this customer first ever bought — all time, not the window's first sale. It is the day the
+    /// shop was converted, and a window cannot report it.
+    /// </summary>
     public DateTime? FirstSaleAt { get; set; }
 
+    /// <summary>
+    /// The day this customer last bought — all time, and deliberately not clipped to the window.
+    ///
+    /// The window says what a shop is buying now; only an unbounded reading can say whether one that is
+    /// quiet now has lapsed or was never converted. Null here means never, ever.
+    /// </summary>
     public DateTime? LastSaleAt { get; set; }
 
     /// <summary>Null when the customer has never bought, which is a different thing from a long gap.</summary>
@@ -224,10 +238,18 @@ public sealed class RouteSalesGroupDto
 
     public int SaleCount { get; set; }
 
-    /// <summary>Customers with no sale inside the window at all.</summary>
+    /// <summary>
+    /// Customers who have never bought anything, ever — captured on the road and not yet converted.
+    ///
+    /// Counted from the all-time last sale, not from this window's sale count. Those are not the same
+    /// question, and answering it with the window put every lapsed shop in here.
+    /// </summary>
     public int NeverBoughtCount { get; set; }
 
-    /// <summary>Customers whose last sale is older than the dormancy threshold.</summary>
+    /// <summary>
+    /// Customers who have bought at some point but not for longer than the dormancy threshold: lapsed,
+    /// and winnable back. Disjoint from <see cref="NeverBoughtCount"/>.
+    /// </summary>
     public int DormantCount { get; set; }
 
     public List<RouteCustomerSalesTotalsDto> TotalsByCurrency { get; set; } = [];
@@ -259,6 +281,11 @@ public sealed class RouteCustomerSalesDetailDto
     public int SaleCount { get; set; }
 
     public int LineCount { get; set; }
+
+    // Unlike their namesakes on RouteCustomerSalesRowDto, these three are the window's — they are the
+    // first and last of the sales listed below, and nothing here reads outside the dates. A null last
+    // sale therefore means "nothing in this window", never "never bought"; the summary report is where
+    // that question is answered.
 
     public DateTime? FirstSaleAt { get; set; }
 

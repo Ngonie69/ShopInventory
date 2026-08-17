@@ -7621,14 +7621,19 @@ public class ReportExportService : IReportExportService
 
         var row = WriteReportHeader(ws, title, cols, summary.From, summary.To,
             $"{summary.Routes.Count:N0} route(s), {rows.Count:N0} customer(s). " +
-            $"Dormant means no sale for more than {summary.DormantDays:N0} days.");
+            $"Sales, lines and value are for the dates above; the first and last sale are all time. " +
+            $"Dormant means bought before but not for more than {summary.DormantDays:N0} days; " +
+            $"never bought means no purchase on any date.");
 
         WriteKpiCard(ws, row, 1, "Customers", rows.Count, FormatCount);
         WriteKpiCard(ws, row, 2, "Bought", rows.Count(customer => customer.SaleCount > 0), FormatCount, SuccessGreen);
         WriteKpiCard(ws, row, 3, "Dormant",
             rows.Count(customer => customer.DaysSinceLastSale is { } days && days > summary.DormantDays),
             FormatCount, WarningOrange);
-        WriteKpiCard(ws, row, 4, "Never bought", rows.Count(customer => customer.SaleCount == 0), FormatCount, DangerRed);
+        // The all-time date, not the window's sale count: a shop whose last purchase predates the dates
+        // has an empty window and has still bought, and counting it here called it a new outlet.
+        WriteKpiCard(ws, row, 4, "Never bought", rows.Count(customer => customer.LastSaleAt is null),
+            FormatCount, DangerRed);
         WriteKpiCard(ws, row, 5, "Value",
             DescribeCurrencyTotals(summary.Routes.SelectMany(route => route.TotalsByCurrency).ToList()));
         row += 3;
@@ -7636,7 +7641,7 @@ public class ReportExportService : IReportExportService
         var headers = new[]
         {
             "Route", "Code", "Customer", "Phone", "Status", "Sales", "Lines",
-            "Value", "First sale", "Last sale", "Days since"
+            "Value", "First sale (all time)", "Last sale (all time)", "Days since"
         };
 
         for (var i = 0; i < headers.Length; i++)
@@ -7660,7 +7665,7 @@ public class ReportExportService : IReportExportService
 
             ws.Cell(row, 5).Value = DescribeCustomerStanding(customer, summary.DormantDays);
             ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 5).Style.Font.FontColor = customer.SaleCount == 0
+            ws.Cell(row, 5).Style.Font.FontColor = customer.LastSaleAt is null
                 ? DangerRed
                 : customer.DaysSinceLastSale > summary.DormantDays
                     ? WarningOrange
@@ -7711,9 +7716,16 @@ public class ReportExportService : IReportExportService
         _ => "Sale"
     };
 
+    /// <summary>
+    /// Which of the three standings a customer is in, decided on the all-time last sale.
+    ///
+    /// "Never bought" is a claim about the shop's whole history, so only a missing last sale can make it.
+    /// Reading the window's sale count instead — which this did — labelled every shop whose last purchase
+    /// fell before the report dates as one that had never been converted, and the two need opposite visits.
+    /// </summary>
     private static string DescribeCustomerStanding(RouteCustomerSalesRowModel customer, int dormantDays)
     {
-        if (customer.SaleCount == 0)
+        if (customer.LastSaleAt is null)
         {
             return "Never bought";
         }
