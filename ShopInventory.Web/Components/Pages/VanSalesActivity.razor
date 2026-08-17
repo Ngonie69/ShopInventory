@@ -442,10 +442,43 @@
 
     private List<Stop> MapStops => MapRound?.Stops ?? [];
 
+    // Landed on from the attendance report's "Open call sheet", which knows the rep and the period
+    // the reader was looking at. Read once, at first load: these prefill the filters and are then
+    // the reader's to change, so a later edit is not overwritten by the address bar.
+    [SupplyParameterFromQuery(Name = "rep")] private string? RepQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "from")] private string? FromQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "to")] private string? ToQuery { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         ApplyPeriodDates();
+        ApplyQueryString();
         await LoadAsync();
+    }
+
+    /// <summary>
+    /// Prefills the search and the period from the address bar, when they are there and parse.
+    ///
+    /// Both dates or neither: a range with one end taken from the query and the other left on the
+    /// default week is a window nobody asked for, and it would silently report on the wrong period.
+    /// </summary>
+    private void ApplyQueryString()
+    {
+        if (!string.IsNullOrWhiteSpace(RepQuery))
+        {
+            query = RepQuery.Trim();
+        }
+
+        if (DateTime.TryParseExact(FromQuery, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var from) &&
+            DateTime.TryParseExact(ToQuery, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var to) &&
+            to >= from)
+        {
+            period = PeriodChoice.Custom;
+            fromDate = from;
+            toDate = to;
+        }
     }
 
     // ---- Loading -----------------------------------------------------------------------------

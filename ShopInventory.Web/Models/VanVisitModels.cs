@@ -124,6 +124,10 @@ public class VanVisitReportRepSummary
     public List<VanVisitReportDaySummary> Days { get; set; } = [];
     public List<VanVisitReportCustomerSummary> Customers { get; set; } = [];
 
+    /// <summary>The route this rep is on as of the latest day in the period they worked.</summary>
+    public string? RouteCode { get; set; }
+    public string? RouteName { get; set; }
+
     public string DisplayName => string.IsNullOrWhiteSpace(FullName) ? Username : FullName!;
 
     /// <summary>
@@ -135,6 +139,23 @@ public class VanVisitReportRepSummary
 
     /// <summary>Calls per trading day, for a rep who worked at least one.</summary>
     public double? CallsPerDay => TradingDays > 0 ? (double)TotalCalls / TradingDays : null;
+
+    /// <summary>
+    /// Minutes between the first check-in and the last check-out, summed over the days worked — the
+    /// rep's time on the clock for the period.
+    ///
+    /// Summed per day rather than measured from the first check-in of the period to the last check-out
+    /// of it, which would count every night in between as time on the clock.
+    /// </summary>
+    public double ClockMinutes => Days.Sum(day => day.ClockMinutes ?? 0);
+
+    /// <summary>
+    /// Time with customers over time on the clock. The rest is driving, queueing and standing still.
+    ///
+    /// Null, not zero, when no day in the period has both a first check-in and a last check-out —
+    /// there is no clock to divide by, and 0% would read as a rep who visited nobody.
+    /// </summary>
+    public double? OnSiteShare => ClockMinutes > 0 ? TotalMinutes / ClockMinutes : null;
 }
 
 public class VanVisitReportDaySummary
@@ -146,7 +167,72 @@ public class VanVisitReportDaySummary
     public double TotalMinutes { get; set; }
     public DateTime? FirstCheckIn { get; set; }
     public DateTime? LastCheckOut { get; set; }
+
+    /// <summary>The day's calls in check-in order, which is what the attendance strip draws.</summary>
+    public List<VanVisitReportCallSummary> Calls { get; set; } = [];
+
+    /// <summary>The route this round ran on, as snapshotted when the rep started the day.</summary>
+    public string? RouteCode { get; set; }
+    public string? RouteName { get; set; }
+
+    /// <summary>
+    /// Time on the clock: first check-in to last check-out.
+    ///
+    /// Null when the day never closed — every call still open, or the rep drove off without checking
+    /// out of the last one. A day with no end has no length, and taking "now" as the end would make a
+    /// rep's on-site share fall for every hour the report is left open.
+    /// </summary>
+    public double? ClockMinutes => FirstCheckIn is { } first && LastCheckOut is { } last && last > first
+        ? (last - first).TotalMinutes
+        : null;
+
+    /// <summary>Time with customers over time on the clock, or null when the day has no clock.</summary>
+    public double? OnSiteShare => ClockMinutes is { } clock && clock > 0 ? TotalMinutes / clock : null;
+
+    /// <summary>
+    /// The gaps between one call ending and the next beginning, longer than
+    /// <paramref name="thresholdMinutes"/>.
+    ///
+    /// Measured here rather than by the API because the threshold is the reader's rule, not the
+    /// data's: a supervisor who wants to see every gap over 20 minutes rather than 45 changes it on
+    /// the page and the answer changes with no round trip.
+    ///
+    /// A gap is only counted after a call that closed. The interval after a call that was never
+    /// checked out is unmeasurable — the rep may have been inside the shop for all of it — and
+    /// charging it as idle would turn one missing tap into an accusation.
+    /// </summary>
+    public IEnumerable<VanIdleGap> IdleGaps(double thresholdMinutes)
+    {
+        for (var i = 1; i < Calls.Count; i++)
+        {
+            if (Calls[i - 1].CheckOutTime is not { } left) continue;
+
+            var minutes = (Calls[i].CheckInTime - left).TotalMinutes;
+            if (minutes >= thresholdMinutes)
+            {
+                yield return new VanIdleGap(left, Calls[i].CheckInTime, minutes);
+            }
+        }
+    }
 }
+
+/// <summary>One call on the day's strip. Mirrors the API's <c>VanVisitReportCallSummary</c>.</summary>
+public class VanVisitReportCallSummary
+{
+    public string CustomerCode { get; set; } = string.Empty;
+    public string CustomerName { get; set; } = string.Empty;
+    public DateTime CheckInTime { get; set; }
+
+    /// <summary>Null for a call never checked out — drawn as a stub and named, never as zero minutes.</summary>
+    public DateTime? CheckOutTime { get; set; }
+
+    public double? DurationMinutes => CheckOutTime is { } out_ && out_ > CheckInTime
+        ? (out_ - CheckInTime).TotalMinutes
+        : null;
+}
+
+/// <summary>A stretch between two calls with nobody being visited. Both instants are UTC.</summary>
+public sealed record VanIdleGap(DateTime FromUtc, DateTime ToUtc, double Minutes);
 
 public class VanVisitReportCustomerSummary
 {
