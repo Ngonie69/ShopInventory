@@ -757,6 +757,14 @@
     color: var(--vna-ink);
 }
 
+/* The sort marker sits in its own item so the button's gap spaces it off the
+   label, and so it can never be left wrapped onto a line of its own. On the
+   columns not being sorted by it is empty, and an empty item would still take
+   the gap, pushing the right-aligned headers off the figures beneath them. */
+.vna .vna-sort-arrow:empty {
+    display: none;
+}
+
 .vna-sort-on {
     color: var(--vna-accent-text);
 }
