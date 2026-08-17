@@ -3010,19 +3010,18 @@ user. Everything else refuses anyone who is not an admin.
 ### 41. Email
 
 **Base route:** `/api/Email`  
-**Auth:** Bearer + `ApiAccess` — **except `/test`**, which is anonymous
+**Auth:** Bearer + `ApiAccess`
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/api/Email/test` | **anonymous** | Send a test email to the address in the body |
-| POST | `/api/Email/send` | `ApiAccess` | Send an email now |
-| POST | `/api/Email/queue` | `ApiAccess` | Queue one for later (`category`) |
-| POST | `/api/Email/process-queue` | `ApiAccess` | Drain the queue now |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/Email/test` | Send a test email to the address in the body, to check the SMTP settings |
+| POST | `/api/Email/send` | Send an email now |
+| POST | `/api/Email/queue` | Queue one for later (`category`) |
+| POST | `/api/Email/process-queue` | Drain the queue now |
 
-> `POST /api/Email/test` carries `[AllowAnonymous]` and takes the recipient from the request body,
-> so an unauthenticated caller can make this server send mail to an address of their choosing. It is
-> covered by the global `api` rate limiter and nothing else. Documented here as it is, not as it
-> ought to be.
+Every route here needs a token. `/test` carried `[AllowAnonymous]` until 2026-08-17, which let an
+unauthenticated caller make this server send mail from its own SMTP identity to any address they
+named; nothing called it that way, and it is now authenticated like the rest.
 
 ---
 
