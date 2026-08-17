@@ -37,55 +37,10 @@ public sealed record VanSalesPerformanceReportResult(
     VanSalesCoverageResult Coverage
 );
 
-// ── Money and quantity ──────────────────────────────────────────────────────────
-//
-// There is no scalar money field anywhere on this tree, and no scalar quantity. Both are always a
-// list, because both are meaningless when collapsed: USD and ZiG are different money, and a van's
-// lines carry no unit of measure at all today, so a quantity total across items would be adding
-// crates to kilos to eaches. Making the caller pick a bucket is the point.
-
-/// <summary>
-/// One currency's takings at document grain. <c>Gross</c> is the sum of <c>TotalAmount</c>, so it
-/// includes VAT — offline sales carry a VAT figure and online ones do not, so no net is derivable
-/// and none is offered.
-/// </summary>
-public sealed record VanSalesMoneyResult(
-    string Currency,
-    int DocumentCount,
-    int DropCount,
-    decimal Gross)
-{
-    /// <summary>Null rather than zero: a currency with no documents has no average, it has no data.</summary>
-    public decimal? AverageDocumentValue =>
-        DocumentCount > 0 ? decimal.Round(Gross / DocumentCount, 2) : null;
-
-    /// <summary>
-    /// The drop size. A drop is one shop on one day in one currency, so two invoices written at the
-    /// same counter are one drop — which is what a field manager means by the word.
-    /// </summary>
-    public decimal? AverageDropSize =>
-        DropCount > 0 ? decimal.Round(Gross / DropCount, 2) : null;
-}
-
-/// <summary>
-/// One currency's takings at line grain. Deliberately a different type from
-/// <see cref="VanSalesMoneyResult"/>: document totals and line totals are two measures, not one, and
-/// a row that mixed them would be reconcilable to nothing.
-/// </summary>
-public sealed record VanSalesLineMoneyResult(
-    string Currency,
-    int LineCount,
-    decimal Gross);
-
-/// <summary>
-/// How much moved, in one unit of measure. <c>UoMCode</c> is null for every van sale written to date
-/// — neither ingest path sets it — so expect a single "unit not recorded" bucket and do not read that
-/// as an error.
-/// </summary>
-public sealed record VanSalesQuantityResult(
-    string? UoMCode,
-    decimal Quantity,
-    int LineCount);
+// The money and quantity records this report uses — VanSalesMoneyResult, VanSalesLineMoneyResult
+// and VanSalesQuantityResult — live one namespace up, in VanSalesMoney.cs, because the coverage
+// report needs exactly the same shapes. A second declaration would be two money types that round
+// and average differently in two reports read side by side.
 
 // ── Route and territory ─────────────────────────────────────────────────────────
 

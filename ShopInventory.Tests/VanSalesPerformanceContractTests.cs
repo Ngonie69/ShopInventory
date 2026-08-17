@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ShopInventory.Features.VanSalesReports.Queries;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport;
 using ShopInventory.Web.Models;
 

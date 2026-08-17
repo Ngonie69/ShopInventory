@@ -26,9 +26,6 @@ public sealed class GetVanSalesPerformanceReportHandler(
     ApplicationDbContext db
 ) : IRequestHandler<GetVanSalesPerformanceReportQuery, ErrorOr<VanSalesPerformanceReportResult>>
 {
-    /// <summary>Stands in for "no shop was recorded" wherever a customer has to be a dictionary key.</summary>
-    private const string Unattributed = "«unattributed»";
-
     public async Task<ErrorOr<VanSalesPerformanceReportResult>> Handle(
         GetVanSalesPerformanceReportQuery query,
         CancellationToken cancellationToken)
@@ -232,7 +229,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
         return priorLines.Where(line => keys.Contains(line.Key)).ToList();
     }
 
-    private async Task<Dictionary<Guid, UserName>> LoadUserNamesAsync(
+    private async Task<Dictionary<Guid, VanSalesMeasures.UserName>> LoadUserNamesAsync(
         IEnumerable<Guid> userIds,
         CancellationToken cancellationToken)
     {
@@ -251,7 +248,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
 
         return users.ToDictionary(
             user => user.Id,
-            user => new UserName(
+            user => new VanSalesMeasures.UserName(
                 user.Username,
                 string.IsNullOrWhiteSpace($"{user.FirstName} {user.LastName}".Trim())
                     ? null
@@ -266,7 +263,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
         Dictionary<VanSalesDayKey, HashSet<string>> visits)
     {
         var grouped = sales
-            .GroupBy(sale => RouteKeyOf(sale.Key, days))
+            .GroupBy(sale => VanSalesMeasures.RouteKeyOf(sale.Key, days))
             .Select(group =>
             {
                 var key = group.Key;
@@ -285,11 +282,11 @@ public sealed class GetVanSalesPerformanceReportHandler(
                     RepCount: group.Select(sale => sale.UserId).Distinct().Count(),
                     TradingDayCount: dayKeys.Count,
                     PlannedCalls: dayRecords.Count > 0 ? dayRecords.Sum(day => day.PlannedCustomerCount) : null,
-                    Calls: CountCalls(dayKeys, visits),
-                    ProductiveCalls: CountProductiveCalls(group),
-                    CustomerCount: CountCustomers(group),
-                    KilometresTravelled: SumKilometres(dayRecords),
-                    TotalsByCurrency: MoneyByCurrency(group));
+                    Calls: VanSalesMeasures.CountCalls(dayKeys, visits),
+                    ProductiveCalls: VanSalesMeasures.CountProductiveCalls(group),
+                    CustomerCount: VanSalesMeasures.CountOutletsThatBought(group),
+                    KilometresTravelled: VanSalesMeasures.SumKilometres(dayRecords),
+                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group));
             })
             .ToList();
 
@@ -316,7 +313,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
                 TradingDayCount: group.Sum(route => route.TradingDayCount),
                 ProductiveCalls: group.Sum(route => route.ProductiveCalls),
                 CustomerCount: group.Sum(route => route.CustomerCount),
-                TotalsByCurrency: FoldMoney(group.SelectMany(route => route.TotalsByCurrency))))
+                TotalsByCurrency: VanSalesMeasures.FoldMoney(group.SelectMany(route => route.TotalsByCurrency))))
             .OrderByDescending(territory => territory.TotalsByCurrency.Sum(total => total.DocumentCount))
             .ThenBy(territory => territory.Territory, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -329,7 +326,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
         Dictionary<VanSalesDayKey, VanRouteDayEntity> days,
         Dictionary<VanSalesDayKey, HashSet<string>> visits,
         Dictionary<Guid, HashSet<string>> newOutlets,
-        Dictionary<Guid, UserName> names)
+        Dictionary<Guid, VanSalesMeasures.UserName> names)
     {
         var itemsByRep = lines
             .GroupBy(line => line.UserId)
@@ -371,17 +368,17 @@ public sealed class GetVanSalesPerformanceReportHandler(
                         .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
                         .ToList(),
                     TradingDayCount: dayKeys.Count,
-                    Calls: CountCalls(dayKeys, visits),
-                    OutletsVisited: CountOutletsVisited(dayKeys, visits),
-                    ProductiveCalls: CountProductiveCalls(group),
+                    Calls: VanSalesMeasures.CountCalls(dayKeys, visits),
+                    OutletsVisited: VanSalesMeasures.CountOutletsVisited(dayKeys, visits),
+                    ProductiveCalls: VanSalesMeasures.CountProductiveCalls(group),
                     CustomerCount: bought.Count,
                     NewOutlets: captured?.Count ?? 0,
                     // Captured and converted are different achievements, so the intersection is its own
                     // figure rather than a redefinition of the first.
                     NewOutletsWhoBought: captured is null ? 0 : captured.Count(bought.Contains),
                     ItemCount: itemsByRep.TryGetValue(userId, out var itemCount) ? itemCount : 0,
-                    KilometresTravelled: SumKilometres(dayRecords),
-                    TotalsByCurrency: MoneyByCurrency(group));
+                    KilometresTravelled: VanSalesMeasures.SumKilometres(dayRecords),
+                    TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(group));
             })
             .OrderByDescending(rep => rep.TotalsByCurrency.Sum(total => total.DocumentCount))
             .ThenBy(rep => rep.DisplayName, StringComparer.OrdinalIgnoreCase)
@@ -397,7 +394,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
             .Select(group => new
             {
                 ItemCode = group.Key,
-                Description = FirstDescription(group),
+                Description = VanSalesMeasures.FirstDescription(group),
                 LineCount = group.Count(),
                 DocumentCount = group.Select(line => line.ExternalReferenceId)
                     .Distinct(StringComparer.OrdinalIgnoreCase).Count(),
@@ -408,8 +405,8 @@ public sealed class GetVanSalesPerformanceReportHandler(
                 TradingDayCount = group.Select(line => line.TradingDate).Distinct().Count(),
                 FirstSoldOn = group.Min(line => line.TradingDate),
                 LastSoldOn = group.Max(line => line.TradingDate),
-                Quantities = QuantitiesByUoM(group),
-                Totals = LineMoneyByCurrency(group)
+                Quantities = VanSalesMeasures.QuantitiesByUoM(group),
+                Totals = VanSalesMeasures.LineMoneyByCurrency(group)
             })
             // Ranked on reach, not on value or quantity. Value cannot be compared across currencies and
             // quantity cannot be compared across units, so either would rank on an accident of the mix.
@@ -453,14 +450,14 @@ public sealed class GetVanSalesPerformanceReportHandler(
 
                 return new VanSalesLapsedItemResult(
                     ItemCode: group.Key,
-                    ItemDescription: FirstDescription(group),
+                    ItemDescription: VanSalesMeasures.FirstDescription(group),
                     LastSoldOn: lastSoldOn,
                     DaysSinceLastSale: Math.Max(0, (int)(to - lastSoldOn).TotalDays),
                     PriorLineCount: group.Count(),
                     PriorCustomerCount: group.Where(line => line.RouteCustomerCode is not null)
                         .Select(line => line.RouteCustomerCode!)
                         .Distinct(StringComparer.OrdinalIgnoreCase).Count(),
-                    PriorTotalsByCurrency: LineMoneyByCurrency(group));
+                    PriorTotalsByCurrency: VanSalesMeasures.LineMoneyByCurrency(group));
             })
             .OrderByDescending(item => item.PriorLineCount)
             .ThenBy(item => item.ItemCode, StringComparer.OrdinalIgnoreCase)
@@ -488,9 +485,9 @@ public sealed class GetVanSalesPerformanceReportHandler(
                 TradingDate: date,
                 DayOfWeek: date.DayOfWeek,
                 RepsTrading: facts.Select(sale => sale.UserId).Distinct().Count(),
-                ProductiveCalls: CountProductiveCalls(facts),
+                ProductiveCalls: VanSalesMeasures.CountProductiveCalls(facts),
                 DocumentCount: facts.Count,
-                TotalsByCurrency: MoneyByCurrency(facts)));
+                TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(facts)));
         }
 
         return new VanSalesTrendResult(
@@ -525,7 +522,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
                     ActiveDayCount: points.Count(point => point.DocumentCount > 0),
                     DocumentCount: points.Sum(point => point.DocumentCount),
                     ProductiveCalls: points.Sum(point => point.ProductiveCalls),
-                    TotalsByCurrency: FoldMoney(points.SelectMany(point => point.TotalsByCurrency)));
+                    TotalsByCurrency: VanSalesMeasures.FoldMoney(points.SelectMany(point => point.TotalsByCurrency)));
             })
             .ToList();
     }
@@ -555,7 +552,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
                     ActiveDayCount: group.Count(point => point.DocumentCount > 0),
                     DocumentCount: group.Sum(point => point.DocumentCount),
                     ProductiveCalls: group.Sum(point => point.ProductiveCalls),
-                    TotalsByCurrency: FoldMoney(group.SelectMany(point => point.TotalsByCurrency)));
+                    TotalsByCurrency: VanSalesMeasures.FoldMoney(group.SelectMany(point => point.TotalsByCurrency)));
             })
             .ToList();
 
@@ -563,7 +560,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
 
     private static List<VanSalesItemPriceResult> BuildItemPrices(
         List<VanSaleLineFact> lines,
-        Dictionary<Guid, UserName> names,
+        Dictionary<Guid, VanSalesMeasures.UserName> names,
         int topItems)
     {
         // A zero-quantity line has no achieved price. Counted in coverage, never divided by.
@@ -587,7 +584,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
 
                 return new VanSalesItemPriceResult(
                     ItemCode: group.Key.ItemCode,
-                    ItemDescription: FirstDescription(group),
+                    ItemDescription: VanSalesMeasures.FirstDescription(group),
                     Currency: group.Key.Currency,
                     UoMCode: group.Key.UoMCode,
                     LineCount: group.Count(),
@@ -610,7 +607,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
     private static List<VanSalesRepPriceResult> BuildRepPrices(
         IEnumerable<VanSaleLineFact> lines,
         decimal itemWeightedAverage,
-        Dictionary<Guid, UserName> names) =>
+        Dictionary<Guid, VanSalesMeasures.UserName> names) =>
         lines
             .GroupBy(line => line.UserId)
             .Select(group =>
@@ -651,7 +648,7 @@ public sealed class GetVanSalesPerformanceReportHandler(
             .Select(currencyGroup =>
             {
                 var drops = currencyGroup
-                    .GroupBy(DropKey)
+                    .GroupBy(VanSalesMeasures.DropKey)
                     .Select(drop => drop.Sum(sale => sale.TotalAmount))
                     .OrderBy(value => value)
                     .ToList();
@@ -663,9 +660,9 @@ public sealed class GetVanSalesPerformanceReportHandler(
                     DropCount: drops.Count,
                     Total: total,
                     Minimum: drops[0],
-                    P25: Percentile(drops, 0.25),
-                    Median: Percentile(drops, 0.50),
-                    P75: Percentile(drops, 0.75),
+                    P25: VanSalesMeasures.Percentile(drops, 0.25),
+                    Median: VanSalesMeasures.Percentile(drops, 0.50),
+                    P75: VanSalesMeasures.Percentile(drops, 0.75),
                     Maximum: drops[^1],
                     Mean: decimal.Round(total / drops.Count, 2),
                     Buckets: BuildBuckets(drops, currencyGroup.Key));
@@ -673,24 +670,6 @@ public sealed class GetVanSalesPerformanceReportHandler(
             .OrderByDescending(distribution => distribution.Total)
             .ThenBy(distribution => distribution.Currency, StringComparer.OrdinalIgnoreCase)
             .ToList();
-
-    /// <summary>
-    /// A drop is one shop, on one day, in one currency. Two invoices written at the same counter are
-    /// one drop, which is what a field manager means by the word.
-    ///
-    /// Sales with no shop on them collapse into one drop per rep-day, matching the productive-call
-    /// rule — treating each as its own shop would make an unattributed day look like the busiest on
-    /// the route.
-    /// </summary>
-    private static (Guid UserId, DateTime TradingDate, string Customer) DropKey(VanSaleFact sale) =>
-        (sale.UserId, sale.TradingDate, sale.RouteCustomerCode?.ToUpperInvariant() ?? Unattributed);
-
-    /// <summary>Nearest-rank percentile over an ascending list. The list is never empty here.</summary>
-    private static decimal Percentile(List<decimal> ascending, double fraction)
-    {
-        var rank = (int)Math.Ceiling(fraction * ascending.Count) - 1;
-        return ascending[Math.Clamp(rank, 0, ascending.Count - 1)];
-    }
 
     /// <summary>
     /// Fixed bands, not quantiles of this period's own data. A band that moves with the data compares
@@ -760,16 +739,16 @@ public sealed class GetVanSalesPerformanceReportHandler(
                 .Count(),
             TradingDayCount: dayKeys.Count,
             DocumentCount: sales.Count,
-            Calls: CountCalls(dayKeys, visits),
-            ProductiveCalls: CountProductiveCalls(sales),
-            CustomerCount: CountCustomers(sales),
+            Calls: VanSalesMeasures.CountCalls(dayKeys, visits),
+            ProductiveCalls: VanSalesMeasures.CountProductiveCalls(sales),
+            CustomerCount: VanSalesMeasures.CountOutletsThatBought(sales),
             ItemCount: lines.Select(line => line.ItemCode)
                 .Distinct(StringComparer.OrdinalIgnoreCase).Count(),
             NewOutlets: newOutlets
                 .Where(pair => reps.Contains(pair.Key))
                 .Sum(pair => pair.Value.Count),
-            KilometresTravelled: SumKilometres(dayRecords),
-            TotalsByCurrency: MoneyByCurrency(sales));
+            KilometresTravelled: VanSalesMeasures.SumKilometres(dayRecords),
+            TotalsByCurrency: VanSalesMeasures.MoneyByCurrency(sales));
     }
 
     private static VanSalesCoverageResult BuildCoverage(
@@ -819,154 +798,4 @@ public sealed class GetVanSalesPerformanceReportHandler(
             ReferencesInBothSources: offlineRefs.Count);
     }
 
-    // ── Shared measures ─────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// The calls that bought, counted exactly as the compliance report counts them: distinct shops per
-    /// rep-day, with every unattributed sale on a day collapsing into one call between them.
-    ///
-    /// This must not be computed by intersecting visits with sales. A van whose customers are real SAP
-    /// business partners records no route customer on the sale while the visit still carries a code,
-    /// so the intersection would zero those vans out entirely.
-    /// </summary>
-    private static int CountProductiveCalls(IEnumerable<VanSaleFact> facts) =>
-        facts
-            .GroupBy(fact => fact.Key)
-            .Sum(day =>
-                day.Where(fact => fact.RouteCustomerCode is not null)
-                    .Select(fact => fact.RouteCustomerCode!)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Count()
-                + (day.Any(fact => fact.RouteCustomerCode is null) ? 1 : 0));
-
-    private static int CountCustomers(IEnumerable<VanSaleFact> facts) =>
-        facts
-            .Where(fact => fact.RouteCustomerCode is not null)
-            .Select(fact => fact.RouteCustomerCode!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
-
-    /// <summary>
-    /// Calls made across a set of rep-days, or null when not one of those days has a visit record.
-    ///
-    /// Null rather than zero, because a rep with sales and no visit rows is not a rep who made no
-    /// calls — he is one whose calls were never recorded, and a 0% strike rate would be a slander.
-    /// </summary>
-    private static int? CountCalls(
-        IEnumerable<VanSalesDayKey> dayKeys,
-        Dictionary<VanSalesDayKey, HashSet<string>> visits)
-    {
-        var keys = dayKeys.ToList();
-        var known = keys.Where(visits.ContainsKey).ToList();
-
-        return known.Count == 0 ? null : known.Sum(key => visits[key].Count);
-    }
-
-    /// <summary>
-    /// Distinct shops called on across the period — a different measure from calls, because a shop
-    /// visited on Monday and Thursday is two calls and one outlet.
-    /// </summary>
-    private static int? CountOutletsVisited(
-        IEnumerable<VanSalesDayKey> dayKeys,
-        Dictionary<VanSalesDayKey, HashSet<string>> visits)
-    {
-        var keys = dayKeys.Where(visits.ContainsKey).ToList();
-
-        if (keys.Count == 0)
-        {
-            return null;
-        }
-
-        return keys
-            .SelectMany(key => visits[key])
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
-    }
-
-    /// <summary>
-    /// Distance covered, summing only the days that recorded both readings. Null when none did — an
-    /// odometer that was never read is not a van that never moved.
-    /// </summary>
-    private static int? SumKilometres(IEnumerable<VanRouteDayEntity> days)
-    {
-        var distances = days
-            .Select(day => day.StartingMileage is { } start
-                           && day.ClosingMileage is { } close
-                           && close >= start
-                ? close - start
-                : (int?)null)
-            .Where(distance => distance.HasValue)
-            .Select(distance => distance!.Value)
-            .ToList();
-
-        return distances.Count > 0 ? distances.Sum() : null;
-    }
-
-    private static List<VanSalesMoneyResult> MoneyByCurrency(IEnumerable<VanSaleFact> facts) =>
-        facts
-            .GroupBy(fact => RouteCustomerSalesReporting.NormalizeCurrency(fact.Currency),
-                StringComparer.OrdinalIgnoreCase)
-            .Select(group => new VanSalesMoneyResult(
-                Currency: group.Key,
-                DocumentCount: group.Count(),
-                DropCount: group.Select(DropKey).Distinct().Count(),
-                Gross: group.Sum(fact => fact.TotalAmount)))
-            .OrderByDescending(total => total.Gross)
-            .ThenBy(total => total.Currency, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-    /// <summary>Rolls already-grouped currency rows up a level without ever crossing currencies.</summary>
-    private static List<VanSalesMoneyResult> FoldMoney(IEnumerable<VanSalesMoneyResult> parts) =>
-        parts
-            .GroupBy(part => part.Currency, StringComparer.OrdinalIgnoreCase)
-            .Select(group => new VanSalesMoneyResult(
-                Currency: group.Key,
-                DocumentCount: group.Sum(part => part.DocumentCount),
-                DropCount: group.Sum(part => part.DropCount),
-                Gross: group.Sum(part => part.Gross)))
-            .OrderByDescending(total => total.Gross)
-            .ThenBy(total => total.Currency, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-    private static List<VanSalesLineMoneyResult> LineMoneyByCurrency(IEnumerable<VanSaleLineFact> lines) =>
-        lines
-            .GroupBy(line => RouteCustomerSalesReporting.NormalizeCurrency(line.Currency),
-                StringComparer.OrdinalIgnoreCase)
-            .Select(group => new VanSalesLineMoneyResult(
-                Currency: group.Key,
-                LineCount: group.Count(),
-                Gross: group.Sum(line => line.LineTotal)))
-            .OrderByDescending(total => total.Gross)
-            .ThenBy(total => total.Currency, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-    /// <summary>
-    /// Quantity per unit of measure, never summed across them. Van lines carry no unit today — neither
-    /// ingest path sets one — so this is usually a single "not recorded" bucket, and that is honest
-    /// rather than broken.
-    /// </summary>
-    private static List<VanSalesQuantityResult> QuantitiesByUoM(IEnumerable<VanSaleLineFact> lines) =>
-        lines
-            .GroupBy(line => line.UoMCode)
-            .Select(group => new VanSalesQuantityResult(
-                UoMCode: group.Key,
-                Quantity: group.Sum(line => line.Quantity),
-                LineCount: group.Count()))
-            .OrderByDescending(quantity => quantity.LineCount)
-            .ThenBy(quantity => quantity.UoMCode, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-    private static string? FirstDescription(IEnumerable<VanSaleLineFact> lines) =>
-        lines
-            .Select(line => line.ItemDescription)
-            .FirstOrDefault(description => !string.IsNullOrWhiteSpace(description));
-
-    private static (string? RouteCode, string? RouteName, string? Territory, bool HasRouteDay) RouteKeyOf(
-        VanSalesDayKey key,
-        Dictionary<VanSalesDayKey, VanRouteDayEntity> days) =>
-        days.TryGetValue(key, out var day)
-            ? (day.RouteCode, day.RouteName, day.Territory, true)
-            : (null, null, null, false);
-
-    private sealed record UserName(string Username, string? FullName);
 }

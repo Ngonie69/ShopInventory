@@ -50,17 +50,38 @@ public enum VanSalesTender
 public readonly record struct VanSalesDayKey(Guid UserId, DateTime TradingDate);
 
 /// <summary>
+/// Identifies a shop across the whole estate.
+///
+/// The account is part of the key, and has to be: a route customer's code is unique only
+/// <em>within</em> the van's business partner — the database says so with a unique index on
+/// <c>(AssignedBusinessPartnerCode, Code)</c> and on nothing narrower. Grouping on the bare code
+/// silently merges two different shops in two different territories into one row, and the merged
+/// figure looks entirely plausible.
+/// </summary>
+public readonly record struct VanSalesOutletKey(string VanAccountCode, string OutletCode);
+
+/// <summary>
 /// One van sale, normalised across both tables it can land in, at document grain.
 ///
 /// <paramref name="RouteCustomerCode"/> is the shop. It is nullable and often is null on older
 /// history: the account on the document is the van's own, so a sale without this cannot be attributed
 /// to a shop at all and must be reported as unattributed rather than folded into one.
 /// </summary>
+/// <param name="VanAccountCode">
+/// The SAP business partner the van bills as — the document's own <c>CardCode</c>. Never the buyer;
+/// it is the same on every sale a given van makes. It is here because it is half of the shop's key.
+/// </param>
+/// <param name="RouteCustomerId">
+/// The shop's row id where the record still exists, which is the exact identity. Null on sales whose
+/// customer record was never resolved; the code and name snapshots survive either way.
+/// </param>
 public sealed record VanSaleFact(
     Guid UserId,
     DateTime TradingDate,
     VanSaleSource Source,
     string ExternalReferenceId,
+    string VanAccountCode,
+    int? RouteCustomerId,
     string? RouteCustomerCode,
     string? RouteCustomerName,
     string? PaymentMethod,
@@ -72,6 +93,11 @@ public sealed record VanSaleFact(
     public VanSalesTender Tender => VanSalesFacts.ClassifyTender(PaymentMethod);
 
     public VanSalesDayKey Key => new(UserId, TradingDate);
+
+    /// <summary>The shop this sale is attributable to, or null when none was recorded.</summary>
+    public VanSalesOutletKey? Outlet => RouteCustomerCode is null
+        ? null
+        : new VanSalesOutletKey(VanAccountCode, RouteCustomerCode);
 }
 
 /// <summary>
@@ -94,6 +120,8 @@ public sealed record VanSaleLineFact(
     DateTime TradingDate,
     VanSaleSource Source,
     string ExternalReferenceId,
+    string VanAccountCode,
+    int? RouteCustomerId,
     string? RouteCustomerCode,
     string? RouteCustomerName,
     int LineNum,
@@ -110,6 +138,11 @@ public sealed record VanSaleLineFact(
     string? PaymentMethod)
 {
     public VanSalesDayKey Key => new(UserId, TradingDate);
+
+    /// <summary>The shop this line's sale is attributable to, or null when none was recorded.</summary>
+    public VanSalesOutletKey? Outlet => RouteCustomerCode is null
+        ? null
+        : new VanSalesOutletKey(VanAccountCode, RouteCustomerCode);
 }
 
 /// <summary>
