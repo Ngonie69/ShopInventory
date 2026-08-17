@@ -173,6 +173,13 @@ public static class AuditActions
     public const string DownloadPod = "DownloadPod";
     public const string SendPodReportEmail = "SendPodReportEmail";
 
+    // Van sales actions
+    //
+    // The attendance report leaves the building as an email with the workbook attached, so both the
+    // send and the failed send are logged — who sent which period to whom is the only record that
+    // a rep's hours were circulated at all.
+    public const string SendVanAttendanceReportEmail = "SendVanAttendanceReportEmail";
+
     // Customer actions
     public const string ViewCustomers = "ViewCustomers";
     public const string UpdateRouteCustomer = "UpdateRouteCustomer";

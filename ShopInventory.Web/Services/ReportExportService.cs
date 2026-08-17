@@ -4557,7 +4557,10 @@ public class ReportExportService : IReportExportService
         DateTime? toDate,
         DateTime now)
     {
-        const int lastCol = 8;
+        // Ten columns, to carry the two measures the screen leads on: the round's route, and the
+        // on-site share behind it. A workbook that dropped them would not be the report anyone had
+        // just been reading.
+        const int lastCol = 10;
         var ws = workbook.Worksheets.Add("Overview");
         TsApplyDefaults(ws);
 
@@ -4590,7 +4593,8 @@ public class ReportExportService : IReportExportService
         row += 2;
 
         row = TsColumnHeaders(ws, row, lastCol,
-            ["Rep", "Calls", "Completed", "Open", "Customers", "Days", "On Site", "Avg per Call"]);
+            ["Rep", "Route", "Calls", "Completed", "Open", "Customers", "Days", "On Site",
+             "Avg per Call", "On-Site Share"]);
 
         int idx = 0;
         foreach (var rep in report.RepSummaries.OrderByDescending(r => r.TotalCalls))
@@ -4599,36 +4603,42 @@ public class ReportExportService : IReportExportService
 
             ws.Cell(row, 1).Value = rep.DisplayName;
             ws.Cell(row, 1).Style.Font.Bold = true;
-            ws.Cell(row, 2).Value = rep.TotalCalls;
-            ws.Cell(row, 3).Value = rep.CompletedCalls;
-            ws.Cell(row, 4).Value = rep.OpenCalls;
+            ws.Cell(row, 2).Value = VanRouteLabelExcel(rep);
+            ws.Cell(row, 3).Value = rep.TotalCalls;
+            ws.Cell(row, 4).Value = rep.CompletedCalls;
+            ws.Cell(row, 5).Value = rep.OpenCalls;
             if (rep.OpenCalls > 0)
             {
-                ws.Cell(row, 4).Style.Font.FontColor = TsOrange;
-                ws.Cell(row, 4).Style.Font.Bold = true;
+                ws.Cell(row, 5).Style.Font.FontColor = TsOrange;
+                ws.Cell(row, 5).Style.Font.Bold = true;
             }
-            ws.Cell(row, 5).Value = rep.DistinctCustomers;
-            ws.Cell(row, 6).Value = rep.TradingDays;
-            ws.Cell(row, 7).Value = FormatHoursExcel(rep.TotalMinutes);
-            ws.Cell(row, 8).Value = FormatHoursExcel(rep.AverageMinutesPerCall);
+            ws.Cell(row, 6).Value = rep.DistinctCustomers;
+            ws.Cell(row, 7).Value = rep.TradingDays;
+            ws.Cell(row, 8).Value = FormatHoursExcel(rep.TotalMinutes);
+            ws.Cell(row, 9).Value = FormatHoursExcel(rep.AverageMinutesPerCall);
+            ws.Cell(row, 10).Value = FormatShareExcel(rep.OnSiteShare);
 
             for (int c = 2; c <= lastCol; c++)
                 ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             row++; idx++;
         }
 
+        var overallClock = report.RepSummaries.Sum(r => r.ClockMinutes);
+
         TsSummaryRow(ws, row, lastCol);
         ws.Cell(row, 1).Value = $"TOTAL: {report.RepSummaries.Count} REPS";
         ws.Cell(row, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
-        ws.Cell(row, 2).Value = report.TotalCalls;
-        ws.Cell(row, 3).Value = report.CompletedCalls;
-        ws.Cell(row, 4).Value = report.OpenCalls;
-        ws.Cell(row, 5).Value = report.RepSummaries
+        ws.Cell(row, 3).Value = report.TotalCalls;
+        ws.Cell(row, 4).Value = report.CompletedCalls;
+        ws.Cell(row, 5).Value = report.OpenCalls;
+        ws.Cell(row, 6).Value = report.RepSummaries
             .SelectMany(r => r.Customers).Select(c => c.CustomerCode)
             .Distinct(StringComparer.OrdinalIgnoreCase).Count();
-        ws.Cell(row, 6).Value = report.TradingDays;
-        ws.Cell(row, 7).Value = FormatHoursExcel(report.TotalHours * 60);
-        ws.Cell(row, 8).Value = FormatHoursExcel(report.AverageCallMinutes);
+        ws.Cell(row, 7).Value = report.TradingDays;
+        ws.Cell(row, 8).Value = FormatHoursExcel(report.TotalHours * 60);
+        ws.Cell(row, 9).Value = FormatHoursExcel(report.AverageCallMinutes);
+        ws.Cell(row, 10).Value = FormatShareExcel(
+            overallClock > 0 ? report.TotalHours * 60 / overallClock : null);
         for (int c = 2; c <= lastCol; c++)
         {
             ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
@@ -4642,9 +4652,13 @@ public class ReportExportService : IReportExportService
             .Select(g => new
             {
                 Date = g.Key,
+                Reps = g.Count(),
                 Calls = g.Sum(x => x.CallCount),
                 Open = g.Sum(x => x.OpenCalls),
                 TotalMinutes = g.Sum(x => x.TotalMinutes),
+                // Summed per rep-day, so two reps out at the same time count as two hours of van
+                // time rather than one. The span column below is the fleet's wall clock instead.
+                ClockMinutes = g.Sum(x => x.ClockMinutes ?? 0),
                 FirstCheckIn = g.Where(x => x.FirstCheckIn.HasValue).Min(x => x.FirstCheckIn),
                 LastCheckOut = g.Where(x => x.LastCheckOut.HasValue).Max(x => x.LastCheckOut)
             })
@@ -4656,7 +4670,8 @@ public class ReportExportService : IReportExportService
             row += 2;
 
             row = TsColumnHeaders(ws, row, lastCol,
-                ["Trading Day", "Day", "Calls", "Open", "On Site", "First In", "Last Out", "Span"]);
+                ["Trading Day", "Day", "Reps Out", "Calls", "Open", "On Site", "First In", "Last Out",
+                 "Span", "On-Site Share"]);
 
             idx = 0;
             foreach (var day in dailyTotals)
@@ -4667,23 +4682,26 @@ public class ReportExportService : IReportExportService
                 // instants beside it are UTC and are.
                 ws.Cell(row, 1).Value = day.Date.ToString("dd MMM yyyy");
                 ws.Cell(row, 2).Value = day.Date.ToString("ddd");
-                ws.Cell(row, 3).Value = day.Calls;
-                ws.Cell(row, 4).Value = day.Open;
+                ws.Cell(row, 3).Value = day.Reps;
+                ws.Cell(row, 4).Value = day.Calls;
+                ws.Cell(row, 5).Value = day.Open;
                 if (day.Open > 0)
                 {
-                    ws.Cell(row, 4).Style.Font.FontColor = TsOrange;
-                    ws.Cell(row, 4).Style.Font.Bold = true;
+                    ws.Cell(row, 5).Style.Font.FontColor = TsOrange;
+                    ws.Cell(row, 5).Style.Font.Bold = true;
                 }
-                ws.Cell(row, 5).Value = FormatHoursExcel(day.TotalMinutes);
-                ws.Cell(row, 6).Value = day.FirstCheckIn.HasValue
+                ws.Cell(row, 6).Value = FormatHoursExcel(day.TotalMinutes);
+                ws.Cell(row, 7).Value = day.FirstCheckIn.HasValue
                     ? ToCatExcel(day.FirstCheckIn.Value).ToString("HH:mm")
                     : "—";
-                ws.Cell(row, 7).Value = day.LastCheckOut.HasValue
+                ws.Cell(row, 8).Value = day.LastCheckOut.HasValue
                     ? ToCatExcel(day.LastCheckOut.Value).ToString("HH:mm")
                     : "—";
-                ws.Cell(row, 8).Value = day.FirstCheckIn.HasValue && day.LastCheckOut.HasValue
+                ws.Cell(row, 9).Value = day.FirstCheckIn.HasValue && day.LastCheckOut.HasValue
                     ? FormatHoursExcel((day.LastCheckOut.Value - day.FirstCheckIn.Value).TotalMinutes)
                     : "—";
+                ws.Cell(row, 10).Value = FormatShareExcel(
+                    day.ClockMinutes > 0 ? day.TotalMinutes / day.ClockMinutes : null);
 
                 for (int c = 2; c <= lastCol; c++)
                     ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
@@ -4703,7 +4721,10 @@ public class ReportExportService : IReportExportService
         VanVisitReportRepSummary rep,
         DateTime now)
     {
-        const int lastCol = 7;
+        // Ten, so the daily breakdown carries the same columns the opened row does on screen — the
+        // closing time and the day's on-site share, which are the two figures the whole page is
+        // about and which this sheet used to leave behind.
+        const int lastCol = 10;
 
         // Excel rejects a sheet name over 31 characters or carrying any of :\/?*[] — a rep whose
         // display name trips either would otherwise fail the whole workbook at save.
@@ -4719,19 +4740,22 @@ public class ReportExportService : IReportExportService
         var pctColor = pct >= 80 ? TsGreen : pct >= 50 ? TsOrange : TsRed;
 
         row = TsKpiStrip(ws, row, lastCol,
+            ("Route", VanRouteLabelExcel(rep), null),
             ("Calls", rep.TotalCalls.ToString("N0"), null),
             ("Completed", rep.CompletedCalls.ToString("N0"), null),
             ("Open", rep.OpenCalls.ToString("N0"), rep.OpenCalls > 0 ? TsOrange : null),
             ("On Site", FormatHoursExcel(rep.TotalMinutes), null),
             ("Avg per Call", FormatHoursExcel(rep.AverageMinutesPerCall), null),
             ("Customers", rep.DistinctCustomers.ToString("N0"), null),
+            ("On-Site Share", FormatShareExcel(rep.OnSiteShare), null),
             ("Completion", rep.CompletionRate is null ? "—" : $"{pct:F0}%", pctColor));
 
         TsSectionTitle(ws, row, lastCol, "DAILY BREAKDOWN");
         row += 2;
 
         row = TsColumnHeaders(ws, row, lastCol,
-            ["Trading Day", "Day", "Calls", "Customers", "Open", "First In", "On Site"]);
+            ["Trading Day", "Day", "Route", "Calls", "Customers", "Open", "First In", "Last Out",
+             "On Site", "On-Site Share"]);
 
         int idx = 0;
         foreach (var day in rep.Days.OrderByDescending(d => d.Date))
@@ -4740,18 +4764,29 @@ public class ReportExportService : IReportExportService
 
             ws.Cell(row, 1).Value = day.Date.ToString("dd MMM yyyy");
             ws.Cell(row, 2).Value = day.Date.ToString("ddd");
-            ws.Cell(row, 3).Value = day.CallCount;
-            ws.Cell(row, 4).Value = day.DistinctCustomers;
-            ws.Cell(row, 5).Value = day.OpenCalls;
+            // The route the round actually ran on that day, not the rep's current one — the day
+            // carries its own snapshot for exactly this reason.
+            ws.Cell(row, 3).Value = string.IsNullOrWhiteSpace(day.RouteName)
+                ? string.IsNullOrWhiteSpace(day.RouteCode) ? "—" : day.RouteCode!
+                : day.RouteName!;
+            ws.Cell(row, 4).Value = day.CallCount;
+            ws.Cell(row, 5).Value = day.DistinctCustomers;
+            ws.Cell(row, 6).Value = day.OpenCalls;
             if (day.OpenCalls > 0)
             {
-                ws.Cell(row, 5).Style.Font.FontColor = TsOrange;
-                ws.Cell(row, 5).Style.Font.Bold = true;
+                ws.Cell(row, 6).Style.Font.FontColor = TsOrange;
+                ws.Cell(row, 6).Style.Font.Bold = true;
             }
-            ws.Cell(row, 6).Value = day.FirstCheckIn.HasValue
+            ws.Cell(row, 7).Value = day.FirstCheckIn.HasValue
                 ? ToCatExcel(day.FirstCheckIn.Value).ToString("HH:mm")
                 : "—";
-            ws.Cell(row, 7).Value = FormatHoursExcel(day.TotalMinutes);
+            // "open" rather than a dash when the day has calls but never closed: the difference
+            // between a day nobody worked and a day nobody checked out of is the whole finding.
+            ws.Cell(row, 8).Value = day.LastCheckOut.HasValue
+                ? ToCatExcel(day.LastCheckOut.Value).ToString("HH:mm")
+                : day.CallCount > 0 ? "open" : "—";
+            ws.Cell(row, 9).Value = FormatHoursExcel(day.TotalMinutes);
+            ws.Cell(row, 10).Value = FormatShareExcel(day.OnSiteShare);
 
             for (int c = 2; c <= lastCol; c++)
                 ws.Cell(row, c).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
@@ -4764,7 +4799,7 @@ public class ReportExportService : IReportExportService
         row += 2;
 
         row = TsColumnHeaders(ws, row, lastCol,
-            ["Customer", "Code", "Calls", "On Site", "Avg per Call", "", ""]);
+            ["Customer", "Code", "Calls", "On Site", "Avg per Call", "", "", "", "", ""]);
 
         idx = 0;
         foreach (var customer in rep.Customers.OrderByDescending(c => c.CallCount))
@@ -4797,6 +4832,26 @@ public class ReportExportService : IReportExportService
         var mins = (int)(minutes % 60);
         return $"{hours}h {mins}m";
     }
+
+    /// <summary>
+    /// An on-site share for a cell, or an em dash when there is no clock behind it.
+    ///
+    /// Text rather than a percentage-formatted number, because the alternative to a figure here is
+    /// not zero — it is nothing at all. A day that never closed has no time on the clock, and a
+    /// numeric cell would have to write 0%, which reads as a rep who visited nobody. This is the
+    /// same distinction the screen draws with `.vna-none`, and the compliance sheet with its CCR.
+    /// </summary>
+    private static string FormatShareExcel(double? share) =>
+        share is { } value ? $"{value * 100:F0}%" : "—";
+
+    /// <summary>
+    /// The rep's round, or a stated absence. Matches the wording on the two van pages: a rep who
+    /// never started a day on the handset has no route, and a blank cell reads as a broken export.
+    /// </summary>
+    private static string VanRouteLabelExcel(VanVisitReportRepSummary rep) =>
+        !string.IsNullOrWhiteSpace(rep.RouteName) ? rep.RouteName!
+        : !string.IsNullOrWhiteSpace(rep.RouteCode) ? rep.RouteCode!
+        : "Route not recorded";
 
     private static DateTime ToCatExcel(DateTime utc) => utc.AddHours(2);
 

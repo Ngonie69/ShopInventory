@@ -49,9 +49,11 @@ public sealed class GetVanVisitReportHandler(
                 t.CheckOutRecordedAt))
             .ToListAsync(cancellationToken);
 
+        var rounds = await RoundsAsync(entries, cancellationToken);
+
         var repSummaries = entries
             .GroupBy(row => new { row.UserId, row.Username })
-            .Select(group => BuildRep(group.Key.UserId, group.Key.Username, group.ToList()))
+            .Select(group => BuildRep(group.Key.UserId, group.Key.Username, group.ToList(), rounds))
             .OrderByDescending(rep => rep.TotalCalls)
             .ThenBy(rep => rep.Username, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -74,20 +76,45 @@ public sealed class GetVanVisitReportHandler(
             entries.Select(row => TradingDay(row.CheckInTime)).Distinct().Count());
     }
 
-    private static VanVisitReportRepSummary BuildRep(Guid userId, string username, List<ReportRow> rows)
+    private static VanVisitReportRepSummary BuildRep(
+        Guid userId,
+        string username,
+        List<ReportRow> rows,
+        IReadOnlyDictionary<(Guid UserId, DateTime Day), Round> rounds)
     {
         var days = rows
             .GroupBy(row => TradingDay(row.CheckInTime))
-            .Select(group => new VanVisitReportDaySummary(
-                group.Key,
-                group.Count(),
-                group.Select(row => row.CustomerCode).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
-                group.Count(row => !row.CheckOutTime.HasValue),
-                group.Where(row => row.DurationMinutes.HasValue).Sum(row => row.DurationMinutes!.Value),
-                group.Min(row => row.CheckInTime),
-                group.Where(row => row.CheckOutTime.HasValue).Max(row => row.CheckOutTime)))
+            .Select(group =>
+            {
+                rounds.TryGetValue((userId, group.Key), out var round);
+
+                return new VanVisitReportDaySummary(
+                    group.Key,
+                    group.Count(),
+                    group.Select(row => row.CustomerCode).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                    group.Count(row => !row.CheckOutTime.HasValue),
+                    group.Where(row => row.DurationMinutes.HasValue).Sum(row => row.DurationMinutes!.Value),
+                    group.Min(row => row.CheckInTime),
+                    group.Where(row => row.CheckOutTime.HasValue).Max(row => row.CheckOutTime),
+                    // In check-in order, which is the order the page draws them in. The outer query
+                    // is already ordered by check-in time, so this is the grouping's own order.
+                    group
+                        .Select(row => new VanVisitReportCallSummary(
+                            row.CustomerCode,
+                            row.CustomerName,
+                            row.CheckInTime,
+                            row.CheckOutTime))
+                        .ToList(),
+                    round?.Code,
+                    round?.Name);
+            })
             .OrderByDescending(day => day.Date)
             .ToList();
+
+        // The latest day that names a route, not the first one found: `days` is newest first, so this
+        // is the route the rep is on now. A rep moved between routes mid-period is listed under the
+        // one they are running today, while each of their days keeps the route it was actually run on.
+        var latestRound = days.FirstOrDefault(day => day.RouteCode is not null || day.RouteName is not null);
 
         var customers = rows
             .GroupBy(row => row.CustomerCode, StringComparer.OrdinalIgnoreCase)
@@ -116,8 +143,58 @@ public sealed class GetVanVisitReportHandler(
             totalMinutes,
             completedCalls > 0 ? totalMinutes / completedCalls : 0,
             days,
-            customers);
+            customers,
+            latestRound?.RouteCode,
+            latestRound?.RouteName);
     }
+
+    /// <summary>
+    /// The route and truck each rep-day's round ran on, keyed by rep and CAT trading day.
+    ///
+    /// A second query rather than a join, for the reason <c>GetVanVisitsHandler</c> gives for the
+    /// same read: the key is the CAT trading day of the check-in, and that arithmetic belongs in
+    /// <see cref="AuditService.ToCAT"/> rather than in whatever the provider makes of
+    /// <c>AddHours(2).Date</c>. Bounded by the days actually present in the report, so a wide date
+    /// filter over a quiet period stays a small indexed read.
+    /// </summary>
+    private async Task<Dictionary<(Guid UserId, DateTime Day), Round>> RoundsAsync(
+        List<ReportRow> entries,
+        CancellationToken cancellationToken)
+    {
+        var byRound = new Dictionary<(Guid UserId, DateTime Day), Round>();
+        if (entries.Count == 0) return byRound;
+
+        var userIds = entries.Select(entry => entry.UserId).Distinct().ToList();
+        var days = entries.Select(entry => TradingDay(entry.CheckInTime)).ToList();
+        var firstDay = days.Min();
+        var lastDay = days.Max();
+
+        var rounds = await db.VanRouteDays
+            .AsNoTracking()
+            .Where(day => userIds.Contains(day.UserId)
+                          && day.TradingDate >= firstDay
+                          && day.TradingDate <= lastDay)
+            .Select(day => new
+            {
+                day.UserId,
+                day.TradingDate,
+                day.RouteCode,
+                day.RouteName
+            })
+            .ToListAsync(cancellationToken);
+
+        // Built with an overwrite rather than ToDictionary: the unique index on
+        // (UserId, TradingDate) makes this one row per key, and ToDictionary would answer a breach of
+        // that index by throwing and taking the whole report down with it.
+        foreach (var round in rounds)
+        {
+            byRound[(round.UserId, round.TradingDate.Date)] = new Round(round.RouteCode, round.RouteName);
+        }
+
+        return byRound;
+    }
+
+    private sealed record Round(string? Code, string? Name);
 
     /// <summary>
     /// The CAT calendar date a call belongs to. Zimbabwe has never observed daylight saving, so the

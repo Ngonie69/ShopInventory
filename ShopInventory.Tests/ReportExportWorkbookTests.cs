@@ -355,4 +355,112 @@ public class ReportExportWorkbookTests
         var text = string.Join("\n", sheet.CellsUsed().Select(c => c.GetFormattedString()));
         Assert.Contains("Nothing was posted to this account", text);
     }
+
+    // ── Van attendance ──────────────────────────────────────────────────────
+    //
+    // The workbook is what leaves the building: it is what the Export button downloads and what the
+    // "Send to supervisors" email attaches. So the two measures the screen leads on — the route and
+    // the on-site share — have to survive the trip, and the unavailable share has to stay
+    // unavailable rather than becoming a zero somewhere between the page and the cell.
+
+    [Fact]
+    public void The_van_attendance_workbook_carries_the_route_and_the_on_site_share()
+    {
+        using var workbook = Open(_service.ExportVanAttendanceReportToExcel(VanReport(), From, To));
+        var text = string.Join("\n", workbook.Worksheet("Overview").CellsUsed()
+            .Select(c => c.GetFormattedString()));
+
+        Assert.Contains("Guruve", text);
+        // Four hours with customers inside an eight-hour day.
+        Assert.Contains("50%", text);
+    }
+
+    /// <summary>
+    /// A rep whose day never closed has no time on the clock, so no share. The cell has to say so
+    /// with the same em dash the page uses — 0% would read as a rep who visited nobody, which is an
+    /// accusation rather than a gap in the data.
+    /// </summary>
+    [Fact]
+    public void A_rep_with_no_clock_gets_an_em_dash_rather_than_zero_percent()
+    {
+        var report = VanReport();
+        var rep = report.RepSummaries[0];
+        rep.TotalMinutes = 0;
+        rep.Days[0].TotalMinutes = 0;
+        rep.Days[0].LastCheckOut = null;
+        rep.Days[0].OpenCalls = 1;
+
+        using var workbook = Open(_service.ExportVanAttendanceReportToExcel(report, From, To));
+        var sheet = workbook.Worksheet("Overview");
+
+        var header = sheet.CellsUsed().First(c => c.GetString() == "On-Site Share").Address;
+        var cell = sheet.Cell(header.RowNumber + 1, header.ColumnNumber);
+
+        Assert.Equal("—", cell.GetFormattedString());
+    }
+
+    /// <summary>Every rep gets a sheet, and Excel's name rules are not broken by getting there.</summary>
+    [Fact]
+    public void Each_rep_gets_their_own_sheet()
+    {
+        using var workbook = Open(_service.ExportVanAttendanceReportToExcel(VanReport(), From, To));
+
+        Assert.Equal(["Overview", "Tendai Moyo"], workbook.Worksheets.Select(sheet => sheet.Name));
+    }
+
+    private static VanVisitReportResponse VanReport()
+    {
+        var day = new DateTime(2026, 7, 15);
+        var first = new DateTime(2026, 7, 15, 05, 00, 0, DateTimeKind.Utc);
+
+        return new VanVisitReportResponse
+        {
+            FromDate = From,
+            ToDate = To,
+            TotalCalls = 3,
+            CompletedCalls = 3,
+            TotalHours = 4,
+            AverageCallMinutes = 80,
+            TradingDays = 1,
+            RepSummaries =
+            [
+                new VanVisitReportRepSummary
+                {
+                    UserId = Guid.NewGuid(),
+                    Username = "van-rep",
+                    FullName = "Tendai Moyo",
+                    RouteCode = "GRV",
+                    RouteName = "Guruve",
+                    TotalCalls = 3,
+                    CompletedCalls = 3,
+                    DistinctCustomers = 3,
+                    TradingDays = 1,
+                    TotalMinutes = 240,
+                    AverageMinutesPerCall = 80,
+                    Days =
+                    [
+                        new VanVisitReportDaySummary
+                        {
+                            Date = day,
+                            CallCount = 3,
+                            DistinctCustomers = 3,
+                            TotalMinutes = 240,
+                            FirstCheckIn = first,
+                            LastCheckOut = first.AddHours(8),
+                            RouteCode = "GRV",
+                            RouteName = "Guruve"
+                        }
+                    ],
+                    Customers =
+                    [
+                        new VanVisitReportCustomerSummary
+                        {
+                            CustomerCode = "SHOP1", CustomerName = "Avondale Corner Shop",
+                            CallCount = 3, TotalMinutes = 240
+                        }
+                    ]
+                }
+            ]
+        };
+    }
 }

@@ -41,6 +41,13 @@ public sealed record VanVisitReportResult(
     int TradingDays
 );
 
+/// <param name="RouteCode">
+/// The route the rep ran on the latest day of the period they worked, taken from that day's
+/// snapshot. A rep moved to another route mid-period shows the route they are on now rather than a
+/// blend of the two, and the per-day route on <see cref="VanVisitReportDaySummary"/> is where the
+/// history stays honest. Null when no day in the period was opened on the handset.
+/// </param>
+/// <param name="RouteName">The same round's route name.</param>
 public sealed record VanVisitReportRepSummary(
     Guid UserId,
     string Username,
@@ -54,7 +61,9 @@ public sealed record VanVisitReportRepSummary(
     double TotalMinutes,
     double AverageMinutesPerCall,
     List<VanVisitReportDaySummary> Days,
-    List<VanVisitReportCustomerSummary> Customers
+    List<VanVisitReportCustomerSummary> Customers,
+    string? RouteCode = null,
+    string? RouteName = null
 );
 
 /// <param name="Date">The CAT trading day. A date, not an instant — it carries no time of day.</param>
@@ -64,6 +73,24 @@ public sealed record VanVisitReportRepSummary(
 /// <param name="TotalMinutes">Summed over the calls that closed; an open call has no duration to add.</param>
 /// <param name="FirstCheckIn">UTC, like every other instant the API sends. The page converts.</param>
 /// <param name="LastCheckOut">UTC as well, and null until a call on that day closes.</param>
+/// <param name="Calls">
+/// The day's calls in check-in order.
+///
+/// Carried because the attendance page draws the day rather than tabulating it: a strip of the hours
+/// between the first check-in and the last check-out, with the calls marked on it, only exists if the
+/// individual calls are here. The same rows are what let the page find the gaps between calls — a
+/// measure the API deliberately does not compute, because "how long is a long gap" is a rule the
+/// reader sets and the answer has to change with it, without a round trip.
+///
+/// Four fields rather than the whole <c>VanVisitDto</c>: the coordinates, notes and capture sources
+/// belong to the call-by-call ledger on /van-sales/activity, and sending them here would multiply the
+/// payload for a page that draws none of them.
+/// </param>
+/// <param name="RouteCode">
+/// The route this round ran on, snapshotted onto the rep's day when they started it on the handset.
+/// Null when the rep checked into customers without starting a day — routine, and itself a finding.
+/// </param>
+/// <param name="RouteName">The same round's route name.</param>
 public sealed record VanVisitReportDaySummary(
     DateTime Date,
     int CallCount,
@@ -71,7 +98,26 @@ public sealed record VanVisitReportDaySummary(
     int OpenCalls,
     double TotalMinutes,
     DateTime? FirstCheckIn,
-    DateTime? LastCheckOut
+    DateTime? LastCheckOut,
+    List<VanVisitReportCallSummary> Calls,
+    string? RouteCode = null,
+    string? RouteName = null
+);
+
+/// <summary>
+/// One call on the strip: who it was at, when the rep arrived, and when they left.
+/// </summary>
+/// <param name="CheckInTime">UTC. The page converts to CAT, as it does with every other instant.</param>
+/// <param name="CheckOutTime">
+/// UTC, and null for a call never checked out. Null rather than a copy of the check-in: the page
+/// draws an open call as a stub with a ring round it and names it, and a zero-length block would
+/// vanish into the strip instead.
+/// </param>
+public sealed record VanVisitReportCallSummary(
+    string CustomerCode,
+    string CustomerName,
+    DateTime CheckInTime,
+    DateTime? CheckOutTime
 );
 
 public sealed record VanVisitReportCustomerSummary(

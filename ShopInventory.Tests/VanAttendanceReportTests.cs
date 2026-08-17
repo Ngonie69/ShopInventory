@@ -227,6 +227,125 @@ public sealed class VanAttendanceReportTests : IDisposable
         Assert.Equal("Tendai Moyo", Assert.Single(report.RepSummaries).FullName);
     }
 
+    // ── The calls the attendance page draws ─────────────────────────────────
+    //
+    // The report used to answer in totals only, which is enough to tabulate a day and not enough to
+    // draw one. The attendance page draws the strip — a block per call, and the gaps between them —
+    // so each day carries its own calls.
+
+    [Fact]
+    public async Task Each_day_carries_its_calls_in_check_in_order()
+    {
+        // Added out of order, which is what a handset syncing a queued record does.
+        GivenCall(VanRep, new DateTime(2026, 8, 12, 11, 00, 0, DateTimeKind.Utc), minutes: 20, customerCode: "SHOP3");
+        GivenCall(VanRep, new DateTime(2026, 8, 12, 07, 00, 0, DateTimeKind.Utc), minutes: 15, customerCode: "SHOP1");
+        GivenCall(VanRep, new DateTime(2026, 8, 12, 09, 00, 0, DateTimeKind.Utc), minutes: 25, customerCode: "SHOP2");
+
+        var report = await WhenReportRun(from: new DateTime(2026, 8, 12), to: new DateTime(2026, 8, 12));
+
+        var day = Assert.Single(Assert.Single(report.RepSummaries).Days);
+        Assert.Equal(["SHOP1", "SHOP2", "SHOP3"], day.Calls.Select(call => call.CustomerCode));
+    }
+
+    /// <summary>
+    /// A call never checked out keeps a null check-out rather than borrowing its check-in. The page
+    /// draws it as a stub with a ring round it; a zero-length block would vanish from the strip, and
+    /// the gap after it would be charged to the rep as idle time.
+    /// </summary>
+    [Fact]
+    public async Task An_open_call_reaches_the_page_with_no_check_out()
+    {
+        GivenOpenCall(VanRep, new DateTime(2026, 8, 12, 09, 00, 0, DateTimeKind.Utc));
+
+        var report = await WhenReportRun(from: new DateTime(2026, 8, 12), to: new DateTime(2026, 8, 12));
+
+        var call = Assert.Single(Assert.Single(Assert.Single(report.RepSummaries).Days).Calls);
+        Assert.Null(call.CheckOutTime);
+        Assert.Equal(new DateTime(2026, 8, 12, 09, 00, 0, DateTimeKind.Utc), call.CheckInTime);
+    }
+
+    /// <summary>Calls follow their own trading day, not the rep's whole period.</summary>
+    [Fact]
+    public async Task Calls_are_carried_on_the_day_they_belong_to()
+    {
+        GivenCall(VanRep, new DateTime(2026, 8, 12, 08, 00, 0, DateTimeKind.Utc), minutes: 20, customerCode: "SHOP1");
+        GivenCall(VanRep, new DateTime(2026, 8, 13, 08, 00, 0, DateTimeKind.Utc), minutes: 20, customerCode: "SHOP2");
+
+        var report = await WhenReportRun(from: new DateTime(2026, 8, 12), to: new DateTime(2026, 8, 13));
+
+        var rep = Assert.Single(report.RepSummaries);
+        Assert.Equal(
+            ["SHOP2", "SHOP1"],
+            rep.Days.Select(day => Assert.Single(day.Calls).CustomerCode));
+    }
+
+    // ── The round each day ran on ───────────────────────────────────────────
+
+    [Fact]
+    public async Task A_day_carries_the_route_its_round_was_started_on()
+    {
+        GivenCall(VanRep, new DateTime(2026, 8, 12, 08, 00, 0, DateTimeKind.Utc), minutes: 30);
+        GivenRound(VanRep, new DateTime(2026, 8, 12), "GRV", "Guruve");
+
+        var report = await WhenReportRun(from: new DateTime(2026, 8, 12), to: new DateTime(2026, 8, 12));
+
+        var day = Assert.Single(Assert.Single(report.RepSummaries).Days);
+        Assert.Equal("GRV", day.RouteCode);
+        Assert.Equal("Guruve", day.RouteName);
+    }
+
+    /// <summary>
+    /// A rep who checked into customers without starting a day on the handset has calls and no
+    /// round. Null, not an invented route — the page says "Route not recorded", which is a finding.
+    /// </summary>
+    [Fact]
+    public async Task A_day_with_no_round_started_has_no_route()
+    {
+        GivenCall(VanRep, new DateTime(2026, 8, 12, 08, 00, 0, DateTimeKind.Utc), minutes: 30);
+
+        var report = await WhenReportRun(from: new DateTime(2026, 8, 12), to: new DateTime(2026, 8, 12));
+
+        var rep = Assert.Single(report.RepSummaries);
+        Assert.Null(Assert.Single(rep.Days).RouteName);
+        Assert.Null(rep.RouteName);
+    }
+
+    /// <summary>
+    /// A rep moved between routes mid-period is listed under the one they are running now, while
+    /// each day keeps the route it was actually run on. The snapshot is the point: re-deriving the
+    /// route from the rep's current assignment would rewrite every day they have ever worked.
+    /// </summary>
+    [Fact]
+    public async Task A_rep_who_changed_routes_is_listed_under_the_latest_one()
+    {
+        GivenCall(VanRep, new DateTime(2026, 8, 12, 08, 00, 0, DateTimeKind.Utc), minutes: 30);
+        GivenCall(VanRep, new DateTime(2026, 8, 13, 08, 00, 0, DateTimeKind.Utc), minutes: 30);
+        GivenRound(VanRep, new DateTime(2026, 8, 12), "GRV", "Guruve");
+        GivenRound(VanRep, new DateTime(2026, 8, 13), "MTR", "Mutare");
+
+        var report = await WhenReportRun(from: new DateTime(2026, 8, 12), to: new DateTime(2026, 8, 13));
+
+        var rep = Assert.Single(report.RepSummaries);
+        Assert.Equal("Mutare", rep.RouteName);
+        Assert.Equal(
+            [("MTR", new DateTime(2026, 8, 13)), ("GRV", new DateTime(2026, 8, 12))],
+            rep.Days.Select(day => (day.RouteCode, day.Date)));
+    }
+
+    /// <summary>One rep's round must never be stamped on another's day.</summary>
+    [Fact]
+    public async Task A_round_belongs_to_the_rep_who_started_it()
+    {
+        GivenCall(VanRep, new DateTime(2026, 8, 12, 08, 00, 0, DateTimeKind.Utc), minutes: 30);
+        GivenCall(OtherRep, new DateTime(2026, 8, 12, 08, 00, 0, DateTimeKind.Utc), minutes: 30);
+        GivenRound(VanRep, new DateTime(2026, 8, 12), "GRV", "Guruve");
+
+        var report = await WhenReportRun(from: new DateTime(2026, 8, 12), to: new DateTime(2026, 8, 12));
+
+        Assert.Equal("Guruve", report.RepSummaries.Single(rep => rep.Username == "van-rep").RouteName);
+        Assert.Null(report.RepSummaries.Single(rep => rep.Username == "other-van").RouteName);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     private async Task<VanVisitReportResult> WhenReportRun(DateTime from, DateTime to)
@@ -255,6 +374,27 @@ public sealed class VanAttendanceReportTests : IDisposable
     private void GivenOpenCall(Guid userId, DateTime checkInUtc, string customerCode = "SHOP1")
     {
         Add(userId, checkInUtc, null, null, customerCode, null, TimesheetChannel.VanSales);
+    }
+
+    /// <summary>
+    /// The rep's Start Day on the handset, which is where the route on a day comes from. Keyed on
+    /// the CAT trading day, like the report's own grouping.
+    /// </summary>
+    private void GivenRound(Guid userId, DateTime tradingDate, string routeCode, string routeName)
+    {
+        var username = _context.Users.AsNoTracking().Single(user => user.Id == userId).Username;
+
+        _context.VanRouteDays.Add(new VanRouteDayEntity
+        {
+            UserId = userId,
+            Username = username,
+            TradingDate = tradingDate.Date,
+            RouteCode = routeCode,
+            RouteName = routeName,
+            DepartedAt = tradingDate.Date.AddHours(5)
+        });
+
+        _context.SaveChanges();
     }
 
     private void Add(

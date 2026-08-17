@@ -2,292 +2,710 @@
 @* Admin and Manager only — see VanSalesActivity.razor. *@
 @attribute [Authorize(Roles = "Admin,Manager")]
 @rendermode InteractiveServer
+@using System.Globalization
 @using ShopInventory.Web.Models
 @inject IVanSalesAttendanceService VanSalesAttendanceService
 @inject IReportExportService ExportService
+@inject IEmailService EmailService
+@inject IAppSettingsService AppSettings
+@inject IPushNotificationClientService PushNotifications
+@inject IAuditService Audit
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
 @inject IJSRuntime JS
 
-<PageTitle>Van Attendance Report - Shop Inventory</PageTitle>
+<PageTitle>Attendance Report - Shop Inventory</PageTitle>
 
-@* Time on the round, per rep.
+@* Attendance Report.dc.html.
 
-   Carried by wwwroot/css/van-sales.css (linked from App.razor) in both schemes,
-   and built only from the vocabulary the two sibling van pages already use —
-   this page adds no CSS of its own.
+   Carried by wwwroot/css/van-attendance.css (linked from App.razor) in both
+   schemes, under the `vna-` prefix — not `vat-`, which app.css already owns for
+   the tax column on the document tables. See that sheet's header.
 
-   The third van page, and the one that answers "how much of the week did this
-   rep actually spend at a customer". Activity says what happened call by call;
-   compliance scores the day against its plan; this sits between them and totals
-   the time.
+   The third van page, and the one that answers "where was this rep, hour by
+   hour". Activity says what happened call by call; compliance scores the day
+   against its plan; this draws the day and totals the time inside it.
 
-   Three things the page has to hold, all of them about not flattering the data:
+   ── What the page decides ──
 
-   - A day is a CAT trading day, matching the compliance report. A van's evening
-     calls are ordinary, and grouping on the raw UTC date files an 18:30 call
-     under tomorrow — the two van reports would then disagree on the same week.
-   - An open call is counted and named, never quietly treated as a zero-length
-     one. A rep who checks in and never checks out has no duration to add, and
-     letting that shorten their average would reward the omission.
-   - A completion rate with no calls behind it is unavailable, not 0%. Same rule
-     the compliance sheet applies to CCR, and the same em dash. *@
+   **A trading day is a day someone worked.** The period's denominator — the
+   "4 / 5" in Days out, and the missed-day flag behind it — is the set of CAT
+   dates on which *any* van rep checked in, not every date in the range. A
+   thirty-day filter over a fleet that rests on Sundays would otherwise mark
+   every rep absent four times and flag the whole fleet.
 
-<div class="vs">
+   **The whole period is fetched once, unfiltered by rep.** The rep list, the
+   figures and the strip are then all narrowed on the page. Asking the API per
+   rep would empty the rep menu down to the rep already chosen, and the trading
+   days above would be counted from one rep's diary rather than the fleet's.
 
-    <div class="vs-head">
-        <div>
-            <h2 class="vs-title">Van attendance report</h2>
-            <p class="vs-subtitle">
-                Calls made and time on site, per rep, over CAT trading days.
-                Call-by-call detail is on Van Activity; the day's score against its plan is on Departure Compliance.
+   **Time on the clock is measured per day and summed.** First check-in to last
+   check-out, each day, added up. Measured across the period instead — first
+   check-in of the month to last check-out of it — every night in between counts
+   as time on the clock and every on-site share collapses.
+
+   **A missing measure is an em dash, not a zero.** A day that never closed has
+   no clock, so no on-site share; a rep with no calls has no average. Rendered
+   muted, the same rule and the same dash the compliance sheet applies to CCR.
+
+   **An open call is never charged as idle.** The gap after a call the rep never
+   checked out of is unmeasurable — they may have been inside the shop for all
+   of it — so it is not counted against them. See VanVisitReportDaySummary.
+
+   Two things the design said that this page does not repeat, because they are
+   not true of this system: the times come from the handset's own check-in and
+   check-out taps, not from a geofence, and there is no nightly attendance job
+   behind the flags — they are computed here, when the page runs. *@
+
+<div class="vna">
+
+    <div class="vna-head">
+        <div class="vna-head-main">
+            <div class="vna-crumb">
+                Van sales
+                <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                <span class="vna-crumb-here">Attendance report</span>
+            </div>
+            <h1 class="vna-title">Attendance report</h1>
+            <p class="vna-lede">
+                Where every rep actually was, hour by hour.
+                <span class="vna-term"
+                      title="Time checked in at customers ÷ time between the first check-in and the last check-out">On-site share</span>
+                is time with customers over time on the clock — the rest is driving, queueing and standing still.
             </p>
+        </div>
+        <div class="vna-head-actions">
+            <button type="button" class="vna-btn" @onclick="ExportExcelAsync"
+                    disabled="@(isExporting || report is null || report.RepSummaries.Count == 0)">
+                <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i>
+                @(isExporting ? "Building…" : "Export Excel")
+            </button>
+            <button type="button" class="vna-btn vna-btn-accent" @onclick="OpenSendDialogAsync"
+                    disabled="@(report is null || report.RepSummaries.Count == 0)">
+                <i class="bi bi-send" aria-hidden="true"></i>
+                Send to supervisors
+            </button>
         </div>
     </div>
 
-    <div class="vs-filters">
-        <div class="row g-3">
-            @* NocturneDateField, never <input type="date"> — see the compliance page for why. *@
-            <div class="col-md-3">
-                <label class="vs-filter-label" for="vsr-from">From</label>
-                <NocturneDateField Id="vsr-from" @bind-Date="fromDate" AriaLabel="From date" />
-            </div>
-            <div class="col-md-3">
-                <label class="vs-filter-label" for="vsr-to">To</label>
-                <NocturneDateField Id="vsr-to" @bind-Date="toDate" AriaLabel="To date" />
-            </div>
-            <div class="col-md-3">
-                <label class="vs-filter-label" for="vsr-rep">Rep</label>
-                <input id="vsr-rep" class="vs-field" @bind="filterUsername" placeholder="Username" />
-            </div>
-            <div class="col-md-3 vs-actions">
-                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
-                    @(isLoading ? "Loading…" : "Run")
-                </button>
-                <button class="vs-btn" @onclick="ClearAsync" disabled="@isLoading">Clear</button>
+    <div class="vna-filters">
+        @* NocturneDateField, never <input type="date"> — a native calendar is a
+           platform window no page stylesheet reaches into. Same reason the rep
+           picker below is a NocturneSelect. *@
+        <div class="vna-filter">
+            <label class="vna-filter-label" for="vna-from">From</label>
+            <div class="vna-filter-date">
+                <NocturneDateField Id="vna-from" @bind-Date="fromDate" AriaLabel="From date" />
             </div>
         </div>
-
-        <div class="row g-3" style="margin-top:2px;">
-            <div class="col-12 vs-actions">
-                <button class="vs-btn" @onclick="() => SetRangeAsync(7)" disabled="@isLoading">Last 7 days</button>
-                <button class="vs-btn" @onclick="() => SetRangeAsync(14)" disabled="@isLoading">Last 14 days</button>
-                <button class="vs-btn" @onclick="() => SetRangeAsync(30)" disabled="@isLoading">Last 30 days</button>
-                <button class="vs-btn" @onclick="SetThisMonthAsync" disabled="@isLoading">This month</button>
-                @if (report is not null && report.RepSummaries.Count > 0)
-                {
-                    <button class="vs-btn" @onclick="ExportExcelAsync" disabled="@isExporting">
-                        @(isExporting ? "Building…" : "Export Excel")
-                    </button>
-                }
+        <div class="vna-filter">
+            <label class="vna-filter-label" for="vna-to">To</label>
+            <div class="vna-filter-date">
+                <NocturneDateField Id="vna-to" @bind-Date="toDate" AriaLabel="To date" />
             </div>
         </div>
+        <div class="vna-filter">
+            <label class="vna-filter-label" for="vna-rep">Rep</label>
+            <NocturneSelect Class="nsel-block vna-filter-rep" TValue="string" Id="vna-rep"
+                            Options="RepOptions" Value="repFilter"
+                            ValueChanged="@(username => OnRepChanged(username))"
+                            Caption="Show one rep" AriaLabel="Filter by rep"
+                            Placeholder="All reps" />
+        </div>
+        <button type="button" class="vna-btn vna-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
+            <i class="bi bi-play-fill" aria-hidden="true"></i>
+            @(isLoading ? "Running…" : "Run")
+        </button>
+        <div class="vna-presets">
+            <button type="button" class="vna-btn vna-btn-quiet" @onclick="() => SetRangeAsync(7)" disabled="@isLoading">Last 7 days</button>
+            <button type="button" class="vna-btn vna-btn-quiet" @onclick="() => SetRangeAsync(14)" disabled="@isLoading">Last 14 days</button>
+            <button type="button" class="vna-btn vna-btn-quiet" @onclick="() => SetRangeAsync(30)" disabled="@isLoading">Last 30 days</button>
+            <button type="button" class="vna-btn vna-btn-quiet" @onclick="SetThisMonthAsync" disabled="@isLoading">This month</button>
+        </div>
+        <div class="vna-period">@PeriodSummary</div>
     </div>
 
     @if (loadError is not null)
     {
-        <div class="vs-notice">@loadError</div>
+        <div class="vna-notice" role="alert">@loadError</div>
     }
 
     @if (isLoading)
     {
-        <div class="vs-loading">
+        <div class="vna-loading">
             <MudProgressCircular Indeterminate="true" Size="Size.Small" />
             <span>Totalling the rounds…</span>
         </div>
     }
     else if (report is null)
     {
-        <div class="vs-empty">
-            <div class="vs-empty-title">Nothing loaded yet</div>
-            <div>Choose a period and run the report.</div>
+        <div class="vna-empty">
+            <div class="vna-empty-title">Nothing loaded yet</div>
+            <div class="vna-empty-note">Choose a period and run the report.</div>
         </div>
     }
     else if (report.RepSummaries.Count == 0)
     {
-        <div class="vs-empty">
-            <div class="vs-empty-title">No van calls in this period</div>
-            <div>No van rep checked in between these dates.</div>
+        <div class="vna-empty">
+            <div class="vna-empty-title">No van calls in this period</div>
+            <div class="vna-empty-note">No van rep checked in between these dates.</div>
         </div>
     }
     else
     {
-        <div class="vs-summary">
-            <div class="vs-summary-cell">
-                <div class="vs-summary-value">@report.TotalCalls</div>
-                <div class="vs-summary-label">Calls</div>
+        @* The six figures are the period as filtered by rep, not by the exception
+           chip below: they are what the period looks like, and a chip that
+           narrowed them would leave the reader unable to see the whole against
+           the part. The totals row at the foot of the grid does follow the chip,
+           because it totals the rows above it. *@
+        <div class="vna-kpis">
+            <div class="vna-kpi">
+                <div class="vna-kpi-mark"></div>
+                <div class="vna-kpi-value">@shownReps.Count</div>
+                <div class="vna-kpi-label">Reps out</div>
+                <div class="vna-kpi-sub">@tradingDays.Count @Plural(tradingDays.Count, "trading day", "trading days")</div>
             </div>
-            <div class="vs-summary-cell">
-                <div class="vs-summary-value">@FormatHours(report.TotalHours * 60)</div>
-                <div class="vs-summary-label">On site</div>
+            <div class="vna-kpi">
+                <div class="vna-kpi-mark"></div>
+                <div class="vna-kpi-value">@periodCalls</div>
+                <div class="vna-kpi-label">Calls</div>
+                <div class="vna-kpi-sub">
+                    @(periodDaysOut > 0 ? $"{(double)periodCalls / periodDaysOut:F1} per day out" : "—")
+                </div>
             </div>
-            <div class="vs-summary-cell">
-                <div class="vs-summary-value">@FormatMinutes(report.AverageCallMinutes)</div>
-                <div class="vs-summary-label">Avg per call</div>
+            <div class="vna-kpi">
+                <div class="vna-kpi-mark"></div>
+                <div class="vna-kpi-value">@($"{periodOnSite / 60:F0}h")</div>
+                <div class="vna-kpi-label">Time on site</div>
+                <div class="vna-kpi-sub">of @($"{periodClock / 60:F0}h") on the clock</div>
             </div>
-            <div class="vs-summary-cell">
-                <div class="vs-summary-value">@report.RepSummaries.Count</div>
-                <div class="vs-summary-label">Reps</div>
+            <div class="vna-kpi">
+                <div class="vna-kpi-mark"></div>
+                <div class="vna-kpi-value">@Share(PeriodShare)</div>
+                <div class="vna-kpi-label">On-site share</div>
+                <div class="vna-kpi-sub">rest is road and idle</div>
             </div>
-            <div class="vs-summary-cell">
-                <div class="vs-summary-value">@report.TradingDays</div>
-                <div class="vs-summary-label">Trading days</div>
+            <div class="vna-kpi">
+                <div class="vna-kpi-mark"></div>
+                <div class="vna-kpi-value">@(periodCalls > 0 ? $"{periodOnSite / periodCalls:F0}m" : "—")</div>
+                <div class="vna-kpi-label">Avg per call</div>
+                <div class="vna-kpi-sub">mean stop length</div>
             </div>
-            @* The count carries no colour of its own: the sheet's only warn-coloured value class is
-               scoped to .vs-meter-fill, so a state class here would be dead CSS. The chip is the
-               live vocabulary, and it earns its place only when there is something to flag. *@
-            <div class="vs-summary-cell">
-                <div class="vs-summary-value">@report.OpenCalls</div>
-                <div class="vs-summary-label">
-                    Never checked out
-                    @if (report.OpenCalls > 0)
+            <div class="vna-kpi @(periodOpen + periodMissed > 0 ? "vna-kpi-flag" : "")">
+                <div class="vna-kpi-mark"></div>
+                <div class="vna-kpi-value">@periodOpen</div>
+                <div class="vna-kpi-label">Never checked out</div>
+                <div class="vna-kpi-sub">@periodMissed missed rep-@Plural(periodMissed, "day", "days")</div>
+            </div>
+        </div>
+
+        <div class="vna-day">
+            <div class="vna-day-head">
+                <div>
+                    <div class="vna-day-title">A day on the road</div>
+                    <div class="vna-day-note">@DaySummary</div>
+                </div>
+                <div class="vna-day-pills">
+                    @foreach (var day in tradingDays)
                     {
-                        <span class="vs-chip vs-chip-warn">Open</span>
+                        var pick = day;
+                        <button type="button" class="vna-pill @(day == selectedDay ? "vna-pill-on" : "")"
+                                @onclick="() => SelectDay(pick)">
+                            @day.ToString("ddd dd MMM")
+                        </button>
                     }
+                </div>
+            </div>
+
+            <div class="vna-day-body">
+                <div class="vna-axis">
+                    <div></div>
+                    <div class="vna-axis-ticks">
+                        @foreach (var tick in axisTicks)
+                        {
+                            <div class="vna-tick" style="left:@Pct(tick.Left)">@tick.Label</div>
+                        }
+                    </div>
+                    <div class="vna-axis-cap">On site / on clock</div>
+                </div>
+
+                @foreach (var row in stripRows)
+                {
+                    <div class="vna-strip-row">
+                        <div class="vna-who">
+                            <div class="vna-avatar @(row.Flagged ? "vna-avatar-flag" : "")">@row.Initials</div>
+                            <div style="min-width:0;">
+                                <div class="vna-who-name">@row.Name</div>
+                                <div class="vna-who-route">@row.Route</div>
+                            </div>
+                        </div>
+
+                        <div class="vna-strip" style="background-size:@Pct(axisStepPercent) 100%;">
+                            @foreach (var gap in row.Gaps)
+                            {
+                                <div class="vna-gap" title="@gap.Tip"
+                                     style="left:@Pct(gap.Left);width:@Pct(gap.Width);"></div>
+                            }
+                            @foreach (var block in row.Blocks)
+                            {
+                                <div class="vna-block @(block.Open ? "vna-block-open" : "")" title="@block.Tip"
+                                     style="left:@Pct(block.Left);width:@Pct(block.Width);"></div>
+                            }
+                            @if (row.Absent)
+                            {
+                                <div class="vna-absent">no check-in recorded on this day</div>
+                            }
+                            @foreach (var edge in row.Edges)
+                            {
+                                <div class="vna-edge" style="left:@Pct(edge.Left)">@edge.Label</div>
+                            }
+                        </div>
+
+                        <div class="vna-share">
+                            <div class="vna-share-value @ShareClass(row.Share)">@Share(row.Share)</div>
+                            <div class="vna-share-note">@row.ShareNote</div>
+                        </div>
+                    </div>
+                }
+
+                <div class="vna-legend">
+                    <span class="vna-key"><span class="vna-key-swatch vna-key-site"></span>On site with a customer</span>
+                    <span class="vna-key"><span class="vna-key-swatch vna-key-idle"></span>Idle over @IdleGapMinutes.ToString("F0")m</span>
+                    <span class="vna-key"><span class="vna-key-swatch vna-key-open"></span>Never checked out</span>
+                    <span class="vna-legend-source">Times as the handset recorded them · @DayFootnote</span>
                 </div>
             </div>
         </div>
 
-        @foreach (var rep in report.RepSummaries)
+        <div class="vna-chips">
+            <span class="vna-chips-label">Exceptions</span>
+            @foreach (var definition in ChipDefinitions)
+            {
+                var key = definition.Key;
+                var count = ChipCount(key);
+                <button type="button"
+                        class="vna-chip @(chip == key ? "vna-chip-on" : "") @(count > 0 && key != AllChip ? "vna-chip-has" : "")"
+                        @onclick="() => SetChip(key)">
+                    @definition.Label<span class="vna-chip-count">@count</span>
+                </button>
+            }
+        </div>
+
+        @* The grid is not drawn empty. A head over a totals row of zeros reads as a period in which
+           six reps did nothing, rather than as a filter that matched nobody. *@
+        @if (gridRows.Count == 0)
         {
-            <div class="vs-day">
-                <div class="vs-day-head">
-                    <div>
-                        <div class="vs-day-who">@rep.DisplayName</div>
-                        <div class="vs-day-where">
-                            @rep.TotalCalls @(rep.TotalCalls == 1 ? "call" : "calls")
-                            · @rep.DistinctCustomers @(rep.DistinctCustomers == 1 ? "customer" : "customers")
-                            · @rep.TradingDays @(rep.TradingDays == 1 ? "day" : "days")
-                            · @FormatHours(rep.TotalMinutes) on site
-                            @if (rep.OpenCalls > 0)
-                            {
-                                <span> · </span><span class="vs-chip vs-chip-warn">@rep.OpenCalls open</span>
-                            }
-                            @if (rep.OfflineCalls > 0)
-                            {
-                                <span> · </span><span class="vs-chip vs-chip-neutral">@rep.OfflineCalls offline</span>
-                            }
-                        </div>
-                    </div>
-                    <div class="vs-day-when">
-                        <div class="vs-day-date">@FormatMinutes(rep.AverageMinutesPerCall) per call</div>
-                        @* The separator belongs to the figure before it, not to the line. A rep
-                           built from grouped rows always has at least one call, so neither of
-                           these can be missing in practice — but a dangling "· — closed" is what
-                           the reader would get if that ever stopped being true. *@
-                        <div>
-                            @if (rep.CallsPerDay is { } perDay)
-                            {
-                                <span>@perDay.ToString("F1") calls/day · </span>
-                            }
-                            @FormatRate(rep.CompletionRate) closed
-                        </div>
-                    </div>
-                </div>
-
-                <div class="vs-actions" style="padding: 0 16px 12px;">
-                    <button class="vs-btn" @onclick="() => ToggleRep(rep.UserId)">
-                        @(expandedReps.Contains(rep.UserId) ? "Hide detail" : "Show detail")
-                    </button>
-                </div>
-
-                @if (expandedReps.Contains(rep.UserId))
-                {
-                    <div class="vs-table-wrap">
-                        <table class="vs-table">
-                            <thead>
-                                <tr>
-                                    <th>Trading day</th>
-                                    <th>Calls</th>
-                                    <th>Customers</th>
-                                    <th>First in</th>
-                                    <th>Last out</th>
-                                    <th>On site</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var day in rep.Days)
-                                {
-                                    <tr>
-                                        <td class="vs-primary">@day.Date.ToString("ddd dd MMM yyyy")</td>
-                                        <td class="vs-num">@day.CallCount</td>
-                                        <td class="vs-num">@day.DistinctCustomers</td>
-                                        <td class="vs-num">
-                                            @if (day.FirstCheckIn is { } first)
-                                            {
-                                                @ToCat(first).ToString("HH:mm")
-                                            }
-                                        </td>
-                                        <td class="vs-num">
-                                            @if (day.OpenCalls > 0)
-                                            {
-                                                <span class="vs-chip vs-chip-warn">
-                                                    @day.OpenCalls open
-                                                </span>
-                                            }
-                                            else if (day.LastCheckOut is { } last)
-                                            {
-                                                @ToCat(last).ToString("HH:mm")
-                                            }
-                                        </td>
-                                        <td class="vs-num">@FormatHours(day.TotalMinutes)</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="vs-table-wrap">
-                        <table class="vs-table">
-                            <thead>
-                                <tr>
-                                    <th>Customer</th>
-                                    <th>Calls</th>
-                                    <th>On site</th>
-                                    <th>Avg per call</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var customer in rep.Customers)
-                                {
-                                    <tr>
-                                        <td>
-                                            <div class="vs-primary">@customer.CustomerName</div>
-                                            <div class="vs-meta">@customer.CustomerCode</div>
-                                        </td>
-                                        <td class="vs-num">@customer.CallCount</td>
-                                        <td class="vs-num">@FormatHours(customer.TotalMinutes)</td>
-                                        <td class="vs-num">
-                                            @(customer.CallCount > 0
-                                                ? FormatMinutes(customer.TotalMinutes / customer.CallCount)
-                                                : "—")
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
+            <div class="vna-empty">
+                <div class="vna-empty-title">No reps match these filters.</div>
+                <div class="vna-empty-note">Widen the date range, or clear the exception filter.</div>
             </div>
         }
+        else
+        {
+        <div class="vna-grid">
+            <div class="vna-grid-head">
+                <button type="button" class="vna-sort @SortClass(SortRep)" @onclick="() => ToggleSort(SortRep)">
+                    Rep &amp; route@Arrow(SortRep)
+                </button>
+                <button type="button" class="vna-sort vna-end @SortClass(SortDays)" @onclick="() => ToggleSort(SortDays)">
+                    Days out@Arrow(SortDays)
+                </button>
+                <button type="button" class="vna-sort vna-end @SortClass(SortCalls)" @onclick="() => ToggleSort(SortCalls)">
+                    Calls@Arrow(SortCalls)
+                </button>
+                <span class="vna-end">Customers</span>
+                <button type="button" class="vna-sort vna-end @SortClass(SortOnSite)" @onclick="() => ToggleSort(SortOnSite)">
+                    On site@Arrow(SortOnSite)
+                </button>
+                <span class="vna-end">Avg per call</span>
+                <span class="vna-end">Calls / day</span>
+                <button type="button" class="vna-sort @SortClass(SortShare)" @onclick="() => ToggleSort(SortShare)">
+                    On-site share@Arrow(SortShare)
+                </button>
+                <span></span>
+            </div>
+
+            @foreach (var row in gridRows)
+            {
+                var rep = row;
+                <div class="vna-grid-body">
+                    <div class="vna-grid-row @(rep.Flagged ? "vna-grid-row-flag" : "")"
+                         role="button" tabindex="0"
+                         @onclick="() => ToggleRep(rep.UserId)"
+                         @onkeydown="@(args => OnRowKey(args, rep.UserId))">
+                        <div class="vna-rep">
+                            <div class="vna-avatar @(rep.Flagged ? "vna-avatar-flag" : "")">@rep.Initials</div>
+                            <div style="min-width:0;">
+                                <div class="vna-rep-name">
+                                    @rep.Name
+                                    @if (rep.Flag is { } flag)
+                                    {
+                                        <span class="vna-flag @(flag.Soft ? "vna-flag-soft" : "")">
+                                            <i class="@flag.Icon" aria-hidden="true"></i>@flag.Label
+                                        </span>
+                                    }
+                                </div>
+                                <div class="vna-rep-route">@rep.Route</div>
+                            </div>
+                        </div>
+                        <div class="vna-num">
+                            <div class="@(rep.MissedDays > 0 ? "vna-flagged" : "")">@rep.DaysOut / @tradingDays.Count</div>
+                            <div class="vna-sub">@(rep.MissedDays > 0 ? $"{rep.MissedDays} missed" : "every day")</div>
+                        </div>
+                        <div class="vna-num vna-num-lead">@rep.Calls</div>
+                        <div class="vna-num">@rep.Customers</div>
+                        <div class="vna-num">@Hours(rep.OnSiteMinutes)</div>
+                        <div class="vna-num @(rep.Calls > 0 && rep.AvgPerCall < ShortCallMinutes ? "vna-flagged" : "")">
+                            @(rep.Calls > 0 ? $"{rep.AvgPerCall:F0}m" : "—")
+                        </div>
+                        <div class="vna-num">
+                            <div>@(rep.DaysOut > 0 ? $"{rep.CallsPerDay:F1}" : "—")</div>
+                            <div class="vna-sub">on days out</div>
+                        </div>
+                        <div>
+                            <div class="vna-share-cell">
+                                <span class="@ShareClass(rep.Share)" style="font-size:13.5px;font-variant-numeric:tabular-nums;">@Share(rep.Share)</span>
+                                @* "0h 00m / 0h 00m" beside a dash is noise. A rep with no clock has
+                                   nothing to put over anything, and the note has to say that. *@
+                                <span class="vna-sub">
+                                    @(rep.Share is null
+                                        ? "no time on the clock"
+                                        : $"{Hours(rep.OnSiteMinutes)} / {Hours(rep.ClockMinutes)}")
+                                </span>
+                            </div>
+                            <div class="vna-meter @(IsLowShare(rep.Share) ? "vna-meter-flag" : "")">
+                                <div class="vna-meter-fill" style="width:@Pct(rep.Share is { } value ? Math.Min(100, value * 100) : 0)"></div>
+                            </div>
+                        </div>
+                        <i class="vna-caret bi @(openRep == rep.UserId ? "bi-chevron-up" : "bi-chevron-down")" aria-hidden="true"></i>
+                    </div>
+
+                    @if (openRep == rep.UserId)
+                    {
+                        <div class="vna-detail">
+                            <div class="vna-detail-cols">
+                                <div>
+                                    <div class="vna-detail-head">
+                                        <i class="bi bi-calendar3" aria-hidden="true"></i>Trading days
+                                    </div>
+                                    <div class="vna-days-head">
+                                        <span>Trading day</span>
+                                        <span class="vna-end">First in</span>
+                                        <span class="vna-end">Last out</span>
+                                        <span class="vna-end">Calls</span>
+                                        <span class="vna-end">On site</span>
+                                        <span class="vna-end">On-site share</span>
+                                    </div>
+                                    @foreach (var day in rep.Days)
+                                    {
+                                        <div class="vna-days-row">
+                                            <span class="vna-day-label @(day.Missed ? "vna-flagged" : "")">
+                                                @day.Date.ToString("ddd dd MMM")
+                                            </span>
+                                            <span class="vna-end @(day.FirstIn is null ? "vna-flagged" : "")">@(day.FirstIn ?? "—")</span>
+                                            <span class="vna-end @(day.LastOut is null ? "vna-flagged" : "")">@(day.LastOut ?? "open")</span>
+                                            <span class="vna-end">@day.Calls</span>
+                                            <span class="vna-end">@(day.Calls > 0 ? Hours(day.OnSiteMinutes) : "—")</span>
+                                            <span class="vna-end @ShareClass(day.Share)">@Share(day.Share)</span>
+                                        </div>
+                                    }
+                                </div>
+                                <div>
+                                    <div class="vna-detail-head">
+                                        <i class="bi bi-shop" aria-hidden="true"></i>Longest stops
+                                    </div>
+                                    @foreach (var stop in rep.Stops)
+                                    {
+                                        <div class="vna-stop">
+                                            <span class="vna-stop-name" title="@stop.Code">@stop.Name</span>
+                                            <span class="vna-stop-calls">@stop.Calls @Plural(stop.Calls, "call", "calls")</span>
+                                            <span class="vna-stop-time">@Hours(stop.Minutes)</span>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                            <div class="vna-detail-actions">
+                                <button type="button" class="vna-btn vna-btn-accent" @onclick="() => OpenCallSheet(rep)">
+                                    <i class="bi bi-search" aria-hidden="true"></i>Open call sheet
+                                </button>
+                                <button type="button" class="vna-btn" @onclick="() => OpenAskDialog(rep)">
+                                    <i class="bi bi-chat-left-text" aria-hidden="true"></i>Ask @rep.FirstName to explain
+                                </button>
+                                <span class="vna-audit">@rep.AuditNote</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+
+            <div class="vna-totals">
+                <div class="vna-foot-note">
+                    @gridRows.Count @Plural(gridRows.Count, "rep", "reps") · @AxisWindowLabel window
+                </div>
+                <div class="vna-num">@gridRows.Sum(row => row.DaysOut)</div>
+                <div class="vna-num vna-num-lead">@gridRows.Sum(row => row.Calls)</div>
+                <div class="vna-num">@TotalCustomers</div>
+                <div class="vna-num">@Hours(TotalOnSite)</div>
+                <div class="vna-num">@(TotalCalls > 0 ? $"{TotalOnSite / TotalCalls:F0}m" : "—")</div>
+                <div class="vna-num">@(TotalDaysOut > 0 ? $"{(double)TotalCalls / TotalDaysOut:F1}" : "—")</div>
+                <div class="vna-num" style="text-align:left;">@Share(TotalShare)</div>
+                <div></div>
+            </div>
+        </div>
+        }
+    }
+
+    @if (sendDialogOpen)
+    {
+        <div class="vna-scrim" @onclick="CloseSendDialog">
+            <div class="vna-dialog" @onclick:stopPropagation="true" role="dialog" aria-modal="true"
+                 aria-label="Send the attendance report">
+                <div class="vna-dialog-head">
+                    <div class="vna-dialog-title">Send to supervisors</div>
+                    <div class="vna-dialog-note">
+                        @PeriodLabel · @report?.RepSummaries.Count @Plural(report?.RepSummaries.Count ?? 0, "rep", "reps")
+                        · the workbook is attached
+                    </div>
+                </div>
+                <div class="vna-dialog-body">
+                    <label class="vna-filter-label" for="vna-to-list">Recipients</label>
+                    <textarea id="vna-to-list" class="vna-field" @bind="sendRecipients"
+                              placeholder="name@example.com, another@example.com"></textarea>
+                    <label class="vna-filter-label" for="vna-cc-list">Cc (optional)</label>
+                    <input id="vna-cc-list" class="vna-field" @bind="sendCc" placeholder="name@example.com" />
+                    <div class="vna-empty-note">
+                        The list is remembered for the next send. Nothing goes out until you press Send.
+                    </div>
+                    @if (sendError is not null)
+                    {
+                        <div class="vna-notice" role="alert">@sendError</div>
+                    }
+                </div>
+                <div class="vna-dialog-foot">
+                    <button type="button" class="vna-btn" @onclick="CloseSendDialog" disabled="@isSending">Cancel</button>
+                    <button type="button" class="vna-btn vna-btn-accent" @onclick="SendReportAsync" disabled="@isSending">
+                        @(isSending ? "Sending…" : "Send")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (askRep is { } asking)
+    {
+        <div class="vna-scrim" @onclick="CloseAskDialog">
+            <div class="vna-dialog" @onclick:stopPropagation="true" role="dialog" aria-modal="true"
+                 aria-label="Ask a rep to explain">
+                <div class="vna-dialog-head">
+                    <div class="vna-dialog-title">Ask @asking.FirstName to explain</div>
+                    <div class="vna-dialog-note">
+                        A push notification to @asking.Username's handset. @PeriodLabel.
+                    </div>
+                </div>
+                <div class="vna-dialog-body">
+                    <label class="vna-filter-label" for="vna-ask">Message</label>
+                    <textarea id="vna-ask" class="vna-field" @bind="askMessage"></textarea>
+                    @if (askError is not null)
+                    {
+                        <div class="vna-notice" role="alert">@askError</div>
+                    }
+                </div>
+                <div class="vna-dialog-foot">
+                    <button type="button" class="vna-btn" @onclick="CloseAskDialog" disabled="@isAsking">Cancel</button>
+                    <button type="button" class="vna-btn vna-btn-accent" @onclick="SendAskAsync" disabled="@isAsking">
+                        @(isAsking ? "Sending…" : "Send")
+                    </button>
+                </div>
+            </div>
+        </div>
     }
 </div>
 
 @code {
+    // ---- The rules the page applies ----------------------------------------------------------
+    //
+    // Stated here rather than offered as controls, because the page prints all three in words —
+    // in the legend, in the period summary and on the chips — and a figure that moves while its
+    // caption does not is worse than one the reader cannot tune.
+
+    /// <summary>A gap between two calls at or over this is idle time, and is drawn and counted.</summary>
+    private const double IdleGapMinutes = 45;
+
+    /// <summary>A day whose clock runs shorter than this is a short day.</summary>
+    private const double ShortDayHours = 6;
+
+    /// <summary>An average stop shorter than this is flagged — long enough to park, not to sell.</summary>
+    private const double ShortCallMinutes = 10;
+
+    /// <summary>Below this, the on-site share is the finding rather than the figure.</summary>
+    private const double LowSharePercent = 45;
+
+    /// <summary>Where the axis falls back to when the day has nothing on it, in minutes past midnight.</summary>
+    private const double DefaultAxisStart = 6 * 60;
+    private const double DefaultAxisEnd = 18 * 60;
+
+    /// <summary>The narrowest the axis is allowed to get, so a two-call day is not drawn edge to edge.</summary>
+    private const double MinimumAxisMinutes = 4 * 60;
+
+    private const string AllChip = "all";
+    private const string SortRep = "rep";
+    private const string SortDays = "days";
+    private const string SortCalls = "calls";
+    private const string SortOnSite = "onsite";
+    private const string SortShare = "share";
+
+    private const string RecipientsSettingKey = "VanAttendanceReportRecipients";
+    private const string CcSettingKey = "VanAttendanceReportCc";
+    private const string ExcelContentType =
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+    private static readonly (string Key, string Label)[] ChipDefinitions =
+    [
+        (AllChip, "All reps"),
+        ("neverout", "Never checked out"),
+        ("absent", "Missed a trading day"),
+        ("short", "Short day"),
+        ("idle", "Long idle gap")
+    ];
+
+    // ---- Filters and state -------------------------------------------------------------------
+
     private VanVisitReportResponse? report;
 
     private DateTime? fromDate;
     private DateTime? toDate;
-    private string? filterUsername;
+
+    /// <summary>The chosen rep's username, or empty for all of them. Applied here, not by the API.</summary>
+    private string repFilter = string.Empty;
+
+    private string chip = AllChip;
+    private string sort = SortCalls;
+    private int direction = -1;
+    private Guid? openRep;
+    private DateTime? selectedDay;
 
     private bool isLoading;
     private bool isExporting;
     private string? loadError;
 
-    private readonly HashSet<Guid> expandedReps = [];
+    private bool sendDialogOpen;
+    private bool isSending;
+    private string sendRecipients = string.Empty;
+    private string sendCc = string.Empty;
+    private string? sendError;
+
+    private RepRow? askRep;
+    private bool isAsking;
+    private string askMessage = string.Empty;
+    private string? askError;
+
+    // ---- What a render reads -----------------------------------------------------------------
+
+    private List<DateTime> tradingDays = [];
+    private Dictionary<Guid, VanVisitReportRepSummary> summariesById = [];
+    private List<RepRow> shownReps = [];
+    private List<RepRow> gridRows = [];
+    private List<StripRow> stripRows = [];
+    private List<Tick> axisTicks = [];
+    private double axisStart = DefaultAxisStart;
+    private double axisEnd = DefaultAxisEnd;
+    private double axisStepPercent = 100d / 12;
+
+    private int periodCalls;
+    private int periodDaysOut;
+    private int periodOpen;
+    private int periodMissed;
+    private double periodOnSite;
+    private double periodClock;
+
+    private double? PeriodShare => periodClock > 0 ? periodOnSite / periodClock : null;
+
+    private int TotalCalls => gridRows.Sum(row => row.Calls);
+    private int TotalDaysOut => gridRows.Sum(row => row.DaysOut);
+    private double TotalOnSite => gridRows.Sum(row => row.OnSiteMinutes);
+    private double TotalClock => gridRows.Sum(row => row.ClockMinutes);
+    private double? TotalShare => TotalClock > 0 ? TotalOnSite / TotalClock : null;
+
+    /// <summary>
+    /// Customers counted once across the reps in view. Summing each rep's own count would count a
+    /// shop twice the moment two reps called on it, which happens wherever routes overlap.
+    /// </summary>
+    private int TotalCustomers => gridRows
+        .SelectMany(row => row.CustomerCodes)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Count();
+
+    private List<NocturneSelectOption<string>> RepOptions
+    {
+        get
+        {
+            var options = new List<NocturneSelectOption<string>>
+            {
+                new(string.Empty, "All reps") { RuleAfter = true, IsUnset = true }
+            };
+
+            options.AddRange((report?.RepSummaries ?? [])
+                .OrderBy(rep => rep.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .Select(rep => new NocturneSelectOption<string>(rep.Username, rep.DisplayName)));
+
+            return options;
+        }
+    }
+
+    private string PeriodLabel => fromDate is { } from && toDate is { } to
+        ? $"{from:dd MMM}" + (from.Year == to.Year ? "" : $" {from:yyyy}") + $" – {to:dd MMM yyyy}"
+        : "This period";
+
+    private string PeriodSummary
+    {
+        get
+        {
+            if (report is null) return string.Empty;
+
+            var reps = report.RepSummaries.Count;
+            var repDays = report.RepSummaries.Sum(rep => rep.Days.Count);
+
+            return $"{PeriodLabel} · {reps} {Plural(reps, "rep", "reps")} · " +
+                   $"{repDays} rep-{Plural(repDays, "day", "days")} · " +
+                   $"short day under {ShortDayHours:F0}h";
+        }
+    }
+
+    private string DaySummary
+    {
+        get
+        {
+            if (selectedDay is not { } day) return "No trading days in this period.";
+
+            var out_ = stripRows.Count(row => !row.Absent);
+            var calls = stripRows.Sum(row => row.Blocks.Count);
+
+            return $"{day:ddd dd MMM yyyy} · {out_} {Plural(out_, "rep", "reps")} out · " +
+                   $"{calls} {Plural(calls, "call", "calls")}";
+        }
+    }
+
+    private string DayFootnote
+    {
+        get
+        {
+            var gaps = stripRows.Sum(row => row.Gaps.Count);
+
+            return gaps > 0
+                ? $"{gaps} idle {Plural(gaps, "gap", "gaps")} over {IdleGapMinutes:F0}m"
+                : "no long idle gaps";
+        }
+    }
+
+    private string AxisWindowLabel => $"{Clock(axisStart)} – {Clock(axisEnd)}";
+
+    // ---- Lifecycle ---------------------------------------------------------------------------
 
     protected override async Task OnInitializedAsync()
     {
         var today = CatToday();
-        fromDate = today.AddDays(-29);
+        fromDate = today.AddDays(-13);
         toDate = today;
 
         await LoadAsync();
@@ -301,45 +719,40 @@
 
         try
         {
-            report = await VanSalesAttendanceService.GetReportAsync(
-                fromDate: fromDate,
-                toDate: toDate,
-                username: string.IsNullOrWhiteSpace(filterUsername) ? null : filterUsername.Trim());
+            // Deliberately without the rep filter — see the page header. The whole fleet's period is
+            // what names the trading days, fills the rep menu and gives the figures something to be
+            // a share of; narrowing it here would make all three depend on who is being looked at.
+            report = await VanSalesAttendanceService.GetReportAsync(fromDate, toDate);
 
             if (report is null)
             {
-                loadError = "The van attendance report could not be loaded. Check that the API is reachable.";
+                loadError = "The attendance report could not be loaded. Check that the API is reachable.";
+                Rebuild();
                 return;
             }
 
-            // Open the first rep, so the page arrives showing something rather than a stack of
-            // closed cards. Anyone already opened stays open across a re-run.
-            if (report.RepSummaries.Count > 0 && expandedReps.Count == 0)
+            // A rep who has no calls in the new period cannot stay selected — the filter would hide
+            // every row and the page would read as empty rather than as filtered.
+            if (repFilter.Length > 0 &&
+                !report.RepSummaries.Any(rep => rep.Username == repFilter))
             {
-                expandedReps.Add(report.RepSummaries[0].UserId);
+                repFilter = string.Empty;
             }
+
+            openRep = null;
+            Rebuild();
         }
         catch (Exception ex)
         {
-            loadError = $"Failed to build the van attendance report: {ex.Message}";
+            loadError = $"Failed to build the attendance report: {ex.Message}";
             report = null;
+            Rebuild();
         }
         finally
         {
             isLoading = false;
             StateHasChanged();
         }
-    }
-
-    private async Task ClearAsync()
-    {
-        var today = CatToday();
-        fromDate = today.AddDays(-29);
-        toDate = today;
-        filterUsername = null;
-        expandedReps.Clear();
-
-        await LoadAsync();
     }
 
     private async Task SetRangeAsync(int days)
@@ -360,12 +773,347 @@
         await LoadAsync();
     }
 
-    private void ToggleRep(Guid userId)
+    private void OnRepChanged(string? username)
     {
-        if (!expandedReps.Add(userId))
+        repFilter = username ?? string.Empty;
+        openRep = null;
+        Rebuild();
+    }
+
+    private void SetChip(string key)
+    {
+        chip = key;
+        openRep = null;
+        Rebuild();
+    }
+
+    private void SelectDay(DateTime day)
+    {
+        selectedDay = day;
+        BuildDay();
+    }
+
+    private void ToggleSort(string key)
+    {
+        if (sort == key)
         {
-            expandedReps.Remove(userId);
+            direction = -direction;
         }
+        else
+        {
+            sort = key;
+            direction = key == SortRep ? 1 : -1;
+        }
+
+        Rebuild();
+    }
+
+    private void ToggleRep(Guid userId) => openRep = openRep == userId ? null : userId;
+
+    private void OnRowKey(KeyboardEventArgs args, Guid userId)
+    {
+        if (args.Key is "Enter" or " ")
+        {
+            ToggleRep(userId);
+        }
+    }
+
+    // ---- Building what the page shows ---------------------------------------------------------
+
+    /// <summary>
+    /// Recomputes everything a render reads, from the one report already in hand.
+    ///
+    /// All of it is in-memory over a few hundred rep-days, so a filter, a sort or a different day
+    /// costs no round trip — which is the whole reason the period is fetched unfiltered.
+    /// </summary>
+    private void Rebuild()
+    {
+        if (report is null)
+        {
+            tradingDays = [];
+            summariesById = [];
+            shownReps = [];
+            gridRows = [];
+            stripRows = [];
+            axisTicks = [];
+            selectedDay = null;
+            return;
+        }
+
+        // The period's trading days: the dates somebody was out, fleet-wide. Taken from every rep
+        // rather than the shown ones, so choosing a rep does not shrink the denominator they are
+        // being measured against.
+        tradingDays = report.RepSummaries
+            .SelectMany(rep => rep.Days.Select(day => day.Date.Date))
+            .Distinct()
+            .OrderBy(date => date)
+            .ToList();
+
+        // The most recent day worked, rather than the last day of the range — which is routinely a
+        // day nobody was out, and would open the page on an empty strip. A day already chosen and
+        // still in the period survives a re-run.
+        if (selectedDay is null || !tradingDays.Contains(selectedDay.Value))
+        {
+            selectedDay = tradingDays.Count > 0 ? tradingDays[^1] : null;
+        }
+
+        var shown = report.RepSummaries
+            .Where(rep => repFilter.Length == 0 || rep.Username == repFilter)
+            .ToList();
+
+        // Kept alongside the display rows so the strip can reach the day's calls without searching
+        // the report again per rep, per render.
+        summariesById = shown.ToDictionary(rep => rep.UserId);
+        shownReps = shown.Select(BuildRep).ToList();
+
+        periodCalls = shownReps.Sum(rep => rep.Calls);
+        periodDaysOut = shownReps.Sum(rep => rep.DaysOut);
+        periodOpen = shownReps.Sum(rep => rep.OpenCalls);
+        periodMissed = shownReps.Sum(rep => rep.MissedDays);
+        periodOnSite = shownReps.Sum(rep => rep.OnSiteMinutes);
+        periodClock = shownReps.Sum(rep => rep.ClockMinutes);
+
+        gridRows = Sorted(shownReps.Where(rep => Matches(rep, chip)).ToList());
+
+        BuildDay();
+    }
+
+    private RepRow BuildRep(VanVisitReportRepSummary rep)
+    {
+        var daysOut = rep.Days.Count;
+        var missed = Math.Max(0, tradingDays.Count - daysOut);
+
+        var neverOut = rep.OpenCalls > 0;
+        var shortDay = rep.Days.Any(day => day.ClockMinutes is { } clock && clock < ShortDayHours * 60);
+        var idleGap = rep.Days.Any(day => day.IdleGaps(IdleGapMinutes).Any());
+
+        var worked = rep.Days
+            .Select(day => new DayRow(
+                day.Date,
+                day.FirstCheckIn is { } first ? Clock(MinutesOfDay(first)) : null,
+                day.LastCheckOut is { } last ? Clock(MinutesOfDay(last)) : null,
+                day.CallCount,
+                day.TotalMinutes,
+                day.OnSiteShare,
+                Missed: false))
+            .ToDictionary(day => day.Date.Date);
+
+        // Every trading day, newest first — including the ones this rep was not out for. A missing
+        // day shown as a dashed row is the finding; leaving it out is what lets it go unnoticed.
+        var days = tradingDays
+            .OrderByDescending(date => date)
+            .Select(date => worked.TryGetValue(date, out var row)
+                ? row
+                : new DayRow(date, null, null, 0, 0, null, Missed: true))
+            .ToList();
+
+        var stops = rep.Customers
+            .OrderByDescending(customer => customer.TotalMinutes)
+            .ThenByDescending(customer => customer.CallCount)
+            .Take(5)
+            .Select(customer => new StopRow(customer.CustomerCode, customer.CustomerName,
+                customer.CallCount, customer.TotalMinutes))
+            .ToList();
+
+        var findings = new List<string>();
+        if (neverOut) findings.Add($"{rep.OpenCalls} never checked out");
+        if (missed > 0) findings.Add($"{missed} missed {Plural(missed, "day", "days")}");
+        if (shortDay) findings.Add("a short day");
+        if (idleGap) findings.Add($"an idle gap over {IdleGapMinutes:F0}m");
+
+        return new RepRow(
+            rep.UserId,
+            rep.Username,
+            rep.DisplayName,
+            Initials(rep.DisplayName),
+            RouteLabel(rep),
+            daysOut,
+            missed,
+            rep.TotalCalls,
+            rep.OpenCalls,
+            rep.DistinctCustomers,
+            rep.Customers.Select(customer => customer.CustomerCode).ToList(),
+            rep.TotalMinutes,
+            rep.ClockMinutes,
+            rep.OnSiteShare,
+            rep.AverageMinutesPerCall,
+            daysOut > 0 ? (double)rep.TotalCalls / daysOut : 0,
+            neverOut,
+            shortDay,
+            idleGap,
+            days,
+            stops,
+            // The flags are computed by this page, when it runs. The design's "flagged by the nightly
+            // attendance check" would have named a job that does not exist.
+            findings.Count > 0
+                ? $"Flagged here: {string.Join(", ", findings)}"
+                : "Nothing flagged in this period");
+    }
+
+    private static bool Matches(RepRow rep, string key) => key switch
+    {
+        "neverout" => rep.NeverCheckedOut,
+        "absent" => rep.MissedDays > 0,
+        "short" => rep.HasShortDay,
+        "idle" => rep.HasIdleGap,
+        _ => true
+    };
+
+    /// <summary>
+    /// How many reps a chip would leave, counted before it is pressed. Over the rep-filtered set
+    /// rather than the chip-filtered one, so the counts do not all collapse to zero or to the
+    /// current chip's own total the moment a chip is chosen.
+    /// </summary>
+    private int ChipCount(string key) => shownReps.Count(rep => Matches(rep, key));
+
+    private List<RepRow> Sorted(List<RepRow> rows) => sort switch
+    {
+        SortRep => [.. rows.OrderBy(row => row.Name, Comparer(StringComparer.OrdinalIgnoreCase))],
+        SortDays => [.. rows.OrderBy(row => (double)row.DaysOut * direction)],
+        SortOnSite => [.. rows.OrderBy(row => row.OnSiteMinutes * direction)],
+        // A rep with no share sorts as if it were below zero, so the unavailable ones gather at one
+        // end instead of scattering through the ranking as if they were 0%.
+        SortShare => [.. rows.OrderBy(row => (row.Share ?? -0.01) * direction)],
+        _ => [.. rows.OrderBy(row => (double)row.Calls * direction)]
+    };
+
+    private IComparer<string> Comparer(StringComparer inner) =>
+        direction >= 0 ? inner : ReverseComparer.Of(inner);
+
+    /// <summary>
+    /// The selected day: the axis it needs, and one strip per rep in view — including the reps who
+    /// were not out, which is the row a supervisor is looking for.
+    /// </summary>
+    private void BuildDay()
+    {
+        stripRows = [];
+        axisTicks = [];
+
+        if (selectedDay is not { } day) return;
+
+        var rows = shownReps
+            .Select(rep => (
+                Rep: rep,
+                Day: summariesById.TryGetValue(rep.UserId, out var summary)
+                    ? summary.Days.FirstOrDefault(entry => entry.Date.Date == day)
+                    : null))
+            .ToList();
+
+        var moments = rows
+            .Where(row => row.Day is not null)
+            .SelectMany(row => row.Day!.Calls)
+            .SelectMany(call => call.CheckOutTime is { } closed
+                ? new[] { MinutesOfDay(call.CheckInTime), MinutesOfDay(closed) }
+                : new[] { MinutesOfDay(call.CheckInTime) })
+            .ToList();
+
+        if (moments.Count > 0)
+        {
+            axisStart = Math.Floor(moments.Min() / 60) * 60;
+            axisEnd = Math.Ceiling(moments.Max() / 60) * 60;
+        }
+        else
+        {
+            axisStart = DefaultAxisStart;
+            axisEnd = DefaultAxisEnd;
+        }
+
+        // A day with two calls half an hour apart would otherwise be drawn across the whole card,
+        // which reads as a full day's work. Widen to the minimum, centred on what is there.
+        if (axisEnd - axisStart < MinimumAxisMinutes)
+        {
+            var middle = (axisStart + axisEnd) / 2;
+            axisStart = Math.Max(0, Math.Floor((middle - MinimumAxisMinutes / 2) / 60) * 60);
+            axisEnd = axisStart + MinimumAxisMinutes;
+        }
+
+        var hours = (axisEnd - axisStart) / 60;
+        axisStepPercent = hours > 0 ? 100 / hours : 100;
+
+        // Every hour while they fit; every second hour once the labels would collide.
+        var every = hours <= 14 ? 1 : 2;
+        for (var hour = axisStart; hour <= axisEnd; hour += 60 * every)
+        {
+            axisTicks.Add(new Tick(Clock(hour), Position(hour)));
+        }
+
+        stripRows = rows.Select(row => BuildStrip(row.Rep, row.Day)).ToList();
+    }
+
+    private StripRow BuildStrip(RepRow rep, VanVisitReportDaySummary? day)
+    {
+        if (day is null)
+        {
+            return new StripRow(rep.Name, rep.Route, rep.Initials, Flagged: true, Absent: true,
+                [], [], [], null, "not out this day");
+        }
+
+        var blocks = day.Calls
+            .Select(call =>
+            {
+                var start = MinutesOfDay(call.CheckInTime);
+                // An open call is drawn as a short stub rather than as nothing: it has a beginning
+                // and no end, and a zero-width block would simply vanish from the day.
+                var end = call.CheckOutTime is { } closed ? MinutesOfDay(closed) : start + 12;
+                var open = call.CheckOutTime is null;
+
+                return new Block(
+                    Position(start),
+                    // Clamped to the axis: an open call's stub is drawn 12 minutes wide whatever
+                    // the data says, and a rep who checked in at ten to six would otherwise push it
+                    // past the end of the track it is supposed to sit on.
+                    Width(start, end),
+                    open,
+                    open
+                        ? $"{call.CustomerName} · {Clock(start)} · never checked out"
+                        : $"{call.CustomerName} · {Clock(start)}–{Clock(end)} · {end - start:F0}m");
+            })
+            .ToList();
+
+        var gaps = day.IdleGaps(IdleGapMinutes)
+            .Select(gap => new Block(
+                Position(MinutesOfDay(gap.FromUtc)),
+                Width(MinutesOfDay(gap.FromUtc), MinutesOfDay(gap.ToUtc)),
+                false,
+                $"Idle {gap.Minutes:F0}m · {Clock(MinutesOfDay(gap.FromUtc))}–{Clock(MinutesOfDay(gap.ToUtc))}"))
+            .ToList();
+
+        var edges = new List<Tick>();
+        if (day.FirstCheckIn is { } first)
+        {
+            edges.Add(new Tick(Clock(MinutesOfDay(first)), Position(MinutesOfDay(first))));
+        }
+
+        // The closing time only when there is room for it — on a short day the two labels sit on
+        // top of each other and neither can be read.
+        if (day.LastCheckOut is { } last && day.ClockMinutes > 90)
+        {
+            edges.Add(new Tick(Clock(MinutesOfDay(last)), Position(MinutesOfDay(last))));
+        }
+
+        var note = day.ClockMinutes is { } clock
+            ? $"{Hours(day.TotalMinutes)} of {Hours(clock)}"
+            : "no time on the clock";
+
+        return new StripRow(rep.Name, rep.Route, rep.Initials,
+            Flagged: day.OpenCalls > 0, Absent: false,
+            blocks, gaps, edges, day.OnSiteShare, note);
+    }
+
+    // ---- Actions -----------------------------------------------------------------------------
+
+    private void OpenCallSheet(RepRow rep)
+    {
+        // The ledger takes the rep and the period from the query string, so the button lands on the
+        // same rep's calls rather than on a page the reader has to filter again by hand.
+        var url = Nav.GetUriWithQueryParameters("/van-sales/activity", new Dictionary<string, object?>
+        {
+            ["rep"] = rep.Name,
+            ["from"] = fromDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            ["to"] = toDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+        });
+
+        Nav.NavigateTo(url);
     }
 
     private async Task ExportExcelAsync()
@@ -393,28 +1141,382 @@
         }
     }
 
+    private async Task OpenSendDialogAsync()
+    {
+        sendError = null;
+
+        // Pre-filled from the last send rather than from a role lookup: who supervises the vans is a
+        // fact about this company, not about the permission table, and the person sending it knows.
+        sendRecipients = await AppSettings.GetValueAsync(RecipientsSettingKey) ?? string.Empty;
+        sendCc = await AppSettings.GetValueAsync(CcSettingKey) ?? string.Empty;
+
+        sendDialogOpen = true;
+    }
+
+    private void CloseSendDialog()
+    {
+        if (isSending) return;
+
+        sendDialogOpen = false;
+        sendError = null;
+    }
+
+    private async Task SendReportAsync()
+    {
+        if (report is null) return;
+
+        var to = EmailRecipientParser.Parse(sendRecipients);
+        if (to.Count == 0)
+        {
+            sendError = "Add at least one recipient before sending.";
+            return;
+        }
+
+        isSending = true;
+        sendError = null;
+        StateHasChanged();
+
+        var (who, role) = await CurrentUserAsync();
+
+        try
+        {
+            var cc = EmailRecipientParser.Parse(sendCc);
+            var workbook = ExportService.ExportVanAttendanceReportToExcel(report, fromDate, toDate);
+            var fileName = $"van-attendance-{fromDate:yyyyMMdd}-{toDate:yyyyMMdd}.xlsx";
+
+            var result = await EmailService.SendEmailWithDiagnosticsAsync(
+                to,
+                cc,
+                $"Van attendance report - {PeriodLabel}",
+                BuildEmailBody(who),
+                attachments: [new EmailAttachmentContent(fileName, ExcelContentType, workbook)]);
+
+            if (!result.Success)
+            {
+                sendError = string.IsNullOrWhiteSpace(result.FailureMessage)
+                    ? "The email service refused the message."
+                    : result.FailureMessage;
+
+                await LogSendAsync(who, role,
+                    $"To={to.Count}, Cc={cc.Count}, Stage={result.FailureStage}",
+                    isSuccess: false, error: sendError);
+
+                return;
+            }
+
+            // Remembered only once the send succeeded, so a typo that bounced is not the list the
+            // next person starts from.
+            await AppSettings.SaveSettingAsync(RecipientsSettingKey, string.Join(", ", to), who);
+            await AppSettings.SaveSettingAsync(CcSettingKey, string.Join(", ", cc), who);
+
+            await LogSendAsync(who, role,
+                $"To={string.Join(", ", to)}, Cc={cc.Count}, Reps={report.RepSummaries.Count}",
+                isSuccess: true);
+
+            sendDialogOpen = false;
+            Snackbar.Add($"Attendance report sent to {to.Count} {Plural(to.Count, "recipient", "recipients")}.",
+                Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            sendError = $"Failed to send: {ex.Message}";
+
+            await LogSendAsync(who, role, $"To={to.Count}", isSuccess: false, error: ex.Message);
+        }
+        finally
+        {
+            isSending = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Records that the report left the building — or that it tried to and did not.
+    ///
+    /// The nine-argument overload by name, because the shorter one is ambiguous with it once the
+    /// success flag is passed: four positional arguments fit both, and the compiler cannot choose.
+    /// Naming them also settles which string is the entity and which is the user.
+    /// </summary>
+    private Task LogSendAsync(string who, string role, string? details, bool isSuccess, string? error = null) =>
+        Audit.LogAsync(
+            AuditActions.SendVanAttendanceReportEmail,
+            username: who,
+            userRole: role,
+            entityType: "Van Attendance Report",
+            entityId: PeriodLabel,
+            details: details,
+            pageUrl: "/van-sales/attendance-report",
+            isSuccess: isSuccess,
+            errorMessage: error);
+
+    private void OpenAskDialog(RepRow rep)
+    {
+        askRep = rep;
+        askError = null;
+        askMessage =
+            $"Please explain your attendance for {PeriodLabel}: {rep.AuditNote.ToLowerInvariant()}.";
+    }
+
+    private void CloseAskDialog()
+    {
+        if (isAsking) return;
+
+        askRep = null;
+        askError = null;
+    }
+
+    private async Task SendAskAsync()
+    {
+        if (askRep is not { } rep) return;
+
+        if (string.IsNullOrWhiteSpace(askMessage))
+        {
+            askError = "Write a message before sending.";
+            return;
+        }
+
+        isAsking = true;
+        askError = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await PushNotifications.SendImportantPushAsync(
+                new ImportantPushRequest(rep.Username, null, "Attendance query", askMessage.Trim()));
+
+            if (!result.IsSuccess)
+            {
+                askError = result.Message;
+                return;
+            }
+
+            askRep = null;
+            Snackbar.Add($"Sent to {rep.FirstName}'s handset.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            askError = $"Failed to send: {ex.Message}";
+        }
+        finally
+        {
+            isAsking = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task<(string Username, string Role)> CurrentUserAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        var role = state.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+
+        return (state.User.Identity?.Name ?? "Unknown",
+                string.IsNullOrWhiteSpace(role) ? "Unknown" : role);
+    }
+
+    private string BuildEmailBody(string sentBy)
+    {
+        var rows = new System.Text.StringBuilder();
+
+        foreach (var rep in gridRows)
+        {
+            rows.Append(
+                $"<tr><td style='padding:8px;border:1px solid #ddd;'>{System.Net.WebUtility.HtmlEncode(rep.Name)}" +
+                $"<div style='color:#666;font-size:12px;'>{System.Net.WebUtility.HtmlEncode(rep.Route)}</div></td>" +
+                $"<td style='padding:8px;border:1px solid #ddd;text-align:right;'>{rep.DaysOut} / {tradingDays.Count}</td>" +
+                $"<td style='padding:8px;border:1px solid #ddd;text-align:right;'>{rep.Calls}</td>" +
+                $"<td style='padding:8px;border:1px solid #ddd;text-align:right;'>{Hours(rep.OnSiteMinutes)}</td>" +
+                $"<td style='padding:8px;border:1px solid #ddd;text-align:right;'>{Share(rep.Share)}</td></tr>");
+        }
+
+        return $@"
+            <h2>Van attendance report</h2>
+            <p>{System.Net.WebUtility.HtmlEncode(PeriodLabel)} — {tradingDays.Count} trading days.
+               The full workbook is attached.</p>
+            <p>On-site share is time checked in at customers over the time between the first check-in
+               and the last check-out. A dash means the measure is unavailable, not zero.</p>
+            <table style='border-collapse:collapse;width:100%;max-width:720px;'>
+                <thead>
+                    <tr style='background:#263b56;color:#fff;'>
+                        <th style='padding:8px;border:1px solid #ddd;text-align:left;'>Rep</th>
+                        <th style='padding:8px;border:1px solid #ddd;text-align:right;'>Days out</th>
+                        <th style='padding:8px;border:1px solid #ddd;text-align:right;'>Calls</th>
+                        <th style='padding:8px;border:1px solid #ddd;text-align:right;'>On site</th>
+                        <th style='padding:8px;border:1px solid #ddd;text-align:right;'>On-site share</th>
+                    </tr>
+                </thead>
+                <tbody>{rows}</tbody>
+            </table>
+            <p style='color:#666;font-size:13px;margin-top:16px;'>
+                Sent by {System.Net.WebUtility.HtmlEncode(sentBy)} from the attendance report.
+            </p>";
+    }
+
+    // ---- Formatting --------------------------------------------------------------------------
+
     /// <summary>
     /// Today in CAT. The filters name trading days, so "today" has to be the local one — after
     /// 22:00 UTC the server's date is already tomorrow's, and the report would open on an empty day.
     /// </summary>
-    private static DateTime CatToday() => DateTime.UtcNow.AddHours(2).Date;
+    private static DateTime CatToday() => IAuditService.ToCAT(DateTime.UtcNow).Date;
+
+    /// <summary>Minutes past midnight, CAT, for an instant the API sent in UTC.</summary>
+    private static double MinutesOfDay(DateTime utc)
+    {
+        var cat = IAuditService.ToCAT(DateTime.SpecifyKind(utc, DateTimeKind.Utc));
+
+        return cat.TimeOfDay.TotalMinutes;
+    }
+
+    private double Position(double minutesOfDay) =>
+        (minutesOfDay - axisStart) / (axisEnd - axisStart) * 100;
 
     /// <summary>
-    /// The API stores UTC and this page shows CAT. A fixed offset is correct here: Zimbabwe has never
-    /// observed daylight saving, and it matches what the rest of the portal already does.
+    /// A mark's width as a percentage of the axis, never running past its right-hand end.
+    ///
+    /// The strip cannot clip its own children — the first-in and last-out labels are drawn below the
+    /// track and would be clipped with them — so anything that could overrun is bounded here.
     /// </summary>
-    private static DateTime ToCat(DateTime utc) => utc.AddHours(2);
-
-    private static string FormatHours(double minutes) =>
-        $"{(int)(minutes / 60)}h {(int)(minutes % 60)}m";
-
-    private static string FormatMinutes(double minutes) => $"{minutes:F0}m";
+    private double Width(double fromMinutes, double toMinutes) =>
+        Math.Clamp((toMinutes - fromMinutes) / (axisEnd - axisStart) * 100, 0,
+                   Math.Max(0, 100 - Position(fromMinutes)));
 
     /// <summary>
-    /// An em dash for a rate with no denominator, matching the compliance sheet — a rep with no
-    /// calls has no completion rate, and 0% would read as a rep who closed nothing.
+    /// A percentage for an inline style, always with a dot.
+    ///
+    /// InvariantCulture is not decoration: this app runs under a culture where the decimal separator
+    /// is a comma, and "left: 34,5%" is a declaration the browser drops — every block would stack on
+    /// the left edge of the strip with nothing in the console to say why.
     /// </summary>
-    private static MarkupString FormatRate(double? rate) => rate is null
-        ? new MarkupString("<span class=\"vs-metric-none\">&mdash;</span>")
-        : new MarkupString($"{rate.Value * 100:F0}%");
+    private static string Pct(double value) =>
+        value.ToString("0.###", CultureInfo.InvariantCulture) + "%";
+
+    private static string Clock(double minutesOfDay)
+    {
+        var minutes = (int)Math.Round(minutesOfDay);
+
+        return $"{minutes / 60:00}:{minutes % 60:00}";
+    }
+
+    private static string Hours(double minutes) => $"{(int)(minutes / 60)}h {(int)(minutes % 60):00}m";
+
+    /// <summary>An em dash for a share with no clock behind it — see the page header.</summary>
+    private static string Share(double? share) => share is null ? "—" : $"{share.Value * 100:F0}%";
+
+    private static bool IsLowShare(double? share) => share is { } value && value * 100 < LowSharePercent;
+
+    private static string ShareClass(double? share) =>
+        share is null ? "vna-none" : IsLowShare(share) ? "vna-flagged" : string.Empty;
+
+    private string SortClass(string key) => sort == key ? "vna-sort-on" : string.Empty;
+
+    private string Arrow(string key) => sort == key ? (direction > 0 ? " ↑" : " ↓") : string.Empty;
+
+    private static string Plural(int count, string one, string many) => count == 1 ? one : many;
+
+    private static string Initials(string name)
+    {
+        var letters = name
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select(word => word[0])
+            .ToArray();
+
+        return letters.Length == 0 ? "?" : new string(letters).ToUpperInvariant()[..Math.Min(2, letters.Length)];
+    }
+
+    /// <summary>
+    /// The rep's round. "Route not recorded" rather than a blank, for the reason the ledger gives:
+    /// a rep who checks into customers without starting a day on the handset has no route, and a
+    /// blank line reads as a rendering fault rather than as the finding it is.
+    /// </summary>
+    private static string RouteLabel(VanVisitReportRepSummary rep) =>
+        string.IsNullOrWhiteSpace(rep.RouteName)
+            ? string.IsNullOrWhiteSpace(rep.RouteCode) ? "Route not recorded" : rep.RouteCode!
+            : rep.RouteName!;
+
+    // ---- Rows --------------------------------------------------------------------------------
+
+    private sealed record RepRow(
+        Guid UserId,
+        string Username,
+        string Name,
+        string Initials,
+        string Route,
+        int DaysOut,
+        int MissedDays,
+        int Calls,
+        int OpenCalls,
+        int Customers,
+        List<string> CustomerCodes,
+        double OnSiteMinutes,
+        double ClockMinutes,
+        double? Share,
+        double AvgPerCall,
+        double CallsPerDay,
+        bool NeverCheckedOut,
+        bool HasShortDay,
+        bool HasIdleGap,
+        List<DayRow> Days,
+        List<StopRow> Stops,
+        string AuditNote)
+    {
+        public string FirstName => Name.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? Name;
+
+        public bool Flagged => NeverCheckedOut || MissedDays > 0;
+
+        /// <summary>
+        /// One badge, naming the worst thing found. Ranked, not listed: a row that wears four badges
+        /// is a row nobody reads, and the opened panel carries the rest.
+        /// </summary>
+        public FlagBadge? Flag => NeverCheckedOut
+            ? new FlagBadge("Never checked out", "bi bi-exclamation-octagon", false)
+            : MissedDays > 0
+                ? new FlagBadge("Missed a day", "bi bi-exclamation-triangle", false)
+                : HasShortDay
+                    ? new FlagBadge("Short day", "bi bi-hourglass-split", true)
+                    : HasIdleGap
+                        ? new FlagBadge("Idle gap", "bi bi-hourglass", true)
+                        : null;
+    }
+
+    private sealed record FlagBadge(string Label, string Icon, bool Soft);
+
+    private sealed record DayRow(
+        DateTime Date,
+        string? FirstIn,
+        string? LastOut,
+        int Calls,
+        double OnSiteMinutes,
+        double? Share,
+        bool Missed);
+
+    private sealed record StopRow(string Code, string Name, int Calls, double Minutes);
+
+    private sealed record StripRow(
+        string Name,
+        string Route,
+        string Initials,
+        bool Flagged,
+        bool Absent,
+        List<Block> Blocks,
+        List<Block> Gaps,
+        List<Tick> Edges,
+        double? Share,
+        string ShareNote);
+
+    private sealed record Block(double Left, double Width, bool Open, string Tip);
+
+    private sealed record Tick(string Label, double Left);
+
+    /// <summary>
+    /// A descending string comparison, for the one sort key that is text.
+    ///
+    /// The numeric keys reverse by multiplying, which a string cannot do, and
+    /// <c>OrderByDescending</c> would need a second code path through the same switch.
+    /// </summary>
+    private sealed class ReverseComparer(IComparer<string> inner) : IComparer<string>
+    {
+        public static ReverseComparer Of(IComparer<string> inner) => new(inner);
+
+        public int Compare(string? left, string? right) => inner.Compare(right, left);
+    }
 }

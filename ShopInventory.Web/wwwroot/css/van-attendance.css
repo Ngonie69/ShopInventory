@@ -1,0 +1,1208 @@
+/* ==========================================================================
+   Van attendance report — Nocturne
+
+   /van-sales/attendance-report, built from Attendance Report.dc.html.
+
+   Its own sheet rather than more of van-sales.css. The other three van pages
+   share a card-chip-meter vocabulary; this one is a drawn day — an hour axis, a
+   strip per rep, blocks for the calls on it — over a sortable grid that opens.
+   Almost nothing between the two would have been reused, and `vs-` is a small
+   shared vocabulary that stays legible only while everything in it is genuinely
+   shared.
+
+   The prefix is `vna-`, for van attendance. Deliberately **not** `vat-`:
+   app.css already owns `.vat-cell` for the tax column on the document tables,
+   under `.dark-theme … { color: #94a3b8 !important }`. A `.vat-cell` here would
+   have been repainted grey in dark theme only, by a rule three thousand lines
+   away that has nothing to do with this page — see the sibling case where
+   `.ivx-` was shared by two sheets by accident.
+
+   Palette and spacing come from nocturne-tokens.css. The block below aliases
+   them rather than restating them, and there is no `.dark-theme .vna` block at
+   all: those tokens flip at the root and every alias resolves against whichever
+   scheme is in force. That is also why nothing here is defined only inside a
+   media query.
+
+   Rules live here rather than in an inline Razor <style> block for the reason
+   the sibling sheets give: app.css carries global `.dark-theme input` rules at
+   (0,1,1) that would otherwise repaint every field, so each control carries a
+   class and each control selector is two classes deep, winning regardless of
+   load order. Headings are pinned to Nocturne's 500 because Bootstrap's global
+   `h1-h6 { font-weight: 600 }` would bolden them past the weight this system
+   allows, and every class is namespaced for the reason `.btn-primary` cannot
+   be: Bootstrap already owns that name.
+
+   ── Two things the design decides that the sheet has to hold ──
+
+   **The flag colour is the accent, not red.** The design is monochrome violet
+   throughout: a rep who missed a day is marked in the same lavender as the
+   selected pill, never in amber or red. That reads at a glance on the dark
+   ground, where the flag is pale and the rest is plain ink — but the two steps
+   sit much closer on paper, where ink is near-black and `--noct-accent-text` is
+   a deep violet. So a flagged figure takes weight 500 as well as the hue
+   (`.vna-flagged`), and the unflagged one it is being compared against stays at
+   400 in plain ink. Hue alone would have been a dark-theme-only distinction.
+
+   **An unavailable measure is an em dash, never 0%.** A rep whose day never
+   closed has no time on the clock, so no on-site share; a day with no calls has
+   no average. Those render as `.vna-none`, muted rather than flagged — missing
+   data is not a finding. Same rule, and the same em dash, as the departure
+   compliance sheet's CCR.
+   ========================================================================== */
+
+.vna {
+    /* — Grounds and ink — */
+    --vna-bg: var(--noct-bg);
+    --vna-surface: var(--noct-surface);
+    --vna-ink: var(--noct-ink);
+    --vna-mute: var(--noct-mute);
+    --vna-mute-2: var(--noct-mute-2);
+    --vna-mute-3: var(--noct-mute-3);
+    --vna-faint: var(--noct-faint);
+
+    /* — Lines and films — */
+    --vna-divider: var(--noct-divider);
+    --vna-rule: var(--noct-rule);
+    --vna-hover: var(--noct-hover);
+
+    /* — Fields — */
+    --vna-field-bg: var(--noct-field-bg);
+    --vna-field-edge: var(--noct-field-edge);
+    --vna-field-edge-hi: var(--noct-field-edge-hi);
+
+    /* — Accent — */
+    --vna-accent: var(--noct-accent);
+    --vna-accent-rgb: var(--noct-accent-rgb);
+    --vna-accent-text: var(--noct-accent-text);
+
+    /* — The strip's own marks —
+       `--vna-block` is the system's filled-control step, which is what a call on
+       the strip is: a solid the eye counts. The open block is the same accent at
+       a wash, ringed — so a call never checked out reads as an outline of the
+       thing rather than as a shorter one. Both work in either scheme because
+       both are struck from the accent rather than stated as a hex. */
+    --vna-block: var(--noct-box);
+    --vna-open-fill: rgba(var(--vna-accent-rgb), .2);
+    --vna-open-ring: inset 0 0 0 1px var(--vna-accent);
+    --vna-idle-fill: repeating-linear-gradient(135deg,
+            rgba(var(--vna-accent-rgb), .42) 0 2px,
+            transparent 2px 6px);
+    --vna-idle-ring: inset 0 0 0 1px rgba(var(--vna-accent-rgb), .35);
+    --vna-track: var(--noct-field-bg);
+
+    /* — Recessed panels: the grid's head, its totals, an opened row —
+       Nearer the page's own ground than the card is, in both schemes: darker
+       than the surface on the dark ground, greyer than white on paper. */
+    --vna-recess: var(--noct-bg);
+
+    /* — Avatars — */
+    --vna-avatar-bg: var(--noct-avatar-bg);
+    --vna-avatar-ink: var(--noct-mute);
+    --vna-avatar-flag-bg: rgba(var(--vna-accent-rgb), .18);
+    --vna-avatar-flag-ink: var(--vna-accent-text);
+
+    /* — A flagged row's wash — */
+    --vna-flag-row: rgba(var(--vna-accent-rgb), .09);
+
+    /* — Geometry —
+       The grid is stated once and used by the head, every row and the totals, so
+       the three cannot fall out of step. Its min-width is what makes the card
+       scroll horizontally rather than crush the columns. */
+    --vna-cols: minmax(190px, 1.6fr) 92px 84px 104px 104px 108px 100px 150px 26px;
+    --vna-cols-min: 1040px;
+    --vna-strip-cols: 176px minmax(360px, 1fr) 156px;
+
+    --vna-radius: var(--noct-r-md);
+    --vna-ring: 0 0 0 1px var(--vna-divider);
+
+    color: var(--vna-ink);
+    font-size: 15px;
+    line-height: 1.55;
+}
+
+/* Per-control fit for the two shared Nocturne controls. Both read these as
+   fallbacks, so setting them here is the supported way to size the controls to
+   a page — see the headers of nocturne-select.css and nocturne-date-field.css.
+   34px matches the design's filter row.
+
+   The fill and edge are set rather than left to default: both controls fall back
+   to `transparent` for their border, which is right on the pages drawn against
+   audit-trail's palette and wrong here — this filter bar is a raised card, and a
+   field with no edge on it dissolves into the card it sits in. */
+.vna {
+    --ndf-h: 34px;
+    --ndf-fs: 13.5px;
+    --ndf-radius: var(--vna-radius);
+    --ndf-fill: var(--vna-field-bg);
+    --ndf-edge: var(--vna-field-edge);
+    --ndf-edge-hi: var(--vna-field-edge-hi);
+
+    --nsel-h: 34px;
+    --nsel-fs: 13.5px;
+    --nsel-pad-x: 10px;
+    --nsel-radius: var(--vna-radius);
+    --nsel-fill: var(--vna-field-bg);
+    --nsel-edge: var(--vna-field-edge);
+    --nsel-edge-hi: var(--vna-field-edge-hi);
+}
+
+/* ── The page header ──────────────────────────────────────────────────────── */
+
+.vna-head {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--noct-s8);
+    margin-bottom: var(--noct-s6);
+    flex-wrap: wrap;
+}
+
+.vna-head-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.vna-crumb {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s3);
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--vna-faint);
+    margin-bottom: var(--noct-s2);
+}
+
+.vna-crumb-here {
+    color: var(--vna-mute-2);
+}
+
+.vna .vna-title {
+    font-weight: 500;
+    font-size: 30px;
+    line-height: 1.1;
+    letter-spacing: -.018em;
+    margin: 0 0 var(--noct-s2);
+    color: var(--vna-ink);
+}
+
+.vna-lede {
+    margin: 0;
+    max-width: 68ch;
+    font-size: 13.5px;
+    color: var(--vna-mute-2);
+}
+
+/* The definition the lede leans on, carrying its own explanation in a title.
+   A dashed underline rather than a dotted one so it does not read as a spell
+   check, and `help` so the pointer says there is something to read. */
+.vna-term {
+    color: var(--vna-accent-text);
+    border-bottom: 1px dashed rgba(var(--vna-accent-rgb), .5);
+    cursor: help;
+}
+
+.vna-head-actions {
+    display: flex;
+    gap: var(--noct-s2);
+    flex: none;
+    flex-wrap: wrap;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+
+.vna .vna-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 34px;
+    padding: var(--noct-s2) var(--noct-s4);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--vna-ink);
+    background: transparent;
+    border: 1px solid var(--vna-field-edge);
+    border-radius: var(--vna-radius);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+
+.vna .vna-btn:hover:not(:disabled) {
+    background: var(--vna-hover);
+    border-color: var(--vna-field-edge-hi);
+}
+
+.vna .vna-btn:disabled {
+    opacity: .5;
+    cursor: default;
+}
+
+.vna .vna-btn-accent {
+    color: var(--vna-accent-text);
+    border-color: var(--vna-accent);
+}
+
+.vna .vna-btn-accent:hover:not(:disabled) {
+    background: rgba(var(--vna-accent-rgb), .12);
+    border-color: var(--vna-accent);
+}
+
+.vna .vna-btn-accent:active:not(:disabled) {
+    background: rgba(var(--vna-accent-rgb), .22);
+}
+
+/* A button that is only a word — the presets, and the sort headers. */
+.vna .vna-btn-quiet {
+    border-color: transparent;
+    font-weight: 400;
+    font-size: 12.5px;
+    color: var(--vna-mute);
+}
+
+.vna .vna-btn-quiet:hover:not(:disabled) {
+    background: var(--vna-hover);
+    border-color: transparent;
+    color: var(--vna-ink);
+}
+
+/* ── The filter bar ───────────────────────────────────────────────────────── */
+
+.vna-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--noct-s4);
+    padding: var(--noct-s4) var(--noct-s6);
+    margin-bottom: var(--noct-s6);
+    background: var(--vna-surface);
+    border-radius: var(--vna-radius);
+    box-shadow: var(--vna-ring);
+}
+
+.vna-filter {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.vna-filter-label {
+    font-size: 10px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--vna-mute-3);
+}
+
+.vna-filter-date {
+    width: 148px;
+}
+
+.vna-filter-rep {
+    width: 210px;
+}
+
+.vna-presets {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s2);
+    flex-wrap: wrap;
+}
+
+.vna-period {
+    margin-left: auto;
+    padding-bottom: var(--noct-s3);
+    font-size: 11.5px;
+    color: var(--vna-mute-3);
+}
+
+/* ── The six figures ──────────────────────────────────────────────────────── */
+
+.vna-kpis {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: var(--noct-s4);
+    margin-bottom: var(--noct-s6);
+}
+
+.vna-kpi {
+    padding: var(--noct-s4) 14px 12px;
+    border-radius: var(--vna-radius);
+    background: var(--vna-surface);
+    box-shadow: var(--vna-ring);
+}
+
+/* The rule above each figure — the design's only ornament, and the one thing
+   that separates a flagged tile from the rest at a glance. */
+.vna-kpi-mark {
+    height: 2px;
+    width: 26px;
+    margin-bottom: 10px;
+    border-radius: 2px;
+    background: var(--vna-block);
+}
+
+.vna-kpi-flag .vna-kpi-mark {
+    background: var(--vna-accent);
+}
+
+.vna-kpi-value {
+    font-weight: 500;
+    font-size: 25px;
+    line-height: 1.05;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--vna-ink);
+}
+
+.vna-kpi-flag .vna-kpi-value {
+    color: var(--vna-accent-text);
+}
+
+.vna-kpi-label {
+    font-size: 9.5px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--vna-mute-3);
+    margin-top: 7px;
+}
+
+.vna-kpi-sub {
+    font-size: 11px;
+    color: var(--vna-faint);
+    margin-top: 3px;
+}
+
+.vna-kpi-flag .vna-kpi-sub {
+    color: var(--vna-accent-text);
+}
+
+/* ── A day on the road ────────────────────────────────────────────────────── */
+
+.vna-day {
+    border-radius: var(--vna-radius);
+    background: var(--vna-surface);
+    box-shadow: var(--vna-ring);
+    margin-bottom: var(--noct-s6);
+    overflow-x: auto;
+}
+
+.vna-day-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--noct-s4);
+    padding: 12px var(--noct-s6) var(--noct-s4);
+    box-shadow: inset 0 -1px 0 var(--vna-rule);
+}
+
+.vna-day-title {
+    font-size: 14.5px;
+    font-weight: 500;
+}
+
+.vna-day-note {
+    font-size: 11.5px;
+    color: var(--vna-mute-3);
+}
+
+/* The day pills scroll rather than wrap: a month-wide period has thirty of
+   them, and a wrapping row would push the strip below the fold on every load. */
+.vna-day-pills {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    overflow-x: auto;
+    padding-bottom: 2px;
+}
+
+.vna .vna-pill {
+    padding: 5px var(--noct-s4);
+    font-size: 12.5px;
+    line-height: 1.4;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    background: transparent;
+    color: var(--vna-mute);
+    border: 1px solid var(--vna-field-edge);
+    transition: background-color .12s ease, color .12s ease, border-color .12s ease;
+}
+
+.vna .vna-pill:hover {
+    background: var(--vna-hover);
+    color: var(--vna-ink);
+}
+
+.vna .vna-pill-on {
+    background: rgba(var(--vna-accent-rgb), .16);
+    color: var(--vna-accent-text);
+    border-color: var(--vna-accent);
+}
+
+.vna-day-body {
+    padding: 14px var(--noct-s6) var(--noct-s3);
+    min-width: 720px;
+}
+
+.vna-axis,
+.vna-strip-row {
+    display: grid;
+    grid-template-columns: var(--vna-strip-cols);
+    gap: 14px;
+    align-items: center;
+}
+
+.vna-axis {
+    margin-bottom: 6px;
+}
+
+.vna-axis-ticks {
+    position: relative;
+    height: 14px;
+}
+
+.vna-tick {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    font-size: 9.5px;
+    letter-spacing: .06em;
+    color: var(--vna-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.vna-axis-cap {
+    font-size: 9.5px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--vna-faint);
+    text-align: right;
+}
+
+.vna-strip-row {
+    padding: 6px 0;
+    border-radius: var(--vna-radius);
+}
+
+.vna-strip-row:hover {
+    background: var(--vna-hover);
+}
+
+.vna-who {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+}
+
+.vna-avatar {
+    width: 24px;
+    height: 24px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--vna-avatar-bg);
+    color: var(--vna-avatar-ink);
+    font-size: 9.5px;
+    font-weight: 600;
+}
+
+.vna-avatar-flag {
+    background: var(--vna-avatar-flag-bg);
+    color: var(--vna-avatar-flag-ink);
+}
+
+.vna-who-name,
+.vna-who-route {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vna-who-name {
+    font-size: 12.5px;
+    font-weight: 500;
+}
+
+.vna-who-route {
+    font-size: 10.5px;
+    color: var(--vna-faint);
+}
+
+/* The strip itself. The gridlines are painted rather than drawn as elements,
+   so a day with fourteen hours on it costs no extra nodes per row; the
+   `background-size` is set inline, because the spacing is one hour of whatever
+   window the day actually needs. */
+.vna-strip {
+    position: relative;
+    height: 28px;
+    border-radius: 6px;
+    background-color: var(--vna-track);
+    background-image: repeating-linear-gradient(90deg,
+            var(--vna-rule) 0 1px,
+            transparent 1px 100%);
+    background-repeat: repeat-x;
+}
+
+.vna-block {
+    position: absolute;
+    top: 6px;
+    height: 16px;
+    min-width: 3px;
+    border-radius: 3px;
+    background: var(--vna-block);
+}
+
+.vna-block-open {
+    background: var(--vna-open-fill);
+    box-shadow: var(--vna-open-ring);
+}
+
+.vna-gap {
+    position: absolute;
+    top: 7px;
+    height: 14px;
+    border-radius: 3px;
+    background: var(--vna-idle-fill);
+    box-shadow: var(--vna-idle-ring);
+}
+
+.vna-absent {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    padding-left: var(--noct-s4);
+    font-size: 11.5px;
+    color: var(--vna-accent-text);
+}
+
+.vna-edge {
+    position: absolute;
+    top: 22px;
+    transform: translateX(-50%);
+    font-size: 9.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--vna-faint);
+    white-space: nowrap;
+}
+
+.vna-share {
+    text-align: right;
+}
+
+.vna-share-value {
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--vna-ink);
+}
+
+.vna-share-note {
+    font-size: 10.5px;
+    color: var(--vna-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.vna-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--noct-s6);
+    padding: 12px 0 var(--noct-s3);
+    font-size: 11px;
+    color: var(--vna-faint);
+}
+
+.vna-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.vna-key-swatch {
+    width: 18px;
+    height: 8px;
+    border-radius: 2px;
+    flex: none;
+}
+
+.vna-key-site {
+    background: var(--vna-block);
+}
+
+.vna-key-idle {
+    background: var(--vna-idle-fill);
+    box-shadow: var(--vna-idle-ring);
+}
+
+.vna-key-open {
+    background: var(--vna-open-fill);
+    box-shadow: var(--vna-open-ring);
+}
+
+.vna-legend-source {
+    margin-left: auto;
+}
+
+/* ── The exception chips ──────────────────────────────────────────────────── */
+
+.vna-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--noct-s2);
+    margin-bottom: var(--noct-s4);
+}
+
+.vna-chips-label {
+    font-size: 10px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--vna-faint);
+    margin-right: var(--noct-s2);
+}
+
+.vna .vna-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px var(--noct-s4);
+    font-size: 12px;
+    line-height: 1.4;
+    border-radius: 999px;
+    cursor: pointer;
+    background: transparent;
+    color: var(--vna-mute);
+    border: 1px solid var(--vna-field-edge);
+    transition: background-color .12s ease, color .12s ease, border-color .12s ease;
+}
+
+.vna .vna-chip:hover {
+    background: var(--vna-hover);
+    color: var(--vna-ink);
+}
+
+.vna .vna-chip-on {
+    background: rgba(var(--vna-accent-rgb), .16);
+    color: var(--vna-accent-text);
+    border-color: var(--vna-accent);
+}
+
+.vna-chip-count {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--vna-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+/* A chip with something in it says so before it is opened. */
+.vna-chip-has .vna-chip-count {
+    color: var(--vna-accent-text);
+}
+
+.vna .vna-chip-on .vna-chip-count {
+    color: var(--vna-accent-text);
+}
+
+/* ── The grid ─────────────────────────────────────────────────────────────── */
+
+.vna-grid {
+    border-radius: var(--vna-radius);
+    background: var(--vna-surface);
+    box-shadow: var(--vna-ring);
+    overflow-x: auto;
+}
+
+.vna-grid-head,
+.vna-grid-row,
+.vna-totals {
+    display: grid;
+    grid-template-columns: var(--vna-cols);
+    min-width: var(--vna-cols-min);
+    align-items: center;
+    gap: var(--noct-s4);
+    padding: 9px var(--noct-s6);
+}
+
+.vna-grid-head {
+    font-size: 9.5px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--vna-mute-3);
+    background: var(--vna-recess);
+    box-shadow: inset 0 -1px 0 var(--vna-divider);
+}
+
+/* The sortable headers. A button so it is reachable by keyboard, wearing the
+   header's own type rather than the browser's. */
+.vna .vna-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-transform: inherit;
+    letter-spacing: inherit;
+    cursor: pointer;
+}
+
+.vna .vna-sort:hover {
+    color: var(--vna-ink);
+}
+
+.vna-sort-on {
+    color: var(--vna-accent-text);
+}
+
+.vna-end {
+    justify-self: end;
+    text-align: right;
+}
+
+.vna-grid-body {
+    box-shadow: inset 0 -1px 0 var(--vna-rule);
+    min-width: var(--vna-cols-min);
+}
+
+.vna-grid-row {
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    background: transparent;
+    border: 0;
+    font: inherit;
+    color: inherit;
+    transition: background-color .12s ease;
+}
+
+.vna-grid-row:hover {
+    background: var(--vna-hover);
+}
+
+.vna-grid-row-flag {
+    background: var(--vna-flag-row);
+}
+
+.vna-rep {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.vna-rep .vna-avatar {
+    width: 26px;
+    height: 26px;
+    font-size: 10px;
+}
+
+.vna-rep-name {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vna-rep-route {
+    font-size: 11px;
+    color: var(--vna-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* The one badge on a row, naming its worst finding. */
+.vna-flag {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 500;
+    background: rgba(var(--vna-accent-rgb), .18);
+    color: var(--vna-accent-text);
+}
+
+/* The quieter half of the pair — a short day or an idle gap is worth naming
+   but is not the same finding as a rep who never checked out. */
+.vna-flag-soft {
+    background: var(--vna-avatar-bg);
+    color: var(--vna-mute);
+}
+
+.vna-num {
+    text-align: right;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--vna-mute);
+}
+
+.vna-num-lead {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--vna-ink);
+}
+
+.vna-sub {
+    font-size: 10.5px;
+    color: var(--vna-faint);
+}
+
+/* A figure the page is drawing attention to. Weight as well as hue — see the
+   header: on paper the accent and the ink are both dark, and hue alone would
+   have made this a dark-theme-only mark. */
+.vna-flagged {
+    color: var(--vna-accent-text);
+    font-weight: 500;
+}
+
+/* No denominator, so no measure. Muted, because missing data is not a finding. */
+.vna-none {
+    color: var(--vna-faint);
+}
+
+.vna-share-cell {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+}
+
+.vna-meter {
+    height: 3px;
+    margin-top: 5px;
+    border-radius: 2px;
+    background: var(--vna-avatar-bg);
+    overflow: hidden;
+}
+
+/* The bar tracks the figure beside it: quiet where the share is fine, accent
+   where it is the finding.
+
+   The resting bar is a **grey**, not the block violet it started as. In light
+   `--noct-box` and `--noct-accent` resolve to the same hex, so a rest-vs-flag
+   pair built from those two is one colour on paper and the flag state is dead —
+   the same collapse that has caught this palette before. Grey against violet
+   survives both schemes. */
+.vna-meter-fill {
+    height: 100%;
+    background: var(--vna-mute-3);
+    border-radius: 2px;
+}
+
+.vna-meter-flag .vna-meter-fill {
+    background: var(--vna-accent);
+}
+
+.vna-caret {
+    justify-self: end;
+    font-size: 13px;
+    color: var(--vna-mute-3);
+}
+
+/* ── An opened rep ────────────────────────────────────────────────────────── */
+
+.vna-detail {
+    padding: 0 var(--noct-s6) var(--noct-s6);
+    background: var(--vna-recess);
+    min-width: var(--vna-cols-min);
+}
+
+.vna-detail-cols {
+    display: grid;
+    grid-template-columns: 1.55fr 1fr;
+    gap: var(--noct-s8);
+    padding-top: 14px;
+}
+
+.vna-detail-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 10px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--vna-accent-text);
+    margin-bottom: var(--noct-s3);
+}
+
+.vna-days-head,
+.vna-days-row {
+    display: grid;
+    grid-template-columns: 1.1fr 78px 78px 62px 78px 90px;
+    gap: var(--noct-s3);
+    align-items: center;
+}
+
+.vna-days-head {
+    padding-bottom: 5px;
+    font-size: 9.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--vna-faint);
+    box-shadow: inset 0 -1px 0 var(--vna-rule);
+}
+
+.vna-days-row {
+    padding: 5.5px 0;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--vna-mute);
+    box-shadow: inset 0 -1px 0 var(--vna-rule);
+}
+
+.vna-day-label {
+    font-size: 12.5px;
+    color: var(--vna-mute);
+}
+
+.vna-stop {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--noct-s4);
+    padding: 5.5px 0;
+    box-shadow: inset 0 -1px 0 var(--vna-rule);
+}
+
+.vna-stop-name {
+    font-size: 12px;
+    color: var(--vna-mute);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vna-stop-calls {
+    flex: none;
+    font-size: 11.5px;
+    color: var(--vna-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.vna-stop-time {
+    flex: none;
+    width: 82px;
+    text-align: right;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--vna-mute);
+}
+
+.vna-detail-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s3);
+    margin-top: 14px;
+    flex-wrap: wrap;
+}
+
+.vna-audit {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--vna-faint);
+}
+
+/* ── Totals, notices and the empty state ──────────────────────────────────── */
+
+.vna-totals {
+    background: var(--vna-recess);
+    padding: var(--noct-s4) var(--noct-s6);
+}
+
+.vna-totals .vna-num {
+    color: var(--vna-ink);
+}
+
+.vna-foot-note {
+    font-size: 12px;
+    color: var(--vna-mute-3);
+}
+
+.vna-empty,
+.vna-notice {
+    margin-top: var(--noct-s6);
+    padding: 33.6px;
+    text-align: center;
+    border-radius: var(--vna-radius);
+    background: var(--vna-surface);
+    box-shadow: var(--vna-ring);
+}
+
+.vna-empty-title {
+    font-size: 15px;
+    margin-bottom: 4px;
+}
+
+.vna-empty-note {
+    font-size: 12.5px;
+    color: var(--vna-mute-3);
+}
+
+.vna-notice {
+    padding: var(--noct-s4) var(--noct-s6);
+    text-align: left;
+    font-size: 13px;
+    background: var(--noct-warn-bg);
+    color: var(--noct-warn-ink);
+    box-shadow: 0 0 0 1px var(--noct-warn-edge);
+}
+
+.vna-loading {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s3);
+    padding: var(--noct-s8);
+    font-size: 13px;
+    color: var(--vna-mute-2);
+}
+
+/* ── Sending the report on ────────────────────────────────────────────────── */
+
+.vna-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--noct-s6);
+    background: var(--noct-scrim);
+}
+
+/* min-height: 0 so this cannot inherit the page root's own minimum — a dialog
+   that carries the page class picks up any `min-height` set on it and hangs a
+   topbar below the fold. */
+.vna-dialog {
+    width: min(560px, 100%);
+    min-height: 0;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--noct-r-lg);
+    background: var(--vna-surface);
+    box-shadow: var(--noct-shadow-pop);
+    overflow: hidden;
+}
+
+.vna-dialog-head {
+    padding: var(--noct-s4) var(--noct-s6);
+    box-shadow: inset 0 -1px 0 var(--vna-rule);
+}
+
+.vna-dialog-title {
+    font-size: 15px;
+    font-weight: 500;
+}
+
+.vna-dialog-note {
+    font-size: 12px;
+    color: var(--vna-mute-3);
+    margin-top: 2px;
+}
+
+.vna-dialog-body {
+    padding: var(--noct-s6);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--noct-s3);
+}
+
+.vna-dialog-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--noct-s3);
+    padding: var(--noct-s4) var(--noct-s6);
+    box-shadow: inset 0 1px 0 var(--vna-rule);
+}
+
+/* Two classes deep, so it out-specifies app.css's `.dark-theme input` and
+   `.dark-theme textarea` at (0,1,1) whatever the load order turns out to be. */
+.vna .vna-field {
+    width: 100%;
+    min-height: 34px;
+    padding: 7px 10px;
+    font: inherit;
+    font-size: 13.5px;
+    color: var(--vna-ink);
+    background: var(--vna-field-bg);
+    border: 1px solid var(--vna-field-edge);
+    border-radius: var(--vna-radius);
+}
+
+.vna .vna-field:focus {
+    outline: none;
+    border-color: var(--vna-accent);
+    box-shadow: 0 0 0 2px rgba(var(--vna-accent-rgb), .25);
+}
+
+.vna .vna-field::placeholder {
+    color: var(--noct-placeholder);
+}
+
+.vna textarea.vna-field {
+    min-height: 84px;
+    resize: vertical;
+}
+
+/* ── Narrower than a supervisor's desk ────────────────────────────────────── */
+
+@media (max-width: 1200px) {
+    .vna-kpis {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 900px) {
+    .vna-detail-cols {
+        grid-template-columns: 1fr;
+        gap: var(--noct-s6);
+    }
+}
+
+@media (max-width: 700px) {
+    .vna-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .vna .vna-title {
+        font-size: 25px;
+    }
+
+    .vna-period {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .vna-filter-date,
+    .vna-filter-rep {
+        width: 100%;
+    }
+
+    .vna-filter {
+        flex: 1 1 160px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .vna .vna-btn,
+    .vna .vna-pill,
+    .vna .vna-chip,
+    .vna-grid-row {
+        transition: none;
+    }
+}
