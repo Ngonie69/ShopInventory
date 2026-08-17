@@ -140,9 +140,13 @@
                                     <th>Address</th>
                                     @* The window is named in the header rather than left to be guessed.
                                        A bare "Sales" beside a customer captured last year would read as
-                                       all time, and it is not. *@
+                                       all time, and it is not.
+
+                                       The last sale is the other way round, and also named: the API
+                                       reports it over all time, so an empty 90 days does not blank it
+                                       and the "Never bought" badge below means exactly that. *@
                                     <th class="ops-mid">Sales (@TradingWindowDays d)</th>
-                                    <th>Last sale</th>
+                                    <th>Last sale (all time)</th>
                                     <th>Captured</th>
                                     <th class="ops-mid">Actions</th>
                                 </tr>
@@ -498,9 +502,12 @@
     }
 
     /// <summary>
-    /// How far back the two trading columns look. Stated here and printed in the column header, because
-    /// a sales count with an unnamed window is a number nobody can act on. The full picture, and any
-    /// other window, is a click away on the sales report.
+    /// How far back the sales count looks. Stated here and printed in the column header, because a sales
+    /// count with an unnamed window is a number nobody can act on. The full picture, and any other
+    /// window, is a click away on the sales report.
+    ///
+    /// It does not bound the last-sale column beside it: that one is all time, whatever is asked for
+    /// here, so a shop that last bought a year ago shows the date rather than reading as a new outlet.
     /// </summary>
     private const int TradingWindowDays = 90;
 

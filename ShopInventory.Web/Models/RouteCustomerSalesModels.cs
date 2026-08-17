@@ -157,12 +157,19 @@ public class RouteCustomerSalesRowModel
 
     public string? Phone { get; set; }
 
+    /// <summary>Sales inside the report's window. Zero is not "never bought" — that is <see cref="LastSaleAt"/>.</summary>
     public int SaleCount { get; set; }
 
+    /// <summary>Lines sold inside the window, not units: across items the unit of measure differs.</summary>
     public int LineCount { get; set; }
 
+    /// <summary>The day the shop was first converted. All time, not the window's first sale.</summary>
     public DateTime? FirstSaleAt { get; set; }
 
+    /// <summary>
+    /// The day the shop last bought, all time. Not clipped to the window, because a window cannot tell a
+    /// lapsed shop from one that has never bought: null here means never, ever.
+    /// </summary>
     public DateTime? LastSaleAt { get; set; }
 
     /// <summary>Null means never bought, which is not the same finding as a long gap.</summary>
@@ -181,8 +188,10 @@ public class RouteSalesGroupModel
 
     public int SaleCount { get; set; }
 
+    /// <summary>Customers with no sale ever — captured and not yet converted.</summary>
     public int NeverBoughtCount { get; set; }
 
+    /// <summary>Customers who have bought before but not for longer than the threshold. Lapsed, not new.</summary>
     public int DormantCount { get; set; }
 
     public List<RouteCustomerSalesTotalsModel> TotalsByCurrency { get; set; } = [];
@@ -212,6 +221,10 @@ public class RouteCustomerSalesDetailModel
     public int SaleCount { get; set; }
 
     public int LineCount { get; set; }
+
+    // The window's, unlike the same three names on RouteCustomerSalesRowModel: they are the first and last
+    // of the sales listed below. A null last sale means these dates are empty, not that the shop has never
+    // bought — that answer is on the route sales report.
 
     public DateTime? FirstSaleAt { get; set; }
 

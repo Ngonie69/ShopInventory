@@ -27,7 +27,13 @@
    **Dormant and never-bought are different findings.** A shop that has not
    bought for 90 days has lapsed and can be won back; one that has never bought
    was captured and never converted. The API returns a null gap for the second
-   rather than a large number, and this page keeps them in separate counts. *@
+   rather than a large number, and this page keeps them in separate counts.
+
+   Which is why the two counts here read `LastSaleAt`, never `SaleCount`. The
+   sales, lines and value on a row belong to the window; the last sale is all
+   time. Splitting them on an empty window instead — as this page did — filed
+   every shop whose last purchase fell outside the dates under "never bought",
+   so a 200-day lapse was reported as a shop that had never been converted. *@
 
 <div class="ops ops-rsr">
 
@@ -150,14 +156,17 @@
                 <div class="ops-figure-sub">@TotalSaleCount.ToString("N0") sale(s) in this period</div>
             </div>
             <div class="ops-figure @(DormantCount > 0 ? "ops-fam-warn" : "ops-fam-neutral")">
+                @* "Dormant" and not "Lapsed", which is the same finding: the filter above says
+                   "Dormant after", the tab says Dormant and so does the export. One word for one
+                   bucket — the sub-line below is what says which of the two findings it is. *@
                 <div class="ops-figure-head"><span class="ops-figure-rule"></span>Dormant</div>
                 <div class="ops-figure-num">@DormantCount.ToString("N0")</div>
-                <div class="ops-figure-sub">no sale for over @summary.DormantDays days</div>
+                <div class="ops-figure-sub">bought before, last over @summary.DormantDays days ago</div>
             </div>
             <div class="ops-figure @(NeverBoughtCount > 0 ? "ops-fam-bad" : "ops-fam-neutral")">
                 <div class="ops-figure-head"><span class="ops-figure-rule"></span>Never bought</div>
                 <div class="ops-figure-num">@NeverBoughtCount.ToString("N0")</div>
-                <div class="ops-figure-sub">captured but not yet converted</div>
+                <div class="ops-figure-sub">captured, no purchase on any date</div>
             </div>
         </div>
 
@@ -235,7 +244,9 @@
                                             <th class="ops-mid">Sales</th>
                                             <th class="ops-mid">Lines</th>
                                             <th class="ops-num">Value</th>
-                                            <th>Last sale</th>
+                                            @* Named, because it is the one column on the row that is not
+                                               the window — and the only one that can say "never". *@
+                                            <th>Last sale (all time)</th>
                                             <th class="ops-mid">Open orders</th>
                                         </tr>
                                     </thead>
@@ -287,7 +298,9 @@
                         <div class="ops-msg-body">
                             Longest silence first, with the customers who have never bought at the end —
                             those were captured on the road and have not placed a first order, which is a
-                            different conversation from a shop that has stopped.
+                            different conversation from a shop that has stopped. Both are read over all
+                            time rather than over the dates above, so a shop whose last purchase predates
+                            the window shows here as lapsed with its real date, not as a new outlet.
                         </div>
                     </div>
                     <div class="ops-scroll">
@@ -298,7 +311,7 @@
                                     <th>Route</th>
                                     <th>Phone</th>
                                     <th class="ops-mid">Standing</th>
-                                    <th>Last sale</th>
+                                    <th>Last sale (all time)</th>
                                     <th class="ops-mid">Days</th>
                                     <th>Captured</th>
                                 </tr>
@@ -311,7 +324,7 @@
                                         <td><span class="ops-code">@customer.AssignedBusinessPartnerCode</span></td>
                                         <td>@(string.IsNullOrWhiteSpace(customer.Phone) ? "—" : customer.Phone)</td>
                                         <td class="ops-mid">
-                                            @if (customer.SaleCount == 0)
+                                            @if (customer.LastSaleAt is null)
                                             {
                                                 <span class="ops-badge ops-fam-bad">Never bought</span>
                                             }
@@ -463,24 +476,36 @@
 
     private int TradingCount => AllCustomers.Count(customer => customer.SaleCount > 0);
 
+    /// <summary>
+    /// Shops that have bought before and have stopped. The gap is measured from the last sale on record,
+    /// which is all time — a window shorter than the silence cannot see the silence.
+    /// </summary>
     private int DormantCount => summary is null
         ? 0
         : AllCustomers.Count(customer => customer.DaysSinceLastSale is { } days && days > summary.DormantDays);
 
-    private int NeverBoughtCount => AllCustomers.Count(customer => customer.SaleCount == 0);
+    /// <summary>
+    /// Shops with no purchase on any date. A missing last sale is the only thing that can say so; an empty
+    /// window says the shop was quiet for those dates, which is a different claim entirely.
+    /// </summary>
+    private int NeverBoughtCount => AllCustomers.Count(customer => customer.LastSaleAt is null);
 
     /// <summary>
     /// The lapsed and the never-converted, longest silence first and the never-converted last.
     ///
     /// They share a table because both are a customer worth visiting, and they are ordered apart because
     /// they are not the same errand: one is a shop that has stopped, the other is one that never started.
+    ///
+    /// Membership is those two findings and nothing else. It used to include anyone with an empty window,
+    /// which put a shop that bought last week into a "needs a visit" list whenever the dates were narrower
+    /// than the dormancy threshold — and then labelled it as never having bought.
     /// </summary>
     private List<RouteCustomerSalesRowModel> DormantRows => summary is null
         ? []
         : AllCustomers
-            .Where(customer => customer.SaleCount == 0 ||
+            .Where(customer => customer.LastSaleAt is null ||
                 (customer.DaysSinceLastSale is { } days && days > summary.DormantDays))
-            .OrderBy(customer => customer.SaleCount == 0)
+            .OrderBy(customer => customer.LastSaleAt is null)
             .ThenByDescending(customer => customer.DaysSinceLastSale ?? 0)
             .ThenBy(customer => customer.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -659,10 +684,12 @@
 
     private RenderFragment RenderLastSale(RouteCustomerSalesRowModel customer) => builder =>
     {
+        // The same red as the figure and the standing badge. A missing date here is no longer "nothing in
+        // these dates" — it is a shop that has never bought, and the page says one thing about it.
         if (customer.LastSaleAt is not { } lastSale)
         {
             builder.OpenElement(0, "span");
-            builder.AddAttribute(1, "class", "ops-badge ops-fam-warn");
+            builder.AddAttribute(1, "class", "ops-badge ops-fam-bad");
             builder.AddContent(2, "Never bought");
             builder.CloseElement();
             return;
