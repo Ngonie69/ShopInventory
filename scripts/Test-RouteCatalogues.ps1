@@ -253,7 +253,14 @@ if ($realRoutes.Count -eq 0) {
 # A path mention only counts as an *entry* when the catalogue states it as an endpoint. Everything
 # else (a path inside a JSON sample, a path named in a sentence) is a mention, listed on request but
 # never failed on: a sample response body is not a claim about routing.
-$pathRegex = '(?<![A-Za-z0-9_])/?api/[A-Za-z0-9_\-\{\}/\.]*'
+#
+# The prefixes come from the routes actually parsed rather than being hard-coded to "api", so the
+# tool sees the same universe on both sides. Hard-coding it left /health/* and /hubs/* parsed as real
+# but unreadable in a catalogue: they could never be credited as documented, and a *wrong* health
+# path could never be caught.
+$rootSegments = @($realRoutes.Keys | ForEach-Object { ($_ -split '/')[0] } | Sort-Object -Unique)
+$pathRegex = '(?<![A-Za-z0-9_])/?(?:' + (($rootSegments | ForEach-Object { [regex]::Escape($_) }) -join '|') +
+             ')/[A-Za-z0-9_\-\{\}/\.]*'
 
 function Get-CatalogueEntries {
     param([string]$Text, [string]$File)
@@ -291,7 +298,8 @@ function Get-CatalogueEntries {
 
         foreach ($m in [regex]::Matches($line, $pathRegex)) {
             $path = $m.Value.TrimEnd('.', ',', ':', ';', ')', '/')
-            if ($path -match '^/?api/?$') { continue }
+            # A bare root ("/api", "/health") names no route; only what follows one does.
+            if ($rootSegments -contains $path.Trim('/')) { continue }
 
             # The verb, if any, is the last one before the path on the same line - that is how both a
             # table row (| GET | `/api/x` |) and a heading (#### GET `/api/x`) are written.
@@ -405,6 +413,15 @@ foreach ($catalogue in $Catalogues) {
                 Detail = "/$key serves no route"
             }
         }
+    }
+
+    # Coverage is a weaker question than correctness: an *entry* proves a claim about routing and is
+    # failed on, a *mention* only proves the route is named somewhere. Both count as documented.
+    # /hubs/notifications is the case that forces the distinction - it is a SignalR hub, and writing
+    # "GET" beside it to satisfy the parser would document it as something it is not.
+    foreach ($mention in $parsed.Mentions) {
+        $key = ConvertTo-NormalisedRoute $mention.Path
+        if ($key) { [void]$entryPaths.Add($key) }
     }
 
     if ($ShowMentions -and $parsed.Mentions.Count -gt 0) {

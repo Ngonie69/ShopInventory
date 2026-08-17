@@ -72,6 +72,20 @@ Examples:
   - [Fiscalisation](#32-fiscalisation)
   - [Health](#33-health)
   - [Van Sales](#34-van-sales)
+  - [Timesheets](#35-timesheets)
+  - [Route Customers](#36-route-customers)
+  - [Crates](#37-crates)
+  - [Merchandiser](#38-merchandiser)
+  - [Sync & SAP Connection](#39-sync--sap-connection)
+  - [WhatsApp](#40-whatsapp)
+  - [Email](#41-email)
+  - [Push Notifications](#42-push-notifications)
+  - [Exception Center](#43-exception-center)
+  - [Approval Process](#44-approval-process)
+  - [Fiscal Device Offline Leases](#45-fiscal-device-offline-leases)
+  - [Batches](#46-batches)
+  - [App Version](#47-app-version)
+  - [Purchasing Documents](#48-purchasing-documents)
 - [DTOs Reference](#dtos-reference)
 
 ---
@@ -369,6 +383,29 @@ Register a new user (Admin only).
 }
 ```
 
+#### Passkeys
+
+WebAuthn, in the usual two-step shape: ask for options, then send back what the authenticator
+signed. Registration needs a session; login cannot have one.
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/Auth/passkeys` | Bearer | The caller's registered passkeys |
+| POST | `/api/Auth/passkeys/register/options` | Bearer | Begin registering one |
+| POST | `/api/Auth/passkeys/register/complete` | Bearer | Finish registering it |
+| POST | `/api/Auth/passkeys/login/options` | **anonymous** | Begin a passkey login |
+| POST | `/api/Auth/passkeys/login/complete` | **anonymous** | Finish it — answers the same token pair as `/login` |
+
+#### Mobile biometrics
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/Auth/mobile/biometric-login` | **anonymous** | Exchange a stored biometric credential for tokens |
+| POST | `/api/Auth/mobile/biometric-preference` | Bearer | Record that this device may use biometrics |
+
+The pair splits the way passkeys do: recording the preference is something a signed-in user does,
+logging in with it is by definition something they cannot.
+
 ---
 
 ### 2. Password Management
@@ -424,6 +461,13 @@ Change the current user's password.
 }
 ```
 
+#### Credentials
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/Password/credentials` | Bearer | The caller's sign-in credentials |
+| PUT | `/api/Password/credentials` | Bearer | Update them |
+
 ---
 
 ### 3. Two-Factor Authentication
@@ -461,11 +505,21 @@ Change the current user's password.
 |--------|----------|-------------|
 | GET | `/api/User` | List all users (paginated, searchable) |
 | GET | `/api/User/{id}` | Get user by ID |
+| GET | `/api/User/roles` | The roles a user can be given |
+| POST | `/api/User` | Create a user |
 | PUT | `/api/User/{id}` | Update user details |
+| DELETE | `/api/User/{id}` | Delete a user |
 | POST | `/api/User/{id}/change-password` | Admin-initiated password change |
 | POST | `/api/User/{id}/unlock` | Unlock a locked-out account |
+| POST | `/api/User/{id}/deactivate` | Deactivate an account without deleting it |
+| POST | `/api/User/{id}/activate` | Reinstate one |
 
-**GET list query parameters:** `page`, `pageSize`, `search`
+**GET list query parameters:** `page` (1), `pageSize` (20), `search`, `role`
+
+Deactivating is not deleting: the account stays, its history stays, and it can be reinstated.
+[User Management](#5-user-management) does the same job under fine-grained permissions rather than
+the `AdminOnly` policy this controller sits behind — prefer it unless you specifically want the
+admin-only surface.
 
 **User DTO:**
 
@@ -498,9 +552,26 @@ Change the current user's password.
 |--------|----------|-----------|-------------|
 | GET | `/api/UserManagement` | `users.view` | List users with full details |
 | GET | `/api/UserManagement/{id}` | `users.view` | Get user with permissions |
-| POST | `/api/UserManagement` | `users.create` | Create user with granular permissions |
+| POST | `/api/UserManagement` | `users.create` **or** `users.create_merchandiser_accounts` | Create user with granular permissions |
 | PUT | `/api/UserManagement/{id}` | `users.edit` | Update user + permissions |
 | DELETE | `/api/UserManagement/{id}` | `users.delete` | Delete user |
+| GET | `/api/UserManagement/{id}/permissions` | `users.view` | One user's permissions |
+| PUT | `/api/UserManagement/{id}/permissions` | `users.manage_permissions` | Replace them |
+| GET | `/api/UserManagement/permissions/available` | `users.view` | Every permission that can be granted |
+| POST | `/api/UserManagement/{id}/unlock` | `users.edit` | Unlock a locked-out account |
+| POST | `/api/UserManagement/{id}/reset-2fa` | `users.edit` | Clear a user's 2FA enrolment |
+| GET | `/api/UserManagement/merchandisers` | `users.create_merchandiser_accounts` | The merchandiser accounts the caller manages |
+| PUT | `/api/UserManagement/merchandisers/{id}/assigned-customers` | `users.create_merchandiser_accounts` | Set one merchandiser's customers |
+| PUT | `/api/UserManagement/drivers/assigned-customers` | `users.edit` | Set the drivers' customers globally |
+| GET | `/api/UserManagement/me` | authenticated | The caller |
+| GET | `/api/UserManagement/me/permissions` | authenticated | The caller's own permissions |
+
+**Query parameters:** `page` (1), `pageSize` (**10**, not 20), `search`, `role`, `isActive`
+
+`POST /api/UserManagement` takes **either** `users.create` or
+`users.create_merchandiser_accounts` — that is what lets a supervisor create merchandiser accounts
+without holding general user-creation rights. The two `me` routes need no permission at all: a user
+can always ask what they are allowed to do.
 
 **Create User Request:**
 
@@ -835,8 +906,18 @@ correcting one is a credit note.
 | GET | `/api/CreditNote/number/{creditNoteNumber}` | `invoices.view` | Get by credit note number |
 | GET | `/api/CreditNote/by-invoice/{invoiceId}` | `invoices.view` | Credit notes for an invoice |
 | POST | `/api/CreditNote` | `invoices.create` | Create credit note |
+| POST | `/api/CreditNote/from-invoice/{invoiceId}` | `invoices.create` | Create one from an invoice |
+| PATCH | `/api/CreditNote/{id}/status` | `invoices.edit` | Change its status |
+| POST | `/api/CreditNote/{id}/approve` | `invoices.edit` | Approve it |
+| POST | `/api/CreditNote/bulk-cancel` | `invoices.edit` | Cancel many at once |
+| POST | `/api/CreditNote/duplicate-cancelled` | `invoices.create` | Re-raise cancelled credit notes |
+| DELETE | `/api/CreditNote/{id}` | `invoices.delete` | Delete one |
 
-**Query parameters:** `page`, `pageSize`, `status`, `cardCode`, `fromDate`, `toDate`
+**Query parameters:** `page` (1), `pageSize` (20), `status`, `cardCode`, `fromDate`, `toDate`,
+`includeLines` (default **false**)
+
+The list answers **headers only** unless `includeLines=true` is passed, so anything that aggregates
+by item — and not just the ones that read `lines` directly — totals zero against the default.
 
 **Credit Note Types:** `Return`, `Adjustment`, `Damage`  
 **Credit Note Statuses:** `Draft`, `Pending`, `Approved`, `Cancelled`, `Applied`
@@ -880,11 +961,27 @@ correcting one is a credit note.
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|-----------|-------------|
-| GET | `/api/SalesOrder` | `invoices.view` | List local sales orders |
-| GET | `/api/SalesOrder/{id}` | `invoices.view` | Get by ID |
-| GET | `/api/SalesOrder/number/{orderNumber}` | `invoices.view` | Get by order number |
-| POST | `/api/SalesOrder` | `invoices.create` | Create sales order |
-| PUT | `/api/SalesOrder/{id}` | `invoices.edit` | Update sales order |
+| GET | `/api/SalesOrder` | `salesorders.view` | List sales orders |
+| GET | `/api/SalesOrder/{id}` | `salesorders.view` | Get by ID |
+| GET | `/api/SalesOrder/local/{id}` | `salesorders.view` | Get the **local** order by its local id |
+| GET | `/api/SalesOrder/number/{orderNumber}` | `salesorders.view` | Get by order number |
+| GET | `/api/SalesOrder/{id}/pdf` | `salesorders.view` | Download as a PDF |
+| GET | `/api/SalesOrder/local/{id}/pdf` | `salesorders.view` | Download the local order as a PDF |
+| POST | `/api/SalesOrder` | `salesorders.create` | Create sales order |
+| PUT | `/api/SalesOrder/{id}` | `salesorders.edit` | Update sales order |
+| PATCH | `/api/SalesOrder/{id}/status` | `salesorders.edit` | Change its status |
+| POST | `/api/SalesOrder/{id}/approve` | `salesorders.approve` | Approve it |
+| POST | `/api/SalesOrder/{id}/post-to-sap` | `salesorders.post_to_sap` | Post an approved order to SAP |
+| POST | `/api/SalesOrder/{id}/convert-to-invoice` | `invoices.create` | Convert to an invoice |
+| DELETE | `/api/SalesOrder/{id}` | `salesorders.delete` | Cancel it |
+| POST | `/api/SalesOrder/backfill-web-order-tax` | Admin role | One-off tax repair (`dryRun` **true**, `maxPostedOrders` 200) |
+
+**Query parameters:** `page` (1), `pageSize` (20), `status`, `cardCode`, `fromDate`, `toDate`,
+`source`, `search`, `vanSalesUsersOnly`
+
+Approving, posting and deleting are three separate permissions, not one: `salesorders.approve`
+decides, `salesorders.post_to_sap` commits, and neither implies the other. The backfill defaults to
+`dryRun=true` — it reports what it would change unless you say otherwise.
 
 **Sales Order Statuses:** `Draft`, `Pending`, `Approved`, `PartiallyInvoiced`, `Invoiced`, `Cancelled`
 
@@ -1018,9 +1115,25 @@ Configurable under `CreditLimit` in `appsettings.json`: `Enabled`, `IncludeOpenO
 |--------|----------|-----------|-------------|
 | GET | `/api/Quotation` | `invoices.view` | List local quotations |
 | GET | `/api/Quotation/sap` | `invoices.view` | List SAP quotations |
+| GET | `/api/Quotation/sap/{docEntry}` | `invoices.view` | One SAP quotation |
+| GET | `/api/Quotation/sap/{docEntry}/pdf` | `invoices.view` | A SAP quotation as a PDF |
 | GET | `/api/Quotation/{id}` | `invoices.view` | Get by ID |
+| GET | `/api/Quotation/number/{quotationNumber}` | `invoices.view` | Get by quotation number |
+| GET | `/api/Quotation/{id}/pdf` | `invoices.view` | Download as a PDF |
 | POST | `/api/Quotation` | `invoices.create` | Create quotation |
 | PUT | `/api/Quotation/{id}` | `invoices.edit` | Update quotation |
+| PATCH | `/api/Quotation/{id}/status` | `invoices.edit` | Change its status |
+| POST | `/api/Quotation/{id}/approve` | `invoices.edit` | Approve it |
+| POST | `/api/Quotation/{id}/apply-standard-vat` | `invoices.edit` | Re-apply the standard VAT rate to every line |
+| PUT | `/api/Quotation/{id}/reprice` | `invoices.edit` | Reprice it against current prices |
+| POST | `/api/Quotation/{id}/convert-to-sales-order` | `invoices.create` | Convert to a sales order |
+| DELETE | `/api/Quotation/{id}` | `invoices.delete` | Delete it |
+
+**Query parameters:** `page` (1), `pageSize` (20), `cardCode`, `fromDate`, `toDate`; the local list
+also takes `status`
+
+The `sap/*` routes read SAP directly and are keyed by `docEntry`; everything else is the local
+quotation, keyed by its own id. A `{docEntry}` and an `{id}` are not interchangeable.
 
 **Quotation Statuses:** `Draft`, `Pending`, `Approved`, `Converted`, `Expired`, `Cancelled`
 
@@ -1064,10 +1177,24 @@ Configurable under `CreditLimit` in `appsettings.json`: `Enabled`, `IncludeOpenO
 |--------|----------|-----------|-------------|
 | GET | `/api/PurchaseOrder` | `purchasing.view` | List local purchase orders |
 | GET | `/api/PurchaseOrder/sap` | `purchasing.view` | List SAP purchase orders |
+| GET | `/api/PurchaseOrder/sap/{docEntry}` | `purchasing.view` | One SAP purchase order |
 | GET | `/api/PurchaseOrder/{id}` | `purchasing.view` | Get by ID |
+| GET | `/api/PurchaseOrder/number/{orderNumber}` | `purchasing.view` | Get by order number |
 | POST | `/api/PurchaseOrder` | `purchasing.create` | Create purchase order |
 | PUT | `/api/PurchaseOrder/{id}` | `purchasing.edit` | Update purchase order |
+| PATCH | `/api/PurchaseOrder/{id}/status` | `purchasing.edit` | Change its status |
+| POST | `/api/PurchaseOrder/{id}/approve` | `purchasing.approve` | Approve it |
 | POST | `/api/PurchaseOrder/{id}/receive` | `purchasing.receive` | Receive goods |
+| DELETE | `/api/PurchaseOrder/{id}` | `purchasing.delete` | Delete it |
+| POST | `/api/PurchaseOrder/documents/upload` | `purchasing.upload_documents` | Attach a document (multipart; `poReferenceNumber`, `description`) |
+| GET | `/api/PurchaseOrder/documents` | `purchasing.view` | Attached documents (`poReferenceNumber`) |
+
+**Query parameters:** `page` (1), `pageSize` (20), `cardCode`, `fromDate`, `toDate`; the local list
+also takes `status`
+
+Documents are keyed by the **PO reference number**, not by the order's id, so one can be uploaded
+before the order exists here. The other four purchasing documents are in
+[Purchasing Documents](#48-purchasing-documents).
 
 **Purchase Order Statuses:** `Draft`, `Pending`, `Approved`, `PartiallyReceived`, `Received`, `Cancelled`, `OnHold`
 
@@ -1149,12 +1276,21 @@ customer's payments and match on the invoice yourself.
 **Base route:** `/api/Payment`  
 **Auth:** Bearer + ApiAccess
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/Payment/providers` | Get available payment providers |
-| POST | `/api/Payment/initiate` | Initiate a payment transaction |
-| GET | `/api/Payment/{id}/status` | Check payment status |
-| GET | `/api/Payment/transactions` | Transaction history (paginated, filterable) |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/Payment/providers` | **anonymous** | Get available payment providers |
+| POST | `/api/Payment/initiate` | `ApiAccess` | Initiate a payment transaction |
+| GET | `/api/Payment/{id}/status` | `ApiAccess` | Check payment status |
+| GET | `/api/Payment/transactions` | `ApiAccess` | Transaction history (`provider`, `status`, `page` 1, `pageSize` 50) |
+| POST | `/api/Payment/{id}/cancel` | `ApiAccess` | Cancel a payment |
+| POST | `/api/Payment/{id}/refund` | **AdminOnly** | Refund one (`amount`; a partial refund when given) |
+| POST | `/api/Payment/callback/paynow` | **anonymous** | PayNow's callback |
+| POST | `/api/Payment/callback/innbucks` | **anonymous** | Innbucks' callback |
+| POST | `/api/Payment/callback/ecocash` | **anonymous** | Ecocash's callback |
+
+The three callbacks are anonymous because the gateway is not a user; they are the routes to point a
+provider's webhook configuration at. `/refund` is the one route on this controller behind
+`AdminOnly`.
 
 **Supported Providers:** `PayNow`, `Innbucks`, `Ecocash`
 
@@ -1217,7 +1353,10 @@ customer's payments and match on the invoice yourself.
 | PATCH | `/api/InventoryTransfer/request/{docEntry}` | Change an open request's lines and warehouses. Admin, StockController, DepotController, Manager |
 | POST | `/api/InventoryTransfer/request/{docEntry}/convert` | Authorize a request and generate the SAP transfer. Admin, StockController, DepotController |
 | POST | `/api/InventoryTransfer/request/{docEntry}/close` | Close a request in SAP without converting it. Admin, StockController, DepotController |
+| GET | `/api/InventoryTransfer/requests/{warehouseCode}` | A warehouse's transfer requests |
+| GET | `/api/InventoryTransfer/request/{docEntry}` | One transfer request |
 | GET | `/api/InventoryTransfer/request-edits` | List changes held for approval (`status`, `requestDocEntry`, `page`, `pageSize`) |
+| GET | `/api/InventoryTransfer/request-edits/{id}` | One held change |
 | POST | `/api/InventoryTransfer/request-edits/{id}/decision` | Approve or reject a held change |
 | POST | `/api/InventoryTransfer/request-edits/{id}/cancel` | Withdraw a change the caller proposed |
 
@@ -1501,11 +1640,44 @@ capped read never sees one — so a truncated period is only ever "more than the
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/Document/templates` | List all templates (filter by `?type=Invoice`) |
+| GET | `/api/Document/templates` | List templates (`documentType`, `activeOnly` default **true**, `page` 1, `pageSize` 20) |
 | GET | `/api/Document/templates/{id}` | Get template by ID |
 | GET | `/api/Document/templates/default/{documentType}` | Get default template for a document type |
+| GET | `/api/Document/templates/placeholders/{documentType}` | The placeholders a template of that type may use |
 | POST | `/api/Document/templates` | Create template (Admin/Manager) |
 | PUT | `/api/Document/templates/{id}` | Update template |
+| DELETE | `/api/Document/templates/{id}` | Delete template |
+| POST | `/api/Document/templates/{id}/set-default` | Make it the default for its document type |
+
+The list filter is `documentType`, not `type`.
+
+#### Generating and sending
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/Document/generate` | Render a document |
+| POST | `/api/Document/generate/download` | Render it and return the file |
+| POST | `/api/Document/email` | Render it and email it |
+| GET | `/api/Document/history` | What was generated (`documentType`, `entityId`, `page` 1, `pageSize` 20) |
+
+#### Signatures
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/Document/signatures` | Sign a document |
+| GET | `/api/Document/signatures` | Signatures on one (`documentType` and `documentId`, both required) |
+| POST | `/api/Document/signatures/{id}/verify` | Verify one |
+
+#### Email templates
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/Document/email-templates` | List (`activeOnly`, default **true**) |
+| GET | `/api/Document/email-templates/{templateCode}` | One, **by its code** |
+| POST | `/api/Document/email-templates` | Create one |
+| PUT | `/api/Document/email-templates/{id}` | Update one, **by its id** |
+
+`GET` takes a template *code* and `PUT` takes an *id* — the same path segment, two different keys.
 
 **Document Types:** `Invoice`, `CreditNote`, `SalesOrder`, `Quotation`, `PurchaseOrder`, `Statement`, `DeliveryNote`
 
@@ -1791,6 +1963,11 @@ Pass `null` for `notificationIds` to mark all as read.
 | PUT | `/api/Webhook/{id}` | Update webhook |
 | DELETE | `/api/Webhook/{id}` | Delete webhook |
 | POST | `/api/Webhook/{id}/test` | Send test event to webhook |
+| GET | `/api/Webhook/deliveries` | Delivery attempts (`webhookId`, `page` 1, `pageSize` 50) |
+| GET | `/api/Webhook/event-types` | **Anonymous.** The event types available to subscribe to |
+
+`GET /api/Webhook/event-types` is the one route here outside the Admin role — it is a static
+vocabulary, and a subscriber needs it before it has anything to authenticate with.
 
 **Supported Event Types:**
 
@@ -1844,7 +2021,16 @@ The `signature` is an HMAC-SHA256 of the payload body using the webhook secret.
 | GET | `/api/Backup` | `backups.view` | List all backups (paginated) |
 | GET | `/api/Backup/{id}` | `backups.view` | Get backup details |
 | GET | `/api/Backup/stats` | `backups.view` | Backup statistics |
+| GET | `/api/Backup/capabilities` | `backups.view` | What this deployment can actually do — which backup and restore paths are available |
+| GET | `/api/Backup/{id}/download` | `backups.view` | Download the backup file |
 | POST | `/api/Backup` | `backups.create` | Create new backup |
+| POST | `/api/Backup/{id}/restore` | `backups.restore` | Restore from one |
+| DELETE | `/api/Backup/{id}` | `backups.delete` | Delete one |
+| POST | `/api/Backup/reset-database` | **Admin role** | Reset the database |
+
+> `POST /api/Backup/reset-database` is destructive and gated on the Admin **role** rather than on a
+> backup permission. Check `/api/Backup/capabilities` before assuming a restore path exists in the
+> environment you are pointed at.
 
 **Create Backup Request:**
 
@@ -1881,10 +2067,16 @@ The `signature` is an HMAC-SHA256 of the payload body using the webhook secret.
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|-----------|-------------|
-| GET | `/api/RateLimit` | `users.edit` | List all rate limits |
+| GET | `/api/RateLimit` | `users.edit` | List all rate limits (`page` 1, `pageSize` 20, `blockedOnly`) |
 | GET | `/api/RateLimit/client/{clientId}` | `users.edit` | Get client's rate limit info |
 | GET | `/api/RateLimit/current` | ApiAccess | Get current request's rate limit status |
 | GET | `/api/RateLimit/check` | ApiAccess | Check if request would be allowed (non-incrementing) |
+| POST | `/api/RateLimit/block/{clientId}` | `users.edit` | Block a client |
+| POST | `/api/RateLimit/unblock/{clientId}` | `users.edit` | Unblock one |
+| POST | `/api/RateLimit/cleanup` | `users.edit` | Clear expired counters |
+
+Rate limit administration is gated on `users.edit`, not on a rate-limit permission of its own —
+there isn't one.
 
 **Rate Limit Status Response:**
 
@@ -1951,7 +2143,7 @@ This controller supports stock reservations and queue-based invoice posting for 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/DesktopIntegration/reservations` | Create stock reservation (holds inventory) |
-| GET | `/api/DesktopIntegration/reservations` | List reservations (`sourceSystem`, `status`, `cardCode`, …) |
+| GET | `/api/DesktopIntegration/reservations` | List reservations (`sourceSystem`, `status`, `cardCode`, `externalReferenceId`, `activeOnly` default **true**, `page` 1, `pageSize` 20) |
 | GET | `/api/DesktopIntegration/reservations/{reservationId}` | Get reservation details |
 | GET | `/api/DesktopIntegration/reservations/by-reference/{externalReferenceId}` | Find a reservation by the caller's own reference |
 | POST | `/api/DesktopIntegration/reservations/confirm` | Confirm and post to SAP |
@@ -2002,11 +2194,14 @@ Confirm, cancel and renew are **POSTs that take the reservation id in the body**
 | POST | `/api/DesktopIntegration/invoices/queued` | Queue an invoice for async posting (answers `202`) |
 | GET | `/api/DesktopIntegration/queue/{externalReference}` | Check queue status by the caller's own reference |
 | GET | `/api/DesktopIntegration/queue/by-reservation/{reservationId}` | Check queue status by reservation |
-| GET | `/api/DesktopIntegration/queue` | The queue |
-| GET | `/api/DesktopIntegration/queue/review` | Queue entries needing a human look |
+| GET | `/api/DesktopIntegration/queue` | The queue (`sourceSystem`, `limit` 100) |
+| GET | `/api/DesktopIntegration/queue/review` | Queue entries needing a human look (`limit` 50) |
 | GET | `/api/DesktopIntegration/queue/stats` | Queue counts |
-| POST | `/api/DesktopIntegration/queue/{id}/retry` | Retry a failed queue entry |
-| DELETE | `/api/DesktopIntegration/queue/{id}` | Drop a queue entry |
+| POST | `/api/DesktopIntegration/queue/{externalReference}/retry` | Retry a failed queue entry |
+| DELETE | `/api/DesktopIntegration/queue/{externalReference}` | Drop a queue entry |
+
+Queue entries are addressed by the caller's own `externalReference` throughout — there is no
+server-side queue id in any of these routes.
 
 The queue routes sit under `/queue`, **not** under `/invoices/queue*` — the invoice routes create,
 the queue routes track.
@@ -2017,6 +2212,89 @@ the queue routes track.
 |--------|----------|-------------|
 | POST | `/api/DesktopIntegration/invoices/validate` | Validate an invoice and its batch allocations. `autoAllocateBatches` defaults to `true` and `allocationStrategy` to `FEFO` |
 | POST | `/api/DesktopIntegration/stock/validate` | Validate stock availability for a set of lines |
+
+#### Reading documents back
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/DesktopIntegration/invoices/{docEntry}` | One invoice |
+| GET | `/api/DesktopIntegration/invoices/by-docnum/{docNum}` | One invoice by DocNum |
+| GET | `/api/DesktopIntegration/invoices/customer/{cardCode}` | A customer's invoices (`fromDate`, `toDate`) |
+| GET | `/api/DesktopIntegration/invoices/date-range` | Invoices between two dates (`fromDate`, `toDate`, both required) |
+| GET | `/api/DesktopIntegration/invoices/paged` | Invoices, paginated (`page` 1, `pageSize` 20) |
+| GET | `/api/DesktopIntegration/invoices/{docEntry}/pdf` | An invoice as a PDF (`fiscalQrCode`) |
+| GET | `/api/DesktopIntegration/credit-notes/by-docnum/{docNum}` | One credit note by DocNum |
+| POST | `/api/DesktopIntegration/sales-orders/convert-to-invoice` | Convert a sales order |
+| POST | `/api/DesktopIntegration/fiscal-transactions` | Sync a fiscal transaction back to the local projection |
+
+The PDF route takes the QR payload as a **query parameter** rather than composing it — the desktop
+already holds the fiscalised receipt and passes what it was given.
+
+#### Stock
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/DesktopIntegration/stock/{warehouseCode}` | A warehouse's stock (`itemCodes`, comma-separated) |
+| GET | `/api/DesktopIntegration/stock/{warehouseCode}/{itemCode}` | One item's stock |
+| GET | `/api/DesktopIntegration/stock/{warehouseCode}/{itemCode}/batches` | Its batches |
+| GET | `/api/DesktopIntegration/stock/{warehouseCode}/local` | The local snapshot (`snapshotDate`) |
+| GET | `/api/DesktopIntegration/stock/monitored-warehouses` | Which warehouses are snapshotted |
+| POST | `/api/DesktopIntegration/stock/fetch-daily` | Take today's snapshot now |
+
+#### Transfers
+
+The transfer surface mirrors the invoice one: post directly, or queue and track. Note the queue for
+transfers is `transfer-queue`, separate from the invoice `queue`.
+
+| Method | Endpoint | Roles | Description |
+|--------|----------|-------|-------------|
+| POST | `/api/DesktopIntegration/transfers` | Admin, ApiUser | Post a transfer on the request |
+| POST | `/api/DesktopIntegration/transfers/queued` | Admin, ApiUser | Queue one |
+| POST | `/api/DesktopIntegration/transfers/validate` | (class) | Validate before posting |
+| GET | `/api/DesktopIntegration/transfers/{docEntry}` | (class) | One transfer |
+| GET | `/api/DesktopIntegration/transfers/warehouse/{warehouseCode}` | (class) | A warehouse's transfers |
+| GET | `/api/DesktopIntegration/transfers/warehouse/{warehouseCode}/paged` | (class) | The same, paginated |
+| GET | `/api/DesktopIntegration/transfers/warehouse/{warehouseCode}/date-range` | (class) | The same, between two dates |
+| POST | `/api/DesktopIntegration/transfer-requests` | (class) | Raise a transfer request |
+| GET | `/api/DesktopIntegration/transfer-requests/{docEntry}` | (class) | One request |
+| GET | `/api/DesktopIntegration/transfer-requests/warehouse/{warehouseCode}` | (class) | A warehouse's requests |
+| GET | `/api/DesktopIntegration/transfer-requests/paged` | (class) | Requests, paginated |
+| POST | `/api/DesktopIntegration/transfer-requests/{docEntry}/convert` | Admin, StockController, DepotController | Authorise and generate the transfer |
+| POST | `/api/DesktopIntegration/transfer-requests/{docEntry}/close` | Admin, StockController, DepotController | Close without converting |
+| GET | `/api/DesktopIntegration/transfer-queue` | (class) | The transfer queue (`sourceSystem`, `limit` 100) |
+| GET | `/api/DesktopIntegration/transfer-queue/review` | (class) | Entries needing a look (`limit` 50) |
+| GET | `/api/DesktopIntegration/transfer-queue/stats` | (class) | Queue counts |
+| GET | `/api/DesktopIntegration/transfer-queue/{externalReference}` | (class) | One entry |
+| POST | `/api/DesktopIntegration/transfer-queue/{externalReference}/retry` | (class) | Retry it |
+| DELETE | `/api/DesktopIntegration/transfer-queue/{externalReference}` | (class) | Drop it |
+| POST | `/api/DesktopIntegration/webhook/transfer-event` | (class) | Take a transfer event from SAP |
+
+#### Desktop sales and end of day
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/DesktopIntegration/sales` | Record a desktop sale |
+| GET | `/api/DesktopIntegration/sales` | The sales (`warehouseCode`, `cardCode`, `consolidationStatus`, `fromDate`, `toDate`, `page` 1, `pageSize` 50) |
+| POST | `/api/DesktopIntegration/end-of-day/consolidate` | Consolidate the day's sales |
+| GET | `/api/DesktopIntegration/end-of-day/report` | The day's report (`reportDate`) |
+| POST | `/api/DesktopIntegration/end-of-day/email-report` | Email it (`reportDate`) |
+
+#### Prices
+
+A second price surface for the desktop, separate from [Prices](#9-prices).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/DesktopIntegration/prices/pricelists` | The price lists (`forceRefresh`) |
+| GET | `/api/DesktopIntegration/prices/pricelists/{priceListNum}` | One list (`forceRefresh`) |
+| GET | `/api/DesktopIntegration/prices/pricelists/{priceListNum}/items/{itemCode}` | One item's price on one list |
+| GET | `/api/DesktopIntegration/prices/business-partner/{cardCode}` | A customer's prices |
+| POST | `/api/DesktopIntegration/prices/sync` | Sync prices |
+| POST | `/api/DesktopIntegration/prices/pricelists/sync` | Sync the lists |
+| POST | `/api/DesktopIntegration/prices/pricelists/{priceListNum}/sync` | Sync one list |
+
+Note the spelling: this controller uses `prices/business-partner/{cardCode}` with a hyphen, where
+[Prices](#9-prices) uses `businesspartner/{cardCode}` without one.
 
 ---
 
@@ -2156,6 +2434,31 @@ Health check endpoint. No authentication required.
   "timestamp": "2026-04-01T10:00:00Z"
 }
 ```
+
+#### Probes
+
+These are **not** controller routes — they are `MapHealthChecks` registrations in `Program.cs`, all
+anonymous, each selecting its checks by tag. A route sweep of the controllers will not find them.
+
+| Endpoint | Tag | What it answers |
+|----------|-----|-----------------|
+| `GET /health/live` | `live` | The process is up |
+| `GET /health/deploy-ready` | `deploy-ready` | Safe to cut traffic over to this deployment |
+| `GET /health/ready` | `ready` | Ready to serve |
+| `GET /health/dependencies` | `dependencies` | The downstreams, **SAP included** |
+
+`/health/dependencies` is the only probe whose checks reach SAP, and it runs on the background
+queue: it is meant for monitoring to poll, not for a person or a load balancer to block on. Point
+liveness and readiness at the first three.
+
+#### Realtime
+
+| Endpoint | Description |
+|----------|-------------|
+| `/hubs/notifications` | The SignalR hub the web app subscribes to for live notifications |
+
+A hub is not a REST endpoint — connect with a SignalR client, not with `GET`. See
+[Notifications](#25-notifications) for the REST side of the same feature.
 
 ---
 
@@ -2502,6 +2805,384 @@ That catalogue is deliberately not the same list as
 `/api/Product/warehouse/{code}/paged?vanSaleOnly=true`, which answers what a van *can sell* now. A
 transfer request needs the first: the items worth asking the depot for are precisely the ones the
 van has none of, and those are absent from the warehouse page by design.
+
+---
+
+### 35. Timesheets
+
+**Base route:** `/api/Timesheet`  
+**Auth:** Bearer + `ApiAccess`, plus the permission below
+
+Merchandiser attendance. The van counterpart is [Van Sales](#34-van-sales), and the two are
+**pinned, not filtered**: this controller answers only for merchandisers, that one only for vans,
+neither takes a channel from the caller, and there is no query string that crosses between them.
+
+| Method | Endpoint | Permission | Description |
+|--------|----------|------------|-------------|
+| POST | `/api/Timesheet/check-in` | `timesheets.manage` | Check into a customer. Answers `201` |
+| POST | `/api/Timesheet/check-out` | `timesheets.manage` | Check out of the open call |
+| GET | `/api/Timesheet/active` | `timesheets.manage` | The caller's open call, if any |
+| GET | `/api/Timesheet/assigned-customers` | `timesheets.manage` | The customers the caller may check into |
+| GET | `/api/Timesheet` | `timesheets.view` | A page of calls |
+| GET | `/api/Timesheet/report` | `timesheets.view` | Time on the round, summarised per user |
+
+**`GET /api/Timesheet`:** `page` (1), `pageSize` (20), `userId`, `username`, `customerCode`,
+`fromDate`, `toDate`
+**`GET /api/Timesheet/report`:** `userId`, `username`, `fromDate`, `toDate`
+
+The report groups on the **raw UTC date**, unlike the van report, which counts CAT trading days —
+an 18:30 CAT call is filed under the following day here. The two reports are not interchangeable.
+
+---
+
+### 36. Route Customers
+
+**Base route:** `/api/route-customers`  
+**Auth:** Bearer + `ApiAccess`, plus the permission below
+
+The shops on a selling route: the customers a van or merchandiser calls on, as distinct from the SAP
+business partner they invoice against. A route customer carries `assignedBusinessPartnerCode`, which
+is the link between the two.
+
+| Method | Endpoint | Permission | Description |
+|--------|----------|------------|-------------|
+| GET | `/api/route-customers` | `customers.view` | The route customers |
+| GET | `/api/route-customers/sales-summary` | `customers.view` | Sales per route customer, dormancy included |
+| GET | `/api/route-customers/product-mix` | `customers.view` | What they buy |
+| GET | `/api/route-customers/{id}/sales` | `customers.view` | One shop's sales (`from`, `to`) |
+| POST | `/api/route-customers` | `customers.create` | Create one |
+| PUT | `/api/route-customers/{id}` | `customers.edit` | Update one |
+| DELETE | `/api/route-customers/{id}` | `customers.delete` | Delete one |
+
+| Endpoint | Parameters |
+|----------|------------|
+| `/api/route-customers` | `assignedBusinessPartnerCode`, `activeOnly` (default **true**) |
+| `/sales-summary` | `assignedBusinessPartnerCode`, `from`, `to`, `dormantDays`, `includeInactive` (default **true**) |
+| `/product-mix` | `assignedBusinessPartnerCode`, `routeCustomerId`, `from`, `to`, `top` (default `0`, meaning no cap) |
+
+The two list defaults disagree on purpose: the plain list hides inactive shops, the sales summary
+counts them, because a shop that went quiet is the thing a dormancy report exists to show.
+
+`sales-summary` separates a **lapsed** shop from one that has **never bought**, and the two counts
+are disjoint. Both are read from the all-time `lastSaleAt` rather than from the window's sale count —
+a shop with no sales inside the window has not necessarily never bought, and answering it from the
+window files every lapsed shop under never-converted. `dormantDays` sets the threshold between them.
+
+`POST /api/vansales/customer` creates one of these too — see [Van Sales](#34-van-sales).
+
+---
+
+### 37. Crates
+
+**Base route:** `/api/crates`  
+**Auth:** Bearer + the `ApiAccessWithOperator` policy, plus the roles below
+
+Returnable crates: what went out with a delivery, what came back, and the proof for each.
+
+| Method | Endpoint | Roles | Description |
+|--------|----------|-------|-------------|
+| GET | `/api/crates/transactions` | Admin, Manager, Merchandiser, PodOperator, Operator, Driver, SalesRep | Crate movements (`search`, `status`, `transactionType`) |
+| POST | `/api/crates/transactions/ensure-invoice` | Admin, Manager, Merchandiser, Driver | Open the crate transaction for an invoice if it has none |
+| GET | `/api/crates/pods` | Admin, Manager, Merchandiser, PodOperator, Operator, Driver, SalesRep | Crate PODs (`search`, `submissionRole`) |
+| POST | `/api/crates/transactions/{id}/pods` | Admin, Manager, Merchandiser, PodOperator, Operator, Driver | Upload a crate POD (multipart) |
+| POST | `/api/crates/pods/validate-bulk` | Admin, Manager, Merchandiser, PodOperator, Operator, Driver | Check a batch for PODs already held |
+| DELETE | `/api/crates/pods/{id}` | Admin, Manager, Merchandiser, Operator, Driver | Remove a POD |
+| GET | `/api/crates/grvs` | Admin, Manager, Merchandiser, Driver, SalesRep | Goods-returned notes (`search`, `status`) |
+| POST | `/api/crates/transactions/{id}/grvs` | Admin, Manager, Merchandiser | Raise a GRV against a transaction (multipart) |
+| POST | `/api/crates/opening-balances` | Admin | Seed a shop's crate balance (multipart) |
+| PUT | `/api/crates/opening-balances/{id}` | Admin | Correct one |
+| DELETE | `/api/crates/opening-balances/{id}` | Admin | Remove one |
+
+The multipart routes carry `[MaxRequestBodySize]` of 20 MB — see
+[Request size limits](#security-headers--middleware). Both POD and GRV uploads take a
+`clientRequestId` form field; see [Idempotency](#idempotency), which they need more than most,
+because the handset retries an upload from four different triggers over one queue.
+
+---
+
+### 38. Merchandiser
+
+**Base route:** `/api/Merchandiser`  
+**Auth:** Bearer + `ApiAccess`; the exceptions are noted per row
+
+Which products a merchandiser may sell, and the orders they capture on the handset.
+
+**Product assignment.** Every assignment route comes in a pair — one global, one for a named
+merchandiser — and the only difference is the `{userId}` segment:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/Merchandiser` | The merchandisers |
+| GET | `/api/Merchandiser/products` | The globally assigned products |
+| GET | `/api/Merchandiser/{userId}/products` | One merchandiser's products |
+| POST | `/api/Merchandiser/products` | Assign products globally |
+| POST | `/api/Merchandiser/{userId}/products` | Assign products to one merchandiser |
+| DELETE | `/api/Merchandiser/products` | Unassign globally |
+| DELETE | `/api/Merchandiser/{userId}/products` | Unassign from one merchandiser |
+| PUT | `/api/Merchandiser/products/status` | Activate or retire globally |
+| PUT | `/api/Merchandiser/{userId}/products/status` | Activate or retire for one merchandiser |
+| GET | `/api/Merchandiser/sap-sales-items` | SAP items eligible to be assigned |
+
+Both `DELETE` routes take a **body** (`AssignMerchandiserProductsRequest`), not a query string.
+
+**Handset routes.** These are what the merchandiser app calls:
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/Merchandiser/mobile/categories` | `ApiAccess` | Product categories |
+| GET | `/api/Merchandiser/mobile/active-products` | `ApiAccess` | The catalogue (`search`, `category`, `page`, `pageSize`) |
+| GET | `/api/Merchandiser/{userId}/active-products` | `ApiAccess` | One merchandiser's catalogue (`search`, `category`) |
+| GET | `/api/Merchandiser/mobile/customer/{cardCode}/products` | `ApiAccess` | What may be sold to one customer (`search`, `category`) |
+| POST | `/api/Merchandiser/mobile/order` | `salesorders.create` | Capture an order |
+| GET | `/api/Merchandiser/mobile/orders` | `ApiAccess` | Captured orders |
+| GET | `/api/Merchandiser/mobile/orders/{id}` | `ApiAccess` | One order |
+| GET | `/api/Merchandiser/mobile/orders/by-client-request/{clientRequestId}` | `ApiAccess` | Recover an order by its idempotency key — see [Idempotency](#idempotency) |
+
+`pageSize` on `mobile/active-products` defaults to **0**, which means no paging rather than an empty
+page. `GET /api/Merchandiser/mobile/orders` takes `page` (1), `pageSize` (20), `status`, `fromDate`,
+`toDate`, `search`, `cardCode`.
+
+**Capture does not refuse an order on credit.** A mobile order arrives unpriced, and an unpriced
+order can only be measured against the customer's standing balance, so the order is captured, held
+on the web, and refused at the point of posting instead. `POST /mobile/order` carries a 5 MB
+`[MaxRequestBodySize]`.
+
+| Method | Endpoint | Roles | Description |
+|--------|----------|-------|-------------|
+| POST | `/api/Merchandiser/backfill-product-details` | Admin | One-off repair of stored product details |
+| POST | `/api/Merchandiser/backfill-mobile-order-tax` | Admin | One-off repair of stored order tax |
+
+---
+
+### 39. Sync & SAP Connection
+
+**Base route:** `/api/Sync`  
+**Auth:** Bearer + `ApiAccess`; `queue/process` is Admin
+
+The health of this API's link to SAP, and the offline queue that holds documents while it is down.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/Sync/status` | The sync dashboard |
+| GET | `/api/Sync/sap-connection` | Whether SAP is reachable now |
+| GET | `/api/Sync/health` | Health summary |
+| GET | `/api/Sync/queue` | Offline queue status |
+| GET | `/api/Sync/queue/status` | The same action on a second route |
+| GET | `/api/Sync/queue/items` | The queued transactions |
+| GET | `/api/Sync/cache-status` | Per-cache sync state |
+| GET | `/api/Sync/logs` | Connection log (`count`, default 50) |
+| POST | `/api/Sync/test-connection` | Probe SAP now |
+| POST | `/api/Sync/queue/{id}/retry` | Retry one queued transaction |
+| POST | `/api/Sync/queue/{id}/cancel` | Cancel one |
+| POST | `/api/Sync/queue/process` | **Admin.** Drain the queue now |
+
+`/queue` and `/queue/status` are two routes on one action, not two endpoints — they answer
+identically, and neither is deprecated.
+
+---
+
+### 40. WhatsApp
+
+**Base route:** `/api/whatsapp`  
+**Auth:** Bearer + the `AdminOnly` policy — **except the webhook**, which is anonymous
+
+Outbound and inbound WhatsApp through an OpenWA bridge. A session is one connected handset number;
+it is started, scanned from a QR code, and then sends.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/whatsapp/health` | Bridge health |
+| GET | `/api/whatsapp/messages` | Inbox (`page` 1, `pageSize` 50, `search`) |
+| GET | `/api/whatsapp/sessions` | The sessions |
+| POST | `/api/whatsapp/sessions` | Create one. Answers `201` |
+| POST | `/api/whatsapp/sessions/{sessionId}/start` | Start it |
+| POST | `/api/whatsapp/sessions/{sessionId}/stop` | Stop it |
+| GET | `/api/whatsapp/sessions/{sessionId}/qr` | The QR code to scan |
+| POST | `/api/whatsapp/sessions/{sessionId}/messages/send-text` | Send a message |
+| POST | `/api/whatsapp/sessions/{sessionId}/messages/reply` | Reply to one |
+| POST | `/api/whatsapp/webhook/openwa` | **Anonymous.** Inbound from the bridge. `application/json` only, answers `202` |
+
+The webhook is the one route on this controller outside `AdminOnly`, because the bridge is not a
+user. Everything else refuses anyone who is not an admin.
+
+---
+
+### 41. Email
+
+**Base route:** `/api/Email`  
+**Auth:** Bearer + `ApiAccess` — **except `/test`**, which is anonymous
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/Email/test` | **anonymous** | Send a test email to the address in the body |
+| POST | `/api/Email/send` | `ApiAccess` | Send an email now |
+| POST | `/api/Email/queue` | `ApiAccess` | Queue one for later (`category`) |
+| POST | `/api/Email/process-queue` | `ApiAccess` | Drain the queue now |
+
+> `POST /api/Email/test` carries `[AllowAnonymous]` and takes the recipient from the request body,
+> so an unauthenticated caller can make this server send mail to an address of their choosing. It is
+> covered by the global `api` rate limiter and nothing else. Documented here as it is, not as it
+> ought to be.
+
+---
+
+### 42. Push Notifications
+
+**Base route:** `/api/PushNotification`  
+**Auth:** Bearer + `ApiAccess`; `/send` is Admin
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/PushNotification/register` | `ApiAccess` | Register this device's FCM token |
+| POST | `/api/PushNotification/unregister` | `ApiAccess` | Drop a token |
+| GET | `/api/PushNotification/devices` | `ApiAccess` | The caller's registered devices |
+| POST | `/api/PushNotification/send` | **Admin** | Send a push |
+| POST | `/api/PushNotification/test` | `ApiAccess` | Send a test push to the caller's own devices |
+
+Not every push is a tray notification: a merchandiser catalogue refresh is a data-only message the
+app acts on silently. See [Notifications](#25-notifications) for the in-app bell, which is a
+separate mechanism.
+
+---
+
+### 43. Exception Center
+
+**Base route:** `/api/exception-center`  
+**Auth:** Bearer + `ApiAccess`
+
+One place for the things that failed and are still waiting on a human — across sources, rather than
+one queue per feature. An item is addressed by its `{source}` and `{itemKey}` together, because the
+key is only unique within the source.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/exception-center` | The dashboard (`limit`, default 100; `assignee`) |
+| POST | `/api/exception-center/items/retry-batch` | Retry many at once |
+| POST | `/api/exception-center/items/{source}/{itemKey}/retry` | Retry one |
+| POST | `/api/exception-center/items/{source}/{itemKey}/acknowledge` | Mark one as seen |
+| POST | `/api/exception-center/items/{source}/{itemKey}/assign-to-me` | Take ownership |
+
+---
+
+### 44. Approval Process
+
+**Base route:** `/api/approval-process`  
+**Auth:** Bearer + `ApiAccess`; the stage and template routes are Admin
+
+The approval engine's own configuration, plus the two decision routes that drive it. Stages are the
+steps; a template is the sequence of stages a document type goes through.
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/approval-process/stages` | **Admin** | The stages |
+| POST | `/api/approval-process/stages` | **Admin** | Create or update one |
+| DELETE | `/api/approval-process/stages/{id}` | **Admin** | Delete one |
+| GET | `/api/approval-process/templates` | **Admin** | The templates |
+| POST | `/api/approval-process/templates` | **Admin** | Create or update one |
+| DELETE | `/api/approval-process/templates/{id}` | **Admin** | Delete one |
+| POST | `/api/approval-process/transfer-requests/{docEntry}/decision` | `ApiAccess` | Decide a transfer request |
+| POST | `/api/approval-process/transfers/{pendingTransferId}/decision` | `ApiAccess` | Decide a held direct transfer |
+
+The two decision routes are not interchangeable: one keys on a SAP `docEntry` (a transfer *request*
+that exists in SAP), the other on a local `Guid` (a transfer held here before it ever reaches SAP).
+`/api/InventoryTransfer/pending/{id}/decision` decides the same held transfers through the transfer
+controller — see [Inventory Transfers](#17-inventory-transfers).
+
+**This engine is the only approval control that exists.** Posting through the SAP Service Layer
+bypasses B1's own approval procedures entirely, so a document that skips this engine reaches SAP
+unapproved.
+
+---
+
+### 45. Fiscal Device Offline Leases
+
+**Base route:** `/api/fiscal-devices`  
+**Auth:** Bearer + the `AdminOnly` policy
+
+Which handset is allowed to sign receipts for a fiscal device while it is offline. Distinct from the
+lease a handset draws for itself at `GET /api/vansales/fiscal/lease` — this is the administrative
+view of the same arrangement.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/fiscal-devices/offline-leases` | Every device's offline lease |
+| GET | `/api/fiscal-devices/{deviceId}/offline-lease` | One device's |
+| PUT | `/api/fiscal-devices/{deviceId}/offline-lease` | Assign or reassign it |
+
+See [Fiscalisation](#32-fiscalisation) for the platform this signs against.
+
+---
+
+### 46. Batches
+
+**Base route:** `/api/Batch`  
+**Auth:** Bearer + `ApiAccess`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/Batch/search` | Find batches by number (`term`, required) |
+| PATCH | `/api/Batch/{batchEntryId}/status` | Change a batch's status |
+
+Batch *availability* for a document line is elsewhere:
+`GET /api/Invoice/{itemCode}/batches/{warehouseCode}` and
+`GET /api/Product/warehouse/{warehouseCode}/item/{itemCode}/batches`.
+
+---
+
+### 47. App Version
+
+**Base route:** `/api/AppVersion`  
+**Auth:** anonymous on the policy route, `AdminOnly` on the settings
+
+What a mobile build is told about itself: whether it may keep running, and whether an update is
+required or merely offered.
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/AppVersion/mobile` | **anonymous** | The version policy for the calling build |
+| GET | `/api/AppVersion/mobile/settings` | **AdminOnly** | The stored policy (`appId`) |
+| PUT | `/api/AppVersion/mobile/settings` | **AdminOnly** | Update it |
+
+`GET /api/AppVersion/mobile` identifies the caller from the `X-App-Id`, `X-App-Platform` and
+`X-App-Version` **headers**, falling back to the `appId`, `platform` and `currentVersion` query
+parameters. It is anonymous on purpose: a build that has been locked out still has to be able to ask
+why, and a build too old to authenticate is exactly the one that needs the answer.
+
+---
+
+### 48. Purchasing Documents
+
+**Auth:** Bearer + `ApiAccess`, plus the permission below
+
+Four SAP purchasing documents on four controllers, all shaped the same way: list, fetch one by
+`docEntry`, create. [Purchase Orders](#14-purchase-orders) is the fifth and has more to it.
+
+| Document | Base route | View | Create |
+|----------|-----------|------|--------|
+| Purchase request | `/api/PurchaseRequest` | `purchasing.requests.view` | `purchasing.requests.create` |
+| Purchase quotation | `/api/PurchaseQuotation` | `purchasing.quotations.view` | `purchasing.quotations.create` |
+| Goods receipt PO | `/api/GoodsReceiptPurchaseOrder` | `purchasing.grpo.view` | `purchasing.grpo.create` |
+| Purchase invoice | `/api/PurchaseInvoice` | `purchasing.invoices.view` | `purchasing.invoices.create` |
+
+Each one answers:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/PurchaseRequest` | List (`page` 1, `pageSize` 20, `fromDate`, `toDate`) |
+| GET | `/api/PurchaseRequest/{docEntry}` | One document |
+| POST | `/api/PurchaseRequest` | Create. Answers `201` |
+| GET | `/api/PurchaseQuotation` | List (`page` 1, `pageSize` 20, `cardCode`, `fromDate`, `toDate`) |
+| GET | `/api/PurchaseQuotation/{docEntry}` | One document |
+| POST | `/api/PurchaseQuotation` | Create. Answers `201` |
+| GET | `/api/GoodsReceiptPurchaseOrder` | List (`page` 1, `pageSize` 20, `cardCode`, `fromDate`, `toDate`) |
+| GET | `/api/GoodsReceiptPurchaseOrder/{docEntry}` | One document |
+| POST | `/api/GoodsReceiptPurchaseOrder` | Create. Answers `201` |
+| GET | `/api/PurchaseInvoice` | List (`page` 1, `pageSize` 20, `cardCode`, `fromDate`, `toDate`) |
+| GET | `/api/PurchaseInvoice/{docEntry}` | One document |
+| POST | `/api/PurchaseInvoice` | Create. Answers `201` |
+
+There is no update and no delete on any of the four. `/api/PurchaseRequest` is the one that takes no
+`cardCode` filter — a request names what is wanted, not who it will be bought from.
 
 ---
 
