@@ -41,6 +41,32 @@ public sealed record VanVisitReportResult(
     int TradingDays
 );
 
+/// <param name="UserId">The rep these figures are for.</param>
+/// <param name="Username">The rep's username.</param>
+/// <param name="FullName">
+/// The rep's display name, taken from the first call in the period that carries one. Null when no
+/// call does.
+/// </param>
+/// <param name="TotalCalls">Every call checked in over the period, open ones included.</param>
+/// <param name="CompletedCalls">Calls that checked out.</param>
+/// <param name="OpenCalls">Calls never checked out.</param>
+/// <param name="OfflineCalls">
+/// Calls the handset captured offline and uploaded later. Counted alongside the rest rather than
+/// instead of them: an offline call is an ordinary call that took a slower road to the server.
+/// </param>
+/// <param name="DistinctCustomers">Customer codes, counted once each — a return visit is one customer, two calls.</param>
+/// <param name="TradingDays">CAT trading days on which the rep checked into at least one customer.</param>
+/// <param name="TotalMinutes">Summed over the calls that closed; an open call has no duration to add.</param>
+/// <param name="AverageMinutesPerCall">
+/// <see cref="TotalMinutes"/> over <see cref="CompletedCalls"/>, not over <see cref="TotalCalls"/> —
+/// dividing by calls that never closed would drag the average down with time nobody spent. Zero when
+/// no call in the period closed.
+/// </param>
+/// <param name="Days">The rep's days, newest first.</param>
+/// <param name="Customers">
+/// Who the rep called on, busiest first and then by name. One row per customer code, however many
+/// times it was visited.
+/// </param>
 /// <param name="RouteCode">
 /// The route the rep ran on the latest day of the period they worked, taken from that day's
 /// snapshot. A rep moved to another route mid-period shows the route they are on now rather than a
@@ -107,6 +133,8 @@ public sealed record VanVisitReportDaySummary(
 /// <summary>
 /// One call on the strip: who it was at, when the rep arrived, and when they left.
 /// </summary>
+/// <param name="CustomerCode">The customer called on.</param>
+/// <param name="CustomerName">The customer's name as the call recorded it, so the strip can label the block.</param>
 /// <param name="CheckInTime">UTC. The page converts to CAT, as it does with every other instant.</param>
 /// <param name="CheckOutTime">
 /// UTC, and null for a call never checked out. Null rather than a copy of the check-in: the page
