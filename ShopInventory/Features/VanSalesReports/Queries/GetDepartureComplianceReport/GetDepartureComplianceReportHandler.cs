@@ -1,7 +1,6 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -23,14 +22,16 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceR
 /// The sales are read from both tables because there is no single one holding them all: an offline
 /// van sale becomes a <c>DesktopSale</c>, while an online direct invoice posts straight to SAP and
 /// leaves only a confirmed <c>StockReservation</c> behind. Reading either alone under-reports, and
-/// does so silently.
+/// does so silently. That union, the clock conversion and the rep attribution all live in
+/// <see cref="VanSalesFactReader"/> so every other van sales report reads exactly what this one
+/// counts — if the two ever disagree it is a bug in one shared place, not a discrepancy to hunt.
 /// </summary>
 public sealed class GetDepartureComplianceReportHandler(
     ApplicationDbContext db
 ) : IRequestHandler<GetDepartureComplianceReportQuery, ErrorOr<DepartureComplianceReportResult>>
 {
     /// <summary>A day that produced neither a departure record, a visit nor a sale is not a day.</summary>
-    private const int MaximumDays = 400;
+    private const int MaximumDays = VanSalesFacts.MaximumDays;
 
     public async Task<ErrorOr<DepartureComplianceReportResult>> Handle(
         GetDepartureComplianceReportQuery query,
@@ -54,12 +55,11 @@ public sealed class GetDepartureComplianceReportHandler(
         }
 
         // The UTC window the CAT day range corresponds to, for the two tables that store instants.
-        var windowStartUtc = AuditService.FromCAT(from);
-        var windowEndUtc = AuditService.FromCAT(to.AddDays(1));
+        var (windowStartUtc, windowEndUtc) = VanSalesFacts.ToUtcWindow(from, to);
 
         var days = await LoadDaysAsync(query, from, to, cancellationToken);
         var visits = await LoadVisitsAsync(query, windowStartUtc, windowEndUtc, cancellationToken);
-        var sales = await LoadSalesAsync(query, from, to, windowStartUtc, windowEndUtc, cancellationToken);
+        var sales = await LoadSalesAsync(query, from, to, cancellationToken);
         var newCustomers = await LoadNewCustomersAsync(windowStartUtc, windowEndUtc, cancellationToken);
 
         // Every key any of the three knows about. A rep who checked in but never opened a day still
@@ -244,75 +244,18 @@ public sealed class GetDepartureComplianceReportHandler(
         GetDepartureComplianceReportQuery query,
         DateTime from,
         DateTime to,
-        DateTime windowStartUtc,
-        DateTime windowEndUtc,
         CancellationToken cancellationToken)
     {
-        var desktopQuery = db.DesktopSales
-            .AsNoTracking()
-            .Where(sale => sale.SourceSystem == SaleSourceSystems.VanSales
-                           && sale.DocDate >= from
-                           && sale.DocDate <= to
-                           && sale.CreatedBy != null);
-
-        var desktopSales = await desktopQuery
-            .Select(sale => new SaleRow(
-                sale.CreatedBy!,
-                sale.DocDate,
-                sale.RouteCustomerCode,
-                sale.PaymentMethod,
-                sale.TotalAmount,
-                sale.Currency))
-            .ToListAsync(cancellationToken);
-
-        // The online path posts straight to SAP and writes no DesktopSale; the confirmed reservation
-        // is its only local record. Pending, cancelled and expired reservations are not sales.
-        var reservations = await db.StockReservations
-            .AsNoTracking()
-            .Where(reservation => reservation.SourceSystem == SaleSourceSystems.VanSales
-                                  && reservation.Status == ReservationStatus.Confirmed
-                                  && reservation.CreatedAt >= windowStartUtc
-                                  && reservation.CreatedAt < windowEndUtc
-                                  && reservation.CreatedBy != null)
-            .Select(reservation => new
-            {
-                reservation.CreatedBy,
-                reservation.CreatedAt,
-                reservation.RouteCustomerCode,
-                reservation.TotalValue,
-                reservation.Currency
-            })
-            .ToListAsync(cancellationToken);
-
-        var reservationRows = reservations.Select(reservation => new SaleRow(
-            reservation.CreatedBy!,
-            AuditService.ToCAT(reservation.CreatedAt).Date,
-            reservation.RouteCustomerCode,
-            // No payment column on a reservation, so an online sale cannot be attributed to a tender.
-            // Reported as unallocated rather than silently counted as cash.
-            null,
-            reservation.TotalValue,
-            reservation.Currency));
-
-        var rows = desktopSales.Concat(reservationRows).ToList();
+        var sales = await VanSalesFactReader.LoadSalesAsync(
+            db,
+            new VanSalesFactFilter(from, to, query.UserId),
+            cancellationToken);
 
         var grouped = new Dictionary<DayKey, SaleAccumulator>();
 
-        foreach (var row in rows)
+        foreach (var sale in sales)
         {
-            // CreatedBy holds the user's id as a string on both tables. Anything else is a sale from
-            // another system that slipped past the source filter, and is skipped rather than guessed.
-            if (!Guid.TryParse(row.CreatedBy, out var userId))
-            {
-                continue;
-            }
-
-            if (query.UserId.HasValue && userId != query.UserId.Value)
-            {
-                continue;
-            }
-
-            var key = new DayKey(userId, row.TradingDate);
+            var key = new DayKey(sale.UserId, sale.TradingDate);
 
             if (!grouped.TryGetValue(key, out var accumulator))
             {
@@ -320,7 +263,7 @@ public sealed class GetDepartureComplianceReportHandler(
                 grouped[key] = accumulator;
             }
 
-            accumulator.Add(row);
+            accumulator.Add(sale);
         }
 
         return grouped.ToDictionary(pair => pair.Key, pair => pair.Value.ToTotals());
@@ -382,14 +325,6 @@ public sealed class GetDepartureComplianceReportHandler(
 
     private sealed record UserName(string Username, string? FullName);
 
-    private sealed record SaleRow(
-        string CreatedBy,
-        DateTime TradingDate,
-        string? RouteCustomerCode,
-        string? PaymentMethod,
-        decimal Amount,
-        string? Currency);
-
     private sealed record SaleTotals(
         int ProductiveCalls,
         decimal Cash,
@@ -417,33 +352,33 @@ public sealed class GetDepartureComplianceReportHandler(
         private decimal _total;
         private string? _currency;
 
-        public void Add(SaleRow row)
+        public void Add(VanSaleFact sale)
         {
-            if (string.IsNullOrWhiteSpace(row.RouteCustomerCode))
+            if (sale.RouteCustomerCode is null)
             {
                 _hasUnattributed = true;
             }
             else
             {
-                _customers.Add(row.RouteCustomerCode.Trim());
+                _customers.Add(sale.RouteCustomerCode);
             }
 
-            _total += row.Amount;
-            _currency ??= row.Currency;
+            _total += sale.TotalAmount;
+            _currency ??= sale.Currency;
 
-            switch (NormalisePaymentMethod(row.PaymentMethod))
+            switch (sale.Tender)
             {
-                case PaymentBucket.Cash:
-                    _cash += row.Amount;
+                case VanSalesTender.Cash:
+                    _cash += sale.TotalAmount;
                     break;
-                case PaymentBucket.Ecocash:
-                    _ecocash += row.Amount;
+                case VanSalesTender.Ecocash:
+                    _ecocash += sale.TotalAmount;
                     break;
-                case PaymentBucket.Innbucks:
-                    _innbucks += row.Amount;
+                case VanSalesTender.Innbucks:
+                    _innbucks += sale.TotalAmount;
                     break;
                 default:
-                    _other += row.Amount;
+                    _other += sale.TotalAmount;
                     break;
             }
         }
@@ -456,46 +391,5 @@ public sealed class GetDepartureComplianceReportHandler(
             _other,
             _total,
             _currency);
-
-        /// <summary>
-        /// Which column of the sheet a tender belongs in.
-        ///
-        /// Matches on the brand the handset sends rather than on a fiscal money type, because ZIMRA
-        /// has no notion of Ecocash or Innbucks — both are <c>MobileWallet</c> on the receipt, and
-        /// splitting them is exactly what this report is for. Older handsets send nothing at all,
-        /// which lands in Other rather than being assumed to be cash.
-        /// </summary>
-        private static PaymentBucket NormalisePaymentMethod(string? paymentMethod)
-        {
-            if (string.IsNullOrWhiteSpace(paymentMethod))
-            {
-                return PaymentBucket.Other;
-            }
-
-            var normalised = paymentMethod.Trim();
-
-            if (normalised.Equals("Cash", StringComparison.OrdinalIgnoreCase))
-            {
-                return PaymentBucket.Cash;
-            }
-
-            if (normalised.Contains("ecocash", StringComparison.OrdinalIgnoreCase))
-            {
-                return PaymentBucket.Ecocash;
-            }
-
-            return normalised.Contains("innbucks", StringComparison.OrdinalIgnoreCase)
-                   || normalised.Contains("inbucks", StringComparison.OrdinalIgnoreCase)
-                ? PaymentBucket.Innbucks
-                : PaymentBucket.Other;
-        }
-
-        private enum PaymentBucket
-        {
-            Cash,
-            Ecocash,
-            Innbucks,
-            Other
-        }
     }
 }
