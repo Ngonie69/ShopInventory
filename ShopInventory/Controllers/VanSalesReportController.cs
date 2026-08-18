@@ -6,6 +6,10 @@ using ShopInventory.Common.Security;
 using ShopInventory.Features.VanSalesReports.Commands.SaveRoute;
 using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetRoutes;
+using ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentReport;
+using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
+using ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport;
+using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport;
 using ShopInventory.Models;
 using ShopInventory.Services;
 
@@ -57,6 +61,179 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 toDate?.Date ?? today,
                 userId,
                 routeCode),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The van sales performance report: what sold over a period, cut by territory and route, by rep,
+    /// by item, and over time, with the price actually achieved per item and the shape of the drops.
+    /// </summary>
+    /// <remarks>
+    /// Reads the same fact stream the compliance report does, so the two agree by construction on a
+    /// period's gross takings and its productive calls.
+    /// </remarks>
+    /// <param name="fromDate">Inclusive CAT trading day. Defaults to 30 days back.</param>
+    /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
+    /// <param name="userId">One rep, or every rep when omitted.</param>
+    /// <param name="routeCode">
+    /// One route. Sales whose rep opened no departure record are excluded when this is set, for the
+    /// same reason the compliance report excludes them — nothing on such a sale says it belonged here.
+    /// </param>
+    /// <param name="topItems">How many items to rank. Zero or less returns all of them.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("performance-report")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(VanSalesPerformanceReportResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetPerformanceReport(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] Guid? userId = null,
+        [FromQuery] string? routeCode = null,
+        [FromQuery] int topItems = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var result = await mediator.Send(
+            new GetVanSalesPerformanceReportQuery(
+                fromDate?.Date ?? today.AddDays(-30),
+                toDate?.Date ?? today,
+                userId,
+                routeCode,
+                topItems),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The van sales coverage report: who the vans are reaching and who they are losing — the rate
+    /// trends, the shops on the books that were not reached, outlet churn, the win-back register,
+    /// route concentration and how the location record is holding up.
+    /// </summary>
+    /// <remarks>
+    /// Reads further back than the period it reports on: the base's opening state needs a full lapse
+    /// window behind it, and telling a genuinely new outlet from a returning one needs an unbounded
+    /// look at when each shop first bought. Both are local reads.
+    /// </remarks>
+    /// <param name="fromDate">Inclusive CAT trading day. Defaults to 90 days back.</param>
+    /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
+    /// <param name="userId">One rep, or every rep when omitted.</param>
+    /// <param name="routeCode">One route. Sales with no departure record are excluded when set.</param>
+    /// <param name="lapseDays">
+    /// How long a shop may go without buying before it counts as lapsed. Deliberately not the
+    /// route-customer pages' dormancy threshold, which answers a narrower question about one shop.
+    /// </param>
+    /// <param name="granularity">How the churn and rate series are bucketed: Week or Month.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("coverage-report")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(VanSalesCoverageReportResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetCoverageReport(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] Guid? userId = null,
+        [FromQuery] string? routeCode = null,
+        [FromQuery] int lapseDays = 90,
+        [FromQuery] VanSalesCoverageGranularity granularity = VanSalesCoverageGranularity.Month,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var result = await mediator.Send(
+            new GetVanSalesCoverageReportQuery(
+                fromDate?.Date ?? today.AddDays(-90),
+                toDate?.Date ?? today,
+                userId,
+                routeCode,
+                lapseDays,
+                granularity),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The van replenishment report: how well the depots are keeping the vans stocked, and which
+    /// restock requests are stuck.
+    /// </summary>
+    /// <remarks>
+    /// Reads the pending-transfer table rather than the daily stock snapshot. Snapshots are a
+    /// desktop-app feature that van sales never write to, and the job that fills them is off by
+    /// default — a report built on them would silently report nothing.
+    /// </remarks>
+    /// <param name="fromDate">Inclusive CAT trading day. Defaults to 30 days back.</param>
+    /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
+    /// <param name="vanWarehouseCode">One van's warehouse, or every van when omitted.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("replenishment-report")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(VanReplenishmentReportResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetReplenishmentReport(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] string? vanWarehouseCode = null,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var result = await mediator.Send(
+            new GetVanReplenishmentReportQuery(
+                fromDate?.Date ?? today.AddDays(-30),
+                toDate?.Date ?? today,
+                vanWarehouseCode),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The van stock report: what each van was loaded with, what sold off it, what the next morning
+    /// found, which lines are riding the round without selling, and what is about to expire.
+    /// </summary>
+    /// <remarks>
+    /// Built on the morning stock snapshot, whose running quantity no van sales path maintains — so
+    /// the load comes from the snapshot and what sold comes from the sales themselves. Reconciliation
+    /// is morning to morning and is only computed across consecutive snapshots; a missing day is
+    /// reported as a break rather than bridged.
+    /// </remarks>
+    /// <param name="fromDate">Inclusive CAT trading day. Defaults to 14 days back.</param>
+    /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
+    /// <param name="vanWarehouseCode">One van's warehouse, or every van when omitted.</param>
+    /// <param name="deadStockDays">Days carried without a sale before a line counts as dead.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("stock-report")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(VanStockReportResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetStockReport(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] string? vanWarehouseCode = null,
+        [FromQuery] int deadStockDays = 14,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var result = await mediator.Send(
+            new GetVanStockReportQuery(
+                fromDate?.Date ?? today.AddDays(-14),
+                toDate?.Date ?? today,
+                vanWarehouseCode,
+                deadStockDays),
             cancellationToken);
 
         return result.Match(

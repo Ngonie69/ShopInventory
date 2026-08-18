@@ -1,0 +1,891 @@
+@page "/van-sales/reports/performance"
+@* Admin and Manager only — see VanSalesActivity.razor. *@
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+@using System.Globalization
+@using ShopInventory.Web.Models
+@inject IVanSalesReportService VanSalesReportService
+@inject IReportExportService ExportService
+@inject IJSRuntime JS
+
+<PageTitle>Van Sales Performance - Shop Inventory</PageTitle>
+
+@* What the vans actually sold, as against how their days scored.
+
+   Carried by wwwroot/css/van-sales.css (linked from App.razor) in both schemes:
+   the shared `vs-` chrome, plus `vsp-` for what only this page draws. A new
+   prefix rather than more of `vsc-`, because sheets here are separated by prefix
+   alone and a duplicated one silently restyles the compliance page.
+
+   One load, six views. The filter bar goes to the server; the section chips
+   below it only choose which cut of the same answer is on screen. That is
+   deliberate — these six questions are asked together ("sales are down, where?")
+   and a round trip between each one turns a two-minute read into a ten-minute
+   one.
+
+   Four things the page has to say honestly, none of which are layout:
+
+   - Money is never one number. Every total is per currency, because a van that
+     took USD 40 and ZWG 900 took neither 940 nor USD 940. Where a figure has to
+     be a single value — a KPI tile — it shows the largest currency and names it.
+   - Quantity is never one number either, and for a worse reason: van lines
+     carry no unit of measure at all, because neither ingest path sets one. So a
+     quantity is shown against its unit, and "unit not recorded" is what almost
+     every van line will say. That is honest rather than broken.
+   - A missing rate is an em dash, not 0%. A rep whose calls were never recorded
+     has no strike rate; printing 0% would be a slander dressed as a measurement.
+   - Price realisation is peer-relative and says so on the page. It is not
+     measured against a list price because there is no trustworthy local one, and
+     it replaced a discount report that could not be built at all — every van
+     line's discount is zero, because neither ingest path writes one. *@
+
+<div class="vs vsp">
+
+    <div class="vs-head">
+        <div>
+            <h2 class="vs-title">Van sales performance</h2>
+            <p class="vs-subtitle">
+                What sold over the period, by territory and route, by rep, by item and over time —
+                with the price each item actually fetched and the shape of the drops behind it.
+            </p>
+        </div>
+        <div class="vs-actions">
+            <button class="vs-btn" @onclick="ExportAsync" disabled="@(isLoading || report is null)">
+                Export
+            </button>
+        </div>
+    </div>
+
+    <div class="vs-filters">
+        <div class="row g-3">
+            @* NocturneDateField and NocturneSelect throughout, never a native <input type="date">
+               or <select>: the platform popup is a window no page stylesheet reaches into, and it
+               arrives unreadable on this sheet's dark ground. *@
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsp-from">From</label>
+                <NocturneDateField Id="vsp-from" @bind-Date="fromDate" AriaLabel="From date" />
+            </div>
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsp-to">To</label>
+                <NocturneDateField Id="vsp-to" @bind-Date="toDate" AriaLabel="To date" />
+            </div>
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vsp-route">Route</label>
+                <NocturneSelect Id="vsp-route" Class="nsel-block" TValue="string"
+                                Options="RouteFilterOptions" @bind-Value="selectedRouteCode"
+                                OnChanged="LoadAsync" AriaLabel="Filter by route"
+                                Placeholder="All routes" />
+            </div>
+            @* The rep filter goes to the server, unlike the compliance page's, because this report
+               aggregates: filtering rows already loaded would leave every total, rank and average
+               computed over everybody and displayed under one rep's name. *@
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vsp-rep">Rep</label>
+                <NocturneSelect Id="vsp-rep" Class="nsel-block" TValue="string"
+                                Options="RepFilterOptions" @bind-Value="selectedRepId"
+                                OnChanged="LoadAsync" AriaLabel="Filter by rep"
+                                Placeholder="All reps" />
+            </div>
+            <div class="col-md-2 vs-actions">
+                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
+                    @(isLoading ? "Loading…" : "Run")
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (loadError is not null)
+    {
+        <div class="vs-notice">@loadError</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Reading the period…</span>
+        </div>
+    }
+    else if (report is null)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">Nothing loaded yet</div>
+            <div>Choose a period and run the report.</div>
+        </div>
+    }
+    else if (report.Summary.DocumentCount == 0)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">No sales in this period</div>
+            <div>No van recorded a sale between these dates.</div>
+        </div>
+    }
+    else
+    {
+        var summary = report.Summary;
+        var lead = LeadCurrency(summary.TotalsByCurrency);
+
+        <div class="vsp-kpis">
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-value">@Money(lead)</div>
+                <div class="vsp-kpi-label">Gross takings</div>
+                <div class="vsp-kpi-sub">@CurrencyNote(summary.TotalsByCurrency)</div>
+            </div>
+
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-value">@summary.ProductiveCalls.ToString("N0")</div>
+                <div class="vsp-kpi-label">Productive calls</div>
+                <div class="vsp-kpi-sub">
+                    @if (summary.StrikeRate is { } rate)
+                    {
+                        @($"{rate:P0} strike rate")
+                    }
+                    else
+                    {
+                        <span class="vs-metric-none">no calls recorded</span>
+                    }
+                </div>
+            </div>
+
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-value">@DropSize(lead)</div>
+                <div class="vsp-kpi-label">Average drop</div>
+                <div class="vsp-kpi-sub">@(lead?.DropCount.ToString("N0") ?? "—") drops</div>
+            </div>
+
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-value">@summary.CustomerCount.ToString("N0")</div>
+                <div class="vsp-kpi-label">Outlets bought</div>
+                <div class="vsp-kpi-sub">@summary.NewOutlets.ToString("N0") newly captured</div>
+            </div>
+
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-value">@summary.ItemCount.ToString("N0")</div>
+                <div class="vsp-kpi-label">Items sold</div>
+                <div class="vsp-kpi-sub">@summary.RepCount.ToString("N0") reps, @summary.RouteCount.ToString("N0") routes</div>
+            </div>
+
+            <div class="vsp-kpi">
+                <div class="vsp-kpi-value">@(summary.KilometresTravelled?.ToString("N0") ?? "—")</div>
+                <div class="vsp-kpi-label">Kilometres</div>
+                <div class="vsp-kpi-sub">@KilometresNote(summary, lead)</div>
+            </div>
+        </div>
+
+        @* The caveats strip. Hidden entirely when there is nothing to say, so its presence is
+           itself the signal — a reader should not have to check a permanently visible panel to
+           find out that nothing is wrong. *@
+        @if (!report.Coverage.IsClean)
+        {
+            <div class="vsp-caveats">
+                <div class="vsp-caveats-head">What this period could not answer</div>
+                <ul class="vsp-caveats-list">
+                    @foreach (var caveat in report.Coverage.Caveats)
+                    {
+                        <li>@caveat</li>
+                    }
+                </ul>
+            </div>
+        }
+
+        <div class="vsp-sections">
+            @foreach (var section in Sections)
+            {
+                <button type="button"
+                        class="vs-chip @(activeSection == section.Key ? "vs-chip-info" : "vs-chip-quiet")"
+                        @onclick="() => activeSection = section.Key">
+                    @section.Label
+                    <span class="vsp-section-count">@section.Count(report)</span>
+                </button>
+            }
+        </div>
+
+        @* The six cuts are inline rather than six components. They share this page's formatting
+           helpers and nothing else will ever render them; extracting them would mean passing every
+           formatter down or duplicating it, which is how two tables on one page start rounding
+           differently. *@
+
+        @if (activeSection == SectionRoutes)
+        {
+            @if (report.Territories.Count > 0)
+            {
+                <h3 class="vsp-heading">Territories</h3>
+                <div class="vs-table-wrap">
+                    <table class="vs-table">
+                        <thead>
+                            <tr>
+                                <th>Territory</th>
+                                <th class="vs-num">Routes</th>
+                                <th class="vs-num">Rep-days</th>
+                                <th class="vs-num">Productive calls</th>
+                                <th class="vs-num">Outlets</th>
+                                <th>Takings</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var territory in report.Territories)
+                            {
+                                <tr>
+                                    <td>@territory.DisplayTerritory</td>
+                                    <td class="vs-num">@territory.RouteCount.ToString("N0")</td>
+                                    <td class="vs-num">@territory.TradingDayCount.ToString("N0")</td>
+                                    <td class="vs-num">@territory.ProductiveCalls.ToString("N0")</td>
+                                    <td class="vs-num">@territory.CustomerCount.ToString("N0")</td>
+                                    <td>@MoneyList(territory.TotalsByCurrency)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            <h3 class="vsp-heading">Routes</h3>
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th>Route</th>
+                            <th>Territory</th>
+                            <th class="vs-num">Reps</th>
+                            <th class="vs-num">Rep-days</th>
+                            <th class="vs-num">Planned</th>
+                            <th class="vs-num">Calls</th>
+                            <th class="vs-num">CCR</th>
+                            <th class="vs-num">PCR</th>
+                            <th class="vs-num">Km</th>
+                            <th>Takings</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var route in report.Routes)
+                        {
+                            @* A sale with no departure record is washed and labelled, never dressed
+                               as a route it cannot be shown to belong to. *@
+                            <tr class="@(route.HasRouteDay ? null : "vsp-orphan")">
+                                <td>
+                                    @route.DisplayRoute
+                                    @if (!route.HasRouteDay)
+                                    {
+                                        <span class="vs-chip vs-chip-warn vsp-inline-chip">unrouted</span>
+                                    }
+                                </td>
+                                <td>@(route.Territory ?? "—")</td>
+                                <td class="vs-num">@route.RepCount.ToString("N0")</td>
+                                <td class="vs-num">@route.TradingDayCount.ToString("N0")</td>
+                                <td class="vs-num">@Count(route.PlannedCalls)</td>
+                                <td class="vs-num">@Count(route.Calls)</td>
+                                <td class="vs-num @(route.CallComplianceRate is null ? "vs-metric-none" : null)">
+                                    @Rate(route.CallComplianceRate)
+                                </td>
+                                <td class="vs-num @(route.ProductiveCallRate is null ? "vs-metric-none" : null)">
+                                    @Rate(route.ProductiveCallRate)
+                                </td>
+                                <td class="vs-num">@Count(route.KilometresTravelled)</td>
+                                <td>@MoneyList(route.TotalsByCurrency)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else if (activeSection == SectionReps)
+        {
+            <h3 class="vsp-heading">Rep league table</h3>
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th>Rep</th>
+                            <th>Routes</th>
+                            <th class="vs-num">Days</th>
+                            <th class="vs-num">Calls</th>
+                            <th class="vs-num">Bought</th>
+                            <th class="vs-num">Strike rate</th>
+                            <th class="vs-num">Calls/day</th>
+                            <th class="vs-num">Outlets</th>
+                            <th class="vs-num">New</th>
+                            <th class="vs-num">Items</th>
+                            <th>Takings</th>
+                            <th>Avg drop</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var rep in report.Reps)
+                        {
+                            var repLead = LeadCurrency(rep.TotalsByCurrency);
+                            <tr>
+                                <td>@rep.DisplayName</td>
+                                <td>@(rep.Routes.Count == 0 ? "—" : string.Join(", ", rep.Routes))</td>
+                                <td class="vs-num">@rep.TradingDayCount.ToString("N0")</td>
+                                <td class="vs-num">@Count(rep.Calls)</td>
+                                <td class="vs-num">@rep.ProductiveCalls.ToString("N0")</td>
+                                <td class="vs-num @(rep.StrikeRate is null ? "vs-metric-none" : null)">
+                                    @Rate(rep.StrikeRate)
+                                    @if (rep.StrikeRate is { } strike)
+                                    {
+                                        <span class="vs-meter">
+                                            <span class="vs-meter-fill" style="width:@(MeterWidth(strike))%"></span>
+                                        </span>
+                                    }
+                                </td>
+                                <td class="vs-num">
+                                    @(rep.CallsPerDay is { } perDay ? perDay.ToString("N1") : "—")
+                                </td>
+                                <td class="vs-num">@rep.CustomerCount.ToString("N0")</td>
+                                <td class="vs-num">
+                                    @rep.NewOutlets.ToString("N0")
+                                    @if (rep.NewOutlets > 0)
+                                    {
+                                        <span class="vsp-sub">@rep.NewOutletsWhoBought bought</span>
+                                    }
+                                </td>
+                                <td class="vs-num">@rep.ItemCount.ToString("N0")</td>
+                                <td>@MoneyList(rep.TotalsByCurrency)</td>
+                                <td>@DropSize(repLead)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else if (activeSection == SectionItems)
+        {
+            <h3 class="vsp-heading">What moved</h3>
+            <p class="vsp-note">
+                Ranked on reach — lines written and outlets reached — rather than on value or
+                quantity. Value cannot be compared across currencies and quantity cannot be compared
+                across units, so either would rank on an accident of the mix.
+            </p>
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th class="vs-num">#</th>
+                            <th>Item</th>
+                            <th class="vs-num">Lines</th>
+                            <th class="vs-num">Outlets</th>
+                            <th class="vs-num">Reps</th>
+                            <th class="vs-num">Days</th>
+                            <th>Quantity</th>
+                            <th>Value</th>
+                            <th>Last sold</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in report.Items)
+                        {
+                            <tr>
+                                <td class="vs-num">@item.Rank</td>
+                                <td>
+                                    @item.DisplayName
+                                    <span class="vsp-sub">@item.ItemCode</span>
+                                </td>
+                                <td class="vs-num">@item.LineCount.ToString("N0")</td>
+                                <td class="vs-num">@item.CustomerCount.ToString("N0")</td>
+                                <td class="vs-num">@item.RepCount.ToString("N0")</td>
+                                <td class="vs-num">@item.TradingDayCount.ToString("N0")</td>
+                                <td>@Quantity(item.QuantitiesByUoM)</td>
+                                <td>@LineMoney(item.TotalsByCurrency)</td>
+                                <td>@item.LastSoldOn.ToString("dd MMM")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 class="vsp-heading">Stopped selling</h3>
+            <p class="vsp-note">
+                Items that sold in the preceding period of the same length and have not sold in this
+                one. Measured against what actually sold before, not against a catalogue — the API
+                holds none, so "stocked but never sold" is a question it cannot answer honestly.
+            </p>
+            @if (report.LapsedItems.Count == 0)
+            {
+                <div class="vs-empty">
+                    <div class="vs-empty-title">Nothing has dropped out</div>
+                    <div>Everything that sold in the previous period has sold in this one too.</div>
+                </div>
+            }
+            else
+            {
+                <div class="vs-table-wrap">
+                    <table class="vs-table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Last sold</th>
+                                <th class="vs-num">Days ago</th>
+                                <th class="vs-num">Lines before</th>
+                                <th class="vs-num">Outlets before</th>
+                                <th>Value before</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in report.LapsedItems)
+                            {
+                                <tr>
+                                    <td>
+                                        @item.DisplayName
+                                        <span class="vsp-sub">@item.ItemCode</span>
+                                    </td>
+                                    <td>@item.LastSoldOn.ToString("dd MMM yyyy")</td>
+                                    <td class="vs-num">@item.DaysSinceLastSale.ToString("N0")</td>
+                                    <td class="vs-num">@item.PriorLineCount.ToString("N0")</td>
+                                    <td class="vs-num">@item.PriorCustomerCount.ToString("N0")</td>
+                                    <td>@LineMoney(item.PriorTotalsByCurrency)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+        else if (activeSection == SectionPrices)
+        {
+            <h3 class="vsp-heading">Price realisation</h3>
+            <p class="vsp-note">
+                What each item actually fetched, against what the same item fetched for everybody
+                else. This is <strong>peer-relative</strong> — it is not measured against a list
+                price, because there is no trustworthy local one. It stands in for a discount report,
+                which cannot be built at all: neither van path records a discount, so every van line
+                reads 0%. Under-pricing still shows here, because it shows in the price achieved.
+            </p>
+            @if (report.ItemPrices.Count == 0)
+            {
+                <div class="vs-empty">
+                    <div class="vs-empty-title">No priced lines in this period</div>
+                    <div>Every line either carried no quantity or no value.</div>
+                </div>
+            }
+            else
+            {
+                <div class="vs-table-wrap">
+                    <table class="vs-table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Unit</th>
+                                <th class="vs-num">Lines</th>
+                                <th class="vs-num">Average</th>
+                                <th class="vs-num">Lowest</th>
+                                <th class="vs-num">Highest</th>
+                                <th class="vs-num">Spread</th>
+                                <th>Cheapest seller</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var price in report.ItemPrices)
+                            {
+                                var cheapest = price.Reps.Count > 0 ? price.Reps[0] : null;
+                                <tr>
+                                    <td>
+                                        @price.DisplayName
+                                        <span class="vsp-sub">@price.ItemCode · @price.Currency</span>
+                                    </td>
+                                    <td>@(price.UoMCode ?? "not recorded")</td>
+                                    <td class="vs-num">@price.LineCount.ToString("N0")</td>
+                                    <td class="vs-num">@price.WeightedAveragePrice.ToString("N2")</td>
+                                    <td class="vs-num">@price.MinUnitPrice.ToString("N2")</td>
+                                    <td class="vs-num">@price.MaxUnitPrice.ToString("N2")</td>
+                                    <td class="vs-num @(price.PriceSpreadPercent is null ? "vs-metric-none" : null)">
+                                        @(price.PriceSpreadPercent is { } spread ? $"{spread:N1}%" : "—")
+                                    </td>
+                                    <td>
+                                        @if (cheapest is null)
+                                        {
+                                            <span class="vs-metric-none">—</span>
+                                        }
+                                        else
+                                        {
+                                            @cheapest.DisplayName
+                                            @if (cheapest.VarianceFromItemPercent is { } variance && variance < 0)
+                                            {
+                                                <span class="vs-chip vs-chip-warn vsp-inline-chip">
+                                                    @variance.ToString("N1")%
+                                                </span>
+                                            }
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+        else if (activeSection == SectionTrend)
+        {
+            <h3 class="vsp-heading">By day of week</h3>
+            <p class="vsp-note">
+                Averages divide by the days the period contained, not by the days that traded — so a
+                weekday nobody works reads as nobody working rather than as an average one.
+            </p>
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th>Day</th>
+                            <th class="vs-num">In period</th>
+                            <th class="vs-num">Traded</th>
+                            <th class="vs-num">Documents</th>
+                            <th class="vs-num">Per day</th>
+                            <th class="vs-num">Productive calls</th>
+                            <th>Takings</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var point in report.Trend.DayOfWeek)
+                        {
+                            <tr class="@(point.ActiveDayCount == 0 && point.CalendarDayCount > 0 ? "vsp-quiet" : null)">
+                                <td>@point.Label</td>
+                                <td class="vs-num">@point.CalendarDayCount.ToString("N0")</td>
+                                <td class="vs-num">@point.ActiveDayCount.ToString("N0")</td>
+                                <td class="vs-num">@point.DocumentCount.ToString("N0")</td>
+                                <td class="vs-num">
+                                    @(point.DocumentsPerCalendarDay is { } perDay ? perDay.ToString("N1") : "—")
+                                </td>
+                                <td class="vs-num">@point.ProductiveCalls.ToString("N0")</td>
+                                <td>@MoneyList(point.TotalsByCurrency)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 class="vsp-heading">By month</h3>
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th>Month</th>
+                            <th class="vs-num">Days</th>
+                            <th class="vs-num">Traded</th>
+                            <th class="vs-num">Documents</th>
+                            <th class="vs-num">Productive calls</th>
+                            <th>Takings</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var point in report.Trend.Monthly)
+                        {
+                            <tr>
+                                <td>
+                                    @point.Label
+                                    @if (point.IsPartial)
+                                    {
+                                        @* A clipped month's short total is not a collapse in trade. *@
+                                        <span class="vs-chip vs-chip-quiet vsp-inline-chip">part month</span>
+                                    }
+                                </td>
+                                <td class="vs-num">@point.CalendarDayCount.ToString("N0")</td>
+                                <td class="vs-num">@point.ActiveDayCount.ToString("N0")</td>
+                                <td class="vs-num">@point.DocumentCount.ToString("N0")</td>
+                                <td class="vs-num">@point.ProductiveCalls.ToString("N0")</td>
+                                <td>@MoneyList(point.TotalsByCurrency)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 class="vsp-heading">Day by day</h3>
+            <div class="vs-table-wrap">
+                <table class="vs-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Day</th>
+                            <th class="vs-num">Reps out</th>
+                            <th class="vs-num">Documents</th>
+                            <th class="vs-num">Productive calls</th>
+                            <th>Takings</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var point in report.Trend.Daily)
+                        {
+                            @* Silent days are present and washed, never dropped: the gap between two
+                               trading days is itself information about the round. *@
+                            <tr class="@(point.DocumentCount == 0 ? "vsp-quiet" : null)">
+                                <td>@point.TradingDate.ToString("ddd dd MMM")</td>
+                                <td>@point.DayOfWeek</td>
+                                <td class="vs-num">@point.RepsTrading.ToString("N0")</td>
+                                <td class="vs-num">@point.DocumentCount.ToString("N0")</td>
+                                <td class="vs-num">@point.ProductiveCalls.ToString("N0")</td>
+                                <td>@MoneyList(point.TotalsByCurrency)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else if (activeSection == SectionDrops)
+        {
+            <p class="vsp-note">
+                A drop is one shop, on one day, in one currency — two invoices written at the same
+                counter are one drop. The distribution is the point: a median well under the mean
+                means a handful of large accounts are carrying a long tail of calls that barely pay
+                for the stop.
+            </p>
+
+            @foreach (var distribution in report.DropSizes)
+            {
+                <h3 class="vsp-heading">@distribution.Currency</h3>
+                <div class="vsp-stats">
+                    <div class="vsp-stat">
+                        <span class="vsp-stat-value">@distribution.DropCount.ToString("N0")</span>
+                        <span class="vsp-stat-label">drops</span>
+                    </div>
+                    <div class="vsp-stat">
+                        <span class="vsp-stat-value">@distribution.Mean.ToString("N2")</span>
+                        <span class="vsp-stat-label">mean</span>
+                    </div>
+                    <div class="vsp-stat">
+                        <span class="vsp-stat-value">@distribution.Median.ToString("N2")</span>
+                        <span class="vsp-stat-label">median</span>
+                    </div>
+                    <div class="vsp-stat">
+                        <span class="vsp-stat-value">@distribution.P25.ToString("N2")</span>
+                        <span class="vsp-stat-label">lower quartile</span>
+                    </div>
+                    <div class="vsp-stat">
+                        <span class="vsp-stat-value">@distribution.P75.ToString("N2")</span>
+                        <span class="vsp-stat-label">upper quartile</span>
+                    </div>
+                    <div class="vsp-stat">
+                        <span class="vsp-stat-value">@distribution.Maximum.ToString("N2")</span>
+                        <span class="vsp-stat-label">largest</span>
+                    </div>
+                </div>
+
+                <div class="vs-table-wrap">
+                    <table class="vs-table">
+                        <thead>
+                            <tr>
+                                <th>Band</th>
+                                <th class="vs-num">Drops</th>
+                                <th class="vs-num">Share of value</th>
+                                <th class="vs-num">Value</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var bucket in distribution.Buckets)
+                            {
+                                <tr>
+                                    <td>@bucket.Label</td>
+                                    <td class="vs-num">@bucket.DropCount.ToString("N0")</td>
+                                    <td class="vs-num">
+                                        @(bucket.SharePercent is { } share ? $"{share:N1}%" : "—")
+                                    </td>
+                                    <td class="vs-num">@bucket.Total.ToString("N2")</td>
+                                    <td class="vsp-bar-cell">
+                                        <span class="vs-meter">
+                                            <span class="vs-meter-fill"
+                                                  style="width:@((bucket.SharePercent ?? 0).ToString("F1", CultureInfo.InvariantCulture))%"></span>
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+    }
+</div>
+
+@code {
+    private const string SectionRoutes = "routes";
+    private const string SectionReps = "reps";
+    private const string SectionItems = "items";
+    private const string SectionPrices = "prices";
+    private const string SectionTrend = "trend";
+    private const string SectionDrops = "drops";
+
+    private sealed record Section(string Key, string Label, Func<VanSalesPerformanceReportResponse, string> Count);
+
+    private static readonly Section[] Sections =
+    [
+        new(SectionRoutes, "Territory & route", r => r.Routes.Count.ToString("N0")),
+        new(SectionReps, "Reps", r => r.Reps.Count.ToString("N0")),
+        new(SectionItems, "Items", r => r.Items.Count.ToString("N0")),
+        new(SectionPrices, "Price realisation", r => r.ItemPrices.Count.ToString("N0")),
+        new(SectionTrend, "Trend", r => r.Trend.Daily.Count.ToString("N0")),
+        new(SectionDrops, "Drop size", r => r.DropSizes.Sum(d => d.DropCount).ToString("N0"))
+    ];
+
+    private VanSalesPerformanceReportResponse? report;
+    private List<RouteDto> routes = [];
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string? selectedRouteCode;
+    private string? selectedRepId;
+    private string activeSection = SectionRoutes;
+
+    private bool isLoading;
+    private string? loadError;
+
+    private IEnumerable<INocturneSelectOption<string>> RouteFilterOptions =>
+        new[] { NocturneSelectOption.All("All routes") }
+            .Concat(routes.Select(route => new NocturneSelectOption<string>(
+                route.Code,
+                route.IsActive ? route.DisplayLabel : $"{route.DisplayLabel} (retired)")));
+
+    /// <summary>
+    /// The reps the loaded period holds. Rebuilt from the last answer, so choosing one cannot ask
+    /// for somebody with nothing in the window — but the choice still goes back to the server,
+    /// because every figure on this page is an aggregate.
+    /// </summary>
+    private IEnumerable<INocturneSelectOption<string>> RepFilterOptions =>
+        new[] { NocturneSelectOption.All("All reps") }
+            .Concat((report?.Reps ?? [])
+                .OrderBy(rep => rep.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .Select(rep => new NocturneSelectOption<string>(rep.UserId.ToString("N"), rep.DisplayName)
+                {
+                    Hint = rep.TradingDayCount.ToString("N0")
+                }));
+
+    protected override async Task OnInitializedAsync()
+    {
+        // CAT, not the server's clock: a trading day belongs to the van.
+        var today = DateTime.UtcNow.AddHours(2).Date;
+        fromDate = today.AddDays(-29);
+        toDate = today;
+
+        routes = await VanSalesReportService.GetRoutesAsync(includeInactive: true);
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        StateHasChanged();
+
+        try
+        {
+            Guid? repId = Guid.TryParse(selectedRepId, out var parsed) ? parsed : null;
+
+            report = await VanSalesReportService.GetPerformanceReportAsync(
+                fromDate,
+                toDate,
+                repId,
+                string.IsNullOrWhiteSpace(selectedRouteCode) ? null : selectedRouteCode);
+
+            if (report is null)
+            {
+                loadError = "The performance report could not be loaded. Check that the API is reachable.";
+                return;
+            }
+
+            // A rep filter naming somebody the new period does not hold would leave every table
+            // empty with no visible reason for it.
+            if (!string.IsNullOrWhiteSpace(selectedRepId)
+                && report.Reps.All(rep => rep.UserId.ToString("N") != selectedRepId))
+            {
+                selectedRepId = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Failed to load the performance report: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        if (report is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var bytes = ExportService.ExportVanSalesPerformanceToExcel(report);
+            var fileName = $"VanSalesPerformance_{DateTime.UtcNow.AddHours(2):yyyyMMdd_HHmmss}.xlsx";
+
+            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            loadError = $"The export could not be downloaded: {ex.Message}";
+        }
+    }
+
+    // ── Formatting ──────────────────────────────────────────────────────────────
+    //
+    // All of it lives here so the six tables cannot disagree about how a figure reads. An em dash
+    // for every unavailable value, and never a zero standing in for one.
+
+    /// <summary>The currency a single-value tile should speak in: the one that took the most.</summary>
+    private static VanSalesMoney? LeadCurrency(List<VanSalesMoney> totals) =>
+        totals.Count == 0 ? null : totals[0];
+
+    private static string Money(VanSalesMoney? money) =>
+        money is null ? "—" : $"{money.Currency} {money.Gross:N2}";
+
+    private static string Money(decimal? amount, string currency) =>
+        amount is null ? "—" : $"{currency} {amount.Value:N2}";
+
+    private static string DropSize(VanSalesMoney? money) =>
+        money?.AverageDropSize is { } drop ? $"{money.Currency} {drop:N2}" : "—";
+
+    /// <summary>
+    /// Names the currencies behind a tile that can only show one. Silent when there is only one,
+    /// because "USD only" on every tile is noise rather than information.
+    /// </summary>
+    private static string CurrencyNote(List<VanSalesMoney> totals) =>
+        totals.Count switch
+        {
+            0 => "no takings",
+            1 => $"{totals[0].DocumentCount:N0} documents",
+            _ => $"plus {string.Join(", ", totals.Skip(1).Select(total => $"{total.Currency} {total.Gross:N0}"))}"
+        };
+
+    private static string KilometresNote(VanSalesPerformanceSummary summary, VanSalesMoney? lead)
+    {
+        if (summary.KilometresTravelled is not { } kilometres || kilometres == 0 || lead is null)
+        {
+            return "no odometer readings";
+        }
+
+        return $"{lead.Currency} {lead.Gross / kilometres:N2} per km";
+    }
+
+    private static string Rate(double? rate) => rate is { } value ? value.ToString("P0") : "—";
+
+    private static string Count(int? count) => count is { } value ? value.ToString("N0") : "—";
+
+    private static string Quantity(List<VanSalesQuantity> quantities) =>
+        quantities.Count == 0
+            ? "—"
+            : string.Join(", ", quantities.Select(q => $"{q.Quantity:N0} {q.DisplayUoM}"));
+
+    private static string LineMoney(List<VanSalesLineMoney> totals) =>
+        totals.Count == 0
+            ? "—"
+            : string.Join(", ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
+
+    private static string MoneyList(List<VanSalesMoney> totals) =>
+        totals.Count == 0
+            ? "—"
+            : string.Join(", ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
+
+    /// <summary>
+    /// A rate rendered as a bar as well as a number, so a column of them can be scanned. Capped for
+    /// width only — the number beside it is never capped, because a strike rate over 100% means
+    /// sales without recorded visits and that is the finding.
+    /// </summary>
+    private static string MeterWidth(double? rate) =>
+        rate is { } value
+            ? Math.Clamp(value * 100, 0, 100).ToString("F1", CultureInfo.InvariantCulture)
+            : "0";
+}
