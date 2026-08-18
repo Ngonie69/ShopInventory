@@ -17,10 +17,15 @@ namespace ShopInventory.Controllers;
 public class EmailController(IMediator mediator) : ApiControllerBase
 {
     /// <summary>
-    /// Send a test email
+    /// Send a test email, to check the configured SMTP settings actually work.
     /// </summary>
+    /// <remarks>
+    /// Authenticated, like the rest of this controller. It used to carry <c>[AllowAnonymous]</c>,
+    /// which let anyone who could reach the API make the server send mail from its own SMTP identity
+    /// to any address they named — a diagnostic that took the recipient from the request body, with
+    /// only the global rate limiter in front of it. Nothing called it that way.
+    /// </remarks>
     [HttpPost("test")]
-    [AllowAnonymous]
     [ProducesResponseType(typeof(EmailSentResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> SendTestEmail([FromBody] TestEmailRequest request, CancellationToken cancellationToken)
     {

@@ -1,4 +1,4 @@
-@page "/api-explorer"
+﻿@page "/api-explorer"
 @using Microsoft.AspNetCore.Authorization
 @using System.Text.Json
 @attribute [Authorize(Roles = "Admin")]
@@ -264,98 +264,165 @@ Modules = new List<ApiModule>
 {
 new ApiModule
 {
-Name = "Invoices",
-BasePath = "/api/invoice",
-Description = "Create, retrieve, and manage sales invoices with SAP integration and batch validation.",
-Icon = Icons.Material.Filled.Receipt,
-Color = Color.Primary,
-Methods = new[] { "GET", "POST" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/invoice/paged", "Get invoices with pagination"),
-new("GET", "/api/invoice/{docEntry}", "Get invoice by document entry"),
-new("GET", "/api/invoice/by-docnum/{docNum}", "Get invoice by document number"),
-new("GET", "/api/invoice/customer/{cardCode}", "Get invoices by customer"),
-new("GET", "/api/invoice/open", "Get open invoices"),
-new("GET", "/api/invoice/date-range", "Get invoices in a date range"),
-new("GET", "/api/invoice/{docEntry}/pdf", "Download invoice as PDF"),
-new("POST", "/api/invoice", "Create a new invoice"),
-new("POST", "/api/invoice/validate", "Validate an invoice before posting")
-}
-},
-new ApiModule
-{
-Name = "Sales Orders",
-BasePath = "/api/salesorder",
-Description = "Manage sales orders with full CRUD operations and SAP synchronization.",
-Icon = Icons.Material.Filled.ShoppingCart,
+Name = "Batches",
+BasePath = "/api/Batch",
+Description = "2 endpoints under /api/Batch.",
+Icon = Icons.Material.Filled.Dns,
 Color = Color.Secondary,
-Methods = new[] { "GET", "POST", "PUT", "DELETE" },
+Methods = new[] { "GET", "PATCH" },
 Endpoints = new List<ApiEndpoint>
 {
-new("GET", "/api/salesorder", "Get all sales orders"),
-new("GET", "/api/salesorder/{id}", "Get sales order by ID"),
-new("GET", "/api/salesorder/number/{orderNumber}", "Get sales order by order number"),
-new("POST", "/api/salesorder", "Create a new sales order"),
-new("PUT", "/api/salesorder/{id}", "Update a sales order"),
-new("POST", "/api/salesorder/{id}/approve", "Approve a sales order"),
-new("POST", "/api/salesorder/{id}/post-to-sap", "Post an approved order to SAP"),
-new("POST", "/api/salesorder/{id}/convert-to-invoice", "Convert a sales order to an invoice"),
-new("DELETE", "/api/salesorder/{id}", "Cancel a sales order")
+new("GET", "/api/Batch/search", "Search"),
+new("PATCH", "/api/Batch/{batchEntryId}/status", "Update status")
 }
 },
 new ApiModule
 {
 Name = "Credit Notes",
-BasePath = "/api/creditnote",
+BasePath = "/api/CreditNote",
 Description = "Create and manage credit notes for returns and adjustments.",
 Icon = Icons.Material.Filled.RemoveCircle,
 Color = Color.Warning,
-Methods = new[] { "GET", "POST" },
+Methods = new[] { "DELETE", "GET", "PATCH", "POST" },
 Endpoints = new List<ApiEndpoint>
 {
-new("GET", "/api/creditnote", "Get all credit notes"),
-new("GET", "/api/creditnote/{id}", "Get credit note by ID"),
-new("GET", "/api/creditnote/number/{creditNoteNumber}", "Get credit note by number"),
-new("GET", "/api/creditnote/by-invoice/{invoiceId}", "Get credit notes for an invoice"),
-new("POST", "/api/creditnote", "Create a new credit note"),
-new("POST", "/api/creditnote/from-invoice/{invoiceId}", "Create credit note from invoice")
-}
-},
-new ApiModule
-{
-Name = "Payments",
-BasePath = "/api/payment",
-Description = "Process payments and incoming payments with multiple payment gateway support.",
-Icon = Icons.Material.Filled.Payment,
-Color = Color.Success,
-Methods = new[] { "GET", "POST" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/payment/providers", "Get available payment providers"),
-new("POST", "/api/payment/initiate", "Initiate a payment"),
-new("GET", "/api/payment/{id}/status", "Get payment status"),
-new("GET", "/api/payment/transactions", "Get transaction history"),
-new("POST", "/api/payment/{id}/cancel", "Cancel a payment"),
-new("POST", "/api/payment/{id}/refund", "Refund a payment")
+new("GET", "/api/CreditNote", "Get all credit notes"),
+new("GET", "/api/CreditNote/{id}", "Get credit note by ID"),
+new("GET", "/api/CreditNote/by-invoice/{invoiceId}", "Get credit notes for an invoice"),
+new("GET", "/api/CreditNote/number/{creditNoteNumber}", "Get credit note by number"),
+new("POST", "/api/CreditNote", "Create a new credit note"),
+new("DELETE", "/api/CreditNote/{id}", "Delete"),
+new("POST", "/api/CreditNote/{id}/approve", "Approve"),
+new("PATCH", "/api/CreditNote/{id}/status", "Update status"),
+new("POST", "/api/CreditNote/bulk-cancel", "Bulk cancel"),
+new("POST", "/api/CreditNote/duplicate-cancelled", "Duplicate cancelled"),
+new("POST", "/api/CreditNote/from-invoice/{invoiceId}", "Create credit note from invoice")
 }
 },
 new ApiModule
 {
 Name = "Incoming Payments",
-BasePath = "/api/incomingpayment",
+BasePath = "/api/IncomingPayment",
 Description = "Record and manage incoming payments against invoices.",
 Icon = Icons.Material.Filled.AttachMoney,
 Color = Color.Info,
 Methods = new[] { "GET", "POST" },
 Endpoints = new List<ApiEndpoint>
 {
-new("GET", "/api/incomingpayment", "Get all incoming payments"),
-new("GET", "/api/incomingpayment/{docEntry}", "Get incoming payment by document entry"),
-new("GET", "/api/incomingpayment/docnum/{docNum}", "Get incoming payment by document number"),
-new("GET", "/api/incomingpayment/customer/{cardCode}", "Get payments by customer"),
-new("GET", "/api/incomingpayment/today", "Get today's payments"),
-new("POST", "/api/incomingpayment", "Create incoming payment")
+new("GET", "/api/IncomingPayment", "Get all incoming payments"),
+new("GET", "/api/IncomingPayment/{docEntry}", "Get incoming payment by document entry"),
+new("GET", "/api/IncomingPayment/customer/{cardCode}", "Get payments by customer"),
+new("GET", "/api/IncomingPayment/daterange", "Get incoming payments by date range"),
+new("GET", "/api/IncomingPayment/docnum/{docNum}", "Get incoming payment by document number"),
+new("GET", "/api/IncomingPayment/queue/{externalReference}", "Get incoming payment queue status"),
+new("GET", "/api/IncomingPayment/today", "Get today's payments"),
+new("POST", "/api/IncomingPayment", "Create incoming payment"),
+new("POST", "/api/IncomingPayment/{docEntry}/attachment", "Upload attachment")
+}
+},
+new ApiModule
+{
+Name = "Invoices",
+BasePath = "/api/Invoice",
+Description = "Create, retrieve, and manage sales invoices with SAP integration and batch validation.",
+Icon = Icons.Material.Filled.Receipt,
+Color = Color.Primary,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Invoice/{docEntry}", "Get invoice by document entry"),
+new("GET", "/api/Invoice/{docEntry}/attachments", "Get invoice attachments"),
+new("GET", "/api/Invoice/{docEntry}/attachments/{attachmentId}/download", "Download invoice attachment"),
+new("GET", "/api/Invoice/{docEntry}/pdf", "Download invoice as PDF"),
+new("GET", "/api/Invoice/{itemCode}/batches/{warehouseCode}", "Get available batches"),
+new("GET", "/api/Invoice/by-docnum/{docNum}", "Get invoice by document number"),
+new("GET", "/api/Invoice/customer/{cardCode}", "Get invoices by customer"),
+new("GET", "/api/Invoice/date-range", "Get invoices in a date range"),
+new("GET", "/api/Invoice/open", "Get open invoices"),
+new("GET", "/api/Invoice/paged", "Get invoices with pagination"),
+new("GET", "/api/Invoice/pod-dashboard", "Get POD dashboard"),
+new("GET", "/api/Invoice/pods", "Get all PODs"),
+new("GET", "/api/Invoice/pod-upload-status", "Get POD upload status"),
+new("POST", "/api/Invoice", "Create a new invoice"),
+new("POST", "/api/Invoice/{docEntry}/crate-pod", "Upload invoice crate POD"),
+new("POST", "/api/Invoice/{docEntry}/fiscalize", "Fiscalize invoice"),
+new("POST", "/api/Invoice/{docEntry}/pod", "Upload POD"),
+new("POST", "/api/Invoice/pods/validate-bulk", "Validate bulk PODs"),
+new("POST", "/api/Invoice/validate", "Validate an invoice before posting")
+}
+},
+new ApiModule
+{
+Name = "Payments",
+BasePath = "/api/Payment",
+Description = "Process payments and incoming payments with multiple payment gateway support.",
+Icon = Icons.Material.Filled.Payment,
+Color = Color.Success,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Payment/{id}/status", "Get payment status"),
+new("GET", "/api/Payment/providers", "Get available payment providers"),
+new("GET", "/api/Payment/transactions", "Get transaction history"),
+new("POST", "/api/Payment/{id}/cancel", "Cancel a payment"),
+new("POST", "/api/Payment/{id}/refund", "Refund a payment"),
+new("POST", "/api/Payment/callback/ecocash", "Ecocash callback"),
+new("POST", "/api/Payment/callback/innbucks", "Innbucks callback"),
+new("POST", "/api/Payment/callback/paynow", "Pay now callback"),
+new("POST", "/api/Payment/initiate", "Initiate a payment")
+}
+},
+new ApiModule
+{
+Name = "Quotations",
+BasePath = "/api/Quotation",
+Description = "15 endpoints under /api/Quotation.",
+Icon = Icons.Material.Filled.Api,
+Color = Color.Secondary,
+Methods = new[] { "DELETE", "GET", "PATCH", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Quotation", "Get all"),
+new("GET", "/api/Quotation/{id}", "Get by ID"),
+new("GET", "/api/Quotation/{id}/pdf", "Download quotation PDF"),
+new("GET", "/api/Quotation/number/{quotationNumber}", "Get by quotation number"),
+new("GET", "/api/Quotation/sap", "Get from SAP"),
+new("GET", "/api/Quotation/sap/{docEntry}", "Get from SAP by doc entry"),
+new("GET", "/api/Quotation/sap/{docEntry}/pdf", "Download SAP quotation PDF"),
+new("POST", "/api/Quotation", "Create"),
+new("DELETE", "/api/Quotation/{id}", "Delete"),
+new("PUT", "/api/Quotation/{id}", "Update"),
+new("POST", "/api/Quotation/{id}/apply-standard-vat", "Apply standard VAT"),
+new("POST", "/api/Quotation/{id}/approve", "Approve"),
+new("POST", "/api/Quotation/{id}/convert-to-sales-order", "Convert to sales order"),
+new("PUT", "/api/Quotation/{id}/reprice", "Reprice"),
+new("PATCH", "/api/Quotation/{id}/status", "Update status")
+}
+},
+new ApiModule
+{
+Name = "Sales Orders",
+BasePath = "/api/SalesOrder",
+Description = "Manage sales orders with full CRUD operations and SAP synchronization.",
+Icon = Icons.Material.Filled.ShoppingCart,
+Color = Color.Secondary,
+Methods = new[] { "DELETE", "GET", "PATCH", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/SalesOrder", "Get all sales orders"),
+new("GET", "/api/SalesOrder/{id}", "Get sales order by ID"),
+new("GET", "/api/SalesOrder/{id}/pdf", "Download PDF"),
+new("GET", "/api/SalesOrder/local/{id}", "Get local by ID"),
+new("GET", "/api/SalesOrder/local/{id}/pdf", "Download local PDF"),
+new("GET", "/api/SalesOrder/number/{orderNumber}", "Get sales order by order number"),
+new("POST", "/api/SalesOrder", "Create a new sales order"),
+new("DELETE", "/api/SalesOrder/{id}", "Cancel a sales order"),
+new("PUT", "/api/SalesOrder/{id}", "Update a sales order"),
+new("POST", "/api/SalesOrder/{id}/approve", "Approve a sales order"),
+new("POST", "/api/SalesOrder/{id}/convert-to-invoice", "Convert a sales order to an invoice"),
+new("POST", "/api/SalesOrder/{id}/post-to-sap", "Post an approved order to SAP"),
+new("PATCH", "/api/SalesOrder/{id}/status", "Update status"),
+new("POST", "/api/SalesOrder/backfill-web-order-tax", "Backfill web order tax")
 }
 }
 }
@@ -368,78 +435,229 @@ Modules = new List<ApiModule>
 {
 new ApiModule
 {
-Name = "Products",
-BasePath = "/api/product",
-Description = "Manage product catalog with SAP item master data integration.",
-Icon = Icons.Material.Filled.Inventory2,
-Color = Color.Primary,
-Methods = new[] { "GET" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/product", "Get all products"),
-new("GET", "/api/product/{itemCode}", "Get product by item code"),
-new("GET", "/api/product/groups", "Get product groups"),
-new("GET", "/api/product/van-sale-catalogue", "Every van-sale item - what a van may be sent, unpriced and not warehouse-scoped"),
-new("GET", "/api/product/warehouse/{warehouseCode}", "Get products in a warehouse"),
-new("GET", "/api/product/warehouse/{warehouseCode}/paged", "Get warehouse products with pagination"),
-new("GET", "/api/product/warehouse/{warehouseCode}/item/{itemCode}/batches", "Get batch information for an item")
-}
-},
-new ApiModule
-{
-Name = "Stock",
-BasePath = "/api/stock",
-Description = "Real-time stock levels and warehouse inventory monitoring.",
-Icon = Icons.Material.Filled.Analytics,
+Name = "Crates",
+BasePath = "/api/crates",
+Description = "11 endpoints under /api/crates.",
+Icon = Icons.Material.Filled.Dns,
 Color = Color.Secondary,
-Methods = new[] { "GET" },
+Methods = new[] { "DELETE", "GET", "POST", "PUT" },
 Endpoints = new List<ApiEndpoint>
 {
-new("GET", "/api/stock/warehouses", "Get all warehouses"),
-new("GET", "/api/stock/warehouse-codes", "Get warehouse codes"),
-new("GET", "/api/stock/warehouse/{warehouseCode}", "Get stock by warehouse"),
-new("GET", "/api/stock/warehouse/{warehouseCode}/paged", "Get warehouse stock with pagination"),
-new("GET", "/api/stock/warehouse/{warehouseCode}/items", "Get stock for specific items"),
-new("GET", "/api/stock/warehouse/{warehouseCode}/sales", "Get warehouse sales for a date range")
+new("GET", "/api/crates/grvs", "Get GRVs"),
+new("GET", "/api/crates/pods", "Get PODs"),
+new("GET", "/api/crates/transactions", "Get transactions"),
+new("POST", "/api/crates/opening-balances", "Create opening balance"),
+new("DELETE", "/api/crates/opening-balances/{crateTransactionId}", "Delete opening balance"),
+new("PUT", "/api/crates/opening-balances/{crateTransactionId}", "Update opening balance"),
+new("DELETE", "/api/crates/pods/{cratePodSubmissionId}", "Delete POD"),
+new("POST", "/api/crates/pods/validate-bulk", "Validate bulk PODs"),
+new("POST", "/api/crates/transactions/{crateTransactionId}/grvs", "Create GRV"),
+new("POST", "/api/crates/transactions/{crateTransactionId}/pods", "Upload crate POD"),
+new("POST", "/api/crates/transactions/ensure-invoice", "Ensure invoice transaction")
 }
 },
 new ApiModule
 {
 Name = "Inventory Transfers",
-BasePath = "/api/inventorytransfer",
+BasePath = "/api/InventoryTransfer",
 Description = "Transfer stock between warehouses with batch tracking.",
 Icon = Icons.Material.Filled.SwapHoriz,
 Color = Color.Warning,
-Methods = new[] { "GET", "POST" },
+Methods = new[] { "GET", "PATCH", "POST" },
 Endpoints = new List<ApiEndpoint>
 {
-new("POST", "/api/inventorytransfer", "Submit an inventory transfer for approval"),
-new("GET", "/api/inventorytransfer/pending", "Get transfers held for approval"),
-new("POST", "/api/inventorytransfer/pending/{id}/post", "Retry posting an approved transfer to SAP"),
-new("GET", "/api/inventorytransfer/detail/{docEntry}", "Get transfer by document entry"),
-new("GET", "/api/inventorytransfer/{warehouseCode}", "Get transfers for a warehouse"),
-new("GET", "/api/inventorytransfer/requests", "Get transfer requests with pagination"),
-new("POST", "/api/inventorytransfer/request", "Create a transfer request"),
-new("POST", "/api/inventorytransfer/request/{docEntry}/convert", "Convert a request into a transfer")
+new("GET", "/api/InventoryTransfer/{warehouseCode}", "Get transfers for a warehouse"),
+new("GET", "/api/InventoryTransfer/{warehouseCode}/date/{date}", "Get inventory transfers by date"),
+new("GET", "/api/InventoryTransfer/{warehouseCode}/daterange", "Get inventory transfers by date range"),
+new("GET", "/api/InventoryTransfer/{warehouseCode}/paged", "Get paged inventory transfers"),
+new("GET", "/api/InventoryTransfer/detail/{docEntry}", "Get transfer by document entry"),
+new("GET", "/api/InventoryTransfer/pending", "Get transfers held for approval"),
+new("GET", "/api/InventoryTransfer/pending/{id}", "Get pending inventory transfer"),
+new("GET", "/api/InventoryTransfer/request/{docEntry}", "Get transfer request by doc entry"),
+new("GET", "/api/InventoryTransfer/request-edits", "Get pending request edits"),
+new("GET", "/api/InventoryTransfer/request-edits/{id}", "Get pending request edit"),
+new("GET", "/api/InventoryTransfer/requests", "Get transfer requests with pagination"),
+new("GET", "/api/InventoryTransfer/requests/{warehouseCode}", "Get transfer requests by warehouse"),
+new("POST", "/api/InventoryTransfer", "Submit an inventory transfer for approval"),
+new("POST", "/api/InventoryTransfer/pending/{id}/cancel", "Cancel pending inventory transfer"),
+new("POST", "/api/InventoryTransfer/pending/{id}/decision", "Decide pending inventory transfer"),
+new("POST", "/api/InventoryTransfer/pending/{id}/post", "Retry posting an approved transfer to SAP"),
+new("POST", "/api/InventoryTransfer/request", "Create a transfer request"),
+new("PATCH", "/api/InventoryTransfer/request/{docEntry}", "Edit transfer request"),
+new("POST", "/api/InventoryTransfer/request/{docEntry}/close", "Close transfer request"),
+new("POST", "/api/InventoryTransfer/request/{docEntry}/convert", "Convert a request into a transfer"),
+new("POST", "/api/InventoryTransfer/request-edits/{id}/cancel", "Cancel pending request edit"),
+new("POST", "/api/InventoryTransfer/request-edits/{id}/decision", "Decide pending request edit")
+}
+},
+new ApiModule
+{
+Name = "Item Volume Conversion",
+BasePath = "/api/ItemVolumeConversion",
+Description = "3 endpoints under /api/ItemVolumeConversion.",
+Icon = Icons.Material.Filled.Api,
+Color = Color.Success,
+Methods = new[] { "DELETE", "GET", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/ItemVolumeConversion", "Get conversions"),
+new("DELETE", "/api/ItemVolumeConversion/{itemCode}", "Delete conversion"),
+new("PUT", "/api/ItemVolumeConversion/{itemCode}", "Save conversion")
 }
 },
 new ApiModule
 {
 Name = "Prices",
-BasePath = "/api/price",
+BasePath = "/api/Price",
 Description = "Price list management with multi-currency and customer-specific pricing.",
 Icon = Icons.Material.Filled.LocalOffer,
 Color = Color.Info,
 Methods = new[] { "GET", "POST" },
 Endpoints = new List<ApiEndpoint>
 {
-new("GET", "/api/price", "Get all prices from SAP"),
-new("GET", "/api/price/cached", "Get cached prices"),
-new("GET", "/api/price/{itemCode}", "Get prices for item"),
-new("GET", "/api/price/pricelists", "Get all price lists"),
-new("GET", "/api/price/pricelists/{priceListNum}/items", "Get items on a price list"),
-new("GET", "/api/price/businesspartner/{cardCode}", "Get customer-specific pricing"),
-new("POST", "/api/price/sync", "Sync prices from SAP")
+new("GET", "/api/Price", "Get all prices from SAP"),
+new("GET", "/api/Price/{itemCode}", "Get prices for item"),
+new("GET", "/api/Price/businesspartner/{cardCode}", "Get customer-specific pricing"),
+new("GET", "/api/Price/cached", "Get cached prices"),
+new("GET", "/api/Price/currency/{currency}", "Get prices by currency"),
+new("GET", "/api/Price/grouped", "Get grouped prices"),
+new("GET", "/api/Price/pricelists", "Get all price lists"),
+new("GET", "/api/Price/pricelists/{priceListNum}/items", "Get items on a price list"),
+new("GET", "/api/Price/pricelists/{priceListNum}/items/{itemCode}", "Get item price from list"),
+new("POST", "/api/Price/pricelists/{priceListNum}/sync", "Sync item prices for price list"),
+new("POST", "/api/Price/pricelists/sync", "Sync price lists"),
+new("POST", "/api/Price/sync", "Sync prices from SAP")
+}
+},
+new ApiModule
+{
+Name = "Products",
+BasePath = "/api/Product",
+Description = "Manage product catalog with SAP item master data integration.",
+Icon = Icons.Material.Filled.Inventory2,
+Color = Color.Primary,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Product", "Get all products"),
+new("GET", "/api/Product/{itemCode}", "Get product by item code"),
+new("GET", "/api/Product/groups", "Get product groups"),
+new("GET", "/api/Product/van-sale-catalogue", "Every van-sale item - what a van may be sent, unpriced and not warehouse-scoped"),
+new("GET", "/api/Product/warehouse/{warehouseCode}", "Get products in a warehouse"),
+new("GET", "/api/Product/warehouse/{warehouseCode}/item/{itemCode}/batches", "Get batch information for an item"),
+new("GET", "/api/Product/warehouse/{warehouseCode}/paged", "Get warehouse products with pagination")
+}
+},
+new ApiModule
+{
+Name = "Stock",
+BasePath = "/api/Stock",
+Description = "Real-time stock levels and warehouse inventory monitoring.",
+Icon = Icons.Material.Filled.Analytics,
+Color = Color.Secondary,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Stock/warehouse/{warehouseCode}", "Get stock by warehouse"),
+new("GET", "/api/Stock/warehouse/{warehouseCode}/items", "Get stock for specific items"),
+new("GET", "/api/Stock/warehouse/{warehouseCode}/paged", "Get warehouse stock with pagination"),
+new("GET", "/api/Stock/warehouse/{warehouseCode}/sales", "Get warehouse sales for a date range"),
+new("GET", "/api/Stock/warehouse-codes", "Get warehouse codes"),
+new("GET", "/api/Stock/warehouses", "Get all warehouses"),
+new("POST", "/api/Stock/warehouse/{warehouseCode}/sales", "Get sales in warehouse post")
+}
+}
+}
+},
+new ApiCategory
+{
+Name = "Purchasing",
+Icon = Icons.Material.Filled.ShoppingBasket,
+Modules = new List<ApiModule>
+{
+new ApiModule
+{
+Name = "Goods Receipt POs",
+BasePath = "/api/GoodsReceiptPurchaseOrder",
+Description = "3 endpoints under /api/GoodsReceiptPurchaseOrder.",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Secondary,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/GoodsReceiptPurchaseOrder", "Get all"),
+new("GET", "/api/GoodsReceiptPurchaseOrder/{docEntry}", "Get by doc entry"),
+new("POST", "/api/GoodsReceiptPurchaseOrder", "Create")
+}
+},
+new ApiModule
+{
+Name = "Purchase Invoices",
+BasePath = "/api/PurchaseInvoice",
+Description = "3 endpoints under /api/PurchaseInvoice.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Info,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/PurchaseInvoice", "Get all"),
+new("GET", "/api/PurchaseInvoice/{docEntry}", "Get by doc entry"),
+new("POST", "/api/PurchaseInvoice", "Create")
+}
+},
+new ApiModule
+{
+Name = "Purchase Orders",
+BasePath = "/api/PurchaseOrder",
+Description = "13 endpoints under /api/PurchaseOrder.",
+Icon = Icons.Material.Filled.Api,
+Color = Color.Success,
+Methods = new[] { "DELETE", "GET", "PATCH", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/PurchaseOrder", "Get all"),
+new("GET", "/api/PurchaseOrder/{id}", "Get by ID"),
+new("GET", "/api/PurchaseOrder/documents", "Get documents"),
+new("GET", "/api/PurchaseOrder/number/{orderNumber}", "Get by order number"),
+new("GET", "/api/PurchaseOrder/sap", "Get from SAP"),
+new("GET", "/api/PurchaseOrder/sap/{docEntry}", "Get from SAP by doc entry"),
+new("POST", "/api/PurchaseOrder", "Create"),
+new("DELETE", "/api/PurchaseOrder/{id}", "Delete"),
+new("PUT", "/api/PurchaseOrder/{id}", "Update"),
+new("POST", "/api/PurchaseOrder/{id}/approve", "Approve"),
+new("POST", "/api/PurchaseOrder/{id}/receive", "Receive items"),
+new("PATCH", "/api/PurchaseOrder/{id}/status", "Update status"),
+new("POST", "/api/PurchaseOrder/documents/upload", "Upload document")
+}
+},
+new ApiModule
+{
+Name = "Purchase Quotations",
+BasePath = "/api/PurchaseQuotation",
+Description = "3 endpoints under /api/PurchaseQuotation.",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Warning,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/PurchaseQuotation", "Get all"),
+new("GET", "/api/PurchaseQuotation/{docEntry}", "Get by doc entry"),
+new("POST", "/api/PurchaseQuotation", "Create")
+}
+},
+new ApiModule
+{
+Name = "Purchase Requests",
+BasePath = "/api/PurchaseRequest",
+Description = "3 endpoints under /api/PurchaseRequest.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Primary,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/PurchaseRequest", "Get all"),
+new("GET", "/api/PurchaseRequest/{docEntry}", "Get by doc entry"),
+new("POST", "/api/PurchaseRequest", "Create")
 }
 }
 }
@@ -453,48 +671,80 @@ Modules = new List<ApiModule>
 new ApiModule
 {
 Name = "Business Partners",
-BasePath = "/api/businesspartner",
+BasePath = "/api/BusinessPartner",
 Description = "Manage customers, suppliers, and leads in SAP Business One.",
 Icon = Icons.Material.Filled.Business,
 Color = Color.Primary,
 Methods = new[] { "GET" },
 Endpoints = new List<ApiEndpoint>
 {
-new("GET", "/api/businesspartner", "Get all business partners"),
-new("GET", "/api/businesspartner/{cardCode}", "Get partner by card code"),
-new("GET", "/api/businesspartner/type/{cardType}", "Get partners by card type"),
-new("GET", "/api/businesspartner/search", "Search business partners"),
-new("GET", "/api/businesspartner/groups", "Get business partner groups"),
-new("GET", "/api/businesspartner/batch", "Get several partners in one call"),
-new("GET", "/api/businesspartner/paymentterms/{groupNumber}", "Get payment terms by group")
+new("GET", "/api/BusinessPartner", "Get all business partners"),
+new("GET", "/api/BusinessPartner/{cardCode}", "Get partner by card code"),
+new("GET", "/api/BusinessPartner/batch", "Get several partners in one call"),
+new("GET", "/api/BusinessPartner/groups", "Get business partner groups"),
+new("GET", "/api/BusinessPartner/paymentterms/{groupNumber}", "Get payment terms by group"),
+new("GET", "/api/BusinessPartner/search", "Search business partners"),
+new("GET", "/api/BusinessPartner/type/{cardType}", "Get partners by card type")
+}
+},
+new ApiModule
+{
+Name = "Credit Control",
+BasePath = "/api/credit-control",
+Description = "1 endpoint under /api/credit-control.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Info,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/credit-control/over-limit", "Get over limit accounts")
 }
 },
 new ApiModule
 {
 Name = "Customer Portal",
-BasePath = "/api/customerportal",
+BasePath = "/api/CustomerPortal",
 Description = "Password hashing helper. Portal accounts themselves are managed on the Customer Portal Management page, not through this API.",
 Icon = Icons.Material.Filled.Portrait,
 Color = Color.Secondary,
 Methods = new[] { "POST" },
 Endpoints = new List<ApiEndpoint>
 {
-new("POST", "/api/customerportal/generate-hash", "Generate a password hash (development only)")
+new("POST", "/api/CustomerPortal/generate-hash", "Generate a password hash (development only)")
+}
+},
+new ApiModule
+{
+Name = "Route Customers",
+BasePath = "/api/route-customers",
+Description = "7 endpoints under /api/route-customers.",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Warning,
+Methods = new[] { "DELETE", "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/route-customers", "Get route customers"),
+new("GET", "/api/route-customers/{id}/sales", "Get sales"),
+new("GET", "/api/route-customers/product-mix", "Get product mix"),
+new("GET", "/api/route-customers/sales-summary", "Get sales summary"),
+new("POST", "/api/route-customers", "Create route customer"),
+new("DELETE", "/api/route-customers/{id}", "Delete route customer"),
+new("PUT", "/api/route-customers/{id}", "Update route customer")
 }
 },
 new ApiModule
 {
 Name = "Statements",
-BasePath = "/api/statement",
+BasePath = "/api/Statement",
 Description = "Generate customer account statements.",
 Icon = Icons.Material.Filled.Summarize,
 Color = Color.Info,
 Methods = new[] { "GET" },
 Endpoints = new List<ApiEndpoint>
 {
-new("GET", "/api/statement/{cardCode}", "Get customer statement"),
-new("GET", "/api/statement/{cardCode}/pdf", "Download statement as PDF"),
-new("GET", "/api/statement/generate/{cardCode}", "Generate statement PDF")
+new("GET", "/api/Statement/{cardCode}", "Get customer statement"),
+new("GET", "/api/Statement/{cardCode}/pdf", "Download statement as PDF"),
+new("GET", "/api/Statement/generate/{cardCode}", "Generate statement PDF")
 }
 }
 }
@@ -507,49 +757,49 @@ Modules = new List<ApiModule>
 {
 new ApiModule
 {
-Name = "Exchange Rates",
-BasePath = "/api/exchangerate",
-Description = "Currency exchange rates for multi-currency transactions.",
-Icon = Icons.Material.Filled.CurrencyExchange,
-Color = Color.Primary,
-Methods = new[] { "GET" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/exchangerate", "Get all exchange rates"),
-new("GET", "/api/exchangerate/{fromCurrency}/{toCurrency}", "Get rate between two currencies"),
-new("GET", "/api/exchangerate/{fromCurrency}/{toCurrency}/history", "Get rate history"),
-new("GET", "/api/exchangerate/convert", "Convert amount between currencies")
-}
-},
-new ApiModule
-{
-Name = "GL Accounts",
-BasePath = "/api/glaccount",
-Description = "General Ledger account management for financial reporting.",
-Icon = Icons.Material.Filled.AccountTree,
-Color = Color.Secondary,
-Methods = new[] { "GET" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/glaccount", "Get all GL accounts"),
-new("GET", "/api/glaccount/type/{accountType}", "Get GL accounts by type"),
-new("GET", "/api/glaccount/{accountCode}", "Get GL account by code"),
-new("GET", "/api/glaccount/{accountCode}/ledger", "Journal postings for one account")
-}
-},
-new ApiModule
-{
 Name = "Cost Centres",
-BasePath = "/api/costcentre",
+BasePath = "/api/CostCentre",
 Description = "Manage cost centres for departmental accounting.",
 Icon = Icons.Material.Filled.AccountBalanceWallet,
 Color = Color.Warning,
 Methods = new[] { "GET" },
 Endpoints = new List<ApiEndpoint>
 {
-new("GET", "/api/costcentre", "Get all cost centres"),
-new("GET", "/api/costcentre/dimension/{dimension}", "Get cost centres by dimension"),
-new("GET", "/api/costcentre/{centerCode}", "Get cost centre by code")
+new("GET", "/api/CostCentre", "Get all cost centres"),
+new("GET", "/api/CostCentre/{centerCode}", "Get cost centre by code"),
+new("GET", "/api/CostCentre/dimension/{dimension}", "Get cost centres by dimension")
+}
+},
+new ApiModule
+{
+Name = "Exchange Rates",
+BasePath = "/api/ExchangeRate",
+Description = "Currency exchange rates for multi-currency transactions.",
+Icon = Icons.Material.Filled.CurrencyExchange,
+Color = Color.Primary,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/ExchangeRate", "Get all exchange rates"),
+new("GET", "/api/ExchangeRate/{fromCurrency}/{toCurrency}", "Get rate between two currencies"),
+new("GET", "/api/ExchangeRate/{fromCurrency}/{toCurrency}/history", "Get rate history"),
+new("GET", "/api/ExchangeRate/convert", "Convert amount between currencies")
+}
+},
+new ApiModule
+{
+Name = "GL Accounts",
+BasePath = "/api/GLAccount",
+Description = "General Ledger account management for financial reporting.",
+Icon = Icons.Material.Filled.AccountTree,
+Color = Color.Secondary,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/GLAccount", "Get all GL accounts"),
+new("GET", "/api/GLAccount/{accountCode}", "Get GL account by code"),
+new("GET", "/api/GLAccount/{accountCode}/ledger", "Journal postings for one account"),
+new("GET", "/api/GLAccount/type/{accountType}", "Get GL accounts by type")
 }
 }
 }
@@ -562,265 +812,158 @@ Modules = new List<ApiModule>
 {
 new ApiModule
 {
+Name = "Backups",
+BasePath = "/api/Backup",
+Description = "Database backup and restore operations.",
+Icon = Icons.Material.Filled.Backup,
+Color = Color.Info,
+Methods = new[] { "DELETE", "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Backup", "Get all backups"),
+new("GET", "/api/Backup/{id}", "Get by ID"),
+new("GET", "/api/Backup/{id}/download", "Download a backup"),
+new("GET", "/api/Backup/capabilities", "Get capabilities"),
+new("GET", "/api/Backup/stats", "Get stats"),
+new("POST", "/api/Backup", "Create new backup"),
+new("DELETE", "/api/Backup/{id}", "Delete backup"),
+new("POST", "/api/Backup/{id}/restore", "Restore from backup"),
+new("POST", "/api/Backup/reset-database", "Reset database")
+}
+},
+new ApiModule
+{
+Name = "Documents",
+BasePath = "/api/Document",
+Description = "Document template management and PDF generation.",
+Icon = Icons.Material.Filled.Description,
+Color = Color.Secondary,
+Methods = new[] { "DELETE", "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Document/attachments", "Get attachments"),
+new("GET", "/api/Document/attachments/{id}/download", "Download attachment"),
+new("GET", "/api/Document/email-templates", "Get email templates"),
+new("GET", "/api/Document/email-templates/{templateCode}", "Get email template by code"),
+new("GET", "/api/Document/history", "Get document history"),
+new("GET", "/api/Document/signatures", "Get signatures"),
+new("GET", "/api/Document/templates", "Get all document templates"),
+new("GET", "/api/Document/templates/{id}", "Get template by ID"),
+new("GET", "/api/Document/templates/default/{documentType}", "Get default template"),
+new("GET", "/api/Document/templates/placeholders/{documentType}", "Get placeholders"),
+new("POST", "/api/Document/attachments", "Upload attachment"),
+new("DELETE", "/api/Document/attachments/{id}", "Delete attachment"),
+new("POST", "/api/Document/email", "Email document"),
+new("POST", "/api/Document/email-templates", "Create email template"),
+new("PUT", "/api/Document/email-templates/{id}", "Update email template"),
+new("POST", "/api/Document/generate", "Generate document from template"),
+new("POST", "/api/Document/generate/download", "Generate and download document"),
+new("POST", "/api/Document/signatures", "Create signature"),
+new("POST", "/api/Document/signatures/{id}/verify", "Verify signature"),
+new("POST", "/api/Document/templates", "Create document template"),
+new("DELETE", "/api/Document/templates/{id}", "Delete document template"),
+new("PUT", "/api/Document/templates/{id}", "Update document template"),
+new("POST", "/api/Document/templates/{id}/set-default", "Set default template")
+}
+},
+new ApiModule
+{
 Name = "Reports",
-BasePath = "/api/report",
+BasePath = "/api/Report",
 Description = "Generate sales, inventory, and financial reports.",
 Icon = Icons.Material.Filled.Assessment,
 Color = Color.Primary,
 Methods = new[] { "GET" },
 Endpoints = new List<ApiEndpoint>
 {
-new("GET", "/api/report/sales-summary", "Get sales summary"),
-new("GET", "/api/report/top-products", "Get top selling products"),
-new("GET", "/api/report/top-customers", "Get top customers"),
-new("GET", "/api/report/stock-summary", "Get stock summary"),
-new("GET", "/api/report/low-stock-alerts", "Get low stock alerts"),
-new("GET", "/api/report/payment-summary", "Get payment summary"),
-new("GET", "/api/report/receivables-aging", "Get receivables aging"),
-new("GET", "/api/report/profit-overview", "Get profit overview")
-}
-},
-new ApiModule
-{
-Name = "Documents",
-BasePath = "/api/document",
-Description = "Document template management and PDF generation.",
-Icon = Icons.Material.Filled.Description,
-Color = Color.Secondary,
-Methods = new[] { "GET", "POST", "PUT", "DELETE" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/document/templates", "Get all document templates"),
-new("GET", "/api/document/templates/{id}", "Get template by ID"),
-new("POST", "/api/document/templates", "Create document template"),
-new("PUT", "/api/document/templates/{id}", "Update document template"),
-new("DELETE", "/api/document/templates/{id}", "Delete document template"),
-new("POST", "/api/document/generate", "Generate document from template")
-}
-},
-new ApiModule
-{
-Name = "Backups",
-BasePath = "/api/backup",
-Description = "Database backup and restore operations.",
-Icon = Icons.Material.Filled.Backup,
-Color = Color.Info,
-Methods = new[] { "GET", "POST", "DELETE" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/backup", "Get all backups"),
-new("POST", "/api/backup", "Create new backup"),
-new("POST", "/api/backup/{id}/restore", "Restore from backup"),
-new("GET", "/api/backup/{id}/download", "Download a backup"),
-new("DELETE", "/api/backup/{id}", "Delete backup")
+new("GET", "/api/Report/account-sales-payments", "Get account sales payments"),
+new("GET", "/api/Report/credit-notes", "Get credit note summary"),
+new("GET", "/api/Report/item-volume-sales", "Get item volume sales"),
+new("GET", "/api/Report/low-stock-alerts", "Get low stock alerts"),
+new("GET", "/api/Report/merchandiser-purchase-orders", "Get merchandiser purchase order report"),
+new("GET", "/api/Report/order-fulfillment", "Get order fulfillment"),
+new("GET", "/api/Report/payment-summary", "Get payment summary"),
+new("GET", "/api/Report/profit-overview", "Get profit overview"),
+new("GET", "/api/Report/purchase-orders", "Get purchase order summary"),
+new("GET", "/api/Report/receivables-aging", "Get receivables aging"),
+new("GET", "/api/Report/sales-summary", "Get sales summary"),
+new("GET", "/api/Report/slow-moving-products", "Get slow moving products"),
+new("GET", "/api/Report/stock-movement", "Get stock movement"),
+new("GET", "/api/Report/stock-summary", "Get stock summary"),
+new("GET", "/api/Report/top-customers", "Get top customers"),
+new("GET", "/api/Report/top-products", "Get top selling products")
 }
 }
 }
 },
 new ApiCategory
 {
-Name = "System & Security",
-Icon = Icons.Material.Filled.Security,
-Modules = new List<ApiModule>
-{
-new ApiModule
-{
-Name = "Authentication",
-BasePath = "/api/auth",
-Description = "User authentication with JWT tokens and refresh token support.",
-Icon = Icons.Material.Filled.Login,
-Color = Color.Primary,
-Methods = new[] { "POST", "GET" },
-Endpoints = new List<ApiEndpoint>
-{
-new("POST", "/api/auth/login", "Login with username and password"),
-new("POST", "/api/auth/login/two-factor", "Complete login with a 2FA code"),
-new("POST", "/api/auth/refresh", "Refresh access token"),
-new("POST", "/api/auth/logout", "Logout and revoke tokens"),
-new("GET", "/api/auth/me", "Get the current authenticated user"),
-new("POST", "/api/auth/register", "Register a new user")
-}
-},
-new ApiModule
-{
-Name = "Two-Factor Auth",
-BasePath = "/api/twofactor",
-Description = "Two-factor authentication setup and verification.",
-Icon = Icons.Material.Filled.PhonelinkLock,
-Color = Color.Secondary,
-Methods = new[] { "GET", "POST" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/twofactor/status", "Get 2FA status"),
-new("POST", "/api/twofactor/setup", "Start 2FA setup and get the QR code"),
-new("POST", "/api/twofactor/enable", "Enable 2FA"),
-new("POST", "/api/twofactor/disable", "Disable 2FA"),
-new("POST", "/api/twofactor/verify", "Verify 2FA code"),
-new("POST", "/api/twofactor/backup-codes/regenerate", "Regenerate backup codes")
-}
-},
-new ApiModule
-{
-Name = "Users",
-BasePath = "/api/user",
-Description = "User account management and permissions.",
-Icon = Icons.Material.Filled.People,
-Color = Color.Warning,
-Methods = new[] { "GET", "POST", "PUT", "DELETE" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/user", "Get all users"),
-new("GET", "/api/user/{id}", "Get user by ID"),
-new("GET", "/api/user/roles", "Get all roles"),
-new("POST", "/api/user", "Create new user"),
-new("PUT", "/api/user/{id}", "Update user"),
-new("DELETE", "/api/user/{id}", "Delete user"),
-new("POST", "/api/user/{id}/change-password", "Change a user's password"),
-new("POST", "/api/user/{id}/unlock", "Unlock a locked account")
-}
-},
-new ApiModule
-{
-Name = "User Management",
-BasePath = "/api/usermanagement",
-Description = "Create and edit users with granular permissions. Roles are listed on /api/user/roles.",
-Icon = Icons.Material.Filled.ManageAccounts,
-Color = Color.Info,
-Methods = new[] { "GET", "POST", "PUT", "DELETE" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/usermanagement", "Get users with full details"),
-new("GET", "/api/usermanagement/{id}", "Get user with permissions"),
-new("GET", "/api/usermanagement/me", "Get the current user"),
-new("GET", "/api/usermanagement/permissions/available", "Get all available permissions"),
-new("PUT", "/api/usermanagement/{id}/permissions", "Update a user's permissions"),
-new("POST", "/api/usermanagement", "Create user with permissions"),
-new("DELETE", "/api/usermanagement/{id}", "Delete user")
-}
-},
-new ApiModule
-{
-Name = "User Activity",
-BasePath = "/api/useractivity",
-Description = "Track and audit user activity and sessions.",
-Icon = Icons.Material.Filled.Timeline,
-Color = Color.Success,
-Methods = new[] { "GET" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/useractivity", "Get user activity logs"),
-new("GET", "/api/useractivity/dashboard", "Get the activity dashboard"),
-new("GET", "/api/useractivity/user/{userId}", "Get activity for specific user"),
-new("GET", "/api/useractivity/me", "Get the current user's activity"),
-new("GET", "/api/useractivity/filter-options", "Get filter options"),
-new("GET", "/api/useractivity/entity/{entityType}/{entityId}", "Get activity for a document")
-}
-},
-new ApiModule
-{
-Name = "Health",
-BasePath = "/api/health",
-Description = "API health check and status monitoring.",
-Icon = Icons.Material.Filled.MonitorHeart,
-Color = Color.Success,
-Methods = new[] { "GET" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/health", "Liveness, readiness and dependency detail"),
-new("GET", "/health/live", "Liveness probe"),
-new("GET", "/health/ready", "Readiness probe"),
-new("GET", "/health/dependencies", "Dependency health probe")
-}
-},
-new ApiModule
-{
-Name = "Rate Limiting",
-BasePath = "/api/ratelimit",
-Description = "API rate limiting configuration and status.",
-Icon = Icons.Material.Filled.Speed,
-Color = Color.Error,
-Methods = new[] { "GET", "POST" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/ratelimit", "Get rate limit status for all clients"),
-new("GET", "/api/ratelimit/current", "Get the current client's rate limit status"),
-new("GET", "/api/ratelimit/config", "Get rate limit configuration"),
-new("GET", "/api/ratelimit/blocked", "Get blocked clients"),
-new("GET", "/api/ratelimit/stats", "Get rate limit statistics"),
-new("POST", "/api/ratelimit/reset/{clientId}", "Reset a client's counters")
-}
-}
-}
-},
-new ApiCategory
-{
-Name = "Integrations",
-Icon = Icons.Material.Filled.IntegrationInstructions,
-Modules = new List<ApiModule>
-{
-new ApiModule
-{
-Name = "Webhooks",
-BasePath = "/api/webhook",
-Description = "Configure webhooks for event notifications.",
-Icon = Icons.Material.Filled.Webhook,
-Color = Color.Primary,
-Methods = new[] { "GET", "POST", "PUT", "DELETE" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/webhook", "Get all webhooks"),
-new("GET", "/api/webhook/{id}", "Get webhook by ID"),
-new("POST", "/api/webhook", "Create webhook"),
-new("PUT", "/api/webhook/{id}", "Update webhook"),
-new("DELETE", "/api/webhook/{id}", "Delete webhook"),
-new("POST", "/api/webhook/{id}/test", "Test webhook")
-}
-},
-new ApiModule
-{
-Name = "Notifications",
-BasePath = "/api/notification",
-Description = "System notifications and alerts.",
-Icon = Icons.Material.Filled.Notifications,
-Color = Color.Secondary,
-Methods = new[] { "GET", "POST", "DELETE" },
-Endpoints = new List<ApiEndpoint>
-{
-new("GET", "/api/notification", "Get all notifications"),
-new("GET", "/api/notification/unread-count", "Get the unread notification count"),
-new("POST", "/api/notification/mark-read", "Mark notifications as read"),
-new("POST", "/api/notification", "Create a notification"),
-new("DELETE", "/api/notification/{id}", "Delete a notification")
-}
-}
-}
-},
-// Two surfaces, and the difference between them is the hyphen. /api/van-sales is a plain API for
-// these pages; /api/vansales speaks the handset's legacy dialect - snake_case, a {success, error}
-// envelope, and HTTP 200 on failures the rest of the API would answer 4xx to - and is fixed by
-// builds already in the field. Listed here because it exists, not because anything new should call it.
-new ApiCategory
-{
-Name = "Van Sales",
+Name = "Field Operations",
 Icon = Icons.Material.Filled.LocalShipping,
 Modules = new List<ApiModule>
 {
 new ApiModule
 {
-Name = "Van Sales Reporting",
-BasePath = "/api/van-sales",
-Description = "Departure compliance, the call ledger and the selling routes, for the /van-sales pages. Needs vansales.attendance.view; the routes list also answers to users.view or users.create_merchandiser_accounts, and editing one needs users.edit.",
-Icon = Icons.Material.Filled.Assessment,
-Color = Color.Primary,
-Methods = new[] { "GET", "POST", "PUT" },
+Name = "Merchandiser",
+BasePath = "/api/Merchandiser",
+Description = "20 endpoints under /api/Merchandiser.",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Secondary,
+Methods = new[] { "DELETE", "GET", "POST", "PUT" },
 Endpoints = new List<ApiEndpoint>
 {
-new("GET", "/api/van-sales/compliance-report", "Departure compliance: a row per rep per trading day"),
+new("GET", "/api/Merchandiser", "Get merchandisers"),
+new("GET", "/api/Merchandiser/{userId}/active-products", "Get active products for merchandiser"),
+new("GET", "/api/Merchandiser/{userId}/products", "Get merchandiser products"),
+new("GET", "/api/Merchandiser/mobile/active-products", "Get active products for mobile"),
+new("GET", "/api/Merchandiser/mobile/categories", "Get product categories"),
+new("GET", "/api/Merchandiser/mobile/customer/{cardCode}/products", "Get active products for customer"),
+new("GET", "/api/Merchandiser/mobile/orders", "Get mobile orders"),
+new("GET", "/api/Merchandiser/mobile/orders/{id}", "Get mobile order by ID"),
+new("GET", "/api/Merchandiser/mobile/orders/by-client-request/{clientRequestId}", "Get mobile order by client request ID"),
+new("GET", "/api/Merchandiser/products", "Get global products"),
+new("GET", "/api/Merchandiser/sap-sales-items", "Get SAP sales items"),
+new("DELETE", "/api/Merchandiser/{userId}/products", "Remove products"),
+new("POST", "/api/Merchandiser/{userId}/products", "Assign products"),
+new("PUT", "/api/Merchandiser/{userId}/products/status", "Update product status"),
+new("POST", "/api/Merchandiser/backfill-mobile-order-tax", "Backfill mobile order tax"),
+new("POST", "/api/Merchandiser/backfill-product-details", "Backfill product details"),
+new("POST", "/api/Merchandiser/mobile/order", "Submit mobile order"),
+new("DELETE", "/api/Merchandiser/products", "Remove products global"),
+new("POST", "/api/Merchandiser/products", "Assign products global"),
+new("PUT", "/api/Merchandiser/products/status", "Update product status global")
+}
+},
+new ApiModule
+{
+Name = "Timesheets",
+BasePath = "/api/Timesheet",
+Description = "6 endpoints under /api/Timesheet.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Info,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Timesheet", "Get timesheets"),
+new("GET", "/api/Timesheet/active", "Get active"),
+new("GET", "/api/Timesheet/assigned-customers", "Get assigned customers"),
+new("GET", "/api/Timesheet/report", "Get report"),
+new("POST", "/api/Timesheet/check-in", "Check in"),
+new("POST", "/api/Timesheet/check-out", "Check out")
+}
+},
+new ApiModule
+{
+Name = "Van Sales Attendance",
+BasePath = "/api/van-sales/visits",
+Description = "2 endpoints under /api/van-sales/visits.",
+Icon = Icons.Material.Filled.Api,
+Color = Color.Success,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
 new("GET", "/api/van-sales/visits", "A page of van sales calls, newest first"),
-new("GET", "/api/van-sales/visits/report", "Time on the round, summarised per rep"),
-new("GET", "/api/van-sales/routes", "The selling routes"),
-new("POST", "/api/van-sales/routes", "Create a route"),
-new("PUT", "/api/van-sales/routes/{id}", "Update a route")
+new("GET", "/api/van-sales/visits/report", "Time on the round, summarised per rep")
 }
 },
 new ApiModule
@@ -833,36 +976,528 @@ Color = Color.Warning,
 Methods = new[] { "GET", "POST" },
 Endpoints = new List<ApiEndpoint>
 {
-new("POST", "/api/vansales/auth/login", "Sign a handset in (anonymous, rate-limited)"),
-new("POST", "/api/vansales/auth/refresh", "Refresh a handset token (anonymous, rate-limited)"),
-new("POST", "/api/vansales/auth/password", "Change own password"),
 new("GET", "/api/vansales/attendance", "The caller's own calls"),
 new("GET", "/api/vansales/attendance/date", "The caller's calls for a date (query parameter is 'value')"),
 new("GET", "/api/vansales/attendance/status", "Whether the caller is checked in"),
-new("POST", "/api/vansales/attendance", "Check in or out"),
-new("GET", "/api/vansales/day/current", "The open trading day"),
-new("POST", "/api/vansales/day/start", "Out of the depot: truck, route, opening odometer"),
-new("POST", "/api/vansales/day/end", "Back in: closing odometer and the takings counted"),
 new("GET", "/api/vansales/customer", "The shops on the caller's route"),
-new("POST", "/api/vansales/customer", "Create a route customer"),
-new("POST", "/api/vansales/sales-order", "Create a sales order"),
-new("POST", "/api/vansales/sales-order/history", "Search sales orders (a POST because the filter is a body)"),
-new("POST", "/api/vansales/order/history", "Search invoices (a POST because the filter is a body)"),
+new("GET", "/api/vansales/day/current", "The open trading day"),
 new("GET", "/api/vansales/fiscal", "Fiscal device details for the handset"),
 new("GET", "/api/vansales/fiscal/lease", "Issue this handset's fiscal lease (returned bare, not enveloped)"),
-new("POST", "/api/vansales/pod", "Upload proof of delivery"),
-new("POST", "/api/vansales/order", "Create a direct invoice (202 when queued rather than posted)"),
-new("POST", "/api/vansales/order/with-batches", "The same action as /order, on a second route"),
-new("POST", "/api/vansales/sales", "Take custody of offline, already-ZIMRA-stamped sales"),
-new("POST", "/api/vansales/order/convert-to-invoice", "Convert a sales order to an invoice (always 202)"),
-new("POST", "/api/vansales/inventory/request", "Ask the depot for stock"),
 new("GET", "/api/vansales/inventory/request", "The caller's transfer requests"),
-new("POST", "/api/vansales/inventory/confirm", "Confirm a transfer into the van")
+new("POST", "/api/vansales/attendance", "Check in or out"),
+new("POST", "/api/vansales/auth/login", "Sign a handset in (anonymous, rate-limited)"),
+new("POST", "/api/vansales/auth/password", "Change own password"),
+new("POST", "/api/vansales/auth/refresh", "Refresh a handset token (anonymous, rate-limited)"),
+new("POST", "/api/vansales/customer", "Create a route customer"),
+new("POST", "/api/vansales/day/end", "Back in: closing odometer and the takings counted"),
+new("POST", "/api/vansales/day/start", "Out of the depot: truck, route, opening odometer"),
+new("POST", "/api/vansales/inventory/confirm", "Confirm a transfer into the van"),
+new("POST", "/api/vansales/inventory/request", "Ask the depot for stock"),
+new("POST", "/api/vansales/order", "Create a direct invoice (202 when queued rather than posted)"),
+new("POST", "/api/vansales/order/convert-to-invoice", "Convert a sales order to an invoice (always 202)"),
+new("POST", "/api/vansales/order/history", "Search invoices (a POST because the filter is a body)"),
+new("POST", "/api/vansales/order/with-batches", "The same action as /order, on a second route"),
+new("POST", "/api/vansales/pod", "Upload proof of delivery"),
+new("POST", "/api/vansales/sales", "Take custody of offline, already-ZIMRA-stamped sales"),
+new("POST", "/api/vansales/sales-order", "Create a sales order"),
+new("POST", "/api/vansales/sales-order/history", "Search sales orders (a POST because the filter is a body)")
+}
+},
+new ApiModule
+{
+Name = "Van Sales Reporting",
+BasePath = "/api/van-sales",
+Description = "Departure compliance, the call ledger and the selling routes, for the /van-sales pages. Needs vansales.attendance.view; the routes list also answers to users.view or users.create_merchandiser_accounts, and editing one needs users.edit.",
+Icon = Icons.Material.Filled.Assessment,
+Color = Color.Primary,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/van-sales/compliance-report", "Departure compliance: a row per rep per trading day"),
+new("GET", "/api/van-sales/coverage-report", "Who the vans are reaching and who they are losing"),
+new("GET", "/api/van-sales/performance-report", "What sold, by territory and route, by rep, by item, over time"),
+new("GET", "/api/van-sales/replenishment-report", "How well the depots are keeping the vans stocked"),
+new("GET", "/api/van-sales/routes", "The selling routes"),
+new("GET", "/api/van-sales/stock-report", "What each van carried, sold, and is still riding around with"),
+new("POST", "/api/van-sales/routes", "Create a route"),
+new("PUT", "/api/van-sales/routes/{id}", "Update a route")
+}
+}
+}
+},
+new ApiCategory
+{
+Name = "System & Security",
+Icon = Icons.Material.Filled.Security,
+Modules = new List<ApiModule>
+{
+new ApiModule
+{
+Name = "Approval Process",
+BasePath = "/api/approval-process",
+Description = "8 endpoints under /api/approval-process.",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Secondary,
+Methods = new[] { "DELETE", "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/approval-process/stages", "Get stages"),
+new("GET", "/api/approval-process/templates", "Get templates"),
+new("POST", "/api/approval-process/stages", "Save stage"),
+new("DELETE", "/api/approval-process/stages/{id}", "Delete stage"),
+new("POST", "/api/approval-process/templates", "Save template"),
+new("DELETE", "/api/approval-process/templates/{id}", "Delete template"),
+new("POST", "/api/approval-process/transfer-requests/{docEntry}/decision", "Submit decision"),
+new("POST", "/api/approval-process/transfers/{pendingTransferId}/decision", "Submit transfer decision")
+}
+},
+new ApiModule
+{
+Name = "App Version",
+BasePath = "/api/AppVersion",
+Description = "3 endpoints under /api/AppVersion.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Info,
+Methods = new[] { "GET", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/AppVersion/mobile", "Get mobile version policy"),
+new("GET", "/api/AppVersion/mobile/settings", "Get mobile version policy settings"),
+new("PUT", "/api/AppVersion/mobile/settings", "Update mobile version policy settings")
+}
+},
+new ApiModule
+{
+Name = "Authentication",
+BasePath = "/api/Auth",
+Description = "User authentication with JWT tokens and refresh token support.",
+Icon = Icons.Material.Filled.Login,
+Color = Color.Primary,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Auth/me", "Get the current authenticated user"),
+new("GET", "/api/Auth/passkeys", "Get passkeys"),
+new("POST", "/api/Auth/login", "Login with username and password"),
+new("POST", "/api/Auth/login/two-factor", "Complete login with a 2FA code"),
+new("POST", "/api/Auth/logout", "Logout and revoke tokens"),
+new("POST", "/api/Auth/mobile/biometric-login", "Complete mobile biometric login"),
+new("POST", "/api/Auth/mobile/biometric-preference", "Record mobile biometric preference"),
+new("POST", "/api/Auth/passkeys/login/complete", "Complete passkey login"),
+new("POST", "/api/Auth/passkeys/login/options", "Begin passkey login"),
+new("POST", "/api/Auth/passkeys/register/complete", "Complete passkey registration"),
+new("POST", "/api/Auth/passkeys/register/options", "Begin passkey registration"),
+new("POST", "/api/Auth/refresh", "Refresh access token"),
+new("POST", "/api/Auth/register", "Register a new user")
+}
+},
+new ApiModule
+{
+Name = "Exception Center",
+BasePath = "/api/exception-center",
+Description = "5 endpoints under /api/exception-center.",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Warning,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/exception-center", "Get dashboard"),
+new("POST", "/api/exception-center/items/{source}/{itemKey}/acknowledge", "Acknowledge item"),
+new("POST", "/api/exception-center/items/{source}/{itemKey}/assign-to-me", "Assign item"),
+new("POST", "/api/exception-center/items/{source}/{itemKey}/retry", "Retry item"),
+new("POST", "/api/exception-center/items/retry-batch", "Retry batch")
+}
+},
+new ApiModule
+{
+Name = "Health",
+BasePath = "/api/Health",
+Description = "API health check and status monitoring.",
+Icon = Icons.Material.Filled.MonitorHeart,
+Color = Color.Success,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Health", "Liveness, readiness and dependency detail")
+}
+},
+new ApiModule
+{
+Name = "Password",
+BasePath = "/api/Password",
+Description = "6 endpoints under /api/Password.",
+Icon = Icons.Material.Filled.Api,
+Color = Color.Secondary,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Password/credentials", "Get credentials"),
+new("GET", "/api/Password/reset/validate", "Validate token"),
+new("POST", "/api/Password/change", "Change password"),
+new("PUT", "/api/Password/credentials", "Update credentials"),
+new("POST", "/api/Password/reset/complete", "Complete reset"),
+new("POST", "/api/Password/reset/request", "Request reset")
+}
+},
+new ApiModule
+{
+Name = "Rate Limiting",
+BasePath = "/api/RateLimit",
+Description = "API rate limiting configuration and status.",
+Icon = Icons.Material.Filled.Speed,
+Color = Color.Error,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/RateLimit", "Get rate limit status for all clients"),
+new("GET", "/api/RateLimit/blocked", "Get blocked clients"),
+new("GET", "/api/RateLimit/check", "Check limit"),
+new("GET", "/api/RateLimit/client/{clientId}", "Get by client ID"),
+new("GET", "/api/RateLimit/config", "Get rate limit configuration"),
+new("GET", "/api/RateLimit/current", "Get the current client's rate limit status"),
+new("GET", "/api/RateLimit/stats", "Get rate limit statistics"),
+new("POST", "/api/RateLimit/block/{clientId}", "Block client"),
+new("POST", "/api/RateLimit/cleanup", "Cleanup"),
+new("PUT", "/api/RateLimit/config", "Update config"),
+new("POST", "/api/RateLimit/reset/{clientId}", "Reset a client's counters"),
+new("POST", "/api/RateLimit/unblock/{clientId}", "Unblock client")
+}
+},
+new ApiModule
+{
+Name = "SAP Settings",
+BasePath = "/api/sap-settings",
+Description = "3 endpoints under /api/sap-settings.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Success,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/sap-settings", "Get settings"),
+new("PUT", "/api/sap-settings", "Update settings"),
+new("POST", "/api/sap-settings/test-connection", "Test connection")
+}
+},
+new ApiModule
+{
+Name = "Sync",
+BasePath = "/api/Sync",
+Description = "12 endpoints under /api/Sync.",
+Icon = Icons.Material.Filled.Api,
+Color = Color.Warning,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Sync/cache-status", "Get cache status"),
+new("GET", "/api/Sync/health", "Get health summary"),
+new("GET", "/api/Sync/logs", "Get connection logs"),
+new("GET", "/api/Sync/queue", "Get queue status"),
+new("GET", "/api/Sync/queue/items", "Get queued items"),
+new("GET", "/api/Sync/queue/status", "Get queue status"),
+new("GET", "/api/Sync/sap-connection", "Check SAP connection"),
+new("GET", "/api/Sync/status", "Get sync status"),
+new("POST", "/api/Sync/queue/{id}/cancel", "Cancel transaction"),
+new("POST", "/api/Sync/queue/{id}/retry", "Retry transaction"),
+new("POST", "/api/Sync/queue/process", "Process queue"),
+new("POST", "/api/Sync/test-connection", "Test connection")
+}
+},
+new ApiModule
+{
+Name = "Two-Factor Auth",
+BasePath = "/api/TwoFactor",
+Description = "Two-factor authentication setup and verification.",
+Icon = Icons.Material.Filled.PhonelinkLock,
+Color = Color.Secondary,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/TwoFactor/status", "Get 2FA status"),
+new("POST", "/api/TwoFactor/backup-codes/regenerate", "Regenerate backup codes"),
+new("POST", "/api/TwoFactor/disable", "Disable 2FA"),
+new("POST", "/api/TwoFactor/enable", "Enable 2FA"),
+new("POST", "/api/TwoFactor/setup", "Start 2FA setup and get the QR code"),
+new("POST", "/api/TwoFactor/verify", "Verify 2FA code")
+}
+},
+new ApiModule
+{
+Name = "User Activity",
+BasePath = "/api/UserActivity",
+Description = "Track and audit user activity and sessions.",
+Icon = Icons.Material.Filled.Timeline,
+Color = Color.Success,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/UserActivity", "Get user activity logs"),
+new("GET", "/api/UserActivity/dashboard", "Get the activity dashboard"),
+new("GET", "/api/UserActivity/entity/{entityType}/{entityId}", "Get activity for a document"),
+new("GET", "/api/UserActivity/filter-options", "Get filter options"),
+new("GET", "/api/UserActivity/me", "Get the current user's activity"),
+new("GET", "/api/UserActivity/user/{userId}", "Get activity for specific user")
+}
+},
+new ApiModule
+{
+Name = "Users",
+BasePath = "/api/User",
+Description = "User account management and permissions.",
+Icon = Icons.Material.Filled.People,
+Color = Color.Warning,
+Methods = new[] { "DELETE", "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/User", "Get all users"),
+new("GET", "/api/User/{id}", "Get user by ID"),
+new("GET", "/api/User/roles", "Get all roles"),
+new("POST", "/api/User", "Create new user"),
+new("DELETE", "/api/User/{id}", "Delete user"),
+new("PUT", "/api/User/{id}", "Update user"),
+new("POST", "/api/User/{id}/activate", "Activate user"),
+new("POST", "/api/User/{id}/change-password", "Change a user's password"),
+new("POST", "/api/User/{id}/deactivate", "Deactivate user"),
+new("POST", "/api/User/{id}/unlock", "Unlock a locked account")
+}
+},
+new ApiModule
+{
+Name = "User Management",
+BasePath = "/api/UserManagement",
+Description = "Create and edit users with granular permissions. Roles are listed on /api/user/roles.",
+Icon = Icons.Material.Filled.ManageAccounts,
+Color = Color.Info,
+Methods = new[] { "DELETE", "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/UserManagement", "Get users with full details"),
+new("GET", "/api/UserManagement/{id}", "Get user with permissions"),
+new("GET", "/api/UserManagement/{id}/permissions", "Get user permissions"),
+new("GET", "/api/UserManagement/me", "Get the current user"),
+new("GET", "/api/UserManagement/me/permissions", "Get current user permissions"),
+new("GET", "/api/UserManagement/merchandisers", "Get managed merchandiser accounts"),
+new("GET", "/api/UserManagement/permissions/available", "Get all available permissions"),
+new("POST", "/api/UserManagement", "Create user with permissions"),
+new("DELETE", "/api/UserManagement/{id}", "Delete user"),
+new("PUT", "/api/UserManagement/{id}", "Update user"),
+new("PUT", "/api/UserManagement/{id}/permissions", "Update a user's permissions"),
+new("POST", "/api/UserManagement/{id}/reset-2fa", "Reset two factor"),
+new("POST", "/api/UserManagement/{id}/unlock", "Unlock user"),
+new("PUT", "/api/UserManagement/drivers/assigned-customers", "Update global driver assigned customers"),
+new("PUT", "/api/UserManagement/merchandisers/{id}/assigned-customers", "Update merchandiser assigned customers")
+}
+}
+}
+},
+new ApiCategory
+{
+Name = "Integrations",
+Icon = Icons.Material.Filled.IntegrationInstructions,
+Modules = new List<ApiModule>
+{
+new ApiModule
+{
+Name = "Desktop Integration",
+BasePath = "/api/DesktopIntegration",
+Description = "65 endpoints under /api/DesktopIntegration.",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Secondary,
+Methods = new[] { "DELETE", "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/DesktopIntegration/credit-notes/by-docnum/{docNum}", "Get credit note by doc num"),
+new("GET", "/api/DesktopIntegration/end-of-day/report", "Get end of day report"),
+new("GET", "/api/DesktopIntegration/invoices/{docEntry}", "Get invoice"),
+new("GET", "/api/DesktopIntegration/invoices/{docEntry}/pdf", "Download invoice PDF"),
+new("GET", "/api/DesktopIntegration/invoices/by-docnum/{docNum}", "Get invoice by doc num"),
+new("GET", "/api/DesktopIntegration/invoices/customer/{cardCode}", "Get invoices by customer"),
+new("GET", "/api/DesktopIntegration/invoices/date-range", "Get invoices by date range"),
+new("GET", "/api/DesktopIntegration/invoices/paged", "Get paged invoices"),
+new("GET", "/api/DesktopIntegration/prices/business-partner/{cardCode}", "Get prices by business partner"),
+new("GET", "/api/DesktopIntegration/prices/pricelists", "Get price lists"),
+new("GET", "/api/DesktopIntegration/prices/pricelists/{priceListNum}", "Get prices by price list"),
+new("GET", "/api/DesktopIntegration/prices/pricelists/{priceListNum}/items/{itemCode}", "Get item price from list"),
+new("GET", "/api/DesktopIntegration/queue", "Get pending queue"),
+new("GET", "/api/DesktopIntegration/queue/{externalReference}", "Get queue status"),
+new("GET", "/api/DesktopIntegration/queue/by-reservation/{reservationId}", "Get queue status by reservation"),
+new("GET", "/api/DesktopIntegration/queue/review", "Get invoices requiring review"),
+new("GET", "/api/DesktopIntegration/queue/stats", "Get queue stats"),
+new("GET", "/api/DesktopIntegration/reservations", "List reservations"),
+new("GET", "/api/DesktopIntegration/reservations/{reservationId}", "Get reservation"),
+new("GET", "/api/DesktopIntegration/reservations/by-reference/{externalReferenceId}", "Get reservation by reference"),
+new("GET", "/api/DesktopIntegration/sales", "Get desktop sales"),
+new("GET", "/api/DesktopIntegration/stock/{warehouseCode}", "Get available stock bulk"),
+new("GET", "/api/DesktopIntegration/stock/{warehouseCode}/{itemCode}", "Get available stock"),
+new("GET", "/api/DesktopIntegration/stock/{warehouseCode}/{itemCode}/batches", "Get available batches"),
+new("GET", "/api/DesktopIntegration/stock/{warehouseCode}/local", "Get local stock"),
+new("GET", "/api/DesktopIntegration/stock/monitored-warehouses", "Get monitored warehouses"),
+new("GET", "/api/DesktopIntegration/transfer-queue", "Get pending transfer queue"),
+new("GET", "/api/DesktopIntegration/transfer-queue/{externalReference}", "Get transfer queue status"),
+new("GET", "/api/DesktopIntegration/transfer-queue/review", "Get transfers requiring review"),
+new("GET", "/api/DesktopIntegration/transfer-queue/stats", "Get transfer queue stats"),
+new("GET", "/api/DesktopIntegration/transfer-requests/{docEntry}", "Get transfer request"),
+new("GET", "/api/DesktopIntegration/transfer-requests/paged", "Get paged transfer requests"),
+new("GET", "/api/DesktopIntegration/transfer-requests/warehouse/{warehouseCode}", "Get transfer requests by warehouse"),
+new("GET", "/api/DesktopIntegration/transfers/{docEntry}", "Get transfer"),
+new("GET", "/api/DesktopIntegration/transfers/warehouse/{warehouseCode}", "Get transfers by warehouse"),
+new("GET", "/api/DesktopIntegration/transfers/warehouse/{warehouseCode}/date-range", "Get transfers by date range"),
+new("GET", "/api/DesktopIntegration/transfers/warehouse/{warehouseCode}/paged", "Get paged transfers"),
+new("POST", "/api/DesktopIntegration/end-of-day/consolidate", "Consolidate daily sales"),
+new("POST", "/api/DesktopIntegration/end-of-day/email-report", "Email end of day report"),
+new("POST", "/api/DesktopIntegration/fiscal-transactions", "Sync fiscal transaction"),
+new("POST", "/api/DesktopIntegration/invoices", "Create invoice direct"),
+new("POST", "/api/DesktopIntegration/invoices/queued", "Create queued invoice"),
+new("POST", "/api/DesktopIntegration/invoices/validate", "Validate invoice"),
+new("POST", "/api/DesktopIntegration/prices/pricelists/{priceListNum}/sync", "Sync prices by price list"),
+new("POST", "/api/DesktopIntegration/prices/pricelists/sync", "Sync price lists"),
+new("POST", "/api/DesktopIntegration/prices/sync", "Sync price catalog"),
+new("DELETE", "/api/DesktopIntegration/queue/{externalReference}", "Cancel queued invoice"),
+new("POST", "/api/DesktopIntegration/queue/{externalReference}/retry", "Retry queued invoice"),
+new("POST", "/api/DesktopIntegration/reservations", "Create reservation"),
+new("POST", "/api/DesktopIntegration/reservations/cancel", "Cancel reservation"),
+new("POST", "/api/DesktopIntegration/reservations/confirm", "Confirm reservation"),
+new("POST", "/api/DesktopIntegration/reservations/renew", "Renew reservation"),
+new("POST", "/api/DesktopIntegration/sales", "Create desktop sale"),
+new("POST", "/api/DesktopIntegration/sales-orders/convert-to-invoice", "Convert sales order to invoice"),
+new("POST", "/api/DesktopIntegration/stock/fetch-daily", "Fetch daily stock"),
+new("POST", "/api/DesktopIntegration/stock/validate", "Validate stock availability"),
+new("DELETE", "/api/DesktopIntegration/transfer-queue/{externalReference}", "Cancel queued transfer"),
+new("POST", "/api/DesktopIntegration/transfer-queue/{externalReference}/retry", "Retry queued transfer"),
+new("POST", "/api/DesktopIntegration/transfer-requests", "Create transfer request"),
+new("POST", "/api/DesktopIntegration/transfer-requests/{docEntry}/close", "Close transfer request"),
+new("POST", "/api/DesktopIntegration/transfer-requests/{docEntry}/convert", "Convert transfer request"),
+new("POST", "/api/DesktopIntegration/transfers", "Create transfer direct"),
+new("POST", "/api/DesktopIntegration/transfers/queued", "Create queued transfer"),
+new("POST", "/api/DesktopIntegration/transfers/validate", "Validate transfer"),
+new("POST", "/api/DesktopIntegration/webhook/transfer-event", "Transfer event webhook")
+}
+},
+new ApiModule
+{
+Name = "Email",
+BasePath = "/api/Email",
+Description = "4 endpoints under /api/Email.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Info,
+Methods = new[] { "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("POST", "/api/Email/process-queue", "Process email queue"),
+new("POST", "/api/Email/queue", "Queue email"),
+new("POST", "/api/Email/send", "Send email"),
+new("POST", "/api/Email/test", "Send test email")
+}
+},
+new ApiModule
+{
+Name = "Fiscal Device Leases",
+BasePath = "/api/fiscal-devices",
+Description = "3 endpoints under /api/fiscal-devices.",
+Icon = Icons.Material.Filled.Api,
+Color = Color.Success,
+Methods = new[] { "GET", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/fiscal-devices/{deviceId}/offline-lease", "Get"),
+new("GET", "/api/fiscal-devices/offline-leases", "Get all"),
+new("PUT", "/api/fiscal-devices/{deviceId}/offline-lease", "Assign")
+}
+},
+new ApiModule
+{
+Name = "Fiscalisation Settings",
+BasePath = "/api/fiscalisation-settings",
+Description = "3 endpoints under /api/fiscalisation-settings.",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Warning,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/fiscalisation-settings", "Get settings"),
+new("PUT", "/api/fiscalisation-settings", "Update settings"),
+new("POST", "/api/fiscalisation-settings/test-connection", "Test connection")
+}
+},
+new ApiModule
+{
+Name = "Notifications",
+BasePath = "/api/Notification",
+Description = "System notifications and alerts.",
+Icon = Icons.Material.Filled.Notifications,
+Color = Color.Secondary,
+Methods = new[] { "DELETE", "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Notification", "Get all notifications"),
+new("GET", "/api/Notification/unread-count", "Get the unread notification count"),
+new("POST", "/api/Notification", "Create a notification"),
+new("DELETE", "/api/Notification/{id}", "Delete a notification"),
+new("POST", "/api/Notification/mark-read", "Mark notifications as read")
+}
+},
+new ApiModule
+{
+Name = "Push Notifications",
+BasePath = "/api/PushNotification",
+Description = "5 endpoints under /api/PushNotification.",
+Icon = Icons.Material.Filled.Api,
+Color = Color.Secondary,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/PushNotification/devices", "Get my devices"),
+new("POST", "/api/PushNotification/register", "Register device"),
+new("POST", "/api/PushNotification/send", "Send push notification"),
+new("POST", "/api/PushNotification/test", "Test push"),
+new("POST", "/api/PushNotification/unregister", "Unregister device")
+}
+},
+new ApiModule
+{
+Name = "Webhooks",
+BasePath = "/api/Webhook",
+Description = "Configure webhooks for event notifications.",
+Icon = Icons.Material.Filled.Webhook,
+Color = Color.Primary,
+Methods = new[] { "DELETE", "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Webhook", "Get all webhooks"),
+new("GET", "/api/Webhook/{id}", "Get webhook by ID"),
+new("GET", "/api/Webhook/deliveries", "Get deliveries"),
+new("GET", "/api/Webhook/event-types", "Get event types"),
+new("POST", "/api/Webhook", "Create webhook"),
+new("DELETE", "/api/Webhook/{id}", "Delete webhook"),
+new("PUT", "/api/Webhook/{id}", "Update webhook"),
+new("POST", "/api/Webhook/{id}/test", "Test webhook")
+}
+},
+new ApiModule
+{
+Name = "WhatsApp",
+BasePath = "/api/whatsapp",
+Description = "10 endpoints under /api/whatsapp.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Success,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/whatsapp/health", "Get health"),
+new("GET", "/api/whatsapp/messages", "Get messages"),
+new("GET", "/api/whatsapp/sessions", "Get sessions"),
+new("GET", "/api/whatsapp/sessions/{sessionId}/qr", "Get session QR code"),
+new("POST", "/api/whatsapp/sessions", "Create session"),
+new("POST", "/api/whatsapp/sessions/{sessionId}/messages/reply", "Reply"),
+new("POST", "/api/whatsapp/sessions/{sessionId}/messages/send-text", "Send text"),
+new("POST", "/api/whatsapp/sessions/{sessionId}/start", "Start session"),
+new("POST", "/api/whatsapp/sessions/{sessionId}/stop", "Stop session"),
+new("POST", "/api/whatsapp/webhook/openwa", "Receive open WA webhook")
 }
 }
 }
 }
 };
+
     }
 
     private Color GetMethodColor(string method)
