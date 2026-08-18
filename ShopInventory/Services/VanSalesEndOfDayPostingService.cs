@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -18,10 +20,16 @@ namespace ShopInventory.Services;
 /// Posting is deferred to end of day rather than done on upload because a van trades out of coverage:
 /// its sales arrive in bursts whenever it finds signal, and SAP should see a settled day rather than a
 /// trickle that stops mid-afternoon when the van drives out of range.
+///
+/// A run covers the requested day and the <see cref="VanSalesPostingSettings.LookbackDays"/> before it,
+/// because the same coverage gap that defers posting also defers upload: a sale carries the trading day
+/// it was sold on, so one uploaded the next morning arrives already dated to a day no future run would
+/// otherwise ask for.
 /// </summary>
 public sealed class VanSalesEndOfDayPostingService(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
+    IOptions<VanSalesPostingSettings> settings,
     ILogger<VanSalesEndOfDayPostingService> logger)
 {
     /// <summary>
@@ -37,27 +45,46 @@ public sealed class VanSalesEndOfDayPostingService(
     {
         var date = tradingDate.Date;
 
+        // A window ending on the requested day, not the day alone. DocDate is the handset's trading
+        // day: a sale made at 21:00 by a van that only found signal the next morning is stored against
+        // yesterday, and every trigger asks for today. Matched exactly, that sale would be offered to
+        // SAP once — before it had been uploaded — and never again, and it would sit Pending with no
+        // attempts recorded and nothing to surface it. The till route learned this first; see
+        // DesktopSalePostingSettings.LookbackDays.
+        //
+        // The upper bound is safe in a way the lower one is not: a handset whose clock runs ahead posts
+        // when its date arrives, a day or two late, while a sale behind the run date has no later run
+        // coming for it at all.
+        var windowStart = date.AddDays(-Math.Max(0, settings.Value.LookbackDays));
+
         var pending = await context.DesktopSales
             .Include(s => s.Lines)
-            .Where(s => s.DocDate == date &&
+            .Where(s => s.DocDate >= windowStart &&
+                        s.DocDate <= date &&
                         s.SourceSystem == SaleSourceSystems.VanSales &&
                         s.ConsolidationStatus == DesktopSaleConsolidationStatus.Pending &&
                         s.PostingAttempts < MaxPostingAttempts)
-            .OrderBy(s => s.ReceiptGlobalNo)
+            // Oldest day first, so a backlog reaches SAP in the order it was sold rather than the order
+            // it happened to be uploaded in.
+            .OrderBy(s => s.DocDate)
+            .ThenBy(s => s.ReceiptGlobalNo)
             .ToListAsync(cancellationToken);
 
-        var result = new VanSalesPostingRunResult(date);
+        var result = new VanSalesPostingRunResult(date, windowStart);
 
         if (pending.Count == 0)
         {
             // Not an error. The mop-up run finds nothing on most nights, and treating that as a failure
             // would raise an alarm nightly and train everyone to ignore the one that matters.
-            logger.LogInformation("No van sales are awaiting posting for {TradingDate:yyyy-MM-dd}.", date);
+            logger.LogInformation(
+                "No van sales are awaiting posting for {WindowStart:yyyy-MM-dd} to {TradingDate:yyyy-MM-dd}.",
+                windowStart, date);
             return result;
         }
 
         logger.LogInformation(
-            "Posting {Count} van sales for {TradingDate:yyyy-MM-dd} to SAP.", pending.Count, date);
+            "Posting {Count} van sales for {WindowStart:yyyy-MM-dd} to {TradingDate:yyyy-MM-dd} to SAP.",
+            pending.Count, windowStart, date);
 
         foreach (var sale in pending)
         {
@@ -97,8 +124,8 @@ public sealed class VanSalesEndOfDayPostingService(
         await context.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation(
-            "Van sales posting for {TradingDate:yyyy-MM-dd} finished: {Posted} posted, {Adopted} already in SAP, {Failed} failed.",
-            date, result.Posted, result.Adopted, result.Failed);
+            "Van sales posting for {WindowStart:yyyy-MM-dd} to {TradingDate:yyyy-MM-dd} finished: {Posted} posted, {Adopted} already in SAP, {Failed} failed.",
+            windowStart, date, result.Posted, result.Adopted, result.Failed);
 
         return result;
     }
@@ -186,9 +213,16 @@ public sealed class VanSalesEndOfDayPostingService(
 /// they mean different things operationally: adopting means an earlier run reached SAP but did not
 /// record it locally, which is worth noticing if it happens often.
 /// </summary>
-public sealed class VanSalesPostingRunResult(DateTime tradingDate)
+public sealed class VanSalesPostingRunResult(DateTime tradingDate, DateTime windowStart)
 {
+    /// <summary>The day the run was asked for, and the last day of the window it covered.</summary>
     public DateTime TradingDate { get; } = tradingDate;
+
+    /// <summary>
+    /// The first day the run looked at. Recorded next to <see cref="TradingDate"/> so a log line
+    /// explains why a run posted a sale from several days ago.
+    /// </summary>
+    public DateTime WindowStart { get; } = windowStart;
     public int Posted { get; set; }
     public int Adopted { get; set; }
     public int Failed { get; set; }

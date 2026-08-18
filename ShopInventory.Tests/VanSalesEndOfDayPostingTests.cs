@@ -1,7 +1,9 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -44,8 +46,24 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
         _connection.Dispose();
     }
 
-    private VanSalesEndOfDayPostingService BuildService() =>
-        new(_context, _sap.Client, NullLogger<VanSalesEndOfDayPostingService>.Instance);
+    /// <summary>
+    /// Defaults to the configured lookback rather than a value chosen here, so the tests that do not
+    /// care about the window exercise what production actually runs with.
+    /// </summary>
+    private VanSalesEndOfDayPostingService BuildService(int? lookbackDays = null)
+    {
+        var settings = new VanSalesPostingSettings();
+        if (lookbackDays.HasValue)
+        {
+            settings.LookbackDays = lookbackDays.Value;
+        }
+
+        return new VanSalesEndOfDayPostingService(
+            _context,
+            _sap.Client,
+            Options.Create(settings),
+            NullLogger<VanSalesEndOfDayPostingService>.Instance);
+    }
 
     [Fact]
     public async Task Each_van_sale_posts_as_its_own_sap_invoice()
@@ -199,21 +217,77 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
     }
 
     /// <summary>
-    /// The trading day is the handset's, not the upload's. A sale made on Monday and uploaded Tuesday
-    /// morning must post against Monday — that is the day its ZIMRA receipt belongs to.
+    /// The trading day is the handset's, not the upload's: a sale made on Monday and uploaded Tuesday
+    /// morning is stored against Monday, and must still reach SAP against Monday.
+    ///
+    /// Every trigger asks for today, so when this route matched the day exactly that sale was offered
+    /// once — the evening before it was uploaded — and never again. It sat Pending with no attempts
+    /// recorded, which is worse than a failure: a failure at least writes down a reason.
     /// </summary>
     [Fact]
-    public async Task Only_the_requested_trading_day_is_posted()
+    public async Task A_sale_uploaded_the_day_after_it_was_sold_still_posts()
     {
-        AddSale("VAN006-INV-20260810-AAA111", receiptGlobalNo: 501);
-        var yesterday = AddSale("VAN006-INV-20260809-ZZZ999", receiptGlobalNo: 499);
-        yesterday.DocDate = TradingDate.AddDays(-1).Date;
+        // The van was out of coverage overnight; this arrives with the morning's first bar of signal.
+        var overnight = AddSale("VAN006-INV-20260809-ZZZ999", receiptGlobalNo: 499);
+        overnight.DocDate = TradingDate.AddDays(-1).Date;
         await _context.SaveChangesAsync();
 
         var result = await BuildService().PostPendingSalesAsync(TradingDate);
 
         Assert.Equal(1, result.Posted);
-        Assert.Equal("VAN006-INV-20260810-AAA111", Assert.Single(_sap.Created).U_Van_saleorder);
+
+        var created = Assert.Single(_sap.Created);
+        Assert.Equal("VAN006-INV-20260809-ZZZ999", created.U_Van_saleorder);
+
+        // Booked on the day it was sold, not the day it was found. Its ZIMRA receipt is stamped into
+        // that fiscal day, and the SAP↔FDMS reconciliation joins the two.
+        Assert.Equal("2026-08-09", created.DocDate);
+    }
+
+    /// <summary>
+    /// The window has a floor. A sale older than the lookback has stopped being a late upload and become
+    /// something a person needs to look at; going on offering it every half hour would bury that.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_older_than_the_lookback_window_is_left_alone()
+    {
+        var onTheEdge = AddSale("VAN006-INV-20260807-EEE555", receiptGlobalNo: 490);
+        onTheEdge.DocDate = TradingDate.AddDays(-3).Date;
+
+        var pastIt = AddSale("VAN006-INV-20260806-FFF666", receiptGlobalNo: 480);
+        pastIt.DocDate = TradingDate.AddDays(-4).Date;
+
+        await _context.SaveChangesAsync();
+
+        var result = await BuildService(lookbackDays: 3).PostPendingSalesAsync(TradingDate);
+
+        Assert.Equal(1, result.Posted);
+        Assert.Equal("VAN006-INV-20260807-EEE555", Assert.Single(_sap.Created).U_Van_saleorder);
+    }
+
+    /// <summary>
+    /// The window's other end, and why it is allowed to be a bound at all. A handset whose clock runs
+    /// ahead dates its sales into the future; those wait rather than posting now. Nothing is stranded by
+    /// that, because a run for their day is still coming — which is exactly what a sale behind the run
+    /// date does not have, and the whole reason the lookback exists.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_dated_ahead_of_the_run_waits_for_its_own_day()
+    {
+        var ahead = AddSale("VAN006-INV-20260811-GGG777", receiptGlobalNo: 510);
+        ahead.DocDate = TradingDate.AddDays(1).Date;
+        await _context.SaveChangesAsync();
+
+        var service = BuildService();
+
+        var today = await service.PostPendingSalesAsync(TradingDate);
+        Assert.Equal(0, today.Total);
+        Assert.Empty(_sap.Created);
+
+        var tomorrow = await service.PostPendingSalesAsync(TradingDate.AddDays(1));
+
+        Assert.Equal(1, tomorrow.Posted);
+        Assert.Equal("VAN006-INV-20260811-GGG777", Assert.Single(_sap.Created).U_Van_saleorder);
     }
 
     /// <summary>
