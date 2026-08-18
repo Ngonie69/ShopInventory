@@ -81,6 +81,12 @@ public static class SettingKeys
 
     public const string PodReportEmailsEnabled = "PodReportEmails.Enabled";
 
+    /// <summary>
+    /// Master switch for scheduled van sales report emails. Off unless somebody turns it on —
+    /// sending mail reaches people who never asked for it, so it is not a default.
+    /// </summary>
+    public const string VanReportEmailsEnabled = "VanReportEmails.Enabled";
+
     // Printing settings
     public const string AutoPrintInvoice = "AutoPrintInvoice";
 

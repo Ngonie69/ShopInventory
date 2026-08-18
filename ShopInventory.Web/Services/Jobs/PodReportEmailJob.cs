@@ -102,214 +102,44 @@ public sealed class PodReportEmailJob(
     /// Most recent local instant at which this schedule should have fired, or null when the
     /// schedule's first occurrence is still in the future.
     /// </summary>
+    /// <summary>
+    /// The most recent occurrence of this schedule that has already passed, in local time.
+    /// </summary>
+    /// <remarks>
+    /// The arithmetic moved to <see cref="ReportScheduleCadence"/> when the van reports needed the
+    /// same cadence. This stays as the POD-shaped entry point so nothing else in the POD flow had to
+    /// change, and so a reader of this job can still see what it asks for.
+    /// </remarks>
     internal static DateTime? ComputeMostRecentDueLocal(
         PodReportEmailSchedule schedule,
         PodReportEmailFrequency frequency,
-        DateTime nowLocal)
-    {
-        var minuteOfDay = PodScheduleTime.NormalizeMinuteOfDay(schedule.SendMinuteOfDay);
-
-        return frequency switch
-        {
-            PodReportEmailFrequency.Daily => GetMostRecentDailyLocal(nowLocal, minuteOfDay),
-            PodReportEmailFrequency.MonthToDateDaily => GetMostRecentDailyLocal(nowLocal, minuteOfDay),
-            PodReportEmailFrequency.Weekly => GetMostRecentWeeklyLocal(nowLocal, ResolveDayOfWeek(schedule.DayOfWeek), minuteOfDay),
-            PodReportEmailFrequency.Monthly => GetMostRecentMonthlyLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay),
-            PodReportEmailFrequency.Quarterly => GetMostRecentPeriodicLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay, 3),
-            PodReportEmailFrequency.HalfYearly => GetMostRecentPeriodicLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay, 6),
-            PodReportEmailFrequency.EveryNDays => GetMostRecentEveryNDaysLocal(
-                nowLocal,
-                PodScheduleTime.ToLocal(DateTime.SpecifyKind(schedule.AnchorDateUtc, DateTimeKind.Utc)),
-                PodReportEmailService.NormalizeIntervalDays(schedule.IntervalDays),
-                minuteOfDay),
-            _ => GetMostRecentWeeklyLocal(nowLocal, ResolveDayOfWeek(schedule.DayOfWeek), minuteOfDay)
-        };
-    }
+        DateTime nowLocal) =>
+        ReportScheduleCadence.MostRecentDueLocal(ToRule(schedule, frequency), nowLocal);
 
     internal static DateTime ComputeNextDueLocal(
         PodReportEmailSchedule schedule,
         PodReportEmailFrequency frequency,
-        DateTime nowLocal)
-    {
-        var minuteOfDay = PodScheduleTime.NormalizeMinuteOfDay(schedule.SendMinuteOfDay);
+        DateTime nowLocal) =>
+        ReportScheduleCadence.NextDueLocal(ToRule(schedule, frequency), nowLocal);
 
-        return frequency switch
-        {
-            PodReportEmailFrequency.Daily => GetNextDailyLocal(nowLocal, minuteOfDay),
-            PodReportEmailFrequency.MonthToDateDaily => GetNextDailyLocal(nowLocal, minuteOfDay),
-            PodReportEmailFrequency.Weekly => GetNextWeeklyLocal(nowLocal, ResolveDayOfWeek(schedule.DayOfWeek), minuteOfDay),
-            PodReportEmailFrequency.Monthly => GetNextMonthlyLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay),
-            PodReportEmailFrequency.Quarterly => GetNextPeriodicLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay, 3),
-            PodReportEmailFrequency.HalfYearly => GetNextPeriodicLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay, 6),
-            PodReportEmailFrequency.EveryNDays => GetNextEveryNDaysLocal(
-                nowLocal,
-                PodScheduleTime.ToLocal(DateTime.SpecifyKind(schedule.AnchorDateUtc, DateTimeKind.Utc)),
-                PodReportEmailService.NormalizeIntervalDays(schedule.IntervalDays),
-                minuteOfDay),
-            _ => GetNextWeeklyLocal(nowLocal, ResolveDayOfWeek(schedule.DayOfWeek), minuteOfDay)
-        };
-    }
-
-    private static DayOfWeek ResolveDayOfWeek(int? dayOfWeek)
-    {
-        var value = Math.Clamp(dayOfWeek ?? (int)DayOfWeek.Monday, 0, 6);
-        return (DayOfWeek)value;
-    }
-
-    private static DateTime GetMostRecentDailyLocal(DateTime nowLocal, int minuteOfDay)
-    {
-        var scheduled = nowLocal.Date.AddMinutes(minuteOfDay);
-        if (scheduled > nowLocal)
-        {
-            scheduled = scheduled.AddDays(-1);
-        }
-
-        return scheduled;
-    }
-
-    private static DateTime GetNextDailyLocal(DateTime nowLocal, int minuteOfDay)
-    {
-        var scheduled = nowLocal.Date.AddMinutes(minuteOfDay);
-        return scheduled > nowLocal ? scheduled : scheduled.AddDays(1);
-    }
-
-    private static DateTime GetMostRecentWeeklyLocal(DateTime nowLocal, DayOfWeek targetDay, int minuteOfDay)
-    {
-        var dayOffset = (int)targetDay - (int)nowLocal.DayOfWeek;
-        var scheduled = nowLocal.Date.AddDays(dayOffset).AddMinutes(minuteOfDay);
-
-        if (scheduled > nowLocal)
-        {
-            scheduled = scheduled.AddDays(-7);
-        }
-
-        return scheduled;
-    }
-
-    private static DateTime GetNextWeeklyLocal(DateTime nowLocal, DayOfWeek targetDay, int minuteOfDay)
-    {
-        var dayOffset = (int)targetDay - (int)nowLocal.DayOfWeek;
-        var scheduled = nowLocal.Date.AddDays(dayOffset).AddMinutes(minuteOfDay);
-        return scheduled > nowLocal ? scheduled : scheduled.AddDays(7);
-    }
-
-    private static DateTime GetMostRecentMonthlyLocal(DateTime nowLocal, int dayOfMonth, int minuteOfDay)
-    {
-        var clampedDay = Math.Clamp(dayOfMonth, 1, 31);
-        var scheduled = BuildMonthlyLocal(nowLocal.Year, nowLocal.Month, clampedDay, minuteOfDay);
-
-        if (scheduled > nowLocal)
-        {
-            var previousMonth = nowLocal.AddMonths(-1);
-            scheduled = BuildMonthlyLocal(previousMonth.Year, previousMonth.Month, clampedDay, minuteOfDay);
-        }
-
-        return scheduled;
-    }
-
-    private static DateTime GetNextMonthlyLocal(DateTime nowLocal, int dayOfMonth, int minuteOfDay)
-    {
-        var clampedDay = Math.Clamp(dayOfMonth, 1, 31);
-        var scheduled = BuildMonthlyLocal(nowLocal.Year, nowLocal.Month, clampedDay, minuteOfDay);
-        if (scheduled <= nowLocal)
-        {
-            var nextMonth = nowLocal.AddMonths(1);
-            scheduled = BuildMonthlyLocal(nextMonth.Year, nextMonth.Month, clampedDay, minuteOfDay);
-        }
-
-        return scheduled;
-    }
-
-    private static DateTime BuildMonthlyLocal(int year, int month, int dayOfMonth, int minuteOfDay)
-    {
-        // Clamp to the last day of a short month (e.g. "day 31" in February).
-        var day = Math.Min(dayOfMonth, DateTime.DaysInMonth(year, month));
-        return new DateTime(year, month, day, 0, 0, 0, DateTimeKind.Unspecified).AddMinutes(minuteOfDay);
-    }
-
-    private static DateTime GetMostRecentPeriodicLocal(
-        DateTime nowLocal,
-        int dayOfMonth,
-        int minuteOfDay,
-        int monthsPerPeriod)
-    {
-        var periodStart = GetCurrentPeriodStart(nowLocal, monthsPerPeriod);
-        var scheduled = BuildMonthlyLocal(periodStart.Year, periodStart.Month, Math.Clamp(dayOfMonth, 1, 31), minuteOfDay);
-        if (scheduled > nowLocal)
-        {
-            var previousPeriod = periodStart.AddMonths(-monthsPerPeriod);
-            scheduled = BuildMonthlyLocal(previousPeriod.Year, previousPeriod.Month, Math.Clamp(dayOfMonth, 1, 31), minuteOfDay);
-        }
-
-        return scheduled;
-    }
-
-    private static DateTime GetNextPeriodicLocal(
-        DateTime nowLocal,
-        int dayOfMonth,
-        int minuteOfDay,
-        int monthsPerPeriod)
-    {
-        var periodStart = GetCurrentPeriodStart(nowLocal, monthsPerPeriod);
-        var scheduled = BuildMonthlyLocal(periodStart.Year, periodStart.Month, Math.Clamp(dayOfMonth, 1, 31), minuteOfDay);
-        if (scheduled <= nowLocal)
-        {
-            var nextPeriod = periodStart.AddMonths(monthsPerPeriod);
-            scheduled = BuildMonthlyLocal(nextPeriod.Year, nextPeriod.Month, Math.Clamp(dayOfMonth, 1, 31), minuteOfDay);
-        }
-
-        return scheduled;
-    }
-
-    private static DateTime GetCurrentPeriodStart(DateTime value, int monthsPerPeriod)
-    {
-        var startMonth = ((value.Month - 1) / monthsPerPeriod) * monthsPerPeriod + 1;
-        return new DateTime(value.Year, startMonth, 1, 0, 0, 0, DateTimeKind.Unspecified);
-    }
-
-    private static DateTime? GetMostRecentEveryNDaysLocal(
-        DateTime nowLocal,
-        DateTime anchorLocal,
-        int intervalDays,
-        int minuteOfDay)
-    {
-        var anchorInstant = anchorLocal.Date.AddMinutes(minuteOfDay);
-        if (nowLocal < anchorInstant)
-        {
-            // First occurrence has not happened yet.
-            return null;
-        }
-
-        var daysSince = (nowLocal.Date - anchorInstant.Date).Days;
-        var periodsElapsed = daysSince / intervalDays;
-        var scheduled = anchorInstant.AddDays(periodsElapsed * intervalDays);
-
-        if (scheduled > nowLocal)
-        {
-            scheduled = scheduled.AddDays(-intervalDays);
-        }
-
-        return scheduled;
-    }
-
-    private static DateTime GetNextEveryNDaysLocal(
-        DateTime nowLocal,
-        DateTime anchorLocal,
-        int intervalDays,
-        int minuteOfDay)
-    {
-        var anchorInstant = anchorLocal.Date.AddMinutes(minuteOfDay);
-        if (nowLocal < anchorInstant)
-        {
-            return anchorInstant;
-        }
-
-        var daysSince = (nowLocal.Date - anchorInstant.Date).Days;
-        var periodsElapsed = daysSince / intervalDays;
-        var scheduled = anchorInstant.AddDays(periodsElapsed * intervalDays);
-
-        return scheduled > nowLocal ? scheduled : scheduled.AddDays(intervalDays);
-    }
+    /// <summary>
+    /// The POD schedule as a cadence rule.
+    /// </summary>
+    /// <remarks>
+    /// Mapped by name rather than by cast: the two enums are declared separately on purpose, and a
+    /// cast would keep compiling if either gained a member in the middle. A test asserts the names
+    /// still line up.
+    /// </remarks>
+    private static ReportScheduleCadence.Rule ToRule(
+        PodReportEmailSchedule schedule,
+        PodReportEmailFrequency frequency) =>
+        new(
+            Enum.Parse<ReportScheduleFrequency>(frequency.ToString()),
+            schedule.SendMinuteOfDay,
+            schedule.DayOfWeek,
+            schedule.DayOfMonth,
+            PodReportEmailService.NormalizeIntervalDays(schedule.IntervalDays),
+            schedule.AnchorDateUtc);
 
     private static bool ParseBool(string? value) => bool.TryParse(value, out var parsed) && parsed;
 }

@@ -36,6 +36,12 @@ public static class WebQuartzConfiguration
             // Polled every minute because POD schedules are configured to the minute; the job
             // itself is a cheap no-op unless a schedule's send time has just elapsed.
             AddIntervalJob<PodReportEmailJob>(q, "pod-report-emails", TimeSpan.FromMinutes(1));
+
+            // Same one-minute tick as the POD job, and gated the same way: the job returns
+            // immediately unless VanReportEmails.Enabled is set. Quartz jobs persist in the
+            // clustered store, so a job removed from code keeps firing from the database — which is
+            // why the switch lives in settings rather than in whether this line exists.
+            AddIntervalJob<VanReportEmailJob>(q, "van-report-emails", TimeSpan.FromMinutes(1));
         });
 
         services.AddQuartzHostedService(options =>

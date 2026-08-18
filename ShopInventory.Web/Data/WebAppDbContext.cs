@@ -24,6 +24,7 @@ public class WebAppDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<AppSetting> AppSettings { get; set; }
     public DbSet<PodReportEmailSchedule> PodReportEmailSchedules { get; set; }
+    public DbSet<VanReportEmailSchedule> VanReportEmailSchedules { get; set; }
     public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
     // Customer Portal entities
