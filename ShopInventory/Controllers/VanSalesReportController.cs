@@ -8,6 +8,7 @@ using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceRepor
 using ShopInventory.Features.VanSalesReports.Queries.GetRoutes;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
+using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesExceptionsReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport;
 using ShopInventory.Models;
@@ -234,6 +235,48 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 toDate?.Date ?? today,
                 vanWarehouseCode,
                 deadStockDays),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The van sales exception register: how the money was settled, and every van document the rest
+    /// of this suite cannot see.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not a cash-variance report. Declared-against-system already ships per rep-day on
+    /// the compliance report, and declared-against-banked — the comparison that would catch a
+    /// shortfall — has no source: nothing in this system records what was banked.
+    ///
+    /// What this answers instead is which documents fall outside the reporting union. A van invoice
+    /// written while SAP is unreachable is queued and its reservation is expired within the hour, and
+    /// every other van report reads confirmed reservations only — so that money leaves the suite
+    /// entirely, and the suite reads better for it. This is the only place it is counted.
+    /// </remarks>
+    /// <param name="fromDate">Inclusive CAT trading day. Defaults to 30 days back.</param>
+    /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
+    /// <param name="userId">One rep, or every rep when omitted.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("exceptions-report")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(VanSalesExceptionsReportResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetExceptionsReport(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] Guid? userId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var result = await mediator.Send(
+            new GetVanSalesExceptionsReportQuery(
+                fromDate?.Date ?? today.AddDays(-30),
+                toDate?.Date ?? today,
+                userId),
             cancellationToken);
 
         return result.Match(

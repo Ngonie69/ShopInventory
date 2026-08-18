@@ -42,6 +42,9 @@ public interface IReportExportService
     byte[] ExportVanReplenishmentToExcel(VanReplenishmentReportResponse report);
 
     byte[] ExportVanStockToExcel(VanStockReportResponse report);
+
+    byte[] ExportVanSalesExceptionsToExcel(VanSalesExceptionsReportResponse report);
+
     byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     byte[] ExportAccountSalesPaymentReportToExcel(GetAccountSalesPaymentReportResult report);
@@ -5859,6 +5862,660 @@ public class ReportExportService : IReportExportService
         < 48 => $"{hours.Value:N0}h",
         _ => $"{hours.Value / 24:N1}d"
     };
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Van sales exceptions
+    // ═══════════════════════════════════════════════════════════════
+    //
+    // The register of van documents the rest of the suite cannot see, plus the settlement split over
+    // the period. Same ramp and the same money rule as the four van workbooks above it, with one
+    // addition of its own: exposure — money sitting on a document that is not a sale — gets its own
+    // formatter and never shares a column with takings, because no arithmetic in this workbook adds
+    // the two.
+    //
+    // Every disclosure is repeated onto the sheet it governs rather than gathered once on the
+    // overview. A workbook is forwarded, and whoever opens it second never saw the page: a reader who
+    // lands on "Held", sees a queue and reads nothing-has-posted as a slow job has to meet the
+    // posting switch there, on that sheet, or they will read a stopped job as a healthy one.
+
+    public byte[] ExportVanSalesExceptionsToExcel(VanSalesExceptionsReportResponse report)
+    {
+        using var workbook = NewWorkbook("Van Sales Exceptions");
+        var now = DateTime.UtcNow.AddHours(2); // CAT
+
+        // Unseen leads, as the worklist leads the replenishment workbook. Everything else here
+        // describes how the period went; this is the sheet somebody acts on, and the money it counts
+        // is counted nowhere else in the system.
+        //
+        // The remaining order follows the page's chips exactly rather than grouping the two worklists
+        // together. Somebody reading the workbook has usually just read the page, and a second order
+        // for the same six sections is a tax on them for no gain.
+        BuildExceptionsOverviewSheet(workbook, report, now);
+        BuildExceptionsUnseenSheet(workbook, report, now);
+        BuildExceptionsSettlementSheet(workbook, report, now);
+        BuildExceptionsHeldSheet(workbook, report, now);
+        BuildExceptionsReceiptSheet(workbook, report, now);
+        BuildExceptionsHygieneSheet(workbook, report, now);
+
+        return WorkbookToBytes(workbook);
+    }
+
+    private static void BuildExceptionsOverviewSheet(
+        XLWorkbook workbook,
+        VanSalesExceptionsReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 9;
+        var ws = workbook.Worksheets.Add("Overview");
+        TsApplyDefaults(ws);
+
+        var period =
+            $"VAN SALES EXCEPTIONS  —  {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}";
+        int row = TsTitleBar(ws, period, lastCol, now);
+
+        // Ahead of every figure it governs, exactly as the stale-snapshot banner leads the van stock
+        // workbook. A held count read without this reads as a queue draining slowly.
+        if (!report.Quality.PostingJobEnabled)
+        {
+            ws.Cell(row, 1).Value =
+                "THE VAN SALES POSTING JOB IS SWITCHED OFF IN THIS ENVIRONMENT. No offline van sale "
+                + "can reach SAP however long it waits, so the held figures below are the size of the "
+                + "queue rather than evidence of a posting failure. Nothing here moves until the job "
+                + "is switched on.";
+            ws.Range(row, 1, row, lastCol).Merge();
+            ws.Cell(row, 1).Style.Font.FontSize = 10;
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 1).Style.Font.FontColor = TsRed;
+            ws.Cell(row, 1).Style.Alignment.WrapText = true;
+            ws.Row(row).Height = 36;
+            row += 2;
+        }
+
+        var summary = report.Summary;
+
+        // The lead currency only. The whole set is written out in the table below, where there is
+        // room for it and no chance of one currency standing in for the period.
+        var lead = summary.TotalsByCurrency.FirstOrDefault();
+
+        row = TsKpiStrip(ws, row, lastCol,
+            ("Settled Sales", summary.SaleCount.ToString("N0"), null),
+            ("Takings", lead is null ? "—" : $"{lead.Currency} {lead.Gross:N0}", null),
+            ("Unseen Documents", summary.UnseenDocumentCount.ToString("N0"),
+                summary.UnseenDocumentCount > 0 ? TsRed : null),
+            ("Lost To Outage", summary.ExpiredDocumentCount.ToString("N0"),
+                summary.ExpiredDocumentCount > 0 ? TsRed : null),
+            ("Unseen Share", RateText(summary.UnseenRate), null),
+            ("Held To Post", summary.HeldSaleCount.ToString("N0"),
+                summary.HeldSaleCount > 0 ? TsOrange : null),
+            ("Oldest Held", summary.OldestHeldAgeDays is { } days ? $"{days:N0}d" : "—", null),
+            ("No Tender Recorded", summary.SalesWithoutTender.ToString("N0"),
+                summary.SalesWithoutTender > 0 ? TsOrange : null),
+            ("Untendered Share", RateText(summary.UntenderedRate), null));
+
+        // Unconditional, unlike the sibling workbooks. This report's caveat list always names at
+        // least the declared-against-banked comparison it cannot make, so there is no clean period in
+        // which the block would be empty and skipping it would be a claim of its own.
+        TsSectionTitle(ws, row, lastCol, "WHAT THIS PERIOD COULD NOT ANSWER");
+        row += 2;
+
+        foreach (var caveat in report.Quality.Caveats)
+        {
+            ws.Cell(row, 1).Value = caveat;
+            ws.Range(row, 1, row, lastCol).Merge();
+            ws.Cell(row, 1).Style.Font.FontSize = 9;
+            ws.Cell(row, 1).Style.Font.Italic = true;
+            ws.Cell(row, 1).Style.Font.FontColor = TsOrange;
+            ws.Cell(row, 1).Style.Alignment.WrapText = true;
+            ws.Row(row).Height = 26;
+            row++;
+        }
+
+        row++;
+        TsSectionTitle(ws, row, lastCol, "THREE POPULATIONS OF MONEY  —  NO ARITHMETIC ADDS THEM");
+        row += 2;
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Population", "Documents", "Value", "What It Is", "", "", "", "", ""]);
+
+        TsDataRow(ws, row, lastCol, false);
+        ws.Cell(row, 1).Value = "Settled sales";
+        ws.Cell(row, 2).Value = summary.SaleCount;
+        ws.Cell(row, 3).Value = MoneyText(summary.TotalsByCurrency);
+        ws.Cell(row, 4).Value = "Sold, settled, and counted by every van report in the suite.";
+        row++;
+
+        TsDataRow(ws, row, lastCol, true);
+        ws.Cell(row, 1).Value = "Unseen documents";
+        ws.Cell(row, 2).Value = summary.UnseenDocumentCount;
+        ws.Cell(row, 3).Value = ExposureText(summary.UnseenExposure);
+        ws.Cell(row, 4).Value =
+            "Reservations that never confirmed. No other van report can see them, and the expired "
+            + "ones are sales that were made and served.";
+        if (summary.UnseenDocumentCount > 0)
+        {
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 1).Style.Font.FontColor = TsRed;
+        }
+        row++;
+
+        TsDataRow(ws, row, lastCol, false);
+        ws.Cell(row, 1).Value = "Held offline sales";
+        ws.Cell(row, 2).Value = summary.HeldSaleCount;
+        ws.Cell(row, 3).Value = ExposureText(summary.HeldExposure);
+        ws.Cell(row, 4).Value =
+            "Captured on a handset and ingested, waiting on the posting job. Real sales that have not "
+            + "landed.";
+        if (summary.HeldSaleCount > 0)
+        {
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 1).Style.Font.FontColor = TsOrange;
+        }
+        row += 2;
+
+        ws.Cell(row, 1).Value =
+            "The three lines above are separate populations and this workbook never totals them. A "
+            + "settled sale is revenue. A held sale is revenue that has not landed. An unseen document "
+            + "may be a sale that was served or a document that was abandoned, and nothing in the data "
+            + "says which. Every value is written per currency and no column mixes two.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 30;
+
+        TsFinalize(ws, lastCol, freezeRow: 2);
+    }
+
+    private static void BuildExceptionsUnseenSheet(
+        XLWorkbook workbook,
+        VanSalesExceptionsReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 7;
+        var ws = workbook.Worksheets.Add("Unseen");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "VAN DOCUMENTS NO OTHER REPORT COUNTS", lastCol, now);
+
+        ws.Cell(row, 1).Value =
+            "A van invoice written while SAP is unreachable is queued, its reservation is left "
+            + "pending, and the cleanup job expires it within the hour. Every other van report reads "
+            + "confirmed reservations only, so that money leaves the suite entirely — and the reports "
+            + "read lower, which is to say better, on the estate's worst day. This is the only sheet "
+            + "that counts it. It is read straight from the reservations table, and it must never be "
+            + "used as a second definition of a van sale: an expired document is not proof that a sale "
+            + "happened, it is proof that a sale could not be recorded as one.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsOrange;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 58;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "State", "Rep", "Documents", "Money On Them", "First Captured", "Last Captured",
+            "What It Means"
+        ]);
+
+        int index = 0;
+        foreach (var unseen in report.Unseen)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = unseen.Status;
+            ws.Cell(row, 2).Value = unseen.DisplayName;
+            ws.Cell(row, 3).Value = unseen.DocumentCount;
+            ws.Cell(row, 4).Value = ExposureText(unseen.Exposure);
+            WriteVanExceptionsCapturedAt(ws.Cell(row, 5), unseen.EarliestCapturedAt);
+            WriteVanExceptionsCapturedAt(ws.Cell(row, 6), unseen.LatestCapturedAt);
+            ws.Cell(row, 7).Value = UnseenStateMeaning(unseen);
+
+            // The outage signature, named in red rather than left to read as an ordinary tidy-up.
+            if (unseen.IsLostSale)
+            {
+                ws.Cell(row, 1).Style.Font.Bold = true;
+                ws.Cell(row, 1).Style.Font.FontColor = TsRed;
+                ws.Cell(row, 7).Style.Font.FontColor = TsRed;
+            }
+
+            row++;
+            index++;
+        }
+
+        TsSummaryRow(ws, row, lastCol);
+        ws.Cell(row, 1).Value = "TOTAL UNSEEN";
+        ws.Cell(row, 3).Value = report.Summary.UnseenDocumentCount;
+        ws.Cell(row, 4).Value = ExposureText(report.Summary.UnseenExposure);
+        ws.Cell(row, 7).Value = $"{report.Summary.ExpiredDocumentCount:N0} of them expired";
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildExceptionsHeldSheet(
+        XLWorkbook workbook,
+        VanSalesExceptionsReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 9;
+        var ws = workbook.Worksheets.Add("Held");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "OFFLINE SALES WAITING TO REACH SAP", lastCol, now);
+
+        // Repeated from the overview deliberately. This is the sheet on which a stopped job looks
+        // exactly like a slow one, and a reader who opened the workbook at this tab has seen no
+        // banner.
+        if (!report.Quality.PostingJobEnabled)
+        {
+            ws.Cell(row, 1).Value =
+                "THE VAN SALES POSTING JOB IS SWITCHED OFF IN THIS ENVIRONMENT. Nothing is trying to "
+                + "post these sales, so an age below is how long a sale has been waiting rather than "
+                + "how long it has been failing.";
+            ws.Range(row, 1, row, lastCol).Merge();
+            ws.Cell(row, 1).Style.Font.FontSize = 10;
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 1).Style.Font.FontColor = TsRed;
+            ws.Cell(row, 1).Style.Alignment.WrapText = true;
+            ws.Row(row).Height = 30;
+            row += 2;
+        }
+
+        ws.Cell(row, 1).Value =
+            "These are real sales, captured on a handset and ingested. They are in no van report yet "
+            + "because a van sale counts once it has been consolidated into SAP. A row that has never "
+            + "been attempted is a queue; a row with attempts behind it and an error against it is a "
+            + "failure. The two are different conversations and the columns keep them apart.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 32;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Rep", "Held Sales", "Money On Them", "Oldest Sale", "Days Waiting", "Attempted",
+            "Never Attempted", "Failed", "Last Error"
+        ]);
+
+        int index = 0;
+        foreach (var held in report.Held)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = held.DisplayName;
+            ws.Cell(row, 2).Value = held.SaleCount;
+            ws.Cell(row, 3).Value = ExposureText(held.Exposure);
+
+            if (held.OldestDocDate is { } oldest)
+            {
+                WriteVanPerformanceDate(ws.Cell(row, 4), oldest);
+            }
+            else
+            {
+                ws.Cell(row, 4).Value = "—";
+            }
+
+            ws.Cell(row, 5).Value = held.OldestAgeDays?.ToString("N0") ?? "—";
+            ws.Cell(row, 6).Value = held.AttemptedCount;
+            ws.Cell(row, 7).Value = held.NeverAttemptedCount;
+            ws.Cell(row, 8).Value = held.FailedCount;
+            ws.Cell(row, 9).Value = held.LastError ?? "—";
+
+            // Nothing has tried to post this rep's sales at all, which is a question about the job
+            // and not about the sales.
+            if (held.SaleCount > 0 && held.NeverAttemptedCount == held.SaleCount)
+            {
+                ws.Cell(row, 7).Style.Font.Bold = true;
+                ws.Cell(row, 7).Style.Font.FontColor = TsOrange;
+            }
+
+            if (held.FailedCount > 0)
+            {
+                ws.Cell(row, 8).Style.Font.Bold = true;
+                ws.Cell(row, 8).Style.Font.FontColor = TsRed;
+            }
+
+            row++;
+            index++;
+        }
+
+        TsSummaryRow(ws, row, lastCol);
+        ws.Cell(row, 1).Value = "TOTAL HELD";
+        ws.Cell(row, 2).Value = report.Summary.HeldSaleCount;
+        ws.Cell(row, 3).Value = ExposureText(report.Summary.HeldExposure);
+        ws.Cell(row, 5).Value = report.Summary.OldestHeldAgeDays?.ToString("N0") ?? "—";
+        ws.Cell(row, 7).Value = report.Quality.HeldNeverAttemptedCount;
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildExceptionsSettlementSheet(
+        XLWorkbook workbook,
+        VanSalesExceptionsReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 11;
+        var ws = workbook.Worksheets.Add("Settlement");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "HOW THE MONEY WAS SETTLED", lastCol, now);
+
+        ws.Cell(row, 1).Value =
+            "The period's split, which is a banking and float question — what the fleet is actually "
+            + "being paid in. It is not the per rep-day cash-up; the compliance report gives that, and "
+            + "both read the same classifier, so the two can never disagree about what counts as cash. "
+            + "Declared cash is not compared here at all: nothing in this system records what was "
+            + "banked, so the only variance the data supports is declared against system.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 40;
+        row += 2;
+
+        TsSectionTitle(ws, row, lastCol,
+            "BY TENDER  —  A SALE WITH NO RECORDED METHOD IS SHOWN AS ITS OWN ROW");
+        row += 2;
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Currency", "Tender", "Recorded?", "Documents", "Value", "Average Document",
+            "", "", "", "", ""
+        ]);
+
+        int index = 0;
+        foreach (var tender in report.Tender)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = tender.Currency;
+            ws.Cell(row, 2).Value = tender.TenderName;
+            ws.Cell(row, 3).Value = tender.Untendered ? "no method recorded" : "recorded";
+            ws.Cell(row, 4).Value = tender.DocumentCount;
+            ws.Cell(row, 5).Value = AmountText(tender.Currency, tender.Gross);
+            ws.Cell(row, 6).Value = tender.AverageDocumentValue is { } average
+                ? AmountText(tender.Currency, average)
+                : "—";
+
+            if (tender.Untendered)
+            {
+                ws.Cell(row, 3).Style.Font.Bold = true;
+                ws.Cell(row, 3).Style.Font.FontColor = TsOrange;
+            }
+
+            row++;
+            index++;
+        }
+
+        row++;
+        TsSectionTitle(ws, row, lastCol, "BY REP  —  ONE ROW PER REP PER CURRENCY");
+        row += 2;
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Rep", "Currency", "Documents", "Takings", "Cash", "Ecocash", "Innbucks", "Other",
+            "Cash Share", "Untendered", "Untendered Share"
+        ]);
+
+        int repIndex = 0;
+        foreach (var rep in report.TenderByRep)
+        {
+            TsDataRow(ws, row, lastCol, repIndex % 2 == 1);
+            ws.Cell(row, 1).Value = rep.DisplayName;
+            ws.Cell(row, 2).Value = rep.Currency;
+            ws.Cell(row, 3).Value = rep.DocumentCount;
+            ws.Cell(row, 4).Value = AmountText(rep.Currency, rep.Gross);
+            ws.Cell(row, 5).Value = AmountText(rep.Currency, rep.CashGross);
+            ws.Cell(row, 6).Value = AmountText(rep.Currency, rep.EcocashGross);
+            ws.Cell(row, 7).Value = AmountText(rep.Currency, rep.InnbucksGross);
+            ws.Cell(row, 8).Value = AmountText(rep.Currency, rep.OtherGross);
+            ws.Cell(row, 9).Value = RateText(rep.CashShare);
+            ws.Cell(row, 10).Value =
+                $"{AmountText(rep.Currency, rep.UntenderedGross)}  ({rep.UntenderedCount:N0})";
+            ws.Cell(row, 11).Value = RateText(rep.UntenderedShare);
+
+            if (rep.UntenderedCount > 0)
+            {
+                ws.Cell(row, 10).Style.Font.FontColor = TsOrange;
+                ws.Cell(row, 11).Style.Font.Bold = true;
+                ws.Cell(row, 11).Style.Font.FontColor = TsOrange;
+            }
+
+            row++;
+            repIndex++;
+        }
+
+        row++;
+        ws.Cell(row, 1).Value =
+            "Other holds both a genuine swipe and a sale whose method was never written down, because "
+            + "that is where the classifier puts them; the untendered columns separate the second out, "
+            + "since one is a banking arrangement and the other is a capture failure. Untendered money "
+            + "already sits inside Takings and inside Other, so these columns describe one figure and "
+            + "are not a set of figures to add. The cash share is the figure that decides how much "
+            + "physical money is expected back off a round.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 34;
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildExceptionsReceiptSheet(
+        XLWorkbook workbook,
+        VanSalesExceptionsReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 7;
+        var ws = workbook.Worksheets.Add("Receipts");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "FISCAL RECEIPT HANDOVER", lastCol, now);
+
+        ws.Cell(row, 1).Value =
+            "A distribution, deliberately, and not a count of exceptions. Every value here is decided "
+            + "by fields the handset uploads and this system cannot confirm which build the fleet is "
+            + "running, so a column carrying one value throughout is what a handset predating the "
+            + "signed-receipt upload looks like rather than a fiscal problem. NotApplicable deserves "
+            + "particular suspicion: it was the column's default, nothing backfilled it, and the drain "
+            + "skips it — so a van sale ingested before the column existed reads as nothing to submit "
+            + "while its receipt will in fact never be submitted. A sale carrying no device signature "
+            + "can never be handed over whatever its status says.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsOrange;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 66;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Status", "Sales", "Share", "With Signature", "Without Signature", "Earliest", "Latest"
+        ]);
+
+        var handoverTotal = report.ReceiptHandover.Sum(status => status.SaleCount);
+
+        int index = 0;
+        foreach (var status in report.ReceiptHandover)
+        {
+            // Null rather than zero where there is nothing to divide by, as everywhere else in this
+            // suite: 0% would read as a status nobody is in.
+            double? share = handoverTotal > 0 ? (double)status.SaleCount / handoverTotal : null;
+
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = status.Status;
+            ws.Cell(row, 2).Value = status.SaleCount;
+            ws.Cell(row, 3).Value = RateText(share);
+            ws.Cell(row, 4).Value = status.WithSignature;
+            ws.Cell(row, 5).Value = status.WithoutSignature;
+
+            if (status.EarliestDocDate is { } earliest)
+            {
+                WriteVanPerformanceDate(ws.Cell(row, 6), earliest);
+            }
+            else
+            {
+                ws.Cell(row, 6).Value = "—";
+            }
+
+            if (status.LatestDocDate is { } latest)
+            {
+                WriteVanPerformanceDate(ws.Cell(row, 7), latest);
+            }
+            else
+            {
+                ws.Cell(row, 7).Value = "—";
+            }
+
+            if (status.WithoutSignature > 0)
+            {
+                ws.Cell(row, 5).Style.Font.Bold = true;
+                ws.Cell(row, 5).Style.Font.FontColor = TsRed;
+            }
+
+            row++;
+            index++;
+        }
+
+        TsSummaryRow(ws, row, lastCol);
+        ws.Cell(row, 1).Value = $"TOTAL: {report.Quality.ReceiptStatusesSeen:N0} STATUS(ES) SEEN";
+        ws.Cell(row, 2).Value = handoverTotal;
+        ws.Cell(row, 4).Value = report.ReceiptHandover.Sum(status => status.WithSignature);
+        ws.Cell(row, 5).Value = report.Quality.ReceiptsWithoutSignature;
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    private static void BuildExceptionsHygieneSheet(
+        XLWorkbook workbook,
+        VanSalesExceptionsReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 9;
+        var ws = workbook.Worksheets.Add("Hygiene");
+        TsApplyDefaults(ws);
+
+        int row = TsTitleBar(ws, "CAPTURE HYGIENE  —  WORST FIRST", lastCol, now);
+
+        ws.Cell(row, 1).Value =
+            "Every figure on this sheet is a capture failure and not a money failure. The sale "
+            + "happened and its money is in the totals; something about it was never written down. A "
+            + "line carrying a quantity and no value is a real zero — both capture paths permit it, "
+            + "and the offline validator checks quantity and never price — so it is a free issue, a "
+            + "keying slip or a promotion nobody recorded, rather than a rounding artefact. A sale "
+            + "naming no outlet is reported as unattributed and is credited to no shop.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 46;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Rep", "Sales", "No Tender", "Untendered Rate", "No Outlet", "Unattributed Rate",
+            "Lines", "Lines Without Value", "To Fix"
+        ]);
+
+        int index = 0;
+        foreach (var rep in report.Hygiene)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = rep.DisplayName;
+            ws.Cell(row, 2).Value = rep.SaleCount;
+            ws.Cell(row, 3).Value = rep.WithoutTender;
+            ws.Cell(row, 4).Value = RateText(rep.UntenderedRate);
+            ws.Cell(row, 5).Value = rep.WithoutOutlet;
+            ws.Cell(row, 6).Value = RateText(rep.UnattributedRate);
+            ws.Cell(row, 7).Value = rep.LineCount;
+            ws.Cell(row, 8).Value = rep.LinesWithoutValue;
+
+            // A clean rep is the row nobody needs to read, and the sheet says so rather than
+            // decorating it.
+            ws.Cell(row, 9).Value = rep.IsClean
+                ? "nothing outstanding"
+                : (rep.WithoutTender + rep.WithoutOutlet + rep.LinesWithoutValue).ToString("N0");
+
+            if (rep.WithoutTender > 0) ws.Cell(row, 3).Style.Font.FontColor = TsOrange;
+            if (rep.WithoutOutlet > 0) ws.Cell(row, 5).Style.Font.FontColor = TsOrange;
+            if (rep.LinesWithoutValue > 0)
+            {
+                ws.Cell(row, 8).Style.Font.Bold = true;
+                ws.Cell(row, 8).Style.Font.FontColor = TsRed;
+            }
+
+            row++;
+            index++;
+        }
+
+        var summary = report.Summary;
+
+        TsSummaryRow(ws, row, lastCol);
+        ws.Cell(row, 1).Value = $"TOTAL: {report.Hygiene.Count:N0} REP(S)";
+        ws.Cell(row, 2).Value = summary.SaleCount;
+        ws.Cell(row, 3).Value = summary.SalesWithoutTender;
+        ws.Cell(row, 4).Value = RateText(summary.UntenderedRate);
+        ws.Cell(row, 5).Value = summary.SalesWithoutOutlet;
+        ws.Cell(row, 6).Value = RateText(
+            summary.SaleCount > 0 ? (double)summary.SalesWithoutOutlet / summary.SaleCount : null);
+        ws.Cell(row, 7).Value = report.Hygiene.Sum(rep => rep.LineCount);
+        ws.Cell(row, 8).Value = summary.LinesWithoutValue;
+
+        TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
+    }
+
+    /// <summary>
+    /// Exposure as text, one entry per currency. Its own formatter rather than a reuse of
+    /// <see cref="MoneyText"/> on purpose: this money is not takings, and the two must never end up
+    /// looking like the same column.
+    /// </summary>
+    private static string ExposureText(List<VanSalesExposure> exposure) =>
+        exposure.Count == 0
+            ? "—"
+            : string.Join("  |  ", exposure.Select(row => $"{row.Currency} {row.Gross:N2}"));
+
+    /// <summary>
+    /// One amount against its currency, as text. A settlement column holds more than one currency, so
+    /// a reader must never be able to select it and get a total.
+    /// </summary>
+    private static string AmountText(string currency, decimal amount) => $"{currency} {amount:N2}";
+
+    /// <summary>
+    /// What a reservation state means for the money on it, written onto the row. "Expired" reads as a
+    /// tidy-up to anyone who has not been told what it costs, and whoever opens this workbook second
+    /// has no page beside them.
+    /// </summary>
+    private static string UnseenStateMeaning(VanSalesUnseen unseen) =>
+        unseen.IsLostSale
+            ? "sale made and served; no van report counts it"
+            : unseen.Status.ToLowerInvariant() switch
+            {
+                "pending" => "in flight, or an outage still running",
+                "cancelled" => "a posting attempt failed outright",
+                "failed" => "a posting attempt failed outright",
+                _ => "never confirmed"
+            };
+
+    /// <summary>
+    /// A captured-at instant, converted to CAT and written as a real timestamp so Excel sorts it. The
+    /// stored value is UTC, and two hours is the difference between a document written during the
+    /// afternoon round and one written after the depot closed.
+    /// </summary>
+    private static void WriteVanExceptionsCapturedAt(IXLCell cell, DateTime? capturedAt)
+    {
+        if (capturedAt is not { } instant)
+        {
+            cell.Value = "—";
+            return;
+        }
+
+        cell.Value = IAuditService.ToCAT(EnsureUtc(instant));
+        cell.Style.NumberFormat.Format = FormatTimestamp;
+    }
 
     public byte[] ExportVanAttendanceReportToExcel(
         VanVisitReportResponse report,

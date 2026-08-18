@@ -393,7 +393,7 @@
                 <span class="vsc-num vsc-right @NoneClass(totals.Kilometres)">
                     @(totals.Kilometres?.ToString("N0") ?? "—")
                 </span>
-                <span class="vsc-num @NoneClass(totals.Declared)">@FormatMoney(totals.Declared)</span>
+                <span class="vsc-num @(totals.HasDeclaration ? string.Empty : "vs-metric-none")">@DeclaredFooter(totals)</span>
                 <span></span>
             </div>
         </div>
@@ -771,7 +771,11 @@
 
             if (day.DeclaredTotal is { } declared)
             {
-                totals.DeclaredRead += declared;
+                // Per currency, for the same reason as the takings beside it. A rep declares in one
+                // currency and the row is stated in it; adding two reps' declarations because they
+                // sit in the same period is the mixture every other figure here is fixed to avoid.
+                totals.DeclaredByCurrency.TryGetValue(currency, out var declaredRunning);
+                totals.DeclaredByCurrency[currency] = declaredRunning + declared;
                 totals.DeclaredRows++;
             }
         }
@@ -801,6 +805,17 @@
         totals.SalesByCurrency.Count == 0
             ? "—"
             : string.Join("  ·  ", totals.SalesByCurrency
+                .OrderByDescending(pair => pair.Value)
+                .Select(pair => $"{pair.Key} {pair.Value:N2}"));
+
+    /// <summary>
+    /// The declared footer, per currency, matching <see cref="MoneyFooter"/>. The two sit in the same
+    /// row and a reader subtracts one from the other by eye, so they have to be split the same way.
+    /// </summary>
+    private static string DeclaredFooter(PeriodTotals totals) =>
+        totals.DeclaredByCurrency.Count == 0
+            ? "—"
+            : string.Join("  ·  ", totals.DeclaredByCurrency
                 .OrderByDescending(pair => pair.Value)
                 .Select(pair => $"{pair.Key} {pair.Value:N2}"));
 
@@ -1199,7 +1214,7 @@
         public int Planned { get; set; }
         public int Visited { get; set; }
         public int Productive { get; set; }
-    /// <summary>
+        /// <summary>
         /// The period's takings, per currency. Never one figure: a row is stated in the currency its
         /// rep declared in, and two reps on two tills are not adding up to anything.
         /// </summary>
@@ -1217,7 +1232,13 @@
         public int KilometresRead { get; set; }
         public int KilometreRows { get; set; }
 
-        public decimal DeclaredRead { get; set; }
+        /// <summary>
+        /// What the reps said they were bringing back, per currency — the same split as the takings,
+        /// because the two are read against each other and a total that mixed currencies on one side
+        /// only would make every reconciliation wrong in an invisible direction.
+        /// </summary>
+        public Dictionary<string, decimal> DeclaredByCurrency { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         public int DeclaredRows { get; set; }
 
         public int Gaps => RepDays - Clean;
@@ -1237,6 +1258,7 @@
         /// <summary>Null where nothing was read, so the total cannot read as a period of zero mileage.</summary>
         public int? Kilometres => KilometreRows > 0 ? KilometresRead : null;
 
-        public decimal? Declared => DeclaredRows > 0 ? DeclaredRead : null;
+        /// <summary>Null where nothing was declared, so the footer cannot read as a period nobody counted.</summary>
+        public bool HasDeclaration => DeclaredRows > 0;
     }
 }

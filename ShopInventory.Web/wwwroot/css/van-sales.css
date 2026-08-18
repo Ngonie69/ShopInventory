@@ -2583,3 +2583,263 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
+
+/* ==========================================================================
+   `vsx-` — /van-sales/reports/exceptions
+
+   The seventh page on this sheet. Its own prefix for the reason every page here
+   has one: sheets in this app are separated by prefix alone, and a duplicated
+   one silently restyles a neighbour. `vsx-` was unused before this block.
+
+   Same rules as `vsp-`, `vsg-`, `vrp-` and `vst-`: every colour resolves through
+   the alias block at the head of this file, so both schemes come free and there
+   is no `.dark-theme .vsx` rule to forget; every selector is two classes deep so
+   app.css's global `.dark-theme input` rules at (0,1,1) cannot reach past them.
+
+   What this page draws that the others do not is the posting-switch banner. It
+   is the one banner here that is shown whether or not there is anything wrong,
+   because the held figures below it cannot be read without it: with the job down
+   a growing queue is correct behaviour, and with the job up the same queue is a
+   posting failure. A reader who only ever sees the banner when it is bad has no
+   way to know the state was checked at all, so both states are drawn — the off
+   state in the bad family, the on state quiet and neutral.
+
+   Two row states carry the report's two headline findings. `vsx-lost` is the
+   outage signature — a van invoice that expired unconfirmed, which is money the
+   estate took and no other van report counts — and it takes the bad family
+   because it is the alarming row on the page. `vsx-untendered` is a settlement
+   nobody wrote down, which is a capture failure rather than a loss, so it is
+   washed in the warn family instead. `vsx-clean` is muted: a rep with nothing
+   outstanding is the row nobody needs to read.
+   ========================================================================== */
+
+/* — The posting switch —
+   Above every held figure it governs. Both states are drawn; only the off one
+   is coloured, because a running job is not news. */
+
+.vs .vsx-switch {
+    margin: 1.25rem 0;
+    padding: 0.85rem 1.1rem 0.95rem;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    line-height: 1.55;
+    color: var(--vs-ink-2);
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.vs .vsx-switch strong {
+    color: var(--vs-ink);
+    font-weight: 500;
+}
+
+.vs .vsx-switch-off {
+    border: 1px solid rgba(var(--vs-bad-rgb), 0.4);
+    border-left: 4px solid var(--vs-bad);
+    background: rgba(var(--vs-bad-rgb), 0.07);
+}
+
+.vs .vsx-switch-on {
+    border: 1px solid var(--vs-divider);
+    border-left: 4px solid var(--vs-neutral);
+    background: var(--vs-wash);
+}
+
+/* — The KPI band ————————————————————————————————————————————————— */
+
+.vs .vsx-kpis {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 1px;
+    margin: 1.25rem 0;
+    background: var(--vs-rule);
+    border: 1px solid var(--vs-rule);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.vs .vsx-kpi {
+    background: var(--vs-surface);
+    padding: 0.85rem 1rem 0.95rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.vs .vsx-kpi-warn {
+    box-shadow: inset 3px 0 0 var(--vs-warn);
+}
+
+/* A shade smaller than the sibling pages': two of these tiles carry a money
+   list per currency rather than a single figure, and a long one has to wrap
+   inside the tile rather than push the grid apart. */
+.vs .vsx-kpi-value {
+    font-size: 1.2rem;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--vs-ink);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.vs .vsx-kpi-label {
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsx-kpi-sub {
+    font-size: 0.78rem;
+    color: var(--vs-mute-3);
+    overflow-wrap: anywhere;
+}
+
+/* — The caveats strip —
+   Always shown on this page, unlike its siblings, because the last caveat is
+   unconditional: declared cash is not compared here and never can be. The flag
+   colour rather than the bad family — none of these is a failure, they are
+   limits on what the figures above can be read to mean. */
+
+.vs .vsx-caveats {
+    margin: 1rem 0 1.25rem;
+    padding: 0.85rem 1rem 0.95rem;
+    border: 1px solid rgba(var(--vs-flag-rgb), 0.35);
+    border-left: 3px solid var(--vs-flag);
+    border-radius: 8px;
+    background: rgba(var(--vs-flag-rgb), 0.06);
+}
+
+.vs .vsx-caveats-head {
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--vs-flag);
+    margin-bottom: 0.4rem;
+}
+
+.vs .vsx-caveats-list {
+    margin: 0;
+    padding-left: 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.86rem;
+    color: var(--vs-ink-2);
+}
+
+/* — The section switcher ————————————————————————————————————————— */
+
+.vs .vsx-sections {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin: 1.25rem 0 0.85rem;
+}
+
+.vs .vsx-sections .vs-chip {
+    cursor: pointer;
+    border: 0;
+    font: inherit;
+    font-size: 0.82rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.vs .vsx-section-count {
+    font-size: 0.72rem;
+    color: var(--vs-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* — Headings and notes inside a section ——————————————————————————— */
+
+.vs .vsx-heading {
+    font-size: 0.95rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--vs-ink);
+    margin: 1.5rem 0 0.5rem;
+}
+
+.vs .vsx-note {
+    font-size: 0.84rem;
+    line-height: 1.5;
+    color: var(--vs-mute-2);
+    max-width: 82ch;
+    margin: 0 0 0.85rem;
+}
+
+.vs .vsx-note strong {
+    color: var(--vs-ink-2);
+    font-weight: 500;
+}
+
+/* — Row states —
+   A lost sale is the finding the page exists to surface and takes the bad
+   family. A settlement nobody recorded is a capture failure rather than a loss,
+   so it is washed in warn. A clean rep is muted: nothing to do here. */
+
+.vs .vsx-lost td {
+    background: rgba(var(--vs-bad-rgb), 0.05);
+}
+
+.vs .vsx-untendered td {
+    background: rgba(var(--vs-warn-rgb), 0.05);
+}
+
+.vs .vsx-clean td {
+    color: var(--vs-mute-3);
+}
+
+.vs .vsx-clean td:first-child {
+    color: var(--vs-ink-2);
+}
+
+.vs .vsx-bad {
+    color: var(--vs-bad);
+}
+
+/* A figure that is not a fault and not a finding either — held sales nothing has
+   tried to post, which says something about the job rather than the rep. */
+.vs .vsx-quiet-figure {
+    color: var(--vs-mute-3);
+}
+
+.vs .vsx-inline-chip {
+    margin-left: 0.4rem;
+    font-size: 0.68rem;
+    vertical-align: middle;
+}
+
+.vs .vsx-sub {
+    display: block;
+    font-size: 0.74rem;
+    color: var(--vs-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* A SAP error message, which can be long and is not worth widening a table for. */
+.vs .vsx-error {
+    font-size: 0.78rem;
+    color: var(--vs-mute-3);
+    max-width: 28ch;
+    overflow-wrap: anywhere;
+}
+
+/* — Narrow screens ————————————————————————————————————————————— */
+
+@media (max-width: 1240px) {
+    .vs .vsx-kpis {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 720px) {
+    .vs .vsx-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}

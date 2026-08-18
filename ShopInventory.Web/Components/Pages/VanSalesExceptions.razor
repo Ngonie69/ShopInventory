@@ -1,0 +1,825 @@
+@page "/van-sales/reports/exceptions"
+@* Admin and Manager only — see VanSalesActivity.razor. *@
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+@using System.Globalization
+@using ShopInventory.Web.Models
+@inject IVanSalesReportService VanSalesReportService
+@inject IReportExportService ExportService
+@inject IJSRuntime JS
+
+<PageTitle>Van Sales Exceptions - Shop Inventory</PageTitle>
+
+@* How the money was settled, and every van document the rest of this suite cannot
+   see.
+
+   Carried by wwwroot/css/van-sales.css: the shared `vs-` chrome plus `vsx-` for
+   what only this page draws. A prefix nothing else on that sheet owns, because
+   sheets here are separated by prefix alone.
+
+   This is not the cash-and-leakage report the plan asked for, and the page says so
+   rather than letting a reader assume the comparison was forgotten. Nothing in this
+   system records what was banked, so declared-against-banked — the comparison that
+   catches theft — cannot be built at all. Declared-against-system is the only
+   variance the schema supports and the compliance page already gives it per rep per
+   day. For the same reason there is no discount column (neither van ingest path
+   writes DiscountPercent, so every van line reads 0.00%) and no returns reason (no
+   van endpoint can capture a return).
+
+   What is left is the half nobody asked for. Four things the page has to say out
+   loud, because each is a limit on what a figure means rather than a detail of it:
+
+   - The unseen register is read straight from StockReservations rather than through
+     VanSalesFactReader, because the reader takes confirmed documents only and by
+     construction cannot show these. It must never be read as a second definition of
+     a van sale. Expired is the outage signature: a van invoice that could not reach
+     SAP is queued, its reservation is left Pending, the cleanup job expires it
+     within the hour, and no van report ever counts the money. The suite therefore
+     reads lower — which is to say better — exactly on the estate's worst days, and
+     this section is the only place that is visible. It leads the page for that
+     reason.
+   - Held sales must be read against the posting switch, which the report carries as
+     Quality.PostingJobEnabled and the page states on the face of the band. "Nothing
+     has posted" means something very different when nothing is trying to.
+   - The receipt handover is a distribution and never a count of exceptions. Every
+     value in it is decided by fields the handset uploads and this repository cannot
+     confirm which build the fleet is running, so a one-valued column is an
+     unestablished reading rather than good news. NotApplicable in particular was the
+     column's default and was never backfilled.
+   - Money is a list per currency everywhere it appears, never a scalar, and nothing
+     is ever summed across currencies. A figure with no denominator — a rep who took
+     nothing, a period that sold nothing — renders as an em dash, never as a zero
+     that would read as perfect capture. *@
+
+<div class="vs vsx">
+
+    <div class="vs-head">
+        <div>
+            <h2 class="vs-title">Exceptions &amp; settlement</h2>
+            <p class="vs-subtitle">
+                How the fleet was paid over the period, and every van document the rest of these
+                reports cannot see — the sales that were made, served and counted nowhere.
+            </p>
+        </div>
+        <div class="vs-actions">
+            <button class="vs-btn" @onclick="ExportAsync" disabled="@(isLoading || report is null)">
+                Export
+            </button>
+        </div>
+    </div>
+
+    <div class="vs-filters">
+        <div class="row g-3">
+            @* NocturneDateField and NocturneSelect, never a native date input or select: the
+               platform calendar and the platform popup are windows no page stylesheet reaches
+               into, and both arrive unreadable on this sheet's dark ground. *@
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vsx-from">From</label>
+                <NocturneDateField Id="vsx-from" @bind-Date="fromDate" AriaLabel="From date" />
+            </div>
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vsx-to">To</label>
+                <NocturneDateField Id="vsx-to" @bind-Date="toDate" AriaLabel="To date" />
+            </div>
+            @* The rep filter goes to the server, because it has to reach the unseen and held
+               reads as well as the settled ones, and neither of those is on this page to filter
+               client-side. The list itself is refilled only on an unfiltered load: narrowing to
+               one rep must not empty the picker that got you there. *@
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vsx-rep">Rep</label>
+                <NocturneSelect Id="vsx-rep" Class="nsel-block" TValue="string"
+                                Options="RepFilterOptions" @bind-Value="selectedRepId"
+                                OnChanged="LoadAsync" AriaLabel="Filter by rep"
+                                Placeholder="All reps" />
+            </div>
+            <div class="col-md-3 vs-actions">
+                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
+                    @(isLoading ? "Loading…" : "Run")
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (loadError is not null)
+    {
+        <div class="vs-notice">@loadError</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Reading the register…</span>
+        </div>
+    }
+    else if (report is null)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">Nothing loaded yet</div>
+            <div>Choose a period and run the report.</div>
+        </div>
+    }
+    else
+    {
+        var summary = report.Summary;
+        var quality = report.Quality;
+
+        @* The posting switch sits above every held figure it governs, and it is stated whether it
+           is on or off. Read only when it is off, a reader who never sees the banner has no way
+           to know the state was checked at all. *@
+        <div class="vsx-switch @(quality.PostingJobEnabled ? "vsx-switch-on" : "vsx-switch-off")">
+            @if (quality.PostingJobEnabled)
+            {
+                <strong>The van sales posting job is running.</strong>
+                <span>
+                    An offline sale that is still held is a sale the job has not drained yet, or one
+                    it has tried and failed to post. The attempt counts below say which.
+                </span>
+            }
+            else
+            {
+                <strong>The van sales posting job is switched off in this environment.</strong>
+                <span>
+                    No offline van sale can reach SAP however long it waits. Every held figure below
+                    is the size of a queue, not a posting failure, and it will grow for as long as
+                    the switch stays down.
+                </span>
+            }
+        </div>
+
+        <div class="vsx-kpis">
+            <div class="vsx-kpi @(summary.UnseenDocumentCount > 0 ? "vsx-kpi-warn" : null)">
+                <div class="vsx-kpi-value">@summary.UnseenDocumentCount.ToString("N0")</div>
+                <div class="vsx-kpi-label">Documents unseen</div>
+                <div class="vsx-kpi-sub">@Rate(summary.UnseenRate) of everything captured</div>
+            </div>
+
+            <div class="vsx-kpi @(summary.ExpiredDocumentCount > 0 ? "vsx-kpi-warn" : null)">
+                <div class="vsx-kpi-value">@summary.ExpiredDocumentCount.ToString("N0")</div>
+                <div class="vsx-kpi-label">Sales lost to an outage</div>
+                <div class="vsx-kpi-sub">expired unconfirmed — made, served, counted nowhere</div>
+            </div>
+
+            <div class="vsx-kpi">
+                <div class="vsx-kpi-value">@ExposureList(summary.UnseenExposure)</div>
+                <div class="vsx-kpi-label">Money on them</div>
+                <div class="vsx-kpi-sub">absent from every other van report</div>
+            </div>
+
+            <div class="vsx-kpi @(summary.HeldSaleCount > 0 ? "vsx-kpi-warn" : null)">
+                <div class="vsx-kpi-value">@summary.HeldSaleCount.ToString("N0")</div>
+                <div class="vsx-kpi-label">Held for posting</div>
+                <div class="vsx-kpi-sub">
+                    oldest @Count(summary.OldestHeldAgeDays) day(s) · @ExposureList(summary.HeldExposure)
+                </div>
+            </div>
+
+            <div class="vsx-kpi @(summary.SalesWithoutTender > 0 ? "vsx-kpi-warn" : null)">
+                <div class="vsx-kpi-value">@Rate(summary.UntenderedRate)</div>
+                <div class="vsx-kpi-label">Settled without a method</div>
+                <div class="vsx-kpi-sub">
+                    @summary.SalesWithoutTender.ToString("N0") of @summary.SaleCount.ToString("N0") sales
+                </div>
+            </div>
+
+            <div class="vsx-kpi">
+                <div class="vsx-kpi-value">@summary.SaleCount.ToString("N0")</div>
+                <div class="vsx-kpi-label">Sales settled</div>
+                <div class="vsx-kpi-sub">
+                    @summary.RepCount.ToString("N0") rep(s) · @MoneyList(summary.TotalsByCurrency)
+                </div>
+            </div>
+        </div>
+
+        @* Always shown. The last caveat is unconditional — declared cash is not compared here —
+           so this strip has something to say in every period, including a clean one. *@
+        <div class="vsx-caveats">
+            <div class="vsx-caveats-head">What this period could not answer</div>
+            <ul class="vsx-caveats-list">
+                @foreach (var caveat in quality.Caveats)
+                {
+                    <li>@caveat</li>
+                }
+            </ul>
+        </div>
+
+        <div class="vsx-sections">
+            @foreach (var section in Sections)
+            {
+                <button type="button"
+                        class="vs-chip @(activeSection == section.Key ? "vs-chip-info" : "vs-chip-quiet")"
+                        @onclick="() => activeSection = section.Key">
+                    @section.Label
+                    <span class="vsx-section-count">@section.Count(report)</span>
+                </button>
+            }
+        </div>
+
+        @if (activeSection == SectionUnseen)
+        {
+            <h3 class="vsx-heading">Documents the rest of the suite cannot see</h3>
+            <p class="vsx-note">
+                Read straight from the reservations rather than through the shared fact reader,
+                which takes confirmed documents only and by construction cannot show these. It is
+                not a second definition of a van sale and must never be used as one.
+                <strong>Expired is the outage signature.</strong> A van invoice that could not reach
+                SAP is queued, its reservation is left pending, and the cleanup job expires it
+                within the hour — so the sale was made and the customer served, but no van report
+                counts the money. Pending is either an outage in progress or a document written
+                moments ago; cancelled and failed are set when a posting attempt failed outright.
+            </p>
+            @if (report.Unseen.Count == 0)
+            {
+                <div class="vs-empty">
+                    <div class="vs-empty-title">Every van document confirmed</div>
+                    <div>
+                        No reservation in this period stopped short of confirmation, so nothing was
+                        kept out of the other van reports.
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="vs-table-wrap">
+                    <table class="vs-table">
+                        <thead>
+                            <tr>
+                                <th>State</th>
+                                <th>Rep</th>
+                                <th class="vs-num">Documents</th>
+                                <th>Money on them</th>
+                                <th>First captured</th>
+                                <th>Last captured</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in report.Unseen)
+                            {
+                                <tr class="@(row.IsLostSale ? "vsx-lost" : null)">
+                                    <td>
+                                        @row.Status
+                                        @if (row.IsLostSale)
+                                        {
+                                            <span class="vs-chip vs-chip-bad vsx-inline-chip">lost sale</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @row.DisplayName
+                                        @if (row.UserId is null)
+                                        {
+                                            @* Kept rather than dropped: a document nobody owns is
+                                               itself the finding. *@
+                                            <span class="vs-chip vs-chip-quiet vsx-inline-chip">no rep recorded</span>
+                                        }
+                                    </td>
+                                    <td class="vs-num">@row.DocumentCount.ToString("N0")</td>
+                                    <td class="@(row.Exposure.Count == 0 ? "vs-metric-none" : null)">
+                                        @ExposureList(row.Exposure)
+                                    </td>
+                                    <td>@Instant(row.EarliestCapturedAt)</td>
+                                    <td>@Instant(row.LatestCapturedAt)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+        else if (activeSection == SectionSettlement)
+        {
+            <h3 class="vsx-heading">How the money was settled</h3>
+            <p class="vsx-note">
+                The period's roll-up, which is a different question from the compliance page's split
+                per rep-day: a day's split answers whether a rep's cash added up, and a period's
+                answers what the fleet is actually being paid in, which is a banking and float
+                question. Both classify tender the same way, so the two can never disagree about
+                what counts as cash. A sale with no payment method recorded falls in the same bucket
+                as a swipe, so it is split onto its own row and marked — one is a banking
+                arrangement, the other is a capture failure.
+            </p>
+            @if (report.Tender.Count == 0)
+            {
+                <div class="vs-empty">
+                    <div class="vs-empty-title">Nothing settled in this period</div>
+                    <div>No van sale reached the reporting union between these dates.</div>
+                </div>
+            }
+            else
+            {
+                <div class="vs-table-wrap">
+                    <table class="vs-table">
+                        <thead>
+                            <tr>
+                                <th>Currency</th>
+                                <th>Tender</th>
+                                <th class="vs-num">Documents</th>
+                                <th class="vs-num">Gross</th>
+                                <th class="vs-num">Average document</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in report.Tender)
+                            {
+                                <tr class="@(row.Untendered ? "vsx-untendered" : null)">
+                                    <td>@row.Currency</td>
+                                    <td>
+                                        @row.TenderName
+                                        @if (row.Untendered)
+                                        {
+                                            <span class="vs-chip vs-chip-warn vsx-inline-chip">no method recorded</span>
+                                        }
+                                    </td>
+                                    <td class="vs-num">@row.DocumentCount.ToString("N0")</td>
+                                    <td class="vs-num">@row.Gross.ToString("N2")</td>
+                                    <td class="vs-num @(row.AverageDocumentValue is null ? "vs-metric-none" : null)">
+                                        @Money(row.AverageDocumentValue)
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            <h3 class="vsx-heading">By rep, per currency</h3>
+            <p class="vsx-note">
+                One row per rep per currency, never a row per rep: the columns are money and money
+                is not added across currencies anywhere in this suite. The cash share is what
+                decides how much physical money is expected back off a round.
+            </p>
+            @if (report.TenderByRep.Count == 0)
+            {
+                <div class="vs-empty">
+                    <div class="vs-empty-title">No rep settled anything</div>
+                    <div>Nothing in this period reached the reporting union to be split.</div>
+                </div>
+            }
+            else
+            {
+                <div class="vs-table-wrap">
+                    <table class="vs-table">
+                        <thead>
+                            <tr>
+                                <th>Rep</th>
+                                <th>Currency</th>
+                                <th class="vs-num">Documents</th>
+                                <th class="vs-num">Takings</th>
+                                <th class="vs-num">Cash</th>
+                                <th class="vs-num">EcoCash</th>
+                                <th class="vs-num">InnBucks</th>
+                                <th class="vs-num">Other</th>
+                                <th class="vs-num">Not recorded</th>
+                                <th class="vs-num">Cash share</th>
+                                <th class="vs-num">Untendered</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in report.TenderByRep)
+                            {
+                                <tr>
+                                    <td>@row.DisplayName</td>
+                                    <td>@row.Currency</td>
+                                    <td class="vs-num">@row.DocumentCount.ToString("N0")</td>
+                                    <td class="vs-num">@row.Gross.ToString("N2")</td>
+                                    <td class="vs-num">@row.CashGross.ToString("N2")</td>
+                                    <td class="vs-num">@row.EcocashGross.ToString("N2")</td>
+                                    <td class="vs-num">@row.InnbucksGross.ToString("N2")</td>
+                                    <td class="vs-num">@row.OtherGross.ToString("N2")</td>
+                                    <td class="vs-num @(row.UntenderedCount > 0 ? "vsx-bad" : null)">
+                                        @row.UntenderedGross.ToString("N2")
+                                        <span class="vsx-sub">@row.UntenderedCount.ToString("N0") doc(s)</span>
+                                    </td>
+                                    <td class="vs-num @(row.CashShare is null ? "vs-metric-none" : null)">
+                                        @Rate(row.CashShare)
+                                        @if (row.CashShare is { } cash)
+                                        {
+                                            <span class="vs-meter">
+                                                <span class="vs-meter-fill" style="width:@(Meter(cash))%"></span>
+                                            </span>
+                                        }
+                                    </td>
+                                    <td class="vs-num @(row.UntenderedShare is null ? "vs-metric-none" : null)">
+                                        @Rate(row.UntenderedShare)
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+        else if (activeSection == SectionHeld)
+        {
+            <h3 class="vsx-heading">Offline sales waiting to post</h3>
+            <p class="vsx-note">
+                An offline van sale is ingested and then held until the posting job drains it. Read
+                these against the state of that switch, given above every figure on this page: with
+                the job down the queue grows correctly and invisibly, and a rep whose sales have
+                never been attempted has done nothing wrong. Nothing here has been established as
+                revenue, so its money is never added to a takings figure.
+            </p>
+            @if (report.Held.Count == 0)
+            {
+                <div class="vs-empty">
+                    <div class="vs-empty-title">Nothing is waiting</div>
+                    <div>Every offline van sale captured in this period has reached SAP.</div>
+                </div>
+            }
+            else
+            {
+                <div class="vs-table-wrap">
+                    <table class="vs-table">
+                        <thead>
+                            <tr>
+                                <th>Rep</th>
+                                <th class="vs-num">Sales</th>
+                                <th>Money held</th>
+                                <th>Oldest</th>
+                                <th class="vs-num">Age</th>
+                                <th class="vs-num">Attempted</th>
+                                <th class="vs-num">Never attempted</th>
+                                <th class="vs-num">Failed</th>
+                                <th>Last error</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in report.Held)
+                            {
+                                <tr>
+                                    <td>
+                                        @row.DisplayName
+                                        @if (row.UserId is null)
+                                        {
+                                            <span class="vs-chip vs-chip-quiet vsx-inline-chip">no rep recorded</span>
+                                        }
+                                    </td>
+                                    <td class="vs-num">@row.SaleCount.ToString("N0")</td>
+                                    <td class="@(row.Exposure.Count == 0 ? "vs-metric-none" : null)">
+                                        @ExposureList(row.Exposure)
+                                    </td>
+                                    <td>@Date(row.OldestDocDate)</td>
+                                    <td class="vs-num @(row.OldestAgeDays is null ? "vs-metric-none" : null)">
+                                        @Count(row.OldestAgeDays)
+                                    </td>
+                                    <td class="vs-num">@row.AttemptedCount.ToString("N0")</td>
+                                    <td class="vs-num @(row.NeverAttemptedCount == row.SaleCount ? "vsx-quiet-figure" : null)">
+                                        @row.NeverAttemptedCount.ToString("N0")
+                                        @if (row.NeverAttemptedCount == row.SaleCount && row.SaleCount > 0)
+                                        {
+                                            @* Nothing has tried to post these. That is a question
+                                               about the job, not about the rep. *@
+                                            <span class="vs-chip vs-chip-neutral vsx-inline-chip">untouched</span>
+                                        }
+                                    </td>
+                                    <td class="vs-num @(row.FailedCount > 0 ? "vsx-bad" : null)">
+                                        @row.FailedCount.ToString("N0")
+                                    </td>
+                                    <td class="vsx-error">
+                                        @(string.IsNullOrWhiteSpace(row.LastError) ? "—" : row.LastError)
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+        else if (activeSection == SectionReceipts)
+        {
+            <h3 class="vsx-heading">The fiscal receipt handover</h3>
+            <p class="vsx-note">
+                A distribution, and deliberately not a count of exceptions. Every value here is
+                decided by fields the handset uploads, and this repository cannot confirm which
+                build the fleet is running — so a column reading one value throughout is as likely
+                to describe an old handset as a real fiscal problem, and the whole spread is shown
+                so a reader can see that for themselves. A row carrying no device signature can
+                never be handed to the fiscalisation platform whatever its status says.
+                <strong>NotApplicable deserves particular suspicion</strong>: it was the column's
+                default when the column was added, nothing backfilled it, and the drain skips it —
+                so a sale ingested before the column existed says "nothing to submit" while its
+                receipt will in fact never be submitted.
+            </p>
+            @if (report.ReceiptHandover.Count == 0)
+            {
+                <div class="vs-empty">
+                    <div class="vs-empty-title">No van sales in this period</div>
+                    <div>There is no handover distribution to show.</div>
+                </div>
+            }
+            else
+            {
+                <div class="vs-table-wrap">
+                    <table class="vs-table">
+                        <thead>
+                            <tr>
+                                <th>Handover status</th>
+                                <th class="vs-num">Sales</th>
+                                <th class="vs-num">With a signature</th>
+                                <th class="vs-num">Without one</th>
+                                <th>Earliest</th>
+                                <th>Latest</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in report.ReceiptHandover)
+                            {
+                                <tr>
+                                    <td>
+                                        @row.Status
+                                        @if (IsUnbackfilled(row.Status))
+                                        {
+                                            <span class="vs-chip vs-chip-warn vsx-inline-chip">
+                                                default, never backfilled
+                                            </span>
+                                        }
+                                    </td>
+                                    <td class="vs-num">@row.SaleCount.ToString("N0")</td>
+                                    <td class="vs-num">@row.WithSignature.ToString("N0")</td>
+                                    <td class="vs-num @(row.WithoutSignature > 0 ? "vsx-bad" : null)">
+                                        @row.WithoutSignature.ToString("N0")
+                                    </td>
+                                    <td>@Date(row.EarliestDocDate)</td>
+                                    <td>@Date(row.LatestDocDate)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                @if (report.ReceiptHandover.Count <= 1)
+                {
+                    <p class="vsx-note">
+                        Every van sale in this period shares one status, which is what a handset
+                        build predating the signed-receipt upload looks like. Read this section as
+                        unestablished rather than as good news.
+                    </p>
+                }
+            }
+        }
+        else if (activeSection == SectionHygiene)
+        {
+            <h3 class="vsx-heading">What the sales did not carry</h3>
+            <p class="vsx-note">
+                Every figure here is a capture failure and not a money failure: the sale is real and
+                the money is real, and something about it was never written down. A line with a
+                quantity and no value is a real zero rather than a rounding artefact — nothing in
+                either capture path forbids one, so it is a free issue, a keying slip, or a
+                promotion nobody recorded as one. Worst first, because this is a worklist; a clean
+                rep is the row nobody needs to read.
+            </p>
+            @if (report.Hygiene.Count == 0)
+            {
+                <div class="vs-empty">
+                    <div class="vs-empty-title">No rep settled anything</div>
+                    <div>There are no captured sales in this period to check.</div>
+                </div>
+            }
+            else
+            {
+                <div class="vs-table-wrap">
+                    <table class="vs-table">
+                        <thead>
+                            <tr>
+                                <th>Rep</th>
+                                <th class="vs-num">Sales</th>
+                                <th class="vs-num">No method</th>
+                                <th class="vs-num">Untendered</th>
+                                <th class="vs-num">No outlet</th>
+                                <th class="vs-num">Unattributed</th>
+                                <th class="vs-num">Lines</th>
+                                <th class="vs-num">Lines at zero</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in report.Hygiene)
+                            {
+                                <tr class="@(row.IsClean ? "vsx-clean" : null)">
+                                    <td>
+                                        @row.DisplayName
+                                        @if (row.IsClean)
+                                        {
+                                            <span class="vs-chip vs-chip-clean vsx-inline-chip">nothing outstanding</span>
+                                        }
+                                    </td>
+                                    <td class="vs-num">@row.SaleCount.ToString("N0")</td>
+                                    <td class="vs-num @(row.WithoutTender > 0 ? "vsx-bad" : null)">
+                                        @row.WithoutTender.ToString("N0")
+                                    </td>
+                                    <td class="vs-num @(row.UntenderedRate is null ? "vs-metric-none" : null)">
+                                        @Rate(row.UntenderedRate)
+                                    </td>
+                                    <td class="vs-num @(row.WithoutOutlet > 0 ? "vsx-bad" : null)">
+                                        @row.WithoutOutlet.ToString("N0")
+                                    </td>
+                                    <td class="vs-num @(row.UnattributedRate is null ? "vs-metric-none" : null)">
+                                        @Rate(row.UnattributedRate)
+                                    </td>
+                                    <td class="vs-num">@row.LineCount.ToString("N0")</td>
+                                    <td class="vs-num @(row.LinesWithoutValue > 0 ? "vsx-bad" : null)">
+                                        @row.LinesWithoutValue.ToString("N0")
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+    }
+</div>
+
+@code {
+    private const string SectionUnseen = "unseen";
+    private const string SectionSettlement = "settlement";
+    private const string SectionHeld = "held";
+    private const string SectionReceipts = "receipts";
+    private const string SectionHygiene = "hygiene";
+
+    /// <summary>The handover value the column was created with and nothing ever backfilled.</summary>
+    private const string UnbackfilledHandoverStatus = "NotApplicable";
+
+    private sealed record Section(string Key, string Label, Func<VanSalesExceptionsReportResponse, string> Count);
+
+    // Unseen leads, ahead of settlement. It is the section that says the rest of the suite is
+    // under-reporting, and it is why this page exists.
+    private static readonly Section[] Sections =
+    [
+        new(SectionUnseen, "Unseen", r => r.Summary.UnseenDocumentCount.ToString("N0")),
+        new(SectionSettlement, "Settlement", r => r.Tender.Count.ToString("N0")),
+        new(SectionHeld, "Held for posting", r => r.Summary.HeldSaleCount.ToString("N0")),
+        new(SectionReceipts, "Receipts", r => r.ReceiptHandover.Count.ToString("N0")),
+        new(SectionHygiene, "Capture hygiene", r => r.Hygiene.Count.ToString("N0"))
+    ];
+
+    private VanSalesExceptionsReportResponse? report;
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string? selectedRepId;
+    private string activeSection = SectionUnseen;
+
+    private bool isLoading;
+    private string? loadError;
+
+    /// <summary>
+    /// The reps the period holds, filled from the last unfiltered load.
+    /// </summary>
+    /// <remarks>
+    /// Built from the report's own rows rather than from the staff list, so the picker cannot offer
+    /// somebody with nothing to look at. It is deliberately not refilled while a rep is selected:
+    /// the filter goes to the server, so a filtered report contains only the chosen rep and
+    /// rebuilding from it would leave a picker of one with no way back to the others.
+    /// </remarks>
+    private List<RepOption> repOptions = [];
+
+    private sealed record RepOption(Guid Id, string Name, int DocumentCount);
+
+    private IEnumerable<INocturneSelectOption<string>> RepFilterOptions =>
+        new[] { NocturneSelectOption.All("All reps") }
+            .Concat(repOptions.Select(rep => new NocturneSelectOption<string>(
+                rep.Id.ToString("N"),
+                rep.Name)
+            {
+                Hint = rep.DocumentCount.ToString("N0")
+            }));
+
+    protected override async Task OnInitializedAsync()
+    {
+        // CAT, not the server's clock: a trading day belongs to the van.
+        var today = DateTime.UtcNow.AddHours(2).Date;
+        fromDate = today.AddDays(-13);
+        toDate = today;
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        StateHasChanged();
+
+        try
+        {
+            var repId = Guid.TryParseExact(selectedRepId, "N", out var parsed)
+                ? parsed
+                : (Guid?)null;
+
+            report = await VanSalesReportService.GetExceptionsReportAsync(fromDate, toDate, repId);
+
+            if (report is null)
+            {
+                loadError = "The exceptions report could not be loaded. Check that the API is reachable.";
+                return;
+            }
+
+            if (repId is null)
+            {
+                repOptions = RepsIn(report);
+            }
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Failed to load the exceptions report: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Every rep the period names, counting settled sales, unseen documents and held sales.
+    /// </summary>
+    /// <remarks>
+    /// The three populations are disjoint by construction — the fact reader takes confirmed and
+    /// consolidated documents, the unseen read takes only unconfirmed reservations and the held read
+    /// only unconsolidated sales — so the counts add without double-counting anything. The tender
+    /// split is left out on purpose: it is one row per rep per currency over the same settled sales
+    /// the hygiene rows already count.
+    ///
+    /// A row with no rep is skipped rather than offered. The API's filter drops unattributed
+    /// documents whenever a rep is named, so an "unattributed" entry here would select a report that
+    /// cannot contain it.
+    /// </remarks>
+    private static List<RepOption> RepsIn(VanSalesExceptionsReportResponse report) =>
+        report.Hygiene
+            .Select(row => new RepOption(row.UserId, row.DisplayName, row.SaleCount))
+            .Concat(report.Unseen
+                .Where(row => row.UserId is not null)
+                .Select(row => new RepOption(row.UserId!.Value, row.DisplayName, row.DocumentCount)))
+            .Concat(report.Held
+                .Where(row => row.UserId is not null)
+                .Select(row => new RepOption(row.UserId!.Value, row.DisplayName, row.SaleCount)))
+            .GroupBy(rep => rep.Id)
+            .Select(group => new RepOption(
+                group.Key,
+                group.First().Name,
+                group.Sum(rep => rep.DocumentCount)))
+            .OrderBy(rep => rep.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private async Task ExportAsync()
+    {
+        if (report is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var bytes = ExportService.ExportVanSalesExceptionsToExcel(report);
+            var fileName = $"VanSalesExceptions_{DateTime.UtcNow.AddHours(2):yyyyMMdd_HHmmss}.xlsx";
+
+            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            loadError = $"The export could not be downloaded: {ex.Message}";
+        }
+    }
+
+    private static bool IsUnbackfilled(string status) =>
+        string.Equals(status, UnbackfilledHandoverStatus, StringComparison.OrdinalIgnoreCase);
+
+    // ── Formatting ──────────────────────────────────────────────────────────────
+    //
+    // An em dash for everything unavailable, and never a zero standing in for one. On this report
+    // the distinction carries most of the meaning: a period that sold nothing has no untendered
+    // share, a rep who took nothing in a currency has no cash share, and a held sale nobody has
+    // dated has no age. A zero in any of those places would read as perfect capture.
+
+    private static string Rate(double? rate) => rate is { } value ? value.ToString("P0") : "—";
+
+    private static string Count(int? count) => count is { } value ? value.ToString("N0") : "—";
+
+    private static string Money(decimal? amount) => amount is { } value ? value.ToString("N2") : "—";
+
+    private static string Date(DateTime? date) => date is { } value ? value.ToString("dd MMM yyyy") : "—";
+
+    /// <summary>
+    /// A captured-at instant, shown in CAT. Unlike every date beside it these are UTC moments read
+    /// off the reservation rather than trading days, so they are converted before display —
+    /// otherwise a document captured late in the evening reads as the previous day's.
+    /// </summary>
+    private static string Instant(DateTime? instant) =>
+        instant is { } value ? value.AddHours(2).ToString("dd MMM HH:mm") : "—";
+
+    /// <summary>Takings, per currency. Never summed across them, on this page or anywhere else.</summary>
+    private static string MoneyList(List<VanSalesMoney> totals) =>
+        totals.Count == 0
+            ? "—"
+            : string.Join(", ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
+
+    /// <summary>
+    /// Money on documents that are not sales. Formatted like takings and typed apart from them,
+    /// because nothing in this list has been established as revenue.
+    /// </summary>
+    private static string ExposureList(List<VanSalesExposure> exposure) =>
+        exposure.Count == 0
+            ? "—"
+            : string.Join(", ", exposure.Select(row => $"{row.Currency} {row.Gross:N2}"));
+
+    private static string Meter(double rate) =>
+        Math.Clamp(rate * 100, 0, 100).ToString("F1", CultureInfo.InvariantCulture);
+}

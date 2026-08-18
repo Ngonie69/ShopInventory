@@ -530,6 +530,17 @@
                                     </span>
                                     <span class="snav-text">Replenishment</span>
                                 </NavLink>
+                                <NavLink class="snav-link" href="/van-sales/reports/exceptions" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        @* ph-file-dashed rather than ph-eye-slash, which this app
+                                           has never loaded — an absent glyph renders as blank space
+                                           rather than as a missing-icon box. A document drawn as an
+                                           outline is what this report is: the van paperwork the
+                                           other reports cannot see. *@
+                                        <i class="ph ph-file-dashed" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Exceptions &amp; Settlement</span>
+                                </NavLink>
                                 <NavLink class="snav-link" href="/van-sales/routes" Match="NavLinkMatch.Prefix">
                                     <span class="snav-icon">
                                         <i class="ph ph-signpost" aria-hidden="true"></i>
