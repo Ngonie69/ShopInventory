@@ -73,7 +73,7 @@ public sealed class GetVanStockReportHandler(
 
         var sold = lines
             .Where(line => line.WarehouseCode is not null && vans.Contains(line.WarehouseCode))
-            .GroupBy(line => new StockKey(line.WarehouseCode!, line.TradingDate, line.ItemCode.ToUpperInvariant()))
+            .GroupBy(line => StockKey.For(line.WarehouseCode!, line.TradingDate, line.ItemCode))
             .ToDictionary(group => group.Key, group => group.Sum(line => line.Quantity));
 
         var todayCat = Services.AuditService.ToCAT(DateTime.UtcNow).Date;
@@ -198,7 +198,7 @@ public sealed class GetVanStockReportHandler(
             .ToListAsync(cancellationToken);
 
         return rows
-            .GroupBy(row => new StockKey(row.WarehouseCode, row.SnapshotDate.Date, row.ItemCode.ToUpperInvariant()))
+            .GroupBy(row => StockKey.For(row.WarehouseCode, row.SnapshotDate, row.ItemCode))
             .ToDictionary(group => group.Key, group => group.Sum(row => row.AdjustmentQuantity));
     }
 
@@ -217,11 +217,23 @@ public sealed class GetVanStockReportHandler(
                     .ToDictionary(group => group.Key, group => group.Sum(item => item.OriginalQuantity));
 
                 decimal SoldFor(string itemCode) =>
-                    sold.TryGetValue(new StockKey(snapshot.WarehouseCode, snapshot.SnapshotDate, itemCode), out var q)
+                    sold.TryGetValue(StockKey.For(snapshot.WarehouseCode, snapshot.SnapshotDate, itemCode), out var q)
                         ? q
                         : 0m;
 
-                var soldItems = byItem.Keys.Count(itemCode => SoldFor(itemCode) > 0);
+                // Everything that moved that day, not just what the morning listed. An item sold off
+                // a van it was not snapshotted on is exactly the anomaly this report exists to show
+                // — stock reached the van mid-round, or the snapshot missed it — and iterating the
+                // snapshot alone dropped those sales silently, understating the day.
+                var soldOnly = sold.Keys
+                    .Where(key => key.WarehouseCode == snapshot.WarehouseCode.ToUpperInvariant()
+                                  && key.SnapshotDate == snapshot.SnapshotDate.Date
+                                  && !byItem.ContainsKey(key.ItemCode))
+                    .Select(key => key.ItemCode)
+                    .ToList();
+
+                var allItems = byItem.Keys.Concat(soldOnly).ToList();
+                var soldItems = allItems.Count(itemCode => SoldFor(itemCode) > 0);
 
                 return new VanStockDayResult(
                     VanWarehouseCode: snapshot.WarehouseCode,
@@ -229,14 +241,16 @@ public sealed class GetVanStockReportHandler(
                     SnapshotComplete: snapshot.IsComplete,
                     ItemCount: byItem.Count,
                     LoadedQuantity: byItem.Values.Sum(),
-                    SoldQuantity: byItem.Keys.Sum(SoldFor),
-                    AdjustmentQuantity: byItem.Keys.Sum(itemCode =>
+                    SoldQuantity: allItems.Sum(SoldFor),
+                    AdjustmentQuantity: allItems.Sum(itemCode =>
                         adjustments.TryGetValue(
-                            new StockKey(snapshot.WarehouseCode, snapshot.SnapshotDate, itemCode), out var q)
+                            StockKey.For(snapshot.WarehouseCode, snapshot.SnapshotDate, itemCode), out var q)
                             ? q
                             : 0m),
                     SoldItemCount: soldItems,
-                    UnsoldItemCount: byItem.Count - soldItems);
+                    // Only a loaded item can be unsold. A sold-only item was never on the van's
+                    // morning list, so it cannot have sat there untouched.
+                    UnsoldItemCount: byItem.Keys.Count(itemCode => SoldFor(itemCode) == 0));
             })
             .OrderBy(day => day.VanWarehouseCode, StringComparer.OrdinalIgnoreCase)
             .ThenBy(day => day.SnapshotDate)
@@ -266,10 +280,10 @@ public sealed class GetVanStockReportHandler(
                     var closingByItem = SumByItem(closing);
 
                     decimal Sold(string item) =>
-                        sold.TryGetValue(new StockKey(van.Key, opening.SnapshotDate, item), out var q) ? q : 0m;
+                        sold.TryGetValue(StockKey.For(van.Key, opening.SnapshotDate, item), out var q) ? q : 0m;
 
                     decimal Adjustment(string item) =>
-                        adjustments.TryGetValue(new StockKey(van.Key, opening.SnapshotDate, item), out var q)
+                        adjustments.TryGetValue(StockKey.For(van.Key, opening.SnapshotDate, item), out var q)
                             ? q
                             : 0m;
 
@@ -328,7 +342,7 @@ public sealed class GetVanStockReportHandler(
                     Description = snapshot.Items
                         .FirstOrDefault(row => row.ItemCode == item.Key)?.ItemDescription,
                     Sold = sold.TryGetValue(
-                        new StockKey(snapshot.WarehouseCode, snapshot.SnapshotDate, item.Key), out var q)
+                        StockKey.For(snapshot.WarehouseCode, snapshot.SnapshotDate, item.Key), out var q)
                         ? q
                         : 0m
                 }))
@@ -467,7 +481,21 @@ public sealed class GetVanStockReportHandler(
             .Select(item => item.ItemDescription)
             .FirstOrDefault(description => !string.IsNullOrWhiteSpace(description));
 
-    private readonly record struct StockKey(string WarehouseCode, DateTime SnapshotDate, string ItemCode);
+    /// <summary>
+    /// Joins a sale line to the snapshot it came off.
+    /// </summary>
+    /// <remarks>
+    /// Both string halves are normalised by <see cref="For"/> rather than trusted as they arrive. A
+    /// record struct compares strings ordinally, but every set that feeds this key matches
+    /// case-insensitively — the van set, the snapshot grouping, the item grouping. Building the key
+    /// from raw values let a line whose warehouse differed only in case pass the van filter and then
+    /// miss its snapshot, dropping that day's sales with nothing to show for it.
+    /// </remarks>
+    private readonly record struct StockKey(string WarehouseCode, DateTime SnapshotDate, string ItemCode)
+    {
+        public static StockKey For(string warehouseCode, DateTime snapshotDate, string itemCode) =>
+            new(warehouseCode.ToUpperInvariant(), snapshotDate.Date, itemCode.ToUpperInvariant());
+    }
 
     private sealed record SnapshotRow(
         string WarehouseCode,

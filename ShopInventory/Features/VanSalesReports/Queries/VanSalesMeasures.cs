@@ -36,6 +36,12 @@ public static class VanSalesMeasures
     ///
     /// Not one call per unattributed sale. They are the same unattributed bucket, and counting each
     /// separately makes the day a handset stopped reporting shops look like the busiest on the route.
+    ///
+    /// This keys shops on the bare code where <see cref="CountOutletsThatBought"/> keys them on
+    /// (account, code), and that difference is deliberate rather than an oversight. The grouping here
+    /// is per rep-day, and every sale in one rep-day comes off one van and therefore one account — so
+    /// the account is constant within the group and adds nothing. Counting outlets, by contrast,
+    /// aggregates across reps and accounts, where two shops really can share a code.
     /// </remarks>
     public static int CountProductiveCalls(IEnumerable<VanSaleFact> facts) =>
         facts

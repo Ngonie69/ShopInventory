@@ -123,6 +123,50 @@ public sealed class VanStockReportTests : IDisposable
         Assert.Equal(-15m, day.ExpectedRemaining);
     }
 
+    /// <summary>
+    /// A sale of something the morning snapshot never listed used to vanish.
+    ///
+    /// The day iterated the snapshot's items and summed sales for those, so anything sold off a van
+    /// it was not snapshotted on contributed nothing — which is precisely the anomaly worth seeing:
+    /// either stock reached the van mid-round or the snapshot missed it.
+    /// </summary>
+    [Fact]
+    public async Task An_item_sold_but_never_snapshotted_still_counts_against_the_day()
+    {
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m));
+        AddSale("S1", new DateTime(2026, 8, 4), ("CHE011", 60m));
+        // Never on the morning list, and sold anyway.
+        AddSale("S2", new DateTime(2026, 8, 4), ("NRI049", 25m));
+        await _context.SaveChangesAsync();
+
+        var day = Assert.Single((await RunAsync()).Days);
+
+        Assert.Equal(100m, day.LoadedQuantity);
+        Assert.Equal(85m, day.SoldQuantity);
+        Assert.Equal(2, day.SoldItemCount);
+
+        // Only a loaded item can be unsold, so the sold-only one is not counted as sitting there.
+        Assert.Equal(0, day.UnsoldItemCount);
+    }
+
+    /// <summary>
+    /// The van set matches warehouse codes case-insensitively, but the key joining a sale to its
+    /// snapshot compared them ordinally. A line whose warehouse differed only in case passed the van
+    /// filter and then missed its snapshot, dropping the day's sales with nothing to show for it.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_whose_warehouse_differs_only_in_case_still_finds_its_snapshot()
+    {
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 100m));
+        AddSale("S1", new DateTime(2026, 8, 4), [("CHE011", 60m)], warehouseCode: "van010");
+        await _context.SaveChangesAsync();
+
+        var day = Assert.Single((await RunAsync()).Days);
+
+        Assert.Equal(60m, day.SoldQuantity);
+        Assert.Equal(40m, day.ExpectedRemaining);
+    }
+
     // --- C2: variance ---
 
     /// <summary>
@@ -208,6 +252,31 @@ public sealed class VanStockReportTests : IDisposable
         Assert.Equal(1, report.Quality.VariancePairsSkippedForGaps);
         Assert.Equal(1, report.Quality.MissingSnapshotDays);
         Assert.False(report.Quality.IsClean);
+    }
+
+    /// <summary>
+    /// A van that sold more than it was loaded with has a negative expected remaining, which the
+    /// report deliberately reports rather than suppresses. Dividing the variance by that signed value
+    /// flipped its sign: finding more stock than expected read as a shortfall, and a real shortfall
+    /// read as a surplus.
+    /// </summary>
+    [Fact]
+    public async Task A_variance_against_a_negative_expectation_keeps_its_sign()
+    {
+        // Loaded 10, sold 25 — so the arithmetic expects −15 left.
+        AddSnapshot(new DateTime(2026, 8, 4), ("CHE011", 10m));
+        AddSale("S1", new DateTime(2026, 8, 4), ("CHE011", 25m));
+        // And the next morning finds nothing, which is 15 MORE than the arithmetic expected.
+        AddSnapshot(new DateTime(2026, 8, 5), ("CHE011", 0m));
+        await _context.SaveChangesAsync();
+
+        var variance = Assert.Single((await RunAsync()).Variances);
+
+        Assert.Equal(-15m, variance.ExpectedQuantity);
+        Assert.Equal(15m, variance.Variance);
+
+        // Positive, because more was found than expected. The signed divisor made this −100%.
+        Assert.Equal(100d, variance.VariancePercent);
     }
 
     // --- C3 / C4: sell-through and dead stock ---
@@ -435,6 +504,13 @@ public sealed class VanStockReportTests : IDisposable
         });
 
     private void AddSale(string reference, DateTime docDate, params (string Item, decimal Quantity)[] items) =>
+        AddSale(reference, docDate, items, null);
+
+    private void AddSale(
+        string reference,
+        DateTime docDate,
+        (string Item, decimal Quantity)[] items,
+        string? warehouseCode) =>
         _context.DesktopSales.Add(new DesktopSaleEntity
         {
             ExternalReferenceId = reference,
@@ -447,7 +523,7 @@ public sealed class VanStockReportTests : IDisposable
             TotalAmount = items.Sum(i => i.Quantity),
             VatAmount = 0m,
             Currency = "USD",
-            WarehouseCode = Van,
+            WarehouseCode = warehouseCode ?? Van,
             PaymentMethod = "Cash",
             AmountPaid = items.Sum(i => i.Quantity),
             CreatedBy = Rep.ToString(),

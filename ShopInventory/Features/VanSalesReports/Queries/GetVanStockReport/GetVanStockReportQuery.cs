@@ -135,9 +135,18 @@ public sealed record VanStockVarianceResult(
     public decimal? Variance =>
         ExpectedQuantity is { } expected ? decimal.Round(ClosingQuantity - expected, 3) : null;
 
+    /// <summary>
+    /// The variance as a share of what was expected.
+    /// </summary>
+    /// <remarks>
+    /// Divided by the magnitude of the expectation, not its signed value. A van that sold more than
+    /// it was loaded with has a negative expected remaining — the report flags that case rather than
+    /// suppressing it — and dividing by a negative flipped the sign, so finding more stock than
+    /// expected was reported as a shortfall and a genuine shortfall read as a surplus.
+    /// </remarks>
     public double? VariancePercent =>
         ExpectedQuantity is { } expected && expected != 0
-            ? (double)decimal.Round((ClosingQuantity - expected) / expected * 100m, 2)
+            ? (double)decimal.Round((ClosingQuantity - expected) / Math.Abs(expected) * 100m, 2)
             : null;
 }
 
