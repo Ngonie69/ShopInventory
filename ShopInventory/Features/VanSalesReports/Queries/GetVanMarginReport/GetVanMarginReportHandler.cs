@@ -35,6 +35,9 @@ public sealed class GetVanMarginReportHandler(
     ILogger<GetVanMarginReportHandler> logger
 ) : IRequestHandler<GetVanMarginReportQuery, ErrorOr<VanMarginReportResult>>
 {
+    /// <summary>Where sales land when nothing says which route they were made on.</summary>
+    private const string NoRouteKey = "«no departure record»";
+
     public async Task<ErrorOr<VanMarginReportResult>> Handle(
         GetVanMarginReportQuery query,
         CancellationToken cancellationToken)
@@ -70,6 +73,7 @@ public sealed class GetVanMarginReportHandler(
         }
 
         var posted = await LoadPostedReferencesAsync(filter, cancellationToken);
+        var days = await LoadRouteDaysAsync(filter, cancellationToken);
         var names = await LoadUserNamesAsync(lines.Select(line => line.UserId).Distinct(), cancellationToken);
 
         var costs = VanItemCostReader.CostSet.Unavailable;
@@ -94,6 +98,7 @@ public sealed class GetVanMarginReportHandler(
             .Get<VanSalesPostingSettings>()?.Enabled ?? false;
 
         var items = BuildItems(lines, posted, costs);
+        var routes = BuildRoutes(lines, posted, days, costs);
 
         return new VanMarginReportResult(
             FromDate: from,
@@ -101,7 +106,8 @@ public sealed class GetVanMarginReportHandler(
             Summary: BuildSummary(lines, posted, costs),
             Items: items,
             Vans: BuildVans(lines, posted, names),
-            Quality: BuildQuality(lines, posted, items, costs, query.IncludeCost, postingEnabled));
+            Routes: routes,
+            Quality: BuildQuality(lines, posted, items, routes, days, costs, query.IncludeCost, postingEnabled));
     }
 
     // ── Reads ───────────────────────────────────────────────────────────────────
@@ -142,6 +148,29 @@ public sealed class GetVanMarginReportHandler(
             .ToListAsync(cancellationToken);
 
         return offline.Concat(online).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The departure record for each rep-day, which is the only thing that says which route a sale
+    /// was made on. Never the rep's current route: that would re-label every historical sale the
+    /// moment somebody moved route.
+    /// </summary>
+    private async Task<Dictionary<VanSalesDayKey, VanRouteDayEntity>> LoadRouteDaysAsync(
+        VanSalesFactFilter filter,
+        CancellationToken cancellationToken)
+    {
+        var queryable = db.VanRouteDays
+            .AsNoTracking()
+            .Where(day => day.TradingDate >= filter.From && day.TradingDate <= filter.To);
+
+        if (filter.UserId.HasValue)
+        {
+            queryable = queryable.Where(day => day.UserId == filter.UserId.Value);
+        }
+
+        var days = await queryable.ToListAsync(cancellationToken);
+
+        return days.ToDictionary(day => new VanSalesDayKey(day.UserId, day.TradingDate));
     }
 
     private async Task<Dictionary<Guid, VanSalesMeasures.UserName>> LoadUserNamesAsync(
@@ -331,10 +360,65 @@ public sealed class GetVanMarginReportHandler(
             .ThenBy(van => van.WarehouseCode, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+    /// <summary>
+    /// One row per selling route, plus one for the sales that belong to none.
+    /// </summary>
+    /// <remarks>
+    /// Contribution rather than profitability: no operating cost exists anywhere to subtract, and
+    /// the quality record says so rather than leaving a reader to assume the figure is a profit.
+    /// </remarks>
+    private static List<VanMarginRouteResult> BuildRoutes(
+        List<VanSaleLineFact> lines,
+        HashSet<string> posted,
+        Dictionary<VanSalesDayKey, VanRouteDayEntity> days,
+        VanItemCostReader.CostSet costs) =>
+        lines
+            .GroupBy(line => days.TryGetValue(line.Key, out var day)
+                             && !string.IsNullOrWhiteSpace(day.RouteCode)
+                ? day.RouteCode.Trim()
+                : NoRouteKey,
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var costable = Costable(group, posted);
+
+                var dayRecords = group
+                    .Select(line => line.Key)
+                    .Distinct()
+                    .Where(days.ContainsKey)
+                    .Select(key => days[key])
+                    .ToList();
+
+                var named = dayRecords.FirstOrDefault(day => !string.IsNullOrWhiteSpace(day.RouteName));
+
+                return new VanMarginRouteResult(
+                    RouteCode: group.Key,
+                    RouteName: group.Key == NoRouteKey ? "No departure record" : named?.RouteName,
+                    Territory: group.Key == NoRouteKey ? null : named?.Territory,
+                    VanCount: WarehousesOf(group).Count,
+                    ItemCount: group.Select(line => line.ItemCode)
+                        .Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                    LineCount: group.Count(),
+                    PostedLineCount: costable.Count,
+                    // Null where no odometer was read, never zero: a van whose mileage nobody wrote
+                    // down is not one that stood still.
+                    Kilometres: VanSalesMeasures.SumKilometres(dayRecords),
+                    RevenueByCurrency: VanSalesMeasures.LineMoneyByCurrency(group),
+                    CostableRevenueByCurrency: VanSalesMeasures.LineMoneyByCurrency(costable),
+                    MarginByCurrency: BuildMargin(costable, costs));
+            })
+            // The unattributed row last: it is a disclosure rather than a route.
+            .OrderBy(route => route.RouteCode == NoRouteKey)
+            .ThenByDescending(route => route.RevenueByCurrency.Sum(money => money.Gross))
+            .ThenBy(route => route.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
     private static VanMarginQualityResult BuildQuality(
         List<VanSaleLineFact> lines,
         HashSet<string> posted,
         List<VanMarginItemResult> items,
+        List<VanMarginRouteResult> routes,
+        Dictionary<VanSalesDayKey, VanRouteDayEntity> days,
         VanItemCostReader.CostSet costs,
         bool costAttempted,
         bool postingEnabled)
@@ -359,6 +443,8 @@ public sealed class GetVanMarginReportHandler(
             ItemsWithNoDescription: items.Count(item => item.ItemDescription is null),
             ItemsWithoutCost: items.Count(item => !item.HasCost),
             ItemCount: items.Count,
+            RouteCount: routes.Count(route => route.RouteCode != NoRouteKey),
+            LinesWithNoRoute: lines.Count(line => !days.ContainsKey(line.Key)),
             CostCurrency: costs.Currency,
             CostAttempted: costAttempted,
             CurrenciesWithoutMatchingCost: unmatched,

@@ -38,12 +38,12 @@ public class VanMarginWorkbookTests
     // ── Shape ───────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void The_workbook_has_an_overview_an_item_sheet_and_a_van_sheet()
+    public void The_workbook_has_an_overview_and_a_sheet_per_grouping()
     {
         using var workbook = Open(_service.ExportVanMarginToExcel(Populated()));
 
         Assert.Equal(
-            ["Overview", "Items", "Vans"],
+            ["Overview", "Items", "Vans", "Routes"],
             workbook.Worksheets.Select(sheet => sheet.Name).ToArray());
     }
 
@@ -224,6 +224,54 @@ public class VanMarginWorkbookTests
         Assert.Contains("unit not recorded", TextOf(workbook.Worksheet("Overview")));
     }
 
+    // ── Routes ──────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The route sheet must say contribution, not profit, and must say it before the figures. A tab
+    /// headed with the wrong word is how somebody closes a route on a number that has never met its
+    /// largest cost.
+    /// </summary>
+    [Fact]
+    public void The_route_sheet_says_contribution_and_not_profit()
+    {
+        using var workbook = Open(_service.ExportVanMarginToExcel(Populated()));
+        var routes = workbook.Worksheet("Routes");
+        var text = TextOf(routes);
+
+        Assert.Contains("ROUTE CONTRIBUTION", text);
+        Assert.Contains("CONTRIBUTION, NOT PROFITABILITY", text);
+        Assert.Contains("no fuel, no driver time", text);
+        Assert.DoesNotContain("ROUTE PROFIT", text);
+
+        var warning = routes.CellsUsed()
+            .First(cell => cell.GetString().StartsWith("CONTRIBUTION, NOT PROFITABILITY"));
+        var firstFigure = routes.CellsUsed()
+            .First(cell => cell.GetString().Contains("800.00"));
+
+        Assert.True(
+            warning.Address.RowNumber < firstFigure.Address.RowNumber,
+            "the contribution warning must sit above the first money figure");
+    }
+
+    /// <summary>
+    /// A route whose odometer was never read has no rate — not a rate of zero, which would report a
+    /// route that drove nowhere and earned anyway.
+    /// </summary>
+    [Fact]
+    public void A_route_with_no_distance_has_no_rate()
+    {
+        using var workbook = Open(_service.ExportVanMarginToExcel(Populated()));
+        var routes = workbook.Worksheet("Routes");
+
+        var unattributed = routes.RowsUsed()
+            .First(row => row.Cell(1).GetString() == "No departure record");
+
+        Assert.Equal("—", unattributed.Cell(6).GetFormattedString());
+
+        // 160 over 400 km, on the route that does have a distance.
+        Assert.Contains("USD 0.40", TextOf(routes));
+    }
+
     // ── The empty case ──────────────────────────────────────────────────────────
 
     [Fact]
@@ -242,7 +290,7 @@ public class VanMarginWorkbookTests
         using var workbook = Open(_service.ExportVanMarginToExcel(report));
         var text = TextOf(workbook);
 
-        Assert.Equal(3, workbook.Worksheets.Count);
+        Assert.Equal(4, workbook.Worksheets.Count);
         Assert.Contains("VAN MARGIN", text);
         Assert.Contains("MARGIN IS NOT COMPUTED", text);
         // The share is unavailable rather than zero — nothing sold, so nothing failed to post.
@@ -307,6 +355,38 @@ public class VanMarginWorkbookTests
                     MarginByCurrency = []
                 }
             ],
+            Routes =
+            [
+                new VanMarginRoute
+                {
+                    RouteCode = "GURUVE",
+                    RouteName = "Guruve",
+                    Territory = "Mash Central",
+                    VanCount = 1,
+                    ItemCount = 2,
+                    LineCount = 8,
+                    PostedLineCount = 4,
+                    Kilometres = 400,
+                    RevenueByCurrency = [new VanSalesLineMoney { Currency = "USD", LineCount = 8, Gross = 800m }],
+                    CostableRevenueByCurrency =
+                        [new VanSalesLineMoney { Currency = "USD", LineCount = 4, Gross = 400m }],
+                    MarginByCurrency =
+                        [new VanMarginMoney { Currency = "USD", LineCount = 4, Revenue = 400m, Cost = 240m }]
+                },
+                new VanMarginRoute
+                {
+                    RouteCode = "«no departure record»",
+                    RouteName = "No departure record",
+                    VanCount = 1,
+                    ItemCount = 1,
+                    LineCount = 2,
+                    PostedLineCount = 0,
+                    Kilometres = null,
+                    RevenueByCurrency = [new VanSalesLineMoney { Currency = "USD", LineCount = 2, Gross = 200m }],
+                    CostableRevenueByCurrency = [],
+                    MarginByCurrency = []
+                }
+            ],
             Vans =
             [
                 new VanMarginVan
@@ -341,6 +421,8 @@ public class VanMarginWorkbookTests
                 ItemsWithNoDescription = 1,
                 ItemsWithoutCost = 1,
                 ItemCount = 2,
+                RouteCount = 1,
+                LinesWithNoRoute = 2,
                 CostCurrency = "USD",
                 CostAttempted = true,
                 CurrenciesWithoutMatchingCost = ["ZWG"],

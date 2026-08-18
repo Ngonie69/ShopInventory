@@ -106,6 +106,49 @@ public class VanMarginContractTests
     }
 
     /// <summary>
+    /// Margin per kilometre is derived on both sides from the same two figures, and a route whose
+    /// odometer was never read has none — not a rate of zero, which would report a route that drove
+    /// nowhere and earned anyway.
+    /// </summary>
+    [Fact]
+    public void Margin_per_kilometre_survives_and_is_absent_where_the_distance_is()
+    {
+        var mirrored = RoundTrip<VanMarginReportResult, VanMarginReportResponse>(Populated());
+
+        var route = mirrored.Routes.Single(row => row.RouteCode == "GURUVE");
+        Assert.Equal(400, route.Kilometres);
+
+        var rate = Assert.Single(route.MarginPerKilometre);
+        Assert.Equal("USD", rate.Currency);
+        // 160 margin over 400 km.
+        Assert.Equal(0.4m, rate.MarginPerKilometre);
+
+        var unattributed = mirrored.Routes.Single(row => row.RouteName == "No departure record");
+        Assert.Null(unattributed.Kilometres);
+        Assert.Empty(unattributed.MarginPerKilometre);
+        Assert.Empty(unattributed.MarginByCurrency);
+
+        // And its revenue is still counted, so the route rows account for the period.
+        Assert.Equal(200m, Assert.Single(unattributed.RevenueByCurrency).Gross);
+    }
+
+    /// <summary>
+    /// The page must never call a route figure a profit. Both copies of the caveat say contribution.
+    /// </summary>
+    [Fact]
+    public void A_report_with_routes_says_the_figure_is_contribution_and_not_profit()
+    {
+        var mirrored = RoundTrip<VanMarginReportResult, VanMarginReportResponse>(Populated());
+
+        Assert.Contains(
+            mirrored.Quality.Caveats,
+            caveat => caveat.Contains("contribution, not profitability"));
+        Assert.Contains(
+            mirrored.Quality.Caveats,
+            caveat => caveat.Contains("no departure record"));
+    }
+
+    /// <summary>
     /// The nullables that are absences rather than zeroes: a description nobody recorded, a rep
     /// nobody resolved, and a costable share for a period that sold nothing.
     /// </summary>
@@ -143,7 +186,8 @@ public class VanMarginContractTests
                     RevenueByCurrency: [],
                     CostableRevenueByCurrency: [])
             ],
-            Quality: new VanMarginQualityResult(0, 0, 1, 1, 1, null, CostAttempted: true, [], PostingJobEnabled: false));
+            Routes: [],
+            Quality: new VanMarginQualityResult(0, 0, 1, 1, 1, 0, 0, null, true, [], false));
 
         var mirrored = RoundTrip<VanMarginReportResult, VanMarginReportResponse>(result);
 
@@ -171,7 +215,8 @@ public class VanMarginContractTests
             Summary: new VanMarginSummaryResult(0, 0, 0, 0, [], [], [], null, []),
             Items: [],
             Vans: [],
-            Quality: new VanMarginQualityResult(0, 0, 0, 0, 0, null, CostAttempted: true, [], PostingJobEnabled: false));
+            Routes: [],
+            Quality: new VanMarginQualityResult(0, 0, 0, 0, 0, 0, 0, null, true, [], false));
 
         var mirrored = RoundTrip<VanMarginReportResult, VanMarginReportResponse>(result);
 
@@ -209,6 +254,7 @@ public class VanMarginContractTests
     {
         var quality = new VanMarginQualityResult(
             lineCount, postedLineCount, itemsWithNoDescription, itemsWithoutCost, itemCount,
+            RouteCount: 2, LinesWithNoRoute: 1,
             costCurrency, costAttempted, costCurrency is null ? [] : ["ZWG"], postingJobEnabled);
 
         var mirrored = RoundTrip<VanMarginQualityResult, VanMarginQuality>(quality);
@@ -226,7 +272,7 @@ public class VanMarginContractTests
     public void A_fully_costed_period_is_clean_on_both_sides()
     {
         var quality = new VanMarginQualityResult(
-            100, 100, 0, 0, 5, "USD", CostAttempted: true, [], PostingJobEnabled: true);
+            100, 100, 0, 0, 5, 0, 0, "USD", true, [], true);
 
         var mirrored = RoundTrip<VanMarginQualityResult, VanMarginQuality>(quality);
 
@@ -243,7 +289,7 @@ public class VanMarginContractTests
     public void A_partly_costed_period_is_not_clean()
     {
         var quality = new VanMarginQualityResult(
-            100, 50, 0, 0, 5, "USD", CostAttempted: true, [], PostingJobEnabled: true);
+            100, 50, 0, 0, 5, 0, 0, "USD", true, [], true);
 
         var mirrored = RoundTrip<VanMarginQualityResult, VanMarginQuality>(quality);
 
@@ -319,12 +365,43 @@ public class VanMarginContractTests
                     RevenueByCurrency: [new VanSalesLineMoneyResult("USD", 4, 380m)],
                     CostableRevenueByCurrency: [new VanSalesLineMoneyResult("USD", 1, 90m)])
             ],
+            Routes:
+            [
+                new VanMarginRouteResult(
+                    RouteCode: "GURUVE",
+                    RouteName: "Guruve",
+                    Territory: "Mash Central",
+                    VanCount: 1,
+                    ItemCount: 2,
+                    LineCount: 8,
+                    PostedLineCount: 4,
+                    Kilometres: 400,
+                    RevenueByCurrency: [new VanSalesLineMoneyResult("USD", 8, 800m)],
+                    CostableRevenueByCurrency: [new VanSalesLineMoneyResult("USD", 4, 400m)],
+                    MarginByCurrency:
+                        [new VanMarginMoneyResult("USD", LineCount: 4, Revenue: 400m, Cost: 240m)]),
+                new VanMarginRouteResult(
+                    RouteCode: "«no departure record»",
+                    RouteName: "No departure record",
+                    Territory: null,
+                    VanCount: 1,
+                    ItemCount: 1,
+                    LineCount: 2,
+                    PostedLineCount: 0,
+                    // Nobody read an odometer for a day that was never opened.
+                    Kilometres: null,
+                    RevenueByCurrency: [new VanSalesLineMoneyResult("USD", 2, 200m)],
+                    CostableRevenueByCurrency: [],
+                    MarginByCurrency: [])
+            ],
             Quality: new VanMarginQualityResult(
                 LineCount: 10,
                 PostedLineCount: 4,
                 ItemsWithNoDescription: 1,
                 ItemsWithoutCost: 1,
                 ItemCount: 2,
+                RouteCount: 1,
+                LinesWithNoRoute: 2,
                 CostCurrency: "USD",
                 CostAttempted: true,
                 CurrenciesWithoutMatchingCost: ["ZWG"],

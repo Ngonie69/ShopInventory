@@ -269,6 +269,73 @@
                 </div>
             }
         }
+        else if (activeSection == SectionRoutes)
+        {
+            <h3 class="vsm-heading">By route</h3>
+            <p class="vsm-note">
+                <strong>Contribution, not profitability.</strong> Nothing in this system records what
+                a route costs to run — no fuel, no driver time, no vehicle or depot cost — so the
+                margin here has never met a route's largest expense. It is the input to a
+                keep-or-kill decision, not the answer. The route comes from the departure record for
+                the day a line sold, never from a rep's current assignment.
+            </p>
+
+            @if (report.Routes.Count == 0)
+            {
+                <div class="vs-empty">
+                    <div class="vs-empty-title">No route traded in this period</div>
+                </div>
+            }
+            else
+            {
+                <div class="vs-table-wrap">
+                    <table class="vs-table vsm-table">
+                        <thead>
+                            <tr>
+                                <th>Route</th>
+                                <th class="vs-num">Vans</th>
+                                <th class="vs-num">Lines</th>
+                                <th class="vs-num">SAP can cost</th>
+                                <th class="vs-num">Km</th>
+                                <th>Revenue</th>
+                                <th>Margin</th>
+                                <th>Margin / km</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var route in report.Routes)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="vsm-name">@route.DisplayName</div>
+                                        @if (!string.IsNullOrWhiteSpace(route.Territory))
+                                        {
+                                            <div class="vsm-sub">@route.Territory</div>
+                                        }
+                                    </td>
+                                    <td class="vs-num">@route.VanCount.ToString("N0")</td>
+                                    <td class="vs-num">@route.LineCount.ToString("N0")</td>
+                                    <td class="vs-num @(route.CostableLineShare is < 0.5 ? "vsm-thin" : null)">
+                                        @Rate(route.CostableLineShare)
+                                    </td>
+                                    @* Null where no odometer was read — not a route that stood still. *@
+                                    <td class="vs-num @(route.Kilometres is null ? "vs-metric-none" : null)">
+                                        @(route.Kilometres?.ToString("N0") ?? "—")
+                                    </td>
+                                    <td>@MoneyList(route.RevenueByCurrency)</td>
+                                    <td class="@MarginInk(route.MarginByCurrency)">
+                                        @MarginList(route.MarginByCurrency)
+                                    </td>
+                                    <td class="@(route.MarginPerKilometre.Count == 0 ? "vs-metric-none" : null)">
+                                        @PerKilometreList(route.MarginPerKilometre)
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
         else
         {
             <h3 class="vsm-heading">By van</h3>
@@ -330,13 +397,15 @@
 @code {
     private const string SectionItems = "items";
     private const string SectionVans = "vans";
+    private const string SectionRoutes = "routes";
 
     private sealed record Section(string Key, string Label, Func<VanMarginReportResponse, string> Count);
 
     private static readonly Section[] Sections =
     [
         new(SectionItems, "Items", report => report.Items.Count.ToString("N0")),
-        new(SectionVans, "Vans", report => report.Vans.Count.ToString("N0"))
+        new(SectionVans, "Vans", report => report.Vans.Count.ToString("N0")),
+        new(SectionRoutes, "Routes", report => report.Routes.Count.ToString("N0"))
     ];
 
     private VanMarginReportResponse? report;
@@ -444,6 +513,15 @@
         margins.Count == 0
             ? "vs-metric-none"
             : margins.Any(margin => margin.Margin < 0) ? "vsm-loss" : string.Empty;
+
+    /// <summary>
+    /// Margin per kilometre, per currency. A ratio, so it crosses no currency and is never summed —
+    /// two routes billing in different money still cannot be ranked against each other on it.
+    /// </summary>
+    private static string PerKilometreList(List<VanMarginPerDistance> rates) =>
+        rates.Count == 0
+            ? "—"
+            : string.Join("  ·  ", rates.Select(rate => $"{rate.Currency} {rate.MarginPerKilometre:N2}"));
 
     private static string UnitCostText(VanMarginItem item) =>
         item.UnitCost is { } cost && item.CostCurrency is { } currency

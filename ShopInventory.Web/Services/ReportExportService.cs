@@ -6737,6 +6737,7 @@ public class ReportExportService : IReportExportService
         BuildMarginOverviewSheet(workbook, report, now);
         BuildMarginItemSheet(workbook, report, now);
         BuildMarginVanSheet(workbook, report, now);
+        BuildMarginRouteSheet(workbook, report, now);
 
         return WorkbookToBytes(workbook);
     }
@@ -7041,6 +7042,111 @@ public class ReportExportService : IReportExportService
         ws.Cell(row, 5).Value = $"{summary.PostedLineCount:N0}  ({RateText(summary.CostableLineShare)})";
         ws.Cell(row, 6).Value = LineMoneyText(summary.RevenueByCurrency);
         ws.Cell(row, 7).Value = LineMoneyText(summary.CostableRevenueByCurrency);
+
+        TsFinalize(ws, lastCol, freezeRow: 5, freezeCol: 1);
+    }
+
+
+    /// <summary>
+    /// Contribution by route, and the distance it took to earn it.
+    /// </summary>
+    /// <remarks>
+    /// The sheet says "contribution" in its title rather than "profitability", and says why in its
+    /// first line. A workbook tab headed with the wrong word is how somebody closes a route on a
+    /// number that has never met its largest cost.
+    /// </remarks>
+    private static void BuildMarginRouteSheet(
+        XLWorkbook workbook,
+        VanMarginReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 8;
+        var ws = workbook.Worksheets.Add("Routes");
+        TsApplyDefaults(ws);
+
+        var row = TsTitleBar(
+            ws,
+            $"ROUTE CONTRIBUTION  —  {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}",
+            lastCol,
+            now);
+
+        ws.Cell(row, 1).Value =
+            "CONTRIBUTION, NOT PROFITABILITY. Nothing in this system records what a route costs to "
+            + "run — no fuel, no driver time, no vehicle or depot cost — so the margin below has "
+            + "never met a route's largest expense. It is the input to a keep-or-kill decision, not "
+            + "the answer.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.Bold = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsRed;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 32;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Route", "Territory", "Vans", "Lines", "SAP can cost", "Km", "Revenue", "Margin"]);
+
+        var index = 0;
+        foreach (var route in report.Routes)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = route.DisplayName;
+            ws.Cell(row, 2).Value = string.IsNullOrWhiteSpace(route.Territory) ? "—" : route.Territory;
+            ws.Cell(row, 3).Value = route.VanCount;
+            ws.Cell(row, 4).Value = route.LineCount;
+            ws.Cell(row, 5).Value = $"{route.PostedLineCount:N0}  ({RateText(route.CostableLineShare)})";
+            // Null where nobody read the odometer — never zero, which would read as a route that
+            // stood still and earned anyway.
+            ws.Cell(row, 6).Value = route.Kilometres is { } km ? km.ToString("N0") : "—";
+            ws.Cell(row, 7).Value = LineMoneyText(route.RevenueByCurrency);
+            ws.Cell(row, 8).Value = MarginText(route.MarginByCurrency);
+
+            if (route.MarginByCurrency.Any(margin => margin.Margin < 0))
+            {
+                ws.Cell(row, 8).Style.Font.Bold = true;
+                ws.Cell(row, 8).Style.Font.FontColor = TsRed;
+            }
+
+            if (route.CostableLineShare is < 0.5)
+            {
+                ws.Cell(row, 5).Style.Font.FontColor = TsOrange;
+            }
+
+            row++;
+            index++;
+        }
+
+        row++;
+
+        // Its own block rather than a column, because it is a ratio: putting it beside the money
+        // invites a reader to add a column that must never be added.
+        TsSectionTitle(ws, row, lastCol, "MARGIN PER KILOMETRE");
+        row += 2;
+
+        ws.Cell(row, 1).Value =
+            "A ratio, so it crosses no currency and is never totalled. Two routes billing in "
+            + "different money cannot be ranked against each other on it.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Route", "Km", "Margin per km", "", "", "", "", ""]);
+
+        index = 0;
+        foreach (var route in report.Routes)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = route.DisplayName;
+            ws.Cell(row, 2).Value = route.Kilometres is { } km ? km.ToString("N0") : "—";
+            ws.Cell(row, 3).Value = route.MarginPerKilometre.Count == 0
+                ? "—"
+                : string.Join("  |  ", route.MarginPerKilometre
+                    .Select(rate => $"{rate.Currency} {rate.MarginPerKilometre:N2}"));
+            row++;
+            index++;
+        }
 
         TsFinalize(ws, lastCol, freezeRow: 5, freezeCol: 1);
     }

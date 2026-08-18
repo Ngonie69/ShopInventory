@@ -415,6 +415,94 @@ public sealed class VanMarginReportTests : IDisposable
         Assert.Equal(160m, Assert.Single(item.RevenueByCurrency).Gross);
     }
 
+    // --- Routes ---
+
+    /// <summary>
+    /// A line's route comes from the departure record for the rep-day it sold on, and a rep-day with
+    /// no departure record has no route — so those sales get their own row rather than being dropped
+    /// or, worse, attributed to whatever route the rep is on today.
+    /// </summary>
+    [Fact]
+    public async Task A_line_takes_its_route_from_the_day_it_sold_on()
+    {
+        AddRouteDay(Rep, new DateTime(2026, 8, 4), "GURUVE", "Guruve", "Mash Central");
+        AddSale(Rep, "ONROUTE", 100m, new DateTime(2026, 8, 4), posted: true);
+
+        // No departure record for this day.
+        AddSale(Rep, "ORPHAN", 60m, new DateTime(2026, 8, 6), posted: true);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync(unitCosts: new() { ["CHE011"] = 60m });
+
+        Assert.Equal(2, report.Routes.Count);
+
+        var guruve = report.Routes.Single(route => route.RouteCode == "GURUVE");
+        Assert.Equal("Guruve", guruve.RouteName);
+        Assert.Equal("Mash Central", guruve.Territory);
+        Assert.Equal(100m, Assert.Single(guruve.RevenueByCurrency).Gross);
+
+        var orphan = report.Routes.Single(route => route.RouteName == "No departure record");
+        Assert.Equal(60m, Assert.Single(orphan.RevenueByCurrency).Gross);
+
+        // Every penny is on one row or the other, and the unattributed row sorts last.
+        Assert.Equal(160m, report.Routes.Sum(r => r.RevenueByCurrency.Sum(m => m.Gross)));
+        Assert.Equal("No departure record", report.Routes[^1].RouteName);
+
+        Assert.Equal(1, report.Quality.RouteCount);
+        Assert.Equal(1, report.Quality.LinesWithNoRoute);
+    }
+
+    /// <summary>
+    /// Kilometres come from the days worked on the route, and are null where no odometer was read.
+    /// Null and not zero: a van whose mileage nobody wrote down is not one that stood still, and a
+    /// zero distance would make margin per kilometre infinite or absent for the wrong reason.
+    /// </summary>
+    [Fact]
+    public async Task A_route_with_no_odometer_reading_has_no_distance_and_no_rate()
+    {
+        AddRouteDay(Rep, new DateTime(2026, 8, 4), "GURUVE", "Guruve", "Mash Central",
+            startingMileage: 1000, closingMileage: 1400);
+        AddSale(Rep, "S1", 100m, new DateTime(2026, 8, 4), posted: true);
+
+        AddRouteDay(Rep, new DateTime(2026, 8, 5), "MUTOKO", "Mutoko", "Mash East");
+        AddSale(Rep, "S2", 100m, new DateTime(2026, 8, 5), posted: true);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync(unitCosts: new() { ["CHE011"] = 60m });
+
+        var measured = report.Routes.Single(route => route.RouteCode == "GURUVE");
+        Assert.Equal(400, measured.Kilometres);
+        // 40 margin over 400 km.
+        Assert.Equal(0.1m, Assert.Single(measured.MarginPerKilometre).MarginPerKilometre);
+
+        var unmeasured = report.Routes.Single(route => route.RouteCode == "MUTOKO");
+        Assert.Null(unmeasured.Kilometres);
+        Assert.Empty(unmeasured.MarginPerKilometre);
+        // The margin itself is still there — only the rate is missing.
+        Assert.NotEmpty(unmeasured.MarginByCurrency);
+    }
+
+    /// <summary>
+    /// The report never calls a route figure a profit, because nothing here has met a route's
+    /// largest cost.
+    /// </summary>
+    [Fact]
+    public async Task A_route_figure_is_named_contribution_and_never_profit()
+    {
+        AddRouteDay(Rep, new DateTime(2026, 8, 4), "GURUVE", "Guruve", "Mash Central");
+        AddSale(Rep, "S1", 100m, new DateTime(2026, 8, 4), posted: true);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync(unitCosts: new() { ["CHE011"] = 60m });
+
+        Assert.Contains(
+            report.Quality.Caveats,
+            caveat => caveat.Contains("contribution, not profitability"));
+        Assert.DoesNotContain(
+            report.Quality.Caveats,
+            caveat => caveat.Contains("route profit", StringComparison.OrdinalIgnoreCase));
+    }
+
     // --- Validation ---
 
     [Fact]
@@ -500,6 +588,28 @@ public sealed class VanMarginReportTests : IDisposable
                     .ToList()),
 
             _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
+        });
+
+    private void AddRouteDay(
+        Guid userId,
+        DateTime tradingDate,
+        string routeCode,
+        string routeName,
+        string territory,
+        int? startingMileage = null,
+        int? closingMileage = null) =>
+        _context.VanRouteDays.Add(new VanRouteDayEntity
+        {
+            UserId = userId,
+            Username = "van010",
+            TradingDate = tradingDate,
+            RouteCode = routeCode,
+            RouteName = routeName,
+            Territory = territory,
+            DepartedAt = tradingDate.AddHours(5),
+            PlannedCustomerCount = 10,
+            StartingMileage = startingMileage,
+            ClosingMileage = closingMileage
         });
 
     private void AddSale(

@@ -46,6 +46,7 @@ public sealed record VanMarginReportResult(
     VanMarginSummaryResult Summary,
     List<VanMarginItemResult> Items,
     List<VanMarginVanResult> Vans,
+    List<VanMarginRouteResult> Routes,
     VanMarginQualityResult Quality
 );
 
@@ -164,6 +165,66 @@ public sealed record VanMarginVanResult(
         LineCount > 0 ? (double)PostedLineCount / LineCount : null;
 }
 
+// ── Per route ───────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// One selling route: what it earned, what that cost, and how far it went to do it.
+/// </summary>
+/// <remarks>
+/// <b>This is contribution, not profitability, and the difference matters.</b> The reporting plan
+/// asks for route profitability so a route can be kept, merged or killed — but nothing in this
+/// system records what a route costs to run. There is no fuel, no driver time, no vehicle standing
+/// cost and no depot overhead anywhere in either database. What is here is gross margin on the goods
+/// plus the distance covered earning it, which is the input to that decision rather than the answer.
+/// Calling it profit would invite somebody to close a route on a number that has never seen its
+/// largest cost.
+///
+/// A route is taken from the departure record for the rep-day a line was sold on, never from the
+/// rep's current route assignment: that would silently re-label every historical sale the moment a
+/// rep moved route. Sales whose rep never opened a day carry nothing saying which route they were
+/// made on and are gathered into their own row rather than dropped.
+/// </remarks>
+public sealed record VanMarginRouteResult(
+    string RouteCode,
+    string? RouteName,
+    string? Territory,
+    int VanCount,
+    int ItemCount,
+    int LineCount,
+    int PostedLineCount,
+    int? Kilometres,
+    List<VanSalesLineMoneyResult> RevenueByCurrency,
+    List<VanSalesLineMoneyResult> CostableRevenueByCurrency,
+    List<VanMarginMoneyResult> MarginByCurrency)
+{
+    public string DisplayName => string.IsNullOrWhiteSpace(RouteName) ? RouteCode : RouteName;
+
+    public double? CostableLineShare =>
+        LineCount > 0 ? (double)PostedLineCount / LineCount : null;
+
+    /// <summary>
+    /// Margin earned per kilometre driven, per currency. Null where either side is missing — an
+    /// odometer nobody read is not a route that stood still, and a route with no margin has none to
+    /// spread over its distance.
+    /// </summary>
+    /// <remarks>
+    /// A ratio and never a total, so it crosses no currency: each row divides one currency's margin
+    /// by the same distance. Two routes billing in different currencies still cannot be ranked
+    /// against each other on it, which is why it sits beside the margin rather than replacing it.
+    /// </remarks>
+    public List<VanMarginPerDistanceResult> MarginPerKilometre =>
+        Kilometres is > 0
+            ? MarginByCurrency
+                .Select(margin => new VanMarginPerDistanceResult(
+                    margin.Currency,
+                    decimal.Round(margin.Margin / Kilometres.Value, 4)))
+                .ToList()
+            : [];
+}
+
+/// <summary>One currency's margin per kilometre. A ratio, so it is never summed with anything.</summary>
+public sealed record VanMarginPerDistanceResult(string Currency, decimal MarginPerKilometre);
+
 // ── Quality ─────────────────────────────────────────────────────────────────────
 
 public sealed record VanMarginQualityResult(
@@ -172,6 +233,8 @@ public sealed record VanMarginQualityResult(
     int ItemsWithNoDescription,
     int ItemsWithoutCost,
     int ItemCount,
+    int RouteCount,
+    int LinesWithNoRoute,
     string? CostCurrency,
     bool CostAttempted,
     List<string> CurrenciesWithoutMatchingCost,
@@ -257,6 +320,23 @@ public sealed record VanMarginQualityResult(
                 yield return
                     $"{ItemsWithNoDescription:N0} item(s) sold under a code with no description on "
                     + "any line. They are reported by code alone rather than being dropped.";
+            }
+
+            if (RouteCount > 0)
+            {
+                yield return
+                    "Route figures are contribution, not profitability. Nothing in this system "
+                    + "records what a route costs to run — no fuel, no driver time, no vehicle or "
+                    + "depot cost — so a route's margin here has never met its largest expense. Read "
+                    + "it as an input to a keep-or-kill decision rather than as the answer.";
+            }
+
+            if (LinesWithNoRoute > 0)
+            {
+                yield return
+                    $"{LinesWithNoRoute:N0} line(s) were sold on a rep-day with no departure record, "
+                    + "so nothing says which route they belong to. They are gathered into their own "
+                    + "row rather than dropped, and are counted in no route's figures.";
             }
         }
     }

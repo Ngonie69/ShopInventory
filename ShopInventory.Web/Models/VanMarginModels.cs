@@ -29,6 +29,7 @@ public class VanMarginReportResponse
     public VanMarginSummary Summary { get; set; } = new();
     public List<VanMarginItem> Items { get; set; } = [];
     public List<VanMarginVan> Vans { get; set; } = [];
+    public List<VanMarginRoute> Routes { get; set; } = [];
     public VanMarginQuality Quality { get; set; } = new();
 }
 
@@ -133,6 +134,58 @@ public class VanMarginVan
         LineCount > 0 ? (double)PostedLineCount / LineCount : null;
 }
 
+// ── Per route ───────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// One selling route: what it earned, what that cost, and how far it went to do it.
+/// </summary>
+/// <remarks>
+/// Contribution, not profitability. Nothing in this system records what a route costs to run — no
+/// fuel, no driver time, no vehicle or depot cost — so this is the input to a keep-or-kill decision
+/// rather than the answer, and the quality caveats say so on the face of the page.
+/// </remarks>
+public class VanMarginRoute
+{
+    public string RouteCode { get; set; } = string.Empty;
+    public string? RouteName { get; set; }
+    public string? Territory { get; set; }
+    public int VanCount { get; set; }
+    public int ItemCount { get; set; }
+    public int LineCount { get; set; }
+    public int PostedLineCount { get; set; }
+    public int? Kilometres { get; set; }
+    public List<VanSalesLineMoney> RevenueByCurrency { get; set; } = [];
+    public List<VanSalesLineMoney> CostableRevenueByCurrency { get; set; } = [];
+    public List<VanMarginMoney> MarginByCurrency { get; set; } = [];
+
+    public string DisplayName => string.IsNullOrWhiteSpace(RouteName) ? RouteCode : RouteName;
+
+    public double? CostableLineShare =>
+        LineCount > 0 ? (double)PostedLineCount / LineCount : null;
+
+    /// <summary>
+    /// Margin earned per kilometre driven, per currency. Empty where either side is missing — an
+    /// odometer nobody read is not a route that stood still.
+    /// </summary>
+    public List<VanMarginPerDistance> MarginPerKilometre =>
+        Kilometres is > 0
+            ? MarginByCurrency
+                .Select(margin => new VanMarginPerDistance
+                {
+                    Currency = margin.Currency,
+                    MarginPerKilometre = decimal.Round(margin.Margin / Kilometres.Value, 4)
+                })
+                .ToList()
+            : [];
+}
+
+/// <summary>One currency's margin per kilometre. A ratio, so it is never summed with anything.</summary>
+public class VanMarginPerDistance
+{
+    public string Currency { get; set; } = string.Empty;
+    public decimal MarginPerKilometre { get; set; }
+}
+
 // ── Quality ─────────────────────────────────────────────────────────────────────
 
 public class VanMarginQuality
@@ -142,6 +195,8 @@ public class VanMarginQuality
     public int ItemsWithNoDescription { get; set; }
     public int ItemsWithoutCost { get; set; }
     public int ItemCount { get; set; }
+    public int RouteCount { get; set; }
+    public int LinesWithNoRoute { get; set; }
     public string? CostCurrency { get; set; }
     public bool CostAttempted { get; set; }
     public List<string> CurrenciesWithoutMatchingCost { get; set; } = [];
@@ -227,6 +282,23 @@ public class VanMarginQuality
                 yield return
                     $"{ItemsWithNoDescription:N0} item(s) sold under a code with no description on "
                     + "any line. They are reported by code alone rather than being dropped.";
+            }
+
+            if (RouteCount > 0)
+            {
+                yield return
+                    "Route figures are contribution, not profitability. Nothing in this system "
+                    + "records what a route costs to run — no fuel, no driver time, no vehicle or "
+                    + "depot cost — so a route's margin here has never met its largest expense. Read "
+                    + "it as an input to a keep-or-kill decision rather than as the answer.";
+            }
+
+            if (LinesWithNoRoute > 0)
+            {
+                yield return
+                    $"{LinesWithNoRoute:N0} line(s) were sold on a rep-day with no departure record, "
+                    + "so nothing says which route they belong to. They are gathered into their own "
+                    + "row rather than dropped, and are counted in no route's figures.";
             }
         }
     }
