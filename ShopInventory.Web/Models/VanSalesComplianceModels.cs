@@ -53,7 +53,15 @@ public class DepartureComplianceDay
     public decimal? DeclaredEcocash { get; set; }
     public decimal? DeclaredInnbucks { get; set; }
 
+    /// <summary>The currency every money figure on this row is stated in.</summary>
     public string? Currency { get; set; }
+
+    /// <summary>
+    /// Anything the van took in another currency that day. Reported rather than folded in: the
+    /// declaration is counted in one currency, so the system total compared against it has to be too.
+    /// </summary>
+    public List<VanSalesMoney> OtherCurrencyTotals { get; set; } = [];
+
     public int NewCustomers { get; set; }
 
     public int? StartingMileage { get; set; }
@@ -92,6 +100,9 @@ public class DepartureComplianceDay
         RtiOut is { } issued && RtiReturned is { } returned ? issued - returned : null;
 
     public string DisplayName => string.IsNullOrWhiteSpace(FullName) ? Username : FullName;
+
+    /// <summary>True when the day also took money the figures above do not cover.</summary>
+    public bool HasOtherCurrencies => OtherCurrencyTotals.Count > 0;
 }
 
 public class DepartureComplianceSummary
@@ -100,7 +111,7 @@ public class DepartureComplianceSummary
     public int PlannedCustomerCount { get; set; }
     public int CustomersVisited { get; set; }
     public int ProductiveCalls { get; set; }
-    public decimal TotalSales { get; set; }
+    public List<VanSalesMoney> TotalsByCurrency { get; set; } = [];
     public int NewCustomers { get; set; }
     public int? KilometresTravelled { get; set; }
 
@@ -110,8 +121,14 @@ public class DepartureComplianceSummary
     public double? ProductiveCallRate =>
         CustomersVisited > 0 ? (double)ProductiveCalls / CustomersVisited : null;
 
+    /// <summary>The currency that took the most across the period, or null when nothing sold.</summary>
+    public VanSalesMoney? PrimaryCurrency => TotalsByCurrency.FirstOrDefault();
+
+    /// <summary>Average order value in the primary currency alone; the rest is never added in.</summary>
     public decimal? AverageOrderValue =>
-        ProductiveCalls > 0 ? decimal.Round(TotalSales / ProductiveCalls, 2) : null;
+        ProductiveCalls > 0 && PrimaryCurrency is { } primary
+            ? decimal.Round(primary.Gross / ProductiveCalls, 2)
+            : null;
 }
 
 public class RouteDto

@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
+using ShopInventory.Features.RouteCustomers.Queries;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -79,7 +80,7 @@ public sealed class GetDepartureComplianceReportHandler(
         {
             days.TryGetValue(key, out var day);
             visits.TryGetValue(key, out var visit);
-            sales.TryGetValue(key, out var sale);
+            sales.TryGetValue(key, out var dayFacts);
             newCustomers.TryGetValue(key, out var newCustomerCount);
             names.TryGetValue(key.UserId, out var name);
 
@@ -91,7 +92,7 @@ public sealed class GetDepartureComplianceReportHandler(
                 continue;
             }
 
-            rows.Add(BuildRow(key, day, visit, sale, newCustomerCount, name));
+            rows.Add(BuildRow(key, day, visit, dayFacts, newCustomerCount, name));
         }
 
         var ordered = rows
@@ -106,10 +107,12 @@ public sealed class GetDepartureComplianceReportHandler(
         DayKey key,
         VanRouteDayEntity? day,
         VisitTotals? visit,
-        SaleTotals? sale,
+        List<VanSaleFact>? dayFacts,
         int newCustomerCount,
         UserName? name)
     {
+        var sale = Summarise(dayFacts, day?.DeclaredCurrency);
+
         return new DepartureComplianceDayDto(
             VanRouteDayId: day?.Id,
             UserId: key.UserId,
@@ -143,7 +146,8 @@ public sealed class GetDepartureComplianceReportHandler(
             DeclaredEcocash: day?.DeclaredEcocash,
             DeclaredInnbucks: day?.DeclaredInnbucks,
 
-            Currency: day?.DeclaredCurrency ?? sale?.Currency,
+            Currency: sale?.Currency ?? day?.DeclaredCurrency,
+            OtherCurrencyTotals: sale?.OtherCurrencies ?? [],
             NewCustomers: newCustomerCount,
 
             StartingMileage: day?.StartingMileage,
@@ -167,10 +171,37 @@ public sealed class GetDepartureComplianceReportHandler(
             PlannedCustomerCount: rows.Sum(row => row.PlannedCustomerCount),
             CustomersVisited: rows.Sum(row => row.CustomersVisited),
             ProductiveCalls: rows.Sum(row => row.ProductiveCalls),
-            TotalSales: rows.Sum(row => row.SystemTotalSales),
+            TotalsByCurrency: FoldRowMoney(rows),
             NewCustomers: rows.Sum(row => row.NewCustomers),
             KilometresTravelled: kilometres.Count > 0 ? kilometres.Sum() : null);
     }
+
+    /// <summary>
+    /// The period's money, per currency.
+    /// </summary>
+    /// <remarks>
+    /// Each row is already stated in one currency, but different rows can be in different ones — a
+    /// route that trades in both, or two reps on different tills. Adding the rows together would
+    /// re-create at period level exactly the mixture the rows were fixed to avoid.
+    /// </remarks>
+    private static List<VanSalesMoneyResult> FoldRowMoney(List<DepartureComplianceDayDto> rows) =>
+        rows
+            .Where(row => row.SystemTotalSales != 0 || row.Currency is not null)
+            .Select(row => new VanSalesMoneyResult(
+                Currency: RouteCustomerSalesReporting.NormalizeCurrency(row.Currency),
+                DocumentCount: row.ProductiveCalls,
+                DropCount: row.ProductiveCalls,
+                Gross: row.SystemTotalSales))
+            .Concat(rows.SelectMany(row => row.OtherCurrencyTotals))
+            .GroupBy(money => money.Currency, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new VanSalesMoneyResult(
+                Currency: group.Key,
+                DocumentCount: group.Sum(money => money.DocumentCount),
+                DropCount: group.Sum(money => money.DropCount),
+                Gross: group.Sum(money => money.Gross)))
+            .OrderByDescending(money => money.Gross)
+            .ThenBy(money => money.Currency, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     private async Task<Dictionary<DayKey, VanRouteDayEntity>> LoadDaysAsync(
         GetDepartureComplianceReportQuery query,
@@ -240,7 +271,7 @@ public sealed class GetDepartureComplianceReportHandler(
     /// shop that took an offline sale and an online invoice on the same day is one productive call,
     /// not two, and counting the tables separately would inflate the PCR.
     /// </summary>
-    private async Task<Dictionary<DayKey, SaleTotals>> LoadSalesAsync(
+    private async Task<Dictionary<DayKey, List<VanSaleFact>>> LoadSalesAsync(
         GetDepartureComplianceReportQuery query,
         DateTime from,
         DateTime to,
@@ -251,22 +282,9 @@ public sealed class GetDepartureComplianceReportHandler(
             new VanSalesFactFilter(from, to, query.UserId),
             cancellationToken);
 
-        var grouped = new Dictionary<DayKey, SaleAccumulator>();
-
-        foreach (var sale in sales)
-        {
-            var key = new DayKey(sale.UserId, sale.TradingDate);
-
-            if (!grouped.TryGetValue(key, out var accumulator))
-            {
-                accumulator = new SaleAccumulator();
-                grouped[key] = accumulator;
-            }
-
-            accumulator.Add(sale);
-        }
-
-        return grouped.ToDictionary(pair => pair.Key, pair => pair.Value.ToTotals());
+        return sales
+            .GroupBy(sale => new DayKey(sale.UserId, sale.TradingDate))
+            .ToDictionary(group => group.Key, group => group.ToList());
     }
 
     /// <summary>
@@ -332,64 +350,65 @@ public sealed class GetDepartureComplianceReportHandler(
         decimal Innbucks,
         decimal Other,
         decimal Total,
-        string? Currency);
+        string? Currency,
+        List<VanSalesMoneyResult> OtherCurrencies);
 
-    private sealed class SaleAccumulator
+    /// <summary>
+    /// A day's takings, stated in one currency.
+    /// </summary>
+    /// <remarks>
+    /// The currency is the one the rep declared their till in, because that is what the row exists to
+    /// be reconciled against — comparing a declaration counted in USD to a total that also contains
+    /// ZWG is arithmetic between two different kinds of money. Where nothing was declared, the
+    /// currency that took the most stands in.
+    ///
+    /// Everything the van took in any other currency is returned alongside rather than summed in or
+    /// discarded. It is real money and belongs on the page; it just cannot go in a column headed by
+    /// another currency's name.
+    ///
+    /// Productive calls are counted across <em>all</em> currencies, and deliberately: a shop that
+    /// paid in ZWG was still a call that bought, and dropping it would understate the strike rate to
+    /// make the money columns tidy.
+    /// </remarks>
+    private static SaleTotals? Summarise(List<VanSaleFact>? facts, string? declaredCurrency)
     {
-        private readonly HashSet<string> _customers = new(StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>
-        /// Sales with no route customer on them. Counted as one productive call between them rather
-        /// than one each: they are the same unattributed bucket, and treating each as its own shop
-        /// would make an unattributed day look like the busiest on the route.
-        /// </summary>
-        private bool _hasUnattributed;
-
-        private decimal _cash;
-        private decimal _ecocash;
-        private decimal _innbucks;
-        private decimal _other;
-        private decimal _total;
-        private string? _currency;
-
-        public void Add(VanSaleFact sale)
+        if (facts is null || facts.Count == 0)
         {
-            if (sale.RouteCustomerCode is null)
-            {
-                _hasUnattributed = true;
-            }
-            else
-            {
-                _customers.Add(sale.RouteCustomerCode);
-            }
-
-            _total += sale.TotalAmount;
-            _currency ??= sale.Currency;
-
-            switch (sale.Tender)
-            {
-                case VanSalesTender.Cash:
-                    _cash += sale.TotalAmount;
-                    break;
-                case VanSalesTender.Ecocash:
-                    _ecocash += sale.TotalAmount;
-                    break;
-                case VanSalesTender.Innbucks:
-                    _innbucks += sale.TotalAmount;
-                    break;
-                default:
-                    _other += sale.TotalAmount;
-                    break;
-            }
+            return null;
         }
 
-        public SaleTotals ToTotals() => new(
-            _customers.Count + (_hasUnattributed ? 1 : 0),
-            _cash,
-            _ecocash,
-            _innbucks,
-            _other,
-            _total,
-            _currency);
+        var byCurrency = facts
+            .GroupBy(fact => RouteCustomerSalesReporting.NormalizeCurrency(fact.Currency),
+                StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var declared = string.IsNullOrWhiteSpace(declaredCurrency)
+            ? null
+            : RouteCustomerSalesReporting.NormalizeCurrency(declaredCurrency);
+
+        var primary =
+            byCurrency.FirstOrDefault(group =>
+                declared is not null && string.Equals(group.Key, declared, StringComparison.OrdinalIgnoreCase))
+            ?? byCurrency.OrderByDescending(group => group.Sum(fact => fact.TotalAmount)).First();
+
+        decimal SumOf(VanSalesTender tender) =>
+            primary.Where(fact => fact.Tender == tender).Sum(fact => fact.TotalAmount);
+
+        var others = facts
+            .Where(fact => !string.Equals(
+                RouteCustomerSalesReporting.NormalizeCurrency(fact.Currency),
+                primary.Key,
+                StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        return new SaleTotals(
+            ProductiveCalls: VanSalesMeasures.CountProductiveCalls(facts),
+            Cash: SumOf(VanSalesTender.Cash),
+            Ecocash: SumOf(VanSalesTender.Ecocash),
+            Innbucks: SumOf(VanSalesTender.Innbucks),
+            Other: SumOf(VanSalesTender.Other),
+            Total: primary.Sum(fact => fact.TotalAmount),
+            Currency: primary.Key,
+            OtherCurrencies: VanSalesMeasures.MoneyByCurrency(others));
     }
 }

@@ -230,6 +230,69 @@ public sealed class VanSalesCoverageReportTests : IDisposable
         Assert.Contains("van010", missed.OwningReps);
     }
 
+    /// <summary>
+    /// The defect this pins: the coverage numerator counted every call, while the denominator counted
+    /// only the active roster.
+    ///
+    /// A check-in validates its customer code against nothing, so the visit set holds shops
+    /// deactivated since and shops on nobody's roster. Dividing that by an active-only roster printed
+    /// coverage above 100% on the same page as a non-empty uncovered register.
+    /// </summary>
+    [Fact]
+    public async Task Coverage_never_exceeds_the_roster_it_is_divided_by()
+    {
+        AddOutlet(VanAccount, "SHOP1", "On The Books");
+        AddOutlet(VanAccount, "SHOP2", "Also On The Books");
+
+        AddVisit(Rep, "SHOP1", new DateTime(2026, 8, 4));
+        AddVisit(Rep, "SHOP2", new DateTime(2026, 8, 5));
+        // Three shops this rep called at that no roster holds — deactivated since, or never on one.
+        AddVisit(Rep, "GONE1", new DateTime(2026, 8, 6));
+        AddVisit(Rep, "GONE2", new DateTime(2026, 8, 7));
+        AddVisit(Rep, "NEVER-ON-A-ROSTER", new DateTime(2026, 8, 8));
+        AddSale(Rep, "S1", "SHOP1", 40m, new DateTime(2026, 8, 4));
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        Assert.Equal(2, report.Summary.RosterSize);
+        Assert.Equal(5, report.Summary.OutletsVisited);
+        Assert.Equal(2, report.Summary.OutletsVisitedOnRoster);
+        Assert.Equal(3, report.Summary.OutletsVisitedOffRoster);
+
+        // The whole point: it lands on 100%, not 250%.
+        Assert.Equal(1.0, report.Summary.RosterCoverageRate);
+
+        var rep = Assert.Single(report.Reps);
+        Assert.Equal(2, rep.OutletsVisitedOnRoster);
+        Assert.Equal(3, rep.OutletsVisitedOffRoster);
+        Assert.Equal(1.0, rep.RosterCoverageRate);
+    }
+
+    /// <summary>
+    /// The rate and the uncovered register have to agree. Full coverage means an empty register, and
+    /// a non-empty register means the rate is below 100% — they used to be able to contradict each
+    /// other on one page.
+    /// </summary>
+    [Fact]
+    public async Task The_coverage_rate_and_the_uncovered_register_cannot_contradict_each_other()
+    {
+        AddOutlet(VanAccount, "REACHED", "Reached");
+        AddOutlet(VanAccount, "MISSED", "Missed");
+
+        AddVisit(Rep, "REACHED", new DateTime(2026, 8, 4));
+        AddVisit(Rep, "OFF-ROSTER", new DateTime(2026, 8, 5));
+        AddSale(Rep, "S1", "REACHED", 40m, new DateTime(2026, 8, 4));
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        Assert.Equal(0.5, report.Summary.RosterCoverageRate);
+        Assert.True(report.Summary.RosterCoverageRate < 1.0);
+        Assert.NotEmpty(report.UncoveredOutlets);
+        Assert.Contains(report.UncoveredOutlets, row => row.OutletCode == "MISSED");
+    }
+
     // --- Location integrity ---
 
     /// <summary>

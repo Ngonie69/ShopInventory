@@ -518,6 +518,18 @@ public sealed class GetVanSalesCoverageReportHandler(
                     TradingDayCount: dayKeys.Count,
                     Calls: VanSalesMeasures.CountCalls(dayKeys, visitsByDay),
                     OutletsVisited: VanSalesMeasures.CountOutletsVisited(dayKeys, visitsByDay),
+                    // The coverage numerator, restricted to the roster it is divided by. Without
+                    // this a rep who called at shops since deactivated — or at shops on nobody's
+                    // roster, since check-in validates the code against nothing — covered more than
+                    // 100% of a list that never held them.
+                    OutletsVisitedOnRoster: repRoster is null
+                        ? null
+                        : visited.Count(code => repRoster.Any(row =>
+                            string.Equals(row.Code, code, StringComparison.OrdinalIgnoreCase))),
+                    OutletsVisitedOffRoster: repRoster is null
+                        ? null
+                        : visited.Count(code => !repRoster.Any(row =>
+                            string.Equals(row.Code, code, StringComparison.OrdinalIgnoreCase))),
                     ProductiveCalls: VanSalesMeasures.CountProductiveCalls(repSales),
                     OutletsBought: attributable ? bought.Count : null,
                     OutletsUncovered: repRoster is null || !attributable
@@ -1045,6 +1057,17 @@ public sealed class GetVanSalesCoverageReportHandler(
         var visited = calls.Select(call => call.CustomerCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var rosterSize = roster.Count == 0 ? (int?)null : roster.Sum(pair => pair.Value.Count);
 
+        // The coverage rate divides one of these by the roster, so it has to be drawn from the
+        // roster. `visited` is every code a handset checked into, and check-in validates the code
+        // against nothing — so it holds shops deactivated since, shops belonging to another account,
+        // and shops that were never on any roster. Dividing that by an active-only roster produced
+        // rates over 100% beside a non-empty uncovered register.
+        var rosterCodes = roster
+            .SelectMany(pair => pair.Value.Select(row => row.Code))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var visitedOnRoster = visited.Count(code => rosterCodes.Contains(code));
+
         var boughtKeys = sales
             .Where(sale => sale.Outlet.HasValue)
             .Select(sale => sale.Outlet!.Value)
@@ -1062,6 +1085,10 @@ public sealed class GetVanSalesCoverageReportHandler(
             RepCount: dayKeys.Select(key => key.UserId).Distinct().Count(),
             RosterSize: rosterSize,
             OutletsVisited: visited.Count,
+            OutletsVisitedOnRoster: visitedOnRoster,
+            // Calls at shops that are not on any roster. Not noise: either the roster is stale or a
+            // rep is working outlets nobody has on the books.
+            OutletsVisitedOffRoster: visited.Count - visitedOnRoster,
             OutletsBought: boughtKeys.Count,
             OutletsUncovered: roster
                 .SelectMany(pair => pair.Value)

@@ -52,6 +52,8 @@ public class VanSalesCoverageSummary
     public int RepCount { get; set; }
     public int? RosterSize { get; set; }
     public int OutletsVisited { get; set; }
+    public int OutletsVisitedOnRoster { get; set; }
+    public int OutletsVisitedOffRoster { get; set; }
     public int OutletsBought { get; set; }
     public int OutletsUncovered { get; set; }
     public int NewOutlets { get; set; }
@@ -68,8 +70,13 @@ public class VanSalesCoverageSummary
     public double? CallComplianceRate =>
         PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
 
+    /// <summary>
+    /// The numerator is the calls that landed on a shop the roster holds, not every call. Check-in
+    /// validates its code against nothing, so the raw visit set holds shops deactivated since and
+    /// shops on nobody's roster — dividing that by an active-only roster read above 100%.
+    /// </summary>
     public double? RosterCoverageRate =>
-        RosterSize is > 0 ? (double)OutletsVisited / RosterSize.Value : null;
+        RosterSize is > 0 ? (double)OutletsVisitedOnRoster / RosterSize.Value : null;
 }
 
 public class VanSalesCoverageTrendPoint
@@ -111,6 +118,8 @@ public class VanSalesRepCoverage
     public int TradingDayCount { get; set; }
     public int? Calls { get; set; }
     public int? OutletsVisited { get; set; }
+    public int? OutletsVisitedOnRoster { get; set; }
+    public int? OutletsVisitedOffRoster { get; set; }
     public int ProductiveCalls { get; set; }
     public int? OutletsBought { get; set; }
     public int? OutletsUncovered { get; set; }
@@ -127,7 +136,9 @@ public class VanSalesRepCoverage
         PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     public double? RosterCoverageRate =>
-        RosterSize is > 0 && OutletsVisited is { } visited ? (double)visited / RosterSize.Value : null;
+        RosterSize is > 0 && OutletsVisitedOnRoster is { } visited
+            ? (double)visited / RosterSize.Value
+            : null;
 }
 
 public class VanSalesEfficiency

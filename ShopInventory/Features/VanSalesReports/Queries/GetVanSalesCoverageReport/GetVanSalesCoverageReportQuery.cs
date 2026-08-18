@@ -56,6 +56,8 @@ public sealed record VanSalesCoverageSummaryResult(
     int RepCount,
     int? RosterSize,
     int OutletsVisited,
+    int OutletsVisitedOnRoster,
+    int OutletsVisitedOffRoster,
     int OutletsBought,
     int OutletsUncovered,
     int NewOutlets,
@@ -80,8 +82,16 @@ public sealed record VanSalesCoverageSummaryResult(
     /// The share of the roster that was reached at all. Null when the roster is unknown — several
     /// reps have no assigned account, and 0% would read as a rep who visited nobody.
     /// </summary>
+    /// <remarks>
+    /// The numerator is the calls that landed on a shop the roster actually holds, not every call.
+    /// A check-in validates its customer code against nothing, so the raw visit set contains shops
+    /// deactivated since, shops on another account's roster, and shops on nobody's — dividing that
+    /// by an active-only roster produced rates above 100% on the same page as a non-empty uncovered
+    /// register. The calls that fell outside the roster are in <c>OutletsVisitedOffRoster</c>, which
+    /// is a finding rather than a rounding error.
+    /// </remarks>
     public double? RosterCoverageRate =>
-        RosterSize is > 0 ? (double)OutletsVisited / RosterSize.Value : null;
+        RosterSize is > 0 ? (double)OutletsVisitedOnRoster / RosterSize.Value : null;
 }
 
 // ── B2 / B5: the rate trend ─────────────────────────────────────────────────────
@@ -138,6 +148,8 @@ public sealed record VanSalesRepCoverageResult(
     int TradingDayCount,
     int? Calls,
     int? OutletsVisited,
+    int? OutletsVisitedOnRoster,
+    int? OutletsVisitedOffRoster,
     int ProductiveCalls,
     int? OutletsBought,
     int? OutletsUncovered,
@@ -153,8 +165,14 @@ public sealed record VanSalesRepCoverageResult(
     public double? CallComplianceRate =>
         PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
 
+    /// <summary>
+    /// See <see cref="VanSalesCoverageSummaryResult.RosterCoverageRate"/> — the numerator is the
+    /// calls that landed on this rep's own roster, never every call they logged.
+    /// </summary>
     public double? RosterCoverageRate =>
-        RosterSize is > 0 && OutletsVisited is { } visited ? (double)visited / RosterSize.Value : null;
+        RosterSize is > 0 && OutletsVisitedOnRoster is { } visited
+            ? (double)visited / RosterSize.Value
+            : null;
 }
 
 /// <summary>

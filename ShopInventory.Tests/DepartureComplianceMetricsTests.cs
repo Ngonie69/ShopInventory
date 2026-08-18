@@ -1,3 +1,4 @@
+using ShopInventory.Features.VanSalesReports.Queries;
 using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
 
 namespace ShopInventory.Tests;
@@ -132,7 +133,7 @@ public sealed class DepartureComplianceMetricsTests
             PlannedCustomerCount: 200,
             CustomersVisited: 198,
             ProductiveCalls: 99,
-            TotalSales: 990m,
+            TotalsByCurrency: [new VanSalesMoneyResult("USD", 99, 99, 990m)],
             NewCustomers: 0,
             KilometresTravelled: 160);
 
@@ -199,6 +200,7 @@ public sealed class DepartureComplianceMetricsTests
             DeclaredEcocash: declaredEcocash,
             DeclaredInnbucks: declaredInnbucks,
             Currency: "USD",
+            OtherCurrencyTotals: [],
             NewCustomers: 0,
             StartingMileage: startingMileage,
             ClosingMileage: closingMileage,

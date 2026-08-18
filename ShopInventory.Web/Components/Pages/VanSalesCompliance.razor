@@ -169,7 +169,7 @@
 
             <div class="vsc-kpi">
                 <div class="vsc-kpi-mark"></div>
-                <div class="vsc-kpi-value">@totals.Sales.ToString("N0")</div>
+                <div class="vsc-kpi-value">@MoneyTile(totals)</div>
                 <div class="vsc-kpi-label">Total sales</div>
                 <div class="vsc-kpi-sub">AOV @FormatMoney(totals.Aov)</div>
             </div>
@@ -389,7 +389,7 @@
                 <span class="vsc-num @NoneClass(totals.Ccr)">@FormatRate(totals.Ccr)</span>
                 <span class="vsc-num @NoneClass(totals.Pcr)">@FormatRate(totals.Pcr)</span>
                 <span class="vsc-num vsc-right @NoneClass(totals.Aov)">@FormatMoney(totals.Aov)</span>
-                <span class="vsc-strong vsc-right">@totals.Sales.ToString("N2")</span>
+                <span class="vsc-strong vsc-right">@MoneyFooter(totals)</span>
                 <span class="vsc-num vsc-right @NoneClass(totals.Kilometres)">
                     @(totals.Kilometres?.ToString("N0") ?? "—")
                 </span>
@@ -751,7 +751,17 @@
             totals.Planned += day.PlannedCustomerCount;
             totals.Visited += day.CustomersVisited;
             totals.Productive += day.ProductiveCalls;
-            totals.Sales += day.SystemTotalSales;
+            // Per currency, because a row is stated in one and rows can differ. Adding them would
+            // rebuild at period level exactly the mixture each row was fixed to avoid.
+            var currency = string.IsNullOrWhiteSpace(day.Currency) ? "USD" : day.Currency;
+            totals.SalesByCurrency.TryGetValue(currency, out var running);
+            totals.SalesByCurrency[currency] = running + day.SystemTotalSales;
+
+            foreach (var other in day.OtherCurrencyTotals)
+            {
+                totals.SalesByCurrency.TryGetValue(other.Currency, out var otherRunning);
+                totals.SalesByCurrency[other.Currency] = otherRunning + other.Gross;
+            }
 
             if (day.KilometresTravelled is { } kilometres)
             {
@@ -770,6 +780,29 @@
     }
 
     // — Row text ————————————————————————————————————————————————————————
+
+    /// <summary>
+    /// The takings tile. Names its currency, and says when there is another the tile cannot show —
+    /// a reader reconciling a till against a smaller number has to be able to see why.
+    /// </summary>
+    private static string MoneyTile(PeriodTotals totals)
+    {
+        if (totals.PrimarySales is not { } primary)
+        {
+            return "—";
+        }
+
+        return totals.HasMultipleCurrencies
+            ? $"{primary.Key} {primary.Value:N0} +{totals.SalesByCurrency.Count - 1}"
+            : $"{primary.Key} {primary.Value:N0}";
+    }
+
+    private static string MoneyFooter(PeriodTotals totals) =>
+        totals.SalesByCurrency.Count == 0
+            ? "—"
+            : string.Join("  ·  ", totals.SalesByCurrency
+                .OrderByDescending(pair => pair.Value)
+                .Select(pair => $"{pair.Key} {pair.Value:N2}"));
 
     private static string RouteLine(DepartureComplianceDay day)
     {
@@ -1166,7 +1199,20 @@
         public int Planned { get; set; }
         public int Visited { get; set; }
         public int Productive { get; set; }
-        public decimal Sales { get; set; }
+    /// <summary>
+        /// The period's takings, per currency. Never one figure: a row is stated in the currency its
+        /// rep declared in, and two reps on two tills are not adding up to anything.
+        /// </summary>
+        public Dictionary<string, decimal> SalesByCurrency { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>The currency that took the most, which is what a single-value tile can honestly show.</summary>
+        public KeyValuePair<string, decimal>? PrimarySales =>
+            SalesByCurrency.Count == 0
+                ? null
+                : SalesByCurrency.OrderByDescending(pair => pair.Value).First();
+
+        /// <summary>True when the period spans more than one currency, so a tile has to say which.</summary>
+        public bool HasMultipleCurrencies => SalesByCurrency.Count > 1;
 
         public int KilometresRead { get; set; }
         public int KilometreRows { get; set; }
@@ -1180,7 +1226,13 @@
 
         public double? Pcr => Visited > 0 ? (double)Productive / Visited : null;
 
-        public decimal? Aov => Productive > 0 ? decimal.Round(Sales / Productive, 2) : null;
+        /// <summary>
+        /// Average order value in the largest currency alone. Dividing a two-currency total by one
+        /// call count would be arithmetic between two kinds of money.
+        /// </summary>
+        public decimal? Aov => Productive > 0 && PrimarySales is { } primary
+            ? decimal.Round(primary.Value / Productive, 2)
+            : null;
 
         /// <summary>Null where nothing was read, so the total cannot read as a period of zero mileage.</summary>
         public int? Kilometres => KilometreRows > 0 ? KilometresRead : null;

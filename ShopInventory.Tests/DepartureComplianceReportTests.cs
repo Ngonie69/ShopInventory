@@ -170,6 +170,102 @@ public sealed class DepartureComplianceReportTests : IDisposable
     }
 
     /// <summary>
+    /// The defect this pins: a day's money used to be summed across every currency and stamped with
+    /// whichever one the first sale happened to carry.
+    ///
+    /// The row exists to be reconciled against a till the rep counted in one currency, so the system
+    /// figure has to be in that same one. A rep taking USD 100 and ZWG 3,000 and declaring the USD
+    /// correctly was shown a USD 3,000 shortfall on a cash-control report.
+    /// </summary>
+    [Fact]
+    public async Task A_days_money_is_stated_in_the_currency_the_rep_declared_in()
+    {
+        AddDay(plannedCustomers: 10, declaredCash: 100m);
+        AddOfflineSale("OFF-USD", "TUCK01", total: 100m, paymentMethod: "Cash", currency: "USD");
+        AddOfflineSale("OFF-ZWG", "CORNER1", total: 3000m, paymentMethod: "Cash", currency: "ZWG");
+        await _context.SaveChangesAsync();
+
+        var day = await SingleDayAsync();
+
+        Assert.Equal("USD", day.Currency);
+        Assert.Equal(100m, day.SystemTotalSales);
+        Assert.Equal(100m, day.SystemCash);
+
+        // The declaration was right, so there is no variance.
+        Assert.Equal(100m, day.DeclaredTotal);
+        Assert.Equal(0m, day.DeclaredVariance);
+
+        // And the ZWG is reported rather than dropped.
+        Assert.True(day.HasOtherCurrencies);
+        var other = Assert.Single(day.OtherCurrencyTotals);
+        Assert.Equal("ZWG", other.Currency);
+        Assert.Equal(3000m, other.Gross);
+    }
+
+    /// <summary>
+    /// Both shops bought, in different currencies. The strike rate counts them both — dropping the
+    /// one that paid in the other currency would understate the rep's day to keep the money columns
+    /// tidy.
+    /// </summary>
+    [Fact]
+    public async Task Productive_calls_count_every_currency_even_though_the_money_does_not()
+    {
+        AddDay(plannedCustomers: 10, declaredCash: 100m);
+        AddVisit("TUCK01", Utc(8, 30));
+        AddVisit("CORNER1", Utc(10, 0));
+        AddOfflineSale("OFF-USD", "TUCK01", total: 100m, currency: "USD");
+        AddOfflineSale("OFF-ZWG", "CORNER1", total: 3000m, currency: "ZWG");
+        await _context.SaveChangesAsync();
+
+        var day = await SingleDayAsync();
+
+        Assert.Equal(2, day.ProductiveCalls);
+        Assert.Equal(1.0, day.ProductiveCallRate);
+        Assert.Equal(100m, day.SystemTotalSales);
+    }
+
+    /// <summary>
+    /// Nothing declared, so the currency that took the most stands in. The alternative — the first
+    /// sale read — made the label depend on the order rows came back in.
+    /// </summary>
+    [Fact]
+    public async Task With_no_declaration_the_largest_currency_states_the_row()
+    {
+        AddDay(plannedCustomers: 10);
+        AddOfflineSale("OFF-USD", "TUCK01", total: 40m, currency: "USD");
+        AddOfflineSale("OFF-ZWG", "CORNER1", total: 3000m, currency: "ZWG");
+        await _context.SaveChangesAsync();
+
+        var day = await SingleDayAsync();
+
+        Assert.Equal("ZWG", day.Currency);
+        Assert.Equal(3000m, day.SystemTotalSales);
+        Assert.Equal("USD", Assert.Single(day.OtherCurrencyTotals).Currency);
+    }
+
+    /// <summary>
+    /// The period summary folded the same mixture one level up. Two reps on two tills must not be
+    /// added together either.
+    /// </summary>
+    [Fact]
+    public async Task The_period_summary_holds_each_currency_apart()
+    {
+        AddDay(plannedCustomers: 10, declaredCash: 100m);
+        AddOfflineSale("OFF-USD", "TUCK01", total: 100m, currency: "USD");
+        AddOfflineSale("OFF-ZWG", "CORNER1", total: 3000m, currency: "ZWG");
+        await _context.SaveChangesAsync();
+
+        var summary = (await RunAsync()).Summary;
+
+        Assert.Equal(2, summary.TotalsByCurrency.Count);
+        Assert.Equal(3000m, summary.TotalsByCurrency.Single(t => t.Currency == "ZWG").Gross);
+        Assert.Equal(100m, summary.TotalsByCurrency.Single(t => t.Currency == "USD").Gross);
+
+        // The single-value figure names the currency it is in rather than mixing them.
+        Assert.Equal("ZWG", summary.PrimaryCurrency!.Currency);
+    }
+
+    /// <summary>
     /// An online sale made at half past ten at night is that day's money. Filing it on the day before
     /// moves it out of the day the rep declares against, and creates a variance on two days at once.
     /// </summary>
@@ -241,7 +337,7 @@ public sealed class DepartureComplianceReportTests : IDisposable
         Assert.Equal(10, report.Summary.PlannedCustomerCount);
         Assert.Equal(2, report.Summary.CustomersVisited);
         Assert.Equal(2, report.Summary.ProductiveCalls);
-        Assert.Equal(100m, report.Summary.TotalSales);
+        Assert.Equal(100m, Assert.Single(report.Summary.TotalsByCurrency).Gross);
         Assert.Equal(0.2, report.Summary.CallComplianceRate);
         Assert.Equal(1.0, report.Summary.ProductiveCallRate);
         Assert.Equal(50m, report.Summary.AverageOrderValue);
@@ -321,7 +417,8 @@ public sealed class DepartureComplianceReportTests : IDisposable
         string? routeCustomerCode,
         decimal total,
         string? paymentMethod = "Cash",
-        string? createdBy = null)
+        string? createdBy = null,
+        string currency = "USD")
     {
         _context.DesktopSales.Add(new DesktopSaleEntity
         {
@@ -334,7 +431,7 @@ public sealed class DepartureComplianceReportTests : IDisposable
             DocDate = Day,
             TotalAmount = total,
             VatAmount = 0m,
-            Currency = "USD",
+            Currency = currency,
             WarehouseCode = VanWarehouse,
             PaymentMethod = paymentMethod,
             AmountPaid = total,

@@ -79,8 +79,14 @@ public sealed class VanSalesPerformanceReportTests : IDisposable
 
         Assert.False(compliance.IsError);
 
+        // Both summaries now hold money per currency, so they are compared bucket for bucket. That is
+        // the stronger check anyway: a report agreeing on one mixed total while disagreeing about
+        // which currency it was in would have passed the old assertion.
         var usd = Assert.Single(performance.Summary.TotalsByCurrency);
-        Assert.Equal(compliance.Value.Summary.TotalSales, usd.Gross);
+        var complianceUsd = Assert.Single(compliance.Value.Summary.TotalsByCurrency);
+
+        Assert.Equal(complianceUsd.Currency, usd.Currency);
+        Assert.Equal(complianceUsd.Gross, usd.Gross);
         Assert.Equal(compliance.Value.Summary.ProductiveCalls, performance.Summary.ProductiveCalls);
     }
 

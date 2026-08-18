@@ -31,6 +31,21 @@ public sealed record DepartureComplianceReportResult(
 /// Times are CAT, because that is the clock the sheet is written in and the one the rep worked to.
 /// Rates are fractions (0.97), not percentages, so the presentation layer decides how to round.
 /// </summary>
+/// <remarks>
+/// <b>The money on this record is in one currency, named by <c>Currency</c>.</b> That is the whole
+/// reason the row can be reconciled at all: the rep declares a till in one currency, so the system
+/// figure it is compared against has to be in the same one, or the variance is arithmetic between
+/// two different kinds of money.
+///
+/// The currency chosen is the one the rep declared in, and only where nothing was declared does it
+/// fall back to whichever currency took the most. Anything a van took in another currency that day
+/// is in <c>OtherCurrencyTotals</c> — reported rather than dropped, and never folded into the
+/// figures above.
+///
+/// This used to sum every currency into <c>SystemTotalSales</c> and stamp it with whichever one the
+/// first sale happened to carry. A rep taking USD 100 and ZWG 3,000 and declaring the USD correctly
+/// showed a USD 3,000 shortfall on a cash-control report.
+/// </remarks>
 public sealed record DepartureComplianceDayDto(
     int? VanRouteDayId,
     Guid UserId,
@@ -64,6 +79,7 @@ public sealed record DepartureComplianceDayDto(
     decimal? DeclaredInnbucks,
 
     string? Currency,
+    List<VanSalesMoneyResult> OtherCurrencyTotals,
     int NewCustomers,
 
     int? StartingMileage,
@@ -93,9 +109,22 @@ public sealed record DepartureComplianceDayDto(
     public double? ProductiveCallRate =>
         CustomersVisited > 0 ? (double)ProductiveCalls / CustomersVisited : null;
 
-    /// <summary>Average order value: takings over the calls that bought, not over every call.</summary>
+    /// <summary>
+    /// Average order value: takings over the calls that bought, not over every call.
+    ///
+    /// In <c>Currency</c> only. A day that also took another currency has that in
+    /// <c>OtherCurrencyTotals</c>, and mixing it in here would divide two kinds of money by one
+    /// count.
+    /// </summary>
     public decimal? AverageOrderValue =>
         ProductiveCalls > 0 ? decimal.Round(SystemTotalSales / ProductiveCalls, 2) : null;
+
+    /// <summary>
+    /// True when the van also took money in a currency the figures above do not cover. The page has
+    /// to say so, or a reader reconciling the till sees a total that is genuinely smaller than the
+    /// day's takings and has no way to tell why.
+    /// </summary>
+    public bool HasOtherCurrencies => OtherCurrencyTotals.Count > 0;
 
     public int? KilometresTravelled =>
         StartingMileage is { } start && ClosingMileage is { } close && close >= start
@@ -128,7 +157,7 @@ public sealed record DepartureComplianceSummary(
     int PlannedCustomerCount,
     int CustomersVisited,
     int ProductiveCalls,
-    decimal TotalSales,
+    List<VanSalesMoneyResult> TotalsByCurrency,
     int NewCustomers,
     int? KilometresTravelled
 )
@@ -139,6 +168,18 @@ public sealed record DepartureComplianceSummary(
     public double? ProductiveCallRate =>
         CustomersVisited > 0 ? (double)ProductiveCalls / CustomersVisited : null;
 
+    /// <summary>
+    /// The currency that took the most across the period, or null when nothing sold. Every scalar
+    /// money figure a caller derives from this summary has to name it.
+    /// </summary>
+    public VanSalesMoneyResult? PrimaryCurrency => TotalsByCurrency.FirstOrDefault();
+
+    /// <summary>
+    /// Average order value in the primary currency alone. A period spanning two currencies reports
+    /// the other in <c>TotalsByCurrency</c>; it is never added in here.
+    /// </summary>
     public decimal? AverageOrderValue =>
-        ProductiveCalls > 0 ? decimal.Round(TotalSales / ProductiveCalls, 2) : null;
+        ProductiveCalls > 0 && PrimaryCurrency is { } primary
+            ? decimal.Round(primary.Gross / ProductiveCalls, 2)
+            : null;
 }
