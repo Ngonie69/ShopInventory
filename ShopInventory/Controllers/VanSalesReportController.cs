@@ -6,6 +6,7 @@ using ShopInventory.Common.Security;
 using ShopInventory.Features.VanSalesReports.Commands.SaveRoute;
 using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetRoutes;
+using ShopInventory.Features.VanSalesReports.Queries.GetVanMarginReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesExceptionsReport;
@@ -331,6 +332,51 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 userId,
                 callComplianceTarget,
                 strikeRateTarget),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// What sold off the vans, per item and per van, and how much of it SAP is in a position to
+    /// cost.
+    /// </summary>
+    /// <remarks>
+    /// The local half of the margin report. Margin itself is not computed and every margin field is
+    /// null: no item cost is read anywhere in this system, and the SAP invoice-line column that
+    /// carries one has not been established against this company's data.
+    ///
+    /// What it answers on its own is the denominator that half will need. A cost can only ever be
+    /// found for a sale SAP knows about, the offline half of van trading is held locally until a
+    /// posting job drains it, and that job is switched off — so the costable share of van revenue is
+    /// well under all of it and nothing said so at item grain until now.
+    /// </remarks>
+    /// <param name="fromDate">Inclusive CAT trading day. Defaults to 30 days back.</param>
+    /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
+    /// <param name="userId">One rep, or every rep when omitted.</param>
+    /// <param name="warehouseCode">One van's warehouse, or every van when omitted.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("margin-report")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(VanMarginReportResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetMarginReport(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] Guid? userId = null,
+        [FromQuery] string? warehouseCode = null,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var result = await mediator.Send(
+            new GetVanMarginReportQuery(
+                fromDate?.Date ?? today.AddDays(-30),
+                toDate?.Date ?? today,
+                userId,
+                warehouseCode),
             cancellationToken);
 
         return result.Match(
