@@ -29,6 +29,7 @@ namespace ShopInventory.Services;
 public sealed class VanSalesEndOfDayPostingService(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
+    SapCircuitBreakerState circuitState,
     IOptions<VanSalesPostingSettings> settings,
     ILogger<VanSalesEndOfDayPostingService> logger)
 {
@@ -65,6 +66,18 @@ public sealed class VanSalesEndOfDayPostingService(
         // when its date arrives, a day or two late, while a sale behind the run date has no later run
         // coming for it at all.
         var windowStart = settings.Value.WindowStart(date);
+
+        // Do not start a pass while SAP is known to be down. Nothing breaks without this — the HTTP
+        // handler refuses each call before it leaves the process, and a circuit-open failure is
+        // transient, so no sale spends an attempt over it. What it saves is the noise: this route posts
+        // one sale at a time, so a pass during an outage is two doomed round trips and one logged error
+        // per held sale, every one of them saying the same thing about SAP rather than about the sale.
+        if (circuitState.ShouldShortCircuit(out var retryAfter))
+        {
+            logger.LogInformation(
+                "Skipping van sales posting: the SAP circuit is open for another {RetryAfter}.", retryAfter);
+            return new VanSalesPostingRunResult(date, windowStart);
+        }
 
         var pending = await context.DesktopSales
             .Include(s => s.Lines)
@@ -150,6 +163,22 @@ public sealed class VanSalesEndOfDayPostingService(
 
         // Its own trading day at both ends: this posts exactly one sale, so there is no window.
         var result = new VanSalesPostingRunResult(sale.DocDate.Date, sale.DocDate.Date);
+
+        // Answered without a doomed round trip, and without touching the sale. Letting it through would
+        // overwrite LastPostingError with the circuit message, losing the SAP rejection that is the
+        // reason somebody is looking at this sale in the first place.
+        if (circuitState.ShouldShortCircuit(out var retryAfter))
+        {
+            var seconds = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds));
+            result.Failed++;
+            result.Errors.Add(
+                $"{sale.ExternalReferenceId}: SAP is unavailable; the circuit is open for another {seconds} seconds.");
+
+            logger.LogInformation(
+                "Refused to post van sale {ExternalReference} on request: the SAP circuit is open for another {RetryAfter}.",
+                sale.ExternalReferenceId, retryAfter);
+            return result;
+        }
 
         await TryPostAsync(sale, result, cancellationToken);
         await context.SaveChangesAsync(cancellationToken);

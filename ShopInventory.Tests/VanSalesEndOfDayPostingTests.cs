@@ -26,6 +26,7 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
     private readonly RecordingSapClient _sap = new();
+    private readonly SapCircuitBreakerState _circuit = new(Options.Create(new SAPSettings()));
 
     public VanSalesEndOfDayPostingTests()
     {
@@ -61,6 +62,7 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
         return new VanSalesEndOfDayPostingService(
             _context,
             _sap.Client,
+            _circuit,
             Options.Create(settings),
             NullLogger<VanSalesEndOfDayPostingService>.Instance);
     }
@@ -197,6 +199,62 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
         Assert.Equal(DesktopSaleConsolidationStatus.Pending, failed.ConsolidationStatus);
         Assert.Equal(1, failed.PostingAttempts);
         Assert.NotNull(failed.LastPostingError);
+    }
+
+    /// <summary>
+    /// Once the breaker is open every call would be refused before it left the process, so a pass over a
+    /// held backlog is two doomed round trips and one logged error per sale. It does not start.
+    /// </summary>
+    [Fact]
+    public async Task A_pass_does_not_start_while_the_sap_circuit_is_open()
+    {
+        AddSale("VAN006-INV-20260810-AAA111", receiptGlobalNo: 501);
+        AddSale("VAN006-INV-20260810-BBB222", receiptGlobalNo: 502);
+        await _context.SaveChangesAsync();
+
+        OpenTheCircuit();
+
+        var result = await BuildService().PostPendingSalesAsync(TradingDate);
+
+        Assert.Equal(0, result.Total);
+        Assert.Empty(_sap.Created);
+
+        // Untouched, so the day resumes intact when SAP comes back.
+        Assert.All(
+            await _context.DesktopSales.ToListAsync(),
+            sale =>
+            {
+                Assert.Equal(0, sale.PostingAttempts);
+                Assert.Null(sale.LastPostingError);
+                Assert.Equal(DesktopSaleConsolidationStatus.Pending, sale.ConsolidationStatus);
+            });
+    }
+
+    /// <summary>
+    /// The same for a retry somebody asked for by hand, and the reason it matters more there: letting it
+    /// through would replace the SAP rejection recorded on the sale with a message about the circuit,
+    /// throwing away the diagnosis that put the sale in front of them.
+    /// </summary>
+    [Fact]
+    public async Task A_requested_post_while_the_circuit_is_open_keeps_the_sales_recorded_reason()
+    {
+        var sale = AddSale("VAN006-INV-20260810-AAA111", receiptGlobalNo: 501);
+        sale.PostingAttempts = 3;
+        sale.LastPostingError = "SAP rejected the invoice: item is blocked for sale.";
+        await _context.SaveChangesAsync();
+
+        OpenTheCircuit();
+
+        var result = await BuildService().PostSaleAsync(sale.Id);
+
+        Assert.NotNull(result);
+        Assert.Equal(1, result.Failed);
+        Assert.Contains("circuit is open", result.Errors.Single());
+        Assert.Empty(_sap.Created);
+
+        var unchanged = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(3, unchanged.PostingAttempts);
+        Assert.Equal("SAP rejected the invoice: item is blocked for sale.", unchanged.LastPostingError);
     }
 
     /// <summary>
@@ -361,6 +419,17 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
 
         Assert.Equal(0, result.Total);
         Assert.Empty(_sap.Created);
+    }
+
+    /// <summary>Trips the breaker the way a real outage does, one recorded failure at a time.</summary>
+    private void OpenTheCircuit()
+    {
+        for (var failure = 0; failure < new SAPSettings().CircuitFailureThreshold; failure++)
+        {
+            _circuit.RecordFailure("SAP did not respond.");
+        }
+
+        Assert.True(_circuit.IsOpen);
     }
 
     private DesktopSaleEntity AddSale(string reference, int receiptGlobalNo)

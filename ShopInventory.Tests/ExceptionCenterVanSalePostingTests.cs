@@ -44,6 +44,7 @@ public sealed class ExceptionCenterVanSalePostingTests : IDisposable
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
     private readonly RecordingSapClient _sap = new();
+    private readonly SapCircuitBreakerState _circuit = new(Options.Create(new SAPSettings()));
 
     public ExceptionCenterVanSalePostingTests()
     {
@@ -376,6 +377,7 @@ public sealed class ExceptionCenterVanSalePostingTests : IDisposable
             new VanSalesEndOfDayPostingService(
                 _context,
                 _sap.Client,
+                _circuit,
                 Options.Create(new VanSalesPostingSettings()),
                 NullLogger<VanSalesEndOfDayPostingService>.Instance),
             StubProxy.Unused<MediatR.IMediator>(),
