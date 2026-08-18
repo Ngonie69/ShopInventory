@@ -359,8 +359,11 @@ public sealed class DesktopSalePostingService(
     /// <remarks>
     /// A transient failure does not spend an attempt. This job runs every minute, so counting a SAP
     /// outage against the budget would exhaust it on every sale within minutes and turn a network blip
-    /// into a morning of manual work. The van service can increment unconditionally because it fires
-    /// twice a night; this one cannot.
+    /// into a morning of manual work.
+    ///
+    /// The van route does the same, and used not to: it ran twice a night, where six attempts spanned
+    /// days and an outage could not plausibly consume them. Once it gained a half-hourly pass that
+    /// stopped being true, and the two now share this rule rather than one being an exception to it.
     /// </remarks>
     private static void RecordFailure(
         DesktopSaleEntity sale,
