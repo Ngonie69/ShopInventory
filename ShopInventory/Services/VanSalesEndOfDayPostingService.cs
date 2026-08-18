@@ -33,10 +33,19 @@ public sealed class VanSalesEndOfDayPostingService(
     ILogger<VanSalesEndOfDayPostingService> logger)
 {
     /// <summary>
-    /// After this many failed attempts a sale stops being retried automatically and waits for a human.
-    /// Two runs a night means a sale that is genuinely wrong stops re-attempting after a few days rather
-    /// than raising the same alarm forever.
+    /// After this many rejections a sale stops being retried automatically and waits for a human.
     /// </summary>
+    /// <remarks>
+    /// Only a rejection spends one, and that qualifier is load-bearing now in a way it was not when this
+    /// was written. Six attempts across two runs a night meant a sale that was genuinely wrong stopped
+    /// re-attempting after a few days; the half-hourly pass added later spends the same six inside three
+    /// hours. Counting a SAP outage against the budget would therefore park a whole day's van takings
+    /// behind a human over a blip that healed itself before lunch.
+    ///
+    /// What the cap still means is the thing it always meant: six attempts at a sale SAP actually
+    /// refuses — a blocked item, a closed period — which is not going to fix itself, and is better in
+    /// front of somebody within hours than after three days.
+    /// </remarks>
     internal const int MaxPostingAttempts = 6;
 
     public async Task<VanSalesPostingRunResult> PostPendingSalesAsync(
@@ -167,18 +176,30 @@ public sealed class VanSalesEndOfDayPostingService(
         }
         catch (Exception ex)
         {
-            sale.PostingAttempts++;
+            // SAP being unreachable is not the sale's fault, so it does not spend one of the sale's
+            // attempts. See MaxPostingAttempts: at a pass every half hour, counting an outage would
+            // exhaust every van sale of the day inside three hours and hand the lot to a human.
+            var transient = SapFailureClassifier.IsTransient(ex, cancellationToken);
+            if (!transient)
+            {
+                sale.PostingAttempts++;
+            }
+
             sale.LastPostingError = Truncate(ex.Message, 2000);
             result.Failed++;
             result.Errors.Add($"{sale.ExternalReferenceId}: {ex.Message}");
 
             logger.LogError(
                 ex,
-                "Failed to post van sale {ExternalReference} (receipt {ReceiptGlobalNo}) to SAP. Attempt {Attempt} of {Max}.",
+                "Failed to post van sale {ExternalReference} (receipt {ReceiptGlobalNo}) to SAP. "
+                + "Attempt {Attempt} of {Max}{Transient}.",
                 sale.ExternalReferenceId,
                 sale.ReceiptGlobalNo,
                 sale.PostingAttempts,
-                MaxPostingAttempts);
+                MaxPostingAttempts,
+                // Otherwise a run of transient failures reads as the same attempt number repeating, which
+                // looks like a stuck counter rather than the budget being deliberately left alone.
+                transient ? " (SAP unreachable, so no attempt was spent)" : string.Empty);
         }
     }
 

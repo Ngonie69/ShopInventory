@@ -200,6 +200,62 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
     }
 
     /// <summary>
+    /// SAP being unreachable is not the sale's fault and must not spend its budget. The pass runs every
+    /// half hour, so an outage counted against the budget would exhaust every van sale of the day inside
+    /// three hours and hand a whole day's takings to a human over a blip that healed itself.
+    /// </summary>
+    [Fact]
+    public async Task An_unreachable_sap_does_not_spend_a_sales_attempts()
+    {
+        AddSale("VAN006-INV-20260810-AAA111", receiptGlobalNo: 501);
+        await _context.SaveChangesAsync();
+
+        _sap.UnreachableFor.Add("VAN006-INV-20260810-AAA111");
+
+        var service = BuildService();
+
+        // Four hours of half-hourly passes against a SAP that is down.
+        for (var pass = 0; pass < 8; pass++)
+        {
+            var outage = await service.PostPendingSalesAsync(TradingDate);
+            Assert.Equal(1, outage.Failed);
+        }
+
+        var sale = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(0, sale.PostingAttempts);
+
+        // The reason is still recorded, so the sale is visible while the outage lasts.
+        Assert.NotNull(sale.LastPostingError);
+
+        // And when SAP comes back it posts, with its whole budget intact.
+        _sap.UnreachableFor.Clear();
+        var recovered = await service.PostPendingSalesAsync(TradingDate);
+
+        Assert.Equal(1, recovered.Posted);
+        Assert.Single(_sap.Created);
+    }
+
+    /// <summary>
+    /// A rejection is the sale's fault and does spend one. This is the distinction the cap was always
+    /// about: SAP refusing a blocked item will refuse it again in half an hour.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_sap_refuses_does_spend_an_attempt()
+    {
+        AddSale("VAN006-INV-20260810-AAA111", receiptGlobalNo: 501);
+        await _context.SaveChangesAsync();
+
+        _sap.FailFor.Add("VAN006-INV-20260810-AAA111");
+
+        var service = BuildService();
+        await service.PostPendingSalesAsync(TradingDate);
+        await service.PostPendingSalesAsync(TradingDate);
+
+        var sale = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(2, sale.PostingAttempts);
+    }
+
+    /// <summary>
     /// A sale that fails every night must eventually stop being retried, or it raises the same alarm
     /// twice a day forever and buries the sales that could still be rescued.
     /// </summary>
@@ -356,6 +412,9 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
         public Dictionary<string, Invoice> ExistingByVanSaleOrder { get; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> FailFor { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>References SAP cannot be reached for, as opposed to ones it refuses.</summary>
+        public HashSet<string> UnreachableFor { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         private int _nextDocNum = 1000;
 
         public ISAPServiceLayerClient Client => StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
@@ -371,6 +430,11 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
 
         private Task<Invoice> CreateInvoice(CreateInvoiceRequest request)
         {
+            if (UnreachableFor.Contains(request.U_Van_saleorder ?? string.Empty))
+            {
+                throw new TimeoutException("The SAP Service Layer did not respond in time.");
+            }
+
             if (FailFor.Contains(request.U_Van_saleorder ?? string.Empty))
             {
                 throw new InvalidOperationException("SAP rejected the invoice: item is blocked for sale.");
