@@ -88,13 +88,20 @@ public class VanSalesCoverageTrendPoint
     public int RepsTrading { get; set; }
     public int? PlannedCalls { get; set; }
     public int? Calls { get; set; }
+
+    /// <summary>
+    /// Calls made on the days that stated a plan. The compliance numerator — using every call would
+    /// count work done on days the denominator excludes.
+    /// </summary>
+    public int? CallsAgainstPlan { get; set; }
+
     public int ProductiveCalls { get; set; }
     public int OutletsBought { get; set; }
     public int DaysWithoutPlan { get; set; }
     public int RepDaysWithoutRouteDay { get; set; }
 
     public double? CallComplianceRate =>
-        PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
+        PlannedCalls is > 0 && CallsAgainstPlan is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     public double? ProductiveCallRate =>
         Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;

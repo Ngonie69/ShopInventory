@@ -121,18 +121,23 @@ public sealed class GetVanSalesCoverageReportHandler(
 
         var buckets = BuildBuckets(from, to, query.Granularity);
 
+        // Built before the summary, which now derives its movement figures from it rather than
+        // recomputing them. Two sets of rules for "new", "returned" and "lapsed" on one page is how a
+        // tile and the table beneath it end up disagreeing.
+        var churn = BuildChurn(buckets, sales, priorSales, firstPurchases, query.LapseDays, priorFrom);
+
         var result = new VanSalesCoverageReportResult(
             FromDate: from,
             ToDate: to,
             PriorWindowFrom: priorFrom,
             LapseDays: query.LapseDays,
             Granularity: query.Granularity,
-            Summary: BuildSummary(sales, days, visitsByDay, calls, roster, reps, priorSales, firstPurchases, query, to),
+            Summary: BuildSummary(sales, days, visitsByDay, calls, roster, reps, churn),
             Trend: BuildTrend(buckets, sales, days, calls, from, to),
             Reps: BuildReps(sales, days, visitsByDay, calls, roster, reps),
             UncoveredOutlets: BuildUncovered(roster, reps, calls, priorCalls, sales, priorSales, to),
             LocationIntegrity: BuildLocationIntegrity(calls, reps),
-            Churn: BuildChurn(buckets, sales, priorSales, firstPurchases, query.LapseDays, priorFrom),
+            Churn: churn,
             LapsedOutlets: BuildLapsed(sales, priorSales, roster, reps, days, priorCalls, query.LapseDays, to),
             Concentration: BuildConcentration(sales, days),
             Outlets: BuildOutlets(sales, lines, calls, firstPurchases),
@@ -432,6 +437,7 @@ public sealed class GetVanSalesCoverageReportHandler(
                     RepsTrading: bucketSales.Select(sale => sale.UserId).Distinct().Count(),
                     PlannedCalls: planned.Count == 0 ? null : planned.Sum(day => day.PlannedCustomerCount),
                     Calls: CallsIn(bucketCalls),
+                    CallsAgainstPlan: callsAgainstPlan,
                     ProductiveCalls: VanSalesMeasures.CountProductiveCalls(bucketSales),
                     OutletsBought: VanSalesMeasures.CountOutletsThatBought(bucketSales),
                     DaysWithoutPlan: bucketDays.Count(day => day.PlannedCustomerCount == 0),
@@ -976,9 +982,15 @@ public sealed class GetVanSalesCoverageReportHandler(
             .GroupBy(line => line.Outlet!.Value)
             .ToDictionary(group => group.Key, group => group.ToList());
 
+        // Distinct days, not raw check-in rows. A rep who checks in twice at one shop in a day made
+        // one call — the rule every other measure in this suite keeps — and counting rows here put a
+        // day count over a row count, halving the conversion of any shop called at twice.
         var visitsByCode = calls
             .GroupBy(call => call.CustomerCode, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(call => call.TradingDate).Distinct().Count(),
+                StringComparer.OrdinalIgnoreCase);
 
         return sales
             .Where(sale => sale.Outlet.HasValue)
@@ -1034,6 +1046,16 @@ public sealed class GetVanSalesCoverageReportHandler(
 
     // ── Summary and quality ─────────────────────────────────────────────────────
 
+    /// <summary>
+    /// The period's headline figures.
+    /// </summary>
+    /// <remarks>
+    /// The three movement counts are taken from the churn series rather than recomputed. They used to
+    /// be worked out here with looser rules — "reactivated" meant any outlet that had bought in the
+    /// prior read, which is every ordinary repeat customer, and "lapsed" ignored the lapse window
+    /// entirely — so the tiles and the churn table on the same page answered the same three words
+    /// differently.
+    /// </remarks>
     private static VanSalesCoverageSummaryResult BuildSummary(
         List<VanSaleFact> sales,
         Dictionary<VanSalesDayKey, VanRouteDayEntity> days,
@@ -1041,10 +1063,7 @@ public sealed class GetVanSalesCoverageReportHandler(
         List<CallRow> calls,
         Dictionary<string, List<RosterRow>> roster,
         Dictionary<Guid, RepRow> reps,
-        List<VanSaleFact> priorSales,
-        Dictionary<VanSalesOutletKey, DateTime> firstPurchases,
-        GetVanSalesCoverageReportQuery query,
-        DateTime to)
+        List<VanSalesChurnPointResult> churn)
     {
         var dayKeys = sales.Select(sale => sale.Key)
             .Concat(calls.Select(call => new VanSalesDayKey(call.UserId, call.TradingDate)))
@@ -1068,19 +1087,6 @@ public sealed class GetVanSalesCoverageReportHandler(
 
         var visitedOnRoster = visited.Count(code => rosterCodes.Contains(code));
 
-        var boughtKeys = sales
-            .Where(sale => sale.Outlet.HasValue)
-            .Select(sale => sale.Outlet!.Value)
-            .ToHashSet();
-
-        var newOutlets = boughtKeys.Count(outlet =>
-            firstPurchases.TryGetValue(outlet, out var first) && first >= sales.Min(s => s.TradingDate));
-
-        var priorKeys = priorSales
-            .Where(sale => sale.Outlet.HasValue)
-            .Select(sale => sale.Outlet!.Value)
-            .ToHashSet();
-
         return new VanSalesCoverageSummaryResult(
             RepCount: dayKeys.Select(key => key.UserId).Distinct().Count(),
             RosterSize: rosterSize,
@@ -1089,16 +1095,13 @@ public sealed class GetVanSalesCoverageReportHandler(
             // Calls at shops that are not on any roster. Not noise: either the roster is stale or a
             // rep is working outlets nobody has on the books.
             OutletsVisitedOffRoster: visited.Count - visitedOnRoster,
-            OutletsBought: boughtKeys.Count,
+            OutletsBought: VanSalesMeasures.CountOutletsThatBought(sales),
             OutletsUncovered: roster
                 .SelectMany(pair => pair.Value)
                 .Count(row => !visited.Contains(row.Code)),
-            NewOutlets: sales.Count == 0 ? 0 : newOutlets,
-            ReactivatedOutlets: boughtKeys.Count(outlet =>
-                priorKeys.Contains(outlet)
-                && !(firstPurchases.TryGetValue(outlet, out var first)
-                     && sales.Count > 0 && first >= sales.Min(s => s.TradingDate))),
-            LapsedOutlets: priorKeys.Count(outlet => !boughtKeys.Contains(outlet)),
+            NewOutlets: churn.Sum(bucket => bucket.NewOutlets),
+            ReactivatedOutlets: churn.Sum(bucket => bucket.ReactivatedOutlets),
+            LapsedOutlets: churn.Sum(bucket => bucket.LapsedOutlets),
             Calls: VanSalesMeasures.CountCalls(dayKeys, visitsByDay),
             ProductiveCalls: VanSalesMeasures.CountProductiveCalls(sales),
             PlannedCalls: planned.Count == 0 ? null : planned.Sum(day => day.PlannedCustomerCount),

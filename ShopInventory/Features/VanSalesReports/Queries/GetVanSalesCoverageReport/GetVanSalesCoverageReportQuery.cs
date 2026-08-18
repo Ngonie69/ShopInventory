@@ -114,13 +114,23 @@ public sealed record VanSalesCoverageTrendPointResult(
     int RepsTrading,
     int? PlannedCalls,
     int? Calls,
+    int? CallsAgainstPlan,
     int ProductiveCalls,
     int OutletsBought,
     int DaysWithoutPlan,
     int RepDaysWithoutRouteDay)
 {
+    /// <summary>
+    /// Calls made on the days that stated a plan, over that plan.
+    /// </summary>
+    /// <remarks>
+    /// The numerator is <c>CallsAgainstPlan</c>, not <c>Calls</c>. A day whose plan reads zero is the
+    /// handset's failed count rather than a plan of none, and is left out of the denominator — so
+    /// leaving its calls in the numerator counted work against a plan that excluded it, and pushed
+    /// the rate above 100% on any bucket holding one of those days.
+    /// </remarks>
     public double? CallComplianceRate =>
-        PlannedCalls is > 0 && Calls is { } calls ? (double)calls / PlannedCalls.Value : null;
+        PlannedCalls is > 0 && CallsAgainstPlan is { } calls ? (double)calls / PlannedCalls.Value : null;
 
     public double? ProductiveCallRate =>
         Calls is > 0 ? (double)ProductiveCalls / Calls.Value : null;

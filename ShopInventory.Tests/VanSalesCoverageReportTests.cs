@@ -385,6 +385,100 @@ public sealed class VanSalesCoverageReportTests : IDisposable
         Assert.Equal(1, rep.ProductiveCalls);
     }
 
+    /// <summary>
+    /// Call compliance divided every call in the bucket by only the planned days' plan.
+    ///
+    /// A day whose plan reads zero is the handset's failed count, not a plan of none, so it is left
+    /// out of the denominator — and leaving its calls in the numerator counted work against a plan
+    /// that excluded it, pushing the rate above 100% on any bucket holding such a day.
+    /// </summary>
+    [Fact]
+    public async Task Call_compliance_counts_only_the_calls_on_days_that_stated_a_plan()
+    {
+        AddOutlet(VanAccount, "SHOP1", "Shop One");
+
+        // A planned day: ten planned, two called on.
+        AddRouteDay(Rep, new DateTime(2026, 8, 4), planned: 10);
+        AddVisit(Rep, "SHOP1", new DateTime(2026, 8, 4));
+        AddVisit(Rep, "SHOP2", new DateTime(2026, 8, 4));
+
+        // A day whose plan failed. Its eight calls must not be counted against the other day's plan.
+        AddRouteDay(OtherRep, new DateTime(2026, 8, 5), planned: 0);
+        foreach (var index in Enumerable.Range(0, 8))
+        {
+            AddVisit(OtherRep, $"OTHER{index}", new DateTime(2026, 8, 5));
+        }
+
+        AddSale(Rep, "S1", "SHOP1", 40m, new DateTime(2026, 8, 4));
+        await _context.SaveChangesAsync();
+
+        var bucket = Assert.Single((await RunAsync()).Trend);
+
+        Assert.Equal(10, bucket.PlannedCalls);
+        Assert.Equal(10, bucket.Calls);
+        Assert.Equal(2, bucket.CallsAgainstPlan);
+
+        // Two of ten, not ten of ten.
+        Assert.Equal(0.2, bucket.CallComplianceRate);
+        Assert.Equal(1, bucket.DaysWithoutPlan);
+    }
+
+    /// <summary>
+    /// Conversion put a count of purchase days over a count of raw check-in rows. A rep who checks in
+    /// twice at one shop in a day made one call — the rule every other measure here keeps — so a shop
+    /// called at twice and buying once read as 50% converted rather than 100%.
+    /// </summary>
+    [Fact]
+    public async Task Conversion_counts_days_called_on_not_check_in_rows()
+    {
+        AddOutlet(VanAccount, "TUCK01", "Tuck Shop");
+
+        // Two check-ins at one shop on one day: one call.
+        AddVisit(Rep, "TUCK01", new DateTime(2026, 8, 4));
+        AddVisit(Rep, "TUCK01", new DateTime(2026, 8, 4));
+        AddSale(Rep, "S1", "TUCK01", 40m, new DateTime(2026, 8, 4));
+        await _context.SaveChangesAsync();
+
+        var outlet = Assert.Single((await RunAsync()).Outlets);
+
+        Assert.Equal(1, outlet.VisitCount);
+        Assert.Equal(1, outlet.PurchaseDayCount);
+        Assert.Equal(1.0, outlet.ConversionRate);
+    }
+
+    /// <summary>
+    /// The summary worked out its own new / returned / lapsed with looser rules than the churn table
+    /// on the same page: "returned" meant any outlet that had bought in the prior read, which is every
+    /// ordinary repeat customer, and "lapsed" ignored the lapse window entirely.
+    ///
+    /// A shop buying steadily every month was reported as a reactivation, and one that bought a
+    /// fortnight before the window and simply had not come round yet was reported as lost.
+    /// </summary>
+    [Fact]
+    public async Task The_summary_movements_agree_with_the_churn_table()
+    {
+        AddOutlet(VanAccount, "REGULAR", "Buys Every Month");
+        AddOutlet(VanAccount, "RECENT", "Bought Just Before The Window");
+
+        // A steady customer: bought last month and again this month. Neither new nor returning.
+        AddSale(Rep, "OLD", "REGULAR", 40m, new DateTime(2026, 7, 10));
+        AddSale(Rep, "NEW", "REGULAR", 45m, new DateTime(2026, 8, 10));
+
+        // Bought a fortnight before the window and not since. Well inside a 90-day lapse window.
+        AddSale(Rep, "RECENT-1", "RECENT", 30m, new DateTime(2026, 7, 18));
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync();
+
+        Assert.Equal(0, report.Summary.ReactivatedOutlets);
+        Assert.Equal(0, report.Summary.LapsedOutlets);
+
+        // And the tiles are the churn table's own totals rather than a second opinion.
+        Assert.Equal(report.Churn.Sum(b => b.NewOutlets), report.Summary.NewOutlets);
+        Assert.Equal(report.Churn.Sum(b => b.ReactivatedOutlets), report.Summary.ReactivatedOutlets);
+        Assert.Equal(report.Churn.Sum(b => b.LapsedOutlets), report.Summary.LapsedOutlets);
+    }
+
     // --- Concentration ---
 
     /// <summary>

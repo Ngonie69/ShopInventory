@@ -237,7 +237,7 @@ public class VanSalesCoverageContractTests
         Trend:
         [
             new VanSalesCoverageTrendPointResult("Aug 2026", new DateTime(2026, 8, 1),
-                new DateTime(2026, 8, 31), false, 1, 120, 100, 80, 80, 0, 0)
+                new DateTime(2026, 8, 31), false, 1, 120, 100, 100, 80, 80, 0, 0)
         ],
         Reps:
         [
@@ -301,7 +301,7 @@ public class VanSalesCoverageContractTests
         Trend:
         [
             new VanSalesCoverageTrendPointResult("w/c 03 Aug", new DateTime(2026, 8, 3),
-                new DateTime(2026, 8, 9), true, 0, null, null, 0, 0, 1, 1)
+                new DateTime(2026, 8, 9), true, 0, null, null, null, 0, 0, 1, 1)
         ],
         Reps:
         [
