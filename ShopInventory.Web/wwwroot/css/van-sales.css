@@ -3071,3 +3071,389 @@
     color: var(--vs-bad);
     font-weight: 600;
 }
+
+/* ==========================================================================
+   `vsm-` — /van-sales/reports/margin
+
+   Its own prefix like every other page here, because sheets in this app are
+   separated by prefix alone and a duplicated one silently restyles a neighbour.
+
+   Same rules as its neighbours: every colour resolves through the alias block
+   at the head of this file, so both schemes come free and there is no
+   `.dark-theme .vsm` rule to forget; every selector is two classes deep so
+   app.css's global `.dark-theme input` rules at (0,1,1) cannot reach past them.
+
+   What this page draws that the others do not is an absence.
+
+   `vsm-absent` is the statement that the page is named for a figure it does not
+   carry, and it is drawn in the bad colour at the top of the report rather than
+   as a quiet note beside it. A page headed "margin" whose first visible content
+   is a number teaches the reader that the numbers are margins. They are revenue.
+   Its quieter twin `vsm-scope` sits further down this file and does the opposite
+   job: it appears when there IS a margin, and says how much of the period it
+   covers.
+
+   `vsm-kpi-absent` and the em-dash cells in the cost and margin columns are
+   drawn deliberately rather than omitted. A missing column invites somebody to
+   work one out from the revenue next to it; a column of dashes under a heading,
+   with the reason above, says the figure is coming and is not here yet.
+
+   `vsm-switch` is shown in both states, like the exceptions page's posting
+   banner and for the same reason: with the job down a growing uncostable share
+   is correct behaviour, and with it up the same share is a posting failure. A
+   reader who only ever sees a banner when it is bad cannot tell the state was
+   checked at all.
+   ========================================================================== */
+
+.vs .vsm-absent {
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.75rem;
+    background: color-mix(in srgb, var(--vs-bad) 8%, transparent);
+    border: 1px solid var(--vs-bad);
+    border-radius: var(--vs-r-md);
+    color: var(--vs-ink);
+    font-size: 0.88rem;
+}
+
+.vs .vsm-absent-title {
+    font-weight: 600;
+    color: var(--vs-bad);
+    margin-bottom: 0.2rem;
+}
+
+.vs .vsm-switch {
+    padding: 0.6rem 0.9rem;
+    margin-bottom: 1rem;
+    border-radius: var(--vs-r-md);
+    font-size: 0.85rem;
+}
+
+.vs .vsm-switch-off {
+    background: color-mix(in srgb, var(--vs-warn) 8%, transparent);
+    border: 1px solid var(--vs-warn);
+    color: var(--vs-ink);
+}
+
+.vs .vsm-switch-on {
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-rule);
+    color: var(--vs-mute);
+}
+
+.vs .vsm-kpis {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.vs .vsm-kpi {
+    padding: 0.85rem 1rem;
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-rule);
+    border-radius: var(--vs-r-md);
+}
+
+.vs .vsm-kpi-warn {
+    border-color: var(--vs-warn);
+}
+
+/* The absent figure, drawn as visibly empty rather than left out. */
+.vs .vsm-kpi-absent {
+    border-style: dashed;
+}
+
+.vs .vsm-kpi-absent .vsm-kpi-value {
+    color: var(--vs-mute);
+}
+
+.vs .vsm-kpi-value {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: var(--vs-ink);
+    line-height: 1.2;
+}
+
+.vs .vsm-kpi-label {
+    margin-top: 0.15rem;
+    font-size: 0.8rem;
+    color: var(--vs-mute);
+}
+
+.vs .vsm-kpi-sub {
+    margin-top: 0.3rem;
+    font-size: 0.75rem;
+    color: var(--vs-mute);
+}
+
+.vs .vsm-caveats {
+    padding: 0.85rem 1rem;
+    margin-bottom: 1.25rem;
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-rule);
+    border-left: 3px solid var(--vs-warn);
+    border-radius: var(--vs-r-md);
+}
+
+.vs .vsm-caveats-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--vs-mute);
+    margin-bottom: 0.4rem;
+}
+
+.vs .vsm-caveats ul {
+    margin: 0;
+    padding-left: 1.1rem;
+}
+
+.vs .vsm-caveats li {
+    font-size: 0.85rem;
+    color: var(--vs-ink);
+    margin-bottom: 0.25rem;
+}
+
+.vs .vsm-sections {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+}
+
+.vs .vsm-chip-count {
+    margin-left: 0.35rem;
+    opacity: 0.75;
+}
+
+.vs .vsm-heading {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--vs-ink);
+    margin-bottom: 0.25rem;
+}
+
+.vs .vsm-note {
+    font-size: 0.85rem;
+    color: var(--vs-mute);
+    margin-bottom: 0.75rem;
+    max-width: 68ch;
+}
+
+.vs .vsm-name {
+    font-weight: 500;
+}
+
+.vs .vsm-sub {
+    margin-top: 0.1rem;
+    font-size: 0.78rem;
+    color: var(--vs-mute);
+}
+
+/* A costable share under half. Not an error — with the posting job down it is the
+   expected reading — so it is marked rather than flagged. */
+.vs .vsm-thin {
+    color: var(--vs-warn);
+}
+
+@media (max-width: 1100px) {
+    .vs .vsm-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 620px) {
+    .vs .vsm-kpis {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ==========================================================================
+   `vsd-` — /van-sales/reports/schedules
+
+   The tenth and last page on this sheet, and the only one that causes anything
+   to leave the building. Its own prefix like every other page here, because
+   sheets in this app are separated by prefix alone.
+
+   Same rules as the nine above it: every colour resolves through the alias
+   block at the head of this file, so both schemes come free and there is no
+   `.dark-theme .vsd` rule to forget; every selector is two classes deep so
+   app.css's global `.dark-theme input` rules at (0,1,1) cannot reach past them.
+
+   What this page draws that the others do not is state that is dangerous to
+   misread.
+
+   `vsd-master` is drawn in both positions and coloured differently in each. A
+   reader has to be able to tell at a glance whether a list of schedules is live
+   or held, because the same list means opposite things in the two cases — and
+   the off state is the quiet one, since nothing sending is the safe condition
+   rather than a fault.
+
+   `vsd-row-off` fades a paused schedule rather than hiding it. Hidden rows are
+   how somebody concludes a schedule was deleted and creates a second one.
+
+   `vsd-error` is on the row rather than in a log. A report that has quietly
+   stopped arriving is the failure nobody reports, because the recipients assume
+   there was nothing to send.
+   ========================================================================== */
+
+.vs .vsd-master {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.85rem 1rem;
+    margin-bottom: 1rem;
+    border-radius: var(--vs-r-md);
+    font-size: 0.88rem;
+}
+
+.vs .vsd-master-text {
+    flex: 1 1 20rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.vs .vsd-master-text strong {
+    color: var(--vs-ink);
+}
+
+.vs .vsd-master-text span {
+    color: var(--vs-mute);
+}
+
+/* Live. Marked, not alarming — this is the working state. */
+.vs .vsd-master-on {
+    background: color-mix(in srgb, var(--vs-good) 7%, transparent);
+    border: 1px solid var(--vs-good);
+}
+
+/* Held. The quiet one: nothing sending is safe, not broken. */
+.vs .vsd-master-off {
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-rule);
+}
+
+.vs .vsd-name {
+    font-weight: 500;
+}
+
+.vs .vsd-sub {
+    margin-top: 0.15rem;
+    font-size: 0.78rem;
+    color: var(--vs-mute);
+}
+
+/* Faded, never hidden — a hidden schedule gets recreated by somebody who thought
+   it was gone. */
+.vs .vsd-row-off td {
+    opacity: 0.6;
+}
+
+.vs .vsd-error {
+    margin-top: 0.15rem;
+    font-size: 0.78rem;
+    color: var(--vs-bad);
+    cursor: help;
+}
+
+.vs .vsd-actions {
+    display: flex;
+    gap: 0.35rem;
+    white-space: nowrap;
+}
+
+/* — The editor — */
+
+.vs .vsd-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.45);
+}
+
+.vs .vsd-dialog {
+    display: flex;
+    flex-direction: column;
+    width: min(34rem, 100%);
+    max-height: 90vh;
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-rule);
+    border-radius: var(--vs-r-lg);
+    overflow: hidden;
+}
+
+.vs .vsd-dialog-head {
+    padding: 0.9rem 1.1rem;
+    border-bottom: 1px solid var(--vs-rule);
+}
+
+.vs .vsd-dialog-title {
+    font-weight: 600;
+    color: var(--vs-ink);
+}
+
+.vs .vsd-dialog-body {
+    padding: 1.1rem;
+    overflow-y: auto;
+}
+
+.vs .vsd-dialog-foot {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.9rem 1.1rem;
+    border-top: 1px solid var(--vs-rule);
+}
+
+.vs .vsd-spacer {
+    flex: 1 1 auto;
+}
+
+.vs .vsd-field {
+    display: block;
+    width: 100%;
+    margin-bottom: 0.9rem;
+    padding: 0.5rem 0.65rem;
+    background: var(--vs-field-bg);
+    border: 1px solid var(--vs-field-edge);
+    border-radius: var(--vs-r-sm);
+    color: var(--vs-ink);
+    font-size: 0.9rem;
+}
+
+.vs .vsd-field:focus {
+    outline: none;
+    border-color: var(--vs-field-edge-hi);
+}
+
+.vs .vsd-area {
+    min-height: 4.5rem;
+    resize: vertical;
+}
+
+.vs .vsd-hint {
+    margin: -0.5rem 0 0.9rem;
+    font-size: 0.78rem;
+    color: var(--vs-mute);
+}
+
+.vs .vsd-check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    color: var(--vs-ink);
+    font-size: 0.9rem;
+}
+
+.vs .vsd-danger {
+    color: var(--vs-bad);
+    border-color: var(--vs-bad);
+}
