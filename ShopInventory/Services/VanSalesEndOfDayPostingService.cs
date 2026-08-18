@@ -37,7 +37,7 @@ public sealed class VanSalesEndOfDayPostingService(
     /// Two runs a night means a sale that is genuinely wrong stops re-attempting after a few days rather
     /// than raising the same alarm forever.
     /// </summary>
-    private const int MaxPostingAttempts = 6;
+    internal const int MaxPostingAttempts = 6;
 
     public async Task<VanSalesPostingRunResult> PostPendingSalesAsync(
         DateTime tradingDate,
@@ -55,7 +55,7 @@ public sealed class VanSalesEndOfDayPostingService(
         // The upper bound is safe in a way the lower one is not: a handset whose clock runs ahead posts
         // when its date arrives, a day or two late, while a sale behind the run date has no later run
         // coming for it at all.
-        var windowStart = date.AddDays(-Math.Max(0, settings.Value.LookbackDays));
+        var windowStart = settings.Value.WindowStart(date);
 
         var pending = await context.DesktopSales
             .Include(s => s.Lines)
@@ -98,27 +98,9 @@ public sealed class VanSalesEndOfDayPostingService(
                 break;
             }
 
-            try
-            {
-                await PostOneAsync(sale, result, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                // Never let one sale stop the run: the rest of the day's takings still need to reach SAP,
-                // and this one will be offered again by the mop-up.
-                sale.PostingAttempts++;
-                sale.LastPostingError = Truncate(ex.Message, 2000);
-                result.Failed++;
-                result.Errors.Add($"{sale.ExternalReferenceId}: {ex.Message}");
-
-                logger.LogError(
-                    ex,
-                    "Failed to post van sale {ExternalReference} (receipt {ReceiptGlobalNo}) to SAP. Attempt {Attempt} of {Max}.",
-                    sale.ExternalReferenceId,
-                    sale.ReceiptGlobalNo,
-                    sale.PostingAttempts,
-                    MaxPostingAttempts);
-            }
+            // Never let one sale stop the run: the rest of the day's takings still need to reach SAP,
+            // and this one will be offered again by the mop-up.
+            await TryPostAsync(sale, result, cancellationToken);
         }
 
         await context.SaveChangesAsync(cancellationToken);
@@ -128,6 +110,76 @@ public sealed class VanSalesEndOfDayPostingService(
             windowStart, date, result.Posted, result.Adopted, result.Failed);
 
         return result;
+    }
+
+    /// <summary>
+    /// Posts one named sale, whatever day it belongs to and whatever its attempt count. Returns null
+    /// when there is no such sale, or when it is not this route's to post.
+    /// </summary>
+    /// <remarks>
+    /// What the exception center's retry calls. Resetting the sale's attempt count and waiting for the
+    /// next pass would not do: the sales most in need of a retry are the ones that fell out of the
+    /// lookback window, and no pass is ever going to ask for their day again.
+    ///
+    /// The attempt cap is not applied here either. It exists to stop an automatic pass re-attempting a
+    /// hopeless sale twice an hour forever, and a person pressing retry has said otherwise.
+    /// </remarks>
+    public async Task<VanSalesPostingRunResult?> PostSaleAsync(
+        int saleId,
+        CancellationToken cancellationToken = default)
+    {
+        var sale = await context.DesktopSales
+            .Include(s => s.Lines)
+            .FirstOrDefaultAsync(s => s.Id == saleId, cancellationToken);
+
+        if (sale is null ||
+            sale.SourceSystem != SaleSourceSystems.VanSales ||
+            sale.ConsolidationStatus != DesktopSaleConsolidationStatus.Pending)
+        {
+            return null;
+        }
+
+        // Its own trading day at both ends: this posts exactly one sale, so there is no window.
+        var result = new VanSalesPostingRunResult(sale.DocDate.Date, sale.DocDate.Date);
+
+        await TryPostAsync(sale, result, cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "Van sale {ExternalReference} was posted on request: {Posted} posted, {Adopted} already in SAP, {Failed} failed.",
+            sale.ExternalReferenceId, result.Posted, result.Adopted, result.Failed);
+
+        return result;
+    }
+
+    /// <summary>
+    /// Posts one sale and records what happened to it, a failure included. Never throws: a sale SAP
+    /// refuses is an outcome to be written down, not an exception every caller has to be ready for.
+    /// </summary>
+    private async Task TryPostAsync(
+        DesktopSaleEntity sale,
+        VanSalesPostingRunResult result,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await PostOneAsync(sale, result, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            sale.PostingAttempts++;
+            sale.LastPostingError = Truncate(ex.Message, 2000);
+            result.Failed++;
+            result.Errors.Add($"{sale.ExternalReferenceId}: {ex.Message}");
+
+            logger.LogError(
+                ex,
+                "Failed to post van sale {ExternalReference} (receipt {ReceiptGlobalNo}) to SAP. Attempt {Attempt} of {Max}.",
+                sale.ExternalReferenceId,
+                sale.ReceiptGlobalNo,
+                sale.PostingAttempts,
+                MaxPostingAttempts);
+        }
     }
 
     private async Task PostOneAsync(

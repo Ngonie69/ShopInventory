@@ -30,6 +30,17 @@ public static class ExceptionCenterSources
     /// <summary>Approved transfer request changes that failed to reach SAP. Guid keyed.</summary>
     public const string PendingTransferRequestEditApply = "pending-transfer-request-edit-apply";
 
+    /// <summary>
+    /// Fiscalised van sales that have not reached SAP. Int keyed, on the desktop sale's own id.
+    /// </summary>
+    /// <remarks>
+    /// The only source whose rows are not all failures. A van sale carries the trading day the handset
+    /// sold it on, and the posting job reaches back a bounded number of days, so a sale can fall out of
+    /// every future run's reach without any pass ever having touched it — no error, no attempts, no
+    /// trace. Those are exactly the ones nothing else would ever mention.
+    /// </remarks>
+    public const string VanSalePosting = "van-sale-posting";
+
     public static string Normalize(string? source)
         => (source ?? string.Empty).Trim().ToLowerInvariant();
 
@@ -52,6 +63,7 @@ public static class ExceptionCenterSources
             CreditNoteFiscalization => "credit note fiscalization",
             PendingInventoryTransferPost => "approved transfer awaiting its SAP post",
             PendingTransferRequestEditApply => "approved transfer request change awaiting SAP",
+            VanSalePosting => "van sale awaiting SAP",
             _ => "unrecognised source"
         };
 
@@ -66,7 +78,8 @@ public static class ExceptionCenterSources
                 or PaymentCallbackRejection
                 or CreditNoteFiscalization
                 or PendingInventoryTransferPost
-                or PendingTransferRequestEditApply => true,
+                or PendingTransferRequestEditApply
+                or VanSalePosting => true,
             _ => false
         };
 
@@ -82,7 +95,8 @@ public static class ExceptionCenterSources
                 or MobileOrderPostProcessing
                 or IncomingPaymentQueue
                 or PendingInventoryTransferPost
-                or PendingTransferRequestEditApply => true,
+                or PendingTransferRequestEditApply
+                or VanSalePosting => true,
             _ => false
         };
 

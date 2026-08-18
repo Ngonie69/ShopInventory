@@ -1,11 +1,15 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.ExceptionCenter.Queries.GetExceptionCenter;
 
@@ -17,6 +21,7 @@ namespace ShopInventory.Features.ExceptionCenter.Queries.GetExceptionCenter;
 /// </summary>
 public sealed class GetExceptionCenterHandler(
     ApplicationDbContext context,
+    IOptions<VanSalesPostingSettings> vanSalesPostingSettings,
     ILogger<GetExceptionCenterHandler> logger
 ) : IRequestHandler<GetExceptionCenterQuery, ErrorOr<ExceptionCenterDashboardDto>>
 {
@@ -44,6 +49,7 @@ public sealed class GetExceptionCenterHandler(
     private const string CreditNoteFiscalizationSource = ExceptionCenterSources.CreditNoteFiscalization;
     private const string PendingTransferPostSource = ExceptionCenterSources.PendingInventoryTransferPost;
     private const string PendingEditApplySource = ExceptionCenterSources.PendingTransferRequestEditApply;
+    private const string VanSalePostingSource = ExceptionCenterSources.VanSalePosting;
 
     private const string TriageBlocked = "Blocked";
     private const string TriageRetrying = "Retrying";
@@ -69,6 +75,11 @@ public sealed class GetExceptionCenterHandler(
             var pendingTransferItems = await LoadPendingTransferPostFailuresAsync(context, AnalysisScanLimit, cancellationToken);
             var pendingEditItems = await LoadPendingRequestEditApplyFailuresAsync(context, AnalysisScanLimit, cancellationToken);
 
+            var vanSaleWindowStart = vanSalesPostingSettings.Value.WindowStart(
+                VanSalesPostingSettings.CurrentTradingDate());
+            var vanSaleItems = await LoadVanSalePostingFailuresAsync(
+                context, vanSaleWindowStart, AnalysisScanLimit, cancellationToken);
+
             var items = invoiceItems
                 .Concat(transferItems)
                 .Concat(mobileItems)
@@ -77,6 +88,7 @@ public sealed class GetExceptionCenterHandler(
                 .Concat(incidentItems)
                 .Concat(pendingTransferItems)
                 .Concat(pendingEditItems)
+                .Concat(vanSaleItems)
                 .ToList();
 
             EnsureItemKeys(items);
@@ -382,7 +394,12 @@ public sealed class GetExceptionCenterHandler(
                 p => p.Status == PendingInventoryTransferStatuses.PostFailed, cancellationToken),
 
             [PendingEditApplySource] = await context.PendingTransferRequestEdits.CountAsync(
-                e => e.Status == PendingTransferRequestEditStatuses.ApplyFailed, cancellationToken)
+                e => e.Status == PendingTransferRequestEditStatuses.ApplyFailed, cancellationToken),
+
+            [VanSalePostingSource] = await context.DesktopSales.CountAsync(
+                VanSalePostingPredicate(
+                    vanSalesPostingSettings.Value.WindowStart(VanSalesPostingSettings.CurrentTradingDate())),
+                cancellationToken)
         };
 
     private async Task AttachOperatorStateAsync(
@@ -701,6 +718,7 @@ public sealed class GetExceptionCenterHandler(
             CreditNoteFiscalizationSource => "Credit note fiscalization",
             PendingTransferPostSource => "Approved transfers awaiting SAP",
             PendingEditApplySource => "Approved request changes awaiting SAP",
+            VanSalePostingSource => "Van sales awaiting SAP",
             _ => source
         };
 
@@ -822,6 +840,106 @@ public sealed class GetExceptionCenterHandler(
                 OccurredAtUtc = e.DecidedAtUtc ?? e.CreatedAtUtc,
                 NextRetryAtUtc = null,
                 CanRetry = true
+            })
+            .ToList();
+    }
+
+    /// <summary>
+    /// What counts as a van sale the exception center should be showing. Written once and shared by the
+    /// listing and the count, so the headline number cannot disagree with the rows under it.
+    /// </summary>
+    /// <remarks>
+    /// Two populations, and the second is the reason this source exists. A sale SAP refused says so in
+    /// <c>LastPostingError</c> and is offered again by the next pass. A sale that fell out of the posting
+    /// window says nothing at all: no error, no attempts, and no run will ever ask for its trading day
+    /// again, because the window only moves forward. Before this source, that second kind was invisible.
+    ///
+    /// A van sale merely waiting for the next pass is neither, and is deliberately not here — the whole
+    /// route works by holding sales for a while, so listing them would report normal operation as a fault.
+    /// </remarks>
+    internal static System.Linq.Expressions.Expression<Func<DesktopSaleEntity, bool>> VanSalePostingPredicate(
+        DateTime windowStart)
+        => sale => sale.SourceSystem == SaleSourceSystems.VanSales
+                   && sale.ConsolidationStatus == DesktopSaleConsolidationStatus.Pending
+                   && (sale.LastPostingError != null || sale.DocDate < windowStart);
+
+    /// <summary>
+    /// Fiscalised van sales that have not reached SAP. Int keyed, on the sale's own id.
+    /// </summary>
+    /// <remarks>
+    /// <c>MaxRetries</c> carries the distinction the triage reads: the posting job's attempt cap for a
+    /// sale still inside the window, and zero for one that has fallen outside it. Zero is what
+    /// <see cref="Enrich"/> treats as "nothing reattempts this on a timer", which for a stranded sale is
+    /// the literal truth and puts it in front of a human instead of leaving it labelled as retrying.
+    /// </remarks>
+    internal static async Task<List<ExceptionCenterItemDto>> LoadVanSalePostingFailuresAsync(
+        ApplicationDbContext context,
+        DateTime windowStart,
+        int perSourceLimit,
+        CancellationToken cancellationToken)
+    {
+        var rows = await context.DesktopSales
+            .AsNoTracking()
+            .Where(VanSalePostingPredicate(windowStart))
+            // Oldest trading day first: the further back a sale is, the longer its takings have been
+            // missing from SAP and the less likely anything else is going to mention it.
+            .OrderBy(s => s.DocDate)
+            .ThenBy(s => s.Id)
+            .Take(perSourceLimit)
+            .Select(s => new
+            {
+                s.Id,
+                s.ExternalReferenceId,
+                s.DocDate,
+                s.CardCode,
+                s.RouteCustomerName,
+                s.TotalAmount,
+                s.Currency,
+                s.WarehouseCode,
+                s.ReceiptGlobalNo,
+                s.PostingAttempts,
+                s.LastPostingError,
+                s.CreatedAt,
+                LineCount = s.Lines.Count
+            })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(s =>
+            {
+                var stranded = s.DocDate.Date < windowStart.Date;
+
+                return new ExceptionCenterItemDto
+                {
+                    Source = VanSalePostingSource,
+                    ItemId = s.Id,
+                    Category = "SAP Posting",
+                    Title = stranded
+                        ? "Van sale stranded outside the posting window"
+                        : "Van sale posting issue",
+                    Reference = string.IsNullOrWhiteSpace(s.ExternalReferenceId)
+                        ? $"Van sale #{s.Id}"
+                        : s.ExternalReferenceId,
+                    Status = stranded ? "Stranded" : "Failed",
+                    SourceSystem = $"Van {s.WarehouseCode}, sold {s.DocDate:yyyy-MM-dd}"
+                                   + (s.ReceiptGlobalNo.HasValue ? $", ZIMRA receipt {s.ReceiptGlobalNo}" : string.Empty),
+                    LastError = stranded && string.IsNullOrWhiteSpace(s.LastPostingError)
+                        // It has no error of its own to report, and a blank cell would read as "no
+                        // problem here" on the one row where nothing at all has happened.
+                        ? $"Sold on {s.DocDate:yyyy-MM-dd}, which is outside the posting window; no run will offer it to SAP again."
+                        : s.LastPostingError,
+                    RetryCount = s.PostingAttempts,
+                    MaxRetries = stranded ? 0 : VanSalesEndOfDayPostingService.MaxPostingAttempts,
+                    CreatedAtUtc = s.CreatedAt,
+                    OccurredAtUtc = s.CreatedAt,
+                    NextRetryAtUtc = null,
+                    CanRetry = true,
+                    Amount = s.TotalAmount,
+                    Currency = s.Currency,
+                    Counterparty = string.IsNullOrWhiteSpace(s.RouteCustomerName) ? s.CardCode : s.RouteCustomerName,
+                    Location = s.WarehouseCode,
+                    LineCount = s.LineCount
+                };
             })
             .ToList();
     }

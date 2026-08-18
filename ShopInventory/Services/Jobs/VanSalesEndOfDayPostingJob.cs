@@ -1,4 +1,5 @@
 using Quartz;
+using ShopInventory.Configuration;
 
 namespace ShopInventory.Services;
 
@@ -32,15 +33,12 @@ public sealed class VanSalesEndOfDayPostingJob(
         using var scope = serviceProvider.CreateScope();
         var postingService = scope.ServiceProvider.GetRequiredService<VanSalesEndOfDayPostingService>();
 
-        // Every trigger fires within the CAT trading day, so "today" is the trading day for all of them.
-        // Computed from CAT rather than UTC because a run after 22:00 CAT is already tomorrow in UTC, and
-        // would go looking for a day that has not started.
-        //
-        // Today is the end of the window, not the whole of it. A sale carries the day the handset sold it
-        // on, so a van out of coverage overnight uploads sales already dated to yesterday, and no run ever
-        // asks for yesterday again. VanSalesPostingSettings.LookbackDays is what stops those being
-        // stranded; passing anything other than today here would move the window, not widen it.
-        var tradingDate = DateTime.UtcNow.AddHours(2).Date;
+        // Every trigger fires within the CAT trading day, so "today" is the trading day for all of them,
+        // and it is the end of the window rather than the whole of it. A sale carries the day the handset
+        // sold it on, so a van out of coverage overnight uploads sales already dated to yesterday, and no
+        // run ever asks for yesterday again. VanSalesPostingSettings.LookbackDays is what stops those
+        // being stranded; passing anything other than today here would move the window, not widen it.
+        var tradingDate = VanSalesPostingSettings.CurrentTradingDate();
 
         try
         {
