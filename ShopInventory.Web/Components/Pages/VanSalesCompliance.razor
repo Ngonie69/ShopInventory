@@ -240,9 +240,10 @@
                 var isOpen = key == openRow;
                 var flag = PrimaryFlag(row.Gaps);
                 var declared = day.DeclaredTotal;
-                var variance = day.DeclaredVariance;
                 var missing = row.Gaps.HasFlag(Gaps.NoDeparture);
-                var declarationOff = declared is null ? day.SystemTotalSales > 0 : variance != 0;
+                var declarationOff = declared is null
+                    ? day.SystemTotalSales > 0
+                    : day.DeclaredShortfall is not null || day.DeclaredOverage is not null;
 
                 <div @key="key">
                     <button type="button" class="vsc-rowbtn" aria-expanded="@isOpen"
@@ -360,14 +361,33 @@
                                     @TenderItem("Innbucks", day.SystemInnbucks, day.DeclaredInnbucks)
                                     @if (day.SystemOther > 0)
                                     {
-                                        @* Online direct invoices carry no payment method, so they cannot be
-                                           attributed to a tender. Shown as its own figure rather than folded
-                                           into cash, which would be a guess presented as a fact. *@
-                                        @ItemWithNote("Unallocated", day.SystemOther.ToString("N2"), "no tender recorded", false)
+                                        @* A card swipe settles at the terminal rather than reaching the
+                                           pouch, and the handset offers no box to declare it in. Shown so
+                                           the day's sales still add up on the page, and deliberately left
+                                           out of the variance below. *@
+                                        @ItemWithNote("Swipe", day.SystemOther.ToString("N2"), "settled at the terminal", false)
+                                    }
+                                    @if (day.SystemUntendered > 0)
+                                    {
+                                        @* Handsets built before the payment picker send no payment method.
+                                           Shown as its own figure rather than folded into cash, which would
+                                           be a guess presented as a fact — but it is also money the rep may
+                                           have counted into the cash above, so it sets the tolerance on the
+                                           variance rather than being charged against them. *@
+                                        @ItemWithNote("Untendered", day.SystemUntendered.ToString("N2"), "no tender recorded", false)
                                     }
                                     @Item("Day sales",
                                           $"{day.SystemTotalSales:N2}{(string.IsNullOrWhiteSpace(day.Currency) ? "" : " " + day.Currency)}",
                                           false)
+                                    @if (day.SystemDeclarableTakings != day.SystemTotalSales)
+                                    {
+                                        @* The figure the declaration is actually measured against. Without
+                                           it the reader sees a three-tender total sitting under a five-term
+                                           day and has to work out for themselves which one the variance
+                                           came from. *@
+                                        @ItemWithNote("Declarable", day.SystemDeclarableTakings.ToString("N2"),
+                                                      "cash, ecocash and innbucks", false)
+                                    }
                                     @ItemWithNote("Total declared", FormatMoney(declared), VarianceText(day), declarationOff)
                                 </div>
                             </div>
@@ -393,7 +413,16 @@
                 <span class="vsc-num vsc-right @NoneClass(totals.Kilometres)">
                     @(totals.Kilometres?.ToString("N0") ?? "—")
                 </span>
-                <span class="vsc-num @NoneClass(totals.Declared)">@FormatMoney(totals.Declared)</span>
+                <span class="vsc-cell">
+                    <span class="vsc-num @NoneClass(totals.Declared)">@FormatMoney(totals.Declared)</span>
+                    @if (totals.Declarable is { } declarable)
+                    {
+                        @* Named because the Sales column two cells over is not what this was
+                           measured against, and a reader subtracting one from the other would
+                           arrive back at the figure this page no longer reports. *@
+                        <span class="vsc-sub">vs @declarable.ToString("N2") declarable</span>
+                    }
+                </span>
                 <span></span>
             </div>
         </div>
@@ -666,16 +695,24 @@
             }
         }
 
-        if (day.SystemTotalSales > 0)
+        if (day.SystemTotalSales > 0 && day.DeclaredTotal is null)
         {
-            if (day.DeclaredTotal is null)
-            {
-                gaps |= Gaps.NothingDeclared;
-            }
-            else if (day.DeclaredVariance < 0)
-            {
-                gaps |= Gaps.ShortDeclaration;
-            }
+            gaps |= Gaps.NothingDeclared;
+        }
+
+        // Both read from the API's own definitions rather than from the raw variance. A rep whose day
+        // included a sale with no tender on it used to be marked short by exactly that sale's value —
+        // money the handset gave them no box to declare. The shortfall is now measured against the
+        // takings they could declare, and the overage allows every untendered sale to have been cash
+        // they collected before it calls anything unaccounted for.
+        if (day.DeclaredShortfall is not null)
+        {
+            gaps |= Gaps.ShortDeclaration;
+        }
+
+        if (day.DeclaredOverage is not null)
+        {
+            gaps |= Gaps.OverDeclaration;
         }
 
         if (day.CallComplianceRate is { } ccr && ccr < CcrTarget)
@@ -701,6 +738,9 @@
         if (gaps.HasFlag(Gaps.NoDeparture)) return ("No departure record", true);
         if (gaps.HasFlag(Gaps.NothingDeclared)) return ("Nothing declared", true);
         if (gaps.HasFlag(Gaps.ShortDeclaration)) return ("Short declaration", true);
+        // A rep who counts back more than the day can account for is as much a finding as one who
+        // counts back less — an unrecorded sale, most often — and carried no badge at all before.
+        if (gaps.HasFlag(Gaps.OverDeclaration)) return ("Over declaration", true);
         if (gaps.HasFlag(Gaps.LateOut)) return ("Late out", false);
         if (gaps.HasFlag(Gaps.NoOdometer)) return ("No odometer", false);
 
@@ -712,7 +752,9 @@
         new(AllRepDays, "All rep-days", _ => true),
         new("departure", "No departure record", gaps => gaps.HasFlag(Gaps.NoDeparture)),
         new("money", "Money not accounted for",
-            gaps => gaps.HasFlag(Gaps.NothingDeclared) || gaps.HasFlag(Gaps.ShortDeclaration)),
+            gaps => gaps.HasFlag(Gaps.NothingDeclared)
+                    || gaps.HasFlag(Gaps.ShortDeclaration)
+                    || gaps.HasFlag(Gaps.OverDeclaration)),
         new("ccr", "CCR under target", gaps => gaps.HasFlag(Gaps.CcrUnderTarget)),
         new("pcr", "PCR under target", gaps => gaps.HasFlag(Gaps.PcrUnderTarget)),
         new("odometer", "No odometer", gaps => gaps.HasFlag(Gaps.NoOdometer))
@@ -762,6 +804,8 @@
             if (day.DeclaredTotal is { } declared)
             {
                 totals.DeclaredRead += declared;
+                // Over the declaring rows only, so the base matches the total it sits under.
+                totals.DeclarableRead += day.SystemDeclarableTakings;
                 totals.DeclaredRows++;
             }
         }
@@ -792,6 +836,13 @@
             : $"{FormatTime(day.TimeOut)} — still out";
     }
 
+    /// <summary>
+    /// The line under the declared figure, and the only place a reader is told why a gap is not one.
+    ///
+    /// A rep who counted more than the declarable takings, by no more than the sales the handset put
+    /// no tender on, counted an untendered sale as cash. That is named rather than called an overage,
+    /// because it is the likeliest reading and the arithmetic cannot distinguish it from any other.
+    /// </summary>
     private static string VarianceText(DepartureComplianceDay day)
     {
         if (day.DeclaredTotal is null)
@@ -799,14 +850,19 @@
             return day.SystemTotalSales > 0 ? "not declared" : "nothing to declare";
         }
 
-        var variance = day.DeclaredVariance ?? 0;
-
-        return variance switch
+        if (day.DeclaredShortfall is { } shortfall)
         {
-            0 => "balanced",
-            < 0 => $"short {Math.Abs(variance):N2}",
-            _ => $"over {variance:N2}"
-        };
+            return $"short {shortfall:N2}";
+        }
+
+        if (day.DeclaredOverage is { } overage)
+        {
+            return $"over {overage:N2}";
+        }
+
+        return day.DeclaredVariance is { } variance && variance > 0
+            ? $"balanced · {variance:N2} untendered"
+            : "balanced";
     }
 
     private static string DayNote(DepartureComplianceDay day)
@@ -1036,8 +1092,9 @@
         csv.AppendLine(
             "Trading date,Rep,Username,Territory,Route code,Route,Truck,Time out,Time in,Day closed,"
             + "Customers planned,Customers visited,Productive calls,CCR %,PCR %,AOV,"
-            + "Sales,Currency,Cash,Ecocash,Innbucks,Unallocated,"
+            + "Sales,Currency,Cash,Ecocash,Innbucks,Swipe,Untendered,Declarable takings,"
             + "Declared cash,Declared ecocash,Declared innbucks,Declared total,Variance,"
+            + "Shortfall,Overage,"
             + "Odometer out,Odometer in,Kilometres,New customers,Returns out,Returns back,Flags,Notes");
 
         foreach (var row in rows)
@@ -1067,11 +1124,16 @@
                 Number(day.SystemEcocash),
                 Number(day.SystemInnbucks),
                 Number(day.SystemOther),
+                Number(day.SystemUntendered),
+                Number(day.SystemDeclarableTakings),
                 Number(day.DeclaredCash),
                 Number(day.DeclaredEcocash),
                 Number(day.DeclaredInnbucks),
                 Number(day.DeclaredTotal),
                 Number(day.DeclaredVariance),
+                // Blank where there is no finding, which is not a finding of zero.
+                Number(day.DeclaredShortfall),
+                Number(day.DeclaredOverage),
                 Number(day.StartingMileage),
                 Number(day.ClosingMileage),
                 Number(day.KilometresTravelled),
@@ -1099,6 +1161,7 @@
         if (gaps.HasFlag(Gaps.NoDeparture)) names.Add("No departure record");
         if (gaps.HasFlag(Gaps.NothingDeclared)) names.Add("Nothing declared");
         if (gaps.HasFlag(Gaps.ShortDeclaration)) names.Add("Short declaration");
+        if (gaps.HasFlag(Gaps.OverDeclaration)) names.Add("Over declaration");
         if (gaps.HasFlag(Gaps.LateOut)) names.Add("Late out");
         if (gaps.HasFlag(Gaps.NoOdometer)) names.Add("No odometer");
         if (gaps.HasFlag(Gaps.CcrUnderTarget)) names.Add("CCR under target");
@@ -1154,7 +1217,8 @@
         LateOut = 8,
         NoOdometer = 16,
         CcrUnderTarget = 32,
-        PcrUnderTarget = 64
+        PcrUnderTarget = 64,
+        OverDeclaration = 128
     }
 
     private sealed class PeriodTotals
@@ -1172,6 +1236,7 @@
         public int KilometreRows { get; set; }
 
         public decimal DeclaredRead { get; set; }
+        public decimal DeclarableRead { get; set; }
         public int DeclaredRows { get; set; }
 
         public int Gaps => RepDays - Clean;
@@ -1186,5 +1251,8 @@
         public int? Kilometres => KilometreRows > 0 ? KilometresRead : null;
 
         public decimal? Declared => DeclaredRows > 0 ? DeclaredRead : null;
+
+        /// <summary>What those declarations were measured against — never the period's sales.</summary>
+        public decimal? Declarable => DeclaredRows > 0 ? DeclarableRead : null;
     }
 }

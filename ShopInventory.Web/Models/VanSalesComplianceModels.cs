@@ -47,6 +47,7 @@ public class DepartureComplianceDay
     public decimal SystemEcocash { get; set; }
     public decimal SystemInnbucks { get; set; }
     public decimal SystemOther { get; set; }
+    public decimal SystemUntendered { get; set; }
     public decimal SystemTotalSales { get; set; }
 
     public decimal? DeclaredCash { get; set; }
@@ -85,8 +86,29 @@ public class DepartureComplianceDay
             ? null
             : (DeclaredCash ?? 0) + (DeclaredEcocash ?? 0) + (DeclaredInnbucks ?? 0);
 
+    /// <summary>
+    /// The takings the rep is in a position to declare — the three tenders the sheet has columns for,
+    /// which is deliberately not the day's sales. A swipe and an untendered sale have no box on the
+    /// handset, so neither can ever appear in <see cref="DeclaredTotal"/>.
+    /// </summary>
+    public decimal SystemDeclarableTakings => SystemCash + SystemEcocash + SystemInnbucks;
+
+    /// <summary>What the rep counted, less the takings they could count.</summary>
     public decimal? DeclaredVariance =>
-        DeclaredTotal is { } declared ? decimal.Round(declared - SystemTotalSales, 2) : null;
+        DeclaredTotal is { } declared ? decimal.Round(declared - SystemDeclarableTakings, 2) : null;
+
+    /// <summary>Declarable money the rep did not count back. The figure to chase.</summary>
+    public decimal? DeclaredShortfall =>
+        DeclaredVariance is { } variance && variance < 0 ? -variance : null;
+
+    /// <summary>
+    /// Money counted back that the day cannot account for, even allowing every untendered sale to
+    /// have been cash the rep collected.
+    /// </summary>
+    public decimal? DeclaredOverage =>
+        DeclaredVariance is { } variance && variance > SystemUntendered
+            ? variance - SystemUntendered
+            : null;
 
     public int? RtiOutstanding =>
         RtiOut is { } issued && RtiReturned is { } returned ? issued - returned : null;

@@ -2546,8 +2546,9 @@ different findings. Summary rates are recomputed from the period's totals, not a
       "systemCash": 1840.00,
       "systemEcocash": 320.00,
       "systemInnbucks": 0,
-      "systemOther": 0,
-      "systemTotalSales": 2160.00,
+      "systemOther": 150.00,
+      "systemUntendered": 60.00,
+      "systemTotalSales": 2370.00,
       "declaredCash": 1845.00,
       "declaredEcocash": 320.00,
       "declaredInnbucks": null,
@@ -2560,10 +2561,13 @@ different findings. Summary rates are recomputed from the period's totals, not a
       "notes": null,
       "callComplianceRate": 0.90625,
       "productiveCallRate": 0.8275862068965517,
-      "averageOrderValue": 90.00,
+      "averageOrderValue": 98.75,
       "kilometresTravelled": 147,
       "declaredTotal": 2165.00,
+      "systemDeclarableTakings": 2160.00,
       "declaredVariance": 5.00,
+      "declaredShortfall": null,
+      "declaredOverage": null,
       "rtiOutstanding": 2
     }
   ],
@@ -2582,8 +2586,26 @@ different findings. Summary rates are recomputed from the period's totals, not a
 }
 ```
 
-`declaredVariance` is declared minus recorded: positive means the rep counted more than the system
-sold, which is usually an unrecorded sale; negative is the one to chase.
+**The cash variance is measured against `systemDeclarableTakings`, not `systemTotalSales`.** The
+declaration has three boxes — cash, ecocash, innbucks — and the handset offers no fourth, so two
+kinds of takings can never appear in `declaredTotal` however honest the rep is:
+
+| Field | What it is | Effect on the variance |
+|-------|-----------|------------------------|
+| `systemOther` | A named tender with no column — a card swipe, chiefly | None. It settles at the terminal, so the rep never carried it and cannot declare it |
+| `systemUntendered` | A sale that named no tender at all, from a handset built before the payment picker | Sets the tolerance. It may well have been cash the rep counted, so it can excuse an over-declaration up to its own value |
+
+`declaredVariance` is `declaredTotal - systemDeclarableTakings`. Read the two findings rather than
+the raw variance, because each already allows for the above and both are null when there is nothing
+to report:
+
+- `declaredShortfall` — declarable money the rep did not count back. The figure to chase. An
+  untendered sale never excuses one: unrecorded money only ever added to what was in their hand.
+- `declaredOverage` — money counted back that the day cannot account for even after allowing every
+  untendered sale to have been cash they collected. Usually a sale that was made and never recorded.
+
+Until 2026-08-18 the variance subtracted `systemTotalSales`, so any rep whose day included a swipe
+or an untendered sale was reported short by exactly the money they had no way to declare.
 
 ##### GET `/api/van-sales/performance-report`
 

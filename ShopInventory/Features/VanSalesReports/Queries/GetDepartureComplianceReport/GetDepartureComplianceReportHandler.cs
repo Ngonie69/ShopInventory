@@ -137,6 +137,7 @@ public sealed class GetDepartureComplianceReportHandler(
             SystemEcocash: sale?.Ecocash ?? 0,
             SystemInnbucks: sale?.Innbucks ?? 0,
             SystemOther: sale?.Other ?? 0,
+            SystemUntendered: sale?.Untendered ?? 0,
             SystemTotalSales: sale?.Total ?? 0,
 
             DeclaredCash: day?.DeclaredCash,
@@ -331,6 +332,7 @@ public sealed class GetDepartureComplianceReportHandler(
         decimal Ecocash,
         decimal Innbucks,
         decimal Other,
+        decimal Untendered,
         decimal Total,
         string? Currency);
 
@@ -349,6 +351,7 @@ public sealed class GetDepartureComplianceReportHandler(
         private decimal _ecocash;
         private decimal _innbucks;
         private decimal _other;
+        private decimal _untendered;
         private decimal _total;
         private string? _currency;
 
@@ -377,6 +380,13 @@ public sealed class GetDepartureComplianceReportHandler(
                 case VanSalesTender.Innbucks:
                     _innbucks += sale.TotalAmount;
                     break;
+                // A swipe and a sale that named no tender are both outside the three declared
+                // columns, and both are kept out of them — but they are counted apart, because only
+                // the second is money the rep might have had in hand to declare. See
+                // DepartureComplianceDayDto.DeclaredOverage.
+                case VanSalesTender.Untendered:
+                    _untendered += sale.TotalAmount;
+                    break;
                 default:
                     _other += sale.TotalAmount;
                     break;
@@ -389,6 +399,7 @@ public sealed class GetDepartureComplianceReportHandler(
             _ecocash,
             _innbucks,
             _other,
+            _untendered,
             _total,
             _currency);
     }

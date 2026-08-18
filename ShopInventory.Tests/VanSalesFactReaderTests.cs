@@ -312,6 +312,8 @@ public sealed class VanSalesFactReaderTests : IDisposable
     [InlineData("EcoCash", VanSalesTender.Ecocash)]
     [InlineData("Innbucks", VanSalesTender.Innbucks)]
     [InlineData("inbucks", VanSalesTender.Innbucks)]
+    // A swipe is a named tender the departure sheet has no column for, which is a different thing
+    // from a sale that named none at all — see the test below.
     [InlineData("Swipe", VanSalesTender.Other)]
     public void A_tender_is_classified_by_the_brand_the_handset_sent(string method, VanSalesTender expected)
     {
@@ -322,13 +324,19 @@ public sealed class VanSalesFactReaderTests : IDisposable
     /// A handset built before the payment picker names no tender. Unallocated is the honest answer;
     /// defaulting it to cash would make a real declaration variance disappear.
     /// </summary>
+    /// <remarks>
+    /// <see cref="VanSalesTender.Untendered"/> rather than <see cref="VanSalesTender.Other"/>, because
+    /// the departure sheet's cash variance turns on the difference: a swipe is money the rep certainly
+    /// did not count into the pouch, while this may well be cash they did. Collapsing the two makes
+    /// the sheet either accuse an honest rep or excuse a real overage.
+    /// </remarks>
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
     public void A_sale_naming_no_tender_is_unallocated_rather_than_cash(string? method)
     {
-        Assert.Equal(VanSalesTender.Other, VanSalesFacts.ClassifyTender(method));
+        Assert.Equal(VanSalesTender.Untendered, VanSalesFacts.ClassifyTender(method));
     }
 
     // --- The window ---
