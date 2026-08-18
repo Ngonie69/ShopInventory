@@ -7,28 +7,23 @@ namespace ShopInventory.Features.VanSalesReports.Queries.GetVanMarginReport;
 /// What sold off the vans, per item and per van, and how much of it SAP is in a position to cost.
 /// </summary>
 /// <remarks>
-/// This is the reporting plan's A10 — gross margin by SKU and route — with the cost half not yet
-/// connected. Every margin field on every record below is nullable and is null today, and the report
-/// says so on its own face rather than rendering a zero that reads as selling at cost.
+/// This is the reporting plan's A10 — gross margin by SKU and route. Revenue is local and covers
+/// every van sale; cost comes from the invoice lines SAP posted, so it covers only the sales that
+/// reached SAP. Both figures are reported, and so is the gap between them.
 ///
-/// <b>Why it ships without the half it is named for.</b> No item cost is read anywhere in either
-/// project; the profit report's stock value is a hard-coded zero. The cost has to come from SAP, and
-/// the column that carries it on an invoice line could not be established from this repository: the
-/// codebase has proven exactly six INV1 columns against the live instance — <c>DocEntry</c>,
-/// <c>ItemCode</c>, <c>LineNum</c>, <c>LineTotal</c>, <c>Quantity</c> and <c>WhsCode</c> — and not
-/// one of them is a cost. The service-layer metadata names <c>GrossBuyPrice</c> and
-/// <c>GrossProfit</c> on the OData document line, but those are OData property names and the SQL
-/// path needs the HANA column, which is a different string. Guessing it and shipping a margin
-/// column filled from the wrong field is the failure this suite has spent four phases avoiding.
+/// <b>Margin is stated per currency and only where the two sides share one.</b> B1 stamps a line's
+/// cost in the company's local currency while the line's revenue is in the document's, and this
+/// company bills in two. Subtracting one from the other produces a figure that looks entirely
+/// plausible and is arithmetic between two kinds of money, so the report will not do it: a currency
+/// whose revenue is not the cost currency gets revenue, no cost and no margin, and says so.
 ///
-/// <b>What it answers instead, which is worth having on its own.</b> A margin figure can only exist
-/// for a sale SAP knows about, and a great many van sales are not. The offline half is held locally
-/// until a posting job drains it, and that job is switched off — so the costable share of van
-/// revenue is well under all of it, and nothing anywhere said so at item grain. This report is that
-/// denominator: what sold, and what share of it SAP could put a cost against if asked.
+/// <b>The costable share is the figure to read first.</b> A margin can only ever exist for a sale
+/// SAP knows about. The offline half of van trading is held locally until a posting job drains it,
+/// and where that job is off the costable share is a fraction of the whole — so a margin here
+/// describes that fraction and not the fleet. The share is on the summary, on every item and on
+/// every van, precisely so nobody reads the margin without it.
 ///
-/// When the cost column is settled, this report gains columns rather than changing shape. The join
-/// is (warehouse, item), and the line-grain warehouse is populated on both halves of the union —
+/// The join is (warehouse, item). The line-grain warehouse is populated on both halves of the union,
 /// which is why the report keys on it rather than on the van's business partner, whose code is the
 /// van's own account on every sale and identifies nothing about the goods.
 ///
@@ -41,7 +36,8 @@ public sealed record GetVanMarginReportQuery(
     DateTime FromDate,
     DateTime ToDate,
     Guid? UserId = null,
-    string? WarehouseCode = null
+    string? WarehouseCode = null,
+    bool IncludeCost = true
 ) : IRequest<ErrorOr<VanMarginReportResult>>;
 
 public sealed record VanMarginReportResult(
@@ -62,7 +58,9 @@ public sealed record VanMarginSummaryResult(
     int PostedLineCount,
     List<VanSalesLineMoneyResult> RevenueByCurrency,
     List<VanSalesLineMoneyResult> CostableRevenueByCurrency,
-    List<VanSalesQuantityResult> QuantitiesByUoM)
+    List<VanSalesQuantityResult> QuantitiesByUoM,
+    string? CostCurrency,
+    List<VanMarginMoneyResult> MarginByCurrency)
 {
     /// <summary>
     /// The share of lines whose sale reached SAP, and which a cost could therefore be found for.
@@ -73,10 +71,33 @@ public sealed record VanMarginSummaryResult(
         LineCount > 0 ? (double)PostedLineCount / LineCount : null;
 
     /// <summary>
-    /// Margin is not computed. Stated as a field rather than left to the reader to infer from a
-    /// column of dashes, because a reader who infers it wrongly infers that the vans sell at cost.
+    /// Whether any margin could be stated at all. A field rather than something a reader infers from
+    /// a column of dashes, because a reader who infers it wrongly infers that the vans sell at cost.
     /// </summary>
-    public bool MarginAvailable => false;
+    public bool MarginAvailable => MarginByCurrency.Count > 0;
+}
+
+/// <summary>
+/// One currency's margin: the revenue that could be costed, the cost, and the difference.
+/// </summary>
+/// <remarks>
+/// Only ever produced for a currency matching the cost currency, so the subtraction is between two
+/// figures in the same money. A currency that does not match gets no row here at all rather than a
+/// row with a null margin — an absent row cannot be mistaken for a margin of nothing.
+/// </remarks>
+public sealed record VanMarginMoneyResult(
+    string Currency,
+    int LineCount,
+    decimal Revenue,
+    decimal Cost)
+{
+    public decimal Margin => Revenue - Cost;
+
+    /// <summary>
+    /// Margin as a share of revenue. Null when nothing sold in this currency. Legitimately negative
+    /// where an item sold below cost, which is a finding rather than an error.
+    /// </summary>
+    public double? MarginRate => Revenue != 0 ? (double)(Margin / Revenue) : null;
 }
 
 // ── Per item ────────────────────────────────────────────────────────────────────
@@ -99,17 +120,18 @@ public sealed record VanMarginItemResult(
     List<VanSalesLineMoneyResult> CostableRevenueByCurrency,
     List<VanSalesQuantityResult> QuantitiesByUoM,
     decimal? UnitCost,
-    List<VanSalesLineMoneyResult>? CostByCurrency)
+    string? CostCurrency,
+    List<VanMarginMoneyResult> MarginByCurrency)
 {
     public double? CostableLineShare =>
         LineCount > 0 ? (double)PostedLineCount / LineCount : null;
 
     /// <summary>
-    /// Gross margin, once a cost is joined. Null today for every item, and null is the whole point:
-    /// a zero here would report an item sold at exactly cost, which is a finding rather than an
-    /// absence.
+    /// Whether a usable cost was found for this item. Null unit cost and not zero: a zero would
+    /// report an item that costs nothing to sell, and B1 does leave the column at zero on a line
+    /// whose item has no valuation yet.
     /// </summary>
-    public List<VanSalesLineMoneyResult>? MarginByCurrency => null;
+    public bool HasCost => UnitCost is > 0;
 }
 
 // ── Per van ─────────────────────────────────────────────────────────────────────
@@ -148,26 +170,52 @@ public sealed record VanMarginQualityResult(
     int LineCount,
     int PostedLineCount,
     int ItemsWithNoDescription,
+    int ItemsWithoutCost,
+    int ItemCount,
+    string? CostCurrency,
+    bool CostAttempted,
+    List<string> CurrenciesWithoutMatchingCost,
     bool PostingJobEnabled)
 {
     public int UnpostedLineCount => LineCount - PostedLineCount;
 
     /// <summary>
-    /// Never clean, and deliberately so. The report is named for a figure it does not yet carry, and
-    /// a page that could report itself complete while missing its own subject would be lying by
-    /// omission.
+    /// Whether a cost was established at all. False means every margin figure on the report is
+    /// absent — not zero.
     /// </summary>
-    public bool IsClean => false;
+    public bool CostAvailable => CostCurrency is not null;
+
+    /// <summary>
+    /// Clean means the margin describes the whole period: everything posted, everything costed, and
+    /// no currency left out. That is a high bar and most periods will not meet it, which is the
+    /// point — a margin over two thirds of the trading is a different number from a margin over all
+    /// of it, and only this says which one is on the screen.
+    /// </summary>
+    public bool IsClean =>
+        CostAvailable
+        && UnpostedLineCount == 0
+        && ItemsWithoutCost == 0
+        && CurrenciesWithoutMatchingCost.Count == 0
+        && ItemsWithNoDescription == 0;
 
     public IEnumerable<string> Caveats
     {
         get
         {
-            yield return
-                "Margin is not computed. No item cost is read anywhere in this system, and the SAP "
-                + "column that carries it on an invoice line has not been established against this "
-                + "company's data — so a cost column here would be a guess. Everything below is "
-                + "revenue and quantity only.";
+            if (!CostAttempted)
+            {
+                yield return
+                    "Costs were not fetched for this run, so no margin is stated. Everything below is "
+                    + "revenue and quantity.";
+            }
+            else if (!CostAvailable)
+            {
+                yield return
+                    "No cost could be read from SAP for this period, so no margin is stated. Either "
+                    + "SAP was unreachable or the company currency could not be established — and "
+                    + "without knowing what a cost is denominated in, subtracting it from revenue "
+                    + "would be arithmetic between two kinds of money.";
+            }
 
             if (!PostingJobEnabled)
             {
@@ -181,9 +229,27 @@ public sealed record VanMarginQualityResult(
             {
                 yield return
                     $"{UnpostedLineCount:N0} of {LineCount:N0} line(s) are on a sale that has not "
-                    + "reached SAP. A cost can only ever be found for a line SAP knows about, so that "
-                    + "share of revenue is outside any margin figure this report could eventually "
-                    + "produce.";
+                    + "reached SAP and therefore carry no cost. Any margin here describes the "
+                    + "remainder, not the period.";
+            }
+
+            if (CurrenciesWithoutMatchingCost.Count > 0)
+            {
+                yield return
+                    "No margin is stated for "
+                    + string.Join(", ", CurrenciesWithoutMatchingCost)
+                    + $". SAP states a line's cost in {CostCurrency ?? "the company currency"}, and a "
+                    + "margin across two currencies would be a subtraction between two kinds of "
+                    + "money. Their revenue is reported without it.";
+            }
+
+            if (ItemsWithoutCost > 0)
+            {
+                yield return
+                    $"{ItemsWithoutCost:N0} of {ItemCount:N0} item(s) have no usable cost — either "
+                    + "nothing they sold reached SAP, or SAP carried no valuation for them on the "
+                    + "lines that did. They are reported with revenue and no margin rather than being "
+                    + "treated as pure profit.";
             }
 
             if (ItemsWithNoDescription > 0)

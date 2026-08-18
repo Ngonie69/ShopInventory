@@ -17,22 +17,27 @@
    what only this page draws. A prefix nothing else on that sheet owns, because
    sheets here are separated by prefix alone.
 
-   This page is named for a figure it does not carry, which makes it the one page
-   in the suite most able to mislead by looking finished. Three things follow.
+   A margin is the easiest figure on this suite to state wrongly and have nobody
+   notice, so three refusals are built into the page rather than left to a note.
 
-   The absence is stated first, above everything, in the bad colour. A reader who
-   scrolls a page headed "margin" and meets figures will read those figures as
-   margin; they are revenue.
+   It will not put a margin next to revenue without saying what share of the
+   period it covers. Cost exists only for sales SAP posted; where the offline
+   posting job is down that is a fraction of the trading, and a margin over a
+   fraction is a different number from a margin over the whole. The costable
+   share sits in the KPI band, on every item row and on every van row.
 
-   The cost and margin columns are drawn and empty rather than left out. A missing
-   column invites somebody to work one out themselves from the revenue in front of
-   them; a column of dashes with a reason at the top says the figure is coming.
+   It will not subtract two kinds of money. SAP states cost in the company
+   currency and the vans bill in two, so a currency that does not match gets
+   revenue, no margin, and a line in the caveats naming it. There is no row
+   holding a null margin — an absent row cannot be read as breaking even.
 
-   The measure the page really carries is the costable share — what fraction of
-   van revenue SAP is even in a position to price. That is low because the offline
-   posting job is off, so the switch is drawn in both states: with it down a
-   growing uncostable share is correct behaviour, and with it up the same share is
-   a posting failure. *@
+   It will not treat an unvalued item as pure profit. B1 leaves the cost column
+   at zero on a line whose item has no valuation, so a zero cost is read as no
+   cost and the row shows a dash.
+
+   The posting switch is drawn in both states, as on the exceptions page: with the
+   job down a growing uncostable share is correct behaviour, and with it up the
+   same share is a posting failure. *@
 
 <div class="vs vsm">
 
@@ -104,15 +109,27 @@
     {
         var summary = report.Summary;
 
-        @* First, above everything. This page is headed "margin" and does not have one. *@
-        <div class="vsm-absent" role="note">
-            <div class="vsm-absent-title">Margin is not computed</div>
-            <div>
-                No item cost is read anywhere in this system, and the SAP column that carries one on
-                an invoice line has not been established against this company's data — so a cost
-                here would be a guess. Every figure below is revenue and quantity.
+        @* Above everything, and only when there is nothing to state. A page headed "margin"
+           whose first content is a figure teaches the reader that the figures are margins. *@
+        @if (!summary.MarginAvailable)
+        {
+            <div class="vsm-absent" role="note">
+                <div class="vsm-absent-title">No margin for this period</div>
+                <div>
+                    @(report.Quality.CostAttempted
+                        ? "No cost could be read from SAP, so nothing below can be costed. Every figure here is revenue and quantity."
+                        : "Costs were not fetched for this run. Every figure here is revenue and quantity.")
+                </div>
             </div>
-        </div>
+        }
+        else
+        {
+            <div class="vsm-scope" role="note">
+                Margin is stated in <strong>@summary.CostCurrency</strong> only, over the
+                <strong>@Rate(summary.CostableLineShare)</strong> of lines that reached SAP.
+                Revenue covers every van sale; cost covers only the sales SAP knows about.
+            </div>
+        }
 
         @* Both states. With the job down a growing uncostable share is correct behaviour; with it
            up the same share is a posting failure. A banner shown only when bad leaves a reader
@@ -156,10 +173,14 @@
                     @summary.PostedLineCount.ToString("N0") of @summary.LineCount.ToString("N0") lines
                 </div>
             </div>
-            <div class="vsm-kpi vsm-kpi-absent">
-                <div class="vsm-kpi-value">—</div>
+            <div class="vsm-kpi @(summary.MarginAvailable ? null : "vsm-kpi-absent")">
+                <div class="vsm-kpi-value">@MarginList(summary.MarginByCurrency)</div>
                 <div class="vsm-kpi-label">Margin</div>
-                <div class="vsm-kpi-sub">no cost source</div>
+                <div class="vsm-kpi-sub">
+                    @(summary.MarginAvailable
+                        ? $"on {Rate(summary.CostableLineShare)} of lines"
+                        : "no cost established")
+                </div>
             </div>
         </div>
 
@@ -188,9 +209,9 @@
         {
             <h3 class="vsm-heading">By item</h3>
             <p class="vsm-note">
-                Ranked on revenue, because there is no margin to rank on. Quantity is per unit and
-                never totalled across units — van lines carry no unit at all, so expect one bucket
-                saying so.
+                Ranked on revenue rather than on margin: an item whose sales did not reach SAP has no
+                margin to rank by, and would sort to the bottom for a reason that has nothing to do
+                with how it sells. An empty cost is no cost found, never a cost of nothing.
             </p>
 
             @if (report.Items.Count == 0)
@@ -235,10 +256,12 @@
                                     <td>@MoneyList(item.RevenueByCurrency)</td>
                                     <td>@MoneyList(item.CostableRevenueByCurrency)</td>
                                     <td>@QuantityList(item.QuantitiesByUoM)</td>
-                                    @* Drawn and empty. A missing column invites a reader to work one
-                                       out from the revenue beside it. *@
-                                    <td class="vs-num vs-metric-none">—</td>
-                                    <td class="vs-num vs-metric-none">—</td>
+                                    <td class="vs-num @(item.HasCost ? null : "vs-metric-none")">
+                                        @UnitCostText(item)
+                                    </td>
+                                    <td class="vs-num @MarginInk(item.MarginByCurrency)">
+                                        @MarginList(item.MarginByCurrency)
+                                    </td>
                                 </tr>
                             }
                         </tbody>
@@ -406,6 +429,26 @@
         totals.Count == 0
             ? "—"
             : string.Join("  ·  ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
+
+    /// <summary>
+    /// Margin per currency. An empty list renders an em dash and never a zero: no margin row means
+    /// the cost was not established, which is a different fact from breaking even.
+    /// </summary>
+    private static string MarginList(List<VanMarginMoney> margins) =>
+        margins.Count == 0
+            ? "—"
+            : string.Join("  ·  ", margins.Select(margin => $"{margin.Currency} {margin.Margin:N2}"));
+
+    /// <summary>A loss is a finding rather than an error, but it should not be quiet about it.</summary>
+    private static string MarginInk(List<VanMarginMoney> margins) =>
+        margins.Count == 0
+            ? "vs-metric-none"
+            : margins.Any(margin => margin.Margin < 0) ? "vsm-loss" : string.Empty;
+
+    private static string UnitCostText(VanMarginItem item) =>
+        item.UnitCost is { } cost && item.CostCurrency is { } currency
+            ? $"{currency} {cost:N4}"
+            : "—";
 
     /// <summary>
     /// Per unit and never totalled across units. Van lines carry no unit at all, so this is usually

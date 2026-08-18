@@ -13,12 +13,14 @@ namespace ShopInventory.Tests;
 /// a value the API can send as null makes System.Text.Json throw inside <c>GetFromJsonAsync</c>, the
 /// service's catch turns that into null, and the page reports "no data".
 ///
-/// This report's nulls are unusual in that three of them are meant to be permanent.
-/// <c>UnitCost</c>, <c>CostByCurrency</c> and <c>MarginByCurrency</c> are null on every row and stay
-/// null until a cost source is connected — and a mirror that turned any of them into a zero would
-/// report the vans selling at exactly cost, which is a finding rather than an absence and would be
-/// indistinguishable from the real thing once the cost lands. Those are pinned harder than anything
-/// else here.
+/// The null that matters most here is <c>UnitCost</c>. It is null when no cost was found and must
+/// never arrive as zero: a zero unit cost reports an item that costs nothing to sell, and B1 does
+/// leave the column at zero on a line whose item has no valuation — so the difference between "we do
+/// not know" and "it is free" is the difference between an honest gap and a fabricated profit.
+///
+/// The margin list is the other. A currency with no matching cost gets no row at all, so an empty
+/// list means "not established" and never "broke even"; a mirror that defaulted it to a zero-valued
+/// row would turn every uncosted currency into a break-even claim.
 ///
 /// The caveats are two hand-written copies of the same prose in two projects. Nothing makes them
 /// agree, and a reader cannot tell which copy is on the screen in front of them.
@@ -63,22 +65,44 @@ public class VanMarginContractTests
     }
 
     /// <summary>
-    /// The three cost fields are null and have to arrive null. A zero in any of them says the vans
-    /// sell at cost.
+    /// An item with no cost arrives with a null unit cost and an empty margin list — never a zero
+    /// cost and never a zero-valued margin row. The first would report an item that costs nothing to
+    /// sell; the second would report it breaking even.
     /// </summary>
     [Fact]
-    public void The_cost_and_margin_fields_arrive_null_and_never_zero()
+    public void An_uncosted_item_arrives_as_an_absence_and_not_as_a_zero()
     {
         var mirrored = RoundTrip<VanMarginReportResult, VanMarginReportResponse>(Populated());
 
-        Assert.False(mirrored.Summary.MarginAvailable);
+        var costed = mirrored.Items.Single(item => item.ItemCode == "CHE011");
+        Assert.Equal(8.25m, costed.UnitCost);
+        Assert.True(costed.HasCost);
+        Assert.Equal(140m, Assert.Single(costed.MarginByCurrency).Margin);
 
-        Assert.All(mirrored.Items, item =>
-        {
-            Assert.Null(item.UnitCost);
-            Assert.Null(item.CostByCurrency);
-            Assert.Null(item.MarginByCurrency);
-        });
+        var uncosted = mirrored.Items.Single(item => item.ItemCode == "NRI049");
+        Assert.Null(uncosted.UnitCost);
+        Assert.False(uncosted.HasCost);
+        Assert.Empty(uncosted.MarginByCurrency);
+    }
+
+    /// <summary>
+    /// The margin arithmetic is re-derived on the portal side, so both copies have to agree — and
+    /// the rate has to survive as a rate rather than being recomputed from rounded money.
+    /// </summary>
+    [Fact]
+    public void The_margin_arithmetic_agrees_on_both_sides()
+    {
+        var source = Populated();
+        var mirrored = RoundTrip<VanMarginReportResult, VanMarginReportResponse>(source);
+
+        var api = Assert.Single(source.Summary.MarginByCurrency);
+        var web = Assert.Single(mirrored.Summary.MarginByCurrency);
+
+        Assert.Equal(api.Margin, web.Margin);
+        Assert.Equal(api.MarginRate, web.MarginRate);
+        Assert.Equal(160m, web.Margin);
+        Assert.Equal(0.4, web.MarginRate);
+        Assert.True(mirrored.Summary.MarginAvailable);
     }
 
     /// <summary>
@@ -91,7 +115,7 @@ public class VanMarginContractTests
         var result = new VanMarginReportResult(
             FromDate: new DateTime(2026, 8, 1),
             ToDate: new DateTime(2026, 8, 31),
-            Summary: new VanMarginSummaryResult(0, 0, 0, 0, [], [], []),
+            Summary: new VanMarginSummaryResult(0, 0, 0, 0, [], [], [], null, []),
             Items:
             [
                 new VanMarginItemResult(
@@ -104,7 +128,8 @@ public class VanMarginContractTests
                     CostableRevenueByCurrency: [],
                     QuantitiesByUoM: [],
                     UnitCost: null,
-                    CostByCurrency: null)
+                    CostCurrency: null,
+                    MarginByCurrency: [])
             ],
             Vans:
             [
@@ -118,7 +143,7 @@ public class VanMarginContractTests
                     RevenueByCurrency: [],
                     CostableRevenueByCurrency: [])
             ],
-            Quality: new VanMarginQualityResult(0, 0, 1, PostingJobEnabled: false));
+            Quality: new VanMarginQualityResult(0, 0, 1, 1, 1, null, CostAttempted: true, [], PostingJobEnabled: false));
 
         var mirrored = RoundTrip<VanMarginReportResult, VanMarginReportResponse>(result);
 
@@ -143,10 +168,10 @@ public class VanMarginContractTests
         var result = new VanMarginReportResult(
             FromDate: new DateTime(2026, 8, 1),
             ToDate: new DateTime(2026, 8, 31),
-            Summary: new VanMarginSummaryResult(0, 0, 0, 0, [], [], []),
+            Summary: new VanMarginSummaryResult(0, 0, 0, 0, [], [], [], null, []),
             Items: [],
             Vans: [],
-            Quality: new VanMarginQualityResult(0, 0, 0, PostingJobEnabled: false));
+            Quality: new VanMarginQualityResult(0, 0, 0, 0, 0, null, CostAttempted: true, [], PostingJobEnabled: false));
 
         var mirrored = RoundTrip<VanMarginReportResult, VanMarginReportResponse>(result);
 
@@ -162,19 +187,29 @@ public class VanMarginContractTests
     /// copy is in front of them, so they have to be the same words.
     /// </summary>
     [Theory]
-    [InlineData(0, 0, 0, false)]
-    [InlineData(0, 0, 0, true)]
-    [InlineData(100, 40, 3, false)]
-    [InlineData(100, 100, 0, true)]
-    [InlineData(7, 0, 1, false)]
+    // Nothing established at all.
+    [InlineData(0, 0, 0, 0, 0, null, false, false)]
+    // Fully costed and complete: the only shape that is clean.
+    [InlineData(100, 100, 0, 0, 5, "USD", true, true)]
+    // Costed, but over part of the period only.
+    [InlineData(100, 40, 3, 2, 5, "USD", true, false)]
+    // Cost fetched and refused.
+    [InlineData(100, 100, 0, 5, 5, null, true, true)]
+    // Cost not asked for.
+    [InlineData(7, 0, 1, 1, 1, null, false, false)]
     public void The_caveats_are_word_for_word_identical_on_both_sides(
         int lineCount,
         int postedLineCount,
         int itemsWithNoDescription,
+        int itemsWithoutCost,
+        int itemCount,
+        string? costCurrency,
+        bool costAttempted,
         bool postingJobEnabled)
     {
         var quality = new VanMarginQualityResult(
-            lineCount, postedLineCount, itemsWithNoDescription, postingJobEnabled);
+            lineCount, postedLineCount, itemsWithNoDescription, itemsWithoutCost, itemCount,
+            costCurrency, costAttempted, costCurrency is null ? [] : ["ZWG"], postingJobEnabled);
 
         var mirrored = RoundTrip<VanMarginQualityResult, VanMarginQuality>(quality);
 
@@ -184,17 +219,36 @@ public class VanMarginContractTests
     }
 
     /// <summary>
-    /// The report can never call itself clean, on either side. It is named for a figure it does not
-    /// carry, and the first caveat always says so.
+    /// Clean means the margin describes the whole period. Both sides have to agree on that bar, or
+    /// the page and the workbook disagree about whether a figure can be trusted whole.
     /// </summary>
     [Fact]
-    public void The_report_is_never_clean_and_always_says_margin_is_missing()
+    public void A_fully_costed_period_is_clean_on_both_sides()
     {
-        var quality = new VanMarginQualityResult(100, 100, 0, PostingJobEnabled: true);
+        var quality = new VanMarginQualityResult(
+            100, 100, 0, 0, 5, "USD", CostAttempted: true, [], PostingJobEnabled: true);
+
+        var mirrored = RoundTrip<VanMarginQualityResult, VanMarginQuality>(quality);
+
+        Assert.True(quality.IsClean);
+        Assert.True(mirrored.IsClean);
+        Assert.Empty(mirrored.Caveats);
+    }
+
+    /// <summary>
+    /// A period costed over half its lines is not clean, however good the margin looks. That is the
+    /// distinction the whole report rests on.
+    /// </summary>
+    [Fact]
+    public void A_partly_costed_period_is_not_clean()
+    {
+        var quality = new VanMarginQualityResult(
+            100, 50, 0, 0, 5, "USD", CostAttempted: true, [], PostingJobEnabled: true);
+
         var mirrored = RoundTrip<VanMarginQualityResult, VanMarginQuality>(quality);
 
         Assert.False(mirrored.IsClean);
-        Assert.StartsWith("Margin is not computed.", mirrored.Caveats.First());
+        Assert.Contains(mirrored.Caveats, caveat => caveat.Contains("describes the remainder"));
     }
 
     // ── Fixture ─────────────────────────────────────────────────────────────────
@@ -211,7 +265,10 @@ public class VanMarginContractTests
                 RevenueByCurrency: [new VanSalesLineMoneyResult("USD", LineCount: 10, Gross: 1000m)],
                 CostableRevenueByCurrency:
                     [new VanSalesLineMoneyResult("USD", LineCount: 4, Gross: 400m)],
-                QuantitiesByUoM: [new VanSalesQuantityResult(null, Quantity: 120m, LineCount: 10)]),
+                QuantitiesByUoM: [new VanSalesQuantityResult(null, Quantity: 120m, LineCount: 10)],
+                CostCurrency: "USD",
+                MarginByCurrency:
+                    [new VanMarginMoneyResult("USD", LineCount: 4, Revenue: 400m, Cost: 240m)]),
             Items:
             [
                 new VanMarginItemResult(
@@ -223,8 +280,10 @@ public class VanMarginContractTests
                     RevenueByCurrency: [new VanSalesLineMoneyResult("USD", 6, 700m)],
                     CostableRevenueByCurrency: [new VanSalesLineMoneyResult("USD", 3, 350m)],
                     QuantitiesByUoM: [new VanSalesQuantityResult(null, 70m, 6)],
-                    UnitCost: null,
-                    CostByCurrency: null),
+                    UnitCost: 8.25m,
+                    CostCurrency: "USD",
+                    MarginByCurrency:
+                        [new VanMarginMoneyResult("USD", LineCount: 3, Revenue: 350m, Cost: 210m)]),
                 new VanMarginItemResult(
                     ItemCode: "NRI049",
                     ItemDescription: null,
@@ -234,8 +293,10 @@ public class VanMarginContractTests
                     RevenueByCurrency: [new VanSalesLineMoneyResult("USD", 4, 300m)],
                     CostableRevenueByCurrency: [new VanSalesLineMoneyResult("USD", 1, 50m)],
                     QuantitiesByUoM: [new VanSalesQuantityResult(null, 50m, 4)],
+                    // No cost found for this one: it is the row that proves an absence survives.
                     UnitCost: null,
-                    CostByCurrency: null)
+                    CostCurrency: "USD",
+                    MarginByCurrency: [])
             ],
             Vans:
             [
@@ -262,5 +323,10 @@ public class VanMarginContractTests
                 LineCount: 10,
                 PostedLineCount: 4,
                 ItemsWithNoDescription: 1,
+                ItemsWithoutCost: 1,
+                ItemCount: 2,
+                CostCurrency: "USD",
+                CostAttempted: true,
+                CurrenciesWithoutMatchingCost: ["ZWG"],
                 PostingJobEnabled: false));
 }

@@ -6756,15 +6756,18 @@ public class ReportExportService : IReportExportService
             lastCol,
             now);
 
-        // Before anything else. A sheet headed "margin" that opens with figures would be read as
-        // margin figures, and they are revenue.
-        ws.Cell(row, 1).Value =
-            "MARGIN IS NOT COMPUTED. No item cost is read anywhere in this system and the SAP column "
-            + "that carries one has not been established against this company's data, so a cost here "
-            + "would be a guess. Every figure below is revenue and quantity.";
+        // Before anything else. A sheet headed "margin" that opens with figures teaches the reader
+        // that the figures are margins, and most of them are revenue.
+        ws.Cell(row, 1).Value = report.Summary.MarginAvailable
+            ? $"Margin is stated in {report.Summary.CostCurrency} only, over the "
+              + $"{RateText(report.Summary.CostableLineShare)} of lines that reached SAP. Revenue "
+              + "covers every van sale; cost covers only the sales SAP knows about."
+            : "MARGIN IS NOT COMPUTED for this period — see the notes below for why. Every figure "
+              + "here is revenue and quantity.";
         ws.Range(row, 1, row, lastCol).Merge();
         ws.Cell(row, 1).Style.Font.Bold = true;
-        ws.Cell(row, 1).Style.Font.FontColor = TsRed;
+        ws.Cell(row, 1).Style.Font.FontColor =
+            report.Summary.MarginAvailable ? TsTextMuted : TsRed;
         ws.Cell(row, 1).Style.Alignment.WrapText = true;
         ws.Row(row).Height = 30;
         row += 2;
@@ -6793,8 +6796,42 @@ public class ReportExportService : IReportExportService
                 summary.CostableLineShare is < 0.5 ? TsRed : null),
             ("Revenue", LineMoneyText(summary.RevenueByCurrency), null),
             ("Costable revenue", LineMoneyText(summary.CostableRevenueByCurrency), null),
-            ("Margin", "—", null));
+            ("Margin", MarginText(summary.MarginByCurrency), null));
         row++;
+
+        if (summary.MarginByCurrency.Count > 0)
+        {
+            TsSectionTitle(ws, row, lastCol, "MARGIN");
+            row += 2;
+
+            row = TsColumnHeaders(ws, row, lastCol,
+                ["Currency", "Costed revenue", "Cost", "Margin", "Rate", "Lines", ""]);
+
+            var marginIndex = 0;
+            foreach (var margin in summary.MarginByCurrency)
+            {
+                TsDataRow(ws, row, lastCol, marginIndex % 2 == 1);
+                ws.Cell(row, 1).Value = margin.Currency;
+                ws.Cell(row, 2).Value = AmountText(margin.Currency, margin.Revenue);
+                ws.Cell(row, 3).Value = AmountText(margin.Currency, margin.Cost);
+                ws.Cell(row, 4).Value = AmountText(margin.Currency, margin.Margin);
+                ws.Cell(row, 5).Value = RateText(margin.MarginRate);
+                ws.Cell(row, 6).Value = margin.LineCount;
+
+                // A loss is a finding, not an error — but it should not be quiet about it.
+                if (margin.Margin < 0)
+                {
+                    ws.Cell(row, 4).Style.Font.Bold = true;
+                    ws.Cell(row, 4).Style.Font.FontColor = TsRed;
+                    ws.Cell(row, 5).Style.Font.FontColor = TsRed;
+                }
+
+                row++;
+                marginIndex++;
+            }
+
+            row++;
+        }
 
         TsSectionTitle(ws, row, lastCol, "WHAT SOLD, AND WHAT SAP CAN PRICE");
         row += 2;
@@ -6876,9 +6913,10 @@ public class ReportExportService : IReportExportService
             now);
 
         ws.Cell(row, 1).Value =
-            "Ranked on revenue, because there is no margin to rank on. The cost and margin columns "
-            + "are written and empty rather than omitted: the figure is coming, and a missing column "
-            + "invites a reader to add one of their own.";
+            "Ranked on revenue rather than on margin, because an item whose sales did not reach SAP "
+            + "has no margin to rank by and would sort to the bottom for a reason that is nothing to "
+            + "do with how it sells. An empty cost cell means no cost was found, never a cost of "
+            + "nothing.";
         ws.Range(row, 1, row, lastCol).Merge();
         ws.Cell(row, 1).Style.Font.FontSize = 9;
         ws.Cell(row, 1).Style.Font.Italic = true;
@@ -6906,9 +6944,16 @@ public class ReportExportService : IReportExportService
             ws.Cell(row, 5).Value = $"{item.PostedLineCount:N0}  ({RateText(item.CostableLineShare)})";
             ws.Cell(row, 6).Value = LineMoneyText(item.RevenueByCurrency);
             ws.Cell(row, 7).Value = LineMoneyText(item.CostableRevenueByCurrency);
-            // The seam, written as an absence on every row.
-            ws.Cell(row, 8).Value = "—";
-            ws.Cell(row, 9).Value = "—";
+            ws.Cell(row, 8).Value = item.UnitCost is { } unitCost && item.CostCurrency is { } costCurrency
+                ? $"{costCurrency} {unitCost:N4}"
+                : "—";
+            ws.Cell(row, 9).Value = MarginText(item.MarginByCurrency);
+
+            if (item.MarginByCurrency.Any(margin => margin.Margin < 0))
+            {
+                ws.Cell(row, 9).Style.Font.Bold = true;
+                ws.Cell(row, 9).Style.Font.FontColor = TsRed;
+            }
 
             if (item.CostableLineShare is < 0.5)
             {
@@ -6928,8 +6973,9 @@ public class ReportExportService : IReportExportService
         ws.Cell(row, 5).Value = $"{summary.PostedLineCount:N0}  ({RateText(summary.CostableLineShare)})";
         ws.Cell(row, 6).Value = LineMoneyText(summary.RevenueByCurrency);
         ws.Cell(row, 7).Value = LineMoneyText(summary.CostableRevenueByCurrency);
+        // No fleet unit cost: one number across every item would describe nothing.
         ws.Cell(row, 8).Value = "—";
-        ws.Cell(row, 9).Value = "—";
+        ws.Cell(row, 9).Value = MarginText(summary.MarginByCurrency);
 
         TsFinalize(ws, lastCol, freezeRow: 5, freezeCol: 1);
     }
@@ -6998,6 +7044,15 @@ public class ReportExportService : IReportExportService
 
         TsFinalize(ws, lastCol, freezeRow: 5, freezeCol: 1);
     }
+
+    /// <summary>
+    /// Margin per currency, as text. An empty list is an em dash and never a zero: no margin row
+    /// means the cost was not established, which is a different fact from breaking even.
+    /// </summary>
+    private static string MarginText(List<VanMarginMoney> margins) =>
+        margins.Count == 0
+            ? "—"
+            : string.Join("  |  ", margins.Select(margin => $"{margin.Currency} {margin.Margin:N2}"));
 
     /// <summary>
     /// A rate movement in percentage points, signed. Never as a proportion of a proportion: 50% to

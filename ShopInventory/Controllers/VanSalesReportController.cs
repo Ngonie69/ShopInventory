@@ -13,6 +13,7 @@ using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesExceptionsReport
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesScorecardReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport;
+using ShopInventory.Middleware;
 using ShopInventory.Models;
 using ShopInventory.Services;
 
@@ -344,22 +345,29 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
     /// cost.
     /// </summary>
     /// <remarks>
-    /// The local half of the margin report. Margin itself is not computed and every margin field is
-    /// null: no item cost is read anywhere in this system, and the SAP invoice-line column that
-    /// carries one has not been established against this company's data.
+    /// Revenue is local and covers every van sale. Cost is read from the invoice lines SAP posted,
+    /// so it covers only the sales that reached SAP — and the costable share of the period is
+    /// reported beside every margin, because a margin over two thirds of the trading is a different
+    /// number from a margin over all of it.
     ///
-    /// What it answers on its own is the denominator that half will need. A cost can only ever be
-    /// found for a sale SAP knows about, the offline half of van trading is held locally until a
-    /// posting job drains it, and that job is switched off — so the costable share of van revenue is
-    /// well under all of it and nothing said so at item grain until now.
+    /// Margin is stated per currency and only where revenue and cost share one. SAP denominates a
+    /// line's cost in the company's local currency while the revenue is in the document's, and this
+    /// company bills in two; a margin across them would be a subtraction between two kinds of money.
     /// </remarks>
     /// <param name="fromDate">Inclusive CAT trading day. Defaults to 30 days back.</param>
     /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
     /// <param name="userId">One rep, or every rep when omitted.</param>
     /// <param name="warehouseCode">One van's warehouse, or every van when omitted.</param>
+    /// <param name="includeCost">
+    /// Fetch costs from SAP. Off returns revenue alone in one local read, for a caller that wants
+    /// the page up before the SAP round trip finishes.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [HttpGet("margin-report")]
     [RequirePermission(Permission.ViewVanSalesAttendance)]
+    // The only van report that reaches SAP. Six concurrency slots exist process-wide with a floor
+    // reserved for interactive work, so this declares itself background and waits its turn.
+    [SapBackgroundWork]
     [ProducesResponseType(typeof(VanMarginReportResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetMarginReport(
@@ -367,6 +375,7 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
         [FromQuery] DateTime? toDate = null,
         [FromQuery] Guid? userId = null,
         [FromQuery] string? warehouseCode = null,
+        [FromQuery] bool includeCost = true,
         CancellationToken cancellationToken = default)
     {
         var today = AuditService.ToCAT(DateTime.UtcNow).Date;
@@ -376,7 +385,8 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 fromDate?.Date ?? today.AddDays(-30),
                 toDate?.Date ?? today,
                 userId,
-                warehouseCode),
+                warehouseCode,
+                includeCost),
             cancellationToken);
 
         return result.Match(

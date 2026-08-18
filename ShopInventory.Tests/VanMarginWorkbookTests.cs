@@ -50,42 +50,81 @@ public class VanMarginWorkbookTests
     // ── The absence ─────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Stated before any figure. A reader who meets numbers first under a heading of "margin" reads
-    /// those numbers as margins, and they are revenue.
+    /// The scope of the margin is stated before any figure. A reader who meets numbers first under a
+    /// heading of "margin" reads all of them as margins, and most of them are revenue over a wider
+    /// population than the margin covers.
     /// </summary>
     [Fact]
-    public void The_overview_says_margin_is_not_computed_before_it_says_anything_else()
+    public void The_overview_states_the_scope_of_the_margin_before_any_figure()
     {
         using var workbook = Open(_service.ExportVanMarginToExcel(Populated()));
         var overview = workbook.Worksheet("Overview");
 
         var statement = overview.CellsUsed()
-            .First(cell => cell.GetString().StartsWith("MARGIN IS NOT COMPUTED"));
+            .First(cell => cell.GetString().Contains("Margin is stated in USD only"));
 
         var firstFigure = overview.CellsUsed()
             .First(cell => cell.GetString().Contains("1,000.00"));
 
         Assert.True(
             statement.Address.RowNumber < firstFigure.Address.RowNumber,
-            "the statement that margin is missing must come above the first money figure");
+            "the scope of the margin must be stated above the first money figure");
+
+        // And it names the share, because a margin over 40% of the lines is not the period margin.
+        Assert.Contains("40%", statement.GetString());
     }
 
     /// <summary>
-    /// Drawn and empty rather than omitted. A missing column invites a reader to work one out from
-    /// the revenue next to it.
+    /// With no cost established the sheet says so in the loud colour instead, and says nothing that
+    /// could be read as a margin.
     /// </summary>
     [Fact]
-    public void The_cost_and_margin_columns_are_present_and_empty()
+    public void A_period_with_no_cost_says_margin_is_not_computed()
+    {
+        var report = Populated();
+        report.Summary.CostCurrency = null;
+        report.Summary.MarginByCurrency = [];
+        report.Quality.CostCurrency = null;
+
+        using var workbook = Open(_service.ExportVanMarginToExcel(report));
+
+        Assert.Contains("MARGIN IS NOT COMPUTED", TextOf(workbook.Worksheet("Overview")));
+        Assert.Contains("No cost could be read from SAP", TextOf(workbook));
+    }
+
+    /// <summary>
+    /// A costed item shows its cost and margin; an uncosted one shows an em dash in both. The dash
+    /// is the whole point — a zero there would report an item that costs nothing to sell.
+    /// </summary>
+    [Fact]
+    public void A_costed_item_shows_its_margin_and_an_uncosted_one_shows_a_dash()
     {
         using var workbook = Open(_service.ExportVanMarginToExcel(Populated()));
         var items = workbook.Worksheet("Items");
-        var text = TextOf(items);
 
-        Assert.Contains("Unit cost", text);
-        Assert.Contains("Margin", text);
+        // Ranked on revenue, so the costed item leads.
+        Assert.Equal("USD 8.2500", UnderHeader(items, "Unit cost").GetFormattedString());
+        Assert.Equal("USD 140.00", UnderHeader(items, "Margin").GetFormattedString());
 
-        Assert.Equal("—", UnderHeader(items, "Unit cost").GetFormattedString());
-        Assert.Equal("—", UnderHeader(items, "Margin").GetFormattedString());
+        var uncosted = items.RowsUsed().First(row => row.Cell(1).GetString() == "NRI049");
+        Assert.Equal("—", uncosted.Cell(8).GetFormattedString());
+        Assert.Equal("—", uncosted.Cell(9).GetFormattedString());
+    }
+
+    /// <summary>
+    /// A loss is a finding rather than an error, and the workbook has to carry the sign rather than
+    /// losing it somewhere in formatting.
+    /// </summary>
+    [Fact]
+    public void An_item_sold_below_cost_reports_a_negative_margin()
+    {
+        var report = Populated();
+        report.Items[0].MarginByCurrency =
+            [new VanMarginMoney { Currency = "USD", LineCount = 3, Revenue = 350m, Cost = 420m }];
+
+        using var workbook = Open(_service.ExportVanMarginToExcel(report));
+
+        Assert.Contains("USD -70.00", TextOf(workbook.Worksheet("Items")));
     }
 
     [Fact]
@@ -228,7 +267,10 @@ public class VanMarginWorkbookTests
                 CostableRevenueByCurrency =
                     [new VanSalesLineMoney { Currency = "USD", LineCount = 4, Gross = 400m }],
                 QuantitiesByUoM =
-                    [new VanSalesQuantity { UoMCode = null, Quantity = 120m, LineCount = 10 }]
+                    [new VanSalesQuantity { UoMCode = null, Quantity = 120m, LineCount = 10 }],
+                CostCurrency = "USD",
+                MarginByCurrency =
+                    [new VanMarginMoney { Currency = "USD", LineCount = 4, Revenue = 400m, Cost = 240m }]
             },
             Items =
             [
@@ -242,7 +284,11 @@ public class VanMarginWorkbookTests
                     RevenueByCurrency = [new VanSalesLineMoney { Currency = "USD", LineCount = 6, Gross = 700m }],
                     CostableRevenueByCurrency =
                         [new VanSalesLineMoney { Currency = "USD", LineCount = 3, Gross = 350m }],
-                    QuantitiesByUoM = [new VanSalesQuantity { Quantity = 70m, LineCount = 6 }]
+                    QuantitiesByUoM = [new VanSalesQuantity { Quantity = 70m, LineCount = 6 }],
+                    UnitCost = 8.25m,
+                    CostCurrency = "USD",
+                    MarginByCurrency =
+                        [new VanMarginMoney { Currency = "USD", LineCount = 3, Revenue = 350m, Cost = 210m }]
                 },
                 new VanMarginItem
                 {
@@ -254,7 +300,11 @@ public class VanMarginWorkbookTests
                     RevenueByCurrency = [new VanSalesLineMoney { Currency = "USD", LineCount = 4, Gross = 300m }],
                     CostableRevenueByCurrency =
                         [new VanSalesLineMoney { Currency = "USD", LineCount = 1, Gross = 50m }],
-                    QuantitiesByUoM = [new VanSalesQuantity { Quantity = 50m, LineCount = 4 }]
+                    QuantitiesByUoM = [new VanSalesQuantity { Quantity = 50m, LineCount = 4 }],
+                    // No cost found: the row that proves an absence renders as one.
+                    UnitCost = null,
+                    CostCurrency = "USD",
+                    MarginByCurrency = []
                 }
             ],
             Vans =
@@ -289,6 +339,11 @@ public class VanMarginWorkbookTests
                 LineCount = 10,
                 PostedLineCount = 4,
                 ItemsWithNoDescription = 1,
+                ItemsWithoutCost = 1,
+                ItemCount = 2,
+                CostCurrency = "USD",
+                CostAttempted = true,
+                CurrenciesWithoutMatchingCost = ["ZWG"],
                 PostingJobEnabled = false
             }
         };

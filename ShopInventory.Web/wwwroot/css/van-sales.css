@@ -3050,3 +3050,24 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* The scope note, shown when a margin IS available. It states what share of the
+   period the figure covers, which is the one thing that stops a partial margin
+   being read as the whole. Quiet rather than alarming — it is context, not a
+   fault — where `vsm-absent` above is the louder case of having none at all. */
+.vs .vsm-scope {
+    padding: 0.6rem 0.9rem;
+    margin-bottom: 0.75rem;
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-rule);
+    border-left: 3px solid var(--vs-info);
+    border-radius: var(--vs-r-md);
+    color: var(--vs-ink);
+    font-size: 0.85rem;
+}
+
+/* An item sold below cost. */
+.vs .vsm-loss {
+    color: var(--vs-bad);
+    font-weight: 600;
+}

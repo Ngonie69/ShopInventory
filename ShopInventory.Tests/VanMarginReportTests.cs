@@ -1,10 +1,12 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Data;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanMarginReport;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Tests;
 
@@ -16,12 +18,20 @@ namespace ShopInventory.Tests;
 /// stay null — a zero would report an item sold at exactly cost, which is a finding rather than an
 /// absence, and it would be indistinguishable from the real thing once the cost source is connected.
 ///
-/// The measure the report does carry is the costable share: what fraction of van revenue SAP is even
-/// in a position to price. Its way of being wrong flatters — a line whose sale never posted is not
-/// costable however real its revenue, and counting it would overstate what this report can ever
-/// deliver. Both halves of the union post by different routes and on differently-named columns, so
-/// each is pinned separately; reading only the offline column would report the whole online half as
-/// permanently unpriceable.
+/// This report has three ways to state a margin that is wrong while looking right, and every one of
+/// them flatters.
+///
+/// It can cost a sale SAP never saw. A line whose document did not post carries no cost, and
+/// counting it would put revenue over a cost of nothing. Both halves of the union post by different
+/// routes on differently-named columns, so each is pinned separately.
+///
+/// It can subtract two kinds of money. SAP states a line's cost in the company's local currency
+/// while the revenue is in the document's, and this company bills in two — so a margin is only ever
+/// stated for a currency matching the cost currency, and a currency that does not match gets no
+/// margin row at all rather than one holding a null.
+///
+/// It can treat an unvalued item as pure profit. B1 leaves the cost column at zero on a line whose
+/// item has no valuation yet, and carrying that through would report the item as all margin.
 /// </summary>
 public sealed class VanMarginReportTests : IDisposable
 {
@@ -71,39 +81,160 @@ public sealed class VanMarginReportTests : IDisposable
     // --- The absent half ---
 
     /// <summary>
-    /// The margin fields are null on every row and stay null. A zero would say the vans sell at
-    /// cost, and it would be indistinguishable from a real result once the cost source lands.
+    /// The ordinary case: a posted sale, a cost for its item, and a margin that is revenue less
+    /// cost in the one currency both are stated in.
     /// </summary>
     [Fact]
-    public async Task Margin_is_null_and_never_zero()
-    {
-        AddSale(Rep, "S1", 100m, new DateTime(2026, 8, 4));
-        await _context.SaveChangesAsync();
-
-        var report = await RunAsync();
-
-        Assert.False(report.Summary.MarginAvailable);
-
-        var item = Assert.Single(report.Items);
-        Assert.Null(item.UnitCost);
-        Assert.Null(item.CostByCurrency);
-        Assert.Null(item.MarginByCurrency);
-    }
-
-    /// <summary>
-    /// The report can never report itself complete. It is named for a figure it does not carry, and a
-    /// clean bill of health would be a lie by omission.
-    /// </summary>
-    [Fact]
-    public async Task The_report_never_calls_itself_clean()
+    public async Task A_posted_sale_with_a_cost_gets_a_margin()
     {
         AddSale(Rep, "S1", 100m, new DateTime(2026, 8, 4), posted: true);
         await _context.SaveChangesAsync();
 
-        var report = await RunAsync();
+        var report = await RunAsync(unitCosts: new() { ["CHE011"] = 60m });
 
-        Assert.False(report.Quality.IsClean);
-        Assert.Contains(report.Quality.Caveats, caveat => caveat.Contains("Margin is not computed"));
+        Assert.True(report.Summary.MarginAvailable);
+        Assert.Equal("USD", report.Summary.CostCurrency);
+
+        var margin = Assert.Single(report.Summary.MarginByCurrency);
+        Assert.Equal("USD", margin.Currency);
+        Assert.Equal(100m, margin.Revenue);
+        Assert.Equal(60m, margin.Cost);
+        Assert.Equal(40m, margin.Margin);
+        Assert.Equal(0.4, margin.MarginRate);
+
+        var item = Assert.Single(report.Items);
+        Assert.Equal(60m, item.UnitCost);
+        Assert.True(item.HasCost);
+    }
+
+    /// <summary>
+    /// A sale that never reached SAP carries no cost, so it must not reach the margin either.
+    /// Costing it would put its whole revenue against a cost of nothing and report it as pure
+    /// profit — the flattering direction, as every failure on this report is.
+    /// </summary>
+    [Fact]
+    public async Task An_unposted_sale_is_left_out_of_the_margin_entirely()
+    {
+        AddSale(Rep, "POSTED", 100m, new DateTime(2026, 8, 4), posted: true);
+        AddSale(Rep, "HELD", 500m, new DateTime(2026, 8, 5), posted: false);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync(unitCosts: new() { ["CHE011"] = 60m });
+
+        var margin = Assert.Single(report.Summary.MarginByCurrency);
+
+        // The posted sale only — not 600.
+        Assert.Equal(100m, margin.Revenue);
+        Assert.Equal(60m, margin.Cost);
+
+        // While the revenue figure still reports everything that sold.
+        Assert.Equal(600m, Assert.Single(report.Summary.RevenueByCurrency).Gross);
+    }
+
+    /// <summary>
+    /// SAP states cost in the company currency and the vans bill in two. A ZiG sale gets revenue and
+    /// no margin — and no margin row at all, because a row holding a null invites somebody to read
+    /// it as zero.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_in_another_currency_gets_revenue_but_no_margin()
+    {
+        AddSale(Rep, "USD1", 100m, new DateTime(2026, 8, 4), posted: true);
+        AddSale(Rep, "ZIG1", 4000m, new DateTime(2026, 8, 5), posted: true, currency: "ZWG");
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync(unitCosts: new() { ["CHE011"] = 60m });
+
+        // Two revenue rows, one margin row.
+        Assert.Equal(2, report.Summary.RevenueByCurrency.Count);
+        var margin = Assert.Single(report.Summary.MarginByCurrency);
+        Assert.Equal("USD", margin.Currency);
+
+        Assert.Contains("ZWG", report.Quality.CurrenciesWithoutMatchingCost);
+        Assert.Contains(
+            report.Quality.Caveats,
+            caveat => caveat.Contains("No margin is stated for ZWG"));
+    }
+
+    /// <summary>
+    /// With the company currency unreadable — SAP down, or the statement refused — nothing can be
+    /// costed, because a cost of unknown denomination cannot be subtracted from anything. The rest
+    /// of the report is local and still true, so it renders.
+    /// </summary>
+    [Fact]
+    public async Task An_unreadable_company_currency_costs_nothing_and_says_so()
+    {
+        AddSale(Rep, "S1", 100m, new DateTime(2026, 8, 4), posted: true);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync(localCurrency: null, unitCosts: new() { ["CHE011"] = 60m });
+
+        Assert.False(report.Summary.MarginAvailable);
+        Assert.Null(report.Summary.CostCurrency);
+        Assert.Empty(report.Summary.MarginByCurrency);
+        Assert.False(report.Quality.CostAvailable);
+
+        // And the local half is intact.
+        Assert.Equal(100m, Assert.Single(report.Summary.RevenueByCurrency).Gross);
+        Assert.Contains(report.Quality.Caveats, caveat => caveat.Contains("No cost could be read from SAP"));
+    }
+
+    /// <summary>
+    /// B1 leaves the cost column at zero on a line whose item has no valuation yet. Carrying that
+    /// through would report the item as all margin, which is the single most flattering thing this
+    /// report could do.
+    /// </summary>
+    [Fact]
+    public async Task An_item_sap_carries_no_valuation_for_is_not_treated_as_pure_profit()
+    {
+        AddSale(Rep, "S1", 100m, new DateTime(2026, 8, 4), posted: true);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync(unitCosts: new() { ["CHE011"] = 0m });
+
+        var item = Assert.Single(report.Items);
+        Assert.Null(item.UnitCost);
+        Assert.False(item.HasCost);
+        Assert.Empty(report.Summary.MarginByCurrency);
+
+        Assert.Equal(1, report.Quality.ItemsWithoutCost);
+        Assert.Contains(report.Quality.Caveats, caveat => caveat.Contains("no usable cost"));
+    }
+
+    /// <summary>
+    /// Asking for the report without costs does one local read and states no margin. The caveat
+    /// distinguishes it from a run where SAP was asked and could not answer — those are different
+    /// facts and a reader acts differently on them.
+    /// </summary>
+    [Fact]
+    public async Task Skipping_the_cost_fetch_is_reported_differently_from_a_failed_one()
+    {
+        AddSale(Rep, "S1", 100m, new DateTime(2026, 8, 4), posted: true);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync(unitCosts: new() { ["CHE011"] = 60m }, includeCost: false);
+
+        Assert.False(report.Summary.MarginAvailable);
+        Assert.False(report.Quality.CostAttempted);
+        Assert.Contains(report.Quality.Caveats, caveat => caveat.Contains("Costs were not fetched"));
+        Assert.DoesNotContain(report.Quality.Caveats, caveat => caveat.Contains("No cost could be read"));
+    }
+
+    /// <summary>
+    /// A margin can be negative, and that is a finding rather than an error. Clamping it at zero
+    /// would hide the one thing a margin report exists to surface.
+    /// </summary>
+    [Fact]
+    public async Task An_item_sold_below_cost_reports_a_negative_margin()
+    {
+        AddSale(Rep, "S1", 40m, new DateTime(2026, 8, 4), posted: true);
+        await _context.SaveChangesAsync();
+
+        var report = await RunAsync(unitCosts: new() { ["CHE011"] = 60m });
+
+        var margin = Assert.Single(report.Summary.MarginByCurrency);
+        Assert.Equal(-20m, margin.Margin);
+        Assert.Equal(-0.5, margin.MarginRate);
     }
 
     // --- The costable share ---
@@ -297,9 +428,13 @@ public sealed class VanMarginReportTests : IDisposable
 
     // --- Harness ---
 
-    private async Task<VanMarginReportResult> RunAsync(bool postingEnabled = false)
+    private async Task<VanMarginReportResult> RunAsync(
+        bool postingEnabled = false,
+        string? localCurrency = "USD",
+        Dictionary<string, decimal>? unitCosts = null,
+        bool includeCost = true)
     {
-        var result = await RunRawAsync(From, To, postingEnabled);
+        var result = await RunRawAsync(From, To, postingEnabled, localCurrency, unitCosts, includeCost);
 
         Assert.False(result.IsError);
         return result.Value;
@@ -308,7 +443,10 @@ public sealed class VanMarginReportTests : IDisposable
     private Task<ErrorOr.ErrorOr<VanMarginReportResult>> RunRawAsync(
         DateTime from,
         DateTime to,
-        bool postingEnabled = false)
+        bool postingEnabled = false,
+        string? localCurrency = "USD",
+        Dictionary<string, decimal>? unitCosts = null,
+        bool includeCost = true)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -317,10 +455,52 @@ public sealed class VanMarginReportTests : IDisposable
             })
             .Build();
 
-        return new GetVanMarginReportHandler(_context, configuration).Handle(
-            new GetVanMarginReportQuery(from, to),
+        return new GetVanMarginReportHandler(
+            _context,
+            SapClient(localCurrency, unitCosts ?? new Dictionary<string, decimal>()),
+            configuration,
+            NullLogger<GetVanMarginReportHandler>.Instance).Handle(
+            new GetVanMarginReportQuery(from, to, IncludeCost: includeCost),
             CancellationToken.None);
     }
+
+    /// <summary>
+    /// Answers the two statements the cost reader makes, in the shape SAP returns: a list of
+    /// dictionaries keyed by the column aliases.
+    /// </summary>
+    /// <remarks>
+    /// A null <paramref name="localCurrency"/> stands for SAP refusing the statement or being
+    /// unreachable — the case the reader has to survive without a margin rather than by throwing.
+    /// Quantity is fixed at 1 per row so the weighted unit cost is exactly the price given, which
+    /// keeps the arithmetic under test in the handler rather than in the fixture.
+    /// </remarks>
+    private static ISAPServiceLayerClient SapClient(
+        string? localCurrency,
+        Dictionary<string, decimal> unitCosts) =>
+        StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
+        {
+            nameof(ISAPServiceLayerClient.ExecuteRawSqlQueryAsync) =>
+                localCurrency is null
+                    ? throw new InvalidOperationException("SAP refused the statement")
+                    : Task.FromResult(new List<Dictionary<string, object?>>
+                    {
+                        new() { ["MainCurncy"] = localCurrency }
+                    }),
+
+            nameof(ISAPServiceLayerClient.ExecuteParameterisedSqlQueryAsync) =>
+                Task.FromResult(unitCosts
+                    .Select(pair => new Dictionary<string, object?>
+                    {
+                        ["ItemCode"] = pair.Key,
+                        ["WhsCode"] = ((IReadOnlyDictionary<string, string>)args![3]!)["warehouseCode"],
+                        ["DocCur"] = "USD",
+                        ["Quantity"] = 1m,
+                        ["StockPrice"] = pair.Value
+                    })
+                    .ToList()),
+
+            _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
+        });
 
     private void AddSale(
         Guid userId,
