@@ -1,3 +1,4 @@
+using System.Globalization;
 using ShopInventory.Web.Models;
 using System.Net.Http.Json;
 
@@ -42,6 +43,14 @@ public interface IVanSalesReportService
         DateTime? toDate = null,
         Guid? userId = null);
 
+    Task<VanSalesScorecardReportResponse?> GetScorecardReportAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        VanSalesScorecardGrouping grouping = VanSalesScorecardGrouping.Rep,
+        Guid? userId = null,
+        double? callComplianceTarget = null,
+        double? strikeRateTarget = null);
+
     Task<List<RouteDto>> GetRoutesAsync(bool includeInactive = false);
 
     /// <summary>Creates or updates a route. Returns the saved route, or the server's refusal.</summary>
@@ -58,7 +67,7 @@ public interface IVanSalesReportService
 /// checked against <c>VanSalesReportController</c> — <c>api/van-sales/compliance-report</c>,
 /// <c>api/van-sales/performance-report</c>, <c>api/van-sales/coverage-report</c>,
 /// <c>api/van-sales/replenishment-report</c>, <c>api/van-sales/stock-report</c>,
-/// <c>api/van-sales/exceptions-report</c> and
+/// <c>api/van-sales/exceptions-report</c>, <c>api/van-sales/scorecard-report</c> and
 /// <c>api/van-sales/routes</c> — and the exception is
 /// logged rather than only returned as null, so a wrong URL leaves a trail.
 /// </remarks>
@@ -234,6 +243,49 @@ public class VanSalesReportService(HttpClient httpClient, ILogger<VanSalesReport
         catch (Exception ex)
         {
             logger.LogError(ex, "Error fetching the van sales exceptions report");
+            return null;
+        }
+    }
+
+    public async Task<VanSalesScorecardReportResponse?> GetScorecardReportAsync(
+        DateTime? fromDate = null,
+        DateTime? toDate = null,
+        VanSalesScorecardGrouping grouping = VanSalesScorecardGrouping.Rep,
+        Guid? userId = null,
+        double? callComplianceTarget = null,
+        double? strikeRateTarget = null)
+    {
+        try
+        {
+            var queryParams = new List<string>();
+
+            // Dates only, for the reason given above: these are CAT trading days, not instants.
+            if (fromDate.HasValue) queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+            if (toDate.HasValue) queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+            queryParams.Add($"grouping={grouping}");
+            if (userId.HasValue) queryParams.Add($"userId={userId.Value}");
+
+            // The targets are only sent when overridden, so the API's defaults stay the single
+            // definition of what a rep is measured against.
+            if (callComplianceTarget.HasValue)
+            {
+                queryParams.Add(
+                    $"callComplianceTarget={callComplianceTarget.Value.ToString(CultureInfo.InvariantCulture)}");
+            }
+
+            if (strikeRateTarget.HasValue)
+            {
+                queryParams.Add(
+                    $"strikeRateTarget={strikeRateTarget.Value.ToString(CultureInfo.InvariantCulture)}");
+            }
+
+            var url = $"api/van-sales/scorecard-report?{string.Join("&", queryParams)}";
+
+            return await httpClient.GetFromJsonAsync<VanSalesScorecardReportResponse>(url);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error fetching the van sales scorecard report");
             return null;
         }
     }

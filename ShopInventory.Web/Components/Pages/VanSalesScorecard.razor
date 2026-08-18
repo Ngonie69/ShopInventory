@@ -1,0 +1,532 @@
+@page "/van-sales/reports/scorecard"
+@* Admin and Manager only — see VanSalesActivity.razor. *@
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+@using System.Globalization
+@using ShopInventory.Web.Models
+@inject IVanSalesReportService VanSalesReportService
+@inject IReportExportService ExportService
+@inject IJSRuntime JS
+
+<PageTitle>Van Sales Scorecard - Shop Inventory</PageTitle>
+
+@* The period scorecard: a league of reps or routes against target, with the
+   direction of travel against the period before.
+
+   Carried by wwwroot/css/van-sales.css: the shared `vs-` chrome plus `vsk-` for
+   what only this page draws. A prefix nothing else on that sheet owns, because
+   sheets here are separated by prefix alone and a duplicated one silently
+   restyles a neighbour.
+
+   Three things this page has to keep saying, because a scorecard invites exactly
+   the readings they rule out:
+
+   It is the reporting plan's daily flash, weekly scorecard and monthly pack in one
+   surface. They ask the same question of the same measures and differ only in the
+   window, so the window is a filter rather than three pages that would each have
+   to be kept in step with the other five reports.
+
+   It ranks on rates and never on money. Takings are per currency, so there is no
+   single number to sort a league by, and a row's colour comes from its rates alone.
+
+   An uncoloured row is a measurement that is missing, not a bad one. A rep whose
+   handset never synced has no strike rate, and red would blame them for it. *@
+
+<div class="vs vsk">
+
+    <div class="vs-head">
+        <div>
+            <h2 class="vs-title">Scorecard</h2>
+            <p class="vs-subtitle">
+                Every rep or route against target for the period, and which way each is moving
+                against the period before it.
+            </p>
+        </div>
+        <div class="vs-actions">
+            <button class="vs-btn" @onclick="PrintAsync" disabled="@(isLoading || report is null)">
+                Print
+            </button>
+            <button class="vs-btn" @onclick="ExportAsync" disabled="@(isLoading || report is null)">
+                Export
+            </button>
+        </div>
+    </div>
+
+    <div class="vs-filters">
+        <div class="row g-3">
+            @* NocturneDateField and NocturneSelect, never a native date input or select: the
+               platform calendar and the platform popup are windows no page stylesheet reaches
+               into, and both arrive unreadable on this sheet's dark ground. *@
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vsk-period">Period</label>
+                <NocturneSelect Id="vsk-period" Class="nsel-block" TValue="string"
+                                Options="PeriodOptions" @bind-Value="selectedPeriod"
+                                OnChanged="ApplyPeriodAsync" AriaLabel="Reporting period" />
+            </div>
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsk-from">From</label>
+                <NocturneDateField Id="vsk-from" @bind-Date="fromDate" AriaLabel="From date" />
+            </div>
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsk-to">To</label>
+                <NocturneDateField Id="vsk-to" @bind-Date="toDate" AriaLabel="To date" />
+            </div>
+            <div class="col-md-2">
+                <label class="vs-filter-label" for="vsk-grouping">League of</label>
+                <NocturneSelect Id="vsk-grouping" Class="nsel-block" TValue="string"
+                                Options="GroupingOptions" @bind-Value="selectedGrouping"
+                                OnChanged="LoadAsync" AriaLabel="Group the league by" />
+            </div>
+            <div class="col-md-3 vs-actions">
+                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
+                    @(isLoading ? "Loading…" : "Run")
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (loadError is not null)
+    {
+        <div class="vs-notice" role="alert">@loadError</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Reading the period and the one before it…</span>
+        </div>
+    }
+    else if (report is null)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">Nothing to show yet</div>
+            <div>Choose a period and press Run.</div>
+        </div>
+    }
+    else
+    {
+        var summary = report.Summary;
+
+        <div class="vsk-compare">
+            This period @PeriodText(report.FromDate, report.ToDate)
+            <span class="vsk-compare-vs">against</span>
+            @PeriodText(report.PriorFromDate, report.PriorToDate)
+        </div>
+
+        <div class="vsk-kpis">
+            <div class="vsk-kpi">
+                <div class="vsk-kpi-value">@Rate(summary.StrikeRate)</div>
+                <div class="vsk-kpi-label">Strike rate</div>
+                <div class="vsk-kpi-sub @MoveInk(summary.StrikeRateMovement)">
+                    @Points(summary.StrikeRateMovement) · target @Rate(report.StrikeRateTarget)
+                </div>
+            </div>
+            <div class="vsk-kpi">
+                <div class="vsk-kpi-value">@Rate(summary.CallComplianceRate)</div>
+                <div class="vsk-kpi-label">Call compliance</div>
+                <div class="vsk-kpi-sub @MoveInk(summary.CallComplianceMovement)">
+                    @Points(summary.CallComplianceMovement) · target @Rate(report.CallComplianceTarget)
+                </div>
+            </div>
+            <div class="vsk-kpi">
+                <div class="vsk-kpi-value">@summary.OutletsBought.ToString("N0")</div>
+                <div class="vsk-kpi-label">Outlets bought</div>
+                <div class="vsk-kpi-sub @MoveInk(summary.OutletsBoughtMovement)">
+                    @Count(summary.OutletsBoughtMovement, signed: true) on last period
+                </div>
+            </div>
+            <div class="vsk-kpi">
+                <div class="vsk-kpi-value">@summary.NewOutlets.ToString("N0")</div>
+                <div class="vsk-kpi-label">New outlets</div>
+                <div class="vsk-kpi-sub">captured in the period</div>
+            </div>
+            <div class="vsk-kpi vsk-kpi-wide">
+                <div class="vsk-kpi-value">@MoneyList(summary.TakingsByCurrency)</div>
+                <div class="vsk-kpi-label">Takings</div>
+                <div class="vsk-kpi-sub">@MovementText(report.TakingsMovement)</div>
+            </div>
+        </div>
+
+        <div class="vsk-bands">
+            <span class="vs-chip vs-chip-good">@summary.GreenCount green</span>
+            <span class="vs-chip vs-chip-warn">@summary.AmberCount amber</span>
+            <span class="vs-chip vs-chip-bad">@summary.RedCount red</span>
+            <span class="vs-chip vs-chip-quiet">@summary.UnratedCount unrated</span>
+            @if (summary.RatedShare is { } share && share < 1)
+            {
+                <span class="vsk-bands-note">
+                    @Rate(share) of rows carry a band; the rest have no calls recorded.
+                </span>
+            }
+        </div>
+
+        @* Unconditional, unlike its siblings that gate on IsClean. Two of this report's caveats
+           fire in every period — money is never ranked, and the reports it summarises are the
+           authority — so gating would hide something that is always true. *@
+        <div class="vsk-caveats">
+            <div class="vsk-caveats-title">What this page will not tell you</div>
+            <ul>
+                @foreach (var caveat in report.Quality.Caveats)
+                {
+                    <li>@caveat</li>
+                }
+            </ul>
+        </div>
+
+        @if (report.Rows.Count == 0)
+        {
+            <div class="vs-empty">
+                <div class="vs-empty-title">Nothing traded in this period</div>
+                <div>No van sale and no departure record falls inside these dates.</div>
+            </div>
+        }
+        else
+        {
+            <div class="vs-table-wrap">
+                <table class="vs-table vsk-table">
+                    <thead>
+                        <tr>
+                            <th>@(report.Grouping == VanSalesScorecardGrouping.Route ? "Route" : "Rep")</th>
+                            <th class="vs-num">Days</th>
+                            <th class="vs-num">Calls</th>
+                            <th class="vs-num">Strike</th>
+                            <th class="vs-num">Move</th>
+                            <th class="vs-num">Compliance</th>
+                            <th class="vs-num">Move</th>
+                            <th class="vs-num">Outlets</th>
+                            <th class="vs-num">New</th>
+                            <th class="vs-num">Km</th>
+                            <th>Takings</th>
+                            <th>Against last period</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in report.Rows)
+                        {
+                            <tr class="@BandClass(row.Band)">
+                                <td>
+                                    <div class="vsk-name">
+                                        <span class="vsk-band @BandDot(row.Band)"
+                                              title="@BandTitle(row)" aria-hidden="true"></span>
+                                        @row.Label
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(row.SubLabel))
+                                    {
+                                        <div class="vsk-sub">@row.SubLabel</div>
+                                    }
+                                    @if (row.CaptureGaps > 0)
+                                    {
+                                        <span class="vs-chip vs-chip-quiet vsk-inline-chip"
+                                              title="Sales missing a payment method or an outlet. The exception register lists them.">
+                                            @row.CaptureGaps capture gap@(row.CaptureGaps == 1 ? "" : "s")
+                                        </span>
+                                    }
+                                </td>
+                                <td class="vs-num">@row.TradingDays.ToString("N0")</td>
+                                <td class="vs-num">@Count(row.Calls)</td>
+                                <td class="vs-num @RateInk(row.StrikeRate, row.StrikeRateTarget)">
+                                    @Rate(row.StrikeRate)
+                                </td>
+                                <td class="vs-num @MoveInk(row.StrikeRateMovement)">
+                                    @Points(row.StrikeRateMovement)
+                                </td>
+                                <td class="vs-num @RateInk(row.CallComplianceRate, row.CallComplianceTarget)">
+                                    @Rate(row.CallComplianceRate)
+                                </td>
+                                <td class="vs-num @MoveInk(row.CallComplianceMovement)">
+                                    @Points(row.CallComplianceMovement)
+                                </td>
+                                <td class="vs-num">@row.OutletsBought.ToString("N0")</td>
+                                <td class="vs-num">@row.NewOutlets.ToString("N0")</td>
+                                <td class="vs-num">@Count(row.Kilometres)</td>
+                                <td>@MoneyList(row.TakingsByCurrency)</td>
+                                <td>@MovementText(row.TakingsMovement)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private const string PeriodDay = "day";
+    private const string PeriodWeek = "week";
+    private const string PeriodMonth = "month";
+    private const string PeriodCustom = "custom";
+
+    /// <summary>
+    /// The plan's F1, F2 and F3. They are three names for one report over three windows, so they are
+    /// a filter rather than three pages.
+    /// </summary>
+    private static readonly IEnumerable<INocturneSelectOption<string>> PeriodOptions =
+    [
+        new NocturneSelectOption<string>(PeriodDay, "Yesterday — daily flash"),
+        new NocturneSelectOption<string>(PeriodWeek, "Last 7 days — weekly scorecard"),
+        new NocturneSelectOption<string>(PeriodMonth, "Last 30 days — monthly pack"),
+        new NocturneSelectOption<string>(PeriodCustom, "Custom dates")
+    ];
+
+    private static readonly IEnumerable<INocturneSelectOption<string>> GroupingOptions =
+    [
+        new NocturneSelectOption<string>(nameof(VanSalesScorecardGrouping.Rep), "Reps"),
+        new NocturneSelectOption<string>(nameof(VanSalesScorecardGrouping.Route), "Routes")
+    ];
+
+    private VanSalesScorecardReportResponse? report;
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string selectedPeriod = PeriodWeek;
+    private string selectedGrouping = nameof(VanSalesScorecardGrouping.Rep);
+
+    private bool isLoading;
+    private string? loadError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        ApplyPeriod();
+        await LoadAsync();
+    }
+
+    private async Task ApplyPeriodAsync()
+    {
+        ApplyPeriod();
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// Moves the dates to match the chosen period. A trading day belongs to the van, so today is
+    /// CAT rather than UTC — at 23:30 UTC the fleet is already into tomorrow.
+    /// </summary>
+    private void ApplyPeriod()
+    {
+        var today = DateTime.UtcNow.AddHours(2).Date;
+
+        switch (selectedPeriod)
+        {
+            case PeriodDay:
+                // Yesterday, not today: a flash read in the morning is about the day that finished.
+                fromDate = today.AddDays(-1);
+                toDate = today.AddDays(-1);
+                break;
+            case PeriodWeek:
+                fromDate = today.AddDays(-6);
+                toDate = today;
+                break;
+            case PeriodMonth:
+                fromDate = today.AddDays(-29);
+                toDate = today;
+                break;
+            default:
+                fromDate ??= today.AddDays(-6);
+                toDate ??= today;
+                break;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        StateHasChanged();
+
+        try
+        {
+            report = await VanSalesReportService.GetScorecardReportAsync(
+                fromDate,
+                toDate,
+                Enum.TryParse<VanSalesScorecardGrouping>(selectedGrouping, out var grouping)
+                    ? grouping
+                    : VanSalesScorecardGrouping.Rep);
+
+            if (report is null)
+            {
+                loadError = "The scorecard could not be loaded. The reporting service did not answer.";
+            }
+        }
+        catch (Exception ex)
+        {
+            loadError = ex.Message;
+            report = null;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        if (report is null)
+        {
+            return;
+        }
+
+        var bytes = ExportService.ExportVanSalesScorecardToExcel(report);
+        var fileName = $"VanSalesScorecard_{DateTime.UtcNow.AddHours(2):yyyyMMdd_HHmmss}.xlsx";
+
+        await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
+    }
+
+    /// <summary>
+    /// The print path this app already has. There is no server-side PDF library and one must not be
+    /// added — the browser's own print dialog produces the PDF.
+    /// </summary>
+    private async Task PrintAsync()
+    {
+        if (report is null)
+        {
+            return;
+        }
+
+        await JS.InvokeVoidAsync("printReportHtml", BuildPrintableHtml());
+    }
+
+    // — Formatting ——————————————————————————————————————————————————
+
+    private static string Rate(double? value) => value?.ToString("P0", CultureInfo.InvariantCulture) ?? "—";
+
+    /// <summary>
+    /// A rate movement in percentage points, signed. Never as a proportion of a proportion: 50% to
+    /// 75% is twenty-five points, and calling it +50% would be a different and much larger claim.
+    /// </summary>
+    private static string Points(double? value) =>
+        value is not { } move ? "—" : $"{(move >= 0 ? "+" : "")}{move * 100:N1} pts";
+
+    private static string Count(int? value, bool signed = false) =>
+        value is not { } number
+            ? "—"
+            : signed ? $"{(number >= 0 ? "+" : "")}{number:N0}" : number.ToString("N0");
+
+    private static string MoneyList(List<VanSalesMoney> totals) =>
+        totals.Count == 0
+            ? "—"
+            : string.Join("  ·  ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
+
+    /// <summary>
+    /// Per currency, and never one number. A currency with no prior figure shows its takings and
+    /// says the comparison is missing rather than implying it grew from nothing.
+    /// </summary>
+    private static string MovementText(List<VanSalesScorecardMovement> movements)
+    {
+        if (movements.Count == 0)
+        {
+            return "—";
+        }
+
+        return string.Join("  ·  ", movements.Select(movement =>
+            movement.Movement is not { } delta
+                ? $"{movement.Currency} no comparison"
+                : $"{movement.Currency} {(delta >= 0 ? "+" : "")}{delta:N2}"
+                  + (movement.PercentChange is { } percent
+                      ? $" ({(percent >= 0 ? "+" : "")}{percent:P0})"
+                      : "")));
+    }
+
+    private static string PeriodText(DateTime from, DateTime to) =>
+        from == to
+            ? from.ToString("ddd d MMM yyyy", CultureInfo.InvariantCulture)
+            : $"{from:d MMM} – {to:d MMM yyyy}";
+
+    private static string BandClass(VanSalesScorecardBand band) => band switch
+    {
+        VanSalesScorecardBand.Red => "vsk-row-red",
+        VanSalesScorecardBand.Amber => "vsk-row-amber",
+        _ => string.Empty
+    };
+
+    private static string BandDot(VanSalesScorecardBand band) => band switch
+    {
+        VanSalesScorecardBand.Green => "vsk-band-green",
+        VanSalesScorecardBand.Amber => "vsk-band-amber",
+        VanSalesScorecardBand.Red => "vsk-band-red",
+        _ => "vsk-band-none"
+    };
+
+    private static string BandTitle(VanSalesScorecardRow row) => row.Band switch
+    {
+        VanSalesScorecardBand.Green => "At or above every target",
+        VanSalesScorecardBand.Amber => "Under a target, but within ten points of it",
+        VanSalesScorecardBand.Red => "More than ten points under a target",
+        _ => "No calls recorded, so no rate and no band. Missing, not bad."
+    };
+
+    private static string RateInk(double? rate, double target) =>
+        rate is { } value && value < target ? "vsk-under" : string.Empty;
+
+    private static string MoveInk(double? movement) => movement switch
+    {
+        > 0 => "vsk-up",
+        < 0 => "vsk-down",
+        _ => string.Empty
+    };
+
+    private static string MoveInk(int? movement) => movement switch
+    {
+        > 0 => "vsk-up",
+        < 0 => "vsk-down",
+        _ => string.Empty
+    };
+
+    /// <summary>
+    /// The printable copy. Everything the page discloses is repeated here, because a printout is
+    /// carried into a meeting by somebody who never saw the screen.
+    /// </summary>
+    private string BuildPrintableHtml()
+    {
+        if (report is null)
+        {
+            return string.Empty;
+        }
+
+        var body = new System.Text.StringBuilder();
+
+        body.Append("<p><strong>This period</strong> ")
+            .Append(PeriodText(report.FromDate, report.ToDate))
+            .Append(" &middot; <strong>against</strong> ")
+            .Append(PeriodText(report.PriorFromDate, report.PriorToDate))
+            .Append("</p>");
+
+        body.Append("<table><thead><tr>")
+            .Append($"<th>{(report.Grouping == VanSalesScorecardGrouping.Route ? "Route" : "Rep")}</th>")
+            .Append("<th>Band</th><th>Days</th><th>Calls</th><th>Strike</th><th>Move</th>")
+            .Append("<th>Compliance</th><th>Move</th><th>Outlets</th><th>New</th><th>Takings</th>")
+            .Append("</tr></thead><tbody>");
+
+        foreach (var row in report.Rows)
+        {
+            body.Append("<tr>")
+                .Append($"<td>{System.Net.WebUtility.HtmlEncode(row.Label)}</td>")
+                .Append($"<td>{row.Band}</td>")
+                .Append($"<td>{row.TradingDays:N0}</td>")
+                .Append($"<td>{Count(row.Calls)}</td>")
+                .Append($"<td>{Rate(row.StrikeRate)}</td>")
+                .Append($"<td>{Points(row.StrikeRateMovement)}</td>")
+                .Append($"<td>{Rate(row.CallComplianceRate)}</td>")
+                .Append($"<td>{Points(row.CallComplianceMovement)}</td>")
+                .Append($"<td>{row.OutletsBought:N0}</td>")
+                .Append($"<td>{row.NewOutlets:N0}</td>")
+                .Append($"<td>{System.Net.WebUtility.HtmlEncode(MoneyList(row.TakingsByCurrency))}</td>")
+                .Append("</tr>");
+        }
+
+        body.Append("</tbody></table>");
+
+        body.Append("<h3>What this page will not tell you</h3><ul>");
+        foreach (var caveat in report.Quality.Caveats)
+        {
+            body.Append($"<li>{System.Net.WebUtility.HtmlEncode(caveat)}</li>");
+        }
+        body.Append("</ul>");
+
+        return ExportService.GeneratePrintableHtml(
+            "Van Sales Scorecard",
+            body.ToString(),
+            report.FromDate,
+            report.ToDate);
+    }
+}

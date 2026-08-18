@@ -45,6 +45,8 @@ public interface IReportExportService
 
     byte[] ExportVanSalesExceptionsToExcel(VanSalesExceptionsReportResponse report);
 
+    byte[] ExportVanSalesScorecardToExcel(VanSalesScorecardReportResponse report);
+
     byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     byte[] ExportAccountSalesPaymentReportToExcel(GetAccountSalesPaymentReportResult report);
@@ -6467,6 +6469,273 @@ public class ReportExportService : IReportExportService
 
         TsFinalize(ws, lastCol, freezeRow: 2, freezeCol: 1);
     }
+
+    /// <summary>
+    /// The period scorecard: the league, against target, with the direction of travel.
+    /// </summary>
+    /// <remarks>
+    /// Two sheets rather than the six a section-per-sheet report gets, because this report has two
+    /// things to say. The overview is the fleet and what it could not answer; the league is every
+    /// row. Splitting the league further would put reps and routes on separate tabs when they are
+    /// alternative readings of the same period, never both at once.
+    ///
+    /// Bands are written as a word, never as a fill alone. A colour that survives a photocopier
+    /// badly, or a reader who cannot distinguish red from green, is not a report — and the band is
+    /// the one thing on here that is a judgement about a person.
+    /// </remarks>
+    public byte[] ExportVanSalesScorecardToExcel(VanSalesScorecardReportResponse report)
+    {
+        using var workbook = NewWorkbook("Van Sales Scorecard");
+        var now = DateTime.UtcNow.AddHours(2); // CAT
+
+        BuildScorecardOverviewSheet(workbook, report, now);
+        BuildScorecardLeagueSheet(workbook, report, now);
+
+        return WorkbookToBytes(workbook);
+    }
+
+    private static void BuildScorecardOverviewSheet(
+        XLWorkbook workbook,
+        VanSalesScorecardReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 8;
+        var ws = workbook.Worksheets.Add("Overview");
+        TsApplyDefaults(ws);
+
+        var row = TsTitleBar(
+            ws,
+            $"VAN SALES SCORECARD  —  {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}",
+            lastCol,
+            now);
+
+        // The comparison window, stated before any movement figure. A reader who does not know what
+        // "against last period" means cannot read a single movement on the sheets that follow.
+        ws.Cell(row, 1).Value =
+            $"Compared against {report.PriorFromDate:dd MMM yyyy} to {report.PriorToDate:dd MMM yyyy}, "
+            + "the equal-length period immediately before this one.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 10;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        row += 2;
+
+        var summary = report.Summary;
+
+        row = TsKpiStrip(ws, row, lastCol,
+            ("Strike rate", RateText(summary.StrikeRate), null),
+            ("Movement", PointsText(summary.StrikeRateMovement), null),
+            ("Call compliance", RateText(summary.CallComplianceRate), null),
+            ("Movement", PointsText(summary.CallComplianceMovement), null),
+            ("Outlets bought", summary.OutletsBought.ToString("N0"), null),
+            ("New outlets", summary.NewOutlets.ToString("N0"), null),
+            ("Rows rated", $"{summary.RowCount - summary.UnratedCount:N0} of {summary.RowCount:N0}", null),
+            ("Takings", MoneyText(summary.TakingsByCurrency), null));
+        row++;
+
+        TsSectionTitle(ws, row, lastCol, "BANDS");
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol, ["Band", "Rows", "What it means", "", "", "", "", ""]);
+
+        var bands = new (string Name, int Count, string Meaning, XLColor Colour)[]
+        {
+            ("Green", summary.GreenCount, "At or above every target", TsGreen),
+            ("Amber", summary.AmberCount, "Under a target, but within ten points of it", TsOrange),
+            ("Red", summary.RedCount, "More than ten points under a target", TsRed),
+            ("Unrated", summary.UnratedCount,
+                "No calls recorded, so no rate and no band. Missing, not bad.", TsTextMuted)
+        };
+
+        var index = 0;
+        foreach (var band in bands)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = band.Name;
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 1).Style.Font.FontColor = band.Colour;
+            ws.Cell(row, 2).Value = band.Count;
+            ws.Cell(row, 3).Value = band.Meaning;
+            ws.Range(row, 3, row, lastCol).Merge();
+            row++;
+            index++;
+        }
+
+        row++;
+
+        TsSectionTitle(ws, row, lastCol, "TAKINGS AGAINST LAST PERIOD");
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Currency", "This period", "Last period", "Movement", "Change", "", "", ""]);
+
+        index = 0;
+        foreach (var movement in report.TakingsMovement)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = movement.Currency;
+            // Text, never a number: nobody selects this column and has Excel add USD to ZiG.
+            ws.Cell(row, 2).Value = AmountText(movement.Currency, movement.Gross);
+            ws.Cell(row, 3).Value = AmountText(movement.Currency, movement.PriorGross);
+            ws.Cell(row, 4).Value = AmountText(movement.Currency, movement.Movement);
+            ws.Cell(row, 5).Value = movement.PercentChange is { } percent ? percent.ToString("P0") : "—";
+            row++;
+            index++;
+        }
+
+        row++;
+
+        TsSectionTitle(ws, row, lastCol, "WHAT THIS PERIOD COULD NOT ANSWER");
+        row += 2;
+
+        // Unconditional. Two of this report's caveats fire in every period — money is never ranked,
+        // and the reports it summarises are the authority — so a clean period does not exist here
+        // and skipping the block would itself be a claim.
+        foreach (var caveat in report.Quality.Caveats)
+        {
+            ws.Cell(row, 1).Value = caveat;
+            ws.Range(row, 1, row, lastCol).Merge();
+            ws.Cell(row, 1).Style.Font.FontSize = 9;
+            ws.Cell(row, 1).Style.Font.Italic = true;
+            ws.Cell(row, 1).Style.Font.FontColor = TsOrange;
+            ws.Cell(row, 1).Style.Alignment.WrapText = true;
+            row++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2);
+    }
+
+    private static void BuildScorecardLeagueSheet(
+        XLWorkbook workbook,
+        VanSalesScorecardReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 13;
+        var ws = workbook.Worksheets.Add("League");
+        TsApplyDefaults(ws);
+
+        var grouping = report.Grouping == VanSalesScorecardGrouping.Route ? "ROUTE" : "REP";
+
+        var row = TsTitleBar(
+            ws,
+            $"SCORECARD BY {grouping}  —  {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}",
+            lastCol,
+            now);
+
+        ws.Cell(row, 1).Value =
+            "Rows are banded on their rates alone. Takings are per currency and are never ranked, so "
+            + "a route billing in ZiG and one billing in USD hold no position against each other. "
+            + "An unrated row has no calls recorded — that is a measurement nobody took, not a bad one.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 30;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            report.Grouping == VanSalesScorecardGrouping.Route ? "Route" : "Rep",
+            "Band", "Days", "Calls", "Strike", "Move", "Compliance", "Move",
+            "Outlets", "New", "Km", "Takings", "Against last period"
+        ]);
+
+        var index = 0;
+        foreach (var leagueRow in report.Rows)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+
+            ws.Cell(row, 1).Value = string.IsNullOrWhiteSpace(leagueRow.SubLabel)
+                ? leagueRow.Label
+                : $"{leagueRow.Label} — {leagueRow.SubLabel}";
+
+            // The band as a word as well as a colour. A photocopy, a projector, or a reader who
+            // cannot tell red from green all lose the fill; none of them loses the word.
+            ws.Cell(row, 2).Value = leagueRow.Band.ToString();
+            ws.Cell(row, 2).Style.Font.Bold = true;
+            ws.Cell(row, 2).Style.Font.FontColor = leagueRow.Band switch
+            {
+                VanSalesScorecardBand.Green => TsGreen,
+                VanSalesScorecardBand.Amber => TsOrange,
+                VanSalesScorecardBand.Red => TsRed,
+                _ => TsTextMuted
+            };
+
+            ws.Cell(row, 3).Value = leagueRow.TradingDays;
+            ws.Cell(row, 4).Value = leagueRow.Calls is { } calls ? calls.ToString("N0") : "—";
+            ws.Cell(row, 5).Value = RateText(leagueRow.StrikeRate);
+            ws.Cell(row, 6).Value = PointsText(leagueRow.StrikeRateMovement);
+            ws.Cell(row, 7).Value = RateText(leagueRow.CallComplianceRate);
+            ws.Cell(row, 8).Value = PointsText(leagueRow.CallComplianceMovement);
+            ws.Cell(row, 9).Value = leagueRow.OutletsBought;
+            ws.Cell(row, 10).Value = leagueRow.NewOutlets;
+            ws.Cell(row, 11).Value = leagueRow.Kilometres is { } km ? km.ToString("N0") : "—";
+            ws.Cell(row, 12).Value = MoneyText(leagueRow.TakingsByCurrency);
+            ws.Cell(row, 13).Value = MovementText(leagueRow.TakingsMovement);
+
+            if (leagueRow.StrikeRate is { } strike && strike < leagueRow.StrikeRateTarget)
+            {
+                ws.Cell(row, 5).Style.Font.FontColor = TsRed;
+            }
+
+            if (leagueRow.CallComplianceRate is { } compliance
+                && compliance < leagueRow.CallComplianceTarget)
+            {
+                ws.Cell(row, 7).Style.Font.FontColor = TsRed;
+            }
+
+            row++;
+            index++;
+        }
+
+        var summary = report.Summary;
+
+        TsSummaryRow(ws, row, lastCol);
+        ws.Cell(row, 1).Value = $"FLEET: {report.Rows.Count:N0} ROW(S)";
+        ws.Cell(row, 3).Value = summary.TradingDays;
+        ws.Cell(row, 4).Value = summary.Calls is { } fleetCalls ? fleetCalls.ToString("N0") : "—";
+        ws.Cell(row, 5).Value = RateText(summary.StrikeRate);
+        ws.Cell(row, 6).Value = PointsText(summary.StrikeRateMovement);
+        ws.Cell(row, 7).Value = RateText(summary.CallComplianceRate);
+        ws.Cell(row, 8).Value = PointsText(summary.CallComplianceMovement);
+        ws.Cell(row, 9).Value = summary.OutletsBought;
+        ws.Cell(row, 10).Value = summary.NewOutlets;
+        ws.Cell(row, 11).Value = summary.Kilometres is { } fleetKm ? fleetKm.ToString("N0") : "—";
+        ws.Cell(row, 12).Value = MoneyText(summary.TakingsByCurrency);
+
+        TsFinalize(ws, lastCol, freezeRow: 5, freezeCol: 1);
+    }
+
+    /// <summary>
+    /// One amount that may not exist, against its currency.
+    /// </summary>
+    /// <remarks>
+    /// Null renders as an em dash and never as zero. On a movement column null means "this currency
+    /// was not traded in the other period", and writing that as 0.00 would turn an absent comparison
+    /// into a claim that nothing changed.
+    /// </remarks>
+    private static string AmountText(string currency, decimal? amount) =>
+        amount is { } value ? AmountText(currency, value) : "—";
+
+    /// <summary>
+    /// A rate movement in percentage points, signed. Never as a proportion of a proportion: 50% to
+    /// 75% is twenty-five points, and calling it +50% would be a different and much larger claim.
+    /// </summary>
+    private static string PointsText(double? movement) =>
+        movement is not { } value ? "—" : $"{(value >= 0 ? "+" : "")}{value * 100:N1} pts";
+
+    /// <summary>
+    /// One currency's movement, per currency and never folded. A currency with no prior figure says
+    /// the comparison is missing rather than implying it grew from nothing.
+    /// </summary>
+    private static string MovementText(List<VanSalesScorecardMovement> movements) =>
+        movements.Count == 0
+            ? "—"
+            : string.Join("  |  ", movements.Select(movement =>
+                movement.Movement is not { } delta
+                    ? $"{movement.Currency} no comparison"
+                    : $"{movement.Currency} {(delta >= 0 ? "+" : "")}{delta:N2}"));
+
 
     /// <summary>
     /// Exposure as text, one entry per currency. Its own formatter rather than a reuse of

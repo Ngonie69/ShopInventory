@@ -9,6 +9,7 @@ using ShopInventory.Features.VanSalesReports.Queries.GetRoutes;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesExceptionsReport;
+using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesScorecardReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport;
 using ShopInventory.Models;
@@ -277,6 +278,59 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
                 fromDate?.Date ?? today.AddDays(-30),
                 toDate?.Date ?? today,
                 userId),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The period scorecard: a league of reps or routes against target, with the direction of
+    /// travel against the preceding period of equal length.
+    /// </summary>
+    /// <remarks>
+    /// One report rather than the plan's three. A daily flash, a weekly route scorecard and a
+    /// monthly review pack ask the same question of the same measures and differ only in the window,
+    /// so the window is a parameter.
+    ///
+    /// Every measure comes from the shared van sales measures, so a figure here cannot disagree with
+    /// the report it summarises. Rows band on their rates alone — takings are per currency and are
+    /// never ranked.
+    /// </remarks>
+    /// <param name="fromDate">Inclusive CAT trading day. Defaults to 7 days back.</param>
+    /// <param name="toDate">Inclusive CAT trading day. Defaults to today.</param>
+    /// <param name="grouping">One row per rep, or one per route.</param>
+    /// <param name="userId">One rep, or every rep when omitted.</param>
+    /// <param name="callComplianceTarget">
+    /// The call compliance a row is banded against. Defaults to the compliance report's own target,
+    /// so a rep cannot be green on one page and red on the other.
+    /// </param>
+    /// <param name="strikeRateTarget">The strike rate a row is banded against. Same reasoning.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("scorecard-report")]
+    [RequirePermission(Permission.ViewVanSalesAttendance)]
+    [ProducesResponseType(typeof(VanSalesScorecardReportResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetScorecardReport(
+        [FromQuery] DateTime? fromDate = null,
+        [FromQuery] DateTime? toDate = null,
+        [FromQuery] VanSalesScorecardGrouping grouping = VanSalesScorecardGrouping.Rep,
+        [FromQuery] Guid? userId = null,
+        [FromQuery] double callComplianceTarget = 0.95,
+        [FromQuery] double strikeRateTarget = 0.75,
+        CancellationToken cancellationToken = default)
+    {
+        var today = AuditService.ToCAT(DateTime.UtcNow).Date;
+
+        var result = await mediator.Send(
+            new GetVanSalesScorecardReportQuery(
+                fromDate?.Date ?? today.AddDays(-7),
+                toDate?.Date ?? today,
+                grouping,
+                userId,
+                callComplianceTarget,
+                strikeRateTarget),
             cancellationToken);
 
         return result.Match(

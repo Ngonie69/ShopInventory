@@ -2843,3 +2843,210 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
+
+/* ==========================================================================
+   `vsk-` — /van-sales/reports/scorecard
+
+   The eighth page on this sheet, and the last of the reporting suite. Its own
+   prefix for the reason every page here has one: sheets in this app are
+   separated by prefix alone, and a duplicated one silently restyles a
+   neighbour. `vsk-` was unused before this block.
+
+   Same rules as the seven above it: every colour resolves through the alias
+   block at the head of this file, so both schemes come free and there is no
+   `.dark-theme .vsk` rule to forget; every selector is two classes deep so
+   app.css's global `.dark-theme input` rules at (0,1,1) cannot reach past them.
+
+   What this page draws that the others do not is a band — a colour standing for
+   a judgement about a person. Three things follow from that and are built in
+   here rather than left to the markup.
+
+   The band is a dot beside the name, not a fill across the row. A fully
+   coloured row reads as a verdict on everything in it, including the figures
+   the band did not consider; the dot sits next to the name it is actually about.
+   Only amber and red tint the row at all, and faintly.
+
+   `vsk-band-none` is a hollow ring rather than a grey dot. A filled grey reads
+   as a fourth, worst grade; a ring reads as what it is, which is a measurement
+   nobody took. It is the one band state a reader is most likely to misread, so
+   it is drawn as visibly absent.
+
+   Movement is coloured by direction only and never by desirability. Up is not
+   always good — a rise in capture gaps is not a win — so `vsk-up` and
+   `vsk-down` are the neutral positive and negative marks rather than the good
+   and bad ones the rest of this sheet uses.
+   ========================================================================== */
+
+.vs .vsk-compare {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin: 0.25rem 0 1rem;
+    font-size: 0.9rem;
+    color: var(--vs-mute);
+}
+
+.vs .vsk-compare-vs {
+    padding: 0.05rem 0.45rem;
+    border: 1px solid var(--vs-rule);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.vs .vsk-kpis {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.vs .vsk-kpi {
+    padding: 0.85rem 1rem;
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-rule);
+    border-radius: var(--vs-r-md);
+}
+
+.vs .vsk-kpi-wide {
+    grid-column: span 1;
+}
+
+.vs .vsk-kpi-value {
+    font-size: 1.35rem;
+    font-weight: 600;
+    color: var(--vs-ink);
+    line-height: 1.2;
+}
+
+.vs .vsk-kpi-label {
+    margin-top: 0.15rem;
+    font-size: 0.8rem;
+    color: var(--vs-mute);
+}
+
+.vs .vsk-kpi-sub {
+    margin-top: 0.3rem;
+    font-size: 0.75rem;
+    color: var(--vs-mute);
+}
+
+.vs .vsk-bands {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+}
+
+.vs .vsk-bands-note {
+    font-size: 0.8rem;
+    color: var(--vs-mute);
+}
+
+.vs .vsk-caveats {
+    padding: 0.85rem 1rem;
+    margin-bottom: 1.25rem;
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-rule);
+    border-left: 3px solid var(--vs-warn);
+    border-radius: var(--vs-r-md);
+}
+
+.vs .vsk-caveats-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--vs-mute);
+    margin-bottom: 0.4rem;
+}
+
+.vs .vsk-caveats ul {
+    margin: 0;
+    padding-left: 1.1rem;
+}
+
+.vs .vsk-caveats li {
+    font-size: 0.85rem;
+    color: var(--vs-ink);
+    margin-bottom: 0.25rem;
+}
+
+.vs .vsk-name {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 500;
+}
+
+.vs .vsk-sub {
+    margin-top: 0.1rem;
+    font-size: 0.78rem;
+    color: var(--vs-mute);
+}
+
+.vs .vsk-inline-chip {
+    margin-top: 0.3rem;
+}
+
+/* The band. A dot beside the name, never a fill across the row. */
+.vs .vsk-band {
+    flex: 0 0 auto;
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+}
+
+.vs .vsk-band-green {
+    background: var(--vs-good);
+}
+
+.vs .vsk-band-amber {
+    background: var(--vs-warn);
+}
+
+.vs .vsk-band-red {
+    background: var(--vs-bad);
+}
+
+/* Hollow, so an unmeasured row cannot read as a fourth and worst grade. */
+.vs .vsk-band-none {
+    background: transparent;
+    border: 1px solid var(--vs-rule);
+}
+
+.vs .vsk-row-amber td {
+    background: color-mix(in srgb, var(--vs-warn) 6%, transparent);
+}
+
+.vs .vsk-row-red td {
+    background: color-mix(in srgb, var(--vs-bad) 7%, transparent);
+}
+
+.vs .vsk-under {
+    color: var(--vs-bad);
+}
+
+/* Direction, not desirability — a rise is not always a win. */
+.vs .vsk-up {
+    color: var(--vs-good);
+}
+
+.vs .vsk-down {
+    color: var(--vs-bad);
+}
+
+@media (max-width: 1100px) {
+    .vs .vsk-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 620px) {
+    .vs .vsk-kpis {
+        grid-template-columns: 1fr;
+    }
+}
