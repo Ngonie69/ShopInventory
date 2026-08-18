@@ -1,4 +1,3 @@
-using Microsoft.EntityFrameworkCore;
 using Quartz;
 using ShopInventory.Web.Data;
 
@@ -41,11 +40,11 @@ public sealed class VanReportEmailJob(
             return;
         }
 
-        var db = scope.ServiceProvider.GetRequiredService<WebAppDbContext>();
+        var scheduleService = scope.ServiceProvider.GetRequiredService<IVanReportEmailScheduleService>();
 
-        var schedules = await db.VanReportEmailSchedules
+        var schedules = (await scheduleService.GetSchedulesAsync(cancellationToken))
             .Where(schedule => schedule.Enabled)
-            .ToListAsync(cancellationToken);
+            .ToList();
 
         if (schedules.Count == 0)
         {
@@ -69,7 +68,7 @@ public sealed class VanReportEmailJob(
                 continue;
             }
 
-            await SendAsync(db, sender, schedule, cancellationToken);
+            await SendAsync(scheduleService, sender, schedule, cancellationToken);
         }
     }
 
@@ -82,7 +81,7 @@ public sealed class VanReportEmailJob(
     /// stops a permanently broken schedule retrying in silence.
     /// </remarks>
     private async Task SendAsync(
-        WebAppDbContext db,
+        IVanReportEmailScheduleService scheduleService,
         IVanReportEmailService sender,
         VanReportEmailSchedule schedule,
         CancellationToken cancellationToken)
@@ -91,19 +90,17 @@ public sealed class VanReportEmailJob(
         {
             var outcome = await sender.SendAsync(schedule, triggeredBy: "schedule", cancellationToken);
 
+            await scheduleService.RecordSendAsync(
+                schedule.Id, outcome.Success, outcome.Error, cancellationToken);
+
             if (outcome.Success)
             {
-                schedule.LastSentUtc = DateTime.UtcNow;
-                schedule.LastError = null;
-
                 logger.LogInformation(
                     "Van report email sent. ScheduleId={ScheduleId}, Name={Name}, Recipients={Recipients}",
                     schedule.Id, schedule.Name, outcome.RecipientCount);
             }
             else
             {
-                schedule.LastError = Truncate(outcome.Error);
-
                 logger.LogError(
                     "Van report email not sent. ScheduleId={ScheduleId}, Name={Name}, Error={Error}",
                     schedule.Id, schedule.Name, outcome.Error);
@@ -113,15 +110,13 @@ public sealed class VanReportEmailJob(
         {
             // One broken schedule must not stop the others: a van report failing should not take
             // the exception register down with it.
-            schedule.LastError = Truncate(ex.Message);
+            await scheduleService.RecordSendAsync(schedule.Id, success: false, ex.Message, cancellationToken);
 
             logger.LogError(
                 ex,
                 "Van report email threw. ScheduleId={ScheduleId}, Name={Name}",
                 schedule.Id, schedule.Name);
         }
-
-        await db.SaveChangesAsync(cancellationToken);
     }
 
     internal static ReportScheduleCadence.Rule ToRule(VanReportEmailSchedule schedule) =>
@@ -132,9 +127,6 @@ public sealed class VanReportEmailJob(
             schedule.DayOfMonth,
             ReportScheduleCadence.NormalizeIntervalDays(schedule.IntervalDays),
             schedule.AnchorDateUtc);
-
-    private static string? Truncate(string? value) =>
-        value is null ? null : value.Length <= 500 ? value : value[..500];
 
     private static bool ParseBool(string? value) => bool.TryParse(value, out var parsed) && parsed;
 }

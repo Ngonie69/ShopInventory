@@ -1,0 +1,593 @@
+@page "/van-sales/reports/schedules"
+@* Admin and Manager only — see VanSalesActivity.razor. *@
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+@using System.Globalization
+@using ShopInventory.Web.Data
+@inject IVanReportEmailScheduleService ScheduleService
+@inject IVanReportEmailService SendService
+@inject IAppSettingsService AppSettings
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Van Report Schedules - Shop Inventory</PageTitle>
+
+@* Who gets which van sales report, how often.
+
+   Carried by wwwroot/css/van-sales.css: the shared `vs-` chrome plus `vsd-` for
+   what only this page draws. A prefix nothing else on that sheet owns.
+
+   This is the one screen in the van suite that causes something to leave the
+   building. Everything else here reports; this mails people who never asked. So
+   it is built to be hard to fire by accident and easy to see the state of:
+
+   The master switch is at the top and says what it means in both positions. With
+   it off the job returns immediately whatever any individual schedule says, and
+   the page says so rather than showing a list of schedules that look live.
+
+   Every row shows when it last went and when it goes next, computed from the same
+   cadence the job uses. A schedule whose next send is a month away looks different
+   from one that is broken, and both look different from one that has never run.
+
+   A failed send is shown on the row, not left in a log. A report that has quietly
+   stopped arriving is the failure nobody reports — the recipients assume there was
+   nothing to send.
+
+   "Send now" exists so somebody can prove a schedule works without waiting for its
+   cadence, and it is deliberately separate from saving: saving must never send. *@
+
+<div class="vs vsd">
+
+    <div class="vs-head">
+        <div>
+            <h2 class="vs-title">Report schedules</h2>
+            <p class="vs-subtitle">
+                Which van sales reports go out on their own, how often, and to whom.
+            </p>
+        </div>
+        <div class="vs-actions">
+            <button class="vs-btn vs-btn-accent" @onclick="NewSchedule" disabled="@isBusy">
+                New schedule
+            </button>
+        </div>
+    </div>
+
+    @if (notice is not null)
+    {
+        <div class="vs-notice" role="alert">@notice</div>
+    }
+
+    <div class="vsd-master @(masterEnabled ? "vsd-master-on" : "vsd-master-off")">
+        <div class="vsd-master-text">
+            @if (masterEnabled)
+            {
+                <strong>Scheduled sending is on.</strong>
+                <span>Enabled schedules below will send at their next due time.</span>
+            }
+            else
+            {
+                <strong>Scheduled sending is off.</strong>
+                <span>
+                    Nothing is sent, whatever the schedules below say. They can be created and
+                    edited safely while it is off.
+                </span>
+            }
+        </div>
+        <button class="vs-btn @(masterEnabled ? "" : "vs-btn-accent")"
+                @onclick="ToggleMasterAsync" disabled="@isBusy">
+            @(masterEnabled ? "Turn off" : "Turn on")
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Loading schedules…</span>
+        </div>
+    }
+    else if (schedules.Count == 0)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">No schedules yet</div>
+            <div>Nothing is sent automatically. Press <strong>New schedule</strong> to add one.</div>
+        </div>
+    }
+    else
+    {
+        <div class="vs-table-wrap">
+            <table class="vs-table vsd-table">
+                <thead>
+                    <tr>
+                        <th>Schedule</th>
+                        <th>Report</th>
+                        <th>Cadence</th>
+                        <th>Recipients</th>
+                        <th>Last sent</th>
+                        <th>Next</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var schedule in schedules)
+                    {
+                        <tr class="@(schedule.Enabled ? null : "vsd-row-off")">
+                            <td>
+                                <div class="vsd-name">@schedule.Name</div>
+                                <div class="vsd-sub">
+                                    @if (!schedule.Enabled)
+                                    {
+                                        <span class="vs-chip vs-chip-quiet">paused</span>
+                                    }
+                                    else if (!masterEnabled)
+                                    {
+                                        <span class="vs-chip vs-chip-quiet">held — sending is off</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="vs-chip vs-chip-good">active</span>
+                                    }
+                                </div>
+                            </td>
+                            <td>@ReportLabel(schedule.ReportKind)</td>
+                            <td>
+                                <div>@CadenceLabel(schedule)</div>
+                                <div class="vsd-sub">@PodScheduleTime.FormatTimeWithZone(schedule.SendMinuteOfDay)</div>
+                            </td>
+                            <td>
+                                <div>@RecipientCount(schedule.ToRecipients) to</div>
+                                @if (RecipientCount(schedule.CcRecipients) > 0)
+                                {
+                                    <div class="vsd-sub">@RecipientCount(schedule.CcRecipients) cc</div>
+                                }
+                            </td>
+                            <td>
+                                <div>@LastSentLabel(schedule)</div>
+                                @if (!string.IsNullOrWhiteSpace(schedule.LastError))
+                                {
+                                    @* On the row, never only in the log. *@
+                                    <div class="vsd-error" title="@schedule.LastError">
+                                        last attempt failed
+                                    </div>
+                                }
+                            </td>
+                            <td>@NextDueLabel(schedule)</td>
+                            <td class="vsd-actions">
+                                <button class="vs-btn" @onclick="() => Edit(schedule)" disabled="@isBusy">
+                                    Edit
+                                </button>
+                                <button class="vs-btn" @onclick="() => SendNowAsync(schedule)"
+                                        disabled="@isBusy" title="Send this report now, without waiting for its cadence.">
+                                    @(sendingId == schedule.Id ? "Sending…" : "Send now")
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @if (editing is not null)
+    {
+        <div class="vsd-scrim" @onclick="Cancel">
+            <div class="vsd-dialog" @onclick:stopPropagation="true" role="dialog" aria-modal="true"
+                 aria-label="Edit a report schedule">
+                <div class="vsd-dialog-head">
+                    <div class="vsd-dialog-title">
+                        @(editing.Id == 0 ? "New schedule" : "Edit schedule")
+                    </div>
+                </div>
+
+                <div class="vsd-dialog-body">
+                    @if (editError is not null)
+                    {
+                        <div class="vs-notice" role="alert">@editError</div>
+                    }
+
+                    <label class="vs-filter-label" for="vsd-name">Name</label>
+                    <input id="vsd-name" class="vsd-field" @bind="editing.Name"
+                           placeholder="Ops — weekly scorecard" />
+
+                    <label class="vs-filter-label" for="vsd-report">Report</label>
+                    <NocturneSelect Id="vsd-report" Class="nsel-block" TValue="string"
+                                    Options="ReportOptions" @bind-Value="editing.ReportKind"
+                                    AriaLabel="Which report to send" />
+
+                    <label class="vs-filter-label" for="vsd-frequency">How often</label>
+                    <NocturneSelect Id="vsd-frequency" Class="nsel-block" TValue="string"
+                                    Options="FrequencyOptions" @bind-Value="editing.Frequency"
+                                    AriaLabel="How often to send" />
+
+                    @if (editing.Frequency == nameof(ReportScheduleFrequency.Weekly))
+                    {
+                        <label class="vs-filter-label" for="vsd-dow">Day of week</label>
+                        <NocturneSelect Id="vsd-dow" Class="nsel-block" TValue="string"
+                                        Options="DayOfWeekOptions" @bind-Value="editDayOfWeek"
+                                        AriaLabel="Day of week" />
+                    }
+                    else if (NeedsDayOfMonth(editing.Frequency))
+                    {
+                        <label class="vs-filter-label" for="vsd-dom">Day of month</label>
+                        <input id="vsd-dom" class="vsd-field" type="number" min="1" max="31"
+                               @bind="editDayOfMonth" />
+                        <div class="vsd-hint">
+                            A month without that day sends on its last day rather than skipping.
+                        </div>
+                    }
+                    else if (editing.Frequency == nameof(ReportScheduleFrequency.EveryNDays))
+                    {
+                        <label class="vs-filter-label" for="vsd-interval">Every how many days</label>
+                        <input id="vsd-interval" class="vsd-field" type="number" min="1" max="365"
+                               @bind="editIntervalDays" />
+                    }
+
+                    <label class="vs-filter-label" for="vsd-time">Send at (@PodScheduleTime.ZoneAbbreviation)</label>
+                    <input id="vsd-time" class="vsd-field" type="time" @bind="editTime" />
+                    <div class="vsd-hint">
+                        The report covers the period ending on the last complete trading day, so a
+                        morning send reports on yesterday and everything before it.
+                    </div>
+
+                    <label class="vs-filter-label" for="vsd-to">Recipients</label>
+                    <textarea id="vsd-to" class="vsd-field vsd-area" @bind="editing.ToRecipients"
+                              placeholder="name@example.com, another@example.com"></textarea>
+
+                    <label class="vs-filter-label" for="vsd-cc">Cc (optional)</label>
+                    <input id="vsd-cc" class="vsd-field" @bind="editing.CcRecipients"
+                           placeholder="name@example.com" />
+
+                    <label class="vsd-check">
+                        <input type="checkbox" @bind="editing.Enabled" />
+                        <span>Enabled</span>
+                    </label>
+
+                    @if (editing.Id == 0)
+                    {
+                        <div class="vsd-hint">
+                            A new schedule starts from now, so saving it will not send a report for a
+                            period that has already passed.
+                        </div>
+                    }
+                </div>
+
+                <div class="vsd-dialog-foot">
+                    @if (editing.Id != 0)
+                    {
+                        <button class="vs-btn vsd-danger" @onclick="DeleteAsync" disabled="@isBusy">
+                            Delete
+                        </button>
+                    }
+                    <span class="vsd-spacer"></span>
+                    <button class="vs-btn" @onclick="Cancel" disabled="@isBusy">Cancel</button>
+                    <button class="vs-btn vs-btn-accent" @onclick="SaveAsync" disabled="@isBusy">
+                        @(isBusy ? "Saving…" : "Save")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<VanReportEmailSchedule> schedules = [];
+    private VanReportEmailSchedule? editing;
+
+    private bool masterEnabled;
+    private bool isLoading = true;
+    private bool isBusy;
+    private int? sendingId;
+    private string? notice;
+    private string? editError;
+
+    // Bound separately because the entity stores them in shapes a form field cannot bind to.
+    private string editDayOfWeek = ((int)DayOfWeek.Monday).ToString();
+    private int editDayOfMonth = 1;
+    private int editIntervalDays = 7;
+    private TimeOnly editTime = new(6, 0);
+
+    private static readonly IEnumerable<INocturneSelectOption<string>> ReportOptions =
+        Enum.GetValues<VanReportKind>()
+            .Select(kind => new NocturneSelectOption<string>(kind.ToString(), ReportLabel(kind.ToString())))
+            .Cast<INocturneSelectOption<string>>()
+            .ToList();
+
+    private static readonly IEnumerable<INocturneSelectOption<string>> FrequencyOptions =
+        Enum.GetValues<ReportScheduleFrequency>()
+            .Select(frequency => new NocturneSelectOption<string>(
+                frequency.ToString(), FrequencyLabel(frequency)))
+            .Cast<INocturneSelectOption<string>>()
+            .ToList();
+
+    private static readonly IEnumerable<INocturneSelectOption<string>> DayOfWeekOptions =
+        Enumerable.Range(0, 7)
+            .Select(day => new NocturneSelectOption<string>(
+                day.ToString(), ((DayOfWeek)day).ToString()))
+            .Cast<INocturneSelectOption<string>>()
+            .ToList();
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            schedules = await ScheduleService.GetSchedulesAsync();
+            masterEnabled = bool.TryParse(
+                await AppSettings.GetValueAsync(SettingKeys.VanReportEmailsEnabled), out var on) && on;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleMasterAsync()
+    {
+        isBusy = true;
+
+        try
+        {
+            var next = !masterEnabled;
+            await AppSettings.SaveSettingAsync(
+                SettingKeys.VanReportEmailsEnabled,
+                next.ToString(),
+                await CurrentUserAsync());
+
+            masterEnabled = next;
+            notice = next
+                ? "Scheduled sending is on. Enabled schedules will send at their next due time."
+                : "Scheduled sending is off. Nothing will be sent until it is turned back on.";
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void NewSchedule()
+    {
+        editing = new VanReportEmailSchedule
+        {
+            Name = string.Empty,
+            ReportKind = nameof(VanReportKind.Scorecard),
+            Frequency = nameof(ReportScheduleFrequency.Weekly),
+            SendMinuteOfDay = 6 * 60,
+            Enabled = true
+        };
+
+        editDayOfWeek = ((int)DayOfWeek.Monday).ToString();
+        editDayOfMonth = 1;
+        editIntervalDays = 7;
+        editTime = new TimeOnly(6, 0);
+        editError = null;
+    }
+
+    private void Edit(VanReportEmailSchedule schedule)
+    {
+        // A copy, so cancelling leaves the list untouched.
+        editing = new VanReportEmailSchedule
+        {
+            Id = schedule.Id,
+            Name = schedule.Name,
+            Enabled = schedule.Enabled,
+            ReportKind = schedule.ReportKind,
+            Frequency = schedule.Frequency,
+            DayOfWeek = schedule.DayOfWeek,
+            DayOfMonth = schedule.DayOfMonth,
+            IntervalDays = schedule.IntervalDays,
+            SendMinuteOfDay = schedule.SendMinuteOfDay,
+            ToRecipients = schedule.ToRecipients,
+            CcRecipients = schedule.CcRecipients,
+            AnchorDateUtc = schedule.AnchorDateUtc
+        };
+
+        editDayOfWeek = (schedule.DayOfWeek ?? (int)DayOfWeek.Monday).ToString();
+        editDayOfMonth = schedule.DayOfMonth ?? 1;
+        editIntervalDays = schedule.IntervalDays ?? 7;
+        editTime = TimeOnly.FromTimeSpan(PodScheduleTime.ToTimeOfDay(schedule.SendMinuteOfDay));
+        editError = null;
+    }
+
+    private void Cancel()
+    {
+        editing = null;
+        editError = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (editing is null)
+        {
+            return;
+        }
+
+        editError = Validate(editing);
+
+        if (editError is not null)
+        {
+            return;
+        }
+
+        isBusy = true;
+
+        try
+        {
+            editing.DayOfWeek = int.TryParse(editDayOfWeek, out var dow) ? dow : (int)DayOfWeek.Monday;
+            editing.DayOfMonth = Math.Clamp(editDayOfMonth, 1, 31);
+            editing.IntervalDays = Math.Clamp(editIntervalDays, 1, 365);
+            editing.SendMinuteOfDay = PodScheduleTime.FromTimeOfDay(editTime.ToTimeSpan());
+
+            await ScheduleService.SaveScheduleAsync(editing, await CurrentUserAsync());
+
+            notice = $"Saved “{editing.Name}”. Nothing was sent — use Send now to test it.";
+            editing = null;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            editError = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (editing is null || editing.Id == 0)
+        {
+            return;
+        }
+
+        isBusy = true;
+
+        try
+        {
+            await ScheduleService.DeleteScheduleAsync(editing.Id, await CurrentUserAsync());
+            notice = $"Deleted “{editing.Name}”.";
+            editing = null;
+            await LoadAsync();
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Sends one schedule now.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately separate from saving, and it records its outcome on the row exactly as the job
+    /// does — so a test send that fails leaves the same evidence a scheduled one would, and a test
+    /// send that succeeds moves the last-sent marker rather than letting the schedule fire again
+    /// minutes later.
+    /// </remarks>
+    private async Task SendNowAsync(VanReportEmailSchedule schedule)
+    {
+        isBusy = true;
+        sendingId = schedule.Id;
+        notice = null;
+
+        try
+        {
+            var who = await CurrentUserAsync();
+            var outcome = await SendService.SendAsync(schedule, triggeredBy: who ?? "manual");
+
+            await ScheduleService.RecordSendAsync(schedule.Id, outcome.Success, outcome.Error);
+
+            notice = outcome.Success
+                ? $"Sent “{schedule.Name}” to {outcome.RecipientCount} recipient(s)."
+                : $"“{schedule.Name}” was not sent: {outcome.Error}";
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            notice = $"“{schedule.Name}” was not sent: {ex.Message}";
+        }
+        finally
+        {
+            isBusy = false;
+            sendingId = null;
+        }
+    }
+
+    private static string? Validate(VanReportEmailSchedule schedule)
+    {
+        if (string.IsNullOrWhiteSpace(schedule.Name))
+        {
+            return "Give the schedule a name so it can be recognised in this list.";
+        }
+
+        // Checked here rather than at send time: a schedule with nobody to send to is a
+        // configuration somebody has not finished, and finding out a week later is no use.
+        return EmailRecipientParser.Parse(schedule.ToRecipients).Count == 0
+            ? "Add at least one recipient. A schedule with nobody to send to will never do anything."
+            : null;
+    }
+
+    private async Task<string?> CurrentUserAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        return state.User.Identity?.Name;
+    }
+
+    // — Labels ——————————————————————————————————————————————————————
+
+    private static string ReportLabel(string kind) =>
+        VanReportEmailService.ParseKind(kind) switch
+        {
+            VanReportKind.Scorecard => "Scorecard",
+            VanReportKind.Exceptions => "Exceptions & settlement",
+            VanReportKind.Margin => "Margin",
+            VanReportKind.Coverage => "Coverage",
+            VanReportKind.Performance => "Performance",
+            VanReportKind.Stock => "Stock",
+            _ => "Replenishment"
+        };
+
+    private static string FrequencyLabel(ReportScheduleFrequency frequency) => frequency switch
+    {
+        ReportScheduleFrequency.Daily => "Daily (yesterday)",
+        ReportScheduleFrequency.MonthToDateDaily => "Daily (month to date)",
+        ReportScheduleFrequency.Weekly => "Weekly (last 7 days)",
+        ReportScheduleFrequency.EveryNDays => "Every N days",
+        ReportScheduleFrequency.Monthly => "Monthly (last 30 days)",
+        ReportScheduleFrequency.Quarterly => "Quarterly (last 90 days)",
+        _ => "Half-yearly (last 180 days)"
+    };
+
+    private static bool NeedsDayOfMonth(string frequency) =>
+        frequency is nameof(ReportScheduleFrequency.Monthly)
+            or nameof(ReportScheduleFrequency.Quarterly)
+            or nameof(ReportScheduleFrequency.HalfYearly);
+
+    private static string CadenceLabel(VanReportEmailSchedule schedule)
+    {
+        var frequency = VanReportEmailService.ParseFrequency(schedule.Frequency);
+
+        return frequency switch
+        {
+            ReportScheduleFrequency.Weekly =>
+                $"Weekly, {(DayOfWeek)(schedule.DayOfWeek ?? 1)}",
+            ReportScheduleFrequency.EveryNDays =>
+                $"Every {ReportScheduleCadence.NormalizeIntervalDays(schedule.IntervalDays)} days",
+            ReportScheduleFrequency.Monthly => $"Monthly, day {schedule.DayOfMonth ?? 1}",
+            ReportScheduleFrequency.Quarterly => $"Quarterly, day {schedule.DayOfMonth ?? 1}",
+            ReportScheduleFrequency.HalfYearly => $"Half-yearly, day {schedule.DayOfMonth ?? 1}",
+            _ => FrequencyLabel(frequency)
+        };
+    }
+
+    private static int RecipientCount(string? recipients) =>
+        EmailRecipientParser.Parse(recipients ?? string.Empty).Count;
+
+    private static string LastSentLabel(VanReportEmailSchedule schedule) =>
+        schedule.LastSentUtc is { } sent
+            ? PodScheduleTime.ToLocal(DateTime.SpecifyKind(sent, DateTimeKind.Utc))
+                .ToString("d MMM HH:mm", CultureInfo.InvariantCulture)
+            : "never";
+
+    /// <summary>
+    /// The next send, from the same cadence the job uses — so the page cannot promise a time the
+    /// job would not honour.
+    /// </summary>
+    private static string NextDueLabel(VanReportEmailSchedule schedule)
+    {
+        if (!schedule.Enabled)
+        {
+            return "—";
+        }
+
+        var rule = VanReportEmailJob.ToRule(schedule);
+        var next = ReportScheduleCadence.NextDueLocal(rule, PodScheduleTime.NowLocal());
+
+        return next.ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture);
+    }
+}

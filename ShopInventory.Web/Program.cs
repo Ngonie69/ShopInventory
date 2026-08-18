@@ -358,6 +358,7 @@ try
     // Scheduled statement + POD report emails run on the clustered Quartz scheduler
     // (StatementEmailJob, PodReportEmailJob) instead of per-instance BackgroundService timers.
     builder.Services.AddScoped<IVanReportEmailService, VanReportEmailService>();
+    builder.Services.AddScoped<IVanReportEmailScheduleService, VanReportEmailScheduleService>();
     builder.Services.AddShopInventoryWebQuartz(defaultConnectionString);
 
     // Add Theme, Localization, and Search services
