@@ -2483,6 +2483,10 @@ should be added to `/api/vansales` that a new caller would want.
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
 | GET | `/api/van-sales/compliance-report` | `vansales.attendance.view` | Departure compliance: a row per rep per trading day |
+| GET | `/api/van-sales/performance-report` | `vansales.attendance.view` | What sold, by territory and route, by rep, by item, over time |
+| GET | `/api/van-sales/coverage-report` | `vansales.attendance.view` | Who the vans are reaching and who they are losing |
+| GET | `/api/van-sales/replenishment-report` | `vansales.attendance.view` | How well the depots are keeping the vans stocked |
+| GET | `/api/van-sales/stock-report` | `vansales.attendance.view` | What each van carried, sold, and is still riding around with |
 | GET | `/api/van-sales/routes` | any of `vansales.attendance.view`, `users.view`, `users.create_merchandiser_accounts` | The selling routes |
 | POST | `/api/van-sales/routes` | `users.edit` | Create a route |
 | PUT | `/api/van-sales/routes/{id}` | `users.edit` | Update a route |
@@ -2495,10 +2499,14 @@ route is part of editing the user — and gating it on van attendance alone empt
 picker for anyone who administers users without overseeing vans. Silently, because the portal
 service swallows the failure and returns an empty list.
 
-**Dates.** `compliance-report` and `visits/report` take **CAT trading days**, not instants: a van's
-day belongs to the van, not to the server's zone, and both van reports have to count days the same
-way or a supervisor reading them side by side sees different call counts. `visits` is the exception —
-it filters on the check-in instant and normalises what it is given to UTC.
+**Dates.** Every report here takes **CAT trading days**, not instants: a van's day belongs to the
+van, not to the server's zone, and the reports have to count days the same way or a supervisor
+reading two of them side by side sees different figures. `visits` is the exception — it filters on
+the check-in instant and normalises what it is given to UTC.
+
+The five reports read the same fact stream, so they agree by construction on a period's takings and
+its productive calls. Each defaults its own window, and they are not the same: 30 days back for
+performance and replenishment, 90 for coverage, 14 for stock.
 
 ##### GET `/api/van-sales/compliance-report`
 
@@ -2576,6 +2584,71 @@ different findings. Summary rates are recomputed from the period's totals, not a
 
 `declaredVariance` is declared minus recorded: positive means the rep counted more than the system
 sold, which is usually an unrecorded sale; negative is the one to chase.
+
+##### GET `/api/van-sales/performance-report`
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `fromDate` | today − 30 days | Inclusive CAT trading day |
+| `toDate` | today | Inclusive CAT trading day |
+| `userId` | — | One rep by id; every rep when omitted |
+| `routeCode` | — | One route. Sales whose rep opened no departure record are excluded when set, for the reason the compliance report gives |
+| `topItems` | `50` | How many items to rank. **Zero or less returns all of them**, not none |
+
+**Response:** `VanSalesPerformanceReportResult` — the period cut by territory and route, by rep, by
+item and over time, with the price actually achieved per item and the shape of the drops.
+
+##### GET `/api/van-sales/coverage-report`
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `fromDate` | today − **90** days | Inclusive CAT trading day |
+| `toDate` | today | Inclusive CAT trading day |
+| `userId` | — | One rep by id |
+| `routeCode` | — | One route. Sales with no departure record are excluded when set |
+| `lapseDays` | `90` | How long a shop may go without buying before it counts as lapsed |
+| `granularity` | `Month` | `Week` or `Month` — how the churn and rate series are bucketed |
+
+**Response:** `VanSalesCoverageReportResult` — rate trends, the shops on the books that were not
+reached, outlet churn, the win-back register, route concentration, and how the location record is
+holding up.
+
+`lapseDays` is deliberately **not** the route-customer pages' dormancy threshold; that one answers a
+narrower question about a single shop. The report also reads further back than the period it covers:
+the opening state needs a full lapse window behind it, and telling a genuinely new outlet from a
+returning one needs an unbounded look at when each shop first bought.
+
+##### GET `/api/van-sales/replenishment-report`
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `fromDate` | today − 30 days | Inclusive CAT trading day |
+| `toDate` | today | Inclusive CAT trading day |
+| `vanWarehouseCode` | — | One van's warehouse; every van when omitted |
+
+**Response:** `VanReplenishmentReportResult` — how well the depots are keeping the vans stocked, and
+which restock requests are stuck.
+
+Built on the pending-transfer table rather than the daily stock snapshot: snapshots are a desktop-app
+feature that no van sales path writes to, and the job that fills them is off by default, so a report
+built on them would have reported nothing at all rather than failing visibly.
+
+##### GET `/api/van-sales/stock-report`
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `fromDate` | today − **14** days | Inclusive CAT trading day |
+| `toDate` | today | Inclusive CAT trading day |
+| `vanWarehouseCode` | — | One van's warehouse; every van when omitted |
+| `deadStockDays` | `14` | Days carried without a sale before a line counts as dead |
+
+**Response:** `VanStockReportResult` — what each van was loaded with, what sold off it, what the next
+morning found, which lines are riding the round without selling, and what is about to expire.
+
+The load comes from the morning snapshot and what sold comes from the sales themselves, because no
+van sales path maintains the snapshot's running quantity. Reconciliation is morning to morning and is
+only computed across **consecutive** snapshots — a missing day is reported as a break rather than
+bridged, so a gap reads as a gap instead of as a large one-day variance.
 
 ##### GET `/api/van-sales/routes`
 
