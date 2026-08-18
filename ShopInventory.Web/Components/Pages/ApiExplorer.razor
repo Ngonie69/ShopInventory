@@ -1014,7 +1014,11 @@ Methods = new[] { "GET", "POST", "PUT" },
 Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/van-sales/compliance-report", "Departure compliance: a row per rep per trading day"),
+new("GET", "/api/van-sales/coverage-report", "Who the vans are reaching and who they are losing"),
+new("GET", "/api/van-sales/performance-report", "What sold, by territory and route, by rep, by item, over time"),
+new("GET", "/api/van-sales/replenishment-report", "How well the depots are keeping the vans stocked"),
 new("GET", "/api/van-sales/routes", "The selling routes"),
+new("GET", "/api/van-sales/stock-report", "What each van carried, sold, and is still riding around with"),
 new("POST", "/api/van-sales/routes", "Create a route"),
 new("PUT", "/api/van-sales/routes/{id}", "Update a route")
 }
