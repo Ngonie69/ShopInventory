@@ -35,10 +35,24 @@ public enum VanSalesTender
     Innbucks,
 
     /// <summary>
-    /// Anything else, including a sale that names no tender at all. Handsets built before the payment
-    /// picker send nothing, and those are reported as unallocated rather than assumed to be cash.
+    /// A tender the sheet has no column for — a card swipe, chiefly. Real money, but it settles at the
+    /// terminal rather than being counted into the pouch, so it is never part of what a rep declares
+    /// at the end of the round.
     /// </summary>
-    Other
+    Other,
+
+    /// <summary>
+    /// A sale that names no tender at all. Handsets built before the payment picker send nothing, and
+    /// those are reported as unallocated rather than assumed to be cash.
+    /// </summary>
+    /// <remarks>
+    /// Kept apart from <see cref="Other"/> because the two are different unknowns, and the departure
+    /// sheet's cash variance turns on the difference. A swipe is money the rep certainly did not
+    /// count; an untendered sale is money they may well have counted as cash and written on the
+    /// declaration. Only the second one can widen the gap between what was declared and what the
+    /// sheet is able to account for.
+    /// </remarks>
+    Untendered
 }
 
 /// <summary>
@@ -221,7 +235,7 @@ public static class VanSalesFacts
     {
         if (string.IsNullOrWhiteSpace(paymentMethod))
         {
-            return VanSalesTender.Other;
+            return VanSalesTender.Untendered;
         }
 
         var normalised = paymentMethod.Trim();

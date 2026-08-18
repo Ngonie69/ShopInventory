@@ -340,10 +340,15 @@ public sealed class VanSalesExceptionsReportTests : IDisposable
     // --- Settlement ---
 
     /// <summary>
-    /// The tender classifier puts a swipe and a sale that named no tender in the same bucket, which is
-    /// right for a cash-up and wrong for a reader: one is a banking arrangement and the other is a
-    /// capture failure. They must be two rows, or a route with no payment picker on its handsets reads
-    /// as one taking card payments.
+    /// A swipe and a sale that named no tender must never share a row: one is a banking arrangement
+    /// and the other is a capture failure, and a route whose handsets have no payment picker would
+    /// otherwise read as one taking card payments.
+    ///
+    /// This test was written when the classifier put both in <c>Other</c> and this report told them
+    /// apart with a boolean of its own. The classifier now makes "no tender recorded" its own member,
+    /// so they are separated one layer further down and by one definition instead of two. The
+    /// assertions are correspondingly stronger: different tenders, not merely different rows, and
+    /// <c>Other</c> is asserted to hold the swipe alone.
     /// </summary>
     [Fact]
     public async Task A_swipe_and_a_sale_naming_no_tender_are_never_the_same_row()
@@ -354,15 +359,16 @@ public sealed class VanSalesExceptionsReportTests : IDisposable
 
         var report = await RunAsync();
 
-        var other = report.Tender.Where(row => row.Tender == nameof(VanSalesTender.Other)).ToList();
-        Assert.Equal(2, other.Count);
-
-        var untendered = Assert.Single(other, row => row.Untendered);
+        var untendered = Assert.Single(
+            report.Tender, row => row.Tender == nameof(VanSalesTender.Untendered));
+        Assert.True(untendered.Untendered);
         Assert.Equal(100m, untendered.Gross);
         Assert.Equal(1, untendered.DocumentCount);
         Assert.Equal(100m, untendered.AverageDocumentValue);
 
-        var swipe = Assert.Single(other, row => !row.Untendered);
+        // Other is the swipe alone. It used to hold both, which is what made the boolean necessary.
+        var swipe = Assert.Single(report.Tender, row => row.Tender == nameof(VanSalesTender.Other));
+        Assert.False(swipe.Untendered);
         Assert.Equal(40m, swipe.Gross);
 
         Assert.Equal(1, report.Summary.SalesWithoutTender);
@@ -407,14 +413,20 @@ public sealed class VanSalesExceptionsReportTests : IDisposable
     }
 
     /// <summary>
-    /// A rep's row has to add up: the four tender columns are a partition of that rep's takings, and
-    /// the untendered figure cuts across them rather than being a fifth column. Getting that wrong
-    /// double-counts a sale into both the cash split and the exception, or loses it from both.
+    /// A rep's row has to add up, and untendered is now one of the columns it adds up from.
+    ///
+    /// It used to cut across them: the classifier put a sale with no tender into <c>Other</c>, and
+    /// this report reported it a second time as an exception. Four columns partitioned the takings
+    /// and the fifth figure overlapped one of them. Since untendered became its own tender the five
+    /// columns partition the takings outright, which is both simpler and one fewer place to get the
+    /// double-count wrong — so the test now asserts the five-way sum, and asserts that Other has
+    /// stopped carrying the untendered money.
     /// </summary>
     [Fact]
     public async Task A_reps_tender_columns_partition_their_takings()
     {
         AddOfflineSale("OFF-CASH", new DateTime(2026, 8, 5), total: 150m, paymentMethod: "Cash");
+        AddOfflineSale("OFF-SWIPE", new DateTime(2026, 8, 7), total: 20m, paymentMethod: "Swipe");
         AddOfflineSale("OFF-BLANK", new DateTime(2026, 8, 6), total: 50m, paymentMethod: null);
         await _context.SaveChangesAsync();
 
@@ -422,18 +434,19 @@ public sealed class VanSalesExceptionsReportTests : IDisposable
 
         Assert.Equal(Rep, rep.UserId);
         Assert.Equal("Tendai Moyo", rep.DisplayName);
-        Assert.Equal(2, rep.DocumentCount);
-        Assert.Equal(200m, rep.Gross);
+        Assert.Equal(3, rep.DocumentCount);
+        Assert.Equal(220m, rep.Gross);
         Assert.Equal(150m, rep.CashGross);
 
         Assert.Equal(
             rep.Gross,
-            rep.CashGross + rep.EcocashGross + rep.InnbucksGross + rep.OtherGross);
+            rep.CashGross + rep.EcocashGross + rep.InnbucksGross + rep.OtherGross + rep.UntenderedGross);
+
+        // The swipe alone. Other carrying the untendered 50 as well is the double-count this guards.
+        Assert.Equal(20m, rep.OtherGross);
 
         Assert.Equal(50m, rep.UntenderedGross);
         Assert.Equal(1, rep.UntenderedCount);
-        Assert.Equal(0.75, rep.CashShare);
-        Assert.Equal(0.25, rep.UntenderedShare);
     }
 
     // --- Capture hygiene ---

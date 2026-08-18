@@ -42,4 +42,44 @@ public sealed class VanSalesPostingSettings
     /// for first, so a run that overlaps a previous one adopts rather than duplicates.
     /// </remarks>
     public int IntervalMinutes { get; set; } = 30;
+
+    /// <summary>
+    /// How many trading days before the one being run a pass also looks at. Zero means the run date
+    /// only, which is what this route did before the setting existed.
+    /// </summary>
+    /// <remarks>
+    /// <c>DocDate</c> is the handset's trading day, not the upload day: a sale made at 21:00 and
+    /// uploaded the next morning is stored against yesterday. Every trigger asks for today, so without
+    /// a window that sale is never offered to SAP again — it sits Pending with no attempts recorded,
+    /// and nothing surfaces it.
+    ///
+    /// Wider than the till route's three days because the outage it covers is longer. A till is offline
+    /// for as long as SAP is; a van is offline for as long as it is out of coverage, which over a
+    /// weekend or a run into a low-signal area is measured in days. Seven covers a van that leaves on
+    /// Monday and only finds signal the following Monday.
+    ///
+    /// Costs nothing on a normal pass: the days behind the current one are all Consolidated by then, so
+    /// the widened filter matches no rows. Re-running is as safe here as anywhere else on this route —
+    /// each sale posts under its own <c>U_Van_saleorder</c>, which SAP is asked for first.
+    /// </remarks>
+    public int LookbackDays { get; set; } = 7;
+
+    /// <summary>
+    /// The CAT trading day a run happening now asks for. CAT rather than UTC because a run after
+    /// 22:00 CAT is already tomorrow in UTC, and would go looking for a day that has not started.
+    /// </summary>
+    public static DateTime CurrentTradingDate() => DateTime.UtcNow.AddHours(2).Date;
+
+    /// <summary>
+    /// The first trading day a run for <paramref name="tradingDate"/> reaches back to. A sale older
+    /// than this is past every future run's window too, since the window only ever moves forward.
+    /// </summary>
+    /// <remarks>
+    /// Defined once because two places have to agree about it: the posting service, which uses it to
+    /// choose what to post, and the exception center, which uses it to decide that a sale will never
+    /// be posted by anything. Were they to drift, the exception center would either hide real
+    /// strandings or invent ones that are about to clear on their own.
+    /// </remarks>
+    public DateTime WindowStart(DateTime tradingDate)
+        => tradingDate.Date.AddDays(-Math.Max(0, LookbackDays));
 }

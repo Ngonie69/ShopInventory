@@ -140,6 +140,7 @@ public sealed class GetDepartureComplianceReportHandler(
             SystemEcocash: sale?.Ecocash ?? 0,
             SystemInnbucks: sale?.Innbucks ?? 0,
             SystemOther: sale?.Other ?? 0,
+            SystemUntendered: sale?.Untendered ?? 0,
             SystemTotalSales: sale?.Total ?? 0,
 
             DeclaredCash: day?.DeclaredCash,
@@ -349,6 +350,7 @@ public sealed class GetDepartureComplianceReportHandler(
         decimal Ecocash,
         decimal Innbucks,
         decimal Other,
+        decimal Untendered,
         decimal Total,
         string? Currency,
         List<VanSalesMoneyResult> OtherCurrencies);
@@ -402,11 +404,17 @@ public sealed class GetDepartureComplianceReportHandler(
             .ToList();
 
         return new SaleTotals(
+            // Across every currency, deliberately: a shop that paid in ZWG was still a call that
+            // bought, and dropping it would understate the strike rate to make the money tidy.
             ProductiveCalls: VanSalesMeasures.CountProductiveCalls(facts),
             Cash: SumOf(VanSalesTender.Cash),
             Ecocash: SumOf(VanSalesTender.Ecocash),
             Innbucks: SumOf(VanSalesTender.Innbucks),
+            // A swipe and a sale that named no tender are both outside the three declared columns,
+            // and both stay out of them — but they are counted apart, because only the second is
+            // money the rep might have had in hand. See DepartureComplianceDayDto.DeclaredOverage.
             Other: SumOf(VanSalesTender.Other),
+            Untendered: SumOf(VanSalesTender.Untendered),
             Total: primary.Sum(fact => fact.TotalAmount),
             Currency: primary.Key,
             OtherCurrencies: VanSalesMeasures.MoneyByCurrency(others));

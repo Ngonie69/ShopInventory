@@ -116,9 +116,11 @@ public sealed record VanSalesExceptionsSummaryResult(
 /// is the fleet actually being paid in", which is a banking and float question.
 ///
 /// Both read <c>VanSalesFacts.ClassifyTender</c>, so the two can never disagree about what counts as
-/// cash. Note that <c>Other</c> collects both a genuine swipe and a sale whose tender was never
-/// recorded at all; <see cref="Untendered"/> separates the second out, because a tender nobody wrote
-/// down is a capture failure and a swipe is a banking arrangement.
+/// cash. A sale whose tender was never recorded is its own member of that classification rather than
+/// a shade of <c>Other</c> — a tender nobody wrote down is a capture failure and a swipe is a
+/// banking arrangement, and the five buckets partition the takings rather than overlapping.
+/// <see cref="Untendered"/> is carried on the row as well so a reader does not have to know the
+/// member names to spot it.
 /// </remarks>
 public sealed record VanSalesTenderResult(
     string Currency,

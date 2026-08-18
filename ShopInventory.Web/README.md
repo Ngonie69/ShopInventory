@@ -105,8 +105,9 @@ Use the credentials configured in your ShopInventory API (typically `admin`/`adm
 | Feature | Endpoints |
 |---------|-----------|
 | Auth | POST /api/auth/login, POST /api/auth/refresh, POST /api/auth/logout |
-| Invoices | GET/POST /api/invoice, GET /api/invoice/{docEntry}, GET /api/invoice/customer/{cardCode}, GET /api/invoice/date/{date} |
+| Invoices | POST /api/invoice, GET /api/invoice/paged, GET /api/invoice/{docEntry}, GET /api/invoice/by-docnum/{docNum}, GET /api/invoice/customer/{cardCode}, GET /api/invoice/date-range, GET /api/invoice/open |
 | Inventory Transfers | GET /api/inventorytransfer/{warehouseCode}, GET /api/inventorytransfer/{warehouseCode}/paged |
-| Payments | GET /api/incomingpayment, GET /api/incomingpayment/{docEntry}, GET /api/incomingpayment/date/{date} |
+| Payments | GET /api/incomingpayment, GET /api/incomingpayment/{docEntry}, GET /api/incomingpayment/docnum/{docNum}, GET /api/incomingpayment/customer/{cardCode}, GET /api/incomingpayment/daterange |
 | Products | GET /api/product/warehouse/{warehouseCode}, GET /api/product/warehouse/{warehouseCode}/item/{itemCode}/batches |
-| Prices | GET /api/price, GET /api/price/grouped, GET /api/price/item/{itemCode} |
+| Prices | GET /api/price, GET /api/price/cached, GET /api/price/grouped, GET /api/price/businesspartner/{cardCode} |
+| Van Sales | GET /api/van-sales/compliance-report, GET /api/van-sales/routes, GET /api/van-sales/visits, GET /api/van-sales/visits/report |

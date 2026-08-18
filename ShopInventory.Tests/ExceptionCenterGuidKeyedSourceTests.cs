@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.ExceptionCenter;
@@ -549,6 +551,7 @@ public sealed class ExceptionCenterGuidKeyedSourceTests : IDisposable
             _context,
             StubProxy.Unused<IInvoiceQueueService>(),
             StubProxy.Unused<IInventoryTransferQueueService>(),
+            UnusedVanSalesPostingService(),
             mediator,
             new HttpContextAccessor(),
             NullLogger<RetryExceptionCenterItemHandler>.Instance);
@@ -652,12 +655,25 @@ public sealed class ExceptionCenterGuidKeyedSourceTests : IDisposable
             _context,
             StubProxy.Unused<IInvoiceQueueService>(),
             StubProxy.Unused<IInventoryTransferQueueService>(),
+            UnusedVanSalesPostingService(),
             mediator,
             HttpContext(),
             NullLogger<RetryExceptionCenterItemHandler>.Instance);
 
         return handler.Handle(new RetryExceptionCenterItemCommand(source, itemKey), default);
     }
+
+    /// <summary>
+    /// A real service over the same context, since it is a class rather than an interface and cannot be
+    /// stubbed. Nothing here retries a van sale, so its SAP client is never reached.
+    /// </summary>
+    private VanSalesEndOfDayPostingService UnusedVanSalesPostingService()
+        => new(
+            _context,
+            StubProxy.Unused<ISAPServiceLayerClient>(),
+            new SapCircuitBreakerState(Options.Create(new SAPSettings())),
+            Options.Create(new VanSalesPostingSettings()),
+            NullLogger<VanSalesEndOfDayPostingService>.Instance);
 
     private static IHttpContextAccessor HttpContext()
     {

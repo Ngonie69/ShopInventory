@@ -49,3 +49,31 @@ jobs:
           name: test-results
           path: ${{ runner.temp }}/test-results
           if-no-files-found: warn
+
+  # Checks API.md, ApiExplorer.razor and the Web README against the controllers, both directions:
+  # a documented endpoint no route serves, and a route nothing documents. Both fail.
+  #
+  # A wrong path is worth failing on because it usually still *resolves* - a bogus segment binds to
+  # a {param} route on the same controller and answers a polite domain 404 that reads like data. An
+  # undocumented one is worth failing on because the only moment anyone reliably knows a route
+  # exists is the moment it is written down; adding an endpoint here means adding it to API.md, and
+  # running scripts/Update-ApiExplorerCatalogue.ps1 for the explorer.
+  #
+  # No .NET here on purpose: the check parses the controllers as text and needs nothing built.
+  catalogues:
+    name: Route catalogues
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # pwsh is preinstalled on the GitHub-hosted ubuntu images. The explicit exit is not
+      # decoration: the script signals drift through its exit code, and relying on that code
+      # surviving a nested .ps1 invocation is exactly the kind of assumption this job exists to
+      # stop making.
+      - name: Check the route catalogues against the controllers
+        shell: pwsh
+        run: |
+          ./scripts/Test-RouteCatalogues.ps1
+          exit $LASTEXITCODE

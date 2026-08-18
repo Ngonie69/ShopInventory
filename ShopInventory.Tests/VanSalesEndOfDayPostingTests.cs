@@ -1,7 +1,9 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -24,6 +26,7 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
     private readonly RecordingSapClient _sap = new();
+    private readonly SapCircuitBreakerState _circuit = new(Options.Create(new SAPSettings()));
 
     public VanSalesEndOfDayPostingTests()
     {
@@ -44,8 +47,25 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
         _connection.Dispose();
     }
 
-    private VanSalesEndOfDayPostingService BuildService() =>
-        new(_context, _sap.Client, NullLogger<VanSalesEndOfDayPostingService>.Instance);
+    /// <summary>
+    /// Defaults to the configured lookback rather than a value chosen here, so the tests that do not
+    /// care about the window exercise what production actually runs with.
+    /// </summary>
+    private VanSalesEndOfDayPostingService BuildService(int? lookbackDays = null)
+    {
+        var settings = new VanSalesPostingSettings();
+        if (lookbackDays.HasValue)
+        {
+            settings.LookbackDays = lookbackDays.Value;
+        }
+
+        return new VanSalesEndOfDayPostingService(
+            _context,
+            _sap.Client,
+            _circuit,
+            Options.Create(settings),
+            NullLogger<VanSalesEndOfDayPostingService>.Instance);
+    }
 
     [Fact]
     public async Task Each_van_sale_posts_as_its_own_sap_invoice()
@@ -182,6 +202,118 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
     }
 
     /// <summary>
+    /// Once the breaker is open every call would be refused before it left the process, so a pass over a
+    /// held backlog is two doomed round trips and one logged error per sale. It does not start.
+    /// </summary>
+    [Fact]
+    public async Task A_pass_does_not_start_while_the_sap_circuit_is_open()
+    {
+        AddSale("VAN006-INV-20260810-AAA111", receiptGlobalNo: 501);
+        AddSale("VAN006-INV-20260810-BBB222", receiptGlobalNo: 502);
+        await _context.SaveChangesAsync();
+
+        OpenTheCircuit();
+
+        var result = await BuildService().PostPendingSalesAsync(TradingDate);
+
+        Assert.Equal(0, result.Total);
+        Assert.Empty(_sap.Created);
+
+        // Untouched, so the day resumes intact when SAP comes back.
+        Assert.All(
+            await _context.DesktopSales.ToListAsync(),
+            sale =>
+            {
+                Assert.Equal(0, sale.PostingAttempts);
+                Assert.Null(sale.LastPostingError);
+                Assert.Equal(DesktopSaleConsolidationStatus.Pending, sale.ConsolidationStatus);
+            });
+    }
+
+    /// <summary>
+    /// The same for a retry somebody asked for by hand, and the reason it matters more there: letting it
+    /// through would replace the SAP rejection recorded on the sale with a message about the circuit,
+    /// throwing away the diagnosis that put the sale in front of them.
+    /// </summary>
+    [Fact]
+    public async Task A_requested_post_while_the_circuit_is_open_keeps_the_sales_recorded_reason()
+    {
+        var sale = AddSale("VAN006-INV-20260810-AAA111", receiptGlobalNo: 501);
+        sale.PostingAttempts = 3;
+        sale.LastPostingError = "SAP rejected the invoice: item is blocked for sale.";
+        await _context.SaveChangesAsync();
+
+        OpenTheCircuit();
+
+        var result = await BuildService().PostSaleAsync(sale.Id);
+
+        Assert.NotNull(result);
+        Assert.Equal(1, result.Failed);
+        Assert.Contains("circuit is open", result.Errors.Single());
+        Assert.Empty(_sap.Created);
+
+        var unchanged = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(3, unchanged.PostingAttempts);
+        Assert.Equal("SAP rejected the invoice: item is blocked for sale.", unchanged.LastPostingError);
+    }
+
+    /// <summary>
+    /// SAP being unreachable is not the sale's fault and must not spend its budget. The pass runs every
+    /// half hour, so an outage counted against the budget would exhaust every van sale of the day inside
+    /// three hours and hand a whole day's takings to a human over a blip that healed itself.
+    /// </summary>
+    [Fact]
+    public async Task An_unreachable_sap_does_not_spend_a_sales_attempts()
+    {
+        AddSale("VAN006-INV-20260810-AAA111", receiptGlobalNo: 501);
+        await _context.SaveChangesAsync();
+
+        _sap.UnreachableFor.Add("VAN006-INV-20260810-AAA111");
+
+        var service = BuildService();
+
+        // Four hours of half-hourly passes against a SAP that is down.
+        for (var pass = 0; pass < 8; pass++)
+        {
+            var outage = await service.PostPendingSalesAsync(TradingDate);
+            Assert.Equal(1, outage.Failed);
+        }
+
+        var sale = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(0, sale.PostingAttempts);
+
+        // The reason is still recorded, so the sale is visible while the outage lasts.
+        Assert.NotNull(sale.LastPostingError);
+
+        // And when SAP comes back it posts, with its whole budget intact.
+        _sap.UnreachableFor.Clear();
+        var recovered = await service.PostPendingSalesAsync(TradingDate);
+
+        Assert.Equal(1, recovered.Posted);
+        Assert.Single(_sap.Created);
+    }
+
+    /// <summary>
+    /// A rejection is the sale's fault and does spend one. This is the distinction the cap was always
+    /// about: SAP refusing a blocked item will refuse it again in half an hour.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_sap_refuses_does_spend_an_attempt()
+    {
+        AddSale("VAN006-INV-20260810-AAA111", receiptGlobalNo: 501);
+        await _context.SaveChangesAsync();
+
+        _sap.FailFor.Add("VAN006-INV-20260810-AAA111");
+
+        var service = BuildService();
+        await service.PostPendingSalesAsync(TradingDate);
+        await service.PostPendingSalesAsync(TradingDate);
+
+        var sale = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(2, sale.PostingAttempts);
+    }
+
+    /// <summary>
     /// A sale that fails every night must eventually stop being retried, or it raises the same alarm
     /// twice a day forever and buries the sales that could still be rescued.
     /// </summary>
@@ -199,21 +331,77 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
     }
 
     /// <summary>
-    /// The trading day is the handset's, not the upload's. A sale made on Monday and uploaded Tuesday
-    /// morning must post against Monday — that is the day its ZIMRA receipt belongs to.
+    /// The trading day is the handset's, not the upload's: a sale made on Monday and uploaded Tuesday
+    /// morning is stored against Monday, and must still reach SAP against Monday.
+    ///
+    /// Every trigger asks for today, so when this route matched the day exactly that sale was offered
+    /// once — the evening before it was uploaded — and never again. It sat Pending with no attempts
+    /// recorded, which is worse than a failure: a failure at least writes down a reason.
     /// </summary>
     [Fact]
-    public async Task Only_the_requested_trading_day_is_posted()
+    public async Task A_sale_uploaded_the_day_after_it_was_sold_still_posts()
     {
-        AddSale("VAN006-INV-20260810-AAA111", receiptGlobalNo: 501);
-        var yesterday = AddSale("VAN006-INV-20260809-ZZZ999", receiptGlobalNo: 499);
-        yesterday.DocDate = TradingDate.AddDays(-1).Date;
+        // The van was out of coverage overnight; this arrives with the morning's first bar of signal.
+        var overnight = AddSale("VAN006-INV-20260809-ZZZ999", receiptGlobalNo: 499);
+        overnight.DocDate = TradingDate.AddDays(-1).Date;
         await _context.SaveChangesAsync();
 
         var result = await BuildService().PostPendingSalesAsync(TradingDate);
 
         Assert.Equal(1, result.Posted);
-        Assert.Equal("VAN006-INV-20260810-AAA111", Assert.Single(_sap.Created).U_Van_saleorder);
+
+        var created = Assert.Single(_sap.Created);
+        Assert.Equal("VAN006-INV-20260809-ZZZ999", created.U_Van_saleorder);
+
+        // Booked on the day it was sold, not the day it was found. Its ZIMRA receipt is stamped into
+        // that fiscal day, and the SAP↔FDMS reconciliation joins the two.
+        Assert.Equal("2026-08-09", created.DocDate);
+    }
+
+    /// <summary>
+    /// The window has a floor. A sale older than the lookback has stopped being a late upload and become
+    /// something a person needs to look at; going on offering it every half hour would bury that.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_older_than_the_lookback_window_is_left_alone()
+    {
+        var onTheEdge = AddSale("VAN006-INV-20260807-EEE555", receiptGlobalNo: 490);
+        onTheEdge.DocDate = TradingDate.AddDays(-3).Date;
+
+        var pastIt = AddSale("VAN006-INV-20260806-FFF666", receiptGlobalNo: 480);
+        pastIt.DocDate = TradingDate.AddDays(-4).Date;
+
+        await _context.SaveChangesAsync();
+
+        var result = await BuildService(lookbackDays: 3).PostPendingSalesAsync(TradingDate);
+
+        Assert.Equal(1, result.Posted);
+        Assert.Equal("VAN006-INV-20260807-EEE555", Assert.Single(_sap.Created).U_Van_saleorder);
+    }
+
+    /// <summary>
+    /// The window's other end, and why it is allowed to be a bound at all. A handset whose clock runs
+    /// ahead dates its sales into the future; those wait rather than posting now. Nothing is stranded by
+    /// that, because a run for their day is still coming — which is exactly what a sale behind the run
+    /// date does not have, and the whole reason the lookback exists.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_dated_ahead_of_the_run_waits_for_its_own_day()
+    {
+        var ahead = AddSale("VAN006-INV-20260811-GGG777", receiptGlobalNo: 510);
+        ahead.DocDate = TradingDate.AddDays(1).Date;
+        await _context.SaveChangesAsync();
+
+        var service = BuildService();
+
+        var today = await service.PostPendingSalesAsync(TradingDate);
+        Assert.Equal(0, today.Total);
+        Assert.Empty(_sap.Created);
+
+        var tomorrow = await service.PostPendingSalesAsync(TradingDate.AddDays(1));
+
+        Assert.Equal(1, tomorrow.Posted);
+        Assert.Equal("VAN006-INV-20260811-GGG777", Assert.Single(_sap.Created).U_Van_saleorder);
     }
 
     /// <summary>
@@ -231,6 +419,17 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
 
         Assert.Equal(0, result.Total);
         Assert.Empty(_sap.Created);
+    }
+
+    /// <summary>Trips the breaker the way a real outage does, one recorded failure at a time.</summary>
+    private void OpenTheCircuit()
+    {
+        for (var failure = 0; failure < new SAPSettings().CircuitFailureThreshold; failure++)
+        {
+            _circuit.RecordFailure("SAP did not respond.");
+        }
+
+        Assert.True(_circuit.IsOpen);
     }
 
     private DesktopSaleEntity AddSale(string reference, int receiptGlobalNo)
@@ -282,6 +481,9 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
         public Dictionary<string, Invoice> ExistingByVanSaleOrder { get; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> FailFor { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>References SAP cannot be reached for, as opposed to ones it refuses.</summary>
+        public HashSet<string> UnreachableFor { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         private int _nextDocNum = 1000;
 
         public ISAPServiceLayerClient Client => StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
@@ -297,6 +499,11 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
 
         private Task<Invoice> CreateInvoice(CreateInvoiceRequest request)
         {
+            if (UnreachableFor.Contains(request.U_Van_saleorder ?? string.Empty))
+            {
+                throw new TimeoutException("The SAP Service Layer did not respond in time.");
+            }
+
             if (FailFor.Contains(request.U_Van_saleorder ?? string.Empty))
             {
                 throw new InvalidOperationException("SAP rejected the invoice: item is blocked for sale.");

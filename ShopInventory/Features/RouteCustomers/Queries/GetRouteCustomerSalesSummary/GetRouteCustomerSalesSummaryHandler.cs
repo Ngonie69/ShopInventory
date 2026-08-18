@@ -18,6 +18,14 @@ namespace ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSalesSum
 /// The customers come from their own table and the aggregates are attached to them, not the other way
 /// round. A customer who bought nothing has no row in any sales table, and they are exactly who the
 /// dormancy view is looking for.
+///
+/// One read here deliberately ignores the window: the first and last day each customer ever bought. The
+/// window answers "who is trading and for how much", and it cannot answer "who has stopped" — a shop
+/// whose last purchase is older than the window has no row in any windowed aggregate, which is
+/// indistinguishable from a shop that has never bought at all. Those are opposite findings: one needs
+/// winning back and the other has never been converted. <see cref="LoadLifetimeSpansAsync"/> is what
+/// tells them apart, so <c>FirstSaleAt</c>, <c>LastSaleAt</c> and <c>DaysSinceLastSale</c> are all-time
+/// while every count and total beside them belongs to the window.
 /// </summary>
 public sealed class GetRouteCustomerSalesSummaryHandler(
     ApplicationDbContext db
@@ -44,8 +52,17 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
         public decimal Gross { get; init; }
         public decimal Vat { get; init; }
         public decimal AmountPaid { get; init; }
-        public DateTime FirstSaleAt { get; init; }
-        public DateTime LastSaleAt { get; init; }
+    }
+
+    /// <summary>
+    /// The first and last trading day a customer has ever bought on, both as bare CAT days so the two
+    /// sources are comparable.
+    /// </summary>
+    private readonly record struct SaleSpan(DateTime First, DateTime Last)
+    {
+        public SaleSpan Merge(SaleSpan other) => new(
+            other.First < First ? other.First : First,
+            other.Last > Last ? other.Last : Last);
     }
 
     /// <summary>
@@ -82,8 +99,9 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
 
         var lineCounts = await LoadLineCountsAsync(route, from, to, fromUtc, toUtcExclusive, cancellationToken);
         var openOrderCounts = await LoadOpenOrderCountsAsync(route, cancellationToken);
+        var lifetimeSpans = await LoadLifetimeSpansAsync(route, cancellationToken);
 
-        var rows = BuildRows(customers, aggregates, lineCounts, openOrderCounts, query.IncludeInactive, dormantDays);
+        var rows = BuildRows(customers, aggregates, lineCounts, openOrderCounts, lifetimeSpans, query.IncludeInactive);
 
         return new RouteCustomerSalesSummaryDto
         {
@@ -137,9 +155,7 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
                 SaleCount = group.Count(),
                 Gross = group.Sum(sale => sale.TotalAmount),
                 Vat = group.Sum(sale => sale.VatAmount),
-                AmountPaid = group.Sum(sale => sale.AmountPaid),
-                FirstSaleAt = group.Min(sale => sale.DocDate),
-                LastSaleAt = group.Max(sale => sale.DocDate)
+                AmountPaid = group.Sum(sale => sale.AmountPaid)
             })
             .ToListAsync(cancellationToken);
 
@@ -152,9 +168,7 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
             SaleCount = row.SaleCount,
             Gross = row.Gross,
             Vat = row.Vat,
-            AmountPaid = row.AmountPaid,
-            FirstSaleAt = row.FirstSaleAt,
-            LastSaleAt = row.LastSaleAt
+            AmountPaid = row.AmountPaid
         }).ToList();
     }
 
@@ -188,9 +202,7 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
             {
                 group.Key,
                 SaleCount = group.Count(),
-                Gross = group.Sum(reservation => reservation.TotalValue),
-                FirstSaleAt = group.Min(reservation => reservation.CreatedAt),
-                LastSaleAt = group.Max(reservation => reservation.CreatedAt)
+                Gross = group.Sum(reservation => reservation.TotalValue)
             })
             .ToListAsync(cancellationToken);
 
@@ -205,10 +217,95 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
             // A reservation holds no tax split — that lives on the SAP invoice — so this reports no VAT
             // rather than reporting zero VAT as if it had been checked.
             Vat = 0m,
-            AmountPaid = row.Gross,
-            FirstSaleAt = Services.AuditService.ToCAT(row.FirstSaleAt).Date,
-            LastSaleAt = Services.AuditService.ToCAT(row.LastSaleAt).Date
+            AmountPaid = row.Gross
         }).ToList();
+    }
+
+    /// <summary>
+    /// The first and last day each customer ever bought, read with no date filter at all.
+    ///
+    /// This is the query that separates a lapsed shop from a new one, and it cannot be windowed without
+    /// becoming the thing it is here to fix: a customer whose last purchase predates the window is absent
+    /// from every windowed aggregate, and absence there says nothing about whether they ever bought.
+    ///
+    /// Affordable because the database does the reducing. Both halves are grouped aggregates that return
+    /// one row per customer, so this is the same shape as the windowed reads above with their date
+    /// predicate removed — not a scan of history into memory.
+    ///
+    /// It can only date the rows the report already has. Sales belonging to a customer whose record was
+    /// hard-deleted still get their own row, but only when they fall inside the window; a deleted
+    /// customer with nothing recent has no row to attach a date to, which is unchanged behaviour.
+    /// </summary>
+    private async Task<Dictionary<CustomerKey, SaleSpan>> LoadLifetimeSpansAsync(
+        string? route,
+        CancellationToken cancellationToken)
+    {
+        var offlineQuery = db.DesktopSales
+            .AsNoTracking()
+            .Where(sale => sale.RouteCustomerCode != null);
+
+        if (route is not null)
+        {
+            offlineQuery = offlineQuery.Where(sale => sale.CardCode == route);
+        }
+
+        var offline = await offlineQuery
+            .GroupBy(sale => new { sale.RouteCustomerId, sale.RouteCustomerCode, sale.CardCode })
+            .Select(group => new
+            {
+                group.Key,
+                First = group.Min(sale => sale.DocDate),
+                Last = group.Max(sale => sale.DocDate)
+            })
+            .ToListAsync(cancellationToken);
+
+        var onlineQuery = db.StockReservations
+            .AsNoTracking()
+            .Where(reservation => reservation.RouteCustomerCode != null)
+            .Where(reservation => reservation.Status == ReservationStatus.Confirmed);
+
+        if (route is not null)
+        {
+            onlineQuery = onlineQuery.Where(reservation => reservation.CardCode == route);
+        }
+
+        var online = await onlineQuery
+            .GroupBy(reservation => new
+            {
+                reservation.RouteCustomerId,
+                reservation.RouteCustomerCode,
+                reservation.CardCode
+            })
+            .Select(group => new
+            {
+                group.Key,
+                First = group.Min(reservation => reservation.CreatedAt),
+                Last = group.Max(reservation => reservation.CreatedAt)
+            })
+            .ToListAsync(cancellationToken);
+
+        var spans = new Dictionary<CustomerKey, SaleSpan>();
+
+        foreach (var row in offline)
+        {
+            // DocDate is already a bare trading day in the van's own clock, so it needs no conversion.
+            Fold(BuildKey(row.Key.RouteCustomerId, row.Key.RouteCustomerCode, row.Key.CardCode),
+                new SaleSpan(row.First.Date, row.Last.Date));
+        }
+
+        foreach (var row in online)
+        {
+            // A reservation is stamped in UTC, and the day it belongs to is the CAT day it was made on.
+            Fold(BuildKey(row.Key.RouteCustomerId, row.Key.RouteCustomerCode, row.Key.CardCode),
+                new SaleSpan(
+                    RouteCustomerSalesReporting.TradingDayOf(row.First),
+                    RouteCustomerSalesReporting.TradingDayOf(row.Last)));
+        }
+
+        return spans;
+
+        void Fold(CustomerKey key, SaleSpan span) =>
+            spans[key] = spans.TryGetValue(key, out var existing) ? existing.Merge(span) : span;
     }
 
     /// <summary>
@@ -316,8 +413,8 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
         List<SaleAggregate> aggregates,
         Dictionary<CustomerKey, int> lineCounts,
         Dictionary<CustomerKey, int> openOrderCounts,
-        bool includeInactive,
-        int dormantDays)
+        Dictionary<CustomerKey, SaleSpan> lifetimeSpans,
+        bool includeInactive)
     {
         var byId = customers
             .GroupBy(customer => customer.Id)
@@ -345,8 +442,6 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
             var row = accumulator.Row;
 
             row.SaleCount += aggregate.SaleCount;
-            row.FirstSaleAt = Earliest(row.FirstSaleAt, aggregate.FirstSaleAt);
-            row.LastSaleAt = Latest(row.LastSaleAt, aggregate.LastSaleAt);
 
             accumulator.Totals.Add(new RouteCustomerSalesTotalsDto
             {
@@ -375,6 +470,22 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
                 accumulator.Keys.Add(new CustomerKey(customerId, Normalize(row.Code), route));
                 accumulator.Keys.Add(new CustomerKey(null, Normalize(row.Code), route));
             }
+
+            // All-time, over every key the row answers to, and set here rather than from the aggregates
+            // above because the window's own last sale cannot tell a lapsed shop from a new one. A null
+            // that survives this has one meaning left: the customer has never bought.
+            SaleSpan? lifetime = null;
+
+            foreach (var key in accumulator.Keys)
+            {
+                if (lifetimeSpans.TryGetValue(key, out var span))
+                {
+                    lifetime = lifetime is null ? span : lifetime.Value.Merge(span);
+                }
+            }
+
+            row.FirstSaleAt = lifetime?.First;
+            row.LastSaleAt = lifetime?.Last;
 
             row.TotalsByCurrency = RouteCustomerSalesReporting.SumByCurrency(accumulator.Totals);
             row.DaysSinceLastSale = RouteCustomerSalesReporting.DaysSinceLastSale(row.LastSaleAt);
@@ -448,7 +559,10 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
                 AssignedBusinessPartnerCode = group.Key,
                 CustomerCount = group.Count(),
                 SaleCount = group.Sum(row => row.SaleCount),
-                NeverBoughtCount = group.Count(row => row.SaleCount == 0),
+                // Both read the all-time last sale, and they are disjoint by construction: a customer
+                // either has one or does not. Counting the never-bought off the window's sale count is
+                // what used to file every lapsed shop under "never converted".
+                NeverBoughtCount = group.Count(row => row.LastSaleAt is null),
                 DormantCount = group.Count(row => row.DaysSinceLastSale is { } days && days > dormantDays),
                 TotalsByCurrency = RouteCustomerSalesReporting.SumByCurrency(
                     group.SelectMany(row => row.TotalsByCurrency)),
@@ -474,10 +588,4 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
 
     private static string Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToUpperInvariant();
-
-    private static DateTime? Earliest(DateTime? current, DateTime candidate) =>
-        current is null || candidate < current ? candidate : current;
-
-    private static DateTime? Latest(DateTime? current, DateTime candidate) =>
-        current is null || candidate > current ? candidate : current;
 }

@@ -1,6 +1,9 @@
 using ShopInventory.Features.VanSalesReports.Queries;
 using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
 
+// The page's own copy of the row. Aliased because the two namespaces also share a summary type.
+using WebDay = ShopInventory.Web.Models.DepartureComplianceDay;
+
 namespace ShopInventory.Tests;
 
 /// <summary>
@@ -115,6 +118,102 @@ public sealed class DepartureComplianceMetricsTests
         Assert.Equal(0m, level.DeclaredVariance);
     }
 
+    /// <summary>
+    /// The declaration is measured against the takings it has boxes for, not against the day's sales.
+    /// </summary>
+    /// <remarks>
+    /// A card swipe settles at the terminal and an untendered sale names no tender at all, and the
+    /// handset has no field for either. Measuring a three-term declaration against a five-term total
+    /// reported every rep who took one short by exactly its value.
+    /// </remarks>
+    [Fact]
+    public void The_variance_is_measured_against_the_takings_that_can_be_declared()
+    {
+        var day = Declared(2403m, null, null, systemSales: 2403m, systemOther: 150m, systemUntendered: 40m);
+
+        Assert.Equal(2593m, day.SystemTotalSales);
+        Assert.Equal(2403m, day.SystemDeclarableTakings);
+        Assert.Equal(0m, day.DeclaredVariance);
+        Assert.Null(day.DeclaredShortfall);
+    }
+
+    /// <summary>
+    /// The untendered bucket is a tolerance on the variance in one direction only.
+    /// </summary>
+    /// <remarks>
+    /// A sale whose tender went unrecorded may well have been cash the rep collected and counted, so
+    /// it can excuse a declaration that runs over — up to its own value and no further. It can never
+    /// excuse one that runs under: unrecorded money only ever adds to what was in the rep's hand.
+    /// </remarks>
+    [Fact]
+    public void Untendered_sales_excuse_an_overage_but_never_a_shortfall()
+    {
+        var within = Declared(120m, null, null, systemSales: 100m, systemUntendered: 20m);
+        Assert.Equal(20m, within.DeclaredVariance);
+        Assert.Null(within.DeclaredOverage);
+        Assert.Null(within.DeclaredShortfall);
+
+        var beyond = Declared(130m, null, null, systemSales: 100m, systemUntendered: 20m);
+        Assert.Equal(10m, beyond.DeclaredOverage);
+
+        var under = Declared(90m, null, null, systemSales: 100m, systemUntendered: 20m);
+        Assert.Equal(10m, under.DeclaredShortfall);
+        Assert.Null(under.DeclaredOverage);
+    }
+
+    /// <summary>
+    /// A swipe widens nothing. It is money the rep never carried, so it is neither declarable nor a
+    /// reason to accept a declaration larger than the cash the day took.
+    /// </summary>
+    [Fact]
+    public void A_swipe_is_not_a_tolerance_the_way_an_untendered_sale_is()
+    {
+        var day = Declared(130m, null, null, systemSales: 100m, systemOther: 50m);
+
+        Assert.Equal(30m, day.DeclaredVariance);
+        Assert.Equal(30m, day.DeclaredOverage);
+    }
+
+    /// <summary>
+    /// The page derives these figures again from the same fields, because computed properties are not
+    /// serialised. Two hand-written copies of one definition drift, and the drift is silent: the row
+    /// and the CSV would simply start disagreeing with the API about whether a rep was short.
+    /// </summary>
+    [Theory]
+    [InlineData(100, 0, 0, 100)]      // balanced
+    [InlineData(80, 0, 0, 100)]       // short
+    [InlineData(120, 0, 20, 100)]     // within the untendered tolerance
+    [InlineData(130, 0, 20, 100)]     // beyond it
+    [InlineData(130, 50, 0, 100)]     // a swipe, which is no tolerance at all
+    public void The_pages_copy_of_the_row_computes_the_same_variance_as_the_api(
+        decimal declaredCash,
+        decimal systemOther,
+        decimal systemUntendered,
+        decimal systemCash)
+    {
+        var api = Declared(declaredCash, null, null, systemSales: systemCash,
+            systemOther: systemOther, systemUntendered: systemUntendered);
+
+        var web = new WebDay
+        {
+            SystemCash = api.SystemCash,
+            SystemEcocash = api.SystemEcocash,
+            SystemInnbucks = api.SystemInnbucks,
+            SystemOther = api.SystemOther,
+            SystemUntendered = api.SystemUntendered,
+            SystemTotalSales = api.SystemTotalSales,
+            DeclaredCash = api.DeclaredCash,
+            DeclaredEcocash = api.DeclaredEcocash,
+            DeclaredInnbucks = api.DeclaredInnbucks
+        };
+
+        Assert.Equal(api.DeclaredTotal, web.DeclaredTotal);
+        Assert.Equal(api.SystemDeclarableTakings, web.SystemDeclarableTakings);
+        Assert.Equal(api.DeclaredVariance, web.DeclaredVariance);
+        Assert.Equal(api.DeclaredShortfall, web.DeclaredShortfall);
+        Assert.Equal(api.DeclaredOverage, web.DeclaredOverage);
+    }
+
     [Fact]
     public void Outstanding_crates_need_both_counts()
     {
@@ -159,8 +258,11 @@ public sealed class DepartureComplianceMetricsTests
         decimal? cash,
         decimal? ecocash,
         decimal? innbucks,
-        decimal systemSales = 0m) =>
-        Build(0, 0, 0, systemSales, declaredCash: cash, declaredEcocash: ecocash, declaredInnbucks: innbucks);
+        decimal systemSales = 0m,
+        decimal systemOther = 0m,
+        decimal systemUntendered = 0m) =>
+        Build(0, 0, 0, systemSales, declaredCash: cash, declaredEcocash: ecocash, declaredInnbucks: innbucks,
+            other: systemOther, untendered: systemUntendered);
 
     private static DepartureComplianceDayDto Build(
         int planned,
@@ -173,7 +275,9 @@ public sealed class DepartureComplianceMetricsTests
         int? rtiReturned = null,
         decimal? declaredCash = null,
         decimal? declaredEcocash = null,
-        decimal? declaredInnbucks = null) =>
+        decimal? declaredInnbucks = null,
+        decimal other = 0m,
+        decimal untendered = 0m) =>
         new(
             VanRouteDayId: 1,
             UserId: Guid.NewGuid(),
@@ -194,8 +298,9 @@ public sealed class DepartureComplianceMetricsTests
             SystemCash: sales,
             SystemEcocash: 0m,
             SystemInnbucks: 0m,
-            SystemOther: 0m,
-            SystemTotalSales: sales,
+            SystemOther: other,
+            SystemUntendered: untendered,
+            SystemTotalSales: sales + other + untendered,
             DeclaredCash: declaredCash,
             DeclaredEcocash: declaredEcocash,
             DeclaredInnbucks: declaredInnbucks,

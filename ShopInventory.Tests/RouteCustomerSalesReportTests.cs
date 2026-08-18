@@ -358,6 +358,11 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
         // Null, not a large number. Never bought and lapsed are different findings and need different
         // conversations.
         Assert.Null(cornerStore.DaysSinceLastSale);
+
+        // And null because there is no sale anywhere in history, not because this window is empty — which
+        // is the only thing that entitles the report to say "never".
+        Assert.Null(cornerStore.LastSaleAt);
+        Assert.Null(cornerStore.FirstSaleAt);
     }
 
     [Fact]
@@ -377,6 +382,103 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
         Assert.Equal(1, route.DormantCount);
         Assert.True(route.Customers.Single(customer => customer.Code == "TUCK01").DaysSinceLastSale > 30);
         Assert.True(route.Customers.Single(customer => customer.Code == "CORNER1").DaysSinceLastSale < 30);
+    }
+
+    /// <summary>
+    /// The one this report used to get backwards, and the reason the last sale is read over all time.
+    ///
+    /// A shop whose last purchase is older than the window has nothing in any windowed aggregate, which
+    /// looks exactly like a shop that has never bought — so it was counted and labelled as one. A 200-day
+    /// lapse needs winning back; a shop that has never bought needs a first order. Reporting the first as
+    /// the second sends the wrong person with the wrong errand, and hides the lapse completely.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_older_than_the_window_makes_the_customer_lapsed_and_not_never_bought()
+    {
+        var soldOn = DateTime.UtcNow.Date.AddDays(-200);
+
+        var stale = BuildUpload("VAN010-INV-1", "TUCK01");
+        stale.SoldAt = soldOn;
+        await IngestAsync(stale);
+
+        // The default window is the last 90 days, so this sale is well outside it.
+        var summary = await SummaryAsync(dormantDays: 30);
+        var route = Assert.Single(summary.Routes);
+        var tuckShop = route.Customers.Single(customer => customer.Code == "TUCK01");
+
+        // The window still owns the trading figures: nothing was bought inside these dates.
+        Assert.Equal(0, tuckShop.SaleCount);
+        Assert.Equal(0, tuckShop.LineCount);
+        Assert.Empty(tuckShop.TotalsByCurrency);
+
+        // The dates do not. This shop has bought, and the report can say when.
+        Assert.Equal(soldOn, tuckShop.LastSaleAt);
+        Assert.Equal(soldOn, tuckShop.FirstSaleAt);
+        Assert.True(tuckShop.DaysSinceLastSale >= 200);
+
+        // Lapsed, and counted apart from the shop next door that really has never bought.
+        Assert.Equal(1, route.DormantCount);
+        Assert.Equal(1, route.NeverBoughtCount);
+        Assert.Null(route.Customers.Single(customer => customer.Code == "CORNER1").LastSaleAt);
+    }
+
+    /// <summary>
+    /// A window narrower than the dormancy threshold used to produce the same false finding for a shop
+    /// that is trading perfectly well: nothing in seven days read as never having bought. It is neither
+    /// lapsed nor new — it is simply outside the dates being asked about.
+    /// </summary>
+    [Fact]
+    public async Task A_recent_sale_outside_a_narrow_window_is_neither_lapsed_nor_never_bought()
+    {
+        var soldOn = DateTime.UtcNow.Date.AddDays(-10);
+
+        var sale = BuildUpload("VAN010-INV-1", "TUCK01");
+        sale.SoldAt = soldOn;
+        await IngestAsync(sale);
+
+        var summary = await SummaryAsync(
+            dormantDays: 30,
+            from: DateTime.UtcNow.Date.AddDays(-6),
+            to: DateTime.UtcNow.Date);
+
+        var route = Assert.Single(summary.Routes);
+        var tuckShop = route.Customers.Single(customer => customer.Code == "TUCK01");
+
+        Assert.Equal(0, tuckShop.SaleCount);
+        Assert.Equal(soldOn, tuckShop.LastSaleAt);
+
+        // One count each way, and this customer is in neither: only CORNER1 has never bought, and ten
+        // days is not a lapse.
+        Assert.Equal(1, route.NeverBoughtCount);
+        Assert.Equal(0, route.DormantCount);
+    }
+
+    /// <summary>
+    /// The all-time date has to read both tables, and the online one keeps time differently: a confirmed
+    /// reservation is a UTC instant, not a trading day. CAT runs two hours ahead, so a sale made just
+    /// after midnight is stored on the evening before — and dating it off the instant would file it a day
+    /// early, which is the same error the window bounds exist to avoid.
+    /// </summary>
+    [Fact]
+    public async Task An_online_sale_outside_the_window_dates_the_customer_on_its_trading_day()
+    {
+        // Late enough in the UTC evening that the CAT day has already rolled over.
+        var createdAt = DateTime.SpecifyKind(
+            DateTime.UtcNow.Date.AddDays(-150).AddHours(23).AddMinutes(30), DateTimeKind.Utc);
+
+        AddOnlineSale("VAN010-ONL-1", _tuckShopId, 250m, ReservationStatus.Confirmed, createdAt);
+
+        var summary = await SummaryAsync(dormantDays: 30);
+        var route = Assert.Single(summary.Routes);
+        var tuckShop = route.Customers.Single(customer => customer.Code == "TUCK01");
+
+        Assert.Equal(0, tuckShop.SaleCount);
+
+        // Stated through the same clock the sale was read with, because the day it belongs to is the CAT
+        // day — reading .Date off the stored instant would be the day before.
+        Assert.Equal(AuditService.ToCAT(createdAt).Date, tuckShop.LastSaleAt);
+        Assert.Equal(1, route.DormantCount);
+        Assert.Equal(1, route.NeverBoughtCount);
     }
 
     /// <summary>
@@ -547,10 +649,13 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
         return result.Value;
     }
 
-    private async Task<RouteCustomerSalesSummaryDto> SummaryAsync(int? dormantDays = null)
+    private async Task<RouteCustomerSalesSummaryDto> SummaryAsync(
+        int? dormantDays = null,
+        DateTime? from = null,
+        DateTime? to = null)
     {
         var result = await new GetRouteCustomerSalesSummaryHandler(_context).Handle(
-            new GetRouteCustomerSalesSummaryQuery(RouteCode, null, null, dormantDays, true),
+            new GetRouteCustomerSalesSummaryQuery(RouteCode, from, to, dormantDays, true),
             CancellationToken.None);
 
         Assert.False(result.IsError, result.IsError ? result.FirstError.Description : null);
@@ -562,9 +667,15 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
     /// left locally. CardCode is the van's business partner here too — the shop is only in the route
     /// customer columns.
     /// </summary>
-    private void AddOnlineSale(string reference, int routeCustomerId, decimal total, string status)
+    private void AddOnlineSale(
+        string reference,
+        int routeCustomerId,
+        decimal total,
+        string status,
+        DateTime? createdAt = null)
     {
         var customer = _context.RouteCustomers.AsNoTracking().Single(entity => entity.Id == routeCustomerId);
+        var soldAt = createdAt ?? DateTime.UtcNow.AddDays(-1);
 
         _context.StockReservations.Add(new StockReservationEntity
         {
@@ -579,9 +690,9 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
             Currency = "USD",
             TotalValue = total,
             Status = status,
-            CreatedAt = DateTime.UtcNow.AddDays(-1),
-            ExpiresAt = DateTime.UtcNow.AddDays(-1).AddHours(1),
-            ConfirmedAt = status == ReservationStatus.Confirmed ? DateTime.UtcNow.AddDays(-1) : null,
+            CreatedAt = soldAt,
+            ExpiresAt = soldAt.AddHours(1),
+            ConfirmedAt = status == ReservationStatus.Confirmed ? soldAt : null,
             SAPDocEntry = status == ReservationStatus.Confirmed ? 9001 : null,
             SAPDocNum = status == ReservationStatus.Confirmed ? 40128 : null,
             Lines =

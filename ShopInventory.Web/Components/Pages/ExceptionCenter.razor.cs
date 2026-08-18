@@ -638,6 +638,9 @@ public partial class ExceptionCenter : IDisposable
             "payment-callback" => "Payment gateway callbacks",
             "payment-callback-rejection" => "Rejected payment callbacks",
             "credit-note-fiscalization" => "Credit note fiscalization",
+            "pending-inventory-transfer-post" => "Approved transfers awaiting SAP",
+            "pending-transfer-request-edit-apply" => "Approved request changes awaiting SAP",
+            "van-sale-posting" => "Van sales awaiting SAP",
             _ => source
         };
 

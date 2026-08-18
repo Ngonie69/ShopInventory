@@ -260,6 +260,8 @@ try
     builder.Services.Configure<DailyStockSettings>(builder.Configuration.GetSection("DailyStock"));
     builder.Services.Configure<DesktopSalePostingSettings>(
         builder.Configuration.GetSection(DesktopSalePostingSettings.SectionName));
+    builder.Services.Configure<VanSalesPostingSettings>(
+        builder.Configuration.GetSection(VanSalesPostingSettings.SectionName));
     builder.Services.Configure<PodReportCacheSettings>(
         builder.Configuration.GetSection(PodReportCacheSettings.SectionName));
     builder.Services.Configure<CreditNoteSyncSettings>(

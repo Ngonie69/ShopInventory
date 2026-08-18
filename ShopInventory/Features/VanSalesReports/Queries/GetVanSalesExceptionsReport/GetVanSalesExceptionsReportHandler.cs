@@ -261,14 +261,16 @@ public sealed class GetVanSalesExceptionsReportHandler(
     /// </remarks>
     private static List<VanSalesTenderResult> BuildTender(List<VanSaleFact> sales) =>
         sales
+            // Grouped on the tender alone. A sale that named no tender is its own member of
+            // VanSalesTender, so the split falls out of the shared classifier rather than being
+            // recomputed here from a blank payment method — one definition, not two that can drift.
             .GroupBy(sale => (
                 Currency: RouteCustomerSalesReporting.NormalizeCurrency(sale.Currency),
-                Tender: sale.Tender,
-                Untendered: string.IsNullOrWhiteSpace(sale.PaymentMethod)))
+                Tender: sale.Tender))
             .Select(group => new VanSalesTenderResult(
                 Currency: group.Key.Currency,
                 Tender: group.Key.Tender.ToString(),
-                Untendered: group.Key.Untendered,
+                Untendered: group.Key.Tender == VanSalesTender.Untendered,
                 DocumentCount: group.Count(),
                 Gross: group.Sum(sale => sale.TotalAmount)))
             .OrderBy(row => row.Currency, StringComparer.OrdinalIgnoreCase)
@@ -285,7 +287,11 @@ public sealed class GetVanSalesExceptionsReportHandler(
             .Select(group =>
             {
                 var rep = reps.GetValueOrDefault(group.Key.UserId);
-                var untendered = group.Where(sale => string.IsNullOrWhiteSpace(sale.PaymentMethod)).ToList();
+
+                // From the classifier, not from the payment method again. Untendered is now its own
+                // tender, so it is no longer a subset of Other — the five columns partition the
+                // takings rather than overlapping.
+                var untendered = group.Where(sale => sale.Tender == VanSalesTender.Untendered).ToList();
 
                 return new VanSalesRepTenderResult(
                     UserId: group.Key.UserId,

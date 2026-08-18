@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -18,18 +20,34 @@ namespace ShopInventory.Services;
 /// Posting is deferred to end of day rather than done on upload because a van trades out of coverage:
 /// its sales arrive in bursts whenever it finds signal, and SAP should see a settled day rather than a
 /// trickle that stops mid-afternoon when the van drives out of range.
+///
+/// A run covers the requested day and the <see cref="VanSalesPostingSettings.LookbackDays"/> before it,
+/// because the same coverage gap that defers posting also defers upload: a sale carries the trading day
+/// it was sold on, so one uploaded the next morning arrives already dated to a day no future run would
+/// otherwise ask for.
 /// </summary>
 public sealed class VanSalesEndOfDayPostingService(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
+    SapCircuitBreakerState circuitState,
+    IOptions<VanSalesPostingSettings> settings,
     ILogger<VanSalesEndOfDayPostingService> logger)
 {
     /// <summary>
-    /// After this many failed attempts a sale stops being retried automatically and waits for a human.
-    /// Two runs a night means a sale that is genuinely wrong stops re-attempting after a few days rather
-    /// than raising the same alarm forever.
+    /// After this many rejections a sale stops being retried automatically and waits for a human.
     /// </summary>
-    private const int MaxPostingAttempts = 6;
+    /// <remarks>
+    /// Only a rejection spends one, and that qualifier is load-bearing now in a way it was not when this
+    /// was written. Six attempts across two runs a night meant a sale that was genuinely wrong stopped
+    /// re-attempting after a few days; the half-hourly pass added later spends the same six inside three
+    /// hours. Counting a SAP outage against the budget would therefore park a whole day's van takings
+    /// behind a human over a blip that healed itself before lunch.
+    ///
+    /// What the cap still means is the thing it always meant: six attempts at a sale SAP actually
+    /// refuses — a blocked item, a closed period — which is not going to fix itself, and is better in
+    /// front of somebody within hours than after three days.
+    /// </remarks>
+    internal const int MaxPostingAttempts = 6;
 
     public async Task<VanSalesPostingRunResult> PostPendingSalesAsync(
         DateTime tradingDate,
@@ -37,27 +55,58 @@ public sealed class VanSalesEndOfDayPostingService(
     {
         var date = tradingDate.Date;
 
+        // A window ending on the requested day, not the day alone. DocDate is the handset's trading
+        // day: a sale made at 21:00 by a van that only found signal the next morning is stored against
+        // yesterday, and every trigger asks for today. Matched exactly, that sale would be offered to
+        // SAP once — before it had been uploaded — and never again, and it would sit Pending with no
+        // attempts recorded and nothing to surface it. The till route learned this first; see
+        // DesktopSalePostingSettings.LookbackDays.
+        //
+        // The upper bound is safe in a way the lower one is not: a handset whose clock runs ahead posts
+        // when its date arrives, a day or two late, while a sale behind the run date has no later run
+        // coming for it at all.
+        var windowStart = settings.Value.WindowStart(date);
+
+        // Do not start a pass while SAP is known to be down. Nothing breaks without this — the HTTP
+        // handler refuses each call before it leaves the process, and a circuit-open failure is
+        // transient, so no sale spends an attempt over it. What it saves is the noise: this route posts
+        // one sale at a time, so a pass during an outage is two doomed round trips and one logged error
+        // per held sale, every one of them saying the same thing about SAP rather than about the sale.
+        if (circuitState.ShouldShortCircuit(out var retryAfter))
+        {
+            logger.LogInformation(
+                "Skipping van sales posting: the SAP circuit is open for another {RetryAfter}.", retryAfter);
+            return new VanSalesPostingRunResult(date, windowStart);
+        }
+
         var pending = await context.DesktopSales
             .Include(s => s.Lines)
-            .Where(s => s.DocDate == date &&
+            .Where(s => s.DocDate >= windowStart &&
+                        s.DocDate <= date &&
                         s.SourceSystem == SaleSourceSystems.VanSales &&
                         s.ConsolidationStatus == DesktopSaleConsolidationStatus.Pending &&
                         s.PostingAttempts < MaxPostingAttempts)
-            .OrderBy(s => s.ReceiptGlobalNo)
+            // Oldest day first, so a backlog reaches SAP in the order it was sold rather than the order
+            // it happened to be uploaded in.
+            .OrderBy(s => s.DocDate)
+            .ThenBy(s => s.ReceiptGlobalNo)
             .ToListAsync(cancellationToken);
 
-        var result = new VanSalesPostingRunResult(date);
+        var result = new VanSalesPostingRunResult(date, windowStart);
 
         if (pending.Count == 0)
         {
             // Not an error. The mop-up run finds nothing on most nights, and treating that as a failure
             // would raise an alarm nightly and train everyone to ignore the one that matters.
-            logger.LogInformation("No van sales are awaiting posting for {TradingDate:yyyy-MM-dd}.", date);
+            logger.LogInformation(
+                "No van sales are awaiting posting for {WindowStart:yyyy-MM-dd} to {TradingDate:yyyy-MM-dd}.",
+                windowStart, date);
             return result;
         }
 
         logger.LogInformation(
-            "Posting {Count} van sales for {TradingDate:yyyy-MM-dd} to SAP.", pending.Count, date);
+            "Posting {Count} van sales for {WindowStart:yyyy-MM-dd} to {TradingDate:yyyy-MM-dd} to SAP.",
+            pending.Count, windowStart, date);
 
         foreach (var sale in pending)
         {
@@ -71,36 +120,116 @@ public sealed class VanSalesEndOfDayPostingService(
                 break;
             }
 
-            try
-            {
-                await PostOneAsync(sale, result, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                // Never let one sale stop the run: the rest of the day's takings still need to reach SAP,
-                // and this one will be offered again by the mop-up.
-                sale.PostingAttempts++;
-                sale.LastPostingError = Truncate(ex.Message, 2000);
-                result.Failed++;
-                result.Errors.Add($"{sale.ExternalReferenceId}: {ex.Message}");
-
-                logger.LogError(
-                    ex,
-                    "Failed to post van sale {ExternalReference} (receipt {ReceiptGlobalNo}) to SAP. Attempt {Attempt} of {Max}.",
-                    sale.ExternalReferenceId,
-                    sale.ReceiptGlobalNo,
-                    sale.PostingAttempts,
-                    MaxPostingAttempts);
-            }
+            // Never let one sale stop the run: the rest of the day's takings still need to reach SAP,
+            // and this one will be offered again by the mop-up.
+            await TryPostAsync(sale, result, cancellationToken);
         }
 
         await context.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation(
-            "Van sales posting for {TradingDate:yyyy-MM-dd} finished: {Posted} posted, {Adopted} already in SAP, {Failed} failed.",
-            date, result.Posted, result.Adopted, result.Failed);
+            "Van sales posting for {WindowStart:yyyy-MM-dd} to {TradingDate:yyyy-MM-dd} finished: {Posted} posted, {Adopted} already in SAP, {Failed} failed.",
+            windowStart, date, result.Posted, result.Adopted, result.Failed);
 
         return result;
+    }
+
+    /// <summary>
+    /// Posts one named sale, whatever day it belongs to and whatever its attempt count. Returns null
+    /// when there is no such sale, or when it is not this route's to post.
+    /// </summary>
+    /// <remarks>
+    /// What the exception center's retry calls. Resetting the sale's attempt count and waiting for the
+    /// next pass would not do: the sales most in need of a retry are the ones that fell out of the
+    /// lookback window, and no pass is ever going to ask for their day again.
+    ///
+    /// The attempt cap is not applied here either. It exists to stop an automatic pass re-attempting a
+    /// hopeless sale twice an hour forever, and a person pressing retry has said otherwise.
+    /// </remarks>
+    public async Task<VanSalesPostingRunResult?> PostSaleAsync(
+        int saleId,
+        CancellationToken cancellationToken = default)
+    {
+        var sale = await context.DesktopSales
+            .Include(s => s.Lines)
+            .FirstOrDefaultAsync(s => s.Id == saleId, cancellationToken);
+
+        if (sale is null ||
+            sale.SourceSystem != SaleSourceSystems.VanSales ||
+            sale.ConsolidationStatus != DesktopSaleConsolidationStatus.Pending)
+        {
+            return null;
+        }
+
+        // Its own trading day at both ends: this posts exactly one sale, so there is no window.
+        var result = new VanSalesPostingRunResult(sale.DocDate.Date, sale.DocDate.Date);
+
+        // Answered without a doomed round trip, and without touching the sale. Letting it through would
+        // overwrite LastPostingError with the circuit message, losing the SAP rejection that is the
+        // reason somebody is looking at this sale in the first place.
+        if (circuitState.ShouldShortCircuit(out var retryAfter))
+        {
+            var seconds = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds));
+            result.Failed++;
+            result.Errors.Add(
+                $"{sale.ExternalReferenceId}: SAP is unavailable; the circuit is open for another {seconds} seconds.");
+
+            logger.LogInformation(
+                "Refused to post van sale {ExternalReference} on request: the SAP circuit is open for another {RetryAfter}.",
+                sale.ExternalReferenceId, retryAfter);
+            return result;
+        }
+
+        await TryPostAsync(sale, result, cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "Van sale {ExternalReference} was posted on request: {Posted} posted, {Adopted} already in SAP, {Failed} failed.",
+            sale.ExternalReferenceId, result.Posted, result.Adopted, result.Failed);
+
+        return result;
+    }
+
+    /// <summary>
+    /// Posts one sale and records what happened to it, a failure included. Never throws: a sale SAP
+    /// refuses is an outcome to be written down, not an exception every caller has to be ready for.
+    /// </summary>
+    private async Task TryPostAsync(
+        DesktopSaleEntity sale,
+        VanSalesPostingRunResult result,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await PostOneAsync(sale, result, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // SAP being unreachable is not the sale's fault, so it does not spend one of the sale's
+            // attempts. See MaxPostingAttempts: at a pass every half hour, counting an outage would
+            // exhaust every van sale of the day inside three hours and hand the lot to a human.
+            var transient = SapFailureClassifier.IsTransient(ex, cancellationToken);
+            if (!transient)
+            {
+                sale.PostingAttempts++;
+            }
+
+            sale.LastPostingError = Truncate(ex.Message, 2000);
+            result.Failed++;
+            result.Errors.Add($"{sale.ExternalReferenceId}: {ex.Message}");
+
+            logger.LogError(
+                ex,
+                "Failed to post van sale {ExternalReference} (receipt {ReceiptGlobalNo}) to SAP. "
+                + "Attempt {Attempt} of {Max}{Transient}.",
+                sale.ExternalReferenceId,
+                sale.ReceiptGlobalNo,
+                sale.PostingAttempts,
+                MaxPostingAttempts,
+                // Otherwise a run of transient failures reads as the same attempt number repeating, which
+                // looks like a stuck counter rather than the budget being deliberately left alone.
+                transient ? " (SAP unreachable, so no attempt was spent)" : string.Empty);
+        }
     }
 
     private async Task PostOneAsync(
@@ -186,9 +315,16 @@ public sealed class VanSalesEndOfDayPostingService(
 /// they mean different things operationally: adopting means an earlier run reached SAP but did not
 /// record it locally, which is worth noticing if it happens often.
 /// </summary>
-public sealed class VanSalesPostingRunResult(DateTime tradingDate)
+public sealed class VanSalesPostingRunResult(DateTime tradingDate, DateTime windowStart)
 {
+    /// <summary>The day the run was asked for, and the last day of the window it covered.</summary>
     public DateTime TradingDate { get; } = tradingDate;
+
+    /// <summary>
+    /// The first day the run looked at. Recorded next to <see cref="TradingDate"/> so a log line
+    /// explains why a run posted a sale from several days ago.
+    /// </summary>
+    public DateTime WindowStart { get; } = windowStart;
     public int Posted { get; set; }
     public int Adopted { get; set; }
     public int Failed { get; set; }

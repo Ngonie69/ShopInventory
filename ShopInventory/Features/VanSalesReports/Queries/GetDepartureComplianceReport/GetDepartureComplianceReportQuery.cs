@@ -72,6 +72,7 @@ public sealed record DepartureComplianceDayDto(
     decimal SystemEcocash,
     decimal SystemInnbucks,
     decimal SystemOther,
+    decimal SystemUntendered,
     decimal SystemTotalSales,
 
     decimal? DeclaredCash,
@@ -137,11 +138,48 @@ public sealed record DepartureComplianceDayDto(
             : (DeclaredCash ?? 0) + (DeclaredEcocash ?? 0) + (DeclaredInnbucks ?? 0);
 
     /// <summary>
-    /// Declared minus recorded. Positive means the rep counted more than the system sold, which is
-    /// usually an unrecorded sale; negative is the one to chase.
+    /// The takings the rep is in a position to declare — the three tenders the sheet has columns for.
     /// </summary>
+    /// <remarks>
+    /// Not the day's sales. A card swipe settles at the terminal and an untendered sale names no
+    /// tender at all, and the handset offers no box for either, so neither can appear in
+    /// <see cref="DeclaredTotal"/> however honest the rep is. Measuring a three-term declaration
+    /// against a five-term total reported every such rep short by exactly the money they had no way
+    /// to declare, which is what this exists to stop.
+    /// </remarks>
+    public decimal SystemDeclarableTakings => SystemCash + SystemEcocash + SystemInnbucks;
+
+    /// <summary>
+    /// What the rep counted, less the takings they could count. Like against like.
+    /// </summary>
+    /// <remarks>
+    /// Read this with <see cref="SystemUntendered"/> rather than on its own: a positive variance up to
+    /// that figure is a rep who counted an untendered sale as cash, not an overage.
+    /// <see cref="DeclaredShortfall"/> and <see cref="DeclaredOverage"/> are the two findings, and
+    /// they already allow for it.
+    /// </remarks>
     public decimal? DeclaredVariance =>
-        DeclaredTotal is { } declared ? decimal.Round(declared - SystemTotalSales, 2) : null;
+        DeclaredTotal is { } declared ? decimal.Round(declared - SystemDeclarableTakings, 2) : null;
+
+    /// <summary>
+    /// Money the sheet says was taken in a declarable tender and the rep did not count back. Null
+    /// where there is none — this is the figure to chase, so it is present only when there is one.
+    /// </summary>
+    /// <remarks>
+    /// The untendered bucket cannot excuse a shortfall the way it can excuse an overage: a sale whose
+    /// tender went unrecorded can only ever add to what the rep had in hand, never subtract from it.
+    /// </remarks>
+    public decimal? DeclaredShortfall =>
+        DeclaredVariance is { } variance && variance < 0 ? -variance : null;
+
+    /// <summary>
+    /// Money counted back that the day cannot account for even after allowing every untendered sale
+    /// to have been cash the rep collected. Usually a sale that was made and never recorded.
+    /// </summary>
+    public decimal? DeclaredOverage =>
+        DeclaredVariance is { } variance && variance > SystemUntendered
+            ? variance - SystemUntendered
+            : null;
 
     public int? RtiOutstanding =>
         RtiOut is { } issued && RtiReturned is { } returned ? issued - returned : null;

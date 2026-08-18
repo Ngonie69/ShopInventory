@@ -141,8 +141,12 @@ public sealed class DepartureComplianceReportTests : IDisposable
         Assert.Equal(40m, day.SystemCash);
         Assert.Equal(25m, day.SystemEcocash);
         Assert.Equal(15m, day.SystemInnbucks);
-        Assert.Equal(20m, day.SystemOther);
         Assert.Equal(100m, day.SystemTotalSales);
+
+        // A sale that named no tender is untendered, not "other": the sheet treats the two
+        // differently, because only this one might be cash the rep counted.
+        Assert.Equal(20m, day.SystemUntendered);
+        Assert.Equal(0m, day.SystemOther);
     }
 
     /// <summary>
@@ -167,6 +171,7 @@ public sealed class DepartureComplianceReportTests : IDisposable
         Assert.Equal(30m, day.SystemCash);
         Assert.Equal(45m, day.SystemEcocash);
         Assert.Equal(0m, day.SystemOther);
+        Assert.Equal(0m, day.SystemUntendered);
     }
 
     /// <summary>
@@ -297,6 +302,104 @@ public sealed class DepartureComplianceReportTests : IDisposable
 
         Assert.Equal(90m, day.DeclaredTotal);
         Assert.Equal(-10m, day.DeclaredVariance);
+    }
+
+    /// <summary>
+    /// The defect this report was accusing reps of: a day with a sale the handset put no tender on.
+    ///
+    /// The declaration has three boxes — cash, ecocash, innbucks — and the handset offers no fourth.
+    /// Holding that three-term count against a total that also carried an untendered sale reported
+    /// the rep short by exactly the sale they had no way to declare, and the page then badged them
+    /// "Short declaration". Both figures below were wrong before 2026-08-18: the variance read -20
+    /// and the shortfall was the whole of it.
+    /// </summary>
+    [Fact]
+    public async Task An_untendered_sale_does_not_make_an_honest_rep_short()
+    {
+        AddDay(plannedCustomers: 10, declaredCash: 100m);
+        AddOfflineSale("OFF-CASH", "TUCK01", total: 100m, paymentMethod: "Cash");
+        AddOnlineSale("ON-NONE", Utc(9, 0), "CORNER1", total: 20m, paymentMethod: null);
+        await _context.SaveChangesAsync();
+
+        var day = await SingleDayAsync();
+
+        Assert.Equal(120m, day.SystemTotalSales);
+        Assert.Equal(20m, day.SystemUntendered);
+
+        // The declaration is measured against the takings it has boxes for, and it matches them.
+        Assert.Equal(100m, day.SystemDeclarableTakings);
+        Assert.Equal(0m, day.DeclaredVariance);
+        Assert.Null(day.DeclaredShortfall);
+        Assert.Null(day.DeclaredOverage);
+    }
+
+    /// <summary>
+    /// The other half of the same fix: the check still has to catch a rep who is genuinely short.
+    /// </summary>
+    /// <remarks>
+    /// Twenty short, not forty. The untendered sale is still not theirs to declare, so it neither
+    /// excuses the missing twenty nor adds to it — a sale whose tender went unrecorded can only ever
+    /// have put more in the rep's hand, never less.
+    /// </remarks>
+    [Fact]
+    public async Task A_rep_who_counted_back_less_than_the_cash_they_took_is_still_short()
+    {
+        AddDay(plannedCustomers: 10, declaredCash: 80m);
+        AddOfflineSale("OFF-CASH", "TUCK01", total: 100m, paymentMethod: "Cash");
+        AddOnlineSale("ON-NONE", Utc(9, 0), "CORNER1", total: 20m, paymentMethod: null);
+        await _context.SaveChangesAsync();
+
+        var day = await SingleDayAsync();
+
+        Assert.Equal(-20m, day.DeclaredVariance);
+        Assert.Equal(20m, day.DeclaredShortfall);
+        Assert.Null(day.DeclaredOverage);
+    }
+
+    /// <summary>
+    /// A swipe is money the rep certainly did not carry back, so it is not declarable — but neither
+    /// does it license a declaration larger than the cash the day took.
+    /// </summary>
+    /// <remarks>
+    /// This is the case that decides why the unallocated bucket had to be split in two. Before the
+    /// fix this rep read as 20 short; treating the whole non-declarable bucket as a tolerance would
+    /// have read them as balanced. They are 30 over, and the money is worth asking about.
+    /// </remarks>
+    [Fact]
+    public async Task A_swipe_is_not_a_licence_to_declare_more_than_the_day_took()
+    {
+        AddDay(plannedCustomers: 10, declaredCash: 130m);
+        AddOfflineSale("OFF-CASH", "TUCK01", total: 100m, paymentMethod: "Cash");
+        AddOfflineSale("OFF-SWIPE", "CORNER1", total: 50m, paymentMethod: "Swipe");
+        await _context.SaveChangesAsync();
+
+        var day = await SingleDayAsync();
+
+        Assert.Equal(50m, day.SystemOther);
+        Assert.Equal(0m, day.SystemUntendered);
+
+        Assert.Equal(30m, day.DeclaredVariance);
+        Assert.Equal(30m, day.DeclaredOverage);
+        Assert.Null(day.DeclaredShortfall);
+    }
+
+    /// <summary>
+    /// An untendered sale excuses an over-declaration up to its own value and no further — that is
+    /// the most the rep could have counted from it.
+    /// </summary>
+    [Fact]
+    public async Task An_untendered_sale_excuses_an_overage_only_as_far_as_it_goes()
+    {
+        AddDay(plannedCustomers: 10, declaredCash: 130m);
+        AddOfflineSale("OFF-CASH", "TUCK01", total: 100m, paymentMethod: "Cash");
+        AddOnlineSale("ON-NONE", Utc(9, 0), "CORNER1", total: 20m, paymentMethod: null);
+        await _context.SaveChangesAsync();
+
+        var day = await SingleDayAsync();
+
+        Assert.Equal(30m, day.DeclaredVariance);
+        Assert.Equal(10m, day.DeclaredOverage);
+        Assert.Null(day.DeclaredShortfall);
     }
 
     /// <summary>

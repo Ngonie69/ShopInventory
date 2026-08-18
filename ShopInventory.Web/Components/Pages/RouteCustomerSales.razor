@@ -478,7 +478,10 @@
         }
     }
 
-    private string LastSaleHeadline => detail?.LastSaleAt?.ToString("dd MMM") ?? "Never";
+    // "None", not "Never". This page is one window of one customer's history, so all an absent date says
+    // is that these dates are empty. Whether the shop has ever bought is a question only an unbounded
+    // read can answer, and the route sales report is where it is asked.
+    private string LastSaleHeadline => detail?.LastSaleAt?.ToString("dd MMM") ?? "None";
 
     private string LastSaleDetail
     {
@@ -503,9 +506,9 @@
     // silence is bad; a customer who bought this week is simply a fact.
     //
     // No sale at all is warn rather than bad, and never neutral. Neutral would say there is nothing to
-    // see, which is wrong — the route sales report counts the same customer under "never bought". Not
-    // bad either, because unlike a 60-day silence this only means the window is empty, and the window
-    // may be a week.
+    // see, which is wrong — an empty window on a shop that trades is worth a look. Not bad either,
+    // because unlike a 60-day silence this only means the window is empty, and the window may be a week.
+    // Whether that shop has ever bought is the route sales report's answer, not this tile's.
     private string LastSaleFamily => detail?.DaysSinceLastSale switch
     {
         null => "ops-fam-warn",

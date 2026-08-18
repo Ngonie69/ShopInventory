@@ -16,6 +16,7 @@ public sealed class RetryExceptionCenterItemHandler(
     ApplicationDbContext context,
     IInvoiceQueueService invoiceQueueService,
     IInventoryTransferQueueService inventoryTransferQueueService,
+    VanSalesEndOfDayPostingService vanSalesPostingService,
     IMediator mediator,
     IHttpContextAccessor httpContextAccessor,
     ILogger<RetryExceptionCenterItemHandler> logger
@@ -63,6 +64,7 @@ public sealed class RetryExceptionCenterItemHandler(
             ExceptionCenterSources.InventoryTransferQueue => await RetryTransferAsync(itemId, cancellationToken),
             ExceptionCenterSources.MobileOrderPostProcessing => await RetryMobileAsync(itemId, cancellationToken),
             ExceptionCenterSources.IncomingPaymentQueue => await RetryIncomingPaymentAsync(itemId, cancellationToken),
+            ExceptionCenterSources.VanSalePosting => await RetryVanSaleAsync(itemId, cancellationToken),
             _ => Errors.ExceptionCenter.RetryNotSupported(command.Source)
         };
 
@@ -208,6 +210,32 @@ public sealed class RetryExceptionCenterItemHandler(
             await context.SaveChangesAsync(token);
 
             logger.LogInformation("Exception center retried incoming payment queue item {ItemId} ({ExternalReference})", id, entry.ExternalReference);
+            return Result.Success;
+        }
+
+        // Posted here and now rather than requeued. The other int-keyed sources reset a queue row and
+        // let its worker pick it up, but a van sale has no queue: the posting job selects by trading day
+        // over a bounded window, so the sales most likely to be sitting in front of someone pressing
+        // retry are precisely the ones no future run will ever select again.
+        async Task<ErrorOr<Success>> RetryVanSaleAsync(int id, CancellationToken token)
+        {
+            var result = await vanSalesPostingService.PostSaleAsync(id, token);
+
+            if (result is null)
+            {
+                return Errors.ExceptionCenter.ItemNotFound(command.Source, command.ItemKey);
+            }
+
+            if (result.Failed > 0)
+            {
+                // Say what SAP said. The retry ran, so reporting success would leave the sale looking
+                // dealt with while it is still Pending and still out of SAP.
+                return Errors.ExceptionCenter.UpdateFailed(
+                    "Retry",
+                    result.Errors.FirstOrDefault() ?? "The van sale could not be posted to SAP.");
+            }
+
+            logger.LogInformation("Exception center posted van sale {ItemId} to SAP", id);
             return Result.Success;
         }
     }
