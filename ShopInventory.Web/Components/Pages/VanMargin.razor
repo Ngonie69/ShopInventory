@@ -1,0 +1,418 @@
+@page "/van-sales/reports/margin"
+@* Admin and Manager only — see VanSalesActivity.razor. *@
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+@using System.Globalization
+@using ShopInventory.Web.Models
+@inject IVanSalesReportService VanSalesReportService
+@inject IReportExportService ExportService
+@inject IJSRuntime JS
+
+<PageTitle>Van Margin - Shop Inventory</PageTitle>
+
+@* What sold off the vans, per item and per van, and how much of it SAP is in a
+   position to cost.
+
+   Carried by wwwroot/css/van-sales.css: the shared `vs-` chrome plus `vsm-` for
+   what only this page draws. A prefix nothing else on that sheet owns, because
+   sheets here are separated by prefix alone.
+
+   This page is named for a figure it does not carry, which makes it the one page
+   in the suite most able to mislead by looking finished. Three things follow.
+
+   The absence is stated first, above everything, in the bad colour. A reader who
+   scrolls a page headed "margin" and meets figures will read those figures as
+   margin; they are revenue.
+
+   The cost and margin columns are drawn and empty rather than left out. A missing
+   column invites somebody to work one out themselves from the revenue in front of
+   them; a column of dashes with a reason at the top says the figure is coming.
+
+   The measure the page really carries is the costable share — what fraction of
+   van revenue SAP is even in a position to price. That is low because the offline
+   posting job is off, so the switch is drawn in both states: with it down a
+   growing uncostable share is correct behaviour, and with it up the same share is
+   a posting failure. *@
+
+<div class="vs vsm">
+
+    <div class="vs-head">
+        <div>
+            <h2 class="vs-title">Margin</h2>
+            <p class="vs-subtitle">
+                What sold off the vans, per item and per van, and how much of it SAP is in a
+                position to put a cost against.
+            </p>
+        </div>
+        <div class="vs-actions">
+            <button class="vs-btn" @onclick="ExportAsync" disabled="@(isLoading || report is null)">
+                Export
+            </button>
+        </div>
+    </div>
+
+    <div class="vs-filters">
+        <div class="row g-3">
+            @* NocturneDateField and NocturneSelect, never a native date input or select: the
+               platform calendar and the platform popup are windows no page stylesheet reaches
+               into, and both arrive unreadable on this sheet's dark ground. *@
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vsm-from">From</label>
+                <NocturneDateField Id="vsm-from" @bind-Date="fromDate" AriaLabel="From date" />
+            </div>
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vsm-to">To</label>
+                <NocturneDateField Id="vsm-to" @bind-Date="toDate" AriaLabel="To date" />
+            </div>
+            @* The van filter goes to the server, and the list is refilled only on an unfiltered
+               load: narrowing to one van must not empty the picker that got you there. *@
+            <div class="col-md-3">
+                <label class="vs-filter-label" for="vsm-van">Van</label>
+                <NocturneSelect Id="vsm-van" Class="nsel-block" TValue="string"
+                                Options="VanFilterOptions" @bind-Value="selectedWarehouse"
+                                OnChanged="LoadAsync" AriaLabel="Filter by van"
+                                Placeholder="All vans" />
+            </div>
+            <div class="col-md-3 vs-actions">
+                <button class="vs-btn vs-btn-accent" @onclick="LoadAsync" disabled="@isLoading">
+                    @(isLoading ? "Loading…" : "Run")
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (loadError is not null)
+    {
+        <div class="vs-notice" role="alert">@loadError</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="vs-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Reading what sold…</span>
+        </div>
+    }
+    else if (report is null)
+    {
+        <div class="vs-empty">
+            <div class="vs-empty-title">Nothing to show yet</div>
+            <div>Choose a period and press Run.</div>
+        </div>
+    }
+    else
+    {
+        var summary = report.Summary;
+
+        @* First, above everything. This page is headed "margin" and does not have one. *@
+        <div class="vsm-absent" role="note">
+            <div class="vsm-absent-title">Margin is not computed</div>
+            <div>
+                No item cost is read anywhere in this system, and the SAP column that carries one on
+                an invoice line has not been established against this company's data — so a cost
+                here would be a guess. Every figure below is revenue and quantity.
+            </div>
+        </div>
+
+        @* Both states. With the job down a growing uncostable share is correct behaviour; with it
+           up the same share is a posting failure. A banner shown only when bad leaves a reader
+           unable to tell the state was checked at all. *@
+        <div class="vsm-switch @(report.Quality.PostingJobEnabled ? "vsm-switch-on" : "vsm-switch-off")">
+            @if (report.Quality.PostingJobEnabled)
+            {
+                <span>
+                    The van sales posting job is running, so held offline sales are expected to
+                    reach SAP and become costable.
+                </span>
+            }
+            else
+            {
+                <span>
+                    <strong>The van sales posting job is switched off.</strong> Offline van sales
+                    never reach SAP however long they wait, so they can never be costed while that
+                    is true — and they are the larger half of most vans' trading.
+                </span>
+            }
+        </div>
+
+        <div class="vsm-kpis">
+            <div class="vsm-kpi">
+                <div class="vsm-kpi-value">@summary.ItemCount.ToString("N0")</div>
+                <div class="vsm-kpi-label">Items sold</div>
+            </div>
+            <div class="vsm-kpi">
+                <div class="vsm-kpi-value">@summary.VanCount.ToString("N0")</div>
+                <div class="vsm-kpi-label">Vans</div>
+            </div>
+            <div class="vsm-kpi">
+                <div class="vsm-kpi-value">@MoneyList(summary.RevenueByCurrency)</div>
+                <div class="vsm-kpi-label">Revenue</div>
+                <div class="vsm-kpi-sub">@summary.LineCount.ToString("N0") lines</div>
+            </div>
+            <div class="vsm-kpi @(summary.CostableLineShare is < 0.5 ? "vsm-kpi-warn" : null)">
+                <div class="vsm-kpi-value">@Rate(summary.CostableLineShare)</div>
+                <div class="vsm-kpi-label">SAP can cost</div>
+                <div class="vsm-kpi-sub">
+                    @summary.PostedLineCount.ToString("N0") of @summary.LineCount.ToString("N0") lines
+                </div>
+            </div>
+            <div class="vsm-kpi vsm-kpi-absent">
+                <div class="vsm-kpi-value">—</div>
+                <div class="vsm-kpi-label">Margin</div>
+                <div class="vsm-kpi-sub">no cost source</div>
+            </div>
+        </div>
+
+        <div class="vsm-caveats">
+            <div class="vsm-caveats-title">What this page will not tell you</div>
+            <ul>
+                @foreach (var caveat in report.Quality.Caveats)
+                {
+                    <li>@caveat</li>
+                }
+            </ul>
+        </div>
+
+        <div class="vsm-sections">
+            @foreach (var section in Sections)
+            {
+                <button type="button"
+                        class="vs-chip @(activeSection == section.Key ? "vs-chip-info" : "vs-chip-quiet")"
+                        @onclick="() => activeSection = section.Key">
+                    @section.Label <span class="vsm-chip-count">@section.Count(report)</span>
+                </button>
+            }
+        </div>
+
+        @if (activeSection == SectionItems)
+        {
+            <h3 class="vsm-heading">By item</h3>
+            <p class="vsm-note">
+                Ranked on revenue, because there is no margin to rank on. Quantity is per unit and
+                never totalled across units — van lines carry no unit at all, so expect one bucket
+                saying so.
+            </p>
+
+            @if (report.Items.Count == 0)
+            {
+                <div class="vs-empty">
+                    <div class="vs-empty-title">Nothing sold in this period</div>
+                </div>
+            }
+            else
+            {
+                <div class="vs-table-wrap">
+                    <table class="vs-table vsm-table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th class="vs-num">Vans</th>
+                                <th class="vs-num">Lines</th>
+                                <th class="vs-num">SAP can cost</th>
+                                <th>Revenue</th>
+                                <th>Costable revenue</th>
+                                <th>Quantity</th>
+                                <th class="vs-num">Unit cost</th>
+                                <th class="vs-num">Margin</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in report.Items)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="vsm-name">@item.DisplayName</div>
+                                        @if (!string.IsNullOrWhiteSpace(item.ItemDescription))
+                                        {
+                                            <div class="vsm-sub">@item.ItemCode</div>
+                                        }
+                                    </td>
+                                    <td class="vs-num">@item.VanCount.ToString("N0")</td>
+                                    <td class="vs-num">@item.LineCount.ToString("N0")</td>
+                                    <td class="vs-num @(item.CostableLineShare is < 0.5 ? "vsm-thin" : null)">
+                                        @Rate(item.CostableLineShare)
+                                    </td>
+                                    <td>@MoneyList(item.RevenueByCurrency)</td>
+                                    <td>@MoneyList(item.CostableRevenueByCurrency)</td>
+                                    <td>@QuantityList(item.QuantitiesByUoM)</td>
+                                    @* Drawn and empty. A missing column invites a reader to work one
+                                       out from the revenue beside it. *@
+                                    <td class="vs-num vs-metric-none">—</td>
+                                    <td class="vs-num vs-metric-none">—</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+        else
+        {
+            <h3 class="vsm-heading">By van</h3>
+            <p class="vsm-note">
+                Keyed on the warehouse rather than the business partner. A van's card code is its
+                own SAP account and is the same on every sale it makes, so it says nothing about the
+                goods; the warehouse is what an invoice line carries, and is the only key a cost can
+                be joined on.
+            </p>
+
+            @if (report.Vans.Count == 0)
+            {
+                <div class="vs-empty">
+                    <div class="vs-empty-title">No van traded in this period</div>
+                </div>
+            }
+            else
+            {
+                <div class="vs-table-wrap">
+                    <table class="vs-table vsm-table">
+                        <thead>
+                            <tr>
+                                <th>Van</th>
+                                <th class="vs-num">Items</th>
+                                <th class="vs-num">Lines</th>
+                                <th class="vs-num">SAP can cost</th>
+                                <th>Revenue</th>
+                                <th>Costable revenue</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var van in report.Vans)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="vsm-name">@van.WarehouseCode</div>
+                                        @if (van.DisplayName != van.WarehouseCode)
+                                        {
+                                            <div class="vsm-sub">worked by @van.DisplayName</div>
+                                        }
+                                    </td>
+                                    <td class="vs-num">@van.ItemCount.ToString("N0")</td>
+                                    <td class="vs-num">@van.LineCount.ToString("N0")</td>
+                                    <td class="vs-num @(van.CostableLineShare is < 0.5 ? "vsm-thin" : null)">
+                                        @Rate(van.CostableLineShare)
+                                    </td>
+                                    <td>@MoneyList(van.RevenueByCurrency)</td>
+                                    <td>@MoneyList(van.CostableRevenueByCurrency)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+    }
+</div>
+
+@code {
+    private const string SectionItems = "items";
+    private const string SectionVans = "vans";
+
+    private sealed record Section(string Key, string Label, Func<VanMarginReportResponse, string> Count);
+
+    private static readonly Section[] Sections =
+    [
+        new(SectionItems, "Items", report => report.Items.Count.ToString("N0")),
+        new(SectionVans, "Vans", report => report.Vans.Count.ToString("N0"))
+    ];
+
+    private VanMarginReportResponse? report;
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string selectedWarehouse = string.Empty;
+    private string activeSection = SectionItems;
+
+    private List<string> vanOptions = [];
+
+    private bool isLoading;
+    private string? loadError;
+
+    private IEnumerable<INocturneSelectOption<string>> VanFilterOptions =>
+        new[] { NocturneSelectOption.All("All vans") }
+            .Concat(vanOptions.Select(code => new NocturneSelectOption<string>(code, code)));
+
+    protected override async Task OnInitializedAsync()
+    {
+        // A trading day belongs to the van, so today is CAT rather than UTC — at 23:30 UTC the
+        // fleet is already into tomorrow.
+        var today = DateTime.UtcNow.AddHours(2).Date;
+        fromDate = today.AddDays(-29);
+        toDate = today;
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        StateHasChanged();
+
+        try
+        {
+            var unfiltered = string.IsNullOrWhiteSpace(selectedWarehouse);
+
+            report = await VanSalesReportService.GetMarginReportAsync(
+                fromDate,
+                toDate,
+                userId: null,
+                warehouseCode: unfiltered ? null : selectedWarehouse);
+
+            if (report is null)
+            {
+                loadError = "The margin report could not be loaded. The reporting service did not answer.";
+            }
+            else if (unfiltered)
+            {
+                // Only on an unfiltered load. Rebuilding from a filtered report would leave a picker
+                // holding the one van you had just narrowed to.
+                vanOptions = report.Vans
+                    .Select(van => van.WarehouseCode)
+                    .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            loadError = ex.Message;
+            report = null;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        if (report is null)
+        {
+            return;
+        }
+
+        var bytes = ExportService.ExportVanMarginToExcel(report);
+        var fileName = $"VanMargin_{DateTime.UtcNow.AddHours(2):yyyyMMdd_HHmmss}.xlsx";
+
+        await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
+    }
+
+    // — Formatting ——————————————————————————————————————————————————
+
+    private static string Rate(double? value) => value?.ToString("P0", CultureInfo.InvariantCulture) ?? "—";
+
+    private static string MoneyList(List<VanSalesLineMoney> totals) =>
+        totals.Count == 0
+            ? "—"
+            : string.Join("  ·  ", totals.Select(total => $"{total.Currency} {total.Gross:N2}"));
+
+    /// <summary>
+    /// Per unit and never totalled across units. Van lines carry no unit at all, so this is usually
+    /// a single "unit not recorded" bucket — honest rather than broken.
+    /// </summary>
+    private static string QuantityList(List<VanSalesQuantity> quantities) =>
+        quantities.Count == 0
+            ? "—"
+            : string.Join("  ·  ", quantities.Select(q => $"{q.Quantity:N0} {q.DisplayUoM}"));
+}

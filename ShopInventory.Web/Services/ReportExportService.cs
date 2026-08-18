@@ -47,6 +47,8 @@ public interface IReportExportService
 
     byte[] ExportVanSalesScorecardToExcel(VanSalesScorecardReportResponse report);
 
+    byte[] ExportVanMarginToExcel(VanMarginReportResponse report);
+
     byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     byte[] ExportAccountSalesPaymentReportToExcel(GetAccountSalesPaymentReportResult report);
@@ -6716,6 +6718,286 @@ public class ReportExportService : IReportExportService
     /// </remarks>
     private static string AmountText(string currency, decimal? amount) =>
         amount is { } value ? AmountText(currency, value) : "—";
+
+
+    /// <summary>
+    /// The local half of the margin report: what sold, and what share of it SAP could cost.
+    /// </summary>
+    /// <remarks>
+    /// The cost and margin columns are written and left as em dashes rather than being omitted. A
+    /// workbook with no margin column invites a reader to add one; a column of dashes with the
+    /// reason at the top of the sheet says the figure is coming and is not available yet, which is
+    /// the true state.
+    /// </remarks>
+    public byte[] ExportVanMarginToExcel(VanMarginReportResponse report)
+    {
+        using var workbook = NewWorkbook("Van Margin");
+        var now = DateTime.UtcNow.AddHours(2); // CAT
+
+        BuildMarginOverviewSheet(workbook, report, now);
+        BuildMarginItemSheet(workbook, report, now);
+        BuildMarginVanSheet(workbook, report, now);
+
+        return WorkbookToBytes(workbook);
+    }
+
+    private static void BuildMarginOverviewSheet(
+        XLWorkbook workbook,
+        VanMarginReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 7;
+        var ws = workbook.Worksheets.Add("Overview");
+        TsApplyDefaults(ws);
+
+        var row = TsTitleBar(
+            ws,
+            $"VAN MARGIN  —  {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}",
+            lastCol,
+            now);
+
+        // Before anything else. A sheet headed "margin" that opens with figures would be read as
+        // margin figures, and they are revenue.
+        ws.Cell(row, 1).Value =
+            "MARGIN IS NOT COMPUTED. No item cost is read anywhere in this system and the SAP column "
+            + "that carries one has not been established against this company's data, so a cost here "
+            + "would be a guess. Every figure below is revenue and quantity.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.Bold = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsRed;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 30;
+        row += 2;
+
+        if (!report.Quality.PostingJobEnabled)
+        {
+            ws.Cell(row, 1).Value =
+                "The van sales posting job is switched off in this environment. Offline van sales "
+                + "never reach SAP however long they wait, so they can never be costed while that is "
+                + "true — and they are the larger half of most vans' trading.";
+            ws.Range(row, 1, row, lastCol).Merge();
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 1).Style.Font.FontColor = TsRed;
+            ws.Cell(row, 1).Style.Alignment.WrapText = true;
+            ws.Row(row).Height = 30;
+            row += 2;
+        }
+
+        var summary = report.Summary;
+
+        row = TsKpiStrip(ws, row, lastCol,
+            ("Items sold", summary.ItemCount.ToString("N0"), null),
+            ("Vans", summary.VanCount.ToString("N0"), null),
+            ("Lines", summary.LineCount.ToString("N0"), null),
+            ("SAP can cost", RateText(summary.CostableLineShare),
+                summary.CostableLineShare is < 0.5 ? TsRed : null),
+            ("Revenue", LineMoneyText(summary.RevenueByCurrency), null),
+            ("Costable revenue", LineMoneyText(summary.CostableRevenueByCurrency), null),
+            ("Margin", "—", null));
+        row++;
+
+        TsSectionTitle(ws, row, lastCol, "WHAT SOLD, AND WHAT SAP CAN PRICE");
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Measure", "All van sales", "Reached SAP", "Share", "", "", ""]);
+
+        var rows = new (string Label, string All, string Costable, string Share)[]
+        {
+            ("Lines", summary.LineCount.ToString("N0"), summary.PostedLineCount.ToString("N0"),
+                RateText(summary.CostableLineShare)),
+            ("Revenue", LineMoneyText(summary.RevenueByCurrency),
+                LineMoneyText(summary.CostableRevenueByCurrency), "—")
+        };
+
+        var index = 0;
+        foreach (var measure in rows)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = measure.Label;
+            ws.Cell(row, 2).Value = measure.All;
+            ws.Cell(row, 3).Value = measure.Costable;
+            ws.Cell(row, 4).Value = measure.Share;
+            row++;
+            index++;
+        }
+
+        row++;
+
+        TsSectionTitle(ws, row, lastCol, "QUANTITY");
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol, ["Unit", "Quantity", "Lines", "", "", "", ""]);
+
+        index = 0;
+        foreach (var quantity in report.Summary.QuantitiesByUoM)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            // Never totalled across units. Van lines carry no unit, so expect one bucket saying so.
+            ws.Cell(row, 1).Value = quantity.DisplayUoM;
+            ws.Cell(row, 2).Value = quantity.Quantity;
+            ws.Cell(row, 3).Value = quantity.LineCount;
+            row++;
+            index++;
+        }
+
+        row++;
+
+        TsSectionTitle(ws, row, lastCol, "WHAT THIS PERIOD COULD NOT ANSWER");
+        row += 2;
+
+        foreach (var caveat in report.Quality.Caveats)
+        {
+            ws.Cell(row, 1).Value = caveat;
+            ws.Range(row, 1, row, lastCol).Merge();
+            ws.Cell(row, 1).Style.Font.FontSize = 9;
+            ws.Cell(row, 1).Style.Font.Italic = true;
+            ws.Cell(row, 1).Style.Font.FontColor = TsOrange;
+            ws.Cell(row, 1).Style.Alignment.WrapText = true;
+            row++;
+        }
+
+        TsFinalize(ws, lastCol, freezeRow: 2);
+    }
+
+    private static void BuildMarginItemSheet(
+        XLWorkbook workbook,
+        VanMarginReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 9;
+        var ws = workbook.Worksheets.Add("Items");
+        TsApplyDefaults(ws);
+
+        var row = TsTitleBar(
+            ws,
+            $"BY ITEM  —  {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}",
+            lastCol,
+            now);
+
+        ws.Cell(row, 1).Value =
+            "Ranked on revenue, because there is no margin to rank on. The cost and margin columns "
+            + "are written and empty rather than omitted: the figure is coming, and a missing column "
+            + "invites a reader to add one of their own.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 30;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+        [
+            "Item", "Description", "Vans", "Lines", "Reached SAP", "Revenue",
+            "Costable revenue", "Unit cost", "Margin"
+        ]);
+
+        var index = 0;
+        foreach (var item in report.Items)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = item.ItemCode;
+            ws.Cell(row, 2).Value = string.IsNullOrWhiteSpace(item.ItemDescription)
+                ? "—"
+                : item.ItemDescription;
+            ws.Cell(row, 3).Value = item.VanCount;
+            ws.Cell(row, 4).Value = item.LineCount;
+            ws.Cell(row, 5).Value = $"{item.PostedLineCount:N0}  ({RateText(item.CostableLineShare)})";
+            ws.Cell(row, 6).Value = LineMoneyText(item.RevenueByCurrency);
+            ws.Cell(row, 7).Value = LineMoneyText(item.CostableRevenueByCurrency);
+            // The seam, written as an absence on every row.
+            ws.Cell(row, 8).Value = "—";
+            ws.Cell(row, 9).Value = "—";
+
+            if (item.CostableLineShare is < 0.5)
+            {
+                ws.Cell(row, 5).Style.Font.FontColor = TsOrange;
+            }
+
+            row++;
+            index++;
+        }
+
+        var summary = report.Summary;
+
+        TsSummaryRow(ws, row, lastCol);
+        ws.Cell(row, 1).Value = $"TOTAL: {report.Items.Count:N0} ITEM(S)";
+        ws.Cell(row, 3).Value = summary.VanCount;
+        ws.Cell(row, 4).Value = summary.LineCount;
+        ws.Cell(row, 5).Value = $"{summary.PostedLineCount:N0}  ({RateText(summary.CostableLineShare)})";
+        ws.Cell(row, 6).Value = LineMoneyText(summary.RevenueByCurrency);
+        ws.Cell(row, 7).Value = LineMoneyText(summary.CostableRevenueByCurrency);
+        ws.Cell(row, 8).Value = "—";
+        ws.Cell(row, 9).Value = "—";
+
+        TsFinalize(ws, lastCol, freezeRow: 5, freezeCol: 1);
+    }
+
+    private static void BuildMarginVanSheet(
+        XLWorkbook workbook,
+        VanMarginReportResponse report,
+        DateTime now)
+    {
+        const int lastCol = 7;
+        var ws = workbook.Worksheets.Add("Vans");
+        TsApplyDefaults(ws);
+
+        var row = TsTitleBar(
+            ws,
+            $"BY VAN  —  {report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}",
+            lastCol,
+            now);
+
+        ws.Cell(row, 1).Value =
+            "Keyed on the warehouse rather than the business partner. A van's card code is its own "
+            + "SAP account and is the same on every sale it makes, so it says nothing about the "
+            + "goods; the warehouse is what an invoice line carries and is the only key a cost can "
+            + "be joined on.";
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Style.Font.FontSize = 9;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = TsTextMuted;
+        ws.Cell(row, 1).Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 30;
+        row += 2;
+
+        row = TsColumnHeaders(ws, row, lastCol,
+            ["Warehouse", "Worked by", "Items", "Lines", "Reached SAP", "Revenue", "Costable revenue"]);
+
+        var index = 0;
+        foreach (var van in report.Vans)
+        {
+            TsDataRow(ws, row, lastCol, index % 2 == 1);
+            ws.Cell(row, 1).Value = van.WarehouseCode;
+            ws.Cell(row, 2).Value = van.DisplayName == van.WarehouseCode ? "—" : van.DisplayName;
+            ws.Cell(row, 3).Value = van.ItemCount;
+            ws.Cell(row, 4).Value = van.LineCount;
+            ws.Cell(row, 5).Value = $"{van.PostedLineCount:N0}  ({RateText(van.CostableLineShare)})";
+            ws.Cell(row, 6).Value = LineMoneyText(van.RevenueByCurrency);
+            ws.Cell(row, 7).Value = LineMoneyText(van.CostableRevenueByCurrency);
+
+            if (van.CostableLineShare is < 0.5)
+            {
+                ws.Cell(row, 5).Style.Font.FontColor = TsOrange;
+            }
+
+            row++;
+            index++;
+        }
+
+        var summary = report.Summary;
+
+        TsSummaryRow(ws, row, lastCol);
+        ws.Cell(row, 1).Value = $"TOTAL: {report.Vans.Count:N0} VAN(S)";
+        ws.Cell(row, 3).Value = summary.ItemCount;
+        ws.Cell(row, 4).Value = summary.LineCount;
+        ws.Cell(row, 5).Value = $"{summary.PostedLineCount:N0}  ({RateText(summary.CostableLineShare)})";
+        ws.Cell(row, 6).Value = LineMoneyText(summary.RevenueByCurrency);
+        ws.Cell(row, 7).Value = LineMoneyText(summary.CostableRevenueByCurrency);
+
+        TsFinalize(ws, lastCol, freezeRow: 5, freezeCol: 1);
+    }
 
     /// <summary>
     /// A rate movement in percentage points, signed. Never as a proportion of a proportion: 50% to

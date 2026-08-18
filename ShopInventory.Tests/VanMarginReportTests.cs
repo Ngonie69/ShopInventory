@@ -343,7 +343,10 @@ public sealed class VanMarginReportTests : IDisposable
             TotalAmount = total,
             VatAmount = 0m,
             Currency = currency,
-            WarehouseCode = warehouse,
+            // Deliberately nullable here. The column is required and one test passes null to prove
+            // the database refuses the row — which is what the report's missing "no warehouse"
+            // counter rests on.
+            WarehouseCode = warehouse!,
             PaymentMethod = "Cash",
             AmountPaid = total,
             CreatedBy = userId.ToString(),
@@ -358,7 +361,7 @@ public sealed class VanMarginReportTests : IDisposable
                     Quantity = 1m,
                     UnitPrice = total,
                     LineTotal = total,
-                    WarehouseCode = warehouse
+                    WarehouseCode = warehouse!
                 }
             ]
         });
@@ -397,7 +400,7 @@ public sealed class VanMarginReportTests : IDisposable
                     ReservedQuantity = 1m,
                     UnitPrice = total,
                     LineTotal = total,
-                    WarehouseCode = warehouse
+                    WarehouseCode = warehouse!
                 }
             ]
         });
