@@ -98,3 +98,7 @@ firebase-service-account.json
 # Generated/exported documentation
 API.docx
 Kefalos_Portal_User_Guide.docx
+
+# Python bytecode from .claude/.agents skill scripts
+__pycache__/
+*.pyc
