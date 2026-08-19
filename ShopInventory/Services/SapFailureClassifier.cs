@@ -44,6 +44,25 @@ public static class SapFailureClassifier
                normalized.Contains("504");
     }
 
+    /// <summary>
+    /// A rejection that says the stock is not there. Retrying cannot clear it — the document has
+    /// to be re-cut or the warehouse reconciled — so the work belongs in front of a person rather
+    /// than back on the queue.
+    /// </summary>
+    public static bool IsPermanentStockRejection(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return false;
+        }
+
+        var normalized = message.ToLowerInvariant();
+        return (normalized.Contains("insufficient") && (normalized.Contains("stock") || normalized.Contains("quantity")))
+               || normalized.Contains("not enough")
+               || normalized.Contains("negative inventory")
+               || normalized.Contains("quantity falls");
+    }
+
     public static bool IsTransientStatusCode(HttpStatusCode statusCode)
     {
         return statusCode == HttpStatusCode.RequestTimeout ||

@@ -38,6 +38,7 @@ public sealed class InventoryTransferPostingJob : IJob
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var queueService = scope.ServiceProvider.GetRequiredService<IInventoryTransferQueueService>();
         var sapService = scope.ServiceProvider.GetRequiredService<ISAPServiceLayerClient>();
+        var stockValidation = scope.ServiceProvider.GetRequiredService<IStockValidationService>();
 
         // Get next batch of transfers to process
         var pendingTransfers = await queueService.GetNextBatchForProcessingAsync(_batchSize, stoppingToken);
@@ -62,6 +63,7 @@ public sealed class InventoryTransferPostingJob : IJob
                 queueEntry,
                 queueService,
                 sapService,
+                stockValidation,
                 context,
                 stoppingToken);
         }
@@ -71,6 +73,7 @@ public sealed class InventoryTransferPostingJob : IJob
         InventoryTransferQueueEntity queueEntry,
         IInventoryTransferQueueService queueService,
         ISAPServiceLayerClient sapService,
+        IStockValidationService stockValidation,
         ApplicationDbContext context,
         CancellationToken stoppingToken)
     {
@@ -102,7 +105,8 @@ public sealed class InventoryTransferPostingJob : IJob
             }
             else
             {
-                await PostDirectTransferAsync(queueEntry, request, queueService, sapService, context, stoppingToken);
+                await PostDirectTransferAsync(
+                    queueEntry, request, queueService, sapService, stockValidation, context, stoppingToken);
             }
 
             var duration = DateTime.UtcNow - startTime;
@@ -176,6 +180,7 @@ public sealed class InventoryTransferPostingJob : IJob
         CreateDesktopTransferRequest request,
         IInventoryTransferQueueService queueService,
         ISAPServiceLayerClient sapService,
+        IStockValidationService stockValidation,
         ApplicationDbContext context,
         CancellationToken stoppingToken)
     {
@@ -212,8 +217,23 @@ public sealed class InventoryTransferPostingJob : IJob
         if (quantityErrors.Count > 0)
             throw new InvalidOperationException($"Direct transfer validation failed: {string.Join("; ", quantityErrors)}");
 
+        // An entry reaches this queue because SAP could not be reached when the transfer was
+        // captured, so the operator picked their batches against stock nobody could see, and the
+        // replay may be hours later. Checked here, the document is measured against the warehouse
+        // as it is now rather than posted on the strength of what it looked like then.
+        var stockValidationResult = await stockValidation.ValidateInventoryTransferStockAsync(
+            transferDto, stoppingToken);
+
+        if (!stockValidationResult.IsValid)
+        {
+            throw new InvalidOperationException(
+                "Insufficient stock in the source warehouse: " +
+                string.Join("; ", stockValidationResult.Errors.Select(error => error.Message)));
+        }
+
         // Post to SAP as direct transfer
-        var result = await sapService.CreateInventoryTransferAsync(transferDto, stoppingToken);
+        var result = await sapService.CreateInventoryTransferAsync(
+            transferDto, stockValidationResult.PreFetchedData, stoppingToken);
 
         // Update queue with success
         await queueService.UpdateQueueEntryAsync(
@@ -236,27 +256,37 @@ public sealed class InventoryTransferPostingJob : IJob
             errorMessage = errorMessage[..1900] + "...";
         }
 
-        // Check if this was the last retry
-        var newRetryCount = queueEntry.RetryCount + 1;
-        var newStatus = newRetryCount >= queueEntry.MaxRetries
+        // MarkAsProcessingAsync counted this attempt, so the entity already carries it.
+        var attempts = queueEntry.RetryCount;
+
+        // A shortage is not a bad moment to have posted: it is a document that no longer matches
+        // the warehouse. Retrying re-posts the same selection against the same stock and only
+        // repeats the rejection, so it goes in front of someone instead.
+        var permanent = SapFailureClassifier.IsPermanentStockRejection(errorMessage);
+        var newStatus = permanent || attempts >= queueEntry.MaxRetries
             ? InventoryTransferQueueStatus.RequiresReview
             : InventoryTransferQueueStatus.Failed;
 
         // Calculate next retry time with exponential backoff
-        var backoffSeconds = Math.Pow(2, newRetryCount) * 10; // 20s, 40s, 80s, etc.
-        var nextRetryAt = DateTime.UtcNow.AddSeconds(backoffSeconds);
+        var backoffSeconds = Math.Pow(2, attempts) * 10; // 20s, 40s, 80s, etc.
+        DateTime? nextRetryAt = newStatus == InventoryTransferQueueStatus.Failed
+            ? DateTime.UtcNow.AddSeconds(backoffSeconds)
+            : null;
 
         await queueService.UpdateQueueEntryAsync(
             queueEntry.Id,
             newStatus,
             error: errorMessage,
+            nextRetryAt: nextRetryAt,
             cancellationToken: stoppingToken);
 
         if (newStatus == InventoryTransferQueueStatus.RequiresReview)
         {
             _logger.LogWarning(
-                "Inventory transfer marked for review after {RetryCount} attempts: ExternalRef={ExternalReference}",
-                newRetryCount, queueEntry.ExternalReference);
+                "Inventory transfer marked for review after {RetryCount} attempts ({Reason}): ExternalRef={ExternalReference}",
+                attempts,
+                permanent ? "retrying cannot clear this rejection" : "no attempts left",
+                queueEntry.ExternalReference);
         }
         else
         {
