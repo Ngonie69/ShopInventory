@@ -804,6 +804,20 @@ try
             + "Fiscalisation requests will be rejected until it is supplied.");
     }
 
+    // Said once here for the same reason, and separately from the key because it is a different credential
+    // for a different route group: the automatic close is scheduled hourly, so a missing service account
+    // would otherwise be reported twenty-four times a day.
+    if (fiscalisationStartupSettings?.Enabled == true
+        && fiscalisationStartupSettings.FiscalDay.AutoCloseEnabled
+        && !fiscalisationStartupSettings.FiscalDay.HasAnyServiceAccount)
+    {
+        Log.Warning(
+            "Automatic fiscal day close is enabled but no platform service account is configured. Set "
+            + "Fiscalisation__FiscalDay__ServiceAccount__Username and __Password, or one credential per device "
+            + "under Fiscalisation__FiscalDay__DeviceServiceAccounts__<deviceId>__. Until then no fiscal day is "
+            + "closed and no offline file reaches ZIMRA, however many receipts are stamped.");
+    }
+
     builder.Services.AddHttpClient<IFiscalisationApiClient, FiscalisationApiClient>((serviceProvider, client) =>
     {
         var fiscalisationSettings = serviceProvider.GetRequiredService<IOptions<FiscalisationSettings>>().Value;
@@ -822,6 +836,29 @@ try
     // one HttpClient forever and defeat the factory's handler rotation. The cached entries still
     // outlive the scope because the storage is the singleton IMemoryCache.
     builder.Services.AddScoped<IFiscalDeviceConfigCache, FiscalDeviceConfigCache>();
+
+    // The platform's fiscal-day and offline-file routes need a bearer token from its own /auth/token, not
+    // the X-API-Key above — they sit on its admin route group, which treats an API-key request as
+    // anonymous. A second typed client rather than a second credential on the first one, so neither can
+    // reach the other's endpoints by accident.
+    //
+    // The token store is a singleton because the typed client is not: the factory builds a client per
+    // resolution, and a token cached on it would be discarded with it. Every sign-in is an audited event
+    // on the platform, so re-authenticating per call would fill the taxpayer's audit trail with our noise.
+    builder.Services.AddSingleton<FiscalDayServiceAccountTokenStore>();
+
+    builder.Services.AddHttpClient<IFiscalDayAdminApiClient, FiscalDayAdminApiClient>((serviceProvider, client) =>
+    {
+        var fiscalisationSettings = serviceProvider.GetRequiredService<IOptions<FiscalisationSettings>>().Value;
+
+        client.BaseAddress = new Uri(fiscalisationSettings.BaseUrl.TrimEnd('/') + "/");
+        client.Timeout = TimeSpan.FromSeconds(Math.Max(fiscalisationSettings.TimeoutSeconds, 1));
+        client.DefaultRequestHeaders.Add("Accept", "application/json");
+    });
+
+    // Closes each device's fiscal day, packages it and uploads it — the only route by which a receipt a
+    // handset signed offline ever reaches ZIMRA. Driven by FiscalDayLifecycleJob.
+    builder.Services.AddScoped<FiscalDayLifecycleService>();
 
     // Register fiscalization service - fiscalizes invoices after SAP posting
     builder.Services.AddScoped<IFiscalizationService, FiscalizationService>();

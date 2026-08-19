@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
@@ -132,6 +133,9 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
     {
         var salesQuery = db.DesktopSales
             .AsNoTracking()
+            // The online arm below already counts these, as the confirmed reservation they posted from.
+            // Their row here exists only to carry the receipt the handset signed.
+            .Where(sale => sale.SourceSystem != SaleSourceSystems.VanSalesOnline)
             .Where(sale => sale.RouteCustomerCode != null)
             .Where(sale => sale.DocDate >= from && sale.DocDate <= to);
 
@@ -242,6 +246,8 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
     {
         var offlineQuery = db.DesktopSales
             .AsNoTracking()
+            // Counted by the online arm below instead — see LoadOfflineAggregatesAsync.
+            .Where(sale => sale.SourceSystem != SaleSourceSystems.VanSalesOnline)
             .Where(sale => sale.RouteCustomerCode != null);
 
         if (route is not null)
@@ -325,6 +331,8 @@ public sealed class GetRouteCustomerSalesSummaryHandler(
     {
         var offlineQuery = db.DesktopSaleLines
             .AsNoTracking()
+            // Counted by the online arm below instead — see LoadOfflineAggregatesAsync.
+            .Where(line => line.Sale.SourceSystem != SaleSourceSystems.VanSalesOnline)
             .Where(line => line.Sale.RouteCustomerCode != null)
             .Where(line => line.Sale.DocDate >= from && line.Sale.DocDate <= to);
 

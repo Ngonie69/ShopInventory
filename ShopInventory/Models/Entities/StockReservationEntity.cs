@@ -337,6 +337,26 @@ public static class ReservationStatus
     public const string Pending = "Pending";
 
     /// <summary>
+    /// One caller has taken this reservation and is posting it to SAP right now.
+    /// </summary>
+    /// <remarks>
+    /// The state that stops one sale becoming two invoices.
+    ///
+    /// Without it, two requests carrying the same reference both find the reservation
+    /// <see cref="Pending"/>, both ask SAP whether the sale is already there, are both told no — because
+    /// neither has posted yet — and both post. That is not a theoretical race: a handset that times out
+    /// and retries, or a rep who presses the button twice on a slow connection, produces exactly this
+    /// pair of requests, and the second invoice is a real document with its own fiscal receipt that only
+    /// a manual credit note can undo.
+    ///
+    /// The transition into this state is a conditional update — it succeeds for exactly one caller, and
+    /// the loser is told the sale is already in flight rather than posting a second one. Confirmation
+    /// then ends in <see cref="Confirmed"/> or, if the post fails, back in <see cref="Pending"/> so it
+    /// can be retried.
+    /// </remarks>
+    public const string Confirming = "Confirming";
+
+    /// <summary>
     /// Reservation has been confirmed/posted to SAP
     /// </summary>
     public const string Confirmed = "Confirmed";

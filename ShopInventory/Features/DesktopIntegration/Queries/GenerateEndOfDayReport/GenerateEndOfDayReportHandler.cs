@@ -2,11 +2,21 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 
+/// <summary>
+/// The day's cash reconciliation: what was sold, what was taken, and which of it has reached SAP.
+/// </summary>
+/// <remarks>
+/// Every figure on it is a sum over <c>DesktopSales</c>, so the set of rows it reads <i>is</i> the report.
+/// It reads the sales this server captured and still owes SAP a document for — the till sources and the
+/// offline van batch — and it deliberately excludes <see cref="SaleSourceSystems.VanSalesOnline"/>. See
+/// the filter below.
+/// </remarks>
 public sealed class GenerateEndOfDayReportHandler(
     ApplicationDbContext context
 ) : IRequestHandler<GenerateEndOfDayReportQuery, ErrorOr<EndOfDayReportDto>>
@@ -17,10 +27,23 @@ public sealed class GenerateEndOfDayReportHandler(
     {
         var reportDate = query.ReportDate?.Date ?? DateTime.UtcNow.Date;
 
+        // Stated rather than assumed, because this handler had no source filter at all and so silently
+        // absorbed a new source the day one was added.
+        //
+        // An online van sale's row on this table is not a sale — it is a carrier for the ZIMRA receipt the
+        // handset signed, written under its own source precisely so that nothing counting money reads it.
+        // The sale itself is already here twice over: as the confirmed StockReservation the van reports
+        // count, and as the SAP invoice that reservation posted inside the request. Counting the carrier
+        // as well adds a sale that was never in this report, inflates TotalSalesAmount and TotalVatAmount
+        // by money already counted elsewhere, and lists the row under UnpostedSales' opposite — a
+        // Consolidated row for an invoice this report played no part in posting.
+        //
+        // The money is the sharper half. See SaleSourceSystems.VanSalesOnline for the general rule.
         var allSales = await context.DesktopSales
             .AsNoTracking()
             .Include(s => s.Consolidation)
             .Where(s => s.DocDate == reportDate)
+            .Where(s => s.SourceSystem != SaleSourceSystems.VanSalesOnline)
             .OrderBy(s => s.CardCode)
             .ThenBy(s => s.CreatedAt)
             .ToListAsync(cancellationToken);

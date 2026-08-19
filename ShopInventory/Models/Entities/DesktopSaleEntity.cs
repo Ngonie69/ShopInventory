@@ -23,8 +23,10 @@ public enum DesktopSaleConsolidationStatus
 /// <summary>
 /// Whether the ZIMRA receipt a handset signed for itself has been handed to the fiscalisation platform.
 ///
-/// Only an offline van sale has one. Every other sale on this table was fiscalised by the platform in the
-/// first place, so there is nothing to hand over and the status stays <see cref="NotApplicable"/>.
+/// Only a sale a van handset stamped for itself has one — by either route, offline batch or online direct
+/// invoice, because a handset owns one device and stamps off its one chain whatever the network was doing.
+/// Every other sale on this table was fiscalised by the platform in the first place, so there is nothing to
+/// hand over and the status stays <see cref="NotApplicable"/>.
 ///
 /// This is deliberately separate from <see cref="DesktopSaleFiscalizationStatus"/>. That answers "does a
 /// fiscal receipt exist for this sale", and for an offline van sale it is <c>Success</c> the moment the
@@ -55,7 +57,28 @@ public enum DesktopSaleReceiptIngestStatus
     /// The upload carried no usable signature, so this receipt can never be submitted. The sale is still
     /// held and posted — the money is real — but the fiscal side needs a person.
     /// </summary>
-    Unsignable = 5
+    Unsignable = 5,
+
+    /// <summary>
+    /// A van sale that was never stamped: the handset produced no receipt at all, because it is on a
+    /// build older than the signing release.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately distinct from both neighbours, and the distinction is what keeps a device trading.
+    /// <see cref="NotApplicable"/> would say there was nothing to submit, which is untrue — this sale
+    /// should have been stamped and was not. <see cref="Unsignable"/> would say a receipt exists but
+    /// cannot be archived, which is worse than untrue: the drain treats that as a hole in the chain and
+    /// stops the device, and an unstamped sale is not in the chain at all. It consumed no receipt
+    /// number, so nothing is waiting behind it.
+    ///
+    /// The drain therefore skips this status. It is counted on the fiscalisation console at
+    /// <c>/fiscalisation</c> — per device, and under the work queue's "Never stamped" filter — and listed
+    /// in the Exception Center under <c>fiscal-receipt-ingest</c>, distinguished there from a chain hole
+    /// because the remedy is a handset update rather than a reconciliation. Once
+    /// <see cref="Configuration.FiscalisationSettings.RequireStampedVanSales"/> is on, no new row can
+    /// reach it.
+    /// </remarks>
+    Unstamped = 6
 }
 
 /// <summary>
@@ -69,9 +92,12 @@ public enum DesktopSaleReceiptIngestStatus
 // Read on every page of invoices, to recognise the ones whose sale was already fiscalised.
 [Index(nameof(SapDocNum))]
 [Index(nameof(WarehouseCode))]
-// The drain walks one device's receipts in signing order, so it filters on the status and sorts on the
-// global number. Both together, because a van's day is a few dozen rows in a table of every sale ever made.
-[Index(nameof(ReceiptIngestStatus), nameof(ReceiptGlobalNo))]
+// The drain walks one device's receipts in signing order, so it filters on the status, groups by device
+// and sorts on the global number. All three together, because a van's day is a few dozen rows in a table
+// of every sale ever made.
+[Index(nameof(ReceiptIngestStatus), nameof(FiscalDeviceId), nameof(ReceiptGlobalNo))]
+// The pre-post duplicate check asks "has this mobile invoice number already been posted", once per sale.
+[Index(nameof(SapComexReference))]
 // Reporting reads a route customer's sales in date order, and the fallback path reads them by code for
 // rows whose customer record has since been deleted.
 [Index(nameof(RouteCustomerId), nameof(DocDate))]
@@ -152,8 +178,28 @@ public class DesktopSaleEntity
     [MaxLength(100)]
     public string? FiscalReceiptNumber { get; set; }
 
+    /// <summary>
+    /// The device's serial as the platform reported it. Display only.
+    /// </summary>
+    /// <remarks>
+    /// Not the device id, despite the name, and not reliably a serial either: the online path writes the
+    /// serial the platform returned, while an offline van upload writes the numeric device id as a
+    /// string. Both meanings are already in the table, which is why
+    /// <see cref="FiscalDeviceId"/> exists — read that when a device is being identified.
+    /// </remarks>
     [MaxLength(100)]
     public string? FiscalDeviceNumber { get; set; }
+
+    /// <summary>
+    /// The ZIMRA device this sale's receipt belongs to, when it belongs to one.
+    /// </summary>
+    /// <remarks>
+    /// The chain is per device, so every question the ingest asks — what is outstanding, in what order,
+    /// which device is stopped — is a question about this column. It was previously parsed out of
+    /// <see cref="FiscalDeviceNumber"/> on each pass, which worked only because the two writers of that
+    /// column never overlapped in one query.
+    /// </remarks>
+    public int? FiscalDeviceId { get; set; }
 
     [MaxLength(500)]
     public string? FiscalQRCode { get; set; }
@@ -274,6 +320,19 @@ public class DesktopSaleEntity
     /// page of invoices, hence the index.
     /// </remarks>
     public int? SapDocNum { get; set; }
+
+    /// <summary>
+    /// The mobile invoice number written to SAP's invoice-number UDF, when one is configured.
+    /// </summary>
+    /// <remarks>
+    /// Held locally as well as in SAP so the pre-post duplicate check can be answered without a Service
+    /// Layer round trip, and so it survives a SAP outage — the check matters most exactly when SAP is
+    /// unreachable, which is when a post is most likely to be retried.
+    ///
+    /// Null while <see cref="Configuration.FiscalisationUdfSettings.InvoiceNumberField"/> is unset.
+    /// </remarks>
+    [MaxLength(100)]
+    public string? SapComexReference { get; set; }
 
     public DateTime? PostedAt { get; set; }
 

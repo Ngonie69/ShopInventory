@@ -50,6 +50,26 @@ public sealed class GetExceptionCenterHandler(
     private const string PendingTransferPostSource = ExceptionCenterSources.PendingInventoryTransferPost;
     private const string PendingEditApplySource = ExceptionCenterSources.PendingTransferRequestEditApply;
     private const string VanSalePostingSource = ExceptionCenterSources.VanSalePosting;
+    private const string FiscalDayLifecycleSource = ExceptionCenterSources.FiscalDayLifecycle;
+    private const string FiscalReceiptIngestSource = ExceptionCenterSources.FiscalReceiptIngest;
+    private const string VanSaleReceiptStorageSource = ExceptionCenterSources.VanSaleReceiptStorage;
+
+    /// <summary>
+    /// A fiscal day still unfinished this long after the handset opened it has stopped rather than slowed.
+    /// </summary>
+    /// <remarks>
+    /// A flat figure although ZIMRA's own limit is per taxpayer and read from the device, because this is
+    /// not the compliance deadline — the lifecycle warns against that one from the device's own
+    /// <c>TaxPayerDayMaxHrs</c>. This is the far coarser question of whether a day is still moving, and a
+    /// trading day plus a night is past any answer but no.
+    /// </remarks>
+    private const int FiscalDayStuckAfterHours = 30;
+
+    /// <summary>
+    /// Mirrors the signed-receipt drain's own cap. Past it the drain stops offering the receipt, so nothing
+    /// reattempts it and the device it belongs to is stopped behind it.
+    /// </summary>
+    private const int MaxReceiptIngestAttempts = 8;
 
     private const string TriageBlocked = "Blocked";
     private const string TriageRetrying = "Retrying";
@@ -80,6 +100,14 @@ public sealed class GetExceptionCenterHandler(
             var vanSaleItems = await LoadVanSalePostingFailuresAsync(
                 context, vanSaleWindowStart, AnalysisScanLimit, cancellationToken);
 
+            // Both fiscal sources are measured in the taxpayer's clock: a fiscal day is opened, timed and
+            // closed in local terms, and comparing it against a UTC instant moves the deadline by two hours.
+            var fiscalDayStuckBeforeLocal = AuditService.ToCAT(now).AddHours(-FiscalDayStuckAfterHours);
+            var fiscalDayItems = await LoadFiscalDayLifecycleFailuresAsync(
+                context, fiscalDayStuckBeforeLocal, AnalysisScanLimit, cancellationToken);
+            var fiscalReceiptItems = await LoadFiscalReceiptIngestFailuresAsync(
+                context, AnalysisScanLimit, cancellationToken);
+
             var items = invoiceItems
                 .Concat(transferItems)
                 .Concat(mobileItems)
@@ -89,6 +117,8 @@ public sealed class GetExceptionCenterHandler(
                 .Concat(pendingTransferItems)
                 .Concat(pendingEditItems)
                 .Concat(vanSaleItems)
+                .Concat(fiscalDayItems)
+                .Concat(fiscalReceiptItems)
                 .ToList();
 
             EnsureItemKeys(items);
@@ -99,7 +129,8 @@ public sealed class GetExceptionCenterHandler(
                 Enrich(item, now);
             }
 
-            var exactTotals = await LoadExactTotalsAsync(stalledBefore, cancellationToken);
+            var exactTotals = await LoadExactTotalsAsync(
+                stalledBefore, fiscalDayStuckBeforeLocal, cancellationToken);
             var scannedBySource = items
                 .GroupBy(item => item.Source, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
@@ -317,7 +348,11 @@ public sealed class GetExceptionCenterHandler(
     private Task<List<ExceptionCenterItemDto>> LoadIncidentItemsAsync(CancellationToken cancellationToken)
         => context.ExceptionCenterIncidents
             .AsNoTracking()
-            .Where(i => i.Source == PaymentRejectedSource || i.Source == CreditNoteFiscalizationSource)
+            // A signed receipt this server failed to store has no document row to list it by — that is
+            // the whole failure — so it lives on the incident table with the other two.
+            .Where(i => i.Source == PaymentRejectedSource
+                        || i.Source == CreditNoteFiscalizationSource
+                        || i.Source == VanSaleReceiptStorageSource)
             .OrderByDescending(i => i.OccurredAtUtc ?? i.CreatedAtUtc)
             .Take(AnalysisScanLimit)
             .Select(i => new ExceptionCenterItemDto
@@ -346,6 +381,7 @@ public sealed class GetExceptionCenterHandler(
     /// </summary>
     private async Task<Dictionary<string, int>> LoadExactTotalsAsync(
         DateTime stalledBefore,
+        DateTime fiscalDayStuckBeforeLocal,
         CancellationToken cancellationToken)
         => new(StringComparer.OrdinalIgnoreCase)
         {
@@ -390,6 +426,9 @@ public sealed class GetExceptionCenterHandler(
             [CreditNoteFiscalizationSource] = await context.ExceptionCenterIncidents.CountAsync(
                 i => i.Source == CreditNoteFiscalizationSource, cancellationToken),
 
+            [VanSaleReceiptStorageSource] = await context.ExceptionCenterIncidents.CountAsync(
+                i => i.Source == VanSaleReceiptStorageSource, cancellationToken),
+
             [PendingTransferPostSource] = await context.PendingInventoryTransfers.CountAsync(
                 p => p.Status == PendingInventoryTransferStatuses.PostFailed, cancellationToken),
 
@@ -399,7 +438,13 @@ public sealed class GetExceptionCenterHandler(
             [VanSalePostingSource] = await context.DesktopSales.CountAsync(
                 VanSalePostingPredicate(
                     vanSalesPostingSettings.Value.WindowStart(VanSalesPostingSettings.CurrentTradingDate())),
-                cancellationToken)
+                cancellationToken),
+
+            [FiscalDayLifecycleSource] = await context.FiscalDayStates.CountAsync(
+                FiscalDayLifecyclePredicate(fiscalDayStuckBeforeLocal), cancellationToken),
+
+            [FiscalReceiptIngestSource] = await context.DesktopSales.CountAsync(
+                FiscalReceiptIngestPredicate(), cancellationToken)
         };
 
     private async Task AttachOperatorStateAsync(
@@ -719,6 +764,7 @@ public sealed class GetExceptionCenterHandler(
             PendingTransferPostSource => "Approved transfers awaiting SAP",
             PendingEditApplySource => "Approved request changes awaiting SAP",
             VanSalePostingSource => "Van sales awaiting SAP",
+            VanSaleReceiptStorageSource => "Signed receipts this server failed to store",
             _ => source
         };
 
@@ -856,6 +902,15 @@ public sealed class GetExceptionCenterHandler(
     ///
     /// A van sale merely waiting for the next pass is neither, and is deliberately not here — the whole
     /// route works by holding sales for a while, so listing them would report normal operation as a fault.
+    ///
+    /// <para>
+    /// <see cref="SaleSourceSystems.VanSalesOnline"/> is deliberately not in scope. Those rows carry a
+    /// receipt for a sale SAP already invoiced in the request that made it — there is no posting job that
+    /// owns them, so there is no posting failure they can be in, and nothing here would ever be the right
+    /// thing to do about one. When an online van sale does go wrong it goes wrong at the receipt, and
+    /// <see cref="FiscalReceiptIngestPredicate"/> — which asks about the receipt and not about the source
+    /// — is what surfaces it, exactly as it does for an offline one.
+    /// </para>
     /// </remarks>
     internal static System.Linq.Expressions.Expression<Func<DesktopSaleEntity, bool>> VanSalePostingPredicate(
         DateTime windowStart)
@@ -940,6 +995,234 @@ public sealed class GetExceptionCenterHandler(
                     Location = s.WarehouseCode,
                     LineCount = s.LineCount
                 };
+            })
+            .ToList();
+    }
+
+    /// <summary>
+    /// Which fiscal days the exception center should be showing.
+    /// </summary>
+    /// <remarks>
+    /// Two populations again, and the second is the one nothing else would ever mention. A day whose close
+    /// or upload came back with an unknown outcome, or that FDMS refused outright, says so in its own status.
+    /// A day that simply never moved says nothing: no error, no attempt, and every receipt in it still
+    /// looking perfectly healthy — the customer has the printed receipt, SAP has the invoice, the platform
+    /// has archived it. Only the day's own row knows ZIMRA was never told.
+    ///
+    /// A day merely waiting for this evening's close is normal operation and deliberately absent.
+    /// </remarks>
+    internal static System.Linq.Expressions.Expression<Func<FiscalDayStateEntity, bool>> FiscalDayLifecyclePredicate(
+        DateTime stuckBeforeLocal)
+        => day => day.Status == FiscalDayLifecycleStatus.NeedsReconciliation
+                  || day.Status == FiscalDayLifecycleStatus.Failed
+                  || (day.Status != FiscalDayLifecycleStatus.Submitted
+                      && day.Status != FiscalDayLifecycleStatus.Closed
+                      && day.OpenedAtLocal != null
+                      && day.OpenedAtLocal < stuckBeforeLocal);
+
+    /// <summary>
+    /// Fiscal days that have stopped somewhere between a stamped receipt and ZIMRA holding it.
+    /// </summary>
+    /// <remarks>
+    /// <c>CanRetry</c> is false on every row here, which is the point rather than an omission. A day whose
+    /// outcome FDMS never confirmed is resolved by reading — the device's status, or the list of files FDMS
+    /// accepted — and the lifecycle already does that on every pass. Closing a day twice or uploading one
+    /// file twice is not idempotent at FDMS, so the button would offer the single action that cannot be
+    /// taken back.
+    /// </remarks>
+    internal static async Task<List<ExceptionCenterItemDto>> LoadFiscalDayLifecycleFailuresAsync(
+        ApplicationDbContext context,
+        DateTime stuckBeforeLocal,
+        int perSourceLimit,
+        CancellationToken cancellationToken)
+    {
+        var rows = await context.FiscalDayStates
+            .AsNoTracking()
+            .Where(FiscalDayLifecyclePredicate(stuckBeforeLocal))
+            // Oldest day first: the longer a day has been unreported, the closer the taxpayer is to a
+            // filing that cannot be corrected.
+            .OrderBy(day => day.OpenedAtLocal ?? day.CreatedAt)
+            .ThenBy(day => day.Id)
+            .Take(perSourceLimit)
+            .Select(day => new
+            {
+                day.Id,
+                day.DeviceId,
+                day.FiscalDayNo,
+                day.OpenedAtLocal,
+                day.Status,
+                day.IngestedReceiptCount,
+                day.Attempts,
+                day.LastError,
+                day.CreatedAt,
+                day.UpdatedAt
+            })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(day => new ExceptionCenterItemDto
+            {
+                Source = FiscalDayLifecycleSource,
+                ItemId = day.Id,
+                Category = "Fiscalisation",
+                Title = day.Status switch
+                {
+                    FiscalDayLifecycleStatus.NeedsReconciliation =>
+                        "Fiscal day outcome unknown at ZIMRA",
+                    FiscalDayLifecycleStatus.Failed =>
+                        "Fiscal day refused on its way to ZIMRA",
+                    _ => "Fiscal day has not reached ZIMRA"
+                },
+                Reference = $"Device {day.DeviceId}, fiscal day {day.FiscalDayNo}",
+                Status = day.Status.ToString(),
+                SourceSystem = day.OpenedAtLocal.HasValue
+                    ? $"Opened {day.OpenedAtLocal:yyyy-MM-dd HH:mm}, {day.IngestedReceiptCount} receipt(s) archived"
+                    : $"{day.IngestedReceiptCount} receipt(s) archived",
+                Provider = "Fiscalisation",
+                LastError = string.IsNullOrWhiteSpace(day.LastError)
+                    // Nothing failed, which is exactly why this row is here and why a blank cell would read
+                    // as "no problem".
+                    ? "The day has not been closed, packaged or uploaded, so its receipts are not with ZIMRA."
+                    : day.LastError,
+                RetryCount = day.Attempts,
+                MaxRetries = 0,
+                CreatedAtUtc = day.CreatedAt,
+                OccurredAtUtc = day.UpdatedAt,
+                NextRetryAtUtc = null,
+                CanRetry = false,
+                LineCount = day.IngestedReceiptCount
+            })
+            .ToList();
+    }
+
+    /// <summary>
+    /// Which signed receipts have stopped, as opposed to merely being in the queue.
+    /// </summary>
+    /// <remarks>
+    /// A chain break and a missing signature can never be sent, whatever happens next. A receipt that has
+    /// used up its attempts is no longer offered by the drain, so nothing reattempts it either. All three
+    /// stop the whole device rather than the one receipt, because the platform accepts receipt N+1 only once
+    /// it holds N.
+    ///
+    /// <para>
+    /// <see cref="DesktopSaleReceiptIngestStatus.Unstamped"/> is the fourth and is not like the others, and
+    /// it is here because leaving it out made it disappear. Before the online path was stamped at all, an
+    /// unstamped van sale was written <see cref="DesktopSaleReceiptIngestStatus.Unsignable"/> and so showed
+    /// up on this list; giving it a status of its own — correctly, because it took no receipt number and
+    /// therefore blocks nothing — moved it off the Exception Center and onto the fiscalisation console
+    /// alone. A van trading on a build that cannot stamp is exactly the thing an operator has to see, and
+    /// the console is not where they look for work that needs doing.
+    /// </para>
+    ///
+    /// <para>
+    /// It is distinguished from a chain hole everywhere it is rendered: the title says the handset was
+    /// never updated rather than that a receipt is stuck, and the text says nothing is blocked. The
+    /// remedy is a handset update, not a reconciliation. Nothing else changes — the drain still skips
+    /// these rows and the fiscal day still counts them as settled, both correct, because an unstamped
+    /// sale is not in the device's chain at all.
+    /// </para>
+    /// </remarks>
+    internal static System.Linq.Expressions.Expression<Func<DesktopSaleEntity, bool>> FiscalReceiptIngestPredicate()
+        => sale => sale.ReceiptIngestStatus == DesktopSaleReceiptIngestStatus.ChainBroken
+                   || sale.ReceiptIngestStatus == DesktopSaleReceiptIngestStatus.Unsignable
+                   || sale.ReceiptIngestStatus == DesktopSaleReceiptIngestStatus.Unstamped
+                   || ((sale.ReceiptIngestStatus == DesktopSaleReceiptIngestStatus.Pending
+                        || sale.ReceiptIngestStatus == DesktopSaleReceiptIngestStatus.Failed)
+                       && sale.ReceiptIngestAttempts >= MaxReceiptIngestAttempts);
+
+    /// <summary>
+    /// Signed van receipts the platform will never be given without someone intervening.
+    /// </summary>
+    /// <remarks>
+    /// <c>CanRetry</c> is false because resending is what must not happen: the signature is chained onto its
+    /// predecessor's hash, so a receipt the platform says does not fit cannot be made to fit by offering it
+    /// again, and a receipt whose signature is missing cannot be produced at all.
+    /// </remarks>
+    internal static async Task<List<ExceptionCenterItemDto>> LoadFiscalReceiptIngestFailuresAsync(
+        ApplicationDbContext context,
+        int perSourceLimit,
+        CancellationToken cancellationToken)
+    {
+        var rows = await context.DesktopSales
+            .AsNoTracking()
+            .Where(FiscalReceiptIngestPredicate())
+            // Per device, in signing order: the earliest stuck receipt on a device is the one holding up
+            // every receipt behind it, so it is the only one worth fixing first.
+            .OrderBy(sale => sale.FiscalDeviceId)
+            .ThenBy(sale => sale.ReceiptGlobalNo)
+            .ThenBy(sale => sale.Id)
+            .Take(perSourceLimit)
+            .Select(sale => new
+            {
+                sale.Id,
+                sale.ExternalReferenceId,
+                sale.FiscalDeviceId,
+                sale.FiscalDayNo,
+                sale.ReceiptGlobalNo,
+                sale.ReceiptIngestStatus,
+                sale.ReceiptIngestAttempts,
+                sale.ReceiptIngestError,
+                sale.WarehouseCode,
+                sale.CardCode,
+                sale.RouteCustomerName,
+                sale.TotalAmount,
+                sale.Currency,
+                sale.DocDate,
+                sale.CreatedAt
+            })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(sale => new ExceptionCenterItemDto
+            {
+                Source = FiscalReceiptIngestSource,
+                ItemId = sale.Id,
+                Category = "Fiscalisation",
+                Title = sale.ReceiptIngestStatus switch
+                {
+                    DesktopSaleReceiptIngestStatus.ChainBroken =>
+                        "Signed receipt does not continue its device's chain",
+                    DesktopSaleReceiptIngestStatus.Unsignable =>
+                        "Van sale arrived without a usable signature",
+
+                    // Named for the handset, not the receipt, because there is no receipt. The other
+                    // titles on this source describe something stuck; this one must not, or it reads as a
+                    // fourth kind of chain hole and gets worked as a reconciliation it cannot be.
+                    DesktopSaleReceiptIngestStatus.Unstamped =>
+                        "Van sold on a handset that cannot stamp receipts",
+
+                    _ => "Signed receipt has used up its submission attempts"
+                },
+                Reference = string.IsNullOrWhiteSpace(sale.ExternalReferenceId)
+                    ? $"Van sale #{sale.Id}"
+                    : sale.ExternalReferenceId,
+                Status = sale.ReceiptIngestStatus.ToString(),
+                SourceSystem = $"Device {sale.FiscalDeviceId}, fiscal day {sale.FiscalDayNo}"
+                               + (sale.ReceiptGlobalNo.HasValue ? $", receipt {sale.ReceiptGlobalNo}" : string.Empty),
+                Provider = "Fiscalisation",
+                LastError = sale.ReceiptIngestStatus == DesktopSaleReceiptIngestStatus.Unstamped
+                    // Says what is and is not at stake, in that order, because the two are easy to swap.
+                    // The sale is fine and the day is not held: this receipt took no number off the
+                    // device's chain, so nothing is queued behind it. What is wrong is that a ZIMRA
+                    // device is in the field making sales it never stamped, and the only thing that
+                    // fixes that is the app on the handset.
+                    ? "Nothing is blocked: this sale took no receipt number, so no other receipt is "
+                      + "waiting behind it and the fiscal day can still close. The handset is on a build "
+                      + "older than the signing release and is trading unstamped — update the app on this "
+                      + "van, then turn on Fiscalisation:RequireStampedVanSales once the fleet is done."
+                    : string.IsNullOrWhiteSpace(sale.ReceiptIngestError)
+                        ? "The platform never took this receipt, so its fiscal day cannot be closed over it."
+                        : sale.ReceiptIngestError,
+                RetryCount = sale.ReceiptIngestAttempts,
+                MaxRetries = 0,
+                CreatedAtUtc = sale.CreatedAt,
+                OccurredAtUtc = sale.CreatedAt,
+                NextRetryAtUtc = null,
+                CanRetry = false,
+                Amount = sale.TotalAmount,
+                Currency = sale.Currency,
+                Counterparty = string.IsNullOrWhiteSpace(sale.RouteCustomerName) ? sale.CardCode : sale.RouteCustomerName,
+                Location = sale.WarehouseCode
             })
             .ToList();
     }

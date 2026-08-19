@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
@@ -118,6 +119,10 @@ public sealed class GetRouteCustomerProductMixHandler(
     {
         var linesQuery = db.DesktopSaleLines
             .AsNoTracking()
+            // An online van sale's lines are read from its confirmed reservation by LoadOnlineAsync. It
+            // also leaves a row on this table, carrying the receipt the handset signed, whose lines are a
+            // copy of the same cart — reading both would double every item an online sale moved.
+            .Where(line => line.Sale.SourceSystem != SaleSourceSystems.VanSalesOnline)
             .Where(line => line.Sale.RouteCustomerCode != null)
             .Where(line => line.Sale.DocDate >= from && line.Sale.DocDate <= to);
 

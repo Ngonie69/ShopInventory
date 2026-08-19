@@ -18,12 +18,17 @@ namespace ShopInventory.Tests;
 /// Which handset may sign offline on a fiscal device, and — the part that matters — when that may be
 /// moved to another one.
 ///
-/// The fleet shares a single ZIMRA device, so its receipts are one hash-chained sequence. Handing offline
-/// signing to a second van while the first still carries signed receipts does not divide the work, it
-/// forks the chain: the new holder starts from a position that does not know about the receipts still on
-/// the old handset and signs over numbers already spent. FDMS refuses the whole fiscal day when the file
-/// is uploaded, long after the customers have gone. None of that is reproducible in the field without
+/// A ZIMRA device is one hash-chained sequence of receipts and belongs to exactly one handset. Moving it
+/// to a second van while the first still carries signed receipts does not divide the work, it forks the
+/// chain: the new holder starts from a position that does not know about the receipts still on the old
+/// handset and signs over numbers already spent. FDMS refuses the whole fiscal day when the file is
+/// uploaded, long after the customers have gone. None of that is reproducible in the field without
 /// causing it, so it is asserted here.
+///
+/// A handover is two steps, and the tests model both because production has both: the device leaves one
+/// user record and joins another (<see cref="MoveDeviceAsync"/>), and then the nomination follows. The
+/// window between them is the whole risk — the lease still names the outgoing handset and still knows
+/// what it was carrying, which is what lets the refusal fire before anything is stranded.
 /// </summary>
 public sealed class OfflineSigningLeaseTests : IDisposable
 {
@@ -82,10 +87,11 @@ public sealed class OfflineSigningLeaseTests : IDisposable
     public async Task A_holder_still_carrying_receipts_blocks_the_handover()
     {
         var outgoing = await SeedVanAsync("VAN003");
-        var incoming = await SeedVanAsync("VAN005");
+        var incoming = await SeedVanAsync("VAN005", deviceId: null);
 
         await AssignAsync(outgoing.Id);
         await ReportQueueAsync(pendingSales: 4);
+        await MoveDeviceAsync(outgoing, incoming);
 
         var result = await AssignAsync(incoming.Id);
 
@@ -99,10 +105,11 @@ public sealed class OfflineSigningLeaseTests : IDisposable
     public async Task A_holder_that_has_drained_its_queue_hands_over_freely()
     {
         var outgoing = await SeedVanAsync("VAN003");
-        var incoming = await SeedVanAsync("VAN005");
+        var incoming = await SeedVanAsync("VAN005", deviceId: null);
 
         await AssignAsync(outgoing.Id);
         await ReportQueueAsync(pendingSales: 0);
+        await MoveDeviceAsync(outgoing, incoming);
 
         var result = await AssignAsync(incoming.Id);
 
@@ -118,10 +125,11 @@ public sealed class OfflineSigningLeaseTests : IDisposable
     public async Task Forcing_moves_a_device_away_from_a_handset_that_is_not_coming_back()
     {
         var outgoing = await SeedVanAsync("VAN003");
-        var incoming = await SeedVanAsync("VAN005");
+        var incoming = await SeedVanAsync("VAN005", deviceId: null);
 
         await AssignAsync(outgoing.Id);
         await ReportQueueAsync(pendingSales: 4);
+        await MoveDeviceAsync(outgoing, incoming);
 
         var result = await AssignAsync(incoming.Id, force: true);
 
@@ -206,9 +214,13 @@ public sealed class OfflineSigningLeaseTests : IDisposable
     public async Task A_handset_that_is_not_the_holder_is_refused_and_told_who_has_it()
     {
         var holder = await SeedVanAsync("VAN003");
-        var other = await SeedVanAsync("VAN005");
+        var other = await SeedVanAsync("VAN005", deviceId: null);
 
         await AssignAsync(holder.Id);
+
+        // The device has been reassigned to VAN005 but the nomination still names VAN003 — which is
+        // exactly when the wrong handset must not be allowed to start signing.
+        await MoveDeviceAsync(holder, other);
 
         var result = await RequestLeaseAsync(other.Id);
 
@@ -266,7 +278,6 @@ public sealed class OfflineSigningLeaseTests : IDisposable
     public async Task The_overview_lists_each_device_the_fleet_is_registered_against()
     {
         await SeedVanAsync("VAN003");
-        await SeedVanAsync("VAN005");
         await SeedVanAsync("VAN009", deviceId: 99999);
 
         var overview = await OverviewAsync();
@@ -276,22 +287,31 @@ public sealed class OfflineSigningLeaseTests : IDisposable
         Assert.Equal(99999, overview[1].Lease.DeviceId);
     }
 
-    /// <summary>The shared-device case: one card, every van on it to choose from.</summary>
+    /// <summary>
+    /// A device offers the one handset registered against it, and only that one.
+    /// </summary>
+    /// <remarks>
+    /// This was written as the shared-device case — one card, every van on it to choose from — but that
+    /// case cannot occur. <c>AssignOfflineSigningLeaseHandler</c> refuses a holder whose own
+    /// <c>FiscalDeviceId</c> is not this device, and user management refuses to put two handsets on one
+    /// id, so the candidate list was never able to hold more than a single name. The unique index on
+    /// <c>Users.FiscalDeviceId</c> makes the database say so too.
+    ///
+    /// A handover is therefore a two-step move — the device leaves one user record and joins another —
+    /// which is what <c>MoveDeviceAsync</c> models, and what the guard in the handover tests protects.
+    /// </remarks>
     [Fact]
-    public async Task Every_handset_on_a_device_is_offered_as_a_candidate()
+    public async Task The_handset_registered_against_a_device_is_offered_as_its_candidate()
     {
-        await SeedVanAsync("VAN005");
         await SeedVanAsync("VAN003");
+        await SeedVanAsync("VAN005", deviceId: 99999);
 
         var overview = await OverviewAsync();
 
-        var candidates = Assert.Single(overview).Candidates;
-
-        Assert.Equal(2, candidates.Count);
         Assert.Collection(
-            candidates,
-            first => Assert.Contains("VAN003", first.Label),
-            second => Assert.Contains("VAN005", second.Label));
+            overview,
+            first => Assert.Contains("VAN003", Assert.Single(first.Candidates).Label),
+            second => Assert.Contains("VAN005", Assert.Single(second.Candidates).Label));
     }
 
     [Fact]
@@ -325,11 +345,14 @@ public sealed class OfflineSigningLeaseTests : IDisposable
     public async Task Inactive_handsets_are_not_offered()
     {
         await SeedVanAsync("VAN003");
-        await SeedVanAsync("VAN005", isActive: false);
+        await SeedVanAsync("VAN005", deviceId: 99999, isActive: false);
 
-        var candidates = Assert.Single(await OverviewAsync()).Candidates;
+        var overview = await OverviewAsync();
 
-        Assert.Contains("VAN003", Assert.Single(candidates).Label);
+        // A switched-off handset is not somebody the office can send anywhere, and with one handset per
+        // device its device drops off the screen with it — there is nobody left to nominate for it.
+        Assert.Contains("VAN003", Assert.Single(Assert.Single(overview).Candidates).Label);
+        Assert.DoesNotContain(overview, row => row.Lease.DeviceId == 99999);
     }
 
     [Fact]
@@ -399,6 +422,29 @@ public sealed class OfflineSigningLeaseTests : IDisposable
         nomination.HolderPendingSales = pendingSales;
         nomination.ReleasedAtUtc = pendingSales == 0 ? now : null;
 
+        await _context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Moves a fiscal device from one handset's user record to another, the way user management does.
+    /// </summary>
+    /// <remarks>
+    /// A handover is sequential, not simultaneous, and the tests have to model it that way because
+    /// production does. A device id belongs to exactly one user — <c>CreateUserHandler</c> and
+    /// <c>UpdateUserHandler</c> both refuse a second, and the database now carries a unique index saying
+    /// the same thing — so the outgoing handset loses the device before the incoming one gains it.
+    ///
+    /// That ordering is what makes the lease's handover guard worth having. The lease still names the
+    /// outgoing handset and still remembers what it was carrying, so the refusal fires at exactly the
+    /// moment the office would otherwise strand a day of signed receipts on a handset that no longer
+    /// owns the device.
+    /// </remarks>
+    private async Task MoveDeviceAsync(User from, User to, int deviceId = DeviceId)
+    {
+        from.FiscalDeviceId = null;
+        await _context.SaveChangesAsync();
+
+        to.FiscalDeviceId = deviceId;
         await _context.SaveChangesAsync();
     }
 

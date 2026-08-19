@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
@@ -349,8 +350,19 @@ public class InvoiceQueueService : IInvoiceQueueService
         DateTime? date = null,
         CancellationToken cancellationToken = default)
     {
+        // Consolidation is for the desktop route, where a day's till sales become one SAP invoice.
+        //
+        // A van sale must never be swept into one. It posts one-to-one so that each SAP invoice maps to
+        // exactly one ZIMRA receipt, and consolidating it replaces its own reference in
+        // U_Van_saleorder with the group's CONSOL-{date}-{cardCode} key. That reference is the only
+        // thing that later finds the sale in SAP, so once it is gone the duplicate check cannot see the
+        // invoice and a re-run posts the sale a second time.
+        //
+        // The filter is on the source rather than on a flag because it is a property of where the sale
+        // came from, not of how this entry happens to be marked.
         var query = _context.InvoiceQueue
-            .Where(q => q.Status == InvoiceQueueStatus.Fiscalized);
+            .Where(q => q.Status == InvoiceQueueStatus.Fiscalized
+                        && q.SourceSystem != SaleSourceSystems.VanSales);
 
         if (date.HasValue)
         {

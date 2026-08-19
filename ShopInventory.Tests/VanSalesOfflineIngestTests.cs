@@ -1,7 +1,9 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.VanSalesCompatibility.Commands.IngestVanSalesOfflineSales;
@@ -62,7 +64,11 @@ public sealed class VanSalesOfflineIngestTests : IDisposable
     }
 
     private IngestVanSalesOfflineSalesHandler BuildHandler() =>
-        new(_context, _audit, NullLogger<IngestVanSalesOfflineSalesHandler>.Instance);
+        new(
+            _context,
+            _audit,
+            Options.Create(new FiscalisationSettings()),
+            NullLogger<IngestVanSalesOfflineSalesHandler>.Instance);
 
     private async Task<VanSalesOfflineSaleBatchResponse> IngestAsync(params VanSalesOfflineSaleRequest[] sales)
     {

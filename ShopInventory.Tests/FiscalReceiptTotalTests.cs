@@ -41,6 +41,16 @@ public sealed class FiscalReceiptTotalTests
             IngestSignedReceiptApiRequest request, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("No signed receipt expected.");
 
+        // Preflight changes nothing and is advisory, so a double that is not testing it answers
+        // "no objection" rather than throwing — the callers treat an unreachable preflight the same way.
+        public Task<PreflightReceiptApiResponse> PreflightReceiptAsync(
+            SubmitReceiptApiRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(new PreflightReceiptApiResponse { Valid = true });
+
+        public Task<PreflightReceiptApiResponse> PreflightSignedReceiptAsync(
+            IngestSignedReceiptApiRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(new PreflightReceiptApiResponse { Valid = true });
+
         public Task<CheckFiscalisedReceiptApiResponse> CheckReceiptAsync(
             int deviceId, string invoiceNo, ReceiptType receiptType, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("No receipt check expected.");

@@ -117,6 +117,23 @@ public static partial class VanSalesCompatibilityMapper
         };
     }
 
+    /// <summary>
+    /// Turns an online van sale into the invoice request that posts it to SAP.
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="CreateDesktopInvoiceRequest.Fiscalize"/> is off whenever the handset stamped for
+    /// itself.</b> A handset owns one ZIMRA device and every receipt on it is chained onto the one
+    /// before, so the device must have exactly one writer. Letting the server fiscalise a sale the
+    /// handset has already numbered puts a second signature on that chain, and FDMS refuses the whole
+    /// fiscal day when the offline file is uploaded — not this receipt, the day. The receipt the handset
+    /// signed reaches ZIMRA the only way it can: stored on the sale and drained to the platform by
+    /// <c>VanSalesSignedReceiptIngestService</c>.
+    ///
+    /// <para>
+    /// A handset too old to stamp owns no device and holds no chain, so there is nothing to fork and the
+    /// server still fiscalises its sales exactly as before. That is the only case left where it does.
+    /// </para>
+    /// </remarks>
     public static CreateDesktopInvoiceRequest MapInvoiceRequest(
         VanSalesOrderRequest request,
         VanSalesCustomerResolution customer,
@@ -144,7 +161,7 @@ public static partial class VanSalesCompatibilityMapper
             PaymentMethod = string.IsNullOrWhiteSpace(request.PaymentMethod)
                 ? null
                 : request.PaymentMethod.Trim(),
-            Fiscalize = true,
+            Fiscalize = !request.ClaimsReceiptSequence(),
             Lines = request.Items.Select((item, index) => MapServerAllocatedInvoiceLine(
                 item,
                 index,
@@ -153,6 +170,16 @@ public static partial class VanSalesCompatibilityMapper
         };
     }
 
+    /// <summary>
+    /// Turns an existing van sales order into the invoice conversion request.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ConvertSalesOrderToInvoiceRequest.Fiscalize"/> stays unconditionally true here, unlike
+    /// <see cref="MapInvoiceRequest"/>, and that is safe only because
+    /// <c>ConvertVanSalesSalesOrderToInvoiceHandler</c> refuses a request carrying a signed receipt before
+    /// reaching this method. This path stores no receipt, so a stamped sale must never get here — see the
+    /// guard there for what it would cost.
+    /// </remarks>
     public static ConvertSalesOrderToInvoiceRequest MapConvertRequest(
         VanSalesOrderRequest request,
         int salesOrderId,
@@ -244,10 +271,23 @@ public static partial class VanSalesCompatibilityMapper
         };
     }
 
+    /// <summary>
+    /// Answers the handset, naming the fiscal receipt the sale carries.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="stampedBy"/> is the sale's own signed receipt, when it had one. The server does
+    /// not fiscalise a stamped sale — see <see cref="MapInvoiceRequest"/> — so there is no platform
+    /// result to report, and reporting nothing would have the handset show its own printed receipt as
+    /// "Not Fiscalised". What it gets back instead is what it sent, which is the truth: that receipt is
+    /// the sale's fiscal record and the server has taken custody of it.
+    /// </remarks>
     public static VanSalesDirectInvoiceResponse MapInvoiceResponse(
         ConfirmReservationResponseDto response,
-        string externalReference)
+        string externalReference,
+        VanSalesOrderRequest? stampedBy = null)
     {
+        var handsetReceipt = stampedBy is not null && stampedBy.ClaimsReceiptSequence() ? stampedBy : null;
+
         return new VanSalesDirectInvoiceResponse
         {
             Success = response.Success,
@@ -266,11 +306,13 @@ public static partial class VanSalesCompatibilityMapper
                 : response.WasQueued && !string.IsNullOrWhiteSpace(response.ReservationId)
                     ? $"/api/DesktopIntegration/queue/by-reservation/{Uri.EscapeDataString(response.ReservationId)}"
                     : null,
-            VerificationCode = response.Fiscalization?.VerificationCode,
-            QrCode = response.Fiscalization?.QRCode,
-            FiscalDay = response.Fiscalization?.FiscalDayNo,
-            ReceiptGlobalNo = response.Fiscalization?.ReceiptGlobalNo,
-            DeviceSerial = response.Fiscalization?.DeviceSerial,
+            VerificationCode = handsetReceipt?.VerificationCode ?? response.Fiscalization?.VerificationCode,
+            QrCode = handsetReceipt?.QrCode ?? response.Fiscalization?.QRCode,
+            FiscalDay = handsetReceipt?.FiscalDayNo?.ToString(CultureInfo.InvariantCulture)
+                        ?? response.Fiscalization?.FiscalDayNo,
+            ReceiptGlobalNo = handsetReceipt?.ReceiptGlobalNo?.ToString(CultureInfo.InvariantCulture)
+                              ?? response.Fiscalization?.ReceiptGlobalNo,
+            DeviceSerial = handsetReceipt?.FiscalDeviceId ?? response.Fiscalization?.DeviceSerial,
             Errors = response.Errors
         };
     }

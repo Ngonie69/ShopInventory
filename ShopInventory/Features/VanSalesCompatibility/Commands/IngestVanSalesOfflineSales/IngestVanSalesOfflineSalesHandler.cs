@@ -20,8 +20,12 @@ namespace ShopInventory.Features.VanSalesCompatibility.Commands.IngestVanSalesOf
 ///  1. <b>It never fiscalises — it takes custody of a receipt that already is fiscal.</b> Every sale
 ///     arriving here was stamped on the handset and the customer is holding the printed receipt.
 ///     Fiscalising again would issue a second ZIMRA receipt for one sale, reversible only by a manual
-///     credit note, so the rows are written as <see cref="DesktopSaleFiscalizationStatus.Success"/> and no
-///     fiscalisation queue is touched. What it does instead is store the receipt exactly as it was signed
+///     credit note, so any sale that took a number off its device's chain is written as
+///     <see cref="DesktopSaleFiscalizationStatus.Success"/> and no fiscalisation queue is touched. A sale
+///     from a handset too old to stamp is the exception and is written as
+///     <see cref="DesktopSaleFiscalizationStatus.Failed"/>: nothing was printed, so calling it a success
+///     would hide an unfiscalised sale and disable the one control that could still fix it. What it does
+///     instead is store the receipt exactly as it was signed
 ///     and queue it for <c>VanSalesSignedReceiptIngestService</c>, which hands it to the fiscalisation
 ///     platform. Without that, the receipt would exist only on the handset and in SAP comments, and ZIMRA
 ///     would close the fiscal day short of the receipts the van actually printed.
@@ -42,6 +46,7 @@ namespace ShopInventory.Features.VanSalesCompatibility.Commands.IngestVanSalesOf
 public sealed class IngestVanSalesOfflineSalesHandler(
     ApplicationDbContext db,
     IAuditService auditService,
+    Microsoft.Extensions.Options.IOptions<Configuration.FiscalisationSettings> fiscalisationOptions,
     ILogger<IngestVanSalesOfflineSalesHandler> logger
 ) : IRequestHandler<IngestVanSalesOfflineSalesCommand, ErrorOr<VanSalesOfflineSaleBatchResponse>>
 {
@@ -216,27 +221,70 @@ public sealed class IngestVanSalesOfflineSalesHandler(
                 }
             }
 
+            var signed = sale.HasSignedReceipt();
+            var stamped = sale.ClaimsReceiptSequence();
+
+            // The one case worth refusing outright, and only once the fleet can all stamp. Until then
+            // refusing would stop a van trading over a handset build its driver cannot change, which
+            // costs real takings and makes nobody compliant.
+            if (!stamped && fiscalisationOptions.Value.RequireStampedVanSales)
+            {
+                const string unstampedRefusal =
+                    "This sale carries no fiscal receipt. Stamped receipts are now required, so it cannot " +
+                    "be accepted — update the handset to a build that signs receipts.";
+
+                rejections.Add((reference, unstampedRefusal));
+                response.Results.Add(new VanSalesOfflineSaleResultDto
+                {
+                    VanOrder = reference,
+                    Status = StatusRejected,
+                    Message = unstampedRefusal
+                });
+                response.Rejected++;
+
+                logger.LogError(
+                    "Van sale {Reference} was refused: it carries no fiscal receipt and " +
+                    "Fiscalisation:RequireStampedVanSales is on. This handset is on a build older than the " +
+                    "signing release and cannot trade until it is updated.",
+                    reference);
+                continue;
+            }
+
             // customer is set whenever Validate returns no error, but that is a relationship the
             // compiler cannot see through an out parameter.
             db.DesktopSales.Add(BuildSale(sale, reference, customer!, user, warehouseCode!, costCentreCode!));
 
-            // Accepted either way — the customer paid and the money has to reach SAP — but a sale with no
-            // usable signature is a receipt ZIMRA can never be given, and that has to be said out loud
-            // rather than left to be discovered when the fiscal day is short.
-            var signed = sale.HasSignedReceipt();
+            // Accepted either way — the customer paid and the money has to reach SAP — but a receipt ZIMRA
+            // can never be given has to be said out loud rather than discovered when the fiscal day comes
+            // up short. The two ways that happens need different words and have different consequences.
             if (!signed)
             {
                 unsignable.Add(reference);
-                logger.LogError(
-                    "Van sale {Reference} arrived without a usable device signature, so its ZIMRA receipt " +
-                    "cannot be submitted. Receipt {ReceiptGlobalNo}/{ReceiptCounter} on device " +
-                    "{FiscalDeviceId}, fiscal day {FiscalDayNo}. The sale is held for posting; the fiscal " +
-                    "side needs a person.",
-                    reference,
-                    sale.ReceiptGlobalNo,
-                    sale.ReceiptCounter,
-                    sale.FiscalDeviceId,
-                    sale.FiscalDayNo);
+
+                if (stamped)
+                {
+                    logger.LogError(
+                        "Van sale {Reference} arrived without a usable device signature, so its ZIMRA receipt " +
+                        "cannot be submitted. Receipt {ReceiptGlobalNo}/{ReceiptCounter} on device " +
+                        "{FiscalDeviceId}, fiscal day {FiscalDayNo}. Its number is spent, so every later " +
+                        "receipt from this handset is blocked behind it. The sale is held for posting; the " +
+                        "fiscal side needs a person.",
+                        reference,
+                        sale.ReceiptGlobalNo,
+                        sale.ReceiptCounter,
+                        sale.FiscalDeviceId,
+                        sale.FiscalDayNo);
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "Van sale {Reference} on device {FiscalDeviceId} was never stamped — the handset is on " +
+                        "a build older than the signing release. The sale is held for posting and nothing else " +
+                        "is blocked, but the customer has no fiscal receipt and ZIMRA has no record. Update " +
+                        "this handset, then turn on Fiscalisation:RequireStampedVanSales once the fleet is done.",
+                        reference,
+                        sale.FiscalDeviceId);
+                }
             }
 
             response.Results.Add(new VanSalesOfflineSaleResultDto
@@ -245,8 +293,11 @@ public sealed class IngestVanSalesOfflineSalesHandler(
                 Status = StatusAccepted,
                 Message = signed
                     ? "Held for end-of-day posting; the receipt is queued for ZIMRA."
-                    : "Held for end-of-day posting, but it carries no device signature so its receipt " +
-                      "cannot be submitted to ZIMRA."
+                    : stamped
+                        ? "Held for end-of-day posting, but it carries no device signature so its receipt " +
+                          "cannot be submitted to ZIMRA."
+                        : "Held for end-of-day posting. This handset stamped no fiscal receipt, so the sale " +
+                          "has no ZIMRA record — update the handset."
             });
             response.Accepted++;
 
@@ -539,7 +590,7 @@ public sealed class IngestVanSalesOfflineSalesHandler(
             HsCode = item.HsCode
         }).ToList();
 
-        return new DesktopSaleEntity
+        var entity = new DesktopSaleEntity
         {
             ExternalReferenceId = reference,
             SourceSystem = SaleSourceSystems.VanSales,
@@ -563,27 +614,6 @@ public sealed class IngestVanSalesOfflineSalesHandler(
             VatAmount = sale.VatAmount,
             Currency = string.IsNullOrWhiteSpace(sale.Currency) ? "USD" : sale.Currency.Trim(),
 
-            // Already stamped on the handset. Never re-fiscalise: the customer is holding the receipt.
-            FiscalizationStatus = DesktopSaleFiscalizationStatus.Success,
-            FiscalDeviceNumber = sale.FiscalDeviceId,
-            FiscalDayNo = sale.FiscalDayNo?.ToString(),
-            ReceiptGlobalNo = sale.ReceiptGlobalNo,
-            ReceiptCounter = sale.ReceiptCounter,
-            FiscalVerificationCode = sale.VerificationCode,
-            FiscalQRCode = sale.QrCode,
-            FiscalReceiptNumber = sale.ReceiptGlobalNo?.ToString(),
-
-            // The signed receipt, stored verbatim so it can be handed to the fiscalisation platform and,
-            // through it, to ZIMRA. Nothing here is recomputed: the signature covers these exact values.
-            ReceiptDate = sale.ReceiptDate,
-            FiscalDayOpenedAt = sale.FiscalDayOpenedAt,
-            PreviousReceiptHash = sale.PreviousReceiptHash?.Trim(),
-            DeviceSignatureHash = sale.DeviceSignatureHash?.Trim(),
-            DeviceSignatureValue = sale.DeviceSignatureValue?.Trim(),
-            ReceiptIngestStatus = sale.HasSignedReceipt()
-                ? DesktopSaleReceiptIngestStatus.Pending
-                : DesktopSaleReceiptIngestStatus.Unsignable,
-
             ConsolidationStatus = DesktopSaleConsolidationStatus.Pending,
             WarehouseCode = warehouseCode,
             CostCentreCode = costCentreCode,
@@ -594,6 +624,14 @@ public sealed class IngestVanSalesOfflineSalesHandler(
             CreatedAt = DateTime.UtcNow,
             Lines = lines
         };
+
+        // The fiscal half, shared with the online path so a cart is judged the same either way.
+        entity.ApplySignedReceipt(
+            sale,
+            "The handset stamped no fiscal receipt for this sale. It is on a build older than the " +
+            "signing release, so nothing was printed for the customer and ZIMRA has no record.");
+
+        return entity;
     }
 
     /// <summary>

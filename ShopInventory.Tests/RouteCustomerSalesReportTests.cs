@@ -1,6 +1,8 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerProductMix;
@@ -628,7 +630,10 @@ public sealed class RouteCustomerSalesReportTests : IDisposable
     private async Task<VanSalesOfflineSaleBatchResponse> IngestAsync(params VanSalesOfflineSaleRequest[] sales)
     {
         var result = await new IngestVanSalesOfflineSalesHandler(
-                _context, new NoOpAuditService(), NullLogger<IngestVanSalesOfflineSalesHandler>.Instance)
+                _context,
+                new NoOpAuditService(),
+                Options.Create(new FiscalisationSettings()),
+                NullLogger<IngestVanSalesOfflineSalesHandler>.Instance)
             .Handle(
                 new IngestVanSalesOfflineSalesCommand(
                     new VanSalesOfflineSaleBatchRequest { Sales = [.. sales] }, VanUser),

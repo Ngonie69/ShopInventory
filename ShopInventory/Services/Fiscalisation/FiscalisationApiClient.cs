@@ -79,6 +79,32 @@ public class FiscalisationApiClient : IFiscalisationApiClient
             cancellationToken);
     }
 
+    public Task<PreflightReceiptApiResponse> PreflightReceiptAsync(
+        SubmitReceiptApiRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ThrowIfNoApiKey();
+
+        return PostOnceAsync<SubmitReceiptApiRequest, PreflightReceiptApiResponse>(
+            "api/receipts/preflight",
+            request,
+            cancellationToken);
+    }
+
+    public Task<PreflightReceiptApiResponse> PreflightSignedReceiptAsync(
+        IngestSignedReceiptApiRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ThrowIfNoApiKey();
+
+        return PostOnceAsync<IngestSignedReceiptApiRequest, PreflightReceiptApiResponse>(
+            "api/receipts/preflight-offline",
+            request,
+            cancellationToken);
+    }
+
     public async Task<CheckFiscalisedReceiptApiResponse> CheckReceiptAsync(
         int deviceId,
         string invoiceNo,
@@ -186,6 +212,25 @@ public class FiscalisationApiClient : IFiscalisationApiClient
         deviceId > 0
             ? $"?deviceId={deviceId.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             : string.Empty;
+
+    /// <summary>
+    /// One attempt, no retry.
+    /// </summary>
+    /// <remarks>
+    /// For calls that change nothing and are only advisory. Retrying a preflight ten times would delay
+    /// the submission it is meant to protect by longer than the submission itself takes, to answer a
+    /// question the platform will ask again anyway when the receipt arrives.
+    /// </remarks>
+    private async Task<TResponse> PostOnceAsync<TRequest, TResponse>(
+        string requestUri,
+        TRequest request,
+        CancellationToken cancellationToken)
+    {
+        using var response = await _httpClient.PostAsJsonAsync(
+            requestUri, request, ApiJsonOptions, cancellationToken);
+
+        return await ReadResponseAsync<TResponse>(response, cancellationToken);
+    }
 
     private async Task<TResponse> PostWithTransientRetryAsync<TRequest, TResponse>(
         string requestUri,

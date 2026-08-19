@@ -1,0 +1,946 @@
+/* ==========================================================================
+   Fiscalisation console — Nocturne
+
+   /fiscalisation. One screen for everything ZIMRA: the devices, what is still
+   owed, and how far each fiscal day has got towards actually being submitted.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system, and both schemes arrive from the root. There is no
+   `.dark-theme .fcx` block here and there must not be one: the aliases resolve
+   against whichever scheme is in force. See that sheet's header.
+
+   Rules live here rather than in an inline Razor <style> block for the reason
+   the sibling sheets give: app.css carries global `.dark-theme input` rules at
+   (0,1,1) that would otherwise repaint the search field #1e293b, so each
+   control carries a class and each control selector is two classes deep,
+   winning regardless of load order. Headings are pinned to Nocturne's 500
+   because Bootstrap's global `h1-h6 { font-weight: 600 }` would bolden them
+   past the weight this system allows.
+
+   ── What the sheet decides ──
+
+   **A stopped device does not look like a busy one.** A broken receipt chain
+   gets the only red card on the page, a full-width banner inside it, and its
+   counts restated in the bad family. Every other state on this screen is a
+   queue that will drain; this one is a van that has stopped and will not start
+   again on its own, and the two must not read alike at a glance.
+
+   **The queue's severity is the API's, not the sheet's.** Each row arrives
+   carrying a family name, so the dot in the table and the chip in the filter
+   bar cannot drift from what the server decided. The same reason the pickers
+   feed `Family` from the page's own helper — see nocturne-select.css.
+
+   **A retry that must not happen is drawn as text, not a disabled button.** A
+   greyed-out button invites a second look for the thing that would enable it.
+   Where sending a document again could duplicate a fiscal receipt, the cell
+   says so in words instead.
+
+   Both tables scroll inside their own wrapper: `min-width` on the table is what
+   makes the wrapper scroll rather than the page, so the body never scrolls
+   horizontally and the sticky page header keeps its own scrollport.
+   ========================================================================== */
+
+.fcx {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --fcx-bg: var(--noct-bg);
+    --fcx-surface: var(--noct-surface);
+    --fcx-ink: var(--noct-ink);
+    --fcx-ink-2: var(--noct-ink-2);
+    --fcx-mute: var(--noct-mute);
+    --fcx-mute-2: var(--noct-mute-2);
+    --fcx-mute-3: var(--noct-mute-3);
+    --fcx-faint: var(--noct-faint);
+    --fcx-placeholder: var(--noct-placeholder);
+    --fcx-divider: var(--noct-divider);
+    --fcx-rule: var(--noct-rule);
+    --fcx-hover: var(--noct-hover);
+    --fcx-press: var(--noct-press);
+    --fcx-field-bg: var(--noct-field-bg);
+    --fcx-field-edge: var(--noct-field-edge);
+    --fcx-field-edge-hi: var(--noct-field-edge-hi);
+    --fcx-accent: var(--noct-accent);
+    --fcx-accent-rgb: var(--noct-accent-rgb);
+    --fcx-accent-text: var(--noct-accent-text);
+    --fcx-thumb: var(--noct-thumb);
+
+    --fcx-fam-neutral: var(--noct-fam-neutral);
+    --fcx-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --fcx-fam-accent: var(--noct-fam-accent);
+    --fcx-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --fcx-fam-info: var(--noct-fam-info);
+    --fcx-fam-info-rgb: var(--noct-fam-info-rgb);
+    --fcx-fam-good: var(--noct-fam-good);
+    --fcx-fam-good-rgb: var(--noct-fam-good-rgb);
+    --fcx-fam-warn: var(--noct-fam-warn);
+    --fcx-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --fcx-fam-bad: var(--noct-fam-bad);
+    --fcx-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    /* A panel set nearer the page's own ground than the card is: darker than the
+       surface on the dark scheme, greyer than white on paper. Used for a table
+       head, a meter track and an expanded error line. */
+    --fcx-recess: var(--noct-bg);
+
+    --fcx-radius: var(--noct-r-md);
+    --fcx-ring: 0 0 0 1px var(--fcx-divider);
+
+    /* The two tables. Stated once so the head and the body cannot fall out of
+       step, and it is this width that makes the wrapper scroll instead of the
+       page. */
+    --fcx-queue-min: 1120px;
+    --fcx-days-min: 1040px;
+
+    color: var(--fcx-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    /* The page's own ground, so the sticky header below has something opaque to
+       be painted in. */
+    background: var(--fcx-bg);
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside this page that would flatten the family hues the status
+   dots and chips carry on WebKit, so hand the fill back to `color`. */
+.fcx,
+.fcx * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.fcx :focus-visible {
+    outline: 2px solid var(--fcx-accent);
+    outline-offset: 2px;
+}
+
+.fcx ::selection {
+    background: rgba(var(--fcx-accent-rgb), .3);
+}
+
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. */
+.fcx h1,
+.fcx h2,
+.fcx h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* Per-control fit for the two shared Nocturne controls. Both read these as
+   fallbacks, so setting them here is the supported way to size the controls to
+   a page — see the headers of nocturne-select.css and nocturne-date-field.css.
+   The fill and edge are set rather than left to default, because this filter bar
+   is a raised card and a field with no edge on it dissolves into the card. */
+.fcx {
+    --ndf-h: 34px;
+    --ndf-fs: 13px;
+    --ndf-radius: var(--fcx-radius);
+    --ndf-fill: var(--fcx-field-bg);
+    --ndf-edge: var(--fcx-field-edge);
+    --ndf-edge-hi: var(--fcx-field-edge-hi);
+
+    --nsel-h: 34px;
+    --nsel-fs: 13px;
+    --nsel-pad-x: 10px;
+    --nsel-radius: var(--fcx-radius);
+    --nsel-fill: var(--fcx-field-bg);
+    --nsel-edge: var(--fcx-field-edge);
+    --nsel-edge-hi: var(--fcx-field-edge-hi);
+}
+
+/* ── The page header ──────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, so the refresh stays
+   reachable while three sections scroll past. Opaque, not frosted — a frosted
+   bar's missing 12% lets the page title read straight through it wherever the
+   compositor skips the blur. */
+
+.fcx-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--fcx-bg);
+    border-bottom: 1px solid var(--fcx-divider);
+    margin-bottom: var(--noct-s6);
+}
+
+.fcx-head-inner {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: var(--noct-s6);
+    padding: 14px 0;
+}
+
+.fcx-head-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.fcx-crumb {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s3);
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--fcx-faint);
+    margin-bottom: var(--noct-s2);
+}
+
+.fcx-crumb-here {
+    color: var(--fcx-mute-2);
+}
+
+.fcx .fcx-title {
+    font-size: 28px;
+    line-height: 1.1;
+    letter-spacing: -.018em;
+    margin: 0 0 var(--noct-s2);
+    color: var(--fcx-ink);
+}
+
+.fcx-lede {
+    margin: 0;
+    max-width: 76ch;
+    font-size: 13px;
+    color: var(--fcx-mute-2);
+}
+
+.fcx-head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s2);
+    flex: none;
+    flex-wrap: wrap;
+}
+
+.fcx-stamp {
+    font-size: 11px;
+    color: var(--fcx-faint);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.fcx .fcx-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: var(--noct-s2) var(--noct-s4);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--fcx-ink);
+    background: transparent;
+    border: 1px solid var(--fcx-field-edge);
+    border-radius: var(--fcx-radius);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+
+.fcx .fcx-btn:hover:not(:disabled) {
+    background: var(--fcx-hover);
+    border-color: var(--fcx-field-edge-hi);
+}
+
+.fcx .fcx-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.fcx .fcx-btn-accent {
+    color: var(--fcx-accent-text);
+    border-color: var(--fcx-accent);
+}
+
+.fcx .fcx-btn-accent:hover:not(:disabled) {
+    background: rgba(var(--fcx-accent-rgb), .12);
+    border-color: var(--fcx-accent);
+}
+
+.fcx .fcx-btn-accent:active:not(:disabled) {
+    background: rgba(var(--fcx-accent-rgb), .22);
+}
+
+.fcx .fcx-btn-quiet {
+    border-color: transparent;
+    font-weight: 400;
+    font-size: 12px;
+    color: var(--fcx-mute);
+}
+
+.fcx .fcx-btn-quiet:hover:not(:disabled) {
+    background: var(--fcx-hover);
+    border-color: transparent;
+    color: var(--fcx-ink);
+}
+
+.fcx .fcx-btn-sm {
+    min-height: 26px;
+    padding: 2px var(--noct-s3);
+    font-size: 11.5px;
+}
+
+/* ── Banners ──────────────────────────────────────────────────────────────── */
+/* One per outcome family, because on this page the difference between "it is
+   fiscalised" and "it may already be fiscalised twice" is the whole message. */
+
+.fcx-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--noct-s3);
+    padding: 11px var(--noct-s4);
+    margin-bottom: var(--noct-s4);
+    border-radius: var(--fcx-radius);
+    font-size: 13px;
+    border: 1px solid rgba(var(--fcx-fam-neutral-rgb), .4);
+    background: rgba(var(--fcx-fam-neutral-rgb), .1);
+    color: var(--fcx-ink);
+}
+
+.fcx-alert-good {
+    border-color: rgba(var(--fcx-fam-good-rgb), .45);
+    background: rgba(var(--fcx-fam-good-rgb), .12);
+}
+
+.fcx-alert-warn {
+    border-color: rgba(var(--fcx-fam-warn-rgb), .45);
+    background: rgba(var(--fcx-fam-warn-rgb), .12);
+}
+
+.fcx-alert-bad {
+    border-color: rgba(var(--fcx-fam-bad-rgb), .5);
+    background: rgba(var(--fcx-fam-bad-rgb), .12);
+}
+
+.fcx-alert-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.fcx-alert-title {
+    font-weight: 500;
+}
+
+.fcx-alert-detail {
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--fcx-mute-2);
+    word-break: break-word;
+}
+
+.fcx .fcx-alert-close {
+    flex: none;
+    background: transparent;
+    border: 0;
+    padding: 0 2px;
+    cursor: pointer;
+    color: var(--fcx-mute-3);
+    line-height: 1;
+}
+
+.fcx .fcx-alert-close:hover {
+    color: var(--fcx-ink);
+}
+
+/* ── Sections ─────────────────────────────────────────────────────────────── */
+
+.fcx-section {
+    margin-bottom: var(--noct-s8);
+}
+
+.fcx-section-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--noct-s3);
+    margin-bottom: var(--noct-s4);
+}
+
+.fcx .fcx-section-title {
+    font-size: 17px;
+    letter-spacing: -.01em;
+}
+
+.fcx-section-note {
+    font-size: 12px;
+    color: var(--fcx-mute-3);
+    max-width: 74ch;
+}
+
+.fcx-section-count {
+    margin-left: auto;
+    font-size: 11.5px;
+    color: var(--fcx-faint);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ── Devices ──────────────────────────────────────────────────────────────── */
+
+.fcx-devices {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: var(--noct-s4);
+    /* Each card is as tall as its own contents. Stretched to the row's height, a
+       healthy device becomes a card of empty space next to a stopped one, which
+       reads as the healthy device being the thing with something missing. */
+    align-items: start;
+}
+
+.fcx-device {
+    padding: var(--noct-s4) var(--noct-s6) var(--noct-s4);
+    border-radius: var(--fcx-radius);
+    background: var(--fcx-surface);
+    box-shadow: var(--fcx-ring);
+}
+
+/* The one card on the page that is allowed to shout. A broken chain is a van
+   that has stopped, not a queue that is long. */
+.fcx-device-stopped {
+    box-shadow: 0 0 0 1px var(--fcx-fam-bad), 0 0 0 4px rgba(var(--fcx-fam-bad-rgb), .12);
+}
+
+.fcx-device-unreachable {
+    box-shadow: 0 0 0 1px rgba(var(--fcx-fam-warn-rgb), .55);
+}
+
+.fcx-device-head {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s3);
+    flex-wrap: wrap;
+    padding-bottom: var(--noct-s3);
+    border-bottom: 1px solid var(--fcx-rule);
+}
+
+.fcx-device-id {
+    font-size: 15px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.fcx-device-serial {
+    font-size: 11.5px;
+    color: var(--fcx-mute-3);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.fcx-device-head-end {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.fcx-stopped {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--noct-s3);
+    margin: var(--noct-s3) 0 0;
+    padding: 10px var(--noct-s4);
+    border-radius: var(--fcx-radius);
+    background: rgba(var(--fcx-fam-bad-rgb), .13);
+    border: 1px solid rgba(var(--fcx-fam-bad-rgb), .5);
+    font-size: 12.5px;
+}
+
+.fcx-stopped-title {
+    font-weight: 500;
+    color: var(--fcx-fam-bad);
+}
+
+.fcx-stopped-note {
+    margin-top: 3px;
+    color: var(--fcx-mute);
+}
+
+.fcx-stopped-error {
+    margin-top: 5px;
+    font-size: 11.5px;
+    color: var(--fcx-mute-2);
+    word-break: break-word;
+}
+
+/* Facts. Two to a row on a card wide enough, one when it is not — the labels
+   are long enough that a forced two-column grid would hyphenate them. */
+.fcx-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: var(--noct-s3) var(--noct-s4);
+    margin: var(--noct-s3) 0 0;
+}
+
+.fcx-fact-label {
+    font-size: 9.5px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--fcx-mute-3);
+}
+
+.fcx-fact-value {
+    margin-top: 2px;
+    font-size: 14px;
+    color: var(--fcx-ink);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.fcx-fact-note {
+    margin-top: 1px;
+    font-size: 11px;
+    color: var(--fcx-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.fcx-fact-warn .fcx-fact-value {
+    color: var(--fcx-fam-warn);
+}
+
+.fcx-fact-bad .fcx-fact-value {
+    color: var(--fcx-fam-bad);
+}
+
+.fcx-fact-good .fcx-fact-value {
+    color: var(--fcx-fam-good);
+}
+
+/* The fiscal day against the taxpayer's limit. A bar rather than a number
+   because the number on its own ("9.4") says nothing without the limit beside
+   it, and the limit is per taxpayer. */
+.fcx-meter {
+    margin-top: 5px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--fcx-recess);
+    box-shadow: inset 0 0 0 1px var(--fcx-rule);
+    overflow: hidden;
+}
+
+.fcx-meter-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--fcx-fam-good);
+}
+
+.fcx-meter-warn .fcx-meter-fill {
+    background: var(--fcx-fam-warn);
+}
+
+.fcx-meter-bad .fcx-meter-fill {
+    background: var(--fcx-fam-bad);
+}
+
+/* ── Tags ─────────────────────────────────────────────────────────────────── */
+
+.fcx-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px var(--noct-s3);
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: nowrap;
+    border: 1px solid rgba(var(--fcx-fam-neutral-rgb), .45);
+    background: rgba(var(--fcx-fam-neutral-rgb), .12);
+    color: var(--fcx-fam-neutral);
+}
+
+.fcx-tag-accent {
+    border-color: rgba(var(--fcx-fam-accent-rgb), .45);
+    background: rgba(var(--fcx-fam-accent-rgb), .12);
+    color: var(--fcx-fam-accent);
+}
+
+.fcx-tag-info {
+    border-color: rgba(var(--fcx-fam-info-rgb), .45);
+    background: rgba(var(--fcx-fam-info-rgb), .12);
+    color: var(--fcx-fam-info);
+}
+
+.fcx-tag-good {
+    border-color: rgba(var(--fcx-fam-good-rgb), .45);
+    background: rgba(var(--fcx-fam-good-rgb), .12);
+    color: var(--fcx-fam-good);
+}
+
+.fcx-tag-warn {
+    border-color: rgba(var(--fcx-fam-warn-rgb), .45);
+    background: rgba(var(--fcx-fam-warn-rgb), .12);
+    color: var(--fcx-fam-warn);
+}
+
+.fcx-tag-bad {
+    border-color: rgba(var(--fcx-fam-bad-rgb), .5);
+    background: rgba(var(--fcx-fam-bad-rgb), .14);
+    color: var(--fcx-fam-bad);
+}
+
+.fcx-dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--fcx-fam-neutral);
+}
+
+.fcx-dot-warn {
+    background: var(--fcx-fam-warn);
+}
+
+.fcx-dot-bad {
+    background: var(--fcx-fam-bad);
+}
+
+.fcx-dot-good {
+    background: var(--fcx-fam-good);
+}
+
+/* The families the fiscal-day menu already used. Without these the swatch someone
+   filtered by had no matching dot in the table under it. */
+.fcx-dot-accent {
+    background: var(--fcx-fam-accent);
+}
+
+.fcx-dot-info {
+    background: var(--fcx-fam-info);
+}
+
+/* ── Filter bar ───────────────────────────────────────────────────────────── */
+
+.fcx-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--noct-s4);
+    padding: var(--noct-s4) var(--noct-s6);
+    margin-bottom: var(--noct-s4);
+    background: var(--fcx-surface);
+    border-radius: var(--fcx-radius);
+    box-shadow: var(--fcx-ring);
+}
+
+.fcx-filter {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.fcx-filter-label {
+    font-size: 10px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--fcx-mute-3);
+}
+
+.fcx-filter-status {
+    width: 216px;
+}
+
+.fcx-filter-device {
+    width: 168px;
+}
+
+.fcx-filter-date {
+    width: 148px;
+}
+
+.fcx-filter-search {
+    width: 232px;
+}
+
+/* Two classes deep so it beats app.css's `.dark-theme input` at (0,1,1), which
+   would otherwise repaint the field #1e293b in dark mode. */
+.fcx .fcx-input {
+    height: 34px;
+    width: 100%;
+    padding: 0 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    color: var(--fcx-ink);
+    background: var(--fcx-field-bg);
+    border: 1px solid var(--fcx-field-edge);
+    border-radius: var(--fcx-radius);
+    transition: border-color .12s ease;
+}
+
+.fcx .fcx-input:hover {
+    border-color: var(--fcx-field-edge-hi);
+}
+
+.fcx .fcx-input:focus {
+    outline: none;
+    border-color: var(--fcx-accent);
+    box-shadow: 0 0 0 2px rgba(var(--fcx-accent-rgb), .22);
+}
+
+.fcx .fcx-input::placeholder {
+    color: var(--fcx-placeholder);
+}
+
+.fcx-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s2);
+    margin-left: auto;
+}
+
+/* ── Tables ───────────────────────────────────────────────────────────────── */
+/* The wrapper scrolls, not the page. `min-width` on the table is what forces it;
+   without that the columns crush and every row grows to three lines. */
+
+.fcx-table-wrap {
+    overflow-x: auto;
+    border-radius: var(--fcx-radius);
+    background: var(--fcx-surface);
+    box-shadow: var(--fcx-ring);
+}
+
+.fcx-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.fcx-table-queue {
+    min-width: var(--fcx-queue-min);
+}
+
+.fcx-table-days {
+    min-width: var(--fcx-days-min);
+}
+
+/* Sticky against the wrapper, which is its own scrollport — so `top: 0` here is
+   right, and the page header's offset is not this element's business. */
+.fcx-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: var(--noct-s3) var(--noct-s4);
+    background: var(--fcx-recess);
+    border-bottom: 1px solid var(--fcx-divider);
+    font-size: 9.5px;
+    font-weight: 500;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--fcx-mute-3);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.fcx-table tbody td {
+    padding: var(--noct-s3) var(--noct-s4);
+    border-bottom: 1px solid var(--fcx-rule);
+    vertical-align: top;
+    color: var(--fcx-ink-2);
+}
+
+.fcx-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.fcx-table tbody tr:hover td {
+    background: var(--fcx-hover);
+}
+
+.fcx-table th.fcx-right,
+.fcx-table td.fcx-right {
+    text-align: right;
+}
+
+.fcx-num {
+    font-variant-numeric: tabular-nums;
+}
+
+.fcx-cell-strong {
+    color: var(--fcx-ink);
+    font-weight: 500;
+}
+
+.fcx-cell-sub {
+    display: block;
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--fcx-faint);
+}
+
+.fcx-cell-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+/* An error is quoted as the platform wrote it — never reworded, because the
+   wording is what someone will search the platform's own log for. */
+.fcx-error {
+    display: block;
+    margin-top: 4px;
+    max-width: 62ch;
+    font-size: 11px;
+    color: var(--fcx-mute-3);
+    word-break: break-word;
+}
+
+/* Where a retry must not be offered, the cell says why. A disabled button would
+   invite someone to look for whatever would enable it. */
+.fcx-no-retry {
+    display: inline-block;
+    max-width: 26ch;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--fcx-fam-bad);
+}
+
+.fcx-no-retry-quiet {
+    color: var(--fcx-mute-3);
+}
+
+/* ── Pager, empty and loading ─────────────────────────────────────────────── */
+
+.fcx-pager {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s3);
+    padding: var(--noct-s3) 2px 0;
+    flex-wrap: wrap;
+}
+
+.fcx-pager-info {
+    font-size: 11.5px;
+    color: var(--fcx-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.fcx-pager-end {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s2);
+}
+
+.fcx-empty {
+    padding: var(--noct-s8) var(--noct-s6);
+    text-align: center;
+    border-radius: var(--fcx-radius);
+    background: var(--fcx-surface);
+    box-shadow: var(--fcx-ring);
+}
+
+.fcx-empty-title {
+    font-size: 14px;
+    color: var(--fcx-ink);
+}
+
+.fcx-empty-note {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--fcx-mute-3);
+}
+
+.fcx-loading {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s3);
+    padding: var(--noct-s6);
+    font-size: 12.5px;
+    color: var(--fcx-mute-2);
+}
+
+.fcx-spin {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    border-radius: 50%;
+    border: 2px solid rgba(var(--fcx-accent-rgb), .3);
+    border-top-color: var(--fcx-accent);
+    animation: fcx-spin .7s linear infinite;
+}
+
+@keyframes fcx-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fcx-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ── Scrollbars ───────────────────────────────────────────────────────────── */
+
+.fcx-table-wrap::-webkit-scrollbar {
+    height: 8px;
+}
+
+.fcx-table-wrap::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.fcx-table-wrap::-webkit-scrollbar-thumb {
+    background: var(--fcx-thumb);
+    border-radius: 999px;
+}
+
+/* ── Narrow ───────────────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+    .fcx .fcx-title {
+        font-size: 23px;
+    }
+
+    .fcx-head-inner {
+        padding: 11px 0;
+    }
+
+    /* The refresh drops below the lede rather than squeezing beside it — at this
+       width the lede is four lines and the two read as one crowded block. */
+    .fcx-head-main {
+        flex: 1 1 100%;
+    }
+
+    .fcx-head-actions {
+        margin-left: auto;
+    }
+
+    .fcx-devices {
+        grid-template-columns: 1fr;
+    }
+
+    .fcx-filters {
+        padding: var(--noct-s4);
+    }
+
+    /* The filter cells stop being fixed widths and share the row instead;
+       232px of search beside 216px of status wraps into a column of one-item
+       rows on a phone otherwise. */
+    .fcx-filter-status,
+    .fcx-filter-device,
+    .fcx-filter-date,
+    .fcx-filter-search {
+        width: 100%;
+    }
+
+    .fcx-filter {
+        flex: 1 1 180px;
+    }
+
+    .fcx-filter-actions {
+        margin-left: 0;
+        flex: 1 1 100%;
+    }
+}

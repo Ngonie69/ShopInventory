@@ -32,6 +32,7 @@ namespace ShopInventory.Services;
 public sealed class VanSalesSignedReceiptIngestService(
     ApplicationDbContext context,
     IFiscalisationApiClient fiscalisationClient,
+    IFiscalDeviceConfigCache deviceConfigCache,
     IOptions<FiscalisationSettings> fiscalisationOptions,
     ILogger<VanSalesSignedReceiptIngestService> logger)
 {
@@ -63,11 +64,22 @@ public sealed class VanSalesSignedReceiptIngestService(
         // Everything still outstanding, including the receipts that can no longer be sent. Loading the
         // blocked ones deliberately: filtering them out here would let the walk below step over a hole in
         // a device's chain and offer the platform a receipt whose predecessor it does not hold.
+        //
+        // Unstamped sales are the one exclusion, and it is the opposite case. They were never signed, so
+        // they hold no position in any chain and nothing waits behind them; treating one as a hole would
+        // stop a device that has nothing wrong with it.
+        // Both van sources, and that is not a widening for tidiness. A handset owns one device and stamps
+        // every sale off its one chain, so a sale it happened to make with signal sits in the same
+        // sequence as the ones it made without — and the platform accepts receipt N+1 only once it holds
+        // N. Draining one source and not the other would stop the device at the first online sale of the
+        // day and leave everything behind it unarchivable.
         var pending = await context.DesktopSales
             .Include(sale => sale.Lines)
-            .Where(sale => sale.SourceSystem == SaleSourceSystems.VanSales &&
+            .Where(sale => sale.SourceSystem != null &&
+                           SaleSourceSystems.VanSaleSources.Contains(sale.SourceSystem) &&
                            sale.ReceiptIngestStatus != DesktopSaleReceiptIngestStatus.NotApplicable &&
-                           sale.ReceiptIngestStatus != DesktopSaleReceiptIngestStatus.Ingested)
+                           sale.ReceiptIngestStatus != DesktopSaleReceiptIngestStatus.Ingested &&
+                           sale.ReceiptIngestStatus != DesktopSaleReceiptIngestStatus.Unstamped)
             .OrderBy(sale => sale.ReceiptGlobalNo)
             .ToListAsync(cancellationToken);
 
@@ -77,10 +89,11 @@ public sealed class VanSalesSignedReceiptIngestService(
         }
 
         // One chain per device, so the work is grouped by device and each group is walked in the order
-        // the handset signed them.
+        // the handset signed them. A sale with no device is its own group: it cannot be submitted, and
+        // grouping the unattributable ones together keeps them from stopping a device that is fine.
         var byDevice = pending
-            .GroupBy(sale => sale.FiscalDeviceNumber?.Trim() ?? string.Empty)
-            .OrderBy(group => group.Key, StringComparer.Ordinal);
+            .GroupBy(sale => sale.FiscalDeviceId ?? 0)
+            .OrderBy(group => group.Key);
 
         logger.LogInformation(
             "Submitting {Count} signed van receipt(s) across {DeviceCount} device(s) to the fiscalisation platform.",
@@ -119,11 +132,19 @@ public sealed class VanSalesSignedReceiptIngestService(
     }
 
     private async Task IngestDeviceAsync(
-        string deviceNumber,
+        int deviceNumber,
         List<DesktopSaleEntity> receipts,
         VanSalesReceiptIngestRunResult result,
         CancellationToken cancellationToken)
     {
+        // Read once per device rather than per receipt: it is the same answer for every receipt in this
+        // group, and it is only used to judge them. A device whose configuration cannot be read still
+        // has its receipts offered — the preflight simply checks less, and the platform checks it all
+        // again on arrival.
+        var deviceConfig = deviceNumber > 0
+            ? await deviceConfigCache.TryGetAsync(deviceNumber, cancellationToken)
+            : null;
+
         foreach (var sale in receipts)
         {
             if (cancellationToken.IsCancellationRequested)
@@ -165,6 +186,28 @@ public sealed class VanSalesSignedReceiptIngestService(
                     sale.ExternalReferenceId,
                     deviceNumber,
                     buildFailure);
+                return;
+            }
+
+            var refusal = await PreflightAsync(request, deviceConfig, cancellationToken);
+            if (refusal is not null)
+            {
+                // Everything a preflight can find on a signed receipt is permanent. The payload cannot be
+                // adjusted, because adjusting it invalidates the signature it was signed with, so there
+                // is no version of this receipt that would be accepted. Marking it now spends none of its
+                // attempts and says exactly which rule it breaks, rather than leaving the device stopped
+                // behind eight identical rejections.
+                MarkUnsignable(sale, refusal);
+                result.Unsignable++;
+                result.DevicesStopped++;
+                result.Errors.Add($"{sale.ExternalReferenceId}: {refusal}");
+
+                logger.LogError(
+                    "Van receipt {Reference} on device {DeviceNumber} fails preflight and can never be " +
+                    "accepted: {Reason} Every later receipt from this handset is blocked until it is resolved.",
+                    sale.ExternalReferenceId,
+                    deviceNumber,
+                    refusal);
                 return;
             }
 
@@ -251,6 +294,100 @@ public sealed class VanSalesSignedReceiptIngestService(
     }
 
     /// <summary>
+    /// Checks a receipt against everything known to refuse it, and returns why if anything does.
+    /// </summary>
+    /// <remarks>
+    /// Preflight normally exists to prevent a bad submission. Here it cannot — the receipt was signed
+    /// hours ago on a handset and is in a customer's hand — so what it buys is a precise diagnosis
+    /// instead of a stopped van and eight identical rejections in the log. That is worth more than it
+    /// sounds: a device holds its whole queue behind its first failure, so the difference between
+    /// "RCPT025: line 2 uses tax id 3, which this device does not have" and a masked platform error is
+    /// the difference between a fix this afternoon and a fix tomorrow.
+    ///
+    /// Only outright refusals are returned. A warning is left to the log, because a receipt that will be
+    /// accepted must be offered — holding it back to make a point strands every receipt behind it.
+    /// </remarks>
+    private async Task<string?> PreflightAsync(
+        IngestSignedReceiptApiRequest request,
+        FiscalConfigApiResponse? deviceConfig,
+        CancellationToken cancellationToken)
+    {
+        var settings = fiscalisationOptions.Value;
+
+        var local = ReceiptPreflight.InspectSigned(
+            request,
+            new PreflightContext(
+                deviceConfig,
+                // The receipt's own clock, not this server's. Judging a receipt signed at 19:40 in the
+                // taxpayer's time against a UTC now would put every evening receipt outside its fiscal
+                // day by the offset.
+                NowLocal: request.ReceiptDate ?? DateTime.Now,
+                FiscalDayOpenedAt: request.FiscalDayOpenedAt == default ? null : request.FiscalDayOpenedAt,
+                WarnAtPercentOfMaxHrs: settings.FiscalDay.WarnAtPercentOfMaxHrs));
+
+        foreach (var warning in local.Warnings)
+        {
+            logger.LogWarning(
+                "Van receipt {InvoiceNo} on device {DeviceId}: {Warning}",
+                request.InvoiceNo,
+                request.DeviceId,
+                warning);
+        }
+
+        if (local.IsBlocked)
+        {
+            return local.BlockSummary;
+        }
+
+        if (settings.Preflight.Mode != FiscalisationPreflightMode.LocalAndPlatform)
+        {
+            return null;
+        }
+
+        try
+        {
+            var platform = await fiscalisationClient.PreflightSignedReceiptAsync(request, cancellationToken);
+
+            return platform.Valid || platform.Failures.Count == 0
+                ? null
+                : string.Join(" ", platform.Failures);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (FiscalisationApiException ex) when (IsEndpointMissing(ex))
+        {
+            // A platform older than the preflight route. The receipt is unaffected — submit it and let
+            // the platform judge it on arrival, which is what happened before this check existed.
+            logger.LogDebug(
+                "The fiscalisation platform does not serve the preflight route, so van receipt {InvoiceNo} " +
+                "was checked locally only.",
+                request.InvoiceNo);
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            // A preflight is an accuracy measure, not an authorisation step. Turning its outage into a
+            // fiscalisation outage would stop every van over a check whose answer the platform gives
+            // again, for free, when the receipt arrives.
+            logger.LogWarning(
+                ex,
+                "Could not preflight van receipt {InvoiceNo} with the platform, so it was checked locally " +
+                "only. {Consequence}",
+                request.InvoiceNo,
+                settings.Preflight.FailClosed
+                    ? "Fiscalisation:Preflight:FailClosed is set, so it is being held back."
+                    : "It is being submitted anyway; the platform validates it again on arrival.");
+
+            return settings.Preflight.FailClosed
+                ? $"The platform preflight could not be reached ({ex.Message}) and Preflight:FailClosed is set."
+                : null;
+        }
+    }
+
+    /// <summary>
     /// Whether this receipt can never be sent again without someone intervening — a chain break, a
     /// missing signature, or a receipt that has used up its attempts. All three stop the device rather
     /// than the receipt, because nothing behind them can be accepted while they are missing.
@@ -281,7 +418,7 @@ public sealed class VanSalesSignedReceiptIngestService(
     /// </summary>
     private async Task MarkChainBrokenAsync(
         DesktopSaleEntity sale,
-        string deviceNumber,
+        int deviceNumber,
         FiscalisationApiException failure,
         CancellationToken cancellationToken)
     {
@@ -293,8 +430,9 @@ public sealed class VanSalesSignedReceiptIngestService(
         // leaving whoever reads the alert to discover it.
         var unsignableAhead = await context.DesktopSales
             .CountAsync(
-                other => other.SourceSystem == SaleSourceSystems.VanSales &&
-                         other.FiscalDeviceNumber == sale.FiscalDeviceNumber &&
+                other => other.SourceSystem != null &&
+                         SaleSourceSystems.VanSaleSources.Contains(other.SourceSystem) &&
+                         other.FiscalDeviceId == sale.FiscalDeviceId &&
                          other.ReceiptIngestStatus == DesktopSaleReceiptIngestStatus.Unsignable &&
                          other.ReceiptGlobalNo < sale.ReceiptGlobalNo,
                 cancellationToken);
@@ -319,11 +457,13 @@ public sealed class VanSalesSignedReceiptIngestService(
     /// </summary>
     private static IngestSignedReceiptApiRequest? TryBuildRequest(DesktopSaleEntity sale, out string? failure)
     {
-        if (!int.TryParse(sale.FiscalDeviceNumber?.Trim(), out var deviceId) || deviceId <= 0)
+        if (sale.FiscalDeviceId is not > 0)
         {
-            failure = "the sale names no numeric fiscal device, and a pre-signed receipt belongs to exactly one device's chain.";
+            failure = "the sale names no fiscal device, and a pre-signed receipt belongs to exactly one device's chain.";
             return null;
         }
+
+        var deviceId = sale.FiscalDeviceId.Value;
 
         if (!int.TryParse(sale.FiscalDayNo?.Trim(), out var fiscalDayNo) || fiscalDayNo <= 0)
         {

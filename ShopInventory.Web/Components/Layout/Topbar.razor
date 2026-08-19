@@ -498,6 +498,8 @@
         new("Security", "Review security configuration", "/security", "ph-shield-check", "", "authentication"),
         new("Sync status", "Review synchronization health", "/sync-status", "ph-arrows-clockwise", UserRoles.SystemRoles, "integration"),
         new("Backups", "Manage application backups", "/backups", "ph-cloud-arrow-up", UserRoles.Admin, "restore"),
+        new("Fiscalisation", "Devices, what is still owed to ZIMRA, and each fiscal day", "/fiscalisation", "ph-seal-check", UserRoles.Admin, "zimra", "fdms", "fiscal", "receipts", "tax", "work queue"),
+        new("Offline signing", "Which van may complete sales without signal", "/fiscalisation/offline-lease", "ph-signature", UserRoles.Admin, "zimra", "fiscal", "van", "lease"),
         // AI assistant (/ai-assistant) is deliberately absent: the page is hidden from
         // navigation, so it must not be reachable from search either. See NavMenu.razor.
         new("WhatsApp inbox", "Review WhatsApp conversations", "/whatsapp-inbox", "ph-chat-circle-dots", UserRoles.Admin, "messages")

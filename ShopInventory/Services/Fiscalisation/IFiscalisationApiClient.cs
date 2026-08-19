@@ -42,6 +42,34 @@ public interface IFiscalisationApiClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Asks the platform whether it would accept a receipt, without submitting it.
+    /// </summary>
+    /// <remarks>
+    /// Answers the rules only the platform can answer — whether the invoice number is already archived
+    /// on this device, what the next counter and global number are, what FDMS currently says about the
+    /// fiscal day — none of which are derivable from the receipt and the cached device configuration
+    /// that <see cref="ReceiptPreflight"/> works from.
+    ///
+    /// Nothing is reserved, locked, numbered or sent to FDMS, so it is safe to call on a receipt that
+    /// may never be submitted, and safe to call twice.
+    /// </remarks>
+    Task<PreflightReceiptApiResponse> PreflightReceiptAsync(
+        SubmitReceiptApiRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The same question for a receipt a handset already signed.
+    /// </summary>
+    /// <remarks>
+    /// Worth asking even though nothing can be corrected by then. A receipt that will be refused blocks
+    /// every later receipt from its device, so knowing before submission turns an unexplained stopped
+    /// van into a named cause.
+    /// </remarks>
+    Task<PreflightReceiptApiResponse> PreflightSignedReceiptAsync(
+        IngestSignedReceiptApiRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Looks up whether a document was already fiscalised.
     /// </summary>
     /// <remarks>

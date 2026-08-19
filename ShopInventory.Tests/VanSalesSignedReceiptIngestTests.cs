@@ -52,7 +52,14 @@ public sealed class VanSalesSignedReceiptIngestTests : IDisposable
         new(
             _context,
             _platform,
-            Options.Create(new FiscalisationSettings { Enabled = true }),
+            new StubDeviceConfigCache(),
+            // Local preflight only: these tests are about the drain's ordering and failure handling,
+            // and a platform preflight would be a second call to assert around in every one of them.
+            Options.Create(new FiscalisationSettings
+            {
+                Enabled = true,
+                Preflight = new FiscalisationPreflightSettings { Mode = FiscalisationPreflightMode.Local }
+            }),
             NullLogger<VanSalesSignedReceiptIngestService>.Instance);
 
     /// <summary>
@@ -164,7 +171,7 @@ public sealed class VanSalesSignedReceiptIngestTests : IDisposable
     {
         await SeedAsync(
             Receipt("VAN006-INV-1", globalNo: 501, counter: 4),
-            Receipt("VAN007-INV-1", globalNo: 220, counter: 2, deviceNumber: "35411"));
+            Receipt("VAN007-INV-1", globalNo: 220, counter: 2, deviceNumber: 35411));
 
         _platform.FailOn("VAN006-INV-1", new FiscalisationApiException(
             HttpStatusCode.ServiceUnavailable, "FdmsRequestNotSent", "The platform is unreachable."));
@@ -246,7 +253,7 @@ public sealed class VanSalesSignedReceiptIngestTests : IDisposable
         await SeedAsync(
             Receipt("VAN006-INV-1", globalNo: 501, counter: 4),
             Receipt("VAN006-INV-2", globalNo: 502, counter: 5),
-            Receipt("VAN007-INV-1", globalNo: 220, counter: 2, deviceNumber: "35411"));
+            Receipt("VAN007-INV-1", globalNo: 220, counter: 2, deviceNumber: 35411));
 
         // What the live platform actually returns for a route it does not serve: the request never reaches
         // the API-key middleware, so there is no problem document to read.
@@ -326,7 +333,7 @@ public sealed class VanSalesSignedReceiptIngestTests : IDisposable
         string reference,
         int globalNo,
         int counter,
-        string deviceNumber = "35410") => new()
+        int deviceNumber = 35410) => new()
         {
             ExternalReferenceId = reference,
             SourceSystem = SaleSourceSystems.VanSales,
@@ -342,7 +349,7 @@ public sealed class VanSalesSignedReceiptIngestTests : IDisposable
             CostCentreCode = "CC006",
 
             FiscalizationStatus = DesktopSaleFiscalizationStatus.Success,
-            FiscalDeviceNumber = deviceNumber,
+            FiscalDeviceId = deviceNumber,
             FiscalDayNo = "19",
             ReceiptGlobalNo = globalNo,
             ReceiptCounter = counter,
@@ -379,6 +386,22 @@ public sealed class VanSalesSignedReceiptIngestTests : IDisposable
     /// demand. Only the ingest call is implemented — reaching any other one from this drain would itself
     /// be the bug.
     /// </summary>
+    /// <summary>
+    /// No device configuration, which is what an unreachable platform looks like.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately the degraded case. These tests are about the drain — its ordering, and what it does
+    /// when a receipt fails — so the preflight should check only what it can decide from the receipt
+    /// itself and wave the rest through. Handing it a configuration would make every test here also a
+    /// test of the tax and HS-code rules, which are pinned in <c>ReceiptPreflightTests</c> instead.
+    /// </remarks>
+    private sealed class StubDeviceConfigCache : IFiscalDeviceConfigCache
+    {
+        public Task<FiscalConfigApiResponse?> TryGetAsync(
+            int deviceId, CancellationToken cancellationToken = default)
+            => Task.FromResult<FiscalConfigApiResponse?>(null);
+    }
+
     private sealed class RecordingFiscalisationClient : IFiscalisationApiClient
     {
         private readonly Dictionary<string, Exception> _failures = new(StringComparer.OrdinalIgnoreCase);
@@ -427,6 +450,16 @@ public sealed class VanSalesSignedReceiptIngestTests : IDisposable
             SubmitReceiptApiRequest request, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException(
                 "A receipt signed on a handset must never be fiscalised again.");
+
+        // Preflight changes nothing and is advisory, so a double that is not testing it answers
+        // "no objection" rather than throwing — the callers treat an unreachable preflight the same way.
+        public Task<PreflightReceiptApiResponse> PreflightReceiptAsync(
+            SubmitReceiptApiRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(new PreflightReceiptApiResponse { Valid = true });
+
+        public Task<PreflightReceiptApiResponse> PreflightSignedReceiptAsync(
+            IngestSignedReceiptApiRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(new PreflightReceiptApiResponse { Valid = true });
 
         public Task<CheckFiscalisedReceiptApiResponse> CheckReceiptAsync(
             int deviceId, string invoiceNo, ReceiptType receiptType, CancellationToken cancellationToken = default)

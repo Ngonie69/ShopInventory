@@ -1495,6 +1495,29 @@ new("POST", "/api/whatsapp/webhook/openwa", "Receive open WA webhook")
 }
 }
 }
+},
+new ApiCategory
+{
+Name = "Other",
+Icon = Icons.Material.Filled.Api,
+Modules = new List<ApiModule>
+{
+new ApiModule
+{
+Name = "Fiscalisation Console",
+BasePath = "/api/fiscalisation-console",
+Description = "3 endpoints under /api/fiscalisation-console.",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Secondary,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/fiscalisation-console/devices", "Get devices"),
+new("GET", "/api/fiscalisation-console/fiscal-days", "Get fiscal days"),
+new("GET", "/api/fiscalisation-console/work-queue", "Get work queue")
+}
+}
+}
 }
 };
 

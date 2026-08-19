@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using ShopInventory.Common.Sales;
 
 namespace ShopInventory.DTOs;
 
@@ -20,7 +21,7 @@ public sealed class VanSalesOfflineSaleBatchRequest
 /// tonight. The fiscal fields are reported, not requested — the receipt was stamped hours ago and this
 /// API must never re-fiscalise it.
 /// </summary>
-public sealed class VanSalesOfflineSaleRequest
+public sealed class VanSalesOfflineSaleRequest : IVanSalesSignedReceipt
 {
     /// <summary>
     /// The handset's own reference, e.g. <c>VAN006-INV-20260810-D261C8</c>. It is the idempotency key
@@ -127,14 +128,18 @@ public sealed class VanSalesOfflineSaleRequest
     public string? DeviceSignatureValue { get; set; }
 
     /// <summary>Whether this sale carries everything the platform needs to accept the receipt.</summary>
-    public bool HasSignedReceipt() =>
-        !string.IsNullOrWhiteSpace(DeviceSignatureHash) &&
-        !string.IsNullOrWhiteSpace(DeviceSignatureValue) &&
-        ReceiptDate.HasValue &&
-        ReceiptDate.Value != default &&
-        FiscalDayNo is > 0 &&
-        ReceiptCounter is > 0 &&
-        ReceiptGlobalNo is > 0;
+    /// <remarks>
+    /// Shared with the online path — see <see cref="VanSalesSignedReceipt.HasSignedReceipt"/>. Both van
+    /// endpoints must answer this identically or the same cart would be judged differently depending on
+    /// whether the van happened to have signal.
+    /// </remarks>
+    public bool HasSignedReceipt() => VanSalesSignedReceipt.HasSignedReceipt(this);
+
+    /// <summary>
+    /// Whether the handset took a number off its device's chain for this sale.
+    /// See <see cref="VanSalesSignedReceipt.ClaimsReceiptSequence"/> for what turns on the answer.
+    /// </summary>
+    public bool ClaimsReceiptSequence() => VanSalesSignedReceipt.ClaimsReceiptSequence(this);
 }
 
 /// <summary>

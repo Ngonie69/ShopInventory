@@ -216,6 +216,27 @@ public sealed class FiscalisedReceiptRecordDto
     public string? ServerSignatureValue { get; set; }
 }
 
+/// <summary>
+/// The platform's verdict on a receipt it has not been asked to fiscalise.
+/// </summary>
+/// <remarks>
+/// A failed preflight is still HTTP 200 with <see cref="Valid"/> false. That is the point of the
+/// endpoint: a 4xx would be indistinguishable from the request itself being wrong, and the whole reason
+/// to ask is to find out which.
+/// </remarks>
+public sealed class PreflightReceiptApiResponse
+{
+    public int DeviceId { get; set; }
+
+    public bool Valid { get; set; }
+
+    /// <summary>
+    /// Every rule the receipt breaks, in the platform's own wording — each names the FDMS code it
+    /// prevents, so they can be read alongside local findings without translation.
+    /// </summary>
+    public List<string> Failures { get; set; } = [];
+}
+
 public sealed class FiscalConfigApiResponse
 {
     public string OperationID { get; set; } = string.Empty;

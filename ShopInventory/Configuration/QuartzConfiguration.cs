@@ -33,6 +33,8 @@ public static class QuartzConfiguration
             .Get<VanSalesPostingSettings>() ?? new VanSalesPostingSettings();
         var desktopSalePosting = configuration.GetSection(DesktopSalePostingSettings.SectionName)
             .Get<DesktopSalePostingSettings>() ?? new DesktopSalePostingSettings();
+        var fiscalisation = configuration.GetSection(FiscalisationSettings.SectionName)
+            .Get<FiscalisationSettings>() ?? new FiscalisationSettings();
 
         services.AddQuartz(q =>
         {
@@ -185,6 +187,35 @@ public static class QuartzConfiguration
                         TimeSpan.FromSeconds(desktopSalePosting.IntervalSeconds),
                         startDelay: TimeSpan.FromMinutes(2));
                 }
+            }
+
+            // The step that actually gets a van's stamped receipts to ZIMRA: close the fiscal day, package
+            // it, upload it. Off until a device has been through the sequence by hand once, because the two
+            // operations it performs cannot be undone at FDMS.
+            //
+            // Two triggers, one job key, for the reason given twice above — DisallowConcurrentExecution is
+            // per key, and these two schedules must never overlap on one fiscal day. The hourly one is not a
+            // second close: a day is only eligible once its opening date is behind today, or the configured
+            // close time has passed, or the taxpayer's maximum hours are up. What it buys is the duration
+            // warning arriving while there is still day left to act on, and a half-finished day being picked
+            // up in an hour rather than tomorrow.
+            //
+            // Turning this off removes the job from the declared set, and QuartzStoredJobReconciler deletes
+            // the stored trigger at the next startup — the store is clustered and durable, so nothing else
+            // would.
+            if (fiscalisation.Enabled && fiscalisation.FiscalDay.AutoCloseEnabled)
+            {
+                AddCronJob<FiscalDayLifecycleJob>(
+                    q, "fiscal-day-lifecycle", BuildDailyCron(fiscalisation.FiscalDay.CloseAtLocalTime, "20:30"));
+
+                AddIntervalTriggerForJob<FiscalDayLifecycleJob>(
+                    q,
+                    "fiscal-day-lifecycle",
+                    "fiscal-day-lifecycle-watch",
+                    TimeSpan.FromHours(1),
+                    // Past the startup rush, and long enough after a restart that the receipt ingest has had
+                    // a pass at draining whatever arrived while this node was down.
+                    startDelay: TimeSpan.FromMinutes(10));
             }
 
             // There is deliberately no scheduled low-stock sweep. One ran here at 07:30 and was removed:

@@ -25,6 +25,22 @@ public sealed class ConvertVanSalesSalesOrderToInvoiceHandler(
             return Error.Unauthorized("VanSalesCompatibility.Unauthenticated", "User is not authenticated.");
         }
 
+        // This path shares VanSalesOrderRequest with the direct-invoice endpoint, so it can be handed a
+        // signed receipt — and it has nowhere to put one. It converts an existing sales order and
+        // fiscalises the resulting invoice server-side, which for a handset that stamped is a second
+        // writer on a chain that must have exactly one: FDMS then refuses that device's whole fiscal day
+        // at upload, not just this receipt.
+        //
+        // Refused rather than quietly dropped or quietly forked. Both of those are found days later, in
+        // the fiscal day that will not close; this costs one conversion and says why.
+        if (command.Request.ClaimsReceiptSequence())
+        {
+            return Error.Validation(
+                "VanSalesCompatibility.StampedSaleCannotBeConverted",
+                "This request carries a fiscal receipt the handset signed, and sales order conversion " +
+                "cannot take custody of one. Send a stamped sale to the direct invoice endpoint instead.");
+        }
+
         var salesOrderId = VanSalesCompatibilityMapper.ParseSalesOrderId(command.Request);
         if (salesOrderId is null)
         {

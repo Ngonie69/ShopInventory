@@ -208,6 +208,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // Which handset may sign offline on a fiscal device — one chain, one signer.
   public DbSet<FiscalDeviceOfflineLeaseEntity> FiscalDeviceOfflineLeases { get; set; }
 
+  // How far each device's fiscal day has got towards ZIMRA: drained, closed, packaged, submitted.
+  public DbSet<FiscalDayStateEntity> FiscalDayStates { get; set; }
+
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
     base.OnModelCreating(modelBuilder);
@@ -384,6 +387,17 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
       entity.HasIndex(u => u.Email)
                 .IsUnique();
+
+      // One handset per fiscal device, enforced by the database rather than by whoever saves last.
+      //
+      // A device is a single hash-chained receipt sequence. Two handsets holding the same id both sign a
+      // different receipt as number N, and FDMS refuses the entire fiscal day when the file is uploaded —
+      // after every customer has gone home with a printed receipt. The application already checks this on
+      // create and on update, but it is a read followed by a write with nothing in between, so two
+      // administrators saving at once still get through.
+      entity.HasIndex(u => u.FiscalDeviceId)
+                .IsUnique()
+                .HasFilter("\"FiscalDeviceId\" IS NOT NULL");
 
       entity.Property(u => u.Username)
                 .IsRequired()
