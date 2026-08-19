@@ -1041,7 +1041,17 @@ public sealed class GetExceptionCenterHandler(
             .Where(FiscalDayLifecyclePredicate(stuckBeforeLocal))
             // Oldest day first: the longer a day has been unreported, the closer the taxpayer is to a
             // filing that cannot be corrected.
-            .OrderBy(day => day.OpenedAtLocal ?? day.CreatedAt)
+            //
+            // On the two columns in turn rather than on a coalesce of them. OpenedAtLocal is the
+            // taxpayer's wall clock and CreatedAt is a UTC instant, so PostgreSQL refuses to apply one
+            // operation across the two types and rejects the whole query at translation. Coalescing them
+            // was never meaningful either: it ranked a wall clock against an instant and placed those rows
+            // two hours out. A day the handset never opened has no wall clock at all — only a
+            // reconciling or failed day can be in that state — so it sorts after the days that do, on the
+            // instant this server first recorded it.
+            .OrderBy(day => day.OpenedAtLocal == null)
+            .ThenBy(day => day.OpenedAtLocal)
+            .ThenBy(day => day.CreatedAt)
             .ThenBy(day => day.Id)
             .Take(perSourceLimit)
             .Select(day => new
