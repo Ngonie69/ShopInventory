@@ -3207,6 +3207,26 @@ See [Fiscalisation](#32-fiscalisation) for the platform this signs against.
 
 ---
 
+### 45a. Fiscalisation Console
+
+**Base route:** `/api/fiscalisation-console`  
+**Auth:** Bearer + the `AdminOnly` policy
+
+Read-only. What an operator needs to answer "is anything owed to ZIMRA, and what is stuck" without
+reading three pages and a log. Backs `/fiscalisation` in the web app.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/fiscalisation-console/devices` | Per device: operating mode, certificate expiry, fiscal day and hours elapsed against the taxpayer's limit, last receipt numbers, offline-signing holder, receipts not yet handed to the platform |
+| GET | `/api/fiscalisation-console/work-queue` | Documents and van sales eligible for or failed at fiscalisation, filtered server-side |
+| GET | `/api/fiscalisation-console/fiscal-days` | Per device per day: how far the close-package-submit sequence got, and where it stopped |
+
+The work queue is filtered in the query rather than after the fetch, unlike the fiscal-status filter
+on `/api/invoices` — a queue that only sees one page of results cannot tell an operator whether
+anything is outstanding.
+
+---
+
 ### 46. Batches
 
 **Base route:** `/api/Batch`  
