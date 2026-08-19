@@ -144,6 +144,17 @@ public class RequestValidationMiddleware
     private readonly RequestDelegate _next;
     private readonly ILogger<RequestValidationMiddleware> _logger;
 
+    // Per-pattern match budget.
+    //
+    // This is a CPU bound, not an attack signal: it caps what any single request can spend inside the
+    // regex engine, so a pathological input cannot pin a worker thread. Hitting it is NOT treated as
+    // evidence of an attack — see IsMalicious, which fails open on a timeout.
+    //
+    // Keep it small. A warmed-up match on these patterns costs microseconds, and a request is scanned
+    // at up to a dozen points (path, query, five headers, body) times two decodings times six
+    // patterns, so the budget multiplies out into the worst case an attacker can force.
+    private static readonly TimeSpan PatternTimeout = TimeSpan.FromMilliseconds(200);
+
     // SQL Injection patterns.
     //
     // The "--" comment marker only counts when it is not wedged between two word characters. Every
@@ -153,32 +164,73 @@ public class RequestValidationMiddleware
     // (?id=F9--6N_Qk3Nu71I4wABSTA) and dropped the user's hub connection.
     private static readonly Regex SqlInjectionRegex = new(
         @"(\b(union\s+(all\s+)?select|insert\s+into|delete\s+from|update\s+.*set|drop\s+(table|database|index)|alter\s+table|create\s+(table|database)|exec(\s|\()|execute(\s|\()|xp_|sp_|0x[0-9a-f]+)\b)|('(\s|%20)*(or|and)(\s|%20)*')|((?<![A-Za-z0-9_])-{2}|-{2}(?![A-Za-z0-9_]))|(/\*.*\*/)|(\b(or|and)\b\s+\d+\s*=\s*\d+)",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(200));
+        RegexOptions.IgnoreCase | RegexOptions.Compiled, PatternTimeout);
 
     // XSS patterns
     private static readonly Regex XssRegex = new(
         @"(<\s*script[\s>]|javascript\s*:|on(click|error|load|mouseover|focus|blur|submit|change|keyup|keydown|input)\s*=|<\s*iframe[\s>]|<\s*object[\s>]|<\s*embed[\s>]|<\s*link[\s>].*\bhref\s*=|<\s*img[^>]+\b(onerror|onload)\s*=|document\.(cookie|write|location)|window\.(location|open)|eval\s*\(|String\.fromCharCode|atob\s*\(|btoa\s*\()",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(200));
+        RegexOptions.IgnoreCase | RegexOptions.Compiled, PatternTimeout);
 
     // Path traversal patterns
     private static readonly Regex PathTraversalRegex = new(
         @"(\.{2}[/\\]|%2e{2}[/\\%]|%252e{2}|\.{2}%2f|\.{2}%5c)",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+        RegexOptions.IgnoreCase | RegexOptions.Compiled, PatternTimeout);
 
     // Command injection patterns
     private static readonly Regex CommandInjectionRegex = new(
         @"[;&|`$]\s*(cat|ls|dir|rm|del|wget|curl|bash|sh|cmd|powershell|nc|ncat|netcat|python|perl|ruby|php)\b",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+        RegexOptions.IgnoreCase | RegexOptions.Compiled, PatternTimeout);
 
     // XXE patterns (XML External Entity)
     private static readonly Regex XxeRegex = new(
         @"<!DOCTYPE[^>]*\[|<!ENTITY|SYSTEM\s+[""']|PUBLIC\s+[""']",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+        RegexOptions.IgnoreCase | RegexOptions.Compiled, PatternTimeout);
 
     // Open redirect patterns in parameter values
     private static readonly Regex OpenRedirectRegex = new(
         @"(redirect|return|next|url|goto|target|link|redir|destination|continue)\s*=\s*(https?://|//|\\\\)",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+        RegexOptions.IgnoreCase | RegexOptions.Compiled, PatternTimeout);
+
+    /// <summary>
+    /// One heuristic content pattern and the threat name reported when it matches.
+    /// </summary>
+    internal readonly record struct ThreatPattern(Regex Pattern, string Threat);
+
+    // The content patterns IsMalicious runs, in order.
+    private static readonly ThreatPattern[] ContentPatterns =
+    {
+        new(PathTraversalRegex, "PathTraversal"),
+        new(SqlInjectionRegex, "SQLInjection"),
+        new(XssRegex, "XSS"),
+        new(CommandInjectionRegex, "CommandInjection"),
+    };
+
+    static RequestValidationMiddleware()
+    {
+        // Warm every pattern at type-initialization time, which happens while Program.cs builds the
+        // pipeline — before the first request arrives.
+        //
+        // RegexOptions.Compiled defers IL emit and JIT to the first IsMatch call, and that work runs
+        // inside that call's own timeout window. Measured on an idle machine, the first match on the
+        // SQL pattern costs ~93 ms against a 200 ms budget while every later match costs ~0.004 ms.
+        // A loaded server only has to add ~107 ms of scheduling delay for a benign first request to
+        // trip the timeout. Paying the cost once here takes it out of the request path entirely.
+        foreach (var pattern in new[]
+                 {
+                     PathTraversalRegex, SqlInjectionRegex, XssRegex,
+                     CommandInjectionRegex, XxeRegex, OpenRedirectRegex
+                 })
+        {
+            try
+            {
+                pattern.IsMatch("warm-up");
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                // The point of the call is the compile, not the result.
+            }
+        }
+    }
 
     // Maximum request body size to scan (10 KB) - avoid DoS from huge payloads
     private const int MaxBodyScanSize = 10240;
@@ -226,7 +278,7 @@ public class RequestValidationMiddleware
 
         // 1. Validate path
         var path = context.Request.Path.ToString();
-        if (IsMalicious(path, out var pathThreat))
+        if (ScanRequestPart(path, "path", ip, out var pathThreat))
         {
             _logger.LogWarning("Blocked {Threat} in path from IP {Ip}: {Path}", pathThreat, ip, path);
             await RejectRequest(context);
@@ -236,7 +288,7 @@ public class RequestValidationMiddleware
         // 2. Validate query string
         var queryString = context.Request.QueryString.ToString();
         var skipQueryScan = QueryScanExcludedPaths.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase));
-        if (!skipQueryScan && IsMalicious(queryString, out var qsThreat))
+        if (!skipQueryScan && ScanRequestPart(queryString, "query string", ip, out var qsThreat))
         {
             _logger.LogWarning("Blocked {Threat} in query from IP {Ip}: {Query}", qsThreat, ip, queryString);
             await RejectRequest(context);
@@ -244,7 +296,8 @@ public class RequestValidationMiddleware
         }
 
         // 3. Check for open redirect in query parameters
-        if (!skipQueryScan && !string.IsNullOrEmpty(queryString) && OpenRedirectRegex.IsMatch(Uri.UnescapeDataString(queryString)))
+        if (!skipQueryScan && !string.IsNullOrEmpty(queryString) &&
+            MatchesOrFailsOpen(OpenRedirectRegex, Uri.UnescapeDataString(queryString), "open redirect", "query string", ip))
         {
             _logger.LogWarning("Blocked open redirect attempt from IP {Ip}: {Query}", ip, queryString);
             await RejectRequest(context);
@@ -257,7 +310,7 @@ public class RequestValidationMiddleware
             if (context.Request.Headers.TryGetValue(headerName, out var headerValue))
             {
                 var value = headerValue.ToString();
-                if (IsMalicious(value, out var headerThreat))
+                if (ScanRequestPart(value, $"header {headerName}", ip, out var headerThreat))
                 {
                     _logger.LogWarning("Blocked {Threat} in header {Header} from IP {Ip}", headerThreat, headerName, ip);
                     await RejectRequest(context);
@@ -289,7 +342,7 @@ public class RequestValidationMiddleware
                 if (bytesRead > 0)
                 {
                     var body = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    if (IsMalicious(body, out var bodyThreat))
+                    if (ScanRequestPart(body, "body", ip, out var bodyThreat))
                     {
                         _logger.LogWarning("Blocked {Threat} in request body from IP {Ip}, Path: {Path}",
                             bodyThreat, ip, path);
@@ -298,7 +351,8 @@ public class RequestValidationMiddleware
                     }
 
                     // XXE check specifically for XML content
-                    if (contentType.Contains("xml") && XxeRegex.IsMatch(body))
+                    if (contentType.Contains("xml") &&
+                        MatchesOrFailsOpen(XxeRegex, body, "XXE", "body", ip))
                     {
                         _logger.LogWarning("Blocked XXE attack in XML body from IP {Ip}", ip);
                         await RejectRequest(context);
@@ -311,9 +365,67 @@ public class RequestValidationMiddleware
         await _next(context);
     }
 
-    internal static bool IsMalicious(string content, out string threatType)
+    /// <summary>
+    /// Scans one part of the request, logging — but not rejecting on — a pattern that ran out of
+    /// its match budget. See the fail-open note in <see cref="IsMalicious(string, out string, out bool, ThreatPattern[])"/>.
+    /// </summary>
+    private bool ScanRequestPart(string content, string part, string ip, out string threatType)
+    {
+        var malicious = IsMalicious(content, out threatType, out var scanIncomplete);
+
+        if (scanIncomplete)
+        {
+            _logger.LogWarning(
+                "Request validation pattern scan ran out of its {TimeoutMs} ms budget on the {Part} from IP {Ip}; " +
+                "the request was allowed through. Repeated occurrences mean either a ReDoS probe or a host too " +
+                "loaded to finish a match that normally takes microseconds.",
+                PatternTimeout.TotalMilliseconds, part, ip);
+        }
+
+        return malicious;
+    }
+
+    /// <summary>
+    /// Runs a single pattern that is not part of <see cref="ContentPatterns"/>, applying the same
+    /// fail-open rule: a match budget overrun is logged and the request is allowed to continue.
+    /// </summary>
+    private bool MatchesOrFailsOpen(Regex pattern, string text, string threat, string part, string ip)
+    {
+        try
+        {
+            return pattern.IsMatch(text);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            _logger.LogWarning(
+                "{Threat} pattern ran out of its {TimeoutMs} ms budget on the {Part} from IP {Ip}; " +
+                "the request was allowed through.",
+                threat, PatternTimeout.TotalMilliseconds, part, ip);
+            return false;
+        }
+    }
+
+    internal static bool IsMalicious(string content, out string threatType) =>
+        IsMalicious(content, out threatType, out _);
+
+    /// <summary>
+    /// Runs the heuristic content patterns over <paramref name="content"/> and its decodings.
+    /// </summary>
+    /// <param name="content">The request fragment to scan.</param>
+    /// <param name="threatType">The name of the pattern that matched, or empty if none did.</param>
+    /// <param name="scanIncomplete">
+    /// True when at least one pattern ran out of its match budget, so the scan cannot say whether
+    /// that pattern would have matched. Callers should log this; it is not a reason to reject.
+    /// </param>
+    /// <param name="patterns">The patterns to run. Defaults to <see cref="ContentPatterns"/>; tests override it.</param>
+    internal static bool IsMalicious(
+        string content,
+        out string threatType,
+        out bool scanIncomplete,
+        ThreatPattern[]? patterns = null)
     {
         threatType = string.Empty;
+        scanIncomplete = false;
         if (string.IsNullOrEmpty(content))
             return false;
 
@@ -344,37 +456,36 @@ public class RequestValidationMiddleware
         // Check both single and double-decoded content
         foreach (var text in new[] { decoded, doubleDecoded })
         {
-            try
+            foreach (var (pattern, threat) in patterns ?? ContentPatterns)
             {
-                if (PathTraversalRegex.IsMatch(text))
+                // Each pattern gets its own try, so one that runs out of budget does not blind the
+                // ones after it. A payload that stalls the path-traversal pattern must not thereby
+                // skip the SQL, XSS and command-injection checks.
+                try
                 {
-                    threatType = "PathTraversal";
-                    return true;
+                    if (pattern.IsMatch(text))
+                    {
+                        threatType = threat;
+                        return true;
+                    }
                 }
-
-                if (SqlInjectionRegex.IsMatch(text))
+                catch (RegexMatchTimeoutException)
                 {
-                    threatType = "SQLInjection";
-                    return true;
+                    // Fail open. A timeout says the match did not finish in its budget; it does not
+                    // say the content was hostile. Every one of these patterns is a heuristic sitting
+                    // in front of parameterized queries, so the cost of guessing wrong is asymmetric:
+                    // guessing "attack" rejects a paying customer's request with a 400, while guessing
+                    // "unknown" leaves the request to the real controls behind this middleware.
+                    //
+                    // Blocking would not buy ReDoS protection either. The CPU is already spent by the
+                    // time the exception is raised — the timeout itself is what bounds the damage, and
+                    // it does that whichever way this branch goes.
+                    //
+                    // The caller logs it. A steady stream of these is a signal worth alerting on: it
+                    // means either someone probing for a stall or a machine too loaded to finish a
+                    // microsecond match inside its budget.
+                    scanIncomplete = true;
                 }
-
-                if (XssRegex.IsMatch(text))
-                {
-                    threatType = "XSS";
-                    return true;
-                }
-
-                if (CommandInjectionRegex.IsMatch(text))
-                {
-                    threatType = "CommandInjection";
-                    return true;
-                }
-            }
-            catch (RegexMatchTimeoutException)
-            {
-                // Regex timeout could indicate a ReDoS attack
-                threatType = "RegexTimeout";
-                return true;
             }
         }
 
