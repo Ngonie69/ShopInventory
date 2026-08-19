@@ -3853,18 +3853,33 @@ ORDER BY T0.""ItemCode""";
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogWarning("SQL query for batch numbers failed: {StatusCode} - {Error}, falling back to BatchNumberDetails",
+                _logger.LogError("SQL query for batch numbers failed: {StatusCode} - {Error}",
                     response.StatusCode, errorContent);
-                return await GetBatchNumbersForItemFallbackAsync(itemCode, warehouseCode, cancellationToken);
+                throw new InvalidOperationException(
+                    $"Could not read the batches of {itemCode} in warehouse {warehouseCode}: " +
+                    $"{response.StatusCode} - {ExtractSAPErrorMessage(errorContent) ?? errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
             return ParseBatchNumbersFromSqlResult(content, warehouseCode);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "SQL query for batch numbers failed, falling back to BatchNumberDetails");
-            return await GetBatchNumbersForItemFallbackAsync(itemCode, warehouseCode, cancellationToken);
+            // There is no second source for a warehouse's batch quantities. BatchNumberDetails,
+            // which this used to fall back to, carries neither a warehouse nor a quantity — see
+            // the committed $metadata — so every row it returned arrived with a null batch number
+            // and a quantity of zero, and a read that had merely failed was reported to the
+            // operator as an item with nothing left in the warehouse.
+            throw new InvalidOperationException(
+                $"Could not read the batches of {itemCode} in warehouse {warehouseCode}.", ex);
         }
     }
 
@@ -3913,39 +3928,6 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         return batches
             .Where(batch => !string.IsNullOrWhiteSpace(batch.ItemCode) && requested.Contains(batch.ItemCode))
             .ToList();
-    }
-
-    private async Task<List<BatchNumber>> GetBatchNumbersForItemFallbackAsync(
-        string itemCode,
-        string warehouseCode,
-        CancellationToken cancellationToken)
-    {
-        // Fallback: Query all batch numbers for the item and filter client-side
-        // Note: BatchNumberDetails uses 'Batch' property, not 'BatchNum'
-        var safeItemCode = SanitizeODataValue(itemCode);
-        var filter = Uri.EscapeDataString($"ItemCode eq '{safeItemCode}'");
-        var url = $"BatchNumberDetails?$filter={filter}";
-
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to get batch numbers for item {ItemCode}: {StatusCode} - {Error}",
-                itemCode, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get batch numbers: {response.StatusCode} - {errorContent}");
-        }
-
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<SAPResponse<BatchNumber>>(content);
-
-        // Note: Without warehouse filtering at API level, we return all batches for the item
-        // The batch details from BatchNumberDetails don't include warehouse, so we can't filter here
-        return result?.Value ?? new List<BatchNumber>();
     }
 
     private List<BatchNumber> ParseBatchNumbersFromSqlResult(string jsonContent, string warehouseCode)
@@ -10463,9 +10445,11 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         if (batchManagedItems.Count > 0)
         {
+            // Lines that arrive with their own batch selection are read too. SAP measures that
+            // selection against the source warehouse exactly as it measures an auto-allocated one,
+            // so it needs the same quantities — see the availability check on the line below.
             var batchItemsByWarehouse = request.Lines!
                 .Where(l => !string.IsNullOrEmpty(l.ItemCode) &&
-                    l.BatchNumbers is not { Count: > 0 } &&
                     l.SerialNumbers is not { Count: > 0 }
                     && batchManagedItems.Contains(
                         UomQuantityValidation.NormalizeItemCode(l.ItemCode)!,
@@ -10480,24 +10464,32 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                         .ToList(),
                     StringComparer.OrdinalIgnoreCase);
 
-            // Try to populate from pre-fetched validation data first
+            // Try to populate from pre-fetched validation data first, item by item: validation
+            // scopes its read to the items that needed it, so an item it did not read is not an
+            // item with no batches, and reusing the list for one would post it as empty.
             var warehousesNeedingFetch = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
             foreach (var (warehouse, itemCodes) in batchItemsByWarehouse)
             {
-                if (preFetchedData?.WarehouseBatches != null &&
-                    preFetchedData.WarehouseBatches.TryGetValue(warehouse, out var warehouseBatches) &&
-                    warehouseBatches != null)
+                var unread = new List<string>();
+                foreach (var itemCode in itemCodes)
                 {
-                    foreach (var itemCode in itemCodes)
+                    if (preFetchedData is not null &&
+                        preFetchedData.CoversBatchesFor(warehouse, itemCode))
                     {
-                        batchCache[BuildTransferAllocationKey(itemCode, warehouse)] = warehouseBatches
-                            .Where(b => string.Equals(b.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase))
-                            .ToList();
+                        batchCache[BuildTransferAllocationKey(itemCode, warehouse)] =
+                            preFetchedData.WarehouseBatches[warehouse]!
+                                .Where(b => string.Equals(b.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase))
+                                .ToList();
+                    }
+                    else
+                    {
+                        unread.Add(itemCode);
                     }
                 }
-                else
+
+                if (unread.Count > 0)
                 {
-                    warehousesNeedingFetch[warehouse] = itemCodes;
+                    warehousesNeedingFetch[warehouse] = unread;
                 }
             }
 
@@ -10515,7 +10507,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                             entry.Value,
                             entry.Key,
                             cancellationToken);
-                        return (Warehouse: entry.Key, ItemCodes: entry.Value, Batches: batches);
+                        return (Warehouse: entry.Key, ItemCodes: entry.Value, Batches: (List<BatchNumber>?)batches);
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
@@ -10523,16 +10515,24 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                     }
                     catch (Exception ex)
                     {
+                        // Deliberately not an empty list. Caching one reads as "this warehouse holds
+                        // no batches", which turns a failed read into a stock shortage; leaving the
+                        // key unset sends the line to the per-line reader, which says what failed.
                         _logger.LogWarning(
                             ex,
                             "Failed to bulk-fetch transfer batches in {Warehouse}",
                             entry.Key);
-                        return (Warehouse: entry.Key, ItemCodes: entry.Value, Batches: new List<BatchNumber>());
+                        return (Warehouse: entry.Key, ItemCodes: entry.Value, Batches: (List<BatchNumber>?)null);
                     }
                 });
                 var batchResults = await Task.WhenAll(batchTasks);
                 foreach (var result in batchResults)
                 {
+                    if (result.Batches is null)
+                    {
+                        continue;
+                    }
+
                     foreach (var itemCode in result.ItemCodes)
                     {
                         batchCache[BuildTransferAllocationKey(itemCode, result.Warehouse)] = result.Batches
@@ -10676,6 +10676,10 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                 var batchNumbers = new List<object>(line.BatchNumbers.Count);
                 var selectedQuantity = 0m;
 
+                // Totalled per batch, because one line may name the same batch on more than one
+                // row and SAP counts the rows together.
+                var selectedByBatch = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
                 foreach (var batchRequest in line.BatchNumbers)
                 {
                     if (string.IsNullOrWhiteSpace(batchRequest.BatchNumber))
@@ -10695,11 +10699,9 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                         Quantity = batchRequest.Quantity
                     });
                     selectedQuantity += batchRequest.Quantity;
-                    ClaimBatchQuantity(
-                        claimedBatchQuantities,
-                        allocationCacheKey,
-                        batchRequest.BatchNumber!,
-                        batchRequest.Quantity);
+                    selectedByBatch[batchRequest.BatchNumber!] =
+                        (selectedByBatch.TryGetValue(batchRequest.BatchNumber!, out var running) ? running : 0m)
+                        + batchRequest.Quantity;
                 }
 
                 // A selection that does not add up is the most common source of SAP's
@@ -10709,6 +10711,46 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                     throw new ArgumentException(
                         $"Line {i + 1}: the batch selection for item {line.ItemCode} covers {selectedQuantity} of {line.Quantity}. " +
                         $"SAP requires the batch quantities on a line to add up to the line quantity.");
+                }
+
+                // A selection the caller made is measured against the warehouse, not only against
+                // its own arithmetic. Until this ran, the last check before SAP was that the batch
+                // quantities added up to the line, so a selection made minutes or days earlier — a
+                // desktop transfer queued while SAP was down, a transfer held for approval — posted
+                // straight into SAP's "Insufficient quantity for item ... with batch ... in
+                // warehouse", naming a batch the source warehouse no longer held.
+                if (managesBatches)
+                {
+                    if (!batchCache.TryGetValue(allocationCacheKey, out var selectableBatches))
+                    {
+                        selectableBatches = await ReadTransferBatchesAsync(line, i, fromWarehouse, cancellationToken);
+                        batchCache[allocationCacheKey] = selectableBatches;
+                    }
+
+                    var availableByBatch = SumBatchQuantities(selectableBatches);
+                    foreach (var (batchNumber, selected) in selectedByBatch)
+                    {
+                        // The claim ledger is what carries this across the document: two lines
+                        // naming the same batch are measured against one pool rather than against
+                        // the batch twice, which is how SAP counts them.
+                        var availableForBatch =
+                            (availableByBatch.TryGetValue(batchNumber, out var inWarehouse) ? inWarehouse : 0m)
+                            - ClaimedBatchQuantity(claimedBatchQuantities, allocationCacheKey, batchNumber);
+
+                        if (selected - availableForBatch > AllocationQuantityTolerance)
+                        {
+                            throw new ArgumentException(
+                                $"Line {i + 1}: batch '{batchNumber}' of item {line.ItemCode} has " +
+                                $"{(availableForBatch > 0 ? availableForBatch : 0)} left in warehouse {fromWarehouse}, " +
+                                $"so the {selected} selected cannot be transferred. " +
+                                $"Re-pick the batches against current stock.");
+                        }
+                    }
+                }
+
+                foreach (var (batchNumber, selected) in selectedByBatch)
+                {
+                    ClaimBatchQuantity(claimedBatchQuantities, allocationCacheKey, batchNumber, selected);
                 }
 
                 linePayload["BatchNumbers"] = batchNumbers;
@@ -10947,6 +10989,11 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             _logger.LogError("Failed to create inventory transfer: {StatusCode} - {Error}",
                 response.StatusCode, responseContent);
 
+            // SAP's own sentence rather than the envelope around it. The raw response is on the
+            // log line above; what reaches a person — a queue entry's error, a held transfer's,
+            // the red box on the page — is the part they can act on.
+            var sapMessage = ExtractSAPErrorMessage(responseContent) ?? responseContent;
+
             // SAP names neither the row nor the item in -4014, so the message says what has to be
             // true of the document instead of repeating the raw error on its own.
             if (responseContent.Contains("-4014", StringComparison.Ordinal) ||
@@ -10955,7 +11002,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                 throw new InvalidOperationException(
                     "SAP rejected the transfer because a row has an incomplete batch/serial selection. " +
                     "Every unit on a batch-managed line must be allocated to batches, and a serial-managed " +
-                    $"line needs one serial number per unit: {responseContent}");
+                    $"line needs one serial number per unit: {sapMessage}");
             }
 
             // Check for SAP stock-related errors
@@ -10963,10 +11010,12 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                 responseContent.Contains("negative", StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException(
-                    $"SAP rejected transfer due to insufficient stock: {responseContent}");
+                    "SAP refused this transfer: there is not enough stock in the source warehouse for "
+                    + "what the document moves. Re-check the quantities and batches against current "
+                    + $"stock — a retry on its own cannot clear it. SAP said: {sapMessage}");
             }
 
-            throw new Exception($"Failed to create inventory transfer: {response.StatusCode} - {responseContent}");
+            throw new Exception($"Failed to create inventory transfer: {response.StatusCode} - {sapMessage}");
         }
 
         var createdTransfer = JsonSerializer.Deserialize<InventoryTransfer>(responseContent);
@@ -10995,6 +11044,27 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         string allocationCacheKey,
         string batchNumber) =>
         claimed.TryGetValue($"{allocationCacheKey}|{batchNumber}", out var quantity) ? quantity : 0m;
+
+    /// <summary>
+    /// Warehouse quantity per batch number. Summed rather than indexed, because one batch can
+    /// arrive on more than one row of a read that spans pages.
+    /// </summary>
+    private static Dictionary<string, decimal> SumBatchQuantities(IEnumerable<BatchNumber> batches)
+    {
+        var quantities = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        foreach (var batch in batches)
+        {
+            if (string.IsNullOrWhiteSpace(batch.BatchNum))
+            {
+                continue;
+            }
+
+            quantities[batch.BatchNum!] =
+                (quantities.TryGetValue(batch.BatchNum!, out var running) ? running : 0m) + batch.Quantity;
+        }
+
+        return quantities;
+    }
 
     private static void ClaimBatchQuantity(
         Dictionary<string, decimal> claimed,

@@ -63,6 +63,14 @@ public sealed class GetProductBatchesHandler(
             logger.LogError(ex, "Timeout connecting to SAP Service Layer");
             return Errors.Product.SapTimeout;
         }
+        catch (InvalidOperationException ex)
+        {
+            // The batch read has no fallback, so a failure is answered as a failure. Reporting it
+            // as an empty batch list would read as an item with no stock in the warehouse.
+            logger.LogError(ex, "Could not read batches for {ItemCode} in warehouse {Warehouse}",
+                request.ItemCode, request.WarehouseCode);
+            return Errors.Product.SapConnectionError(ex.Message);
+        }
         catch (HttpRequestException ex)
         {
             logger.LogError(ex, "Network error connecting to SAP Service Layer");

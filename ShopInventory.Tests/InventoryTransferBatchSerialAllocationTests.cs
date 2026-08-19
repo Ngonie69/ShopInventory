@@ -270,6 +270,240 @@ public sealed class InventoryTransferBatchSerialAllocationTests
         Assert.Equal(new[] { ("B-1", 1m), ("B-2", 1m) }, sap.PostedBatchAllocations(lineIndex: 1));
     }
 
+    [Fact]
+    public async Task Explicit_batch_selection_beyond_the_warehouse_quantity_is_rejected()
+    {
+        var sap = new AllocationServiceLayer
+        {
+            Items =
+            {
+                ["ITEM-A"] = (Batch: true, Serial: false)
+            }
+        };
+        var client = CreateClient(sap);
+
+        var failure = await Assert.ThrowsAsync<ArgumentException>(() =>
+            client.CreateInventoryTransferAsync(
+                new CreateInventoryTransferRequest
+                {
+                    FromWarehouse = "WH-1",
+                    ToWarehouse = "WH-2",
+                    Lines =
+                    [
+                        new()
+                        {
+                            ItemCode = "ITEM-A",
+                            Quantity = 5,
+                            BatchNumbers = [new() { BatchNumber = "B-1", Quantity = 5 }]
+                        }
+                    ]
+                },
+                PreFetched(("ITEM-A", "B-1", 2m)),
+                CancellationToken.None));
+
+        Assert.Contains("has 2 left in warehouse WH-1", failure.Message);
+        Assert.Equal(0, sap.TransferPosts);
+    }
+
+    [Fact]
+    public async Task Two_lines_selecting_the_same_batch_are_measured_against_one_pool()
+    {
+        var sap = new AllocationServiceLayer
+        {
+            Items =
+            {
+                ["ITEM-A"] = (Batch: true, Serial: false)
+            }
+        };
+        var client = CreateClient(sap);
+
+        var failure = await Assert.ThrowsAsync<ArgumentException>(() =>
+            client.CreateInventoryTransferAsync(
+                new CreateInventoryTransferRequest
+                {
+                    FromWarehouse = "WH-1",
+                    ToWarehouse = "WH-2",
+                    Lines =
+                    [
+                        new()
+                        {
+                            ItemCode = "ITEM-A",
+                            Quantity = 2,
+                            BatchNumbers = [new() { BatchNumber = "B-1", Quantity = 2 }]
+                        },
+                        new()
+                        {
+                            ItemCode = "ITEM-A",
+                            Quantity = 2,
+                            BatchNumbers = [new() { BatchNumber = "B-1", Quantity = 2 }]
+                        }
+                    ]
+                },
+                PreFetched(("ITEM-A", "B-1", 3m)),
+                CancellationToken.None));
+
+        Assert.Contains("Line 2", failure.Message);
+        Assert.Contains("has 1 left in warehouse WH-1", failure.Message);
+        Assert.Equal(0, sap.TransferPosts);
+    }
+
+    [Fact]
+    public async Task Explicit_selection_is_read_from_the_warehouse_when_nothing_was_prefetched()
+    {
+        var sap = new AllocationServiceLayer
+        {
+            Items = { ["ITEM-A"] = (Batch: true, Serial: false) },
+            WarehouseBatches = { ("ITEM-A", "B-1", 1m) }
+        };
+        var client = CreateClient(sap);
+
+        var failure = await Assert.ThrowsAsync<ArgumentException>(() =>
+            client.CreateInventoryTransferAsync(new CreateInventoryTransferRequest
+            {
+                FromWarehouse = "WH-1",
+                ToWarehouse = "WH-2",
+                Lines =
+                [
+                    new()
+                    {
+                        ItemCode = "ITEM-A",
+                        Quantity = 3,
+                        BatchNumbers = [new() { BatchNumber = "B-1", Quantity = 3 }]
+                    }
+                ]
+            }));
+
+        Assert.Contains("has 1 left in warehouse WH-1", failure.Message);
+        Assert.Equal(0, sap.TransferPosts);
+    }
+
+    [Fact]
+    public async Task Explicit_selection_within_the_warehouse_quantity_posts_unchanged()
+    {
+        var sap = new AllocationServiceLayer
+        {
+            Items =
+            {
+                ["ITEM-A"] = (Batch: true, Serial: false)
+            }
+        };
+        var client = CreateClient(sap);
+
+        await client.CreateInventoryTransferAsync(
+            new CreateInventoryTransferRequest
+            {
+                FromWarehouse = "WH-1",
+                ToWarehouse = "WH-2",
+                Lines =
+                [
+                    new()
+                    {
+                        ItemCode = "ITEM-A",
+                        Quantity = 3,
+                        BatchNumbers =
+                        [
+                            new() { BatchNumber = "B-1", Quantity = 2 },
+                            new() { BatchNumber = "B-2", Quantity = 1 }
+                        ]
+                    }
+                ]
+            },
+            PreFetched(("ITEM-A", "B-1", 2m), ("ITEM-A", "B-2", 4m)),
+            CancellationToken.None);
+
+        Assert.Equal(new[] { ("B-1", 2m), ("B-2", 1m) }, sap.PostedBatchAllocations(lineIndex: 0));
+    }
+
+    [Fact]
+    public async Task A_chosen_line_and_an_auto_allocated_line_are_both_covered_in_one_document()
+    {
+        var sap = new AllocationServiceLayer
+        {
+            Items =
+            {
+                ["ITEM-A"] = (Batch: true, Serial: false),
+                ["ITEM-B"] = (Batch: true, Serial: false)
+            }
+        };
+        var client = CreateClient(sap);
+
+        await client.CreateInventoryTransferAsync(
+            new CreateInventoryTransferRequest
+            {
+                FromWarehouse = "WH-1",
+                ToWarehouse = "WH-2",
+                Lines =
+                [
+                    new()
+                    {
+                        ItemCode = "ITEM-A",
+                        Quantity = 2,
+                        BatchNumbers = [new() { BatchNumber = "B-1", Quantity = 2 }]
+                    },
+                    new() { ItemCode = "ITEM-B", Quantity = 2 }
+                ]
+            },
+            PreFetched(("ITEM-A", "B-1", 5m), ("ITEM-B", "B-2", 4m)),
+            CancellationToken.None);
+
+        Assert.Equal(new[] { ("B-1", 2m) }, sap.PostedBatchAllocations(lineIndex: 0));
+        Assert.Equal(new[] { ("B-2", 2m) }, sap.PostedBatchAllocations(lineIndex: 1));
+    }
+
+    [Fact]
+    public async Task A_stock_rejection_from_sap_is_reported_in_plain_words()
+    {
+        var sap = new AllocationServiceLayer
+        {
+            Items = { ["ITEM-A"] = (Batch: false, Serial: false) },
+            TransferError = (HttpStatusCode.BadRequest,
+                """{"error":{"code":-10,"message":{"lang":"en-us","value":"10001153 - Insufficient quantity for item YOG144 with batch YOG144/H06/26 in warehouse"}}}""")
+        };
+        var client = CreateClient(sap);
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.CreateInventoryTransferAsync(new CreateInventoryTransferRequest
+            {
+                FromWarehouse = "WH-1",
+                ToWarehouse = "WH-2",
+                Lines = [new() { ItemCode = "ITEM-A", Quantity = 1 }]
+            }));
+
+        Assert.Contains("not enough stock in the source warehouse", failure.Message);
+        Assert.Contains("YOG144/H06/26", failure.Message);
+        // The raw envelope stays on the log line; a person is handed the sentence inside it.
+        Assert.DoesNotContain("\"error\"", failure.Message);
+        // And the wording still has to read as a rejection no retry can clear, which is what
+        // sends a queued transfer to review instead of round the queue again.
+        Assert.True(SapFailureClassifier.IsPermanentStockRejection(failure.Message));
+    }
+
+    [Fact]
+    public async Task A_batch_read_that_fails_is_reported_as_a_failure_not_as_an_empty_warehouse()
+    {
+        var sap = new AllocationServiceLayer
+        {
+            Items = { ["ITEM-A"] = (Batch: true, Serial: false) },
+            BatchReadError = (HttpStatusCode.BadRequest,
+                """{"error":{"code":-1,"message":{"lang":"en-us","value":"Internal error (-1) occurred"}}}""")
+        };
+        var client = CreateClient(sap);
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.CreateInventoryTransferAsync(new CreateInventoryTransferRequest
+            {
+                FromWarehouse = "WH-1",
+                ToWarehouse = "WH-2",
+                Lines = [new() { ItemCode = "ITEM-A", Quantity = 1 }]
+            }));
+
+        Assert.Contains("could not read the batches", failure.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(
+            SapFailureClassifier.IsPermanentStockRejection(failure.Message),
+            "a read that failed is not a shortage, and must stay retryable");
+        Assert.Equal(0, sap.TransferPosts);
+    }
+
     private static TransferPreFetchedData PreFetched(params (string ItemCode, string BatchNumber, decimal Quantity)[] batches)
     {
         var prefetched = new TransferPreFetchedData();
@@ -282,6 +516,11 @@ public sealed class InventoryTransferBatchSerialAllocationTests
                 Warehouse = "WH-1"
             })
             .ToList();
+        // As validation records it: the list answers for the items it was read for, and for no
+        // others, so an item outside it is fetched rather than read as an empty warehouse.
+        prefetched.WarehouseBatchItemCodes["WH-1"] = new HashSet<string>(
+            batches.Select(b => b.ItemCode),
+            StringComparer.OrdinalIgnoreCase);
         return prefetched;
     }
 
@@ -320,6 +559,9 @@ public sealed class InventoryTransferBatchSerialAllocationTests
         public string? TransferRequest { get; init; }
 
         public (HttpStatusCode Status, string Body)? TransferError { get; init; }
+
+        /// <summary>Makes the batch stock query fail, as a lost SQLQueries object does.</summary>
+        public (HttpStatusCode Status, string Body)? BatchReadError { get; init; }
 
         public int SingleItemReads { get; private set; }
         public int TransferPosts { get; private set; }
@@ -393,17 +635,17 @@ public sealed class InventoryTransferBatchSerialAllocationTests
                     return new HttpResponseMessage(HttpStatusCode.NotFound);
                 }
 
+                if (BatchReadError is { } batchError)
+                {
+                    return Json(batchError.Body, batchError.Status);
+                }
+
                 // The reader pages until a page comes back short, so only the first page has rows.
                 var rows = target.Contains("$skip=0", StringComparison.Ordinal) || !target.Contains("$skip=", StringComparison.Ordinal)
                     ? WarehouseBatches.Select(b =>
                         $$"""{"ItemCode":"{{b.ItemCode}}","BatchNum":"{{b.BatchNumber}}","InStock":{{b.Quantity}},"WhsCode":"WH-1"}""")
                     : [];
                 return Json($"{{\"value\":[{string.Join(",", rows)}]}}");
-            }
-
-            if (target.Contains("/BatchNumberDetails", StringComparison.Ordinal))
-            {
-                return Json("{\"value\":[]}");
             }
 
             if (target.EndsWith("/StockTransfers", StringComparison.Ordinal) &&

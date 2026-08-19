@@ -67,6 +67,7 @@ public interface IInventoryTransferQueueService
         string? sapDocEntry = null,
         int? sapDocNum = null,
         string? error = null,
+        DateTime? nextRetryAt = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -309,6 +310,7 @@ public class InventoryTransferQueueService : IInventoryTransferQueueService
         string? sapDocEntry = null,
         int? sapDocNum = null,
         string? error = null,
+        DateTime? nextRetryAt = null,
         CancellationToken cancellationToken = default)
     {
         var entry = await _context.InventoryTransferQueue
@@ -324,6 +326,10 @@ public class InventoryTransferQueueService : IInventoryTransferQueueService
         entry.SapDocEntry = sapDocEntry ?? entry.SapDocEntry;
         entry.SapDocNum = sapDocNum ?? entry.SapDocNum;
         entry.LastError = error ?? entry.LastError;
+        // Assigned rather than coalesced: a failure that hands over no time is saying the entry
+        // is not waiting on one. Nothing wrote this field before, so every backoff the poster
+        // computed was discarded and the entry came round again on the next ten-second tick.
+        entry.NextRetryAt = nextRetryAt;
         entry.ProcessedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync(cancellationToken);

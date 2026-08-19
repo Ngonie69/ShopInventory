@@ -102,6 +102,28 @@ public class TransferPreFetchedData
     /// Batch numbers per warehouse (key: warehouse code)
     /// </summary>
     public Dictionary<string, List<BatchNumber>?> WarehouseBatches { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The item codes the batch read actually covered, per warehouse.
+    /// </summary>
+    /// <remarks>
+    /// A warehouse's batch list is scoped to the items that needed it, so an item missing from the
+    /// list means "not read", which is not the same as "this item has no batches here". Without
+    /// this, a document mixing a chosen selection with an auto-allocated line reused the first
+    /// item's list for the second and reported an empty warehouse.
+    /// </remarks>
+    public Dictionary<string, HashSet<string>> WarehouseBatchItemCodes { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether the pre-fetched batch list can answer for this item in this warehouse.
+    /// </summary>
+    public bool CoversBatchesFor(string warehouseCode, string? itemCode) =>
+        !string.IsNullOrWhiteSpace(itemCode)
+        && WarehouseBatches.TryGetValue(warehouseCode, out var batches)
+        && batches is not null
+        && WarehouseBatchItemCodes.TryGetValue(warehouseCode, out var itemCodes)
+        && itemCodes.Contains(itemCode!);
 }
 
 /// <summary>
@@ -636,11 +658,77 @@ public class StockValidationService : IStockValidationService
         });
 
         var prefetchResults = await Task.WhenAll(prefetchTasks);
+        var warehouseBatchCoverage = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var (wh, stock, batches) in prefetchResults)
         {
             warehouseStockCache[wh] = stock;
             if (batches != null)
+            {
                 warehouseBatchCache[wh] = batches;
+                warehouseBatchCoverage[wh] = new HashSet<string>(
+                    warehouseBatchItemCodes.TryGetValue(wh, out var covered) ? covered : [],
+                    StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        // SAP measures a batch against the document as a whole, so two lines naming the same
+        // batch have to be added together before they are compared with the warehouse. Checking
+        // them one line at a time passed a pair that each fit on its own and together did not.
+        var batchDemand = new Dictionary<(string Warehouse, string ItemCode, string BatchNumber), (decimal Quantity, int LineNumber)>();
+        for (int i = 0; i < request.Lines.Count; i++)
+        {
+            var demandLine = request.Lines[i];
+            if (string.IsNullOrWhiteSpace(demandLine.ItemCode) || demandLine.BatchNumbers is not { Count: > 0 })
+                continue;
+
+            var demandWarehouse = demandLine.FromWarehouseCode ?? request.FromWarehouse ?? "01";
+            foreach (var batch in demandLine.BatchNumbers)
+            {
+                if (batch.Quantity <= 0)
+                {
+                    result.Suggestions.Add(
+                        $"Line {i + 1}: Batch '{batch.BatchNumber}' quantity must be greater than zero");
+                    continue;
+                }
+
+                // Reported against the first line that named the batch, which is where someone
+                // looking at the document starts reading.
+                var key = (demandWarehouse, demandLine.ItemCode!, batch.BatchNumber ?? "");
+                batchDemand[key] = batchDemand.TryGetValue(key, out var running)
+                    ? (running.Quantity + batch.Quantity, running.LineNumber)
+                    : (batch.Quantity, i + 1);
+            }
+        }
+
+        foreach (var ((warehouse, demandItem, batchNumber), (requested, lineNumber)) in batchDemand)
+        {
+            decimal available;
+            if (warehouseBatchCache.TryGetValue(warehouse, out var cachedBatches) && cachedBatches != null)
+            {
+                // Look up batch from pre-fetched data
+                available = cachedBatches
+                    .Where(b => string.Equals(b.ItemCode, demandItem, StringComparison.OrdinalIgnoreCase) &&
+                                string.Equals(b.BatchNum, batchNumber, StringComparison.OrdinalIgnoreCase))
+                    .Sum(b => b.Quantity);
+            }
+            else
+            {
+                // Fallback to individual lookup if pre-fetch failed
+                available = await GetBatchQuantityAsync(demandItem, batchNumber, warehouse, cancellationToken);
+            }
+
+            if (requested > available)
+            {
+                result.Errors.Add(new StockValidationError
+                {
+                    LineNumber = lineNumber,
+                    ItemCode = demandItem,
+                    WarehouseCode = warehouse,
+                    RequestedQuantity = requested,
+                    AvailableQuantity = available,
+                    BatchNumber = batchNumber
+                });
+            }
         }
 
         for (int i = 0; i < request.Lines.Count; i++)
@@ -662,52 +750,9 @@ public class StockValidationService : IStockValidationService
                 continue;
             }
 
-            // Check batch quantities if specified
-            if (line.BatchNumbers != null && line.BatchNumbers.Count > 0)
-            {
-                // Use pre-fetched batch data for the warehouse instead of per-batch SAP calls
-                warehouseBatchCache.TryGetValue(fromWarehouse, out var cachedBatches);
-
-                foreach (var batch in line.BatchNumbers)
-                {
-                    if (batch.Quantity <= 0)
-                    {
-                        result.Suggestions.Add(
-                            $"Line {i + 1}: Batch '{batch.BatchNumber}' quantity must be greater than zero");
-                        continue;
-                    }
-
-                    bool hasSufficient;
-                    if (cachedBatches != null)
-                    {
-                        // Look up batch from pre-fetched data
-                        var matchedBatch = cachedBatches.FirstOrDefault(b =>
-                            string.Equals(b.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase) &&
-                            string.Equals(b.BatchNum, batch.BatchNumber, StringComparison.OrdinalIgnoreCase));
-                        hasSufficient = matchedBatch != null && matchedBatch.Quantity >= batch.Quantity;
-                    }
-                    else
-                    {
-                        // Fallback to individual lookup if pre-fetch failed
-                        hasSufficient = await HasSufficientBatchQuantityAsync(
-                            itemCode, batch.BatchNumber ?? "", fromWarehouse, batch.Quantity, cancellationToken);
-                    }
-
-                    if (!hasSufficient)
-                    {
-                        result.Errors.Add(new StockValidationError
-                        {
-                            LineNumber = i + 1,
-                            ItemCode = itemCode,
-                            WarehouseCode = fromWarehouse,
-                            RequestedQuantity = batch.Quantity,
-                            AvailableQuantity = 0,
-                            BatchNumber = batch.BatchNumber
-                        });
-                    }
-                }
-            }
-            else
+            // A line that names its own batches was measured above, batch by batch. What is
+            // left here is the item-level check for a line that leaves the allocation to us.
+            if (line.BatchNumbers is not { Count: > 0 })
             {
                 // Check overall item stock using pre-fetched warehouse data
                 decimal availableQty;
@@ -750,7 +795,8 @@ public class StockValidationService : IStockValidationService
         result.PreFetchedData = new TransferPreFetchedData
         {
             WarehouseStock = warehouseStockCache,
-            WarehouseBatches = warehouseBatchCache
+            WarehouseBatches = warehouseBatchCache,
+            WarehouseBatchItemCodes = warehouseBatchCoverage
         };
 
         return result;
@@ -781,7 +827,19 @@ public class StockValidationService : IStockValidationService
         string batchNumber,
         string warehouseCode,
         decimal requestedQuantity,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        await GetBatchQuantityAsync(itemCode, batchNumber, warehouseCode, cancellationToken) >= requestedQuantity;
+
+    /// <summary>
+    /// What the warehouse holds of one batch. Zero also stands for "could not be read": a batch
+    /// whose quantity is unknown must not be transferable, since SAP is the one that decides and
+    /// it rejects the document either way.
+    /// </summary>
+    private async Task<decimal> GetBatchQuantityAsync(
+        string itemCode,
+        string batchNumber,
+        string warehouseCode,
+        CancellationToken cancellationToken)
     {
         // Check local database first
         var localBatch = await _dbContext.ProductBatches
@@ -795,7 +853,7 @@ public class StockValidationService : IStockValidationService
 
         if (localBatch != null)
         {
-            return localBatch.Quantity >= requestedQuantity;
+            return localBatch.Quantity;
         }
 
         // Fall back to SAP query
@@ -805,13 +863,13 @@ public class StockValidationService : IStockValidationService
             var batch = batches?.FirstOrDefault(b =>
                 string.Equals(b.BatchNum, batchNumber, StringComparison.OrdinalIgnoreCase));
 
-            return batch != null && batch.Quantity >= requestedQuantity;
+            return batch?.Quantity ?? 0;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to check batch quantity from SAP for {ItemCode}/{BatchNumber}",
                 itemCode, batchNumber);
-            return false; // Fail safe - assume insufficient
+            return 0; // Fail safe - assume insufficient
         }
     }
 

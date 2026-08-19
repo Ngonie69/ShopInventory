@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.ExceptionCenter.Queries.GetExceptionCenter;
 
@@ -115,10 +116,9 @@ public static class ExceptionCenterErrorClassifier
             "Not enough stock in the source warehouse",
             "SAP will keep rejecting this until the stock exists. Reconcile the warehouse or cut the quantity on the source document — a retry on its own cannot clear it.",
             Families.Stock,
-            text => (text.Contains("insufficient") && (text.Contains("stock") || text.Contains("quantity")))
-                    || text.Contains("not enough")
-                    || text.Contains("negative inventory")
-                    || text.Contains("quantity falls")),
+            // Shared with the transfer queue, which routes the same rejection straight to review
+            // instead of retrying it. The two must agree on what "a retry cannot clear it" means.
+            SapFailureClassifier.IsPermanentStockRejection),
 
         new("credit-limit",
             "Customer is over its credit limit",
