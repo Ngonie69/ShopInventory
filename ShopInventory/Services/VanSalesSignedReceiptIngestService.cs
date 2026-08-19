@@ -41,7 +41,7 @@ public sealed class VanSalesSignedReceiptIngestService(
     /// than the SAP posting job's because the consequence is heavier: this receipt blocks every later
     /// receipt from the same handset, so giving up on it stops that van's whole fiscal day.
     /// </summary>
-    private const int MaxIngestAttempts = 8;
+    internal const int MaxIngestAttempts = 8;
 
     /// <summary>
     /// The platform's code for "your chain and mine have diverged". It is a 409, not a validation error,
