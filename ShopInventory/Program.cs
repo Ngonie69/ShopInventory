@@ -244,6 +244,7 @@ try
         .AddCheck<QueuePressureHealthCheck>("queues", tags: ["dependencies"])
         .AddCheck<ThreadPoolPressureHealthCheck>("thread-pool", tags: ["ready", "deploy-ready", "dependencies"])
         .AddCheck<ApiKeyExpiryHealthCheck>("api-keys", tags: ["dependencies"])
+        .AddCheck<VanSalesReceiptIngestHealthCheck>("van-receipt-ingest", tags: ["dependencies"])
         .AddCheck<SapDependencyHealthCheck>("sap", tags: ["dependencies"]);
 
     // Configure Swagger with version-aware API metadata.
