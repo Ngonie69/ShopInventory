@@ -23,6 +23,11 @@ public static class DesktopSaleInvoiceRequestBuilder
         // recovery after a lost reply possible at all.
         U_Van_saleorder = sale.ExternalReferenceId,
         ClientRequestId = sale.ExternalReferenceId,
+        // The same string again, into the mobile invoice-number UDF when one is configured. It looks
+        // redundant beside U_Van_saleorder and is not: this one is also what the fiscalisation platform
+        // is told the receipt's invoice number is, so it is what makes a receipt stamped on the handset
+        // and a receipt raised from this SAP invoice the same document to ZIMRA rather than two.
+        MobileInvoiceNumber = sale.ExternalReferenceId,
         DocCurrency = sale.Currency,
         Comments = comments,
         Lines = sale.Lines

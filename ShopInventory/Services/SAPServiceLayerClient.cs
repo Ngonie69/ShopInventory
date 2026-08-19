@@ -31,6 +31,9 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private readonly CacheSyncStateRecorder _cacheSyncStateRecorder;
     private readonly ISapItemUomMappingStore _itemUomMappingStore;
 
+    /// <summary>Which UDFs carry the mobile invoice number and the sale's own reference.</summary>
+    private readonly Configuration.FiscalisationUdfSettings _fiscalisationUdf;
+
     // Session state is static so all transient instances share a single SAP session
     // instead of each injected instance creating its own login.
     private static string? _sessionId;
@@ -158,7 +161,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         ILogger<SAPServiceLayerClient> logger,
         IMemoryCache memoryCache,
         CacheSyncStateRecorder cacheSyncStateRecorder,
-        ISapItemUomMappingStore itemUomMappingStore)
+        ISapItemUomMappingStore itemUomMappingStore,
+        // Optional so the many tests that build this client directly are unaffected, and because the
+        // default is dormant: with no UDF named, nothing is written and behaviour is exactly as before.
+        IOptions<FiscalisationSettings>? fiscalisationSettings = null)
     {
         _httpClient = httpClient;
         _httpClientFactory = httpClientFactory;
@@ -168,6 +174,39 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         _memoryCache = memoryCache;
         _cacheSyncStateRecorder = cacheSyncStateRecorder;
         _itemUomMappingStore = itemUomMappingStore;
+        _fiscalisationUdf = fiscalisationSettings?.Value.Udf ?? new Configuration.FiscalisationUdfSettings
+        {
+            InvoiceNumberField = string.Empty
+        };
+    }
+
+    /// <summary>
+    /// Adds the mobile invoice-number UDF to a serialised document, when one is configured.
+    /// </summary>
+    /// <remarks>
+    /// Grafted onto the JSON rather than declared on the payload type because the field is named in
+    /// configuration and differs between companies. A UDF that does not exist in the target company makes
+    /// the Service Layer reject the entire document, so an unconfigured name must add nothing at all —
+    /// not an empty string, not a null property.
+    /// </remarks>
+    private string AddMobileInvoiceNumberUdf(string json, string? mobileInvoiceNumber)
+    {
+        var fieldName = _fiscalisationUdf.InvoiceNumberField?.Trim();
+
+        if (string.IsNullOrWhiteSpace(fieldName) || string.IsNullOrWhiteSpace(mobileInvoiceNumber))
+        {
+            return json;
+        }
+
+        var document = System.Text.Json.Nodes.JsonNode.Parse(json)?.AsObject();
+
+        if (document is null)
+        {
+            return json;
+        }
+
+        document[fieldName] = mobileInvoiceNumber.Trim();
+        return document.ToJsonString();
     }
 
     private HttpClient GetLongRunningHttpClient()
@@ -1075,6 +1114,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
         });
+
+        json = AddMobileInvoiceNumberUdf(json, request.MobileInvoiceNumber);
 
         var httpContent = new StringContent(json, Encoding.UTF8, "application/json");
 

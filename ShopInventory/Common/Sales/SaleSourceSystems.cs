@@ -18,12 +18,58 @@ public static class SaleSourceSystems
     public const string VanSales = "KefalosVanSales";
 
     /// <summary>
-    /// Van sales are excluded from <c>ConsolidateDailySales</c> by this test. They sit in the same table
-    /// with the same <c>Pending</c> status that the consolidation handler selects on, so without it the
-    /// 18:00 consolidation would sweep up a van sale that the van posting job is also about to post.
+    /// The ZIMRA receipt a van handset signed for a sale it made <i>online</i>, where the invoice went
+    /// straight to SAP through the reservation and the sale is already represented by that reservation.
     /// </summary>
+    /// <remarks>
+    /// A distinct source rather than a flag on <see cref="VanSales"/>, and the distinction is the whole
+    /// reason the row is safe to write at all.
+    ///
+    /// <para>
+    /// An online van sale already exists twice over: as the confirmed <c>StockReservation</c> the report
+    /// stream counts, and as the SAP invoice that reservation posted. The only thing missing from it is
+    /// the handset's signed receipt, which has nowhere else to live — so a <c>DesktopSaleEntity</c> is
+    /// written to carry it to <c>VanSalesSignedReceiptIngestService</c> and no further. Under
+    /// <see cref="VanSales"/> that same row would be counted a second time by
+    /// <c>VanSalesFactReader</c>, which unions van <c>DesktopSales</c> with confirmed reservations, and
+    /// posted a second time by <c>VanSalesEndOfDayPostingService</c>, which would put a duplicate
+    /// invoice in SAP for a sale SAP already has.
+    /// </para>
+    ///
+    /// <para>
+    /// So the rule for every reader is one question: does it want <i>the sale</i>, or does it want
+    /// <i>the receipt</i>? Anything counting money or posting documents must leave these rows alone —
+    /// the reservation speaks for them. Anything about the fiscal chain must include them, because the
+    /// receipt is real, its number came off a device's sequence, and FDMS will not close that device's
+    /// fiscal day without it. The same question applies to any report that unions <c>DesktopSales</c>
+    /// with <c>StockReservations</c>: the route customer reports do, and exclude this source by name.
+    /// </para>
+    /// </remarks>
+    public const string VanSalesOnline = "KefalosVanSalesOnline";
+
+    /// <summary>
+    /// Both routes a sale off a van handset can arrive by. What the fiscal side reads: one handset owns
+    /// one ZIMRA device, and its receipts are one chain whether the van had signal at the time or not.
+    /// </summary>
+    public static readonly string[] VanSaleSources = [VanSales, VanSalesOnline];
+
+    /// <summary>
+    /// Whether this sale came off a van handset, by either route.
+    /// </summary>
+    /// <remarks>
+    /// Van sales are excluded from <c>ConsolidateDailySales</c> by <see cref="PostedPerSale"/>. They sit
+    /// in the same table with the same <c>Pending</c> status that the consolidation handler selects on,
+    /// so without it the 18:00 consolidation would sweep up a van sale that the van posting job is also
+    /// about to post.
+    ///
+    /// This answers the fiscal question instead — "is the hand-over drain the owner of this row's
+    /// receipt" — and so covers both van sources. It is not a test for "should this be posted": an
+    /// online van sale is already in SAP, and <see cref="VanSales"/> alone is what the posting route
+    /// selects on.
+    /// </remarks>
     public static bool IsVanSale(string? sourceSystem) =>
-        string.Equals(sourceSystem?.Trim(), VanSales, StringComparison.OrdinalIgnoreCase);
+        VanSaleSources.Any(source =>
+            string.Equals(sourceSystem?.Trim(), source, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// A shop till sale, fiscalised the moment it is rung up so the customer's receipt can print, and
@@ -44,8 +90,13 @@ public static class SaleSourceSystems
     /// <remarks>
     /// Adding a source here without also giving it a posting route strands its sales unposted; adding a
     /// posting route without listing it here invoices them twice. The two go together.
+    ///
+    /// <see cref="VanSalesOnline"/> is the one member with no posting route of its own, and it is here
+    /// for the same reason the others are: to be left alone at 18:00. Its invoice reached SAP in the
+    /// request that made the sale, so there is nothing left to post and a consolidation that swept the
+    /// row up would invoice the sale a second time.
     /// </remarks>
-    public static readonly string[] PostedPerSale = [VanSales, ShopTill, Vending];
+    public static readonly string[] PostedPerSale = [VanSales, VanSalesOnline, ShopTill, Vending];
 
     /// <summary>The sources a till may declare on <c>POST /api/DesktopIntegration/sales</c>.</summary>
     public static readonly string[] TillSources = [ShopTill, Vending];

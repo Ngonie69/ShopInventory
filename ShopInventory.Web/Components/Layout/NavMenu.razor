@@ -809,6 +809,14 @@
                             </span>
                             <span class="snav-text">API Docs</span>
                         </NavLink>
+                        @* Exact match, not prefix: /fiscalisation is a prefix of the offline signing
+                           route below, so a prefix match would light both whenever either is open. *@
+                        <NavLink class="snav-link" href="/fiscalisation" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <i class="ph ph-seal-check" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Fiscalisation</span>
+                        </NavLink>
                         <NavLink class="snav-link" href="/fiscalisation/offline-lease" Match="NavLinkMatch.Prefix">
                             <span class="snav-icon">
                                 <i class="ph ph-signature" aria-hidden="true"></i>

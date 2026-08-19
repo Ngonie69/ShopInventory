@@ -171,6 +171,18 @@ public class FiscalizationResult
     public string? InvoiceNumber { get; set; }
     public bool Skipped { get; set; }
     public bool Queued { get; set; }
+
+    /// <summary>
+    /// The document's fiscal state is unknown and must be resolved by looking it up, not by sending it
+    /// again.
+    /// </summary>
+    /// <remarks>
+    /// The API has always sent this; nothing here read it, so every caller that offered a retry offered
+    /// it on exactly the failure that must not be retried. A receipt may already exist at FDMS, and a
+    /// duplicate fiscal receipt cannot be withdrawn.
+    /// </remarks>
+    public bool RequiresReconciliation { get; set; }
+
     public string? RawRequestJson { get; set; }
     public string? RawResponseJson { get; set; }
 }

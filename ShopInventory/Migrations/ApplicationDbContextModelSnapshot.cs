@@ -1420,6 +1420,9 @@ namespace ShopInventory.Migrations
                     b.Property<DateTime?>("FiscalDayOpenedAt")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<int?>("FiscalDeviceId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("FiscalDeviceNumber")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -1535,6 +1538,10 @@ namespace ShopInventory.Migrations
                     b.Property<int?>("SalesPersonCode")
                         .HasColumnType("integer");
 
+                    b.Property<string>("SapComexReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<int?>("SapDocEntry")
                         .HasColumnType("integer");
 
@@ -1571,13 +1578,15 @@ namespace ShopInventory.Migrations
 
                     b.HasIndex("RouteCustomerCode");
 
+                    b.HasIndex("SapComexReference");
+
                     b.HasIndex("SapDocNum");
 
                     b.HasIndex("WarehouseCode");
 
-                    b.HasIndex("ReceiptIngestStatus", "ReceiptGlobalNo");
-
                     b.HasIndex("RouteCustomerId", "DocDate");
+
+                    b.HasIndex("ReceiptIngestStatus", "FiscalDeviceId", "ReceiptGlobalNo");
 
                     b.ToTable("DesktopSales", null, t =>
                         {
@@ -2153,6 +2162,71 @@ namespace ShopInventory.Migrations
                     b.HasIndex("FromCurrency", "ToCurrency", "EffectiveDate");
 
                     b.ToTable("ExchangeRates", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.FiscalDayStateEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ClosedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DeviceId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("DurationWarningRaised")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("FileGeneratedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("FileSubmittedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("FiscalDayNo")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("IngestedReceiptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<int?>("MaxDurationHours")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("OfflineFileReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("OpenedAtLocal")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("DeviceId", "FiscalDayNo")
+                        .IsUnique();
+
+                    b.ToTable("FiscalDayStates");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.FiscalDeviceOfflineLeaseEntity", b =>
@@ -6382,6 +6456,10 @@ namespace ShopInventory.Migrations
 
                     b.HasIndex("Email")
                         .IsUnique();
+
+                    b.HasIndex("FiscalDeviceId")
+                        .IsUnique()
+                        .HasFilter("\"FiscalDeviceId\" IS NOT NULL");
 
                     b.HasIndex("RouteId");
 

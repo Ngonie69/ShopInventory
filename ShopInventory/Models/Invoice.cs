@@ -178,6 +178,22 @@ public class CreateInvoiceRequest
     public string? U_Van_saleorder { get; set; }
 
     /// <summary>
+    /// The invoice number the mobile device generated for this sale.
+    /// </summary>
+    /// <remarks>
+    /// Written to whichever UDF <c>Fiscalisation:Udf:InvoiceNumberField</c> names — <c>U_Comex</c> in
+    /// production — rather than to a fixed property, because the field does not exist in every company
+    /// and posting an undefined UDF makes the Service Layer refuse the whole document. Ignored entirely
+    /// while that setting is blank.
+    ///
+    /// It is also the receipt number sent to the fiscalisation platform, which is the point of carrying
+    /// it: the platform keys idempotency on (taxpayer, receipt type, invoice number), and until both
+    /// sides use one string a sale fiscalised from the handset and the same sale fiscalised from its SAP
+    /// invoice are two unrelated receipts to ZIMRA.
+    /// </remarks>
+    public string? MobileInvoiceNumber { get; set; }
+
+    /// <summary>
     /// Expected number of crates attached to this invoice for crate reconciliation.
     /// When zero or omitted, no crate transaction is registered.
     /// </summary>

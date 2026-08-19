@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -12,6 +13,42 @@ internal static class FiscalDocumentStatusProjector
     private const string FiscalisedStatus = "Fiscalised";
     private const string NotFiscalisedStatus = "Not Fiscalised";
     private const string UnknownStatus = "Unknown";
+
+    /// <summary>
+    /// Whether a fiscal transaction row is evidence that ZIMRA holds a receipt for its document.
+    /// </summary>
+    /// <remarks>
+    /// An <see cref="Expression"/> rather than a plain method because two very different callers ask the
+    /// same question and must never answer it differently: this projector asks it in memory, over rows it
+    /// has already fetched, to decide what the invoice list shows; the fiscalisation console's work queue
+    /// asks it in SQL, to decide whether a document is still owed. When those two disagree the console
+    /// offers a Fiscalise button on a document the list is already calling fiscalised — and a duplicate
+    /// fiscal receipt cannot be withdrawn.
+    ///
+    /// Status alone is not the rule. The manual fiscalise path writes "Success" and the desktop sync
+    /// writes "Fiscalised", and a row carrying a receipt number, a QR code or a verification code is
+    /// evidence whatever its status says.
+    ///
+    /// <c>ToLower</c> rather than an ordinal-ignore-case comparison because SQL string equality is
+    /// case-sensitive on PostgreSQL and this has to mean the same thing on both sides of the wire.
+    /// </remarks>
+    public static readonly Expression<Func<DesktopFiscalTransactionEntity, bool>> HasFiscalEvidenceExpression =
+        transaction =>
+            transaction.Status.ToLower() == "success"
+            || transaction.Status.ToLower() == "fiscalised"
+            || transaction.ReceiptGlobalNo != null
+            || (transaction.QRCode != null && transaction.QRCode.Trim() != "")
+            || (transaction.VerificationCode != null && transaction.VerificationCode.Trim() != "");
+
+    /// <summary>The negation of <see cref="HasFiscalEvidenceExpression"/>, for filtering a query down to
+    /// the documents that are still owed a receipt.</summary>
+    public static readonly Expression<Func<DesktopFiscalTransactionEntity, bool>> LacksFiscalEvidenceExpression =
+        Expression.Lambda<Func<DesktopFiscalTransactionEntity, bool>>(
+            Expression.Not(HasFiscalEvidenceExpression.Body),
+            HasFiscalEvidenceExpression.Parameters);
+
+    private static readonly Func<DesktopFiscalTransactionEntity, bool> HasFiscalEvidencePredicate =
+        HasFiscalEvidenceExpression.Compile();
 
     public static async Task EnrichInvoicesAsync(
         ApplicationDbContext dbContext,
@@ -253,9 +290,5 @@ internal static class FiscalDocumentStatusProjector
             .First();
 
     private static bool HasFiscalEvidence(DesktopFiscalTransactionEntity transaction)
-        => string.Equals(transaction.Status, "Success", StringComparison.OrdinalIgnoreCase)
-           || string.Equals(transaction.Status, FiscalisedStatus, StringComparison.OrdinalIgnoreCase)
-           || transaction.ReceiptGlobalNo.HasValue
-           || !string.IsNullOrWhiteSpace(transaction.QRCode)
-           || !string.IsNullOrWhiteSpace(transaction.VerificationCode);
+        => HasFiscalEvidencePredicate(transaction);
 }

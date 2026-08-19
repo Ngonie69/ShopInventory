@@ -717,6 +717,11 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// <summary>
     /// List desktop sales with optional filters.
     /// </summary>
+    /// <remarks>
+    /// <paramref name="sourceSystem"/> omitted is the default scope, not every row: the signed-receipt
+    /// carriers written for online van sales are left out, because their money belongs to a sale already
+    /// listed as its own SAP invoice. Pass <c>KefalosVanSalesOnline</c> to list exactly those.
+    /// </remarks>
     [HttpGet("sales")]
     public async Task<IActionResult> GetDesktopSales(
         [FromQuery] string? warehouseCode,
@@ -726,10 +731,12 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         [FromQuery] DateTime? toDate,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
+        [FromQuery] string? sourceSystem = null,
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetDesktopSalesQuery(warehouseCode, cardCode, consolidationStatus, fromDate, toDate, page, pageSize),
+            new GetDesktopSalesQuery(
+                warehouseCode, cardCode, consolidationStatus, fromDate, toDate, page, pageSize, sourceSystem),
             cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }

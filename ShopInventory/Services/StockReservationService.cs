@@ -370,7 +370,43 @@ public class StockReservationService : IStockReservationService
 
         // Save to database
         await _dbContext.StockReservations.AddAsync(reservation, cancellationToken);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (IsDuplicateExternalReference(ex))
+        {
+            // Two requests carrying the same reference arrived together and both got past the read at
+            // the top of this method — a handset that retried on a timeout, or a rep who pressed the
+            // button twice. The unique index is what actually settles it; this only turns the loser's
+            // exception into the same answer the earlier read would have given.
+            //
+            // Without it the second caller sees a 500 and the handset, correctly, retries — which is how
+            // one sale becomes a queue of failed attempts against a reservation that already exists.
+            _dbContext.Entry(reservation).State = EntityState.Detached;
+
+            var winner = await _dbContext.StockReservations
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    r => r.ExternalReferenceId == request.ExternalReferenceId,
+                    cancellationToken);
+
+            _logger.LogWarning(
+                ex,
+                "Two concurrent reservations were created for {ExternalRef}; kept {ReservationId} and " +
+                "discarded the duplicate.",
+                request.ExternalReferenceId,
+                winner?.ReservationId);
+
+            return new StockReservationResponseDto
+            {
+                Success = true,
+                Message = "Existing reservation found for this reference",
+                Reservation = winner is null ? null : MapToDto(winner),
+                Warnings = ["A concurrent request created this reservation first; using that one."]
+            };
+        }
 
         _logger.LogInformation(
             "Stock reservation created successfully. ReservationId: {ReservationId}, ExternalRef: {ExternalRef}, Lines: {LineCount}, TotalValue: {Total}",
@@ -447,6 +483,65 @@ public class StockReservationService : IStockReservationService
             };
         }
 
+        if (reservation.Status == ReservationStatus.Confirming)
+        {
+            // Another caller is mid-post. Saying "no" here is the whole point: the honest alternative,
+            // waiting for it, would just move the duplicate risk to whichever request timed out first.
+            _logger.LogWarning(
+                "Reservation {ReservationId} ({ExternalRef}) is already being posted to SAP by another " +
+                "request, so this one was refused rather than posting a second invoice for the same sale.",
+                reservation.ReservationId,
+                reservation.ExternalReferenceId);
+
+            return new ConfirmReservationResponseDto
+            {
+                Success = false,
+                Message = "This sale is already being posted to SAP. Wait for it to finish rather than sending it again.",
+                ReservationId = request.ReservationId,
+                Errors = new List<string>
+                {
+                    "A concurrent request holds this reservation. Re-check it in a moment: if it succeeded " +
+                    "the sale is posted, and if it failed the reservation returns to Pending and can be retried."
+                }
+            };
+        }
+
+        // Take the reservation before doing anything that reaches SAP.
+        //
+        // A conditional update, not a read-then-write: it is the WHERE clause that makes this safe. Two
+        // requests carrying one van_order both arrive here with the row Pending, and exactly one of them
+        // changes a row. The other gets zero rows back and is refused above.
+        //
+        // Everything after this point — the "is it already in SAP" lookup and the post itself — is the
+        // window the guard exists to close. Both requests used to pass that lookup, because neither had
+        // posted yet, and both then created an invoice.
+        var claimed = await _dbContext.StockReservations
+            .Where(row => row.Id == reservation.Id && row.Status == ReservationStatus.Pending)
+            .ExecuteUpdateAsync(
+                update => update.SetProperty(row => row.Status, ReservationStatus.Confirming),
+                cancellationToken);
+
+        if (claimed == 0)
+        {
+            _logger.LogWarning(
+                "Reservation {ReservationId} ({ExternalRef}) was taken by another request between reading " +
+                "it and claiming it, so this one did not post.",
+                reservation.ReservationId,
+                reservation.ExternalReferenceId);
+
+            return new ConfirmReservationResponseDto
+            {
+                Success = false,
+                Message = "This sale is already being posted to SAP. Wait for it to finish rather than sending it again.",
+                ReservationId = request.ReservationId,
+                Errors = new List<string> { "A concurrent request claimed this reservation first." }
+            };
+        }
+
+        // The tracked entity still says Pending; the database says Confirming. Keep them in step so the
+        // success path's own status write is not a no-op against a stale value.
+        reservation.Status = ReservationStatus.Confirming;
+
         var vanSaleOrder = string.IsNullOrWhiteSpace(reservation.ExternalReferenceId)
             ? null
             : reservation.ExternalReferenceId.Trim();
@@ -462,6 +557,9 @@ public class StockReservationService : IStockReservationService
             DocCurrency = reservation.Currency,
             SalesPersonCode = request.SalesPersonCode,
             U_Van_saleorder = vanSaleOrder,
+            // Also the receipt number the fiscalisation platform is given, so one sale is one document
+            // to ZIMRA whether it was stamped on the handset or fiscalised from this invoice.
+            MobileInvoiceNumber = vanSaleOrder,
             Lines = reservation.Lines.Select(l => new CreateInvoiceLineRequest
             {
                 ItemCode = l.ItemCode,
@@ -582,8 +680,19 @@ public class StockReservationService : IStockReservationService
             }
             else
             {
+                // Hand the claim back, or nothing can ever retry this sale: the reservation would sit in
+                // Confirming, every retry would be refused as "already being posted", and the takings
+                // would be lost to a transient network failure.
+                //
+                // Safe to reopen even though the post may have reached SAP and only the reply been lost.
+                // The retry asks SAP for this sale's own U_Van_saleorder before posting, and a document
+                // that did land is found there and adopted rather than duplicated.
+                reservation.Status = ReservationStatus.Pending;
+                await _dbContext.SaveChangesAsync(cancellationToken);
+
                 _logger.LogWarning(
-                    "Transient SAP failure while confirming reservation {ReservationId}; leaving reservation pending for queue fallback or retry.",
+                    "Transient SAP failure while confirming reservation {ReservationId}; returned it to " +
+                    "Pending for queue fallback or retry.",
                     reservation.ReservationId);
             }
 
@@ -969,8 +1078,66 @@ public class StockReservationService : IStockReservationService
     }
 
     /// <inheritdoc/>
+    /// <summary>
+    /// Whether a failed save was the unique index on <c>ExternalReferenceId</c> rejecting a duplicate.
+    /// </summary>
+    /// <remarks>
+    /// Matched on the index name rather than on a Postgres error code alone, because this table carries
+    /// several unique constraints and swallowing the wrong one would hide a real fault as a duplicate.
+    /// </remarks>
+    private static bool IsDuplicateExternalReference(DbUpdateException exception) =>
+        exception.InnerException?.Message.Contains(
+            "IX_StockReservations_ExternalReferenceId",
+            StringComparison.OrdinalIgnoreCase) == true;
+
+    /// <summary>
+    /// How long a reservation may sit claimed for posting before the claim is treated as abandoned.
+    /// </summary>
+    /// <remarks>
+    /// Comfortably longer than any real post. A SAP invoice takes seconds; the only way a claim outlives
+    /// this is a process that died holding it, and then the sale needs reopening or it is lost.
+    /// Reopening one that is genuinely still in flight would be the worse mistake, hence the margin.
+    /// </remarks>
+    private static readonly TimeSpan AbandonedClaimTimeout = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// Returns reservations whose posting attempt died mid-flight to <c>Pending</c>, so they can be tried
+    /// again.
+    /// </summary>
+    /// <remarks>
+    /// A claim is taken in the database and released in a <c>finally</c>-shaped code path, which covers
+    /// every failure except the one that skips the code entirely — an app-pool recycle, a killed process,
+    /// a machine that goes away. Without this the reservation stays claimed for ever, every retry is
+    /// refused as "already being posted", and a real sale is silently never invoiced.
+    ///
+    /// Reopening is safe for the same reason a transient failure reopens: the retry asks SAP for the
+    /// sale's own reference before posting, so a document that did land is adopted rather than duplicated.
+    /// </remarks>
+    private async Task ReopenAbandonedClaimsAsync(CancellationToken cancellationToken)
+    {
+        var cutoff = DateTime.UtcNow - AbandonedClaimTimeout;
+
+        var abandoned = await _dbContext.StockReservations
+            .Where(r => r.Status == ReservationStatus.Confirming && r.CreatedAt <= cutoff)
+            .ExecuteUpdateAsync(
+                update => update.SetProperty(r => r.Status, ReservationStatus.Pending),
+                cancellationToken);
+
+        if (abandoned > 0)
+        {
+            _logger.LogWarning(
+                "Reopened {Count} reservation(s) left mid-post for more than {Minutes} minutes — a process " +
+                "died holding them. They will be retried, and any invoice that did reach SAP will be found " +
+                "by its reference rather than posted twice.",
+                abandoned,
+                AbandonedClaimTimeout.TotalMinutes);
+        }
+    }
+
     public async Task<int> ExpireReservationsAsync(CancellationToken cancellationToken = default)
     {
+        await ReopenAbandonedClaimsAsync(cancellationToken);
+
         var expiredReservations = await _dbContext.StockReservations
             .Where(r => r.Status == ReservationStatus.Pending && r.ExpiresAt <= DateTime.UtcNow)
             .ToListAsync(cancellationToken);

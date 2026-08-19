@@ -1,0 +1,980 @@
+@page "/fiscalisation"
+@using System.Globalization
+@using ShopInventory.Web.Services
+@inject IFiscalisationConsoleService FiscalConsole
+@inject IAuditService AuditService
+@inject ILogger<FiscalisationConsole> Logger
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+<PageTitle>Fiscalisation - Shop Inventory</PageTitle>
+
+@* Carried by wwwroot/css/fiscal-console.css (linked from App.razor) in both
+   schemes, under the `fcx-` prefix. See that sheet's header.
+
+   ── What the page decides ──
+
+   **A stamped receipt is not a receipt ZIMRA has.** The three sections are the
+   three separate things that can be true at once, which is why they are three
+   sections and not one list: a device can be healthy while the queue behind it
+   is long, and a queue can be empty while yesterday's fiscal day was never
+   submitted. Reading only one of them gives a confident wrong answer.
+
+   **The queue is narrowed by the server.** Every filter goes to SQL, so the
+   count at the top is the real number of outstanding items. The invoices page
+   filters fiscal status in the browser over the page it happened to fetch,
+   which is why it cannot answer "how many are outstanding" and this can.
+
+   **A retry reads the error code, not the colour of the response.** The
+   platform reports "already fiscalised" as a 400, and it is a success — the
+   document is compliant and only our record of it was wrong. An indeterminate
+   outcome also reports as a failure and must never be retried, because the
+   receipt may exist at FDMS and a duplicate fiscal receipt cannot be withdrawn.
+   The classification lives in FiscalRetryResult so the two cannot be confused
+   here.
+
+   **Where an action would be risky it is absent, not disabled.** This page
+   fiscalises a SAP invoice and nothing else. Closing a fiscal day, generating
+   an offline file and submitting one are not idempotent at FDMS, and a signed
+   receipt the platform refused cannot be repaired by sending it again — so
+   those are shown precisely and left to the scheduled run and to the platform's
+   own console. *@
+
+<div class="fcx">
+
+    <header class="fcx-head">
+        <div class="fcx-head-inner">
+            <div class="fcx-head-main">
+                <div class="fcx-crumb">
+                    Administration
+                    <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                    <span class="fcx-crumb-here">Fiscalisation</span>
+                </div>
+                <h1 class="fcx-title">Fiscalisation</h1>
+                <p class="fcx-lede">
+                    A receipt is with ZIMRA once its fiscal day has been closed, packaged into an offline
+                    file and that file accepted. Everything short of that is on this page.
+                </p>
+            </div>
+            <div class="fcx-head-actions">
+                @if (lastLoadedAt is not null)
+                {
+                    <span class="fcx-stamp">Read @lastLoadedAt.Value.ToLocalTime().ToString("HH:mm:ss")</span>
+                }
+                <button type="button" class="fcx-btn fcx-btn-accent" disabled="@IsBusy" @onclick="RefreshAllAsync">
+                    <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                    @(IsBusy ? "Reading…" : "Refresh")
+                </button>
+            </div>
+        </div>
+    </header>
+
+    @if (retryResult is not null)
+    {
+        <div class="fcx-alert @RetryAlertClass(retryResult.Outcome)" role="alert">
+            <i class="bi @RetryAlertIcon(retryResult.Outcome)" aria-hidden="true"></i>
+            <div class="fcx-alert-body">
+                <div class="fcx-alert-title">@retryResult.Message</div>
+                @* Detail shows on its own as well as behind a code. Where the submission threw there is
+                   no platform code to report, and the API's own wording is then the only thing that says
+                   what actually went wrong — dropping it for want of a code would leave the operator with
+                   nothing but "the outcome is unknown". *@
+                @if (!string.IsNullOrWhiteSpace(retryResult.ErrorCode) || !string.IsNullOrWhiteSpace(retryResult.Detail))
+                {
+                    <div class="fcx-alert-detail">
+                        @if (!string.IsNullOrWhiteSpace(retryResult.ErrorCode))
+                        {
+                            <text>Platform code @retryResult.ErrorCode@(string.IsNullOrWhiteSpace(retryResult.Detail) ? "." : ". ")</text>
+                        }
+                        @retryResult.Detail
+                    </div>
+                }
+            </div>
+            <button type="button" class="fcx-alert-close" aria-label="Dismiss" @onclick="() => retryResult = null">
+                <i class="bi bi-x-lg" aria-hidden="true"></i>
+            </button>
+        </div>
+    }
+
+    @if (loadError is not null)
+    {
+        <div class="fcx-alert fcx-alert-warn" role="alert">
+            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+            <div class="fcx-alert-body"><div class="fcx-alert-title">@loadError</div></div>
+        </div>
+    }
+
+    @* ── Devices ─────────────────────────────────────────────────────────── *@
+
+    <section class="fcx-section">
+        <div class="fcx-section-head">
+            <h2 class="fcx-section-title">Devices</h2>
+            <span class="fcx-section-note">
+                One device is one hash-chained sequence of receipts. What ZIMRA holds about it, and what
+                this system is still holding for it.
+            </span>
+        </div>
+
+        @if (isLoadingDevices)
+        {
+            <div class="fcx-loading"><span class="fcx-spin"></span><span>Asking the platform about each device…</span></div>
+        }
+        else if (devices.Count == 0)
+        {
+            <div class="fcx-empty">
+                <div class="fcx-empty-title">No fiscal device is known here yet</div>
+                <div class="fcx-empty-note">
+                    Devices appear once a handset is registered against one, a receipt is signed on one, or
+                    a default device is named in fiscalisation settings.
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="fcx-devices">
+                @foreach (var device in devices)
+                {
+                    <article class="fcx-device @DeviceCardClass(device)">
+                        <div class="fcx-device-head">
+                            <span class="fcx-device-id">Device @device.DeviceId</span>
+                            @if (!string.IsNullOrWhiteSpace(device.SerialNumber))
+                            {
+                                <span class="fcx-device-serial">@device.SerialNumber</span>
+                            }
+                            <span class="fcx-device-head-end">
+                                @if (!device.Reachable)
+                                {
+                                    <span class="fcx-tag fcx-tag-warn">Platform silent</span>
+                                }
+                                else if (!string.IsNullOrWhiteSpace(device.OperatingMode))
+                                {
+                                    <span class="fcx-tag @(IsOfflineMode(device) ? "fcx-tag-accent" : "fcx-tag-info")">
+                                        @device.OperatingMode
+                                    </span>
+                                }
+                            </span>
+                        </div>
+
+                        @if (device.ChainBroken)
+                        {
+                            @* The only red on the page, and the only banner. Everything else here is a
+                               queue that drains; this is a handset that has stopped. *@
+                            <div class="fcx-stopped">
+                                <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
+                                <div>
+                                    <div class="fcx-stopped-title">
+                                        Chain broken@(device.ChainBrokenAtReceiptGlobalNo is null
+                                            ? ""
+                                            : $" at receipt {device.ChainBrokenAtReceiptGlobalNo}")
+                                    </div>
+                                    <div class="fcx-stopped-note">
+                                        This device is stopped. A receipt did not continue its sequence, and
+                                        @(device.BlockedBehindChainBreak == 1
+                                            ? "one later receipt is"
+                                            : $"{device.BlockedBehindChainBreak} later receipts are")
+                                        held behind it. Sending them again cannot fix this — the device has to be
+                                        reconciled on the fiscalisation platform first.
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(device.ChainBrokenError))
+                                    {
+                                        <div class="fcx-stopped-error">@device.ChainBrokenError</div>
+                                    }
+                                </div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(device.PlatformError))
+                        {
+                            <div class="fcx-stopped" style="background:transparent;border-color:var(--fcx-field-edge)">
+                                <i class="bi bi-cloud-slash" aria-hidden="true"></i>
+                                <div>
+                                    <div class="fcx-stopped-note">@device.PlatformError</div>
+                                </div>
+                            </div>
+                        }
+
+                        <div class="fcx-facts">
+                            <div class="fcx-fact @CertificateTone(device)">
+                                <div class="fcx-fact-label">Certificate</div>
+                                <div class="fcx-fact-value">
+                                    @(device.CertificateValidTill is null
+                                        ? "—"
+                                        : device.CertificateValidTill.Value.ToString("dd MMM yyyy"))
+                                </div>
+                                @if (device.CertificateDaysRemaining is not null)
+                                {
+                                    <div class="fcx-fact-note">
+                                        @(device.CertificateDaysRemaining.Value < 0
+                                            ? "expired"
+                                            : $"{device.CertificateDaysRemaining.Value} days left")
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="fcx-fact @FiscalDayTone(device)">
+                                <div class="fcx-fact-label">Fiscal day</div>
+                                <div class="fcx-fact-value">
+                                    @(device.FiscalDayNo is null or 0 ? "—" : $"#{device.FiscalDayNo}")
+                                    @if (!string.IsNullOrWhiteSpace(device.FiscalDayStatus))
+                                    {
+                                        <span class="fcx-cell-sub">@device.FiscalDayStatus</span>
+                                    }
+                                </div>
+                                @if (device.FiscalDayHoursElapsed is not null)
+                                {
+                                    <div class="fcx-fact-note">
+                                        @Hours(device.FiscalDayHoursElapsed) open@(device.TaxPayerDayMaxHrs is > 0
+                                            ? $" of {device.TaxPayerDayMaxHrs} hrs allowed"
+                                            : "")
+                                    </div>
+                                    @if (device.FiscalDayPercentOfMax is not null)
+                                    {
+                                        <div class="fcx-meter @MeterTone(device.FiscalDayPercentOfMax.Value)">
+                                            <div class="fcx-meter-fill" style="width:@MeterWidth(device.FiscalDayPercentOfMax.Value)"></div>
+                                        </div>
+                                    }
+                                }
+                            </div>
+
+                            <div class="fcx-fact">
+                                <div class="fcx-fact-label">Last receipt</div>
+                                <div class="fcx-fact-value">
+                                    @(device.LastReceiptGlobalNo is null or 0 ? "—" : device.LastReceiptGlobalNo.Value.ToString())
+                                </div>
+                                <div class="fcx-fact-note">
+                                    @(device.LastReceiptCounter is null or 0 ? "no counter" : $"counter {device.LastReceiptCounter}")
+                                    @if (device.LastReceiptDate is not null)
+                                    {
+                                        <text> · @device.LastReceiptDate.Value.ToString("dd MMM HH:mm")</text>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="fcx-fact">
+                                <div class="fcx-fact-label">Signing offline</div>
+                                <div class="fcx-fact-value">
+                                    @(string.IsNullOrWhiteSpace(device.OfflineSigningHolder) ? "Nobody" : device.OfflineSigningHolder)
+                                </div>
+                                <div class="fcx-fact-note">
+                                    @if (string.IsNullOrWhiteSpace(device.OfflineSigningHolder))
+                                    {
+                                        <text>no van may trade out of coverage</text>
+                                    }
+                                    else if (device.OfflineSigningHolderPendingSales is null)
+                                    {
+                                        <text>queue not reported</text>
+                                    }
+                                    else
+                                    {
+                                        <text>@device.OfflineSigningHolderPendingSales still on the handset</text>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="fcx-fact @(device.AwaitingHandover > 0 ? "fcx-fact-warn" : "")">
+                                <div class="fcx-fact-label">Not yet with the platform</div>
+                                <div class="fcx-fact-value">@device.AwaitingHandover</div>
+                                <div class="fcx-fact-note">signed receipts held here</div>
+                            </div>
+
+                            @if (device.FailedHandover + device.Unsignable + device.Unstamped > 0)
+                            {
+                                <div class="fcx-fact fcx-fact-bad">
+                                    <div class="fcx-fact-label">Exceptions</div>
+                                    <div class="fcx-fact-value">@(device.FailedHandover + device.Unsignable + device.Unstamped)</div>
+                                    <div class="fcx-fact-note">
+                                        @device.FailedHandover failed · @device.Unsignable unsignable · @device.Unstamped unstamped
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+
+    @* ── Work queue ──────────────────────────────────────────────────────── *@
+
+    <section class="fcx-section">
+        <div class="fcx-section-head">
+            <h2 class="fcx-section-title">Work queue</h2>
+            <span class="fcx-section-note">
+                Everything eligible for fiscalisation or failed at it, narrowed by the server — so the
+                count is the whole of it, not the part that fitted on one page.
+            </span>
+            @if (queue is not null)
+            {
+                <span class="fcx-section-count">
+                    @queue.TotalCount outstanding · @queue.SaleCount sale(s) · @queue.DocumentCount SAP document(s)
+                </span>
+            }
+        </div>
+
+        <div class="fcx-filters">
+            <div class="fcx-filter">
+                <label class="fcx-filter-label" for="fcx-status">Status</label>
+                <NocturneSelect Id="fcx-status" Class="nsel-block fcx-filter-status" TValue="string"
+                                Options="StatusOptions" @bind-Value="statusFilter"
+                                OnChanged="ApplyQueueFilterAsync"
+                                Caption="Filter by what is outstanding" AriaLabel="Filter by status"
+                                Placeholder="Everything outstanding" />
+            </div>
+            <div class="fcx-filter">
+                <label class="fcx-filter-label" for="fcx-device">Device</label>
+                <NocturneSelect Id="fcx-device" Class="nsel-block fcx-filter-device" TValue="string"
+                                Options="DeviceOptions" @bind-Value="deviceFilter"
+                                OnChanged="ApplyQueueFilterAsync"
+                                Caption="Filter by fiscal device" AriaLabel="Filter by fiscal device"
+                                Placeholder="All devices" />
+            </div>
+            <div class="fcx-filter">
+                <label class="fcx-filter-label" for="fcx-from">From</label>
+                <div class="fcx-filter-date">
+                    <NocturneDateField Id="fcx-from" @bind-Date="fromDate" AriaLabel="From date" />
+                </div>
+            </div>
+            <div class="fcx-filter">
+                <label class="fcx-filter-label" for="fcx-to">To</label>
+                <div class="fcx-filter-date">
+                    <NocturneDateField Id="fcx-to" @bind-Date="toDate" AriaLabel="To date" />
+                </div>
+            </div>
+            <div class="fcx-filter fcx-filter-search">
+                <label class="fcx-filter-label" for="fcx-search">Reference or customer</label>
+                <input id="fcx-search" class="fcx-input" type="text" placeholder="Reference, customer or DocNum"
+                       @bind="searchTerm" @bind:event="oninput" @onkeydown="OnSearchKeyDown" />
+            </div>
+            <div class="fcx-filter-actions">
+                <button type="button" class="fcx-btn fcx-btn-accent" disabled="@isLoadingQueue" @onclick="ApplyQueueFilterAsync">
+                    <i class="bi bi-funnel" aria-hidden="true"></i> Apply
+                </button>
+                <button type="button" class="fcx-btn fcx-btn-quiet" disabled="@isLoadingQueue" @onclick="ClearQueueFilterAsync">
+                    Clear
+                </button>
+            </div>
+        </div>
+
+        @if (isLoadingQueue)
+        {
+            <div class="fcx-loading"><span class="fcx-spin"></span><span>Counting what is outstanding…</span></div>
+        }
+        else if (queue is null)
+        {
+            <div class="fcx-empty">
+                <div class="fcx-empty-title">The queue could not be read</div>
+                <div class="fcx-empty-note">Try refreshing. Until it answers, treat nothing on this section as current.</div>
+            </div>
+        }
+        else if (queue.Items.Count == 0)
+        {
+            <div class="fcx-empty">
+                <div class="fcx-empty-title">Nothing is outstanding</div>
+                <div class="fcx-empty-note">
+                    Every document in this filter has a fiscal receipt. Whether ZIMRA has them is the
+                    fiscal days section below.
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="fcx-table-wrap">
+                <table class="fcx-table fcx-table-queue">
+                    <thead>
+                        <tr>
+                            <th>Document</th>
+                            <th>Customer</th>
+                            <th class="fcx-right">Amount</th>
+                            <th>Step</th>
+                            <th>Status</th>
+                            <th>Device</th>
+                            <th class="fcx-right">Tries</th>
+                            <th>When</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in queue.Items)
+                        {
+                            <tr>
+                                <td>
+                                    <span class="fcx-cell-strong">@item.Reference</span>
+                                    <span class="fcx-cell-sub">@item.Source</span>
+                                </td>
+                                <td>
+                                    @(string.IsNullOrWhiteSpace(item.CustomerName) ? "—" : item.CustomerName)
+                                    @if (!string.IsNullOrWhiteSpace(item.WarehouseCode))
+                                    {
+                                        <span class="fcx-cell-sub">@item.WarehouseCode</span>
+                                    }
+                                </td>
+                                <td class="fcx-right fcx-num">
+                                    @item.Amount.ToString("N2") @item.Currency
+                                </td>
+                                <td>@item.Stage</td>
+                                <td>
+                                    <span class="fcx-cell-status">
+                                        <span class="fcx-dot @DotClass(item.Severity)" aria-hidden="true"></span>
+                                        @item.Status
+                                    </span>
+                                    @if (!string.IsNullOrWhiteSpace(item.Error))
+                                    {
+                                        <span class="fcx-error">@item.Error</span>
+                                    }
+                                </td>
+                                <td class="fcx-num">
+                                    @(item.DeviceId is null ? "—" : item.DeviceId.Value.ToString())
+                                    @if (item.ReceiptGlobalNo is not null)
+                                    {
+                                        <span class="fcx-cell-sub">receipt @item.ReceiptGlobalNo</span>
+                                    }
+                                </td>
+                                <td class="fcx-right fcx-num">@item.Attempts</td>
+                                <td class="fcx-num">@item.OccurredAtUtc.ToLocalTime().ToString("dd MMM HH:mm")</td>
+                                <td>
+                                    @* The action cell. A retry is offered only where sending the document
+                                       again cannot make things worse, and only behind a confirmation. Where
+                                       it must not happen, the cell says so in words — a greyed-out button
+                                       invites a hunt for whatever would enable it. *@
+                                    @if (lockedOut.Contains(item.Key))
+                                    {
+                                        <span class="fcx-no-retry">
+                                            Unresolved after the last attempt. Look the receipt up on the platform
+                                            before anything else.
+                                        </span>
+                                    }
+                                    else if (item.Disposition == FiscalWorkQueueDisposition.Reconcile)
+                                    {
+                                        <span class="fcx-no-retry" title="@item.DispositionNote">Do not retry — reconcile</span>
+                                    }
+                                    else if (item.Disposition == FiscalWorkQueueDisposition.Unrecoverable)
+                                    {
+                                        <span class="fcx-no-retry" title="@item.DispositionNote">Do not retry — cannot be repaired</span>
+                                    }
+                                    else if (item.Disposition == FiscalWorkQueueDisposition.Stalled)
+                                    {
+                                        @* Not "handled automatically". Nothing is handling this one, and the
+                                           note says which of the sweep's three conditions it fails. *@
+                                        <span class="fcx-no-retry" title="@item.DispositionNote">Nobody is retrying this</span>
+                                    }
+                                    else if (item.Disposition != FiscalWorkQueueDisposition.Retry || item.DocNum is null or <= 0)
+                                    {
+                                        <span class="fcx-no-retry fcx-no-retry-quiet" title="@item.DispositionNote">Handled automatically</span>
+                                    }
+                                    else if (retryingKey == item.Key)
+                                    {
+                                        <span class="fcx-no-retry fcx-no-retry-quiet">Submitting…</span>
+                                    }
+                                    else if (armedKey == item.Key)
+                                    {
+                                        @* Armed, then confirmed. Fiscalisation is irreversible at FDMS, which is
+                                           the difference between this and the one-click Fiscalise button on the
+                                           invoices list. *@
+                                        <button type="button" class="fcx-btn fcx-btn-sm fcx-btn-accent" disabled="@IsBusy"
+                                                @onclick="() => RetryAsync(item.Key, item.DocNum!.Value)">
+                                            Send #@item.DocNum
+                                        </button>
+                                        <button type="button" class="fcx-btn fcx-btn-sm fcx-btn-quiet"
+                                                @onclick="() => armedKey = null">
+                                            Cancel
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="fcx-btn fcx-btn-sm" disabled="@IsBusy"
+                                                title="@item.DispositionNote"
+                                                @onclick="() => armedKey = item.Key">
+                                            Fiscalise
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="fcx-pager">
+                <span class="fcx-pager-info">
+                    Page @queue.Page — showing @queue.Items.Count of @queue.TotalCount
+                </span>
+                <span class="fcx-pager-end">
+                    <button type="button" class="fcx-btn fcx-btn-sm" disabled="@(queue.Page <= 1 || isLoadingQueue)"
+                            @onclick="() => GoToQueuePageAsync(queue.Page - 1)">
+                        Previous
+                    </button>
+                    <button type="button" class="fcx-btn fcx-btn-sm" disabled="@(!queue.HasMore || isLoadingQueue)"
+                            @onclick="() => GoToQueuePageAsync(queue.Page + 1)">
+                        Next
+                    </button>
+                </span>
+            </div>
+        }
+    </section>
+
+    @* ── Fiscal days ─────────────────────────────────────────────────────── *@
+
+    <section class="fcx-section">
+        <div class="fcx-section-head">
+            <h2 class="fcx-section-title">Fiscal days</h2>
+            <span class="fcx-section-note">
+                Closed, packaged, submitted — the three steps between a stamped receipt and ZIMRA actually
+                holding it. A day that is not Submitted is a day ZIMRA has nothing for.
+            </span>
+            @if (days is not null)
+            {
+                <span class="fcx-section-count">
+                    @days.OutstandingCount not yet submitted · @days.NeedsAttentionCount need a person
+                </span>
+            }
+        </div>
+
+        <div class="fcx-filters">
+            <div class="fcx-filter">
+                <label class="fcx-filter-label" for="fcx-day-device">Device</label>
+                <NocturneSelect Id="fcx-day-device" Class="nsel-block fcx-filter-device" TValue="string"
+                                Options="DeviceOptions" @bind-Value="dayDeviceFilter"
+                                OnChanged="ApplyDayFilterAsync"
+                                Caption="Filter by fiscal device" AriaLabel="Filter fiscal days by device"
+                                Placeholder="All devices" />
+            </div>
+            <div class="fcx-filter">
+                <label class="fcx-filter-label" for="fcx-day-status">Lifecycle</label>
+                <NocturneSelect Id="fcx-day-status" Class="nsel-block fcx-filter-status" TValue="string"
+                                Options="DayStatusOptions" @bind-Value="dayStatusFilter"
+                                OnChanged="ApplyDayFilterAsync"
+                                Caption="Filter by lifecycle step" AriaLabel="Filter fiscal days by lifecycle step"
+                                Placeholder="Every day" />
+            </div>
+        </div>
+
+        @if (isLoadingDays)
+        {
+            <div class="fcx-loading"><span class="fcx-spin"></span><span>Reading the fiscal day lifecycle…</span></div>
+        }
+        else if (days is null)
+        {
+            <div class="fcx-empty">
+                <div class="fcx-empty-title">The fiscal day lifecycle could not be read</div>
+                <div class="fcx-empty-note">Try refreshing.</div>
+            </div>
+        }
+        else if (days.Days.Count == 0)
+        {
+            <div class="fcx-empty">
+                <div class="fcx-empty-title">No fiscal day has been tracked yet</div>
+                <div class="fcx-empty-note">
+                    A row appears the first time a device's day is opened or a signed receipt names one.
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="fcx-table-wrap">
+                <table class="fcx-table fcx-table-days">
+                    <thead>
+                        <tr>
+                            <th>Device</th>
+                            <th class="fcx-right">Day</th>
+                            <th>Status</th>
+                            <th class="fcx-right">Receipts</th>
+                            <th>Opened</th>
+                            <th>Closed</th>
+                            <th>File built</th>
+                            <th>Submitted</th>
+                            <th class="fcx-right">Tries</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var day in days.Days)
+                        {
+                            <tr>
+                                <td class="fcx-num fcx-cell-strong">@day.DeviceId</td>
+                                <td class="fcx-right fcx-num">@day.FiscalDayNo</td>
+                                <td>
+                                    <span class="fcx-cell-status">
+                                        <span class="fcx-dot @DotClass(DaySeverity(day))" aria-hidden="true"></span>
+                                        @DayStatusLabel(day.Status)
+                                    </span>
+                                    @if (!string.IsNullOrWhiteSpace(day.LastError))
+                                    {
+                                        <span class="fcx-error">@day.LastError</span>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(day.OfflineFileReference))
+                                    {
+                                        <span class="fcx-cell-sub">file @day.OfflineFileReference</span>
+                                    }
+                                </td>
+                                <td class="fcx-right fcx-num">@day.IngestedReceiptCount</td>
+                                <td class="fcx-num">
+                                    @Wall(day.OpenedAtLocal)
+                                    @if (day.MaxDurationHours is > 0)
+                                    {
+                                        <span class="fcx-cell-sub">@day.MaxDurationHours hr limit</span>
+                                    }
+                                </td>
+                                <td class="fcx-num">@Moment(day.ClosedAtUtc)</td>
+                                <td class="fcx-num">@Moment(day.FileGeneratedAtUtc)</td>
+                                <td class="fcx-num">@Moment(day.FileSubmittedAtUtc)</td>
+                                <td class="fcx-right fcx-num">@day.Attempts</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="fcx-pager">
+                <span class="fcx-pager-info">Page @days.Page — showing @days.Days.Count of @days.TotalCount</span>
+                <span class="fcx-pager-end">
+                    <button type="button" class="fcx-btn fcx-btn-sm" disabled="@(days.Page <= 1 || isLoadingDays)"
+                            @onclick="() => GoToDayPageAsync(days.Page - 1)">
+                        Previous
+                    </button>
+                    <button type="button" class="fcx-btn fcx-btn-sm" disabled="@(!days.HasMore || isLoadingDays)"
+                            @onclick="() => GoToDayPageAsync(days.Page + 1)">
+                        Next
+                    </button>
+                </span>
+            </div>
+        }
+    </section>
+</div>
+
+@code {
+    private const int QueuePageSize = 50;
+    private const int DayPageSize = 50;
+
+    private List<FiscalConsoleDeviceResponse> devices = [];
+    private FiscalWorkQueueResponse? queue;
+    private FiscalDayStateListResponse? days;
+
+    private bool isLoadingDevices = true;
+    private bool isLoadingQueue = true;
+    private bool isLoadingDays = true;
+    private string? loadError;
+    private DateTime? lastLoadedAt;
+
+    private string? statusFilter;
+    private string? deviceFilter;
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private string searchTerm = string.Empty;
+    private int queuePage = 1;
+
+    private string? dayDeviceFilter;
+    private string? dayStatusFilter;
+    private int dayPage = 1;
+
+    /// <summary>The row whose retry has been offered and not yet confirmed.</summary>
+    private string? armedKey;
+
+    /// <summary>The row a retry is running for, so only that row's button says so.</summary>
+    private string? retryingKey;
+
+    private FiscalRetryResult? retryResult;
+
+    /// <summary>
+    /// Rows this session has learned must not be retried, whatever the queue still says.
+    /// </summary>
+    /// <remarks>
+    /// A retry that comes back unresolved changes the answer to "may this be sent again" from yes to
+    /// never, and the queue will not know that until its next reload — which the operator may not do
+    /// before clicking again. Holding it here closes that window.
+    /// </remarks>
+    private readonly HashSet<string> lockedOut = [];
+
+    private bool IsBusy => isLoadingDevices || isLoadingQueue || isLoadingDays || retryingKey is not null;
+
+    @* Both menus live in FiscalConsoleMenus, alongside the function that colours the dot on the rows
+       they select. Inline they were a second switch over the same statuses, and one that had already
+       drifted — see that class. *@
+    private static IReadOnlyList<INocturneSelectOption<string>> StatusOptions => FiscalConsoleMenus.WorkQueueStatus;
+
+    private static IReadOnlyList<INocturneSelectOption<string>> DayStatusOptions => FiscalConsoleMenus.FiscalDayStatus;
+
+    /// <summary>Built from the devices that were actually found, so it cannot offer an empty filter.</summary>
+    private IReadOnlyList<INocturneSelectOption<string>> DeviceOptions =>
+        new INocturneSelectOption<string>[] { NocturneSelectOption.All("All devices") }
+            .Concat(devices.Select(device => new NocturneSelectOption<string>(
+                device.DeviceId.ToString(CultureInfo.InvariantCulture),
+                $"Device {device.DeviceId}",
+                device.ChainBroken ? "bad" : null)))
+            .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // The queue first: it is the section someone opened this page to read, and the device section
+        // waits on the platform answering for every device.
+        await LoadQueueAsync();
+        StateHasChanged();
+
+        await LoadDaysAsync();
+        StateHasChanged();
+
+        await LoadDevicesAsync();
+    }
+
+    private async Task RefreshAllAsync()
+    {
+        retryResult = null;
+        armedKey = null;
+
+        await LoadQueueAsync();
+        StateHasChanged();
+
+        await LoadDaysAsync();
+        StateHasChanged();
+
+        await LoadDevicesAsync();
+    }
+
+    private async Task LoadDevicesAsync()
+    {
+        isLoadingDevices = true;
+
+        var loaded = await FiscalConsole.GetDevicesAsync();
+
+        if (loaded is null)
+        {
+            loadError = "The device list could not be read. Nothing on this page is stale — it is unread.";
+            devices = [];
+        }
+        else
+        {
+            devices = loaded;
+        }
+
+        isLoadingDevices = false;
+        lastLoadedAt = DateTime.UtcNow;
+    }
+
+    private async Task LoadQueueAsync()
+    {
+        isLoadingQueue = true;
+        loadError = null;
+
+        queue = await FiscalConsole.GetWorkQueueAsync(
+            statusFilter,
+            ParseDevice(deviceFilter),
+            fromDate,
+            toDate,
+            searchTerm,
+            queuePage,
+            QueuePageSize);
+
+        if (queue is null)
+        {
+            loadError = "The work queue could not be read.";
+        }
+
+        isLoadingQueue = false;
+        lastLoadedAt = DateTime.UtcNow;
+    }
+
+    private async Task LoadDaysAsync()
+    {
+        isLoadingDays = true;
+
+        days = await FiscalConsole.GetFiscalDaysAsync(
+            ParseDevice(dayDeviceFilter),
+            dayStatusFilter,
+            dayPage,
+            DayPageSize);
+
+        isLoadingDays = false;
+        lastLoadedAt = DateTime.UtcNow;
+    }
+
+    private async Task ApplyQueueFilterAsync()
+    {
+        queuePage = 1;
+        armedKey = null;
+        await LoadQueueAsync();
+    }
+
+    private async Task ClearQueueFilterAsync()
+    {
+        statusFilter = null;
+        deviceFilter = null;
+        fromDate = null;
+        toDate = null;
+        searchTerm = string.Empty;
+        await ApplyQueueFilterAsync();
+    }
+
+    private async Task OnSearchKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await ApplyQueueFilterAsync();
+        }
+    }
+
+    private async Task GoToQueuePageAsync(int page)
+    {
+        queuePage = Math.Max(1, page);
+        armedKey = null;
+        await LoadQueueAsync();
+    }
+
+    private async Task ApplyDayFilterAsync()
+    {
+        dayPage = 1;
+        await LoadDaysAsync();
+    }
+
+    private async Task GoToDayPageAsync(int page)
+    {
+        dayPage = Math.Max(1, page);
+        await LoadDaysAsync();
+    }
+
+    private static int? ParseDevice(string? value) =>
+        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed > 0
+            ? parsed
+            : null;
+
+    private async Task RetryAsync(string key, int docNum)
+    {
+        armedKey = null;
+        retryingKey = key;
+        retryResult = null;
+
+        try
+        {
+            var result = await FiscalConsole.RetryInvoiceAsync(docNum);
+            retryResult = result;
+
+            if (result.MustNotRetry)
+            {
+                // Locked out here rather than left to the reload: the queue row will still say "retry"
+                // until it is refetched, and a second click on an unresolved document is the one mistake
+                // on this page that cannot be undone.
+                lockedOut.Add(key);
+            }
+
+            Logger.LogInformation(
+                "Fiscalisation console retried invoice #{DocNum}: {Outcome} ({ErrorCode})",
+                docNum,
+                result.Outcome,
+                result.ErrorCode ?? "none");
+
+            await AuditService.LogAsync(
+                AuditActions.FiscalizeInvoice,
+                "Invoice",
+                docNum.ToString(CultureInfo.InvariantCulture),
+                $"Fiscalisation console: {result.Outcome}. {result.Message}",
+                result.IsSettled);
+        }
+        catch (Exception ex)
+        {
+            // Never "nothing was sent" — this catch does not know that. The service classifies the
+            // failures it can see; anything reaching here is an outcome nobody established, and the one
+            // reading of it that cannot cost a duplicate fiscal receipt is that FDMS may hold one.
+            Logger.LogError(ex, "Fiscalisation console could not retry invoice #{DocNum}", docNum);
+
+            retryResult = FiscalRetryResult.Unknown(
+                docNum,
+                ApiErrorResponse.GetFriendlyMessage(ex, fallbackMessage:
+                    "The request ended without an answer that says whether it reached FDMS."));
+
+            lockedOut.Add(key);
+        }
+        finally
+        {
+            retryingKey = null;
+        }
+
+        await LoadQueueAsync();
+    }
+
+    // ── Presentation helpers ────────────────────────────────────────────────
+
+    private static string DeviceCardClass(FiscalConsoleDeviceResponse device) =>
+        device.ChainBroken ? "fcx-device-stopped"
+        : !device.Reachable ? "fcx-device-unreachable"
+        : string.Empty;
+
+    private static bool IsOfflineMode(FiscalConsoleDeviceResponse device) =>
+        device.OperatingMode?.Contains("offline", StringComparison.OrdinalIgnoreCase) == true;
+
+    /// <summary>
+    /// An expiring certificate stops the device outright, so it warns well before it bites — a van
+    /// cannot be updated on the morning it fails.
+    /// </summary>
+    private static string CertificateTone(FiscalConsoleDeviceResponse device) => device.CertificateDaysRemaining switch
+    {
+        null => string.Empty,
+        < 0 => "fcx-fact-bad",
+        < 14 => "fcx-fact-bad",
+        < 45 => "fcx-fact-warn",
+        _ => string.Empty
+    };
+
+    private static string FiscalDayTone(FiscalConsoleDeviceResponse device) => device.FiscalDayPercentOfMax switch
+    {
+        null => string.Empty,
+        >= 100 => "fcx-fact-bad",
+        >= 80 => "fcx-fact-warn",
+        _ => string.Empty
+    };
+
+    private static string MeterTone(int percent) => percent switch
+    {
+        >= 100 => "fcx-meter-bad",
+        >= 80 => "fcx-meter-warn",
+        _ => string.Empty
+    };
+
+    private static string MeterWidth(int percent) =>
+        string.Concat(Math.Clamp(percent, 0, 100).ToString(CultureInfo.InvariantCulture), "%");
+
+    private static string Hours(double? hours) =>
+        hours is null ? "—" : $"{hours.Value.ToString("0.#", CultureInfo.InvariantCulture)} hrs";
+
+    /// <summary>
+    /// A Nocturne family as a dot class. Total over the vocabulary a family may be, so that a family the
+    /// filter menu can paint is never a family the row silently draws grey.
+    /// </summary>
+    private static string DotClass(string? severity) => severity switch
+    {
+        "bad" => "fcx-dot-bad",
+        "warn" => "fcx-dot-warn",
+        "good" => "fcx-dot-good",
+        "accent" => "fcx-dot-accent",
+        "info" => "fcx-dot-info",
+        _ => string.Empty
+    };
+
+    private static string DayStatusLabel(string status) => FiscalConsoleMenus.DayLabel(status);
+
+    private static string DaySeverity(FiscalDayStateResponse day) => FiscalConsoleMenus.DaySeverity(day.Status);
+
+    /// <summary>A UTC instant in the reader's own clock.</summary>
+    private static string Moment(DateTime? utc) =>
+        utc is null ? "—" : utc.Value.ToLocalTime().ToString("dd MMM HH:mm");
+
+    /// <summary>
+    /// A wall-clock time rendered exactly as stored. Never converted: the fiscal day it belongs to is
+    /// stated in the same clock, and converting it moves receipts across the day boundary.
+    /// </summary>
+    private static string Wall(DateTime? local) =>
+        local is null ? "—" : local.Value.ToString("dd MMM HH:mm");
+
+    private static string RetryAlertClass(FiscalRetryOutcome outcome) => outcome switch
+    {
+        FiscalRetryOutcome.Fiscalised or FiscalRetryOutcome.AlreadyFiscalised => "fcx-alert-good",
+        // Red, alongside Reconcile: an unknown outcome is the same hazard as a stated indeterminate one,
+        // and it must not read as the amber "try again in a minute" the other failures do.
+        FiscalRetryOutcome.Reconcile or FiscalRetryOutcome.Unknown => "fcx-alert-bad",
+        _ => "fcx-alert-warn"
+    };
+
+    private static string RetryAlertIcon(FiscalRetryOutcome outcome) => outcome switch
+    {
+        FiscalRetryOutcome.Fiscalised => "bi-check-circle",
+        FiscalRetryOutcome.AlreadyFiscalised => "bi-check-circle",
+        FiscalRetryOutcome.Reconcile or FiscalRetryOutcome.Unknown => "bi-exclamation-octagon",
+        _ => "bi-exclamation-triangle"
+    };
+}

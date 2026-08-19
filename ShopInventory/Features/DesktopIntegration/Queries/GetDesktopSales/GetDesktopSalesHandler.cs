@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
 
@@ -16,6 +17,25 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db)
             .AsNoTracking()
             .Include(s => s.Lines)
             .AsQueryable();
+
+        // The source scope, decided rather than inherited. This is a list of sales, and an online van
+        // sale's row is not one — it carries the receipt a handset signed for a sale that lives in SAP
+        // and in its confirmed StockReservation. Every money column on this DTO therefore describes a
+        // sale the caller is already looking at somewhere else, so the default answer excludes it and a
+        // caller that wants those rows asks for them by name.
+        //
+        // Findable rather than hidden: the row is real, an operator chasing a fiscal reference has to be
+        // able to reach it, and the fiscalisation console is not a document list. sourceSystem is a plain
+        // equality filter so `?sourceSystem=KefalosVanSalesOnline` returns exactly them.
+        if (!string.IsNullOrWhiteSpace(request.SourceSystem))
+        {
+            var sourceSystem = request.SourceSystem.Trim();
+            query = query.Where(s => s.SourceSystem == sourceSystem);
+        }
+        else
+        {
+            query = query.Where(s => s.SourceSystem != SaleSourceSystems.VanSalesOnline);
+        }
 
         if (!string.IsNullOrEmpty(request.WarehouseCode))
             query = query.Where(s => s.WarehouseCode == request.WarehouseCode);

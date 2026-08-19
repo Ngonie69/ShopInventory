@@ -241,9 +241,15 @@ public class FiscalizationService : IFiscalizationService
             };
         }
 
-        // No lines, no currency, no invoice number. The platform reads all of that from SAP, and
-        // letting it derive the invoice number from the document guarantees the idempotency key
-        // matches whatever a later re-run or reconciliation computes.
+        // No lines and no currency: the platform reads both from SAP.
+        //
+        // The invoice number is the one thing worth overriding, and only when the mobile invoice-number
+        // UDF is configured. Left unset, the platform keys the receipt on the SAP DocNum — which is a
+        // different string from the reference the same sale was stamped under on a handset, so one sale
+        // becomes two receipts at ZIMRA under two numbers, and the platform's (taxpayer, type, number)
+        // idempotency cannot see that they are the same. Sending the UDF's value makes both paths agree.
+        var mobileInvoiceNo = ResolveMobileInvoiceNo(document);
+
         var request = new SapFiscaliseReceiptApiRequest
         {
             SapDocument = new SapDocumentReference
@@ -253,8 +259,18 @@ public class FiscalizationService : IFiscalizationService
             },
             Receipt = new SubmitReceiptApiRequest
             {
-                // Device 0 lets the platform fiscalise on whichever of its devices is healthy.
-                DeviceId = 0,
+                // Which of the platform's devices may take this receipt.
+                //
+                // Zero means "walk every configured device until one accepts", which is what we want for
+                // failover — but it must never reach a device a van handset signs on. Those are
+                // registered with ZIMRA in Offline mode and their sequence belongs to the handset; a
+                // server-signed receipt on one forks its chain and voids the whole fiscal day. The
+                // platform refuses a pre-signed receipt for an Online device and vice versa, but nothing
+                // stops it walking onto a handset's device from here, so the pin is configured on our
+                // side: set Fiscalisation:DefaultDeviceId to an Online device on any deployment whose
+                // handsets own devices.
+                DeviceId = _settings.DefaultDeviceId,
+                InvoiceNo = mobileInvoiceNo,
                 ReceiptType = receiptType,
                 Buyer = MapBuyer(customerDetails),
                 ReceiptNotes = document.Comments
@@ -458,6 +474,30 @@ public class FiscalizationService : IFiscalizationService
     /// References that already start with a letter (DESKTOP-…, DS-…, SO-CONV-…) pass through unchanged,
     /// so anything already fiscalised keeps its existing fiscal identity.
     /// </remarks>
+    /// <summary>
+    /// The invoice number to fiscalise a SAP document under, or null to let the platform use its DocNum.
+    /// </summary>
+    /// <remarks>
+    /// Only once the mobile invoice-number UDF is configured, and only for a document carrying a sale
+    /// reference. Both write paths put the same string into that UDF and into <c>U_Van_saleorder</c>,
+    /// which is what <see cref="InvoiceDto.VanSaleOrderNumber"/> reads back — so this is the reference
+    /// the sale was stamped under on the handset, and using it makes the two fiscalisation routes agree
+    /// on one identity instead of keying the same sale twice under two different numbers.
+    ///
+    /// Null while the UDF is unconfigured, which leaves today's behaviour exactly as it was: the platform
+    /// derives the key from the SAP DocNum.
+    /// </remarks>
+    private string? ResolveMobileInvoiceNo(InvoiceDto document)
+    {
+        if (!_settings.Udf.WritesInvoiceNumber)
+        {
+            return null;
+        }
+
+        var reference = document.VanSaleOrderNumber?.Trim();
+        return string.IsNullOrWhiteSpace(reference) ? null : reference;
+    }
+
     internal string BuildPreSapInvoiceNo(string externalReference)
     {
         var trimmed = externalReference.Trim();

@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
@@ -80,6 +81,10 @@ public sealed class GetRouteCustomerSalesHandler(
         var rows = await db.DesktopSales
             .AsNoTracking()
             .Include(sale => sale.Lines)
+            // An online van sale leaves a row here too, carrying the receipt its handset signed, and it is
+            // read by ReadOnlineSalesAsync below as the confirmed reservation it posted from. Counting the
+            // receipt row as well would show the shop every online sale twice and double its takings.
+            .Where(sale => sale.SourceSystem != SaleSourceSystems.VanSalesOnline)
             .Where(sale => sale.DocDate >= from && sale.DocDate <= to)
             .Where(sale => sale.RouteCustomerId == customer.Id ||
                 (sale.RouteCustomerId == null &&

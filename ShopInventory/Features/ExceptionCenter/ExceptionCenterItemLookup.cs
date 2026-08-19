@@ -60,7 +60,11 @@ public static class ExceptionCenterItemLookup
             ExceptionCenterSources.PaymentCallback => await context.PaymentTransactions
                 .AsNoTracking()
                 .AnyAsync(q => q.Id == itemId, cancellationToken),
-            ExceptionCenterSources.VanSalePosting => await context.DesktopSales
+            ExceptionCenterSources.VanSalePosting or ExceptionCenterSources.FiscalReceiptIngest =>
+                await context.DesktopSales
+                    .AsNoTracking()
+                    .AnyAsync(q => q.Id == itemId, cancellationToken),
+            ExceptionCenterSources.FiscalDayLifecycle => await context.FiscalDayStates
                 .AsNoTracking()
                 .AnyAsync(q => q.Id == itemId, cancellationToken),
             ExceptionCenterSources.PaymentCallbackRejection or ExceptionCenterSources.CreditNoteFiscalization =>

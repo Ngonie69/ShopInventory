@@ -323,6 +323,7 @@ try
     builder.Services.AddScoped<ISAPSettingsService, SAPSettingsService>();
     builder.Services.AddScoped<IFiscalisationSettingsService, FiscalisationSettingsService>();
     builder.Services.AddScoped<IOfflineSigningLeaseService, OfflineSigningLeaseService>();
+    builder.Services.AddScoped<IFiscalisationConsoleService, FiscalisationConsoleService>();
     builder.Services.AddScoped<IWebhookService, WebhookService>();
     builder.Services.AddScoped<IWhatsAppAdminService, WhatsAppAdminService>();
 

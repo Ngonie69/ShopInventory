@@ -3,6 +3,15 @@ using MediatR;
 
 namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 
+/// <summary>
+/// A page of captured sales.
+/// </summary>
+/// <remarks>
+/// <c>SourceSystem</c> selects exactly one source, or null for the default scope. Null is not
+/// "everything": it excludes <c>SaleSourceSystems.VanSalesOnline</c>, whose rows are receipt carriers for
+/// sales already recorded as their confirmed reservation and their SAP invoice. Name that source to list
+/// them.
+/// </remarks>
 public sealed record GetDesktopSalesQuery(
     string? WarehouseCode = null,
     string? CardCode = null,
@@ -10,7 +19,8 @@ public sealed record GetDesktopSalesQuery(
     DateTime? FromDate = null,
     DateTime? ToDate = null,
     int Page = 1,
-    int PageSize = 50
+    int PageSize = 50,
+    string? SourceSystem = null
 ) : IRequest<ErrorOr<DesktopSalesListResult>>;
 
 public sealed record DesktopSalesListResult(
