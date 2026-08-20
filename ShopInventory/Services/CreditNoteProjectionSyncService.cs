@@ -90,6 +90,7 @@ public sealed class CreditNoteProjectionSyncService(
                 await SaveCheckpointAsync(checkpointRow, checkpoint, cancellationToken);
             }
 
+            var previousItemCount = syncState.ItemCount;
             syncState.ItemCount = await context.SapCreditNoteSnapshots.CountAsync(cancellationToken);
             syncState.LastSyncedAt = now;
             syncState.LastError = null;
@@ -97,9 +98,24 @@ public sealed class CreditNoteProjectionSyncService(
             syncState.UpdatedAt = now;
             await context.SaveChangesAsync(cancellationToken);
 
-            logger.LogInformation(
-                "Credit-note projection synchronized successfully with {CreditNoteCount} header(s)",
-                syncState.ItemCount);
+            // Only say so when something moved. The sweep runs every two minutes whether or not SAP
+            // has anything new, and on 2026-08-20 that was 273 runs reporting the same header count
+            // 225 times over — thirty new credit notes in a whole day, announced 273 times. The
+            // count is still written to the sync state either way, so the "when did this last run"
+            // question is answered from there rather than from the log.
+            if (syncState.ItemCount != previousItemCount)
+            {
+                logger.LogInformation(
+                    "Credit-note projection synchronized with {CreditNoteCount} header(s), {Delta:+#;-#;0} since the last sweep",
+                    syncState.ItemCount,
+                    syncState.ItemCount - previousItemCount);
+            }
+            else
+            {
+                logger.LogDebug(
+                    "Credit-note projection synchronized successfully with {CreditNoteCount} header(s)",
+                    syncState.ItemCount);
+            }
         }
         catch (OperationCanceledException)
         {

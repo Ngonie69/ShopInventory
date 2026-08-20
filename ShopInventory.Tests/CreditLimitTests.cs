@@ -245,6 +245,43 @@ public class CreditLimitTests
         Assert.Equal(1, calls);
     }
 
+    /// <summary>
+    /// The same order must get the same answer whether it is measured in memory at capture or read
+    /// back from Postgres at approval.
+    /// </summary>
+    /// <remarks>
+    /// Production showed the drift directly: the capture-time refusal logged
+    /// <c>1050.484050000000000000</c> and the approval-time one logged <c>1050.48</c> for one order.
+    /// A total is computed as <c>quantity * unitPrice * (1 - discount/100)</c>, which carries far
+    /// more scale than the column it lands in, so the two gates were comparing different numbers.
+    /// Rounding once inside the check is what makes them agree.
+    /// </remarks>
+    [Fact]
+    public async Task Measures_the_order_on_its_rounded_total()
+    {
+        // Balance leaves exactly 1,050.48 of headroom. The raw total exceeds it; the rounded one
+        // does not — so without rounding this order clears the capture gate and fails at approval.
+        var service = CreateService(Profile(CustomerCardCode, creditLimit: 30_000m, balance: 28_949.52m));
+
+        var raw = await service.CheckSalesOrderAsync(CustomerCardCode, 1_050.484050000000000000m);
+        var stored = await service.CheckSalesOrderAsync(CustomerCardCode, 1_050.48m);
+
+        Assert.True(raw.IsWithinLimit);
+        Assert.True(stored.IsWithinLimit);
+    }
+
+    /// <summary>Rounding is half-away-from-zero, so a hair over the limit is still over it.</summary>
+    [Fact]
+    public async Task Rounds_a_half_cent_up_rather_than_away()
+    {
+        var service = CreateService(Profile(CustomerCardCode, creditLimit: 30_000m, balance: 28_949.52m));
+
+        var result = await service.CheckSalesOrderAsync(CustomerCardCode, 1_050.485m);
+
+        Assert.False(result.IsWithinLimit);
+        Assert.Equal(30_000.01m, result.Exposure);
+    }
+
     private static BusinessPartnerCreditProfileDto Profile(
         string cardCode,
         decimal creditLimit,

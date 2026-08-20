@@ -20,12 +20,18 @@ public class AuthService : IAuthService
     private readonly HttpClient _httpClient;
     private readonly CustomAuthStateProvider _authStateProvider;
     private readonly ILogger<AuthService> _logger;
+    private readonly WebClientAuditContext _clientAuditContext;
 
-    public AuthService(HttpClient httpClient, CustomAuthStateProvider authStateProvider, ILogger<AuthService> logger)
+    public AuthService(
+        HttpClient httpClient,
+        CustomAuthStateProvider authStateProvider,
+        ILogger<AuthService> logger,
+        WebClientAuditContext clientAuditContext)
     {
         _httpClient = httpClient;
         _authStateProvider = authStateProvider;
         _logger = logger;
+        _clientAuditContext = clientAuditContext;
     }
 
     public async Task<(bool Success, string Message, LoginResponse? Response)> LoginAsync(string username, string password)
@@ -41,7 +47,7 @@ public class AuthService : IAuthService
             };
 
             _logger.LogDebug("Sending login request to API at {BaseAddress}api/auth/login", _httpClient.BaseAddress);
-            var response = await _httpClient.PostAsJsonAsync("api/auth/login", loginRequest);
+            var response = await _httpClient.PostAsJsonWithClientAuditAsync("api/auth/login", loginRequest, _clientAuditContext);
             _logger.LogDebug("Received response with status code: {StatusCode}", response.StatusCode);
 
             if (response.IsSuccessStatusCode)
@@ -107,7 +113,7 @@ public class AuthService : IAuthService
                 IsBackupCode = isBackupCode
             };
 
-            var response = await _httpClient.PostAsJsonAsync("api/auth/login/two-factor", challengeRequest);
+            var response = await _httpClient.PostAsJsonWithClientAuditAsync("api/auth/login/two-factor", challengeRequest, _clientAuditContext);
 
             if (response.IsSuccessStatusCode)
             {
@@ -148,11 +154,11 @@ public class AuthService : IAuthService
 
         try
         {
-            var response = await _httpClient.PostAsJsonAsync("api/auth/passkeys/login/options", new
+            var response = await _httpClient.PostAsJsonWithClientAuditAsync("api/auth/passkeys/login/options", new
             {
                 Origin = origin,
                 RpId = rpId
-            });
+            }, _clientAuditContext);
 
             if (response.IsSuccessStatusCode)
             {
@@ -188,13 +194,13 @@ public class AuthService : IAuthService
 
         try
         {
-            var response = await _httpClient.PostAsJsonAsync("api/auth/passkeys/login/complete", new
+            var response = await _httpClient.PostAsJsonWithClientAuditAsync("api/auth/passkeys/login/complete", new
             {
                 SessionToken = sessionToken,
                 CredentialJson = credentialJson,
                 Origin = origin,
                 RpId = rpId
-            });
+            }, _clientAuditContext);
 
             if (response.IsSuccessStatusCode)
             {
@@ -247,7 +253,7 @@ public class AuthService : IAuthService
 
         try
         {
-            var response = await _httpClient.PostAsJsonAsync("api/auth/register", request);
+            var response = await _httpClient.PostAsJsonWithClientAuditAsync("api/auth/register", request, _clientAuditContext);
 
             if (response.IsSuccessStatusCode)
             {

@@ -1061,15 +1061,29 @@ sitting over their limit, whose orders will be refused at capture the next day. 
 named in the notification; the full list goes to the log at Warning. It is silent when nothing is
 over. The notification reaches Admin, Cashier and SalesRep users.
 
-**Credit control endpoint**
+**Credit control endpoints**
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|-----------|-------------|
 | GET | `/api/credit-control/over-limit` | `customers.view` | Accounts and groups currently over their credit limit |
+| GET | `/api/credit-control/headroom` | `customers.view` | How much credit room named customers have left |
 
 Same finding as the evening review, on demand and in full. Served from a 10-minute cache; pass
 `?refresh=true` to re-read SAP, which is what to do after taking a payment. Concurrent callers
 share one sweep rather than each triggering their own.
+
+`headroom` answers from that same sweep, so asking about the customers on a page of pending orders
+costs no extra SAP reads. Pass `?cardCodes=SPA077&cardCodes=FOO030` or a comma-separated list, up to
+100 per call. Each account reports the limit that actually governs it — for a consolidated account
+that is the parent's, under `creditAccountCardCode`, because that is the limit the order will be
+refused on and the account a payment has to be made against. `hasLimit: false` means no limit is set
+on the account or its parent, which is not the same as no room left; `headroom` is negative when the
+account is already over.
+
+It exists because a refusal arrives too late to act on: on 2026-08-20 the same order was pushed at
+SPA077 four times, each attempt spending 8 to 26 seconds re-pricing against live SAP before the
+credit gate refused it, and the fourth — already cut from 1,050.48 to 794.82 — was still 8.75 over.
+The account had 786.07 of room throughout.
 
 ```json
 {

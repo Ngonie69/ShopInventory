@@ -68,7 +68,10 @@ public class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAuthentic
         var principal = new ClaimsPrincipal(identity);
         var ticket = new AuthenticationTicket(principal, Scheme.Name);
 
-        _logger.LogInformation("API key authentication successful for: {KeyName}", keyConfig.Name);
+        // Debug: a valid API key is the normal case on every single integration request — 718 lines
+        // of one production day, 9% of the file, all saying the same key worked again. The failures
+        // below are what an operator needs, and they stay where they are.
+        _logger.LogDebug("API key authentication successful for: {KeyName}", keyConfig.Name);
 
         return Task.FromResult(AuthenticateResult.Success(ticket));
     }

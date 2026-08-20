@@ -41,9 +41,21 @@ public sealed class UploadPodHandler(
     /// re-upload in that day's log came nine minutes later, and is untouched by this.
     /// </para>
     /// <para>
-    /// Only applied when the caller sends no reference of its own. A client that mints one per
-    /// attempt is making a claim about which submissions are distinct, and that claim is better
-    /// evidence than this clock.
+    /// It used to be skipped whenever the caller sent a reference of its own, on the reasoning that
+    /// a client minting one per attempt is claiming those submissions are distinct. The 2026-08-20
+    /// log disproved that: invoice 2232744 took a second POD two seconds after the first, from the
+    /// same driver, and slipped past every guard — the reference differed because the app mints one
+    /// per *capture*, and a second capture is a different photo with a different hash. A per-capture
+    /// reference is not a claim about submissions. So the window now applies either way, and a
+    /// caller that genuinely means to add a page says so with
+    /// <see cref="UploadPodCommand.IsAdditionalPage"/>.
+    /// </para>
+    /// <para>
+    /// Fifteen seconds is deliberately conservative while the handsets do not yet send that flag:
+    /// anything longer would start swallowing genuine second pages from a client with no way to say
+    /// otherwise. The two 2026-08-20 duplicates 73 and 77 seconds apart are therefore still stored,
+    /// and cannot be told apart from a real second page from here. Widen this once the flag is
+    /// adopted.
     /// </para>
     /// </remarks>
     private static readonly TimeSpan DoubleSubmitWindow = TimeSpan.FromSeconds(15);
@@ -130,7 +142,10 @@ public sealed class UploadPodHandler(
                 return existingAttachment;
             }
         }
-        else if (userId is Guid uploaderId)
+
+        // Applies whether or not a reference was supplied — see DoubleSubmitWindow. A caller that
+        // means a second page says so instead of being inferred from a reference it minted.
+        if (!command.IsAdditionalPage && userId is Guid uploaderId)
         {
             var recentUpload = await documentService.FindRecentAttachmentByUploaderAsync(
                 request.EntityType,
@@ -156,8 +171,24 @@ public sealed class UploadPodHandler(
             ? command.FileName
             : $"POD_{command.FileName}";
 
-        var attachment = await documentService.UploadAttachmentAsync(
+        var (attachment, wasReused) = await documentService.UploadAttachmentWithOutcomeAsync(
             request, command.FileStream, fileName, command.ContentType, userId, cancellationToken);
+
+        if (wasReused)
+        {
+            // A guard inside the upload matched after the checks above had already passed — most
+            // often two requests racing, where the pre-check found nothing and the insert lost.
+            // The attachment is real and the caller gets it, but the delivery was announced when the
+            // first request stored it. Announcing it again is what put two bell entries and two push
+            // messages on invoice 2229934 on 2026-08-20.
+            logger.LogInformation(
+                "POD upload for invoice {DocEntry} by user {UserId} matched existing attachment {AttachmentId}; not announcing it a second time",
+                command.DocEntry,
+                userId,
+                attachment.Id);
+
+            return attachment;
+        }
 
         logger.LogInformation("POD uploaded for invoice {DocEntry} by user {UserId}", command.DocEntry, userId);
 

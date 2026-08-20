@@ -22,6 +22,13 @@ public interface ISalesOrderService
     Task<InvoiceDto?> ConvertToInvoiceAsync(int id);
     Task<bool> DeleteSalesOrderAsync(int id);
     Task<SalesOrderDto?> PostToSAPAsync(int id);
+
+    /// <summary>
+    /// How much credit room one customer has left, for a screen about to ask someone to approve an
+    /// order against it. Null when it cannot be read — the caller shows nothing rather than a zero.
+    /// The response carries when the balances were read, which matters because they are cached.
+    /// </summary>
+    Task<CreditHeadroomResponse?> GetCreditHeadroomAsync(string cardCode);
 }
 
 public class SalesOrderService : ISalesOrderService
@@ -328,7 +335,7 @@ public class SalesOrderService : ISalesOrderService
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, $"api/salesorder/{id}/approve");
             request.Headers.Add("Idempotency-Key", idempotencyKey);
-            AddClientAuditHeaders(request);
+            request.WithClientAudit(_clientAuditContext);
             return await _httpClient.SendAsync(request);
         });
 
@@ -344,16 +351,35 @@ public class SalesOrderService : ISalesOrderService
         throw new HttpRequestException(message, null, response.StatusCode);
     }
 
-    private void AddClientAuditHeaders(HttpRequestMessage request)
+    /// <summary>
+    /// How much credit room a customer has left, read before an approval rather than after it.
+    /// </summary>
+    /// <remarks>
+    /// The refusal an approver eventually sees carries every figure they need, but it arrives after
+    /// the attempt: on 2026-08-20 the same order was pushed at SPA077 four times, each attempt
+    /// spending 8 to 26 seconds re-pricing against live SAP first, and the fourth — already cut from
+    /// 1,050.48 to 794.82 — was still 8.75 over. The account had 786.07 of room the whole time.
+    /// <para>
+    /// Never throws. A screen that cannot read the headroom shows nothing, which is honest; showing
+    /// a zero would read as "no room left" and stop an approval that would have gone through.
+    /// </para>
+    /// </remarks>
+    public async Task<CreditHeadroomResponse?> GetCreditHeadroomAsync(string cardCode)
     {
-        if (_clientAuditContext.ForwardableIpAddress is { } clientIpAddress)
+        if (string.IsNullOrWhiteSpace(cardCode))
         {
-            request.Headers.TryAddWithoutValidation("X-Forwarded-For", clientIpAddress);
+            return null;
         }
 
-        if (!string.IsNullOrWhiteSpace(_clientAuditContext.UserAgent))
+        try
         {
-            request.Headers.TryAddWithoutValidation("User-Agent", _clientAuditContext.UserAgent);
+            return await GetAuthenticatedAsync<CreditHeadroomResponse>(
+                $"api/credit-control/headroom?cardCodes={Uri.EscapeDataString(cardCode.Trim())}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not read credit headroom for {CardCode}", cardCode);
+            return null;
         }
     }
 

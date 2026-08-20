@@ -348,15 +348,30 @@ public class PushNotificationService : IPushNotificationService
                 // Track failed tokens
                 for (int i = 0; i < response.Responses.Count; i++)
                 {
-                    if (!response.Responses[i].IsSuccess)
+                    if (response.Responses[i].IsSuccess)
                     {
-                        var error = response.Responses[i].Exception?.MessagingErrorCode;
-                        if (error == MessagingErrorCode.Unregistered || error == MessagingErrorCode.InvalidArgument)
-                        {
-                            revokedTokens.Add(batch[i]);
-                        }
-                        _logger.LogWarning("FCM send failed for token {Token}: {Error}", batch[i][..12] + "...", error);
+                        continue;
                     }
+
+                    var failure = response.Responses[i].Exception;
+                    var messagingError = failure?.MessagingErrorCode;
+
+                    if (IsPermanentTokenFailure(messagingError))
+                    {
+                        revokedTokens.Add(batch[i]);
+                    }
+
+                    // MessagingErrorCode alone is null for anything FCM did not classify as a
+                    // messaging fault — a transport failure, a quota rejection — and production
+                    // duly logged "FCM send failed for token cIqH8sOKRVCP...: null", which says
+                    // nothing at all and leaves the token unpruned with no way to find out why.
+                    // The general error code and the message are what make it diagnosable.
+                    _logger.LogWarning(
+                        "FCM send failed for token {Token}: {MessagingError} / {ErrorCode} — {Reason}",
+                        batch[i][..12] + "...",
+                        messagingError?.ToString() ?? "unclassified",
+                        failure?.ErrorCode.ToString() ?? "unknown",
+                        failure?.Message ?? "no detail was returned");
                 }
             }
             catch (Exception ex)
@@ -387,6 +402,26 @@ public class PushNotificationService : IPushNotificationService
         _logger.LogInformation("Push notification sent: {Sent}/{Total} devices. Title: {Title}", sent, tokens.Count, logLabel);
         return sent;
     }
+
+    /// <summary>
+    /// Whether this failure means the token will never work again, so the registration should go.
+    /// </summary>
+    /// <remarks>
+    /// Only codes that describe the registration itself. <c>Unregistered</c> is the app uninstalled
+    /// or the token rotated; <c>InvalidArgument</c> is a malformed token; <c>SenderIdMismatch</c> is
+    /// a token minted for a different Firebase project, which this one can never send to; and
+    /// <c>ThirdPartyAuthError</c> is an APNs credential the token is permanently bound to.
+    /// <para>
+    /// Everything else — quota, unavailable, internal, and the unclassified failures that report no
+    /// messaging code at all — is transient or unknown, and revoking on those would silently stop a
+    /// working handset receiving anything.
+    /// </para>
+    /// </remarks>
+    internal static bool IsPermanentTokenFailure(MessagingErrorCode? error) => error
+        is MessagingErrorCode.Unregistered
+        or MessagingErrorCode.InvalidArgument
+        or MessagingErrorCode.SenderIdMismatch
+        or MessagingErrorCode.ThirdPartyAuthError;
 
     private static DeviceRegistrationDto MapToDto(PushDeviceRegistration d)
     {

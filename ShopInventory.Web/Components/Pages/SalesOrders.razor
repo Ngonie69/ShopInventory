@@ -660,6 +660,53 @@
                                 <div>@GetPostingBlockReason(approvalOrder)</div>
                             </div>
                         }
+                        @* The room the customer actually has, before the click rather than after it.
+                           The credit gate runs SAP-side on approval and is still what decides; this
+                           is the same arithmetic on the sweep credit control already runs, so an
+                           approver can see how far over an order is without spending 8 to 26 seconds
+                           discovering it. *@
+                        @if (approvalHeadroomLoading)
+                        {
+                            <div class="sox-note">
+                                <div class="sox-dt">Credit</div>
+                                <div>Checking how much room this customer has…</div>
+                            </div>
+                        }
+                        else if (approvalHeadroom is { HasLimit: true } headroom)
+                        {
+                            <div class="@(ApprovalWouldBreachCredit ? "sox-note is-bad" : "sox-note")">
+                                <div class="sox-dt">
+                                    @(ApprovalWouldBreachCredit ? "This order goes over the credit limit" : "Credit room")
+                                </div>
+                                <div>
+                                    @CreditAccountLabel(headroom):
+                                    limit @Money(headroom.CreditLimit, headroom.Currency),
+                                    owed @Money(headroom.Exposure, headroom.Currency),
+                                    room @Money(headroom.Headroom, headroom.Currency).
+                                </div>
+                                <div>
+                                    @if (ApprovalWouldBreachCredit)
+                                    {
+                                        <text>
+                                            This order is @Money(approvalOrder.DocTotal, approvalOrder.Currency) —
+                                            @Money(-(ApprovalHeadroomAfterOrder ?? 0m), headroom.Currency) over.
+                                            Take a payment against @(headroom.CreditAccountCardCode ?? headroom.CardCode),
+                                            or reduce the order by at least that much.
+                                        </text>
+                                    }
+                                    else
+                                    {
+                                        <text>
+                                            This order is @Money(approvalOrder.DocTotal, approvalOrder.Currency),
+                                            leaving @Money(ApprovalHeadroomAfterOrder ?? 0m, headroom.Currency).
+                                        </text>
+                                    }
+                                </div>
+                                <div class="sox-note-meta">
+                                    Balances as at @approvalHeadroomAsAtDisplay. A payment taken since then is not reflected.
+                                </div>
+                            </div>
+                        }
                         <div class="sox-impact">
                             <i class="ph ph-info" aria-hidden="true"></i>
                             <div>
@@ -806,6 +853,12 @@
     private List<SalesOrderDto>? orders;
     private SalesOrderDto? selectedOrder;
     private SalesOrderDto? approvalOrder;
+
+    // Read when the approval dialog opens, from the credit sweep credit control already runs, so
+    // the approver sees the room before clicking rather than the shortfall afterwards.
+    private CreditHeadroom? approvalHeadroom;
+    private bool approvalHeadroomLoading;
+    private string approvalHeadroomAsAtDisplay = string.Empty;
     private SalesOrderDto? convertOrder;
     private bool isLoading = true;
     private bool isPdfLoading = false;
@@ -1098,12 +1151,34 @@
     private bool IsOrderActionBusy(int id, OrderActionType action)
         => orderActionStates.TryGetValue(id, out var currentAction) && currentAction == action;
 
-    private void OpenApprovalModal(SalesOrderDto order)
+    private async Task OpenApprovalModal(SalesOrderDto order)
     {
         if (IsOrderActionBusy(order.Id))
             return;
 
         approvalOrder = order;
+        approvalHeadroom = null;
+        approvalHeadroomLoading = true;
+
+        try
+        {
+            var response = await SalesOrderService.GetCreditHeadroomAsync(order.CardCode ?? string.Empty);
+
+            // The dialog may have been closed, or reopened on a different order, while this was in
+            // flight. Applying a stale answer would put one customer's limit against another's order.
+            if (approvalOrder?.Id == order.Id)
+            {
+                approvalHeadroom = response?.Accounts.FirstOrDefault();
+                approvalHeadroomAsAtDisplay = await ResolveHeadroomAsAtDisplayAsync(response);
+            }
+        }
+        finally
+        {
+            if (approvalOrder?.Id == order.Id)
+            {
+                approvalHeadroomLoading = false;
+            }
+        }
     }
 
     private void CloseApprovalModal()
@@ -1112,7 +1187,60 @@
             return;
 
         approvalOrder = null;
+        approvalHeadroom = null;
+        approvalHeadroomLoading = false;
+        approvalHeadroomAsAtDisplay = string.Empty;
     }
+
+    /// <summary>
+    /// When the balances behind the headroom were actually read, in the browser's own time zone.
+    /// </summary>
+    /// <remarks>
+    /// Worth saying out loud rather than implying the figures are live: they come from a sweep that
+    /// is cached for minutes, and the whole point of the note is that somebody is about to make a
+    /// decision on them. A payment taken in between moves the real answer and not this one.
+    /// </remarks>
+    private async Task<string> ResolveHeadroomAsAtDisplayAsync(CreditHeadroomResponse? response)
+    {
+        if (response is null || response.GeneratedAt == default)
+        {
+            return string.Empty;
+        }
+
+        var display = await JSRuntime.InvokeAsync<string?>(
+            "shopInventory.formatUtcForBrowserLocalDisplay",
+            response.GeneratedAt.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+
+        return display ?? string.Empty;
+    }
+
+    /// <summary>
+    /// What this order leaves the customer, or how far over it goes. Null when there is no limit to
+    /// measure against, or the headroom could not be read.
+    /// </summary>
+    private decimal? ApprovalHeadroomAfterOrder =>
+        approvalHeadroom is { HasLimit: true } headroom && approvalOrder is not null
+            ? headroom.Headroom - approvalOrder.DocTotal
+            : null;
+
+    private bool ApprovalWouldBreachCredit => ApprovalHeadroomAfterOrder is < 0;
+
+    /// <summary>
+    /// The account the limit belongs to, said the way a rep needs to hear it. For a consolidated
+    /// account that is the parent — a payment against the order's own customer will not move it.
+    /// </summary>
+    private static string CreditAccountLabel(CreditHeadroom headroom)
+    {
+        var code = headroom.CreditAccountCardCode ?? headroom.CardCode;
+        var name = string.IsNullOrWhiteSpace(headroom.CreditAccountName) ? code : $"{headroom.CreditAccountName} ({code})";
+
+        return headroom.IsGroup
+            ? $"Group under {name}, across {headroom.AccountCount} accounts"
+            : name;
+    }
+
+    private static string Money(decimal amount, string? currency) =>
+        string.IsNullOrWhiteSpace(currency) ? amount.ToString("N2") : $"{currency} {amount:N2}";
 
     private async Task ConfirmApproval()
     {

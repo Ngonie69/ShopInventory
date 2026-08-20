@@ -25,6 +25,8 @@ public sealed class SystemFailureAlertJob : IJob
     private const string LastAlertSentUtcKey = "lastAlertSentAtUtc";
     private const string ConditionFingerprintKey = "conditionFingerprint";
     private const string EscalationLevelKey = "escalationLevel";
+    private const string PendingConditionFingerprintKey = "pendingConditionFingerprint";
+    private const string PendingConditionCountKey = "pendingConditionCount";
 
     /// <summary>
     /// Cooldown ladder, as multiples of <see cref="SystemHealthAlertSettings.AlertCooldownMinutes"/>.
@@ -81,6 +83,13 @@ public sealed class SystemFailureAlertJob : IJob
             && int.TryParse(escalationLevelValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedLevel)
                 ? parsedLevel
                 : 0;
+        var pendingFingerprint = dataMap.TryGetString(PendingConditionFingerprintKey, out var pendingFingerprintValue)
+            ? pendingFingerprintValue ?? string.Empty
+            : string.Empty;
+        var pendingCount = dataMap.TryGetString(PendingConditionCountKey, out var pendingCountValue)
+            && int.TryParse(pendingCountValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedPendingCount)
+                ? parsedPendingCount
+                : 0;
 
         await using var scope = _serviceProvider.CreateAsyncScope();
         var healthService = scope.ServiceProvider.GetRequiredService<HealthCheckService>();
@@ -113,12 +122,17 @@ public sealed class SystemFailureAlertJob : IJob
                 dataMap[ConditionFingerprintKey] = string.Empty;
                 dataMap[EscalationLevelKey] = "0";
             }
+
+            ClearPendingCondition(dataMap);
             return;
         }
 
         // Only alert for Degraded or Unhealthy
         if (currentStatus == HealthStatus.Healthy)
         {
+            // Healthy without having alerted: whatever was building up did not last. Forget it, so a
+            // condition that appears once an hour never accumulates its way into an alert.
+            ClearPendingCondition(dataMap);
             return;
         }
 
@@ -129,6 +143,30 @@ public sealed class SystemFailureAlertJob : IJob
         // and treating that drift as a change would restart the ladder forever.
         var fingerprint = BuildConditionFingerprint(report);
         var conditionChanged = !string.Equals(fingerprint, lastFingerprint, StringComparison.Ordinal);
+
+        var confirmation = EvaluateConfirmation(
+            currentStatus,
+            conditionChanged,
+            fingerprint,
+            pendingFingerprint,
+            pendingCount,
+            _alertSettings.DegradedConfirmations);
+
+        if (!confirmation.Alert)
+        {
+            dataMap[PendingConditionFingerprintKey] = confirmation.PendingFingerprint;
+            dataMap[PendingConditionCountKey] = confirmation.PendingCount.ToString(CultureInfo.InvariantCulture);
+
+            _logger.LogInformation(
+                "System health is Degraded, seen {TimesSeen} of {RequiredConfirmations} consecutive poll(s); " +
+                "not alerting until it holds. Message: {Message}",
+                confirmation.PendingCount,
+                Math.Max(1, _alertSettings.DegradedConfirmations),
+                BuildAlertNotificationMessage(report, currentStatus));
+            return;
+        }
+
+        ClearPendingCondition(dataMap);
 
         // escalationLevel indexes the wait to apply *before the next* alert, so a changed condition
         // sends now and resets the ladder to its first rung rather than skipping it.
@@ -171,6 +209,64 @@ public sealed class SystemFailureAlertJob : IJob
             dataMap[ConditionFingerprintKey] = fingerprint;
             dataMap[EscalationLevelKey] = nextEscalationLevel.ToString(CultureInfo.InvariantCulture);
         }
+    }
+
+    /// <summary>
+    /// Whether this poll's reading has earned an alert yet, and what to remember if it has not.
+    /// </summary>
+    /// <remarks>
+    /// A Degraded condition nobody has alerted on has to survive a second look. <paramref
+    /// name="conditionChanged"/> is exactly that test: the last fingerprint is only written when an
+    /// alert actually goes out, so it staying "changed" means this condition has never been
+    /// announced. Once one has been, repeats are the cooldown ladder's business and this stands
+    /// aside.
+    /// <para>
+    /// Unhealthy is exempt throughout. A hard failure is not a blip, and waiting a poll to confirm
+    /// it costs real minutes.
+    /// </para>
+    /// <para>
+    /// A pure function, so the job and its tests share one implementation of the rule rather than
+    /// the test re-deriving it and agreeing with itself.
+    /// </para>
+    /// </remarks>
+    internal static (bool Alert, string PendingFingerprint, int PendingCount) EvaluateConfirmation(
+        HealthStatus currentStatus,
+        bool conditionChanged,
+        string fingerprint,
+        string pendingFingerprint,
+        int pendingCount,
+        int requiredConfirmations)
+    {
+        var required = Math.Max(1, requiredConfirmations);
+
+        if (currentStatus != HealthStatus.Degraded || !conditionChanged || required <= 1)
+        {
+            return (true, string.Empty, 0);
+        }
+
+        // Consecutive means consecutive: a different condition starts its own count, and any healthy
+        // poll clears the pending state before this is reached again.
+        var timesSeen = string.Equals(fingerprint, pendingFingerprint, StringComparison.Ordinal)
+            ? pendingCount + 1
+            : 1;
+
+        return timesSeen >= required
+            ? (true, string.Empty, 0)
+            : (false, fingerprint, timesSeen);
+    }
+
+    /// <summary>
+    /// Forgets a Degraded condition that was building towards an alert.
+    /// </summary>
+    /// <remarks>
+    /// Written on every path that ends the build-up — recovery, a healthy poll, and an alert
+    /// actually going out — so consecutive means consecutive. Leaving it behind would let a
+    /// condition that shows up once an hour accumulate its way to a confirmation it never earned.
+    /// </remarks>
+    private static void ClearPendingCondition(JobDataMap dataMap)
+    {
+        dataMap[PendingConditionFingerprintKey] = string.Empty;
+        dataMap[PendingConditionCountKey] = "0";
     }
 
     /// <summary>

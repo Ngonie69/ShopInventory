@@ -27,6 +27,17 @@ public class SalesOrderService : ISalesOrderService
     // How many order numbers a reconciliation sweep names before summarising the rest. Enough to
     // act on without turning a two-minute job into a wall of text.
     private const int MaxReportedStuckOrderNumbers = 10;
+
+    /// <summary>
+    /// How old an unlinked order has to be before a sweep reports it as needing a person rather than
+    /// as something still settling.
+    /// </summary>
+    /// <remarks>
+    /// A SAP create that committed is visible within moments, so an order still unlinked an hour
+    /// later was never accepted and no number of further probes will change that. SO-20260817-0008
+    /// was probed every two minutes for three days without one line saying so above Information.
+    /// </remarks>
+    private static readonly TimeSpan StuckCandidateAge = TimeSpan.FromHours(1);
     private const string SapPostingIdempotencyScope = "salesorders.sap-post";
     private const string SapPostingUncertainSyncErrorPrefix = "The SAP posting result is uncertain";
     private static readonly TimeSpan ApprovalPricingTimeout = TimeSpan.FromSeconds(30);
@@ -1326,11 +1337,7 @@ public class SalesOrderService : ISalesOrderService
 
             await _context.SaveChangesAsync(CancellationToken.None);
 
-            _logger.LogError(
-                ex,
-                "Failed to approve sales order {OrderId} ({OrderNumber}) because posting to SAP failed. Approval state was rolled back.",
-                order.Id,
-                order.OrderNumber);
+            LogFailedSapPost(ex, order, "approve", "Approval state was rolled back.");
 
             throw;
         }
@@ -1608,7 +1615,7 @@ public class SalesOrderService : ISalesOrderService
             order.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync(CancellationToken.None);
 
-            _logger.LogError(ex, "Failed to post sales order {OrderNumber} to SAP", order.OrderNumber);
+            LogFailedSapPost(ex, order, "post", "The order was returned to Pending.");
             throw;
         }
     }
@@ -1989,7 +1996,7 @@ public class SalesOrderService : ISalesOrderService
             .AsNoTracking()
             .Where(UnlinkedSapOrderCandidateFilter(cutoff))
             .OrderBy(o => o.Id)
-            .Select(o => new { o.Id, o.OrderNumber })
+            .Select(o => new { o.Id, o.OrderNumber, o.CreatedAt })
             .Take(maxOrders)
             .ToListAsync(cancellationToken);
 
@@ -2074,14 +2081,49 @@ public class SalesOrderService : ISalesOrderService
             // two minutes for hours means those orders need a person, and the previous version of
             // this said only "Resolved 0 of 22" from inside the SAP client — enough to know
             // something was stuck, not enough to know what.
-            _logger.LogInformation(
-                "Sales order reconciliation linked none of its {CandidateCount} candidate(s); SAP holds no document under {OrderNumbers}.",
-                candidates.Count,
-                string.Join(", ", candidates.Take(MaxReportedStuckOrderNumbers).Select(candidate => candidate.OrderNumber))
-                    + (candidates.Count > MaxReportedStuckOrderNumbers ? $", +{candidates.Count - MaxReportedStuckOrderNumbers} more" : string.Empty));
+            //
+            // Past StuckCandidateAge it stops being a sweep waiting for SAP to catch up and becomes
+            // a report that somebody has to act on, so it is raised to Warning: SAP has now been
+            // asked repeatedly, over hours, and has answered the same way every time. The
+            // reconciliation job also drops these to a half-hourly cadence, so this names a genuinely
+            // stuck order roughly 48 times a day rather than 720.
+            var stuckSince = DateTime.UtcNow - StuckCandidateAge;
+            var stuck = candidates.Where(candidate => candidate.CreatedAt <= stuckSince).ToList();
+
+            if (stuck.Count > 0)
+            {
+                _logger.LogWarning(
+                    "Sales order reconciliation has found no SAP document for {StuckCount} order(s) created more than {StuckHours:F0}h ago; they will not resolve on their own and need a person: {OrderNumbers}.",
+                    stuck.Count,
+                    StuckCandidateAge.TotalHours,
+                    NameOrders(stuck.Select(candidate => candidate.OrderNumber)));
+            }
+
+            if (stuck.Count < candidates.Count)
+            {
+                _logger.LogInformation(
+                    "Sales order reconciliation linked none of its {CandidateCount} candidate(s); SAP holds no document under {OrderNumbers}.",
+                    candidates.Count - stuck.Count,
+                    NameOrders(candidates
+                        .Where(candidate => candidate.CreatedAt > stuckSince)
+                        .Select(candidate => candidate.OrderNumber)));
+            }
         }
 
         return linkedCount;
+    }
+
+    /// <summary>
+    /// Names up to <see cref="MaxReportedStuckOrderNumbers"/> orders, counting the rest.
+    /// </summary>
+    private static string NameOrders(IEnumerable<string> orderNumbers)
+    {
+        var names = orderNumbers.ToList();
+        var shown = string.Join(", ", names.Take(MaxReportedStuckOrderNumbers));
+
+        return names.Count > MaxReportedStuckOrderNumbers
+            ? $"{shown}, +{names.Count - MaxReportedStuckOrderNumbers} more"
+            : shown;
     }
 
     /// <summary>
@@ -2833,6 +2875,43 @@ public class SalesOrderService : ISalesOrderService
             throw new InvalidOperationException($"Sales order validation failed: {string.Join("; ", validationErrors)}");
 
         request.CardName = await ResolveCardNameAsync(request.CardCode, request.CardName, cancellationToken);
+    }
+
+    /// <summary>
+    /// Reports a failed attempt to put an order into SAP, at the level the cause deserves.
+    /// </summary>
+    /// <remarks>
+    /// A credit refusal is a business outcome, not a fault, and it says nothing about SAP: the gate
+    /// in <see cref="PostApprovedOrderToSapCoreAsync"/> runs before the create, so no document was
+    /// ever attempted. It is logged at Information without a stack, because the handler that catches
+    /// <see cref="CreditLimitExceededException"/> already records the rep-facing reason at Warning
+    /// and turns it into a result the caller can act on.
+    /// <para>
+    /// This lived inline at both call sites and both logged Error. The effect in production was that
+    /// every error-level line in a nine-hour day was a salesperson hitting a credit limit, under a
+    /// message that blamed SAP for it — which is exactly the level an operator alerts on, so the
+    /// alert was worthless and the two genuinely broken things that day never reached it.
+    /// </para>
+    /// </remarks>
+    internal void LogFailedSapPost(Exception ex, SalesOrderEntity order, string operation, string rollbackNote)
+    {
+        if (ex is CreditLimitExceededException)
+        {
+            _logger.LogInformation(
+                "Sales order {OrderId} ({OrderNumber}) was refused on credit before anything was posted to SAP. {RollbackNote}",
+                order.Id,
+                order.OrderNumber,
+                rollbackNote);
+            return;
+        }
+
+        _logger.LogError(
+            ex,
+            "Failed to {Operation} sales order {OrderId} ({OrderNumber}) because posting to SAP failed. {RollbackNote}",
+            operation,
+            order.Id,
+            order.OrderNumber,
+            rollbackNote);
     }
 
     /// <summary>

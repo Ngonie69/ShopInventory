@@ -259,6 +259,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         [FromForm] string? description = null,
         [FromForm] string? uploadedByUsername = null,
         [FromForm] string? externalReference = null,
+        [FromForm] bool isAdditionalPage = false,
         CancellationToken cancellationToken = default)
     {
         if (file == null || file.Length == 0)
@@ -274,7 +275,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
 
         using var stream = file.OpenReadStream();
         var result = await mediator.Send(
-            new UploadPodCommand(docEntry, stream, file.FileName, file.ContentType, description, effectiveUploadedByUsername, externalReference, GetUserId()),
+            new UploadPodCommand(docEntry, stream, file.FileName, file.ContentType, description, effectiveUploadedByUsername, externalReference, GetUserId(), isAdditionalPage),
             cancellationToken);
 
         return result.Match(

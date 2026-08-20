@@ -697,6 +697,7 @@ Color = Color.Info,
 Methods = new[] { "GET" },
 Endpoints = new List<ApiEndpoint>
 {
+new("GET", "/api/credit-control/headroom", "Get credit headroom"),
 new("GET", "/api/credit-control/over-limit", "Get over limit accounts")
 }
 },

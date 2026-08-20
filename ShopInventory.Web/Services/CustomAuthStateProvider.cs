@@ -15,6 +15,7 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
     private readonly ILocalStorageService _localStorage;
     private readonly HttpClient _httpClient;
     private readonly ILogger<CustomAuthStateProvider> _logger;
+    private readonly WebClientAuditContext _clientAuditContext;
     private readonly AuthenticationState _anonymous;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
@@ -35,11 +36,16 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
         Failed
     }
 
-    public CustomAuthStateProvider(ILocalStorageService localStorage, HttpClient httpClient, ILogger<CustomAuthStateProvider> logger)
+    public CustomAuthStateProvider(
+        ILocalStorageService localStorage,
+        HttpClient httpClient,
+        ILogger<CustomAuthStateProvider> logger,
+        WebClientAuditContext clientAuditContext)
     {
         _localStorage = localStorage;
         _httpClient = httpClient;
         _logger = logger;
+        _clientAuditContext = clientAuditContext;
         _anonymous = new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()));
     }
 
@@ -252,7 +258,10 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
         try
         {
             var request = new RefreshTokenRequest { RefreshToken = refreshToken };
-            var response = await _httpClient.PostAsJsonAsync("api/auth/refresh", request);
+            var response = await _httpClient.PostAsJsonWithClientAuditAsync(
+                "api/auth/refresh",
+                request,
+                _clientAuditContext);
 
             if (response.IsSuccessStatusCode)
             {
