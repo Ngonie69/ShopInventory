@@ -117,6 +117,25 @@ public sealed class DeliveryRouteCatalogueTests
     }
 
     /// <summary>
+    /// Two shops sit in towns that two routes both stop in, so the town cannot
+    /// place them. The routes run on different days and their own stops invoice
+    /// overwhelmingly on that day, which breaks the tie. Both samples are small
+    /// (5 and 3 invoices), so these are the first to revisit if a drop moves.
+    /// </summary>
+    [Theory]
+    // Zvishavane: MIDLANDS 1 stops at TM Zvishavane, MIDLANDS 2 at NR Zvishavane.
+    [InlineData("GAI080", "MIDLANDS 2", "MIDLANDS 1")]
+    // Chinhoyi: KARIBA stops at TM/NR Chinhoyi, PNP CENTRAL at Bhola Chinhoyi.
+    [InlineData("GAI026", "KARIBA", "PNP CENTRAL")]
+    public void A_shop_in_a_town_two_routes_serve_lands_on_the_one_its_invoices_match(
+        string cardCode, string expected, string rejected)
+    {
+        Assert.True(DeliveryRoutes.IsOnRoute(cardCode, expected),
+            $"{cardCode} resolved to [{DeliveryRoutes.FormatRoutes(cardCode)}]");
+        Assert.False(DeliveryRoutes.IsOnRoute(cardCode, rejected));
+    }
+
+    /// <summary>
     /// "Cheese Galore ( Packaging)" is a supplier as well as a customer, so a
     /// partner dump that was not filtered to customers puts supplier codes on a
     /// delivery route. The generator filters, but this pins the result.

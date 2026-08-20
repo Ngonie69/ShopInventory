@@ -101,6 +101,7 @@ public static partial class DeliveryRoutes
             "FRA002", // Francberg Investments T/A Dairyfresh Distributors kariba
             "FRA003 ZIG", // Francberg Investments T/A Dairyfresh Distributors kariba
             "GAI015", // GAINS CHEGUTU
+            "GAI026", // GAINS METRO CHINHOYI
             "GAI117", // Gain Metro Chegutu
             "GIJ001", // Gijazy Investments Pvt Limited
             "LAN011", // Lanwood Trading Pvt Ltd T/A Megasave Karoi
@@ -236,6 +237,7 @@ public static partial class DeliveryRoutes
             "BHO005 USD", // Bhola Mega Mart Masvingo
             "GAI054", // GAINS CHIREDZI
             "GAI076", // Metro peech hypermarket Masvingo
+            "GAI080", // Metropeech hypermarket zvishavane
             "GAI110", // Gains Cash and Carry Triangle
             "GAI111", // Metro Hypermarket Chiredzi
             "NRI004", // N Richards Masvingo Cash & Carry
