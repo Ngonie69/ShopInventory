@@ -15,6 +15,7 @@ using ShopInventory.Features.VanSalesCompatibility.Commands.StartVanSalesDay;
 using ShopInventory.Features.VanSalesCompatibility.Commands.EndVanSalesDay;
 using ShopInventory.Features.VanSalesCompatibility.Commands.ConfirmVanSalesTransferRequest;
 using ShopInventory.Features.VanSalesCompatibility.Commands.IngestVanSalesOfflineSales;
+using ShopInventory.Features.VanSalesCompatibility.Commands.RecordVanSalesFiscalDayClose;
 using ShopInventory.Features.VanSalesCompatibility.Commands.UploadVanSalesPod;
 using ShopInventory.Features.VanSalesCompatibility.Commands.LoginVanSales;
 using ShopInventory.Features.VanSalesCompatibility.Commands.RefreshVanSales;
@@ -444,6 +445,37 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
 
         var result = await mediator.Send(
             new IngestVanSalesOfflineSalesCommand(request, userId.Value), cancellationToken);
+
+        return result.Match<IActionResult>(Ok, errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Takes custody of the close a handset signed for its own fiscal day.
+    /// </summary>
+    /// <remarks>
+    /// This is the only route by which a van's fiscal day can be closed. The platform holds the handset's
+    /// certificate and not its private key, so it can verify this signature but never produce one — if
+    /// the handset does not send this, the day stays open and ZIMRA is never told what it sold.
+    ///
+    /// Held rather than forwarded on the request: the handset signs its close the moment its day ends,
+    /// which is before its last receipts have necessarily reached this service, and the day cannot be
+    /// packaged until they have.
+    /// </remarks>
+    [HttpPost("fiscal/day-close")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.CreateInvoices)]
+    public async Task<IActionResult> RecordFiscalDayClose(
+        [FromBody] VanSalesFiscalDayCloseRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(
+            new RecordVanSalesFiscalDayCloseCommand(request, userId.Value), cancellationToken);
 
         return result.Match<IActionResult>(Ok, errors => Problem(errors));
     }
