@@ -293,6 +293,7 @@ try
     // Add new feature services
     builder.Services.AddScoped<IReportService, ReportService>();
     builder.Services.AddScoped<IReportExportService, ReportExportService>();
+    builder.Services.AddScoped<IDeliveryRouteDirectory, DeliveryRouteDirectory>();
     builder.Services.AddScoped<IGlobalSearchService, GlobalSearchService>();
     builder.Services.AddScoped<IUserManagementService, UserManagementService>();
     builder.Services.AddScoped<INotificationClientService, NotificationClientService>();

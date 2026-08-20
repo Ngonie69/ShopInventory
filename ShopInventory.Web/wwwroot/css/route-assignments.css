@@ -1,0 +1,351 @@
+/* Delivery route assignments (/route-assignments).
+
+   Same palette as pod-report.css: both pages are about the same thing seen from
+   different ends, so they alias the same nocturne-tokens.css variables rather
+   than each picking their own. Light is the base and `.dark-theme` overrides it,
+   which is the convention every page sheet here follows. */
+
+.ras {
+    --ras-bg: var(--noct-bg);
+    --ras-surface: var(--noct-surface);
+    --ras-wash: var(--noct-wash);
+    --ras-ink: var(--noct-ink);
+    --ras-ink-2: var(--noct-ink-2);
+    --ras-mute: var(--noct-mute);
+    --ras-mute-3: var(--noct-mute-3);
+    --ras-divider: var(--noct-divider);
+    --ras-rule: var(--noct-rule);
+    --ras-hover: var(--noct-hover);
+    --ras-field-bg: var(--noct-field-bg);
+    --ras-field-edge: var(--noct-field-edge);
+    --ras-accent: var(--noct-accent);
+    --ras-accent-rgb: var(--noct-accent-rgb);
+    --ras-accent-text: var(--noct-accent-text);
+    --ras-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --ras-fam-bad-rgb: var(--noct-fam-bad-rgb);
+    --ras-fam-bad: var(--noct-fam-bad);
+    --ras-r-sm: var(--noct-r-sm);
+    --ras-r-md: var(--noct-r-md);
+    --ras-r-lg: var(--noct-r-lg);
+
+    min-height: 100vh;
+    background: var(--ras-bg);
+    color: var(--ras-ink);
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.ras-head {
+    border-bottom: 1px solid var(--ras-divider);
+    background: var(--ras-surface);
+}
+
+.ras-head-inner,
+.ras-body {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 24px;
+}
+
+.ras-head-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 56px;
+}
+
+.ras-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--ras-mute-3);
+}
+
+.ras-crumbs [aria-current] { color: var(--ras-ink-2); }
+
+.ras-head-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.ras-stamp {
+    font-size: 12px;
+    color: var(--ras-mute-3);
+}
+
+.ras-body { padding-bottom: 56px; }
+
+.ras-hero { padding: 26px 0 18px; }
+.ras-kicker {
+    font-size: 11.5px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ras-accent-text);
+}
+.ras-hero h1 {
+    margin: 6px 0 4px;
+    font-size: 26px;
+    font-weight: 650;
+    letter-spacing: -.02em;
+}
+.ras-hero p {
+    margin: 0;
+    max-width: 62ch;
+    font-size: 13.5px;
+    color: var(--ras-mute-3);
+}
+
+.ras-msg {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 16px;
+    padding: 10px 14px;
+    border: 1px solid rgba(var(--ras-fam-accent-rgb), .35);
+    border-radius: var(--ras-r-md);
+    background: rgba(var(--ras-fam-accent-rgb), .10);
+    font-size: 13px;
+}
+.ras-msg.is-bad {
+    border-color: rgba(var(--ras-fam-bad-rgb), .4);
+    background: rgba(var(--ras-fam-bad-rgb), .10);
+    color: var(--ras-fam-bad);
+}
+
+.ras-panel {
+    margin-bottom: 18px;
+    padding: 16px 18px;
+    border: 1px solid var(--ras-rule);
+    border-radius: var(--ras-r-lg);
+    background: var(--ras-surface);
+}
+
+.ras-panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+.ras-panel-head h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 620;
+}
+.ras-count {
+    font-size: 12px;
+    color: var(--ras-mute-3);
+}
+
+/* Routes beside their shops. Collapses to one column on a narrow screen, where
+   two panels side by side would each be too narrow to read a shop name in. */
+.ras-split {
+    display: grid;
+    grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+}
+
+.ras-route-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.ras-route {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--ras-r-sm);
+    background: none;
+    color: var(--ras-ink-2);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+.ras-route:hover { background: var(--ras-hover); }
+.ras-route.is-on {
+    border-color: rgba(var(--ras-fam-accent-rgb), .38);
+    background: rgba(var(--ras-fam-accent-rgb), .12);
+    color: var(--ras-accent-text);
+}
+.ras-route-count {
+    flex: none;
+    font-size: 11.5px;
+    color: var(--ras-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+.ras-route.is-on .ras-route-count { color: var(--ras-accent-text); }
+
+.ras-add { width: 100%; justify-content: center; margin-top: 10px; }
+
+/* Adding a route: a small form under the route list rather than a modal, so the
+   list it is adding to stays on screen. */
+.ras-new {
+    margin-top: 10px;
+    padding: 12px;
+    border: 1px dashed var(--ras-rule);
+    border-radius: var(--ras-r-md);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.ras-new-field { display: flex; flex-direction: column; gap: 4px; }
+.ras-new-label {
+    font-size: 11.5px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--ras-mute-3);
+}
+.ras-new-actions { display: flex; gap: 8px; }
+.ras-new-actions .ras-btn { flex: 1 1 auto; justify-content: center; }
+
+.ras-search { display: block; margin-bottom: 12px; }
+.ras-input {
+    width: 100%;
+    height: 34px;
+    padding: 0 11px;
+    border: 1px solid var(--ras-field-edge);
+    border-radius: var(--ras-r-sm);
+    background: var(--ras-field-bg);
+    color: var(--ras-ink);
+    font: inherit;
+    font-size: 13px;
+}
+.ras-input::placeholder { color: var(--ras-mute-3); }
+.ras-input:focus-visible {
+    outline: none;
+    border-color: var(--ras-accent);
+    box-shadow: 0 0 0 3px rgba(var(--ras-accent-rgb), .18);
+}
+
+.ras-results {
+    margin-bottom: 14px;
+    padding: 8px;
+    border: 1px dashed var(--ras-rule);
+    border-radius: var(--ras-r-md);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ras-stop-list,
+.ras-changes {
+    display: flex;
+    flex-direction: column;
+}
+
+.ras-stop,
+.ras-result,
+.ras-change {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 4px;
+    border-bottom: 1px solid var(--ras-divider);
+}
+.ras-stop:last-child,
+.ras-result:last-child,
+.ras-change:last-child { border-bottom: none; }
+.ras-result { border-bottom: none; padding: 6px 4px; }
+
+.ras-shop {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.ras-shop-name {
+    font-size: 13px;
+    color: var(--ras-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ras-shop-code,
+.ras-shop-on {
+    font-size: 11.5px;
+    color: var(--ras-mute-3);
+}
+
+.ras-stop-actions {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ras-who {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    font-size: 12px;
+    color: var(--ras-mute-3);
+}
+.ras-when { font-size: 11px; }
+
+/* A shop somebody put here, as against one the workbook places. */
+.ras-tag {
+    flex: none;
+    padding: 1px 7px;
+    border-radius: var(--ras-r-sm);
+    background: rgba(var(--ras-fam-accent-rgb), .14);
+    color: var(--ras-accent-text);
+    font-size: 11px;
+    letter-spacing: .02em;
+}
+.ras-tag.is-bad {
+    background: rgba(var(--ras-fam-bad-rgb), .14);
+    color: var(--ras-fam-bad);
+}
+
+.ras-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 30px;
+    padding: 0 12px;
+    border: 1px solid var(--ras-field-edge);
+    border-radius: var(--ras-r-sm);
+    background: var(--ras-field-bg);
+    color: var(--ras-ink-2);
+    font: inherit;
+    font-size: 12.5px;
+    text-decoration: none;
+    cursor: pointer;
+}
+.ras-btn:hover:not(:disabled) { background: var(--ras-hover); color: var(--ras-ink); }
+.ras-btn:disabled { opacity: .55; cursor: default; }
+.ras-btn-ghost { background: none; border-color: transparent; color: var(--ras-mute-3); }
+.ras-btn-ghost:hover:not(:disabled) { border-color: var(--ras-field-edge); }
+
+.ras-empty {
+    padding: 22px 6px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--ras-mute-3);
+}
+
+@media (max-width: 900px) {
+    .ras-split { grid-template-columns: minmax(0, 1fr); }
+
+    .ras-stop,
+    .ras-change {
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+
+    .ras-who { align-items: flex-start; }
+}

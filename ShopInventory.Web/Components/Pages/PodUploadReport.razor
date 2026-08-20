@@ -8,6 +8,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IPodService PodService
 @inject IReportExportService ExportService
+@inject IDeliveryRouteDirectory RouteDirectory
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
@@ -167,6 +168,12 @@
             @if (showMoreFilters)
             {
                 <div class="podr-more">
+                    <label class="podr-field">
+                        <span class="podr-label">Delivery route</span>
+                        <NocturneSelect Class="nsel-block" Options="RouteFilterOptions"
+                                        @bind-Value="routeFilter" OnChanged="OnAdvancedFiltersChanged"
+                                        Caption="Filter by delivery route" AriaLabel="Filter by delivery route" />
+                    </label>
                     <label class="podr-field">
                         <span class="podr-label">Currency</span>
                         <NocturneSelect Class="nsel-block" Options="CurrencyFilterOptions"
@@ -400,6 +407,13 @@
                                         <span class="podr-strong podr-docnum">@item.DocNum</span>
                                         <span class="podr-weak">@item.CardName</span>
                                         <span class="podr-weak">@item.CardCode</span>
+                                        @{
+                                            var itemRoutes = routeMap?.FormatRoutes(item.CardCode) ?? string.Empty;
+                                        }
+                                        @if (itemRoutes.Length > 0)
+                                        {
+                                            <span class="podr-weak podr-route">@itemRoutes</span>
+                                        }
                                     </span>
                                     <span class="podr-cell podr-cell-delivered" role="cell">
                                         <span class="podr-strong">
@@ -594,6 +608,11 @@
     private bool sortAscending;
     private bool showMoreFilters;
     private string? searchTerm;
+    // The routes as they currently stand: the generated catalogue with everyone's
+    // reassignments applied. Read once per render pass rather than per row, since
+    // filtering runs it over every invoice in the window.
+    private RouteMap? routeMap;
+    private string routeFilter = "all";
     private string currencyFilter = "all";
     private string uploadedByFilter = "all";
     private string uploaderRoleFilter = "all";
@@ -619,6 +638,33 @@
     private static NocturneSelectOption<string> AnyRow(string label) =>
         new("all", label, "neutral") { IsUnset = true, RuleAfter = true };
 
+    // A shop that the routes workbook does not place on a truck still invoices,
+    // so the menu offers it as its own choice rather than hiding those rows
+    // behind "any route" -- that set is worth being able to look at.
+    private const string UnroutedFilterValue = "__unrouted";
+
+    private IEnumerable<NocturneSelectOption<string>> RouteFilterOptions
+    {
+        get
+        {
+            var routes = AvailableRoutes.ToList();
+            var options = new List<NocturneSelectOption<string>> { AnyRow("Any route") };
+
+            for (var index = 0; index < routes.Count; index++)
+            {
+                options.Add(new NocturneSelectOption<string>(
+                    routes[index], DeliveryRoutes.GetLabel(routes[index]), "accent")
+                {
+                    RuleAfter = index == routes.Count - 1
+                });
+            }
+
+            options.Add(new NocturneSelectOption<string>(
+                UnroutedFilterValue, "Not on a route", "warn"));
+            return options;
+        }
+    }
+
     private IEnumerable<NocturneSelectOption<string>> CurrencyFilterOptions =>
         AvailableCurrencies
             .Select(currency => new NocturneSelectOption<string>(currency, currency, "accent"))
@@ -641,6 +687,24 @@
             .Select(location => new NocturneSelectOption<string>(
                 location, AssignedSectionOptions.GetLabel(location), "good"))
             .Prepend(AnyRow("Any location"));
+
+    // Only the routes this report actually has invoices for, kept in the
+    // catalogue's own order so the menu reads the way the workbook does rather
+    // than re-sorting itself as the date range moves.
+    private IEnumerable<string> AvailableRoutes
+    {
+        get
+        {
+            if (report?.Items == null || routeMap is null)
+                return Enumerable.Empty<string>();
+
+            var present = report.Items
+                .SelectMany(item => routeMap.GetRoutes(item.CardCode))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            return routeMap.Names.Where(present.Contains);
+        }
+    }
 
     private IEnumerable<string> AvailableCurrencies => report?.Items?
         .Select(i => i.DocCurrency?.Trim())
@@ -699,6 +763,13 @@
                     (i.CreditNoteNumber?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
                     (i.CreditNoteReason?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
                     i.DocNum.ToString().Contains(term));
+            }
+
+            if (routeMap is not null && !string.Equals(routeFilter, "all", StringComparison.OrdinalIgnoreCase))
+            {
+                items = string.Equals(routeFilter, UnroutedFilterValue, StringComparison.Ordinal)
+                    ? items.Where(i => routeMap.GetRoutes(i.CardCode).Count == 0)
+                    : items.Where(i => routeMap.IsOnRoute(i.CardCode, routeFilter));
             }
 
             if (!string.Equals(currencyFilter, "all", StringComparison.OrdinalIgnoreCase))
@@ -933,6 +1004,11 @@
         report = null;
         currentPage = 1;
 
+        // Re-read on every run rather than once per circuit, so a reassignment
+        // made on /route-assignments shows up on the next run of the report
+        // rather than on the next sign-in.
+        routeMap = await RouteDirectory.GetMapAsync();
+
         try
         {
             report = await PodService.GetPodUploadStatusAsync(
@@ -1074,6 +1150,7 @@
     {
         activeTab = "all";
         searchTerm = null;
+        routeFilter = "all";
         currencyFilter = "all";
         uploadedByFilter = "all";
         uploaderRoleFilter = "all";
@@ -1085,6 +1162,15 @@
 
     private void NormalizeDynamicFilters()
     {
+        // "Not on a route" is offered whatever the range holds, so it survives a
+        // reload the way the named routes do not.
+        if (!string.Equals(routeFilter, "all", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(routeFilter, UnroutedFilterValue, StringComparison.Ordinal)
+            && !AvailableRoutes.Contains(routeFilter, StringComparer.OrdinalIgnoreCase))
+        {
+            routeFilter = "all";
+        }
+
         if (!string.Equals(currencyFilter, "all", StringComparison.OrdinalIgnoreCase)
             && !AvailableCurrencies.Contains(currencyFilter, StringComparer.OrdinalIgnoreCase))
         {
@@ -1245,7 +1331,8 @@
                 Items = exportItems
             };
 
-            var bytes = ExportService.ExportPodUploadStatusToExcel(exportReport);
+            var bytes = ExportService.ExportPodUploadStatusToExcel(
+                exportReport, routeMap ?? await RouteDirectory.GetMapAsync());
             var base64 = Convert.ToBase64String(bytes);
             await JS.InvokeVoidAsync("downloadFile", $"POD_Upload_Report_{DateTime.UtcNow:yyyyMMdd_HHmm}.xlsx", base64);
         }
