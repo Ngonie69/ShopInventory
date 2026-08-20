@@ -814,6 +814,22 @@
     white-space: nowrap;
 }
 
+/* The delivery route the shop is called on. A pill rather than a third grey
+   line, so the eye can pick the route out of the customer block while the
+   route filter is set -- and so a shop on two routes still reads as one field.
+   Both tokens flip with the theme, so no `.dark-theme` override is needed. */
+.podr-route {
+    align-self: flex-start;
+    max-width: 100%;
+    margin-top: 2px;
+    padding: 1px 6px;
+    border-radius: var(--podr-r-sm);
+    background: rgba(var(--podr-fam-accent-rgb), .12);
+    color: var(--podr-accent-text);
+    font-size: 11px;
+    letter-spacing: .02em;
+}
+
 .podr-amount {
     text-align: right;
     align-items: flex-end;
