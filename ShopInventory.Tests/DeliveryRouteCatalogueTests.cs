@@ -94,6 +94,53 @@ public sealed class DeliveryRouteCatalogueTests
         Assert.Equal(routes, DeliveryRoutes.GetRoutes(third));
     }
 
+    /// <summary>
+    /// Shops the workbook omits that were added on top of it, each one in a town
+    /// the route demonstrably already stops in. The workbook gives
+    /// MARONDERA-CHIPINGE no Marondera stop at all despite naming the town.
+    /// </summary>
+    [Theory]
+    [InlineData("BHO023", "MARONDERA-CHIPINGE")]   // Bhola Marondera
+    [InlineData("TMP089", "MARONDERA-CHIPINGE")]   // TM Main Street Marondera
+    [InlineData("LAN013", "MARONDERA-CHIPINGE")]   // Megasave Marondera
+    [InlineData("BHO013", "MARONDERA-CHIPINGE")]   // Bhola Mutare Town
+    [InlineData("GAI118", "MARONDERA-CHIPINGE")]   // Gain Checheche, Chipinge district
+    [InlineData("GAI114", "MIDLANDS 1")]           // Metro Peech Kwekwe
+    [InlineData("SPA075", "MIDLANDS 1")]           // Spar Express Kadoma
+    [InlineData("GAI054", "MIDLANDS 2")]           // Gains Chiredzi
+    [InlineData("GAI110", "MIDLANDS 2")]           // Gains Triangle
+    public void A_shop_the_workbook_omits_is_added_to_the_route_serving_its_town(
+        string cardCode, string route)
+    {
+        Assert.True(DeliveryRoutes.IsOnRoute(cardCode, route),
+            $"{cardCode} resolved to [{DeliveryRoutes.FormatRoutes(cardCode)}] rather than {route}");
+    }
+
+    /// <summary>
+    /// "Cheese Galore ( Packaging)" is a supplier as well as a customer, so a
+    /// partner dump that was not filtered to customers puts supplier codes on a
+    /// delivery route. The generator filters, but this pins the result.
+    /// </summary>
+    [Theory]
+    [InlineData("CHE008")]
+    [InlineData("CHE011")]
+    public void A_supplier_code_never_reaches_a_route(string cardCode) =>
+        Assert.Empty(DeliveryRoutes.GetRoutes(cardCode));
+
+    /// <summary>
+    /// No route stops anywhere in Matabeleland -- the workbook's BULAWAYO route
+    /// is one 24T run to the depot, which distributes locally. These shops are
+    /// deliberately unrouted; routing them would claim a Harare truck calls at
+    /// each one.
+    /// </summary>
+    [Theory]
+    [InlineData("TMP114")]      // TM Lobengula
+    [InlineData("TMP110")]      // Pick n Pay Bradfield
+    [InlineData("TMP128")]      // Pick n Pay Gwanda
+    [InlineData("FAZ002 USD")]  // Fazak Home & Hyper
+    public void Matabeleland_shops_stay_unrouted(string cardCode) =>
+        Assert.Empty(DeliveryRoutes.GetRoutes(cardCode));
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

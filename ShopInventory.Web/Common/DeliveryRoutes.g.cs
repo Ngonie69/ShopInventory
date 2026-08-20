@@ -131,16 +131,24 @@ public static partial class DeliveryRoutes
             "ANG004 USD", // Angelight Ent T/A Total Rusape
             "BHO003 USD", // Bhola Mega Mart Rusape
             "BHO004 USD", // Bhola Mega Mart Mutare
+            "BHO013", // Bhola Supermarket Mutare Town
+            "BHO023", // BHOLA SUPERMARKET - MARONDERA
             "CYB004", // Zuva Aerodrome
             "DCK001", // DCK Supermarket Brainman Inv t/a
             "DCK002 USD", // DCK Supermarket Brainman Inv t/a
+            "GAI102", // Metropeech Hypermarket Mutare
             "GAI103", // Metro Peech Hypermarket Chipinge
+            "GAI113", // Gains Cash and Carry Sakubva
+            "GAI118", // Gain Cash & Carry Wholesale Checheche
             "GLO004 USD", // Global Brothers Wholesalers Pvt Ltd
+            "LAN013", // Lanwood Trading Pvt Ltd T/A Megasave Marondera
             "MAU001", // Mauriberg Investment T/A Panmart Rusape
             "MAU002", // Mauriberg Investment T/A Panmart Mutare
             "MAU003", // Mauriberg Investment T/A Panmart Rusape ZiG
             "MAU004", // Mauriberg Investment T/A Panmart Mutare ZiG
+            "NRI003", // N Richards Marondera
             "NRI013", // N Richards Rusape
+            "NRI034", // N Richards Marondera USD
             "NRI044", // N Richards Rusape USD
             "OKM005", // OK Mart Mutare
             "OKM012", // OK Mart Mutare USD
@@ -153,16 +161,21 @@ public static partial class DeliveryRoutes
             "SAV001", // SAV Wholesalers Restan t/a
             "SAV002 USD", // SAV Wholesalers Restan t/a
             "SPA026", // Spar Mutare Yellowcob Ent P/L t/a
+            "SPA035", // SPAR Marondera Yellowcob Ent P/L t/a
             "SPA065 USD", // Spar Mutare Yellowcob Ent P/L t/a
+            "SPA067 USD", // SPAR Marondera Yellowcob Ent P/L t/a
             "TAR003 USD", // Taramyn Pvt Ltd
+            "TMP024", // TM Main Street Marondera
             "TMP038", // TM Main Street Mutare
             "TMP040", // TM Chipinge
             "TMP042", // TM Rusape
             "TMP044", // TM Sakubva Mutare
+            "TMP089", // TM Main Street Marondera USD
             "TMP102", // TM Main Street Mutare USD
             "TMP104", // TM Chipinge USD
             "TMP106", // TM Rusape USD
             "TMP108", // TM Sakubva Mutare USD
+            "TMP153", // TM Main Street Marondera ZiG
             "TMP166", // TM Main Street Mutare ZiG
             "TMP168", // TM Chipinge ZiG
             "TMP170", // TM Rusape ZiG
@@ -171,6 +184,8 @@ public static partial class DeliveryRoutes
         new("MIDLANDS 1", ["Wednesday"], ["18T"],
         [
             "CRE006", // Credle Enterprises Pvt Ltd
+            "GAI078", // Heart groove t/a Metro Hyper Gweru
+            "GAI114", // Metro Peech Hypermarket Kwekwe
             "NRI007", // N Richards Gweru
             "NRI029", // N Richards Kwekwe
             "NRI031", // N Richards Kadoma
@@ -197,6 +212,7 @@ public static partial class DeliveryRoutes
             "SPA025", // SPAR Kwekwe Yellowcob Ent t/a
             "SPA036 FCA", // SPAR Kadoma
             "SPA064 USD", // SPAR Kwekwe Yellowcob Ent t/a
+            "SPA075", // Spar Express Kadoma
             "TMP005", // TM Kwekwe Main Street
             "TMP006", // TM Kadoma
             "TMP019", // Tm Zvishavane
@@ -218,7 +234,10 @@ public static partial class DeliveryRoutes
         new("MIDLANDS 2", ["Tuesday"], ["14T"],
         [
             "BHO005 USD", // Bhola Mega Mart Masvingo
+            "GAI054", // GAINS CHIREDZI
             "GAI076", // Metro peech hypermarket Masvingo
+            "GAI110", // Gains Cash and Carry Triangle
+            "GAI111", // Metro Hypermarket Chiredzi
             "NRI004", // N Richards Masvingo Cash & Carry
             "NRI008", // N Richards Chivhu
             "NRI011", // N Richards Zvishavane

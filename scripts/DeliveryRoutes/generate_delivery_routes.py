@@ -87,6 +87,46 @@ OVERRIDES = {
     "NR NYIKA": ["NRI060"],
 }
 
+# Shops the workbook omits entirely, added on top of it. Each one invoices
+# regularly and sits in a town the route demonstrably already stops in, so the
+# route is evidenced rather than guessed -- the justifying stop is named beside
+# it. Keep that discipline when adding: if no existing stop on the route shares
+# the town, it belongs in the open questions below, not here.
+#
+# Deliberately NOT added: the Bulawayo and Matabeleland shops (TM Lobengula,
+# PnP Bradfield/Ascot/Fife Street/Gwanda, Greens, Fresh and Green, Fazak, the
+# Sai Mart estate, Metro Gwanda). No route stops in that region -- the workbook's
+# BULAWAYO route is a single 24T run to CHEESEMAN BULAWAYO, the depot, which then
+# distributes locally. Putting those shops on it would claim a Harare truck calls
+# at each one.
+ADDITIONS = {
+    "MARONDERA-CHIPINGE": [
+        # The route is named for Marondera and runs through it, but the workbook
+        # gives it no Marondera stop at all.
+        "BHO023",   # BHOLA SUPERMARKET - MARONDERA
+        "SPA067",   # SPAR Marondera
+        "TMP089",   # TM Main Street Marondera
+        "NRI034",   # N Richards Marondera
+        "LAN013",   # Megasave Marondera
+        # Mutare and Chipinge: the route already stops at SPAR Mutare, TM Main
+        # Street Mutare, TM Sakubva and TM Chipinge.
+        "BHO013",   # Bhola Supermarket Mutare Town
+        "GAI102",   # Metropeech Hypermarket Mutare
+        "GAI113",   # Gains Cash and Carry Sakubva (Mutare)
+        "GAI118",   # Gain Cash & Carry Wholesale Checheche (Chipinge district)
+    ],
+    "MIDLANDS 1": [
+        "GAI114",   # Metro Peech Hypermarket Kwekwe -- route stops at SPAR/TM/NR Kwekwe
+        "SPA075",   # Spar Express Kadoma -- route stops at TM, SPAR and OK Kadoma
+        "GAI078",   # Metro Hyper Gweru -- route stops at PNP, Sai Mart, OK and NR Gweru
+    ],
+    "MIDLANDS 2": [
+        "GAI054",   # GAINS CHIREDZI -- route stops at TM Chiredzi and NR Chiredzi
+        "GAI111",   # Metro Hypermarket Chiredzi
+        "GAI110",   # Gains Cash and Carry Triangle -- route stops at TM Triangle
+    ],
+}
+
 CURRENCY_SUFFIX = re.compile(r"\b(USD|US\$|FCA|ZIG|RTGS|BOND)\b", re.IGNORECASE)
 BP_CODE = re.compile(r"^[A-Za-z]{3}\d{3}$")
 LEADING_CODE = re.compile(r"^\s*([A-Za-z]{2,4}\s?\d{2,4})")
@@ -205,6 +245,12 @@ def canonical_route(route: str) -> str:
 
 
 def build(workbook_path: Path, customers: list):
+    # A saved dump may hold every partner type. Suppliers share names with
+    # customers -- "Cheese Galore ( Packaging)" is both -- so leaving them in
+    # silently adds supplier codes to a delivery route. Filter rather than trust
+    # the caller. Rows with no CardType are kept: --session already filtered.
+    customers = [c for c in customers
+                 if (c.get("CardType") or "cCustomer") == "cCustomer"]
     for customer in customers:
         customer["CardName"] = (customer.get("CardName") or "").strip()
 
@@ -257,6 +303,19 @@ def build(workbook_path: Path, customers: list):
             if not matches:
                 unresolved.append({"route": key, "day": route["day"], "name": stop["name"]})
                 continue
+            for match in matches:
+                entry["codes"][match["CardCode"]] = match["CardName"]
+
+    # Shops the workbook leaves off their route entirely. Applied after the sheet
+    # so a stop the sheet does list is never overwritten by one of these.
+    for route, codes in ADDITIONS.items():
+        entry = merged.get(route)
+        if entry is None:
+            raise SystemExit(f"ADDITIONS names route {route!r}, which the workbook does not define")
+        for code in codes:
+            matches = variants_of([code])
+            if not matches:
+                raise SystemExit(f"ADDITIONS code {code!r} for {route!r} matches no SAP customer")
             for match in matches:
                 entry["codes"][match["CardCode"]] = match["CardName"]
 
