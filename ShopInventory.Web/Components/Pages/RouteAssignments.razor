@@ -19,9 +19,13 @@
    regenerating from a newer workbook keeps the corrections made here, and every
    row can say whether the workbook put a shop on a route or somebody moved it.
 
-   Shops are picked from the routes already in the catalogue plus the search box,
-   which looks through the cached partner list -- a shop the workbook never
-   mentions is exactly the one most likely to need adding. *@
+   A route the workbook does not have can be added here too, in
+   CustomDeliveryRoutes. The list shows every route including empty ones: a route
+   just added has no shops until they are put on it, so hiding empty routes would
+   hide the one you just made.
+
+   Deleting an added route takes its shop assignments with it. Workbook routes
+   cannot be deleted -- the next regeneration would bring them straight back. *@
 
 <div class="ras">
 
@@ -76,22 +80,64 @@
                 <section class="ras-panel ras-routes">
                     <div class="ras-panel-head">
                         <h2>Routes</h2>
-                        <span class="ras-count">@map.Names.Count</span>
+                        <span class="ras-count">@map.AllRoutes.Count</span>
                     </div>
                     <ul class="ras-route-list">
-                        @foreach (var name in map.Names)
+                        @foreach (var route in map.AllRoutes)
                         {
-                            var isOn = string.Equals(name, selectedRoute, StringComparison.OrdinalIgnoreCase);
+                            var isOn = string.Equals(route.Name, selectedRoute, StringComparison.OrdinalIgnoreCase);
                             <li>
                                 <button type="button" class="ras-route @(isOn ? "is-on" : null)"
                                         aria-current="@(isOn ? "true" : null)"
-                                        @onclick="() => SelectRoute(name)">
-                                    <span class="ras-route-name">@DeliveryRoutes.GetLabel(name)</span>
-                                    <span class="ras-route-count">@map.GetStops(name).Count</span>
+                                        @onclick="() => SelectRoute(route.Name)">
+                                    <span class="ras-route-name">@route.Label</span>
+                                    @if (route.IsCustom)
+                                    {
+                                        <span class="ras-tag">added</span>
+                                    }
+                                    <span class="ras-route-count">@route.StopCount</span>
                                 </button>
                             </li>
                         }
                     </ul>
+
+                    @* Adding a route is rare and consequential, so it opens
+                       rather than sitting permanently under the list. *@
+                    @if (!showNewRoute)
+                    {
+                        <button type="button" class="ras-btn ras-btn-quiet ras-add"
+                                @onclick="() => showNewRoute = true">
+                            + New route
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="ras-new">
+                            <label class="ras-new-field">
+                                <span class="ras-new-label">Route name</span>
+                                <input class="ras-input" @bind="newRouteName" maxlength="100"
+                                       placeholder="e.g. BULAWAYO LOCAL" aria-label="New route name" />
+                            </label>
+                            <label class="ras-new-field">
+                                <span class="ras-new-label">Runs on</span>
+                                <NocturneSelect Class="nsel-block" TValue="string" Options="DayOptions"
+                                                @bind-Value="newRouteDay" Caption="Day the route runs"
+                                                AriaLabel="Day the route runs" Placeholder="Pick a day…" />
+                            </label>
+                            <label class="ras-new-field">
+                                <span class="ras-new-label">Truck</span>
+                                <input class="ras-input" @bind="newRouteTruck" maxlength="20"
+                                       placeholder="e.g. 10T" aria-label="Truck allocation" />
+                            </label>
+                            <div class="ras-new-actions">
+                                <button type="button" class="ras-btn ras-btn-quiet" disabled="@isSaving"
+                                        @onclick="CreateRouteAsync">Add route</button>
+                                <button type="button" class="ras-btn ras-btn-ghost" @onclick="CancelNewRoute">
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    }
                 </section>
 
                 @* ---------------- the selected route's shops ---------------- *@
@@ -104,35 +150,50 @@
                     {
                         var stops = map.GetStops(selectedRoute);
                         <div class="ras-panel-head">
-                            <h2>@DeliveryRoutes.GetLabel(selectedRoute)</h2>
-                            <span class="ras-count">@stops.Count shop@(stops.Count == 1 ? "" : "s")</span>
+                            <h2>@map.GetLabel(selectedRoute)</h2>
+                            <div class="ras-head-meta">
+                                <span class="ras-count">@stops.Count shop@(stops.Count == 1 ? "" : "s")</span>
+                                @if (map.GetRoute(selectedRoute)?.IsCustom == true)
+                                {
+                                    <button type="button" class="ras-btn ras-btn-ghost" disabled="@isSaving"
+                                            @onclick="DeleteRouteAsync">
+                                        Delete route
+                                    </button>
+                                }
+                            </div>
                         </div>
 
                         <label class="ras-search">
                             <span class="visually-hidden">Search shops to add</span>
                             <input class="ras-input" type="search" autocomplete="off"
-                                   placeholder="Search a shop to add to this route&#8230;"
-                                   @bind="shopSearch" @bind:event="oninput" />
+                                   placeholder="Search any shop to add to this route…"
+                                   @bind="shopSearch" @bind:event="oninput"
+                                   @bind:after="SearchShopsAsync" />
                         </label>
 
                         @if (!string.IsNullOrWhiteSpace(shopSearch))
                         {
-                            var matches = SearchCandidates(shopSearch!).ToList();
                             <div class="ras-results">
-                                @if (matches.Count == 0)
+                                @if (shopSearch!.Trim().Length < 2)
                                 {
-                                    <span class="ras-count">No shop matches that, on any route.</span>
+                                    <span class="ras-count">Keep typing&#8230;</span>
                                 }
-                                @foreach (var candidate in matches)
+                                else if (searchResults.Count == 0)
                                 {
+                                    <span class="ras-count">No customer matches that.</span>
+                                }
+                                @foreach (var entry in searchResults)
+                                {
+                                    var candidate = entry;
                                     <div class="ras-result">
                                         <span class="ras-shop">
                                             <span class="ras-shop-name">@candidate.CardName</span>
                                             <span class="ras-shop-code">@candidate.CardCode</span>
-                                            @{
-                                                var on = map.FormatRoutes(candidate.CardCode);
-                                            }
-                                            <span class="ras-shop-on">@(on.Length > 0 ? on : "not on a route")</span>
+                                            <span class="ras-shop-on">
+                                                @(candidate.Routes.Count > 0
+                                                    ? string.Join(", ", candidate.Routes)
+                                                    : "not on a route")
+                                            </span>
                                         </span>
                                         <button type="button" class="ras-btn ras-btn-quiet" disabled="@isSaving"
                                                 @onclick="() => AddAsync(candidate)">
@@ -169,7 +230,7 @@
                                                             ValueChanged="@(target => MoveAsync(stop, target))"
                                                             Caption="Move to another route"
                                                             AriaLabel="@($"Move {stop.CardName} to another route")"
-                                                            Placeholder="Move to&#8230;" />
+                                                            Placeholder="Move to…" />
                                             <button type="button" class="ras-btn ras-btn-ghost" disabled="@isSaving"
                                                     @onclick="() => RemoveAsync(stop)">
                                                 Remove
@@ -230,10 +291,28 @@
     private IReadOnlyList<RouteAssignmentOverride> overrides = [];
     private string? selectedRoute;
     private string? shopSearch;
+    private IReadOnlyList<ShopCandidate> searchResults = [];
     private string? message;
     private bool messageIsError;
     private bool isSaving;
     private string username = "unknown";
+
+    private bool showNewRoute;
+    private string? newRouteName;
+    private string? newRouteDay;
+    private string? newRouteTruck;
+
+    // The workbook writes full day names in its headings, and the generated
+    // catalogue keeps them, so an added route spells them the same way.
+    private static readonly NocturneSelectOption<string>[] DayOptions =
+    [
+        new("Monday", "Monday", "accent"),
+        new("Tuesday", "Tuesday", "accent"),
+        new("Wednesday", "Wednesday", "accent"),
+        new("Thursday", "Thursday", "accent"),
+        new("Friday", "Friday", "accent"),
+        new("Saturday", "Saturday", "accent")
+    ];
 
     private int overrideCount => overrides.Count;
 
@@ -242,7 +321,7 @@
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         username = authState.User.Identity?.Name ?? "unknown";
         await ReloadAsync();
-        selectedRoute ??= map?.Names.FirstOrDefault();
+        selectedRoute ??= map?.AllRoutes.FirstOrDefault()?.Name;
     }
 
     private async Task ReloadAsync()
@@ -255,6 +334,7 @@
     {
         selectedRoute = name;
         shopSearch = null;
+        searchResults = [];
         message = null;
     }
 
@@ -263,60 +343,34 @@
     /// because moving a shop to where it already is means nothing.
     /// </summary>
     private IEnumerable<NocturneSelectOption<string>> MoveTargets(string current) =>
-        (map?.Names ?? [])
-            .Where(name => !string.Equals(name, current, StringComparison.OrdinalIgnoreCase))
-            .Select(name => new NocturneSelectOption<string>(name, DeliveryRoutes.GetLabel(name), "accent"));
+        (map?.AllRoutes ?? [])
+            .Where(route => !string.Equals(route.Name, current, StringComparison.OrdinalIgnoreCase))
+            .Select(route => new NocturneSelectOption<string>(route.Name, route.Label, "accent"));
 
     /// <summary>
-    /// Shops to offer for adding. Drawn from the catalogue itself rather than the
-    /// partner cache: those are the shops known to be delivered to, and it keeps
-    /// the page working when the cache is cold. A shop already on this route is
-    /// filtered out.
+    /// Looks through the whole customer cache, not just shops already on a
+    /// route. A shop on no route is the one most likely to be looked for here,
+    /// and a route just created has nothing on it to search through at all.
     /// </summary>
-    private IEnumerable<RouteStop> SearchCandidates(string term)
+    private async Task SearchShopsAsync()
     {
-        if (map is null || selectedRoute is null)
+        if (map is null || selectedRoute is null || string.IsNullOrWhiteSpace(shopSearch))
         {
-            yield break;
+            searchResults = [];
+            return;
         }
 
-        term = term.Trim();
-        var onThisRoute = map.GetStops(selectedRoute)
-            .Select(stop => DeliveryRoutes.NormalizeCardCode(stop.CardCode))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var found = 0;
-        foreach (var name in map.Names)
-        {
-            foreach (var stop in map.GetStops(name))
-            {
-                var key = DeliveryRoutes.NormalizeCardCode(stop.CardCode);
-                if (onThisRoute.Contains(key) || !seen.Add(key))
-                {
-                    continue;
-                }
-
-                if (stop.CardName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
-                    stop.CardCode.Contains(term, StringComparison.OrdinalIgnoreCase))
-                {
-                    yield return stop;
-                    if (++found >= 12)
-                    {
-                        yield break;
-                    }
-                }
-            }
-        }
+        searchResults = await RouteDirectory.SearchShopsAsync(shopSearch!, map, selectedRoute);
     }
 
-    private async Task AddAsync(RouteStop stop)
+    private async Task AddAsync(ShopCandidate shop)
     {
         if (selectedRoute is null) return;
         await SaveAsync(
-            () => RouteDirectory.AssignAsync(stop.CardCode, stop.CardName, selectedRoute, null, username),
-            "Assign", stop.CardCode, $"Added {stop.CardName} to {selectedRoute}");
+            () => RouteDirectory.AssignAsync(shop.CardCode, shop.CardName, selectedRoute, null, username),
+            "Assign", shop.CardCode, $"Added {shop.CardName} to {selectedRoute}");
         shopSearch = null;
+        searchResults = [];
     }
 
     private async Task RemoveAsync(RouteStop stop)
@@ -361,6 +415,58 @@
             },
             "UndoRouteChange", row.CardCode,
             $"Put {row.CardName ?? row.CardCode} back where the workbook has it for {row.RouteName}");
+    }
+
+    private void CancelNewRoute()
+    {
+        showNewRoute = false;
+        newRouteName = null;
+        newRouteDay = null;
+        newRouteTruck = null;
+    }
+
+    private async Task CreateRouteAsync()
+    {
+        var name = (newRouteName ?? string.Empty).Trim();
+        if (name.Length == 0)
+        {
+            message = "Give the route a name.";
+            messageIsError = true;
+            return;
+        }
+
+        var days = string.IsNullOrWhiteSpace(newRouteDay) ? null : new[] { newRouteDay! };
+        await SaveAsync(
+            () => RouteDirectory.CreateRouteAsync(name, days, newRouteTruck, null, username),
+            "CreateRoute", name, $"Added the route {name}");
+
+        if (!messageIsError)
+        {
+            CancelNewRoute();
+            // Land on it, since the next thing to do is put shops on it.
+            selectedRoute = map?.AllRoutes
+                .FirstOrDefault(route => string.Equals(route.Name, name, StringComparison.OrdinalIgnoreCase))
+                ?.Name ?? selectedRoute;
+        }
+    }
+
+    private async Task DeleteRouteAsync()
+    {
+        if (selectedRoute is null) return;
+        var name = selectedRoute;
+        var stops = map?.GetStops(name).Count ?? 0;
+
+        await SaveAsync(
+            () => RouteDirectory.DeleteRouteAsync(name, username),
+            "DeleteRoute", name,
+            stops > 0
+                ? $"Deleted the route {name} and the {stops} shop assignment(s) onto it"
+                : $"Deleted the route {name}");
+
+        if (!messageIsError)
+        {
+            selectedRoute = map?.AllRoutes.FirstOrDefault()?.Name;
+        }
     }
 
     private async Task SaveAsync(Func<Task> action, string auditAction, string cardCode, string describe)

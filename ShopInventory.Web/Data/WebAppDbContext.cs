@@ -25,6 +25,7 @@ public class WebAppDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<AppSetting> AppSettings { get; set; }
     public DbSet<PodReportEmailSchedule> PodReportEmailSchedules { get; set; }
     public DbSet<RouteAssignmentOverride> RouteAssignmentOverrides { get; set; }
+    public DbSet<CustomDeliveryRoute> CustomDeliveryRoutes { get; set; }
     public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
     // Customer Portal entities
@@ -477,6 +478,32 @@ public class WebAppDbContext : DbContext, IDataProtectionKeyContext
                 .IsUnique();
 
             entity.HasIndex(e => e.RouteName);
+        });
+
+        // CustomDeliveryRoute configuration
+        modelBuilder.Entity<CustomDeliveryRoute>(entity =>
+        {
+            entity.ToTable("CustomDeliveryRoutes");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Name)
+                .HasMaxLength(100)
+                .IsRequired();
+
+            entity.Property(e => e.Days)
+                .HasMaxLength(100);
+
+            entity.Property(e => e.Truck)
+                .HasMaxLength(20);
+
+            entity.Property(e => e.Note)
+                .HasMaxLength(500);
+
+            entity.Property(e => e.CreatedBy)
+                .HasMaxLength(100);
+
+            // Two routes with one name would be one route with contradictory stops.
+            entity.HasIndex(e => e.Name).IsUnique();
         });
 
         // CustomerPortalUser configuration

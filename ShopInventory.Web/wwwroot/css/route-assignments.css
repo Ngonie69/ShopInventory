@@ -187,6 +187,29 @@
 }
 .ras-route.is-on .ras-route-count { color: var(--ras-accent-text); }
 
+.ras-add { width: 100%; justify-content: center; margin-top: 10px; }
+
+/* Adding a route: a small form under the route list rather than a modal, so the
+   list it is adding to stays on screen. */
+.ras-new {
+    margin-top: 10px;
+    padding: 12px;
+    border: 1px dashed var(--ras-rule);
+    border-radius: var(--ras-r-md);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.ras-new-field { display: flex; flex-direction: column; gap: 4px; }
+.ras-new-label {
+    font-size: 11.5px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--ras-mute-3);
+}
+.ras-new-actions { display: flex; gap: 8px; }
+.ras-new-actions .ras-btn { flex: 1 1 auto; justify-content: center; }
+
 .ras-search { display: block; margin-bottom: 12px; }
 .ras-input {
     width: 100%;

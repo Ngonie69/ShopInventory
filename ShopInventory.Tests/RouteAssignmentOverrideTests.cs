@@ -18,6 +18,9 @@ public sealed class RouteAssignmentOverrideTests
     private static RouteAssignmentOverride Remove(string cardCode, string route) =>
         new() { CardCode = cardCode, RouteName = route, IsRemoval = true, CardName = cardCode };
 
+    private static CustomDeliveryRoute Route(string name, string? days = null) =>
+        new() { Name = name, Days = days };
+
     [Fact]
     public void With_no_overrides_the_map_is_the_generated_catalogue()
     {
@@ -118,11 +121,12 @@ public sealed class RouteAssignmentOverrideTests
     }
 
     /// <summary>
-    /// Emptying a route entirely should drop it from the menu rather than
-    /// leaving a route that selects nothing.
+    /// An emptied route drops out of the filter -- offering a route that selects
+    /// nothing is a dead option -- but stays in the management list, because it
+    /// has to be reachable to put shops back on it.
     /// </summary>
     [Fact]
-    public void A_route_emptied_by_removals_leaves_the_list()
+    public void A_route_emptied_by_removals_leaves_the_filter_but_not_the_page()
     {
         var honeydew = DeliveryRoutes.All.Single(route => route.Name == "HONEYDEW");
         var removals = honeydew.CardCodes.Select(code => Remove(code, "HONEYDEW")).ToList();
@@ -131,6 +135,77 @@ public sealed class RouteAssignmentOverrideTests
 
         Assert.DoesNotContain("HONEYDEW", map.Names);
         Assert.Empty(map.GetStops("HONEYDEW"));
+        Assert.Contains(map.AllRoutes, route => route.Name == "HONEYDEW" && route.StopCount == 0);
+    }
+
+    /// <summary>
+    /// A route somebody added shows up alongside the workbook's own, and is
+    /// marked so a reader can tell which is which.
+    /// </summary>
+    [Fact]
+    public void An_added_route_joins_the_list()
+    {
+        var map = DeliveryRouteDirectory.Build([], [Route("BULAWAYO LOCAL", "Thursday")]);
+
+        var added = map.AllRoutes.Single(route => route.Name == "BULAWAYO LOCAL");
+        Assert.True(added.IsCustom);
+        Assert.Equal("BULAWAYO LOCAL (Thu)", added.Label);
+        Assert.Equal(0, added.StopCount);
+
+        // Workbook routes keep their own flag.
+        Assert.False(map.AllRoutes.Single(route => route.Name == "WEST 2").IsCustom);
+    }
+
+    /// <summary>
+    /// The whole point of adding a route is to put shops on it, so a route with
+    /// none must stay visible -- otherwise it vanishes the moment it is created.
+    /// </summary>
+    [Fact]
+    public void A_new_route_stays_visible_while_it_is_still_empty()
+    {
+        var map = DeliveryRouteDirectory.Build([], [Route("BULAWAYO LOCAL", "Thursday")]);
+
+        Assert.Contains(map.AllRoutes, route => route.Name == "BULAWAYO LOCAL");
+        // ...but it is not offered as a report filter until it has shops.
+        Assert.DoesNotContain("BULAWAYO LOCAL", map.Names);
+    }
+
+    [Fact]
+    public void A_shop_assigned_to_an_added_route_lands_on_it()
+    {
+        var map = DeliveryRouteDirectory.Build(
+            [Add("TMP114", "BULAWAYO LOCAL")], [Route("BULAWAYO LOCAL", "Thursday")]);
+
+        Assert.True(map.IsOnRoute("TMP114", "BULAWAYO LOCAL"));
+        Assert.True(map.IsReassigned("TMP114", "BULAWAYO LOCAL"));
+        Assert.Contains("BULAWAYO LOCAL", map.Names);
+        Assert.Equal(1, map.AllRoutes.Single(route => route.Name == "BULAWAYO LOCAL").StopCount);
+    }
+
+    /// <summary>
+    /// An added route must never shadow a workbook one, or the workbook's stops
+    /// would silently vanish behind an empty route of the same name.
+    /// </summary>
+    [Fact]
+    public void An_added_route_cannot_shadow_a_workbook_route()
+    {
+        var map = DeliveryRouteDirectory.Build([], [Route("WEST 2", "Friday")]);
+
+        var west2 = map.AllRoutes.Single(route => route.Name == "WEST 2");
+        Assert.False(west2.IsCustom);
+        Assert.True(west2.StopCount > 0);
+        Assert.True(map.IsOnRoute("SPA059 USD", "WEST 2"));
+    }
+
+    [Theory]
+    [InlineData(null, "")]
+    [InlineData("", "")]
+    [InlineData("Tuesday", "Tuesday")]
+    [InlineData("Monday,Friday", "Monday|Friday")]
+    [InlineData(" Monday , Friday ", "Monday|Friday")]
+    public void Route_days_round_trip_through_the_stored_text(string? stored, string expected)
+    {
+        Assert.Equal(expected, string.Join('|', DeliveryRouteDirectory.SplitDays(stored)));
     }
 
     [Fact]
