@@ -14,7 +14,36 @@ namespace ShopInventory.Services;
 public sealed class SalesOrderReconciliationJob : IJob
 {
     private static readonly TimeSpan Lookback = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// The window every run covers. An order that SAP really did accept shows up within moments, so
+    /// this is where a repair actually happens.
+    /// </summary>
+    private static readonly TimeSpan RecentLookback = TimeSpan.FromHours(2);
+
+    /// <summary>How often the full <see cref="Lookback"/> is swept instead of just the recent window.</summary>
+    private static readonly TimeSpan FullSweepInterval = TimeSpan.FromMinutes(30);
+
+    /// <summary>The trigger interval, from QuartzConfiguration. Sets the width of the full-sweep slot.</summary>
+    private static readonly TimeSpan TriggerInterval = TimeSpan.FromMinutes(2);
+
     private const int MaxOrdersPerRun = 25;
+
+    /// <summary>
+    /// Whether this run sweeps the whole lookback or only the recent window.
+    /// </summary>
+    /// <remarks>
+    /// An order SAP never received does not become one it did. Probing the full seven days every two
+    /// minutes asked SAP the same question 720 times a day and wrote 720 lines saying it got the same
+    /// answer: on 2026-08-20, 276 sweeps in nine hours, all naming SO-20260817-0008, which had been
+    /// unlinked since the 17th. Roughly two thousand futile probes for one order.
+    /// <para>
+    /// Bucketed on the scheduled fire time rather than counted in the job data map, so every node in
+    /// the cluster agrees on which runs are full ones without sharing state.
+    /// </para>
+    /// </remarks>
+    internal static bool IsFullSweep(DateTimeOffset scheduledFireTimeUtc, TimeSpan triggerInterval) =>
+        scheduledFireTimeUtc.TimeOfDay.Ticks % FullSweepInterval.Ticks < triggerInterval.Ticks;
 
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<SalesOrderReconciliationJob> _logger;
@@ -32,10 +61,14 @@ public sealed class SalesOrderReconciliationJob : IJob
         using var scope = _serviceProvider.CreateScope();
         var salesOrderService = scope.ServiceProvider.GetRequiredService<ISalesOrderService>();
 
+        var isFullSweep = IsFullSweep(
+            context.ScheduledFireTimeUtc ?? context.FireTimeUtc,
+            TriggerInterval);
+
         try
         {
             var linkedCount = await salesOrderService.ReconcileUnlinkedSapSalesOrdersAsync(
-                Lookback,
+                isFullSweep ? Lookback : RecentLookback,
                 MaxOrdersPerRun,
                 context.CancellationToken);
 

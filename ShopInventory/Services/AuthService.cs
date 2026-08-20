@@ -224,11 +224,31 @@ public class AuthService : IAuthService
             return null;
         }
 
-        if (!token.IsActive)
+        if (!token.IsActive && !IsWithinRotationGrace(token))
         {
             _logger.LogWarning("Inactive refresh token used from IP: {IpAddress}. Expired: {IsExpired}, Revoked: {IsRevoked}",
                 ipAddress, token.IsExpired, token.IsRevoked);
             return null;
+        }
+
+        if (!token.IsActive)
+        {
+            // Inside the grace window: this is the loser of a rotation race, not a replay. Two
+            // requests went out together, the first rotated the token, and this one arrived holding
+            // what was valid when it left. Refusing it logs a working client out — production shows
+            // it happening 50 ms apart, and again as four parallel refreshes after an access token
+            // expired with requests in flight.
+            //
+            // It is issued a fresh pair of its own rather than the successor's: only the successor's
+            // hash is stored, so there is nothing to replay. The chain forks, both branches are
+            // valid, and both expire on their own schedule.
+            _logger.LogInformation(
+                "Refresh token for {Username} was already rotated {AgeSeconds:F1}s ago from IP {IpAddress}; " +
+                "reissuing inside the {GraceSeconds}s rotation grace window rather than failing a concurrent refresh.",
+                token.User?.Username ?? "unknown",
+                (DateTime.UtcNow - token.RevokedAt!.Value).TotalSeconds,
+                ipAddress,
+                _jwtSettings.RefreshTokenRotationGraceSeconds);
         }
 
         var user = token.User;
@@ -238,10 +258,16 @@ public class AuthService : IAuthService
             return null;
         }
 
-        // Revoke old refresh token (rotation)
-        token.IsRevoked = true;
-        token.RevokedAt = DateTime.UtcNow;
-        token.RevokedByIp = ipAddress;
+        // Revoke old refresh token (rotation). A token already revoked keeps its original stamp:
+        // re-stamping it would slide the grace window forward on every use, so a replayed token
+        // refreshed once a minute would never leave the window and never be refused.
+        var wasAlreadyRotated = token.IsRevoked;
+        if (!wasAlreadyRotated)
+        {
+            token.IsRevoked = true;
+            token.RevokedAt = DateTime.UtcNow;
+            token.RevokedByIp = ipAddress;
+        }
 
         // Generate new tokens
         var newAccessToken = GenerateAccessToken(user);
@@ -249,8 +275,12 @@ public class AuthService : IAuthService
         var newRefreshTokenHash = HashRefreshToken(newRefreshTokenValue);
         var expiresAt = DateTime.UtcNow.AddMinutes(_jwtSettings.AccessTokenExpirationMinutes);
 
-        // Link old token to new one
-        token.ReplacedByTokenHash = newRefreshTokenHash;
+        // Link old token to new one. The first rotation owns the link — a fork inside the grace
+        // window must not overwrite which token actually succeeded it.
+        if (!wasAlreadyRotated)
+        {
+            token.ReplacedByTokenHash = newRefreshTokenHash;
+        }
 
         // Store new refresh token in database
         var newRefreshToken = new RefreshToken
@@ -650,6 +680,31 @@ public class AuthService : IAuthService
                 AssignedCustomerCodes = user.GetCustomerCodes()
             }
         };
+    }
+
+    /// <summary>
+    /// Whether a token that is no longer active was rotated recently enough to still be honoured.
+    /// </summary>
+    /// <remarks>
+    /// Only rotation is forgiven, and only briefly. An expired token is refused however recently it
+    /// was rotated — its lifetime is over on its own terms. A revoked token with no
+    /// <see cref="RefreshToken.ReplacedByTokenHash"/> was revoked by a sign-out or an administrator
+    /// rather than by a rotation, and honouring that would undo the revocation.
+    /// </remarks>
+    private bool IsWithinRotationGrace(RefreshToken token)
+    {
+        var graceSeconds = _jwtSettings.RefreshTokenRotationGraceSeconds;
+        if (graceSeconds <= 0 || token.IsExpired || !token.IsRevoked)
+        {
+            return false;
+        }
+
+        if (token.RevokedAt is not { } revokedAt || string.IsNullOrEmpty(token.ReplacedByTokenHash))
+        {
+            return false;
+        }
+
+        return DateTime.UtcNow - revokedAt <= TimeSpan.FromSeconds(graceSeconds);
     }
 
     private static string GenerateRefreshTokenValue()

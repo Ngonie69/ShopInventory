@@ -153,6 +153,7 @@ public sealed class PodReportCacheTests : IDisposable
             Options.Create(new SAPSettings { Enabled = false }),
             Options.Create(new CreditNoteSyncSettings()),
             store,
+            new PodReportWarmSet(),
             NullLogger<GetPodUploadStatusHandler>.Instance);
 
         var result = await handler.Handle(
@@ -215,6 +216,7 @@ public sealed class PodReportCacheTests : IDisposable
             Options.Create(new SAPSettings { Enabled = false }),
             Options.Create(new CreditNoteSyncSettings()),
             store,
+            new PodReportWarmSet(),
             NullLogger<GetPodUploadStatusHandler>.Instance);
 
         var result = await handler.Handle(
@@ -304,6 +306,7 @@ public sealed class PodReportCacheTests : IDisposable
                 StaleAfterMinutes = 10
             }),
             store,
+            new PodReportWarmSet(),
             NullLogger<GetPodUploadStatusHandler>.Instance);
 
         var result = await handler.Handle(

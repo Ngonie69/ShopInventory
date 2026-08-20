@@ -531,6 +531,10 @@ try
     // Register reporting service
     builder.Services.AddScoped<IReportService, ReportService>();
     builder.Services.AddScoped<IPodReportCacheStore, PodReportCacheStore>();
+
+    // Singleton: it is a record of which report shapes are in use across the whole process, read by
+    // a background job that has no request scope of its own.
+    builder.Services.AddSingleton<PodReportWarmSet>();
     builder.Services.AddScoped<ICreditNoteProjectionSyncService, CreditNoteProjectionSyncService>();
 
     // Register notification services
@@ -585,6 +589,9 @@ try
     // create-then-post request reads once, while the next request sees the balance as it then is.
     builder.Services.AddScoped<ICreditLimitService, CreditLimitService>();
     builder.Services.AddScoped<ICreditLimitReviewService, CreditLimitReviewService>();
+
+    // One cached sweep behind both readers: the over-limit list and the per-order headroom.
+    builder.Services.AddScoped<ICreditLimitReviewCache, CreditLimitReviewCache>();
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
     builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
     builder.Services.AddScoped<ICreditNoteService, CreditNoteService>();

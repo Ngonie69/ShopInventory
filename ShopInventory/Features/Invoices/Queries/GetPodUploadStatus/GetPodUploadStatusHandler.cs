@@ -27,6 +27,7 @@ public sealed class GetPodUploadStatusHandler(
     IOptions<SAPSettings> settings,
     IOptions<CreditNoteSyncSettings> creditNoteSyncSettings,
     IPodReportCacheStore reportCache,
+    PodReportWarmSet warmSet,
     ILogger<GetPodUploadStatusHandler> logger
 ) : IRequestHandler<GetPodUploadStatusQuery, ErrorOr<PodUploadStatusReportDto>>
 {
@@ -89,6 +90,10 @@ public sealed class GetPodUploadStatusHandler(
 
             if (cacheScopeKey is not null)
             {
+                // Noted whether this hits or misses: the warm job rebuilds what is in active use
+                // before it goes stale, so the next person is not the one who pays for the rebuild.
+                warmSet.Record(new PodReportWarmKey(request.FromDate, request.ToDate, cacheScopeKey));
+
                 cachedSnapshot = await reportCache.GetAsync(
                     request.FromDate,
                     request.ToDate,

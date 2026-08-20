@@ -23,6 +23,7 @@ public sealed class GetStockInWarehousePagedHandler(
 
         var page = request.Page < 1 ? 1 : request.Page;
         var pageSize = request.PageSize < 1 ? 50 : Math.Min(request.PageSize, 200);
+        var timer = System.Diagnostics.Stopwatch.StartNew();
 
         try
         {
@@ -57,6 +58,16 @@ public sealed class GetStockInWarehousePagedHandler(
         }
         catch (TaskCanceledException)
         {
+            // Information, not Error — the caller going away is not a fault. But it has to be said:
+            // this branch used to return silently, and a production request that spent exactly
+            // 60.000s and then failed left nothing in the log but its Handling/Handled pair. A
+            // minute of a user's time with no recorded reason is the worst of both.
+            logger.LogInformation(
+                "Paged stock request for warehouse {Warehouse} (page {Page}, size {PageSize}) was canceled by the caller after {ElapsedMs} ms.",
+                request.WarehouseCode,
+                page,
+                pageSize,
+                timer.ElapsedMilliseconds);
             return Errors.Stock.SapError("Request was cancelled by client.");
         }
         catch (HttpRequestException ex)

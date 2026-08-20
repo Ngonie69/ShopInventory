@@ -8028,7 +8028,11 @@ ORDER BY T0.""ItemCode""";
             }
         }
 
-        _logger.LogInformation("SQL query {Code} ({Name}) returned {Count} rows", queryCode, queryName, allRows.Count);
+        // Debug: one line per query execution, and the POD paths run a hundred of them to answer a
+        // single report — 1,047 lines of one production day, 13% of the file. The row count matters
+        // when someone is working on a query, not on every request that happens to use one. The
+        // row-cap line above stays at Information: that one says the answer was truncated.
+        _logger.LogDebug("SQL query {Code} ({Name}) returned {Count} rows", queryCode, queryName, allRows.Count);
         return allRows;
     }
 
@@ -13967,6 +13971,14 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             cancellationToken);
 
         var documentLines = new List<object>();
+
+        // Collected and reported once for the order rather than logged per line. Every mobile order
+        // arrives with 'Each' on every line, so this was one Information line per line item per
+        // posting attempt — 276 in a production day, 61 of them for a single 66-line order, all
+        // saying the same thing. What is worth knowing is which UoMs an order had to be corrected
+        // from, and that is one line.
+        var normalizedUoms = new List<string>();
+
         foreach (var (line, index) in order.Lines.OrderBy(l => l.LineNum).Select((line, index) => (line, index)))
         {
             var normalizedItemCode = UomQuantityValidation.NormalizeItemCode(line.ItemCode);
@@ -13993,7 +14005,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             if (!string.IsNullOrWhiteSpace(resolvedUomCode)
                 && !string.Equals(line.UoMCode, resolvedUomCode, StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogInformation(
+                _logger.LogDebug(
                     "Normalizing sales order line UoM for item {ItemCode} from '{CurrentUoMCode}' to canonical SAP UoM '{ResolvedUoMCode}' (Entry {ResolvedUoMEntry}) before posting order {OrderNumber}",
                     line.ItemCode,
                     line.UoMCode,
@@ -14001,6 +14013,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                     resolvedUomEntry,
                     order.OrderNumber);
 
+                normalizedUoms.Add($"'{line.UoMCode ?? "<blank>"}'→'{resolvedUomCode}'");
                 line.UoMCode = resolvedUomCode;
             }
 
@@ -14015,6 +14028,16 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                 UoMEntry = resolvedUomEntry,
                 CostingCode = line.CostCentreCode
             });
+        }
+
+        if (normalizedUoms.Count > 0)
+        {
+            _logger.LogInformation(
+                "Normalized {NormalizedCount} of {LineCount} line UoM(s) to canonical SAP codes before posting order {OrderNumber}: {Normalizations}",
+                normalizedUoms.Count,
+                documentLines.Count,
+                order.OrderNumber,
+                string.Join(", ", normalizedUoms.Distinct()));
         }
 
         var payload = new
@@ -15165,7 +15188,11 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             cancellationToken,
             NoDocumentListCeiling);
 
-        _logger.LogInformation(
+        // Debug: the projection sweep runs this every two minutes over a rolling window, so it is a
+        // line per poll saying the same window still holds the same rows — 273 of them in a
+        // production day. What is worth reporting is the projection moving, which the sync service
+        // says once, and only when it does.
+        _logger.LogDebug(
             "Retrieved {Count} credit notes by {Description}",
             creditNotes.Count,
             description);

@@ -29,4 +29,22 @@ public class JwtSettings
     /// Refresh token expiration in days
     /// </summary>
     public int RefreshTokenExpirationDays { get; set; } = 7;
+
+    /// <summary>
+    /// How long after a refresh token is rotated its predecessor is still accepted, in seconds.
+    /// Set to 0 to refuse a rotated token immediately.
+    /// </summary>
+    /// <remarks>
+    /// Rotation without a grace window turns any concurrent refresh into a logout. Production shows
+    /// both shapes: two requests 50 ms apart where the second presented the token the first had just
+    /// rotated, and a burst of four parallel refreshes after an access token expired with several
+    /// requests in flight. The loser of the race is a legitimate client holding what was, moments
+    /// ago, a valid token.
+    /// <para>
+    /// The window is deliberately short. Outside it, a rotated token being presented again is the
+    /// signal that matters — it means someone is replaying a token that is no longer current — and
+    /// it is still refused.
+    /// </para>
+    /// </remarks>
+    public int RefreshTokenRotationGraceSeconds { get; set; } = 60;
 }

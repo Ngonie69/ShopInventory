@@ -108,6 +108,13 @@ public sealed class CreditLimitService : ICreditLimitService
 
         var normalizedCardCode = cardCode.Trim();
 
+        // Rounded here, once, because the two gates measure the same order at different moments:
+        // capture holds a freshly computed total in memory, approval re-reads one Postgres has
+        // already rounded to the column's scale. Comparing those raw let an order clear one gate
+        // and fail the other by fractions of a cent, and put 1050.484050000000000000 in the log
+        // where the rep sees 1,050.48.
+        var roundedDocTotal = Math.Round(docTotal, 2, MidpointRounding.AwayFromZero);
+
         BusinessPartnerCreditProfileDto? account;
         try
         {
@@ -138,13 +145,13 @@ public sealed class CreditLimitService : ICreditLimitService
 
         // The group is measured first: where an account draws its limit from a parent, that is the
         // limit that matters, and its message names the account a rep would have to chase.
-        var groupResult = await CheckConsolidatedGroupAsync(account, docTotal, cancellationToken);
+        var groupResult = await CheckConsolidatedGroupAsync(account, roundedDocTotal, cancellationToken);
         if (groupResult is { IsWithinLimit: false })
         {
             return groupResult;
         }
 
-        return CheckSingleAccount(account, docTotal);
+        return CheckSingleAccount(account, roundedDocTotal);
     }
 
     /// <summary>
@@ -208,7 +215,10 @@ public sealed class CreditLimitService : ICreditLimitService
             return CreditLimitCheckResult.Allowed();
         }
 
-        _logger.LogWarning(
+        // Debug, not Warning: every caller that can reach a refusal — the four handlers catching
+        // CreditLimitExceededException and RecordMobileOrderCreditPositionAsync — already logs it
+        // once with the full rep-facing message. This line only ever arrived alongside one of those.
+        _logger.LogDebug(
             "Refused a {DocTotal} sales order on {CardCode}: the group under {ParentCardCode} would reach {Exposure} against a {CreditLimit} limit across {AccountCount} accounts",
             docTotal,
             account.CardCode,
@@ -242,7 +252,8 @@ public sealed class CreditLimitService : ICreditLimitService
             return CreditLimitCheckResult.Allowed();
         }
 
-        _logger.LogWarning(
+        // Debug for the same reason as the group refusal above: the caller logs the rep-facing one.
+        _logger.LogDebug(
             "Refused a {DocTotal} sales order on {CardCode}: the account would reach {Exposure} against a {CreditLimit} limit",
             docTotal,
             account.CardCode,

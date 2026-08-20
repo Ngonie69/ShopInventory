@@ -13,6 +13,23 @@ public sealed class GetPricesByBusinessPartnerHandler(
     ILogger<GetPricesByBusinessPartnerHandler> logger)
     : IRequestHandler<GetPricesByBusinessPartnerQuery, ErrorOr<ItemPricesByListResponseDto>>
 {
+    /// <summary>
+    /// How long this waits on SAP before answering from the local catalogue instead.
+    /// </summary>
+    /// <remarks>
+    /// Someone is holding this request. Without item codes it lands on the whole-catalogue price
+    /// list path, whose own budget is 20 seconds — sized for the four-hourly sync, not for a person
+    /// — and behind that sits an Items API fallback that has taken two minutes for one list. On
+    /// 2026-08-20 five of these ran between 08:06 and 08:10, and the load they put on SAP is what
+    /// tipped it into <c>BadGateway</c> and took the whole system to Degraded for five minutes.
+    /// <para>
+    /// Three seconds is generous against a healthy SAP: a price list reads in 100–200 ms when the
+    /// SQL path is working. So this keeps live pricing whenever live pricing is actually available,
+    /// and stops waiting the moment it is not, rather than trading freshness away permanently.
+    /// </para>
+    /// </remarks>
+    private static readonly TimeSpan LivePricingBudget = TimeSpan.FromSeconds(3);
+
     public async Task<ErrorOr<ItemPricesByListResponseDto>> Handle(
         GetPricesByBusinessPartnerQuery request, CancellationToken cancellationToken)
     {
@@ -26,13 +43,16 @@ public sealed class GetPricesByBusinessPartnerHandler(
 
         if (request.UseLivePricing)
         {
+            using var liveBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            liveBudget.CancelAfter(LivePricingBudget);
+
             try
             {
                 var livePricing = await GetLivePricingAsync(
                     normalizedCardCode,
                     normalizedItemCodes,
                     sapServiceLayerClient,
-                    cancellationToken);
+                    liveBudget.Token);
 
                 if (livePricing is not null)
                 {
@@ -44,6 +64,16 @@ public sealed class GetPricesByBusinessPartnerHandler(
 
                     return livePricing;
                 }
+            }
+            catch (OperationCanceledException) when (
+                liveBudget.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                // Our budget, not the caller's — answer from the catalogue rather than keep waiting.
+                logger.LogInformation(
+                    "Live SAP pricing for business partner {CardCode} did not answer within {BudgetSeconds}s ({ItemCodeCount} item code(s) requested); using locally stored prices",
+                    normalizedCardCode,
+                    LivePricingBudget.TotalSeconds,
+                    normalizedItemCodes.Count);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

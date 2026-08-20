@@ -241,10 +241,11 @@ public class CreditLimitReviewTests
                 : throw new InvalidOperationException($"Unexpected call to {method.Name}"));
 
         var handler = new GetCreditLimitReviewHandler(
-            reviewService,
-            new MemoryCache(new MemoryCacheOptions()),
+            new CreditLimitReviewCache(
+                reviewService,
+                new MemoryCache(new MemoryCacheOptions()),
+                Options.Create(new CreditLimitSettings())),
             Options.Create(new SAPSettings { Enabled = true }),
-            Options.Create(new CreditLimitSettings()),
             NullLogger<GetCreditLimitReviewHandler>.Instance);
 
         var result = await handler.Handle(new GetCreditLimitReviewQuery(), CancellationToken.None);
@@ -277,10 +278,11 @@ public class CreditLimitReviewTests
             Options.Create(new CreditLimitSettings()));
 
         var handler = new GetCreditLimitReviewHandler(
-            reviewService,
-            new MemoryCache(new MemoryCacheOptions()),
+            new CreditLimitReviewCache(
+                reviewService,
+                new MemoryCache(new MemoryCacheOptions()),
+                Options.Create(new CreditLimitSettings())),
             Options.Create(new SAPSettings { Enabled = true }),
-            Options.Create(new CreditLimitSettings()),
             NullLogger<GetCreditLimitReviewHandler>.Instance);
 
         return (handler, sweeps);

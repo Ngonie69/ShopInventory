@@ -32,7 +32,59 @@ public sealed class CreditLimitReview
     /// <summary>Accounts and groups that actually hold a limit, so had something to measure.</summary>
     public int LimitsMeasured { get; init; }
 
+    /// <summary>
+    /// Where each account stands, keyed by its own card code. Accounts with no measurable limit —
+    /// their own or a parent's — are absent rather than present with a zero limit, because "no limit
+    /// set" and "no room left" are opposite answers.
+    /// </summary>
+    public IReadOnlyDictionary<string, CreditLimitPosition> PositionsByCardCode { get; init; } =
+        new Dictionary<string, CreditLimitPosition>(StringComparer.OrdinalIgnoreCase);
+
     public decimal TotalOver => Breaches.Sum(breach => breach.AmountOver);
+}
+
+/// <summary>
+/// Where one account stands against the limit that governs it, whether or not it is over.
+/// </summary>
+/// <remarks>
+/// The breach list answers "who is over"; this answers "how much room is left", which is the
+/// question somebody approving an order needs. On 2026-08-20 an approver pushed the same order at
+/// SPA077 four times — 1,050.48 against 786.07 of room — and only learned the shortfall from the
+/// refusal, after each attempt had spent between 8 and 26 seconds re-pricing against live SAP. By
+/// the fourth attempt they had cut the order to 794.82 and were still 8.75 over. The number they
+/// needed existed the whole time.
+/// <para>
+/// Falls out of the sweep for free: it already measures every account and every consolidated group
+/// and then discards the ones inside their limit.
+/// </para>
+/// </remarks>
+public sealed class CreditLimitPosition
+{
+    /// <summary>The account asked about.</summary>
+    public required string CardCode { get; init; }
+
+    /// <summary>
+    /// The account whose limit governs — itself, or the parent it consolidates into. Naming it
+    /// matters: a rep chasing payment on the wrong account will not move this number.
+    /// </summary>
+    public required string CreditAccountCardCode { get; init; }
+
+    public string? CreditAccountName { get; init; }
+    public string? Currency { get; init; }
+
+    /// <summary>True when the governing limit belongs to a consolidated group.</summary>
+    public bool IsGroup { get; init; }
+
+    /// <summary>Accounts sharing the governing limit — 1 for a standalone account.</summary>
+    public int AccountCount { get; init; }
+
+    public decimal CreditLimit { get; init; }
+
+    /// <summary>What is already owed against the limit, before any order being considered.</summary>
+    public decimal Exposure { get; init; }
+
+    /// <summary>What an order can be worth before this account goes over. Negative when already over.</summary>
+    public decimal Headroom => CreditLimit - Exposure;
 }
 
 public sealed class CreditLimitBreach
@@ -79,6 +131,7 @@ public sealed class CreditLimitReviewService : ICreditLimitReviewService
         var customers = await _sapClient.GetCustomerCreditProfilesAsync(cancellationToken);
 
         var breaches = new List<CreditLimitBreach>();
+        var positions = new Dictionary<string, CreditLimitPosition>(StringComparer.OrdinalIgnoreCase);
         var limitsMeasured = 0;
 
         var byCardCode = customers
@@ -118,6 +171,22 @@ public sealed class CreditLimitReviewService : ICreditLimitReviewService
             var openOrders = _settings.IncludeOpenOrders ? group.Sum(account => account.OpenOrdersBalance) : 0m;
             var exposure = balance + openOrders;
 
+            // Every member shares the parent's limit, so each is answerable from the same figures.
+            foreach (var account in group)
+            {
+                positions[account.CardCode] = new CreditLimitPosition
+                {
+                    CardCode = account.CardCode,
+                    CreditAccountCardCode = parent.CardCode,
+                    CreditAccountName = parent.CardName,
+                    Currency = parent.Currency,
+                    IsGroup = true,
+                    AccountCount = group.Count,
+                    CreditLimit = parent.CreditLimit,
+                    Exposure = exposure
+                };
+            }
+
             if (exposure <= parent.CreditLimit)
             {
                 continue;
@@ -154,6 +223,24 @@ public sealed class CreditLimitReviewService : ICreditLimitReviewService
             var openOrders = _settings.IncludeOpenOrders ? account.OpenOrdersBalance : 0m;
             var exposure = account.Balance + openOrders;
 
+            // Only when the account is not already answered for by a group. CheckSalesOrderAsync
+            // measures the group first and refuses on that, so a member's own limit is not the one
+            // that decides, and reporting it here would promise room the order will not get.
+            if (!positions.ContainsKey(account.CardCode))
+            {
+                positions[account.CardCode] = new CreditLimitPosition
+                {
+                    CardCode = account.CardCode,
+                    CreditAccountCardCode = account.CardCode,
+                    CreditAccountName = account.CardName,
+                    Currency = account.Currency,
+                    IsGroup = false,
+                    AccountCount = 1,
+                    CreditLimit = account.CreditLimit,
+                    Exposure = exposure
+                };
+            }
+
             if (exposure <= account.CreditLimit)
             {
                 continue;
@@ -177,7 +264,8 @@ public sealed class CreditLimitReviewService : ICreditLimitReviewService
         {
             Breaches = breaches.OrderByDescending(breach => breach.AmountOver).ToList(),
             CustomersRead = customers.Count,
-            LimitsMeasured = limitsMeasured
+            LimitsMeasured = limitsMeasured,
+            PositionsByCardCode = positions
         };
     }
 

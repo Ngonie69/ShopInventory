@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
@@ -45,6 +46,20 @@ public class NotificationService : INotificationService
     /// How long a low-stock alert for an item suppresses another one for the same item.
     /// </summary>
     private const int LowStockReAlertDays = 7;
+
+    /// <summary>
+    /// How often a target with no registered devices is worth mentioning again.
+    /// </summary>
+    /// <remarks>
+    /// Static because the service is scoped and the condition is not: a role with nobody registered
+    /// stays that way for days. On 2026-08-20 every sales order raised a Cashier notification and
+    /// every one of them reported reaching nobody — fifteen identical lines saying the same standing
+    /// fact. Once an hour, with a count of what it stands for, is enough to notice and act on.
+    /// </remarks>
+    private static readonly TimeSpan NoDeviceReportInterval = TimeSpan.FromHours(1);
+
+    internal static readonly ConcurrentDictionary<string, (DateTime LastReportedUtc, int SuppressedSince)> NoDeviceReports =
+        new(StringComparer.OrdinalIgnoreCase);
 
     private readonly ApplicationDbContext _context;
     private readonly ILogger<NotificationService> _logger;
@@ -175,11 +190,20 @@ public class NotificationService : INotificationService
             {
                 // A user or role may legitimately have no registered/active devices. The
                 // notification remains available in-app, so this is operational context rather
-                // than a delivery-system failure.
-                _logger.LogInformation(
-                    "Push notification {NotificationId} reached no active devices for target {Target}",
-                    notification.Id,
-                    request.TargetUsername ?? request.TargetRole ?? targetUserId?.ToString() ?? "all");
+                // than a delivery-system failure — and being a standing condition rather than an
+                // event, it is reported on an interval rather than per notification.
+                var target = request.TargetUsername ?? request.TargetRole ?? targetUserId?.ToString() ?? "all";
+
+                if (TryTakeNoDeviceReport(target, out var suppressedSince))
+                {
+                    _logger.LogInformation(
+                        "Push notifications for {Target} are reaching no registered device — {Count} in the last hour, " +
+                        "most recently notification {NotificationId}. They are still readable in-app; a device has to be " +
+                        "registered for that target, or it should not be a push audience.",
+                        target,
+                        suppressedSince + 1,
+                        notification.Id);
+                }
             }
             else
             {
@@ -589,6 +613,39 @@ public class NotificationService : INotificationService
             TargetRole = targetRole,
             Data = new Dictionary<string, string>(data, StringComparer.OrdinalIgnoreCase)
         }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Whether this target's empty audience is due a mention, counting the ones held back since the
+    /// last one so the report says how big the standing condition is.
+    /// </summary>
+    internal static bool TryTakeNoDeviceReport(string target, out int suppressedSince)
+    {
+        var now = DateTime.UtcNow;
+        var report = false;
+        var suppressed = 0;
+
+        NoDeviceReports.AddOrUpdate(
+            target,
+            _ =>
+            {
+                report = true;
+                return (now, 0);
+            },
+            (_, existing) =>
+            {
+                if (now - existing.LastReportedUtc >= NoDeviceReportInterval)
+                {
+                    report = true;
+                    suppressed = existing.SuppressedSince;
+                    return (now, 0);
+                }
+
+                return (existing.LastReportedUtc, existing.SuppressedSince + 1);
+            });
+
+        suppressedSince = suppressed;
+        return report;
     }
 
     private static NotificationDto MapToDto(Notification n, Dictionary<string, string>? data = null) => new()

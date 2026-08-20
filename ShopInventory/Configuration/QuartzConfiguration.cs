@@ -67,6 +67,12 @@ public static class QuartzConfiguration
                 q, "van-sales-signed-receipt-ingest", TimeSpan.FromMinutes(2), startDelay: TimeSpan.FromMinutes(1));
             AddIntervalJob<SalesOrderReconciliationJob>(q, "sales-order-reconciliation", TimeSpan.FromMinutes(2), startDelay: TimeSpan.FromMinutes(1));
 
+            // Rebuilds the POD reports people are actually using before their snapshots lapse, so a
+            // 6-to-64-second rebuild is not paid for by whoever opens the page next. Does nothing
+            // when nobody has asked for one recently, which is most of the day.
+            AddIntervalJob<PodReportWarmJob>(
+                q, "pod-report-warm", TimeSpan.FromMinutes(5), startDelay: TimeSpan.FromMinutes(2));
+
             if (sap.Enabled && creditNoteSync.Enabled)
             {
                 AddIntervalJob<CreditNoteProjectionSyncJob>(

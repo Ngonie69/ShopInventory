@@ -32,6 +32,17 @@ public class PodUploadUserSummaryInfo
 }
 
 /// <summary>
+/// What an upload actually did: stored a new attachment, or matched an existing one.
+/// </summary>
+/// <param name="Attachment">The attachment the caller should use, new or reused.</param>
+/// <param name="WasReused">
+/// True when a duplicate guard matched and nothing new was stored. A caller with side effects —
+/// an audit entry, a notification, a push — should skip them, because the event they announce
+/// already happened.
+/// </param>
+public readonly record struct AttachmentUploadOutcome(DocumentAttachmentDto Attachment, bool WasReused);
+
+/// <summary>
 /// Service interface for document management operations
 /// </summary>
 public interface IDocumentService
@@ -52,6 +63,19 @@ public interface IDocumentService
 
     // Document Attachments
     Task<DocumentAttachmentDto> UploadAttachmentAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid? userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// <see cref="UploadAttachmentAsync"/>, but says whether an existing attachment was reused
+    /// instead of a new one being stored.
+    /// </summary>
+    /// <remarks>
+    /// The duplicate guards inside the upload are invisible to the caller — both a fresh store and a
+    /// reuse return a valid attachment — so a caller with side effects fires them either way. That
+    /// is what put two "POD Uploaded" notifications and two push messages on invoice 2229934 on
+    /// 2026-08-20: the two requests raced, the second reused attachment 19106 as designed, and the
+    /// handler went on to announce it a second time regardless.
+    /// </remarks>
+    Task<AttachmentUploadOutcome> UploadAttachmentWithOutcomeAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid? userId, CancellationToken cancellationToken = default);
     Task<DocumentAttachmentDto?> GetAttachmentByExternalReferenceAsync(string entityType, int entityId, string externalReference, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -491,6 +515,9 @@ public class DocumentService : IDocumentService
     private static readonly TimeSpan DuplicateContentWindow = TimeSpan.FromMinutes(15);
 
     public async Task<DocumentAttachmentDto> UploadAttachmentAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid? userId, CancellationToken cancellationToken = default)
+        => (await UploadAttachmentWithOutcomeAsync(request, fileStream, fileName, mimeType, userId, cancellationToken)).Attachment;
+
+    public async Task<AttachmentUploadOutcome> UploadAttachmentWithOutcomeAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid? userId, CancellationToken cancellationToken = default)
     {
         var normalizedExternalReference = NormalizeExternalReference(request.ExternalReference);
 
@@ -512,7 +539,7 @@ public class DocumentService : IDocumentService
                     normalizedExternalReference,
                     request.EntityType,
                     request.EntityId);
-                return MapToDto(existingAttachment);
+                return new AttachmentUploadOutcome(MapToDto(existingAttachment), WasReused: true);
             }
         }
 
@@ -588,7 +615,7 @@ public class DocumentService : IDocumentService
                 request.EntityType,
                 request.EntityId,
                 DuplicateContentWindow.TotalMinutes);
-            return MapToDto(duplicateByContent);
+            return new AttachmentUploadOutcome(MapToDto(duplicateByContent), WasReused: true);
         }
 
         // Create attachment record
@@ -616,7 +643,7 @@ public class DocumentService : IDocumentService
         _context.Set<DocumentAttachmentEntity>().Add(attachment);
         await _context.SaveChangesAsync(cancellationToken);
 
-        return MapToDto(attachment);
+        return new AttachmentUploadOutcome(MapToDto(attachment), WasReused: false);
     }
 
     /// <summary>
@@ -1658,7 +1685,7 @@ public class DocumentService : IDocumentService
                 && a.ExternalReference == externalReference);
     }
 
-    private async Task<DocumentAttachmentDto> InsertAttachmentIdempotentlyAsync(
+    private async Task<AttachmentUploadOutcome> InsertAttachmentIdempotentlyAsync(
         DocumentAttachmentEntity attachment,
         string newlyStoredFilePath,
         CancellationToken cancellationToken)
@@ -1705,7 +1732,7 @@ public class DocumentService : IDocumentService
                 attachment.EntityId);
         }
 
-        return MapToDto(persistedAttachment);
+        return new AttachmentUploadOutcome(MapToDto(persistedAttachment), WasReused: insertedCount == 0);
     }
 
     private static string? NormalizeExternalReference(string? externalReference)
