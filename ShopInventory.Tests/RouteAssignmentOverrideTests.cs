@@ -219,4 +219,180 @@ public sealed class RouteAssignmentOverrideTests
         var stop = map.GetStops("WEST 2").First(s => s.CardCode == "SPA059 USD");
         Assert.Equal("SPAR Athienitis Yellowcob Ent P/: t/a", stop.CardName);
     }
+
+    // ------------------------------------------------------------------
+    // The currency a code is for, which is what tells two rows for the same
+    // shop apart on the page.
+    // ------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("SPA059 USD", "USD")]
+    [InlineData("spa059  usd", "USD")]
+    [InlineData("CHE016 ZIG", "ZiG")]
+    [InlineData("CHE005 (FCA)", "FCA")]
+    [InlineData("CHE005 FCA", "FCA")]
+    [InlineData("SPA002", null)]
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    public void A_codes_currency_comes_off_its_suffix(string? cardCode, string? expected)
+    {
+        Assert.Equal(expected, DeliveryRoutes.CurrencyOf(cardCode));
+    }
+
+    [Fact]
+    public void A_shop_name_that_happens_to_end_in_a_word_is_not_read_as_a_currency()
+    {
+        // Only the four suffixes the catalogue uses count. Anything else is
+        // left unbadged rather than guessed at.
+        Assert.Null(DeliveryRoutes.CurrencyOf("ABC001 WHOLESALE"));
+        Assert.Null(DeliveryRoutes.CurrencyOf("ABC001 ZAR"));
+    }
+
+    // ------------------------------------------------------------------
+    // Retired currency. ZiG replaced ZWL in April 2024 and nothing has been
+    // invoiced on a Zimbabwe dollar code since, so those codes are hidden from
+    // the routes. Production writes "ZWL" and the test company writes "ZW$",
+    // and matching only one of them would quietly do nothing in the other.
+    // ------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("ZWL")]
+    [InlineData("zwl")]
+    [InlineData("ZW$")]
+    [InlineData("ZWD")]
+    [InlineData("RTGS")]
+    [InlineData(" ZWL ")]
+    public void A_zimbabwe_dollar_account_is_retired(string currency)
+    {
+        Assert.True(DeliveryRouteDirectory.IsRetiredCurrency(currency));
+    }
+
+    [Theory]
+    [InlineData("USD")]
+    [InlineData("ZiG")]
+    [InlineData("ZAR")]
+    [InlineData("EUR")]
+    [InlineData("##")]   // SAP's any-currency marker
+    [InlineData("")]
+    [InlineData(null)]
+    public void A_currency_still_in_use_is_not_retired(string? currency)
+    {
+        Assert.False(DeliveryRouteDirectory.IsRetiredCurrency(currency));
+    }
+
+    [Fact]
+    public void ZiG_is_not_mistaken_for_the_dollar_it_replaced()
+    {
+        // "ZiG" contains no ZWL spelling, but the two are one character apart in
+        // conversation and confusing them would hide every live local-currency
+        // code on every route.
+        Assert.False(DeliveryRouteDirectory.IsRetiredCurrency("ZiG"));
+        Assert.True(DeliveryRouteDirectory.IsRetiredCurrency("ZWL"));
+    }
+
+    // ------------------------------------------------------------------
+    // Whether an override says anything at all -- the rule the page asks
+    // before staging a change and the write path asks before storing one.
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void An_override_that_agrees_with_the_workbook_says_nothing()
+    {
+        // SPA059 USD is on WEST 2 in the workbook.
+        Assert.False(DeliveryRouteDirectory.IsMeaningfulOverride("SPA059 USD", "WEST 2", isRemoval: false));
+        Assert.True(DeliveryRouteDirectory.IsMeaningfulOverride("SPA059 USD", "WEST 2", isRemoval: true));
+
+        // TMP114 is on no route in the workbook.
+        Assert.True(DeliveryRouteDirectory.IsMeaningfulOverride("TMP114", "MIDLANDS 1", isRemoval: false));
+        Assert.False(DeliveryRouteDirectory.IsMeaningfulOverride("TMP114", "MIDLANDS 1", isRemoval: true));
+    }
+
+    [Fact]
+    public void A_meaningless_override_needs_a_code_and_a_route()
+    {
+        Assert.False(DeliveryRouteDirectory.IsMeaningfulOverride(null, "WEST 2", isRemoval: true));
+        Assert.False(DeliveryRouteDirectory.IsMeaningfulOverride("SPA059 USD", "", isRemoval: true));
+    }
+
+    // ------------------------------------------------------------------
+    // Projection: what the page draws while changes are still unsaved has to
+    // match what the database would hold once they are.
+    // ------------------------------------------------------------------
+
+    private static RouteState State(params RouteAssignmentOverride[] saved) =>
+        new(saved, []);
+
+    [Fact]
+    public void An_unsaved_change_shows_in_the_projection()
+    {
+        var map = DeliveryRouteDirectory.Project(
+            State(),
+            [new RouteChange("TMP114", "TM Somewhere", "MIDLANDS 1", IsRemoval: false)]);
+
+        Assert.True(map.IsOnRoute("TMP114", "MIDLANDS 1"));
+        Assert.Contains(map.GetStops("MIDLANDS 1"), stop => stop.CardCode == "TMP114");
+    }
+
+    [Fact]
+    public void An_unsaved_change_replaces_the_saved_one_for_the_same_shop_and_route()
+    {
+        // Saved: TMP114 put on MIDLANDS 1. Unsaved: taken off again.
+        var map = DeliveryRouteDirectory.Project(
+            State(Add("TMP114", "MIDLANDS 1")),
+            [new RouteChange("TMP114", null, "MIDLANDS 1", IsRemoval: true)]);
+
+        Assert.False(map.IsOnRoute("TMP114", "MIDLANDS 1"));
+    }
+
+    [Fact]
+    public void Reverting_a_saved_removal_puts_the_shop_back_rather_than_writing_a_second_row()
+    {
+        // Saved: SPA059 USD taken off WEST 2, where the workbook puts it.
+        // Unsaved: put back -- which the workbook already agrees with, so the
+        // right state is no override at all.
+        var map = DeliveryRouteDirectory.Project(
+            State(Remove("SPA059 USD", "WEST 2")),
+            [new RouteChange("SPA059 USD", null, "WEST 2", IsRemoval: false)]);
+
+        Assert.True(map.IsOnRoute("SPA059 USD", "WEST 2"));
+
+        var stop = map.GetStops("WEST 2").Single(s => s.CardCode == "SPA059 USD");
+        Assert.True(stop.FromWorkbook);
+    }
+
+    [Fact]
+    public void A_move_staged_as_two_changes_lands_on_both_routes()
+    {
+        var map = DeliveryRouteDirectory.Project(
+            State(),
+            [
+                new RouteChange("SPA059 USD", null, "WEST 2", IsRemoval: true),
+                new RouteChange("SPA059 USD", null, "WEST 1", IsRemoval: false)
+            ]);
+
+        Assert.False(map.IsOnRoute("SPA059 USD", "WEST 2"));
+        Assert.True(map.IsOnRoute("SPA059 USD", "WEST 1"));
+        Assert.True(map.IsReassigned("SPA059 USD", "WEST 1"));
+    }
+
+    [Fact]
+    public void Projecting_nothing_is_the_saved_map()
+    {
+        var saved = DeliveryRouteDirectory.Build([Add("TMP114", "MIDLANDS 1")]);
+        var projected = DeliveryRouteDirectory.Project(State(Add("TMP114", "MIDLANDS 1")), []);
+
+        Assert.Equal(saved.GetStops("MIDLANDS 1").Count, projected.GetStops("MIDLANDS 1").Count);
+        Assert.True(projected.IsOnRoute("TMP114", "MIDLANDS 1"));
+    }
+
+    [Theory]
+    [InlineData("SPA059 USD", "WEST 2")]
+    [InlineData("spa059  usd", "west 2")]
+    [InlineData(" SPA059   USD ", "WEST 2")]
+    public void One_shop_and_route_is_one_key_however_it_was_typed(string code, string route)
+    {
+        Assert.Equal(
+            DeliveryRouteDirectory.KeyOf("SPA059 USD", "WEST 2"),
+            DeliveryRouteDirectory.KeyOf(code, route));
+    }
 }
