@@ -87,9 +87,15 @@ public static partial class DeliveryRoutes
 
     /// <summary>
     /// The routes this partner is called on, or an empty list when the workbook
-    /// does not place it on one. An empty result is ordinary: internal accounts,
-    /// Bulawayo shops served off the depot rather than a Harare truck, and shops
-    /// opened since the workbook was drawn up all land here.
+    /// does not place it on one.
+    ///
+    /// An empty result is ordinary, and common: measured over the POD report's
+    /// default 30-day window on 2026-08-20, 32% of POD-eligible invoices were on
+    /// a partner the workbook never lists. Most of that is food-service and trade
+    /// accounts the trucks do not serve as route stops — restaurant groups, ice
+    /// cream distributors, equipment suppliers — with Bulawayo-region shops only
+    /// about a fifth of it, and a residue of retail shops opened since the
+    /// workbook was drawn up. Do not read an empty result as a mapping fault.
     /// </summary>
     public static IReadOnlyList<string> GetRoutes(string? cardCode)
     {
