@@ -32,7 +32,7 @@ public interface IReportExportService
     byte[] ExportReceivablesAgingToExcel(ReceivablesAgingReport report);
     byte[] ExportProfitOverviewToExcel(ProfitOverviewReport report);
     byte[] ExportSlowMovingProductsToExcel(SlowMovingProductsReport report);
-    byte[] ExportPodUploadStatusToExcel(PodUploadStatusReport report);
+    byte[] ExportPodUploadStatusToExcel(PodUploadStatusReport report, RouteMap routeMap);
     byte[] ExportTimesheetReportToExcel(TimesheetReportResponse report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportVanAttendanceReportToExcel(VanVisitReportResponse report, DateTime? fromDate = null, DateTime? toDate = null);
 
@@ -3289,9 +3289,9 @@ public class ReportExportService : IReportExportService
     /// a shop the routes workbook never placed on a truck sits on none, so this
     /// is a list rather than a single route.
     /// </summary>
-    private static string FormatPodRouteDisplay(PodUploadStatusItem item)
+    private static string FormatPodRouteDisplay(RouteMap routeMap, PodUploadStatusItem item)
     {
-        var routes = DeliveryRoutes.FormatRoutes(item.CardCode);
+        var routes = routeMap.FormatRoutes(item.CardCode);
         return routes.Length > 0 ? routes : "-";
     }
 
@@ -3459,7 +3459,7 @@ public class ReportExportService : IReportExportService
         cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
     }
 
-    public byte[] ExportPodUploadStatusToExcel(PodUploadStatusReport report)
+    public byte[] ExportPodUploadStatusToExcel(PodUploadStatusReport report, RouteMap routeMap)
     {
         using var workbook = NewWorkbook("POD Upload Status Report");
         var now = CurrentCatNow();
@@ -3476,7 +3476,8 @@ public class ReportExportService : IReportExportService
             productInvoices,
             periodText,
             now,
-            report.CreditNoteDataComplete);
+            report.CreditNoteDataComplete,
+            routeMap);
         BuildPodInvoiceSheet(
             workbook,
             "Crate Invoices",
@@ -3484,7 +3485,8 @@ public class ReportExportService : IReportExportService
             crateInvoices,
             periodText,
             now,
-            report.CreditNoteDataComplete);
+            report.CreditNoteDataComplete,
+            routeMap);
 
         var pendingAmount = reportItems.Where(item => !item.HasPod).Sum(item => item.DocTotal);
 
@@ -3538,7 +3540,7 @@ public class ReportExportService : IReportExportService
                 ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 ws.Cell(row, 2).Value = item.CardName ?? "-";
                 ws.Cell(row, 3).Value = item.CardCode ?? "-";
-                ws.Cell(row, 4).Value = FormatPodRouteDisplay(item);
+                ws.Cell(row, 4).Value = FormatPodRouteDisplay(routeMap, item);
                 ws.Cell(row, 4).Style.Font.FontColor = PodTextMuted;
                 WriteDateCell(ws.Cell(row, 5), item.DocDate);
                 ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
@@ -3759,7 +3761,7 @@ public class ReportExportService : IReportExportService
                 ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 ws.Cell(row, 2).Value = item.CardName ?? "-";
                 ws.Cell(row, 3).Value = item.CardCode ?? "-";
-                ws.Cell(row, 4).Value = FormatPodRouteDisplay(item);
+                ws.Cell(row, 4).Value = FormatPodRouteDisplay(routeMap, item);
                 ws.Cell(row, 4).Style.Font.FontColor = PodTextMuted;
                 WriteDateCell(ws.Cell(row, 5), item.DocDate);
                 ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
@@ -3828,7 +3830,8 @@ public class ReportExportService : IReportExportService
         IReadOnlyCollection<PodUploadStatusItem> reportItems,
         string periodText,
         DateTime now,
-        bool creditNoteDataComplete)
+        bool creditNoteDataComplete,
+        RouteMap routeMap)
     {
         var totalInvoices = reportItems.Count;
         var uploadedCount = reportItems.Count(item => item.HasPod);
@@ -3885,7 +3888,7 @@ public class ReportExportService : IReportExportService
             ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 2).Value = item.CardName ?? "-";
             ws.Cell(row, 3).Value = item.CardCode ?? "-";
-            ws.Cell(row, 4).Value = FormatPodRouteDisplay(item);
+            ws.Cell(row, 4).Value = FormatPodRouteDisplay(routeMap, item);
             ws.Cell(row, 4).Style.Font.FontColor = PodTextMuted;
             WriteDateCell(ws.Cell(row, 5), item.DocDate);
             ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;

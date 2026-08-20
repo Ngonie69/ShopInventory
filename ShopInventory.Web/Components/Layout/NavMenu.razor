@@ -595,6 +595,16 @@
                                 <span class="snav-text">Product POD Report</span>
                             </NavLink>
                         }
+                        <AuthorizeView Roles="Admin,Manager" Context="routeCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/route-assignments" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-path" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Delivery Routes</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
                         <AuthorizeView Roles="PodOperator" Context="driverAccountCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/user-management" Match="NavLinkMatch.Prefix">

@@ -244,7 +244,9 @@ public sealed class DeliveryRouteCatalogueTests
             ]
         };
 
-        var bytes = new ReportExportService().ExportPodUploadStatusToExcel(report);
+        // No overrides: the export should carry the workbook's own routes.
+        var routeMap = DeliveryRouteDirectory.Build([]);
+        var bytes = new ReportExportService().ExportPodUploadStatusToExcel(report, routeMap);
 
         using var stream = new MemoryStream(bytes);
         using var workbook = new XLWorkbook(stream);

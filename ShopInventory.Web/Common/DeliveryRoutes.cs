@@ -40,6 +40,12 @@ public static partial class DeliveryRoutes
     private static readonly Lazy<string[]> RouteNames =
         new(() => RouteTable.Select(route => route.Name).ToArray());
 
+    private static readonly Lazy<Dictionary<string, string>> CardNames =
+        new(() => CardNameTable.ToDictionary(
+            entry => NormalizeCardCode(entry.Code),
+            entry => entry.Name,
+            StringComparer.OrdinalIgnoreCase));
+
     public static IReadOnlyList<DeliveryRoute> All => RouteTable;
 
     /// <summary>Route names in the order the filter should offer them.</summary>
@@ -79,11 +85,22 @@ public static partial class DeliveryRoutes
     /// code with a currency suffix is a space away from a code without one, so
     /// the whitespace is collapsed rather than trusted.
     /// </summary>
-    private static string NormalizeCardCode(string? cardCode) =>
+    public static string NormalizeCardCode(string? cardCode) =>
         string.IsNullOrWhiteSpace(cardCode)
             ? string.Empty
             : string.Join(' ', cardCode.Split(' ', StringSplitOptions.RemoveEmptyEntries |
                                                    StringSplitOptions.TrimEntries));
+
+    /// <summary>
+    /// The SAP name for a code the catalogue carries, or null for one it does
+    /// not. Names come from the generated table rather than the partner cache,
+    /// so a route still reads properly when a shop has been archived.
+    /// </summary>
+    public static string? GetCardName(string? cardCode)
+    {
+        var key = NormalizeCardCode(cardCode);
+        return key.Length > 0 && CardNames.Value.TryGetValue(key, out var name) ? name : null;
+    }
 
     /// <summary>
     /// The routes this partner is called on, or an empty list when the workbook

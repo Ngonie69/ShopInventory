@@ -31,6 +31,7 @@ public interface IPodReportEmailService
 public sealed class PodReportEmailService(
     IHttpClientFactory httpClientFactory,
     IReportExportService reportExportService,
+    IDeliveryRouteDirectory routeDirectory,
     IEmailService emailService,
     IAuditService auditService,
     ILogger<PodReportEmailService> logger) : IPodReportEmailService
@@ -157,7 +158,10 @@ public sealed class PodReportEmailService(
             // partners and invoices that have no official invoicing-point mapping.
             report = ReportExportService.ApplyPodReportingScope(report);
 
-            var excel = reportExportService.ExportPodUploadStatusToExcel(report);
+            // The routes as they currently stand, so a scheduled workbook carries the
+            // same route on a shop as the page does rather than the workbook's original.
+            var routeMap = await routeDirectory.GetMapAsync(cancellationToken);
+            var excel = reportExportService.ExportPodUploadStatusToExcel(report, routeMap);
             var periodLabel = FormatPeriod(fromDate, toDate);
             var subject = $"{frequencyLabel} POD Report - {periodLabel}";
             var fileName = $"pod-report-{fileSlug}-{fromDate:yyyyMMdd}-{toDate:yyyyMMdd}.xlsx";

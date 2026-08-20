@@ -1,0 +1,388 @@
+@page "/route-assignments"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Common
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Services
+@attribute [Authorize(Roles = "Admin,Manager")]
+@inject IDeliveryRouteDirectory RouteDirectory
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IAuditService AuditService
+@rendermode InteractiveServer
+
+<PageTitle>Delivery routes - Shop Inventory</PageTitle>
+
+@* Reassigns shops between delivery routes.
+
+   The routes come from the 2026 routes workbook, compiled into
+   DeliveryRoutes.g.cs. This page does not edit that file: it writes deltas to
+   RouteAssignmentOverrides, which the directory layers on top. That way
+   regenerating from a newer workbook keeps the corrections made here, and every
+   row can say whether the workbook put a shop on a route or somebody moved it.
+
+   Shops are picked from the routes already in the catalogue plus the search box,
+   which looks through the cached partner list -- a shop the workbook never
+   mentions is exactly the one most likely to need adding. *@
+
+<div class="ras">
+
+    <header class="ras-head">
+        <div class="ras-head-inner">
+            <div class="ras-crumbs">
+                <span>Settings</span>
+                <span aria-hidden="true">/</span>
+                <span aria-current="page">Delivery routes</span>
+            </div>
+            <div class="ras-head-meta">
+                @if (overrideCount > 0)
+                {
+                    <span class="ras-stamp">@overrideCount change@(overrideCount == 1 ? "" : "s") from the workbook</span>
+                }
+                <a class="ras-btn ras-btn-quiet" href="/pod-report">Open POD report</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="ras-body">
+
+        <section class="ras-hero">
+            <div>
+                <div class="ras-kicker">Delivery routes</div>
+                <h1>Which shops are on which route</h1>
+                <p>
+                    Routes come from the 2026 routes workbook. Moving a shop here overrides it for
+                    the POD report without changing the workbook.
+                </p>
+            </div>
+        </section>
+
+        @if (!string.IsNullOrEmpty(message))
+        {
+            <div class="ras-msg @(messageIsError ? "is-bad" : null)" role="status">
+                <span>@message</span>
+            </div>
+        }
+
+        @if (map is null)
+        {
+            <section class="ras-panel">
+                <span class="ras-count">Loading routes&#8230;</span>
+            </section>
+        }
+        else
+        {
+            <div class="ras-split">
+
+                @* ---------------- routes ---------------- *@
+                <section class="ras-panel ras-routes">
+                    <div class="ras-panel-head">
+                        <h2>Routes</h2>
+                        <span class="ras-count">@map.Names.Count</span>
+                    </div>
+                    <ul class="ras-route-list">
+                        @foreach (var name in map.Names)
+                        {
+                            var isOn = string.Equals(name, selectedRoute, StringComparison.OrdinalIgnoreCase);
+                            <li>
+                                <button type="button" class="ras-route @(isOn ? "is-on" : null)"
+                                        aria-current="@(isOn ? "true" : null)"
+                                        @onclick="() => SelectRoute(name)">
+                                    <span class="ras-route-name">@DeliveryRoutes.GetLabel(name)</span>
+                                    <span class="ras-route-count">@map.GetStops(name).Count</span>
+                                </button>
+                            </li>
+                        }
+                    </ul>
+                </section>
+
+                @* ---------------- the selected route's shops ---------------- *@
+                <section class="ras-panel ras-stops">
+                    @if (selectedRoute is null)
+                    {
+                        <div class="ras-empty"><span>Pick a route to see the shops on it.</span></div>
+                    }
+                    else
+                    {
+                        var stops = map.GetStops(selectedRoute);
+                        <div class="ras-panel-head">
+                            <h2>@DeliveryRoutes.GetLabel(selectedRoute)</h2>
+                            <span class="ras-count">@stops.Count shop@(stops.Count == 1 ? "" : "s")</span>
+                        </div>
+
+                        <label class="ras-search">
+                            <span class="visually-hidden">Search shops to add</span>
+                            <input class="ras-input" type="search" autocomplete="off"
+                                   placeholder="Search a shop to add to this route&#8230;"
+                                   @bind="shopSearch" @bind:event="oninput" />
+                        </label>
+
+                        @if (!string.IsNullOrWhiteSpace(shopSearch))
+                        {
+                            var matches = SearchCandidates(shopSearch!).ToList();
+                            <div class="ras-results">
+                                @if (matches.Count == 0)
+                                {
+                                    <span class="ras-count">No shop matches that, on any route.</span>
+                                }
+                                @foreach (var candidate in matches)
+                                {
+                                    <div class="ras-result">
+                                        <span class="ras-shop">
+                                            <span class="ras-shop-name">@candidate.CardName</span>
+                                            <span class="ras-shop-code">@candidate.CardCode</span>
+                                            @{
+                                                var on = map.FormatRoutes(candidate.CardCode);
+                                            }
+                                            <span class="ras-shop-on">@(on.Length > 0 ? on : "not on a route")</span>
+                                        </span>
+                                        <button type="button" class="ras-btn ras-btn-quiet" disabled="@isSaving"
+                                                @onclick="() => AddAsync(candidate)">
+                                            Add to @selectedRoute
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        @if (stops.Count == 0)
+                        {
+                            <div class="ras-empty"><span>No shops on this route.</span></div>
+                        }
+                        else
+                        {
+                            <div class="ras-stop-list">
+                                @foreach (var entry in stops)
+                                {
+                                    var stop = entry;
+                                    <div class="ras-stop">
+                                        <span class="ras-shop">
+                                            <span class="ras-shop-name">@stop.CardName</span>
+                                            <span class="ras-shop-code">@stop.CardCode</span>
+                                        </span>
+                                        @if (!stop.FromWorkbook)
+                                        {
+                                            <span class="ras-tag" title="Added here, not in the workbook">moved</span>
+                                        }
+                                        <div class="ras-stop-actions">
+                                            <NocturneSelect Class="nsel-sm nsel-end" TValue="string"
+                                                            Options="MoveTargets(selectedRoute)"
+                                                            Value="@(string.Empty)"
+                                                            ValueChanged="@(target => MoveAsync(stop, target))"
+                                                            Caption="Move to another route"
+                                                            AriaLabel="@($"Move {stop.CardName} to another route")"
+                                                            Placeholder="Move to&#8230;" />
+                                            <button type="button" class="ras-btn ras-btn-ghost" disabled="@isSaving"
+                                                    @onclick="() => RemoveAsync(stop)">
+                                                Remove
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                </section>
+            </div>
+
+            @* ---------------- what has been changed ---------------- *@
+            <section class="ras-panel">
+                <div class="ras-panel-head">
+                    <h2>Changes from the workbook</h2>
+                    <span class="ras-count">@overrides.Count</span>
+                </div>
+                @if (overrides.Count == 0)
+                {
+                    <div class="ras-empty">
+                        <span>Nothing has been changed &#8212; every shop is where the workbook puts it.</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="ras-changes">
+                        @foreach (var row in overrides)
+                        {
+                            <div class="ras-change">
+                                <span class="ras-tag @(row.IsRemoval ? "is-bad" : null)">
+                                    @(row.IsRemoval ? "removed from" : "added to")
+                                </span>
+                                <span class="ras-shop">
+                                    <span class="ras-shop-name">@(row.CardName ?? row.CardCode)</span>
+                                    <span class="ras-shop-code">@row.CardCode &#183; @row.RouteName</span>
+                                </span>
+                                <span class="ras-who">
+                                    @row.CreatedBy
+                                    <span class="ras-when">@row.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
+                                </span>
+                                <button type="button" class="ras-btn ras-btn-ghost" disabled="@isSaving"
+                                        @onclick="() => UndoAsync(row)">
+                                    Undo
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+        }
+    </div>
+</div>
+
+@code {
+    private RouteMap? map;
+    private IReadOnlyList<RouteAssignmentOverride> overrides = [];
+    private string? selectedRoute;
+    private string? shopSearch;
+    private string? message;
+    private bool messageIsError;
+    private bool isSaving;
+    private string username = "unknown";
+
+    private int overrideCount => overrides.Count;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        username = authState.User.Identity?.Name ?? "unknown";
+        await ReloadAsync();
+        selectedRoute ??= map?.Names.FirstOrDefault();
+    }
+
+    private async Task ReloadAsync()
+    {
+        map = await RouteDirectory.GetMapAsync();
+        overrides = await RouteDirectory.GetOverridesAsync();
+    }
+
+    private void SelectRoute(string name)
+    {
+        selectedRoute = name;
+        shopSearch = null;
+        message = null;
+    }
+
+    /// <summary>
+    /// Every other route, as move targets. The shop's current route is left out
+    /// because moving a shop to where it already is means nothing.
+    /// </summary>
+    private IEnumerable<NocturneSelectOption<string>> MoveTargets(string current) =>
+        (map?.Names ?? [])
+            .Where(name => !string.Equals(name, current, StringComparison.OrdinalIgnoreCase))
+            .Select(name => new NocturneSelectOption<string>(name, DeliveryRoutes.GetLabel(name), "accent"));
+
+    /// <summary>
+    /// Shops to offer for adding. Drawn from the catalogue itself rather than the
+    /// partner cache: those are the shops known to be delivered to, and it keeps
+    /// the page working when the cache is cold. A shop already on this route is
+    /// filtered out.
+    /// </summary>
+    private IEnumerable<RouteStop> SearchCandidates(string term)
+    {
+        if (map is null || selectedRoute is null)
+        {
+            yield break;
+        }
+
+        term = term.Trim();
+        var onThisRoute = map.GetStops(selectedRoute)
+            .Select(stop => DeliveryRoutes.NormalizeCardCode(stop.CardCode))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var found = 0;
+        foreach (var name in map.Names)
+        {
+            foreach (var stop in map.GetStops(name))
+            {
+                var key = DeliveryRoutes.NormalizeCardCode(stop.CardCode);
+                if (onThisRoute.Contains(key) || !seen.Add(key))
+                {
+                    continue;
+                }
+
+                if (stop.CardName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    stop.CardCode.Contains(term, StringComparison.OrdinalIgnoreCase))
+                {
+                    yield return stop;
+                    if (++found >= 12)
+                    {
+                        yield break;
+                    }
+                }
+            }
+        }
+    }
+
+    private async Task AddAsync(RouteStop stop)
+    {
+        if (selectedRoute is null) return;
+        await SaveAsync(
+            () => RouteDirectory.AssignAsync(stop.CardCode, stop.CardName, selectedRoute, null, username),
+            "Assign", stop.CardCode, $"Added {stop.CardName} to {selectedRoute}");
+        shopSearch = null;
+    }
+
+    private async Task RemoveAsync(RouteStop stop)
+    {
+        if (selectedRoute is null) return;
+        await SaveAsync(
+            () => RouteDirectory.UnassignAsync(stop.CardCode, stop.CardName, selectedRoute, null, username),
+            "Unassign", stop.CardCode, $"Removed {stop.CardName} from {selectedRoute}");
+    }
+
+    /// <summary>
+    /// A move is a removal and an assignment: the shop comes off the route it is
+    /// on and goes onto the target. Both are recorded, so the trail says where it
+    /// came from as well as where it went.
+    /// </summary>
+    private async Task MoveAsync(RouteStop stop, string? target)
+    {
+        if (selectedRoute is null || string.IsNullOrWhiteSpace(target)) return;
+        var from = selectedRoute;
+        await SaveAsync(
+            async () =>
+            {
+                await RouteDirectory.UnassignAsync(stop.CardCode, stop.CardName, from, $"Moved to {target}", username);
+                await RouteDirectory.AssignAsync(stop.CardCode, stop.CardName, target, $"Moved from {from}", username);
+            },
+            "Move", stop.CardCode, $"Moved {stop.CardName} from {from} to {target}");
+    }
+
+    private async Task UndoAsync(RouteAssignmentOverride row)
+    {
+        await SaveAsync(
+            async () =>
+            {
+                if (row.IsRemoval)
+                {
+                    await RouteDirectory.AssignAsync(row.CardCode, row.CardName, row.RouteName, null, username);
+                }
+                else
+                {
+                    await RouteDirectory.UnassignAsync(row.CardCode, row.CardName, row.RouteName, null, username);
+                }
+            },
+            "UndoRouteChange", row.CardCode,
+            $"Put {row.CardName ?? row.CardCode} back where the workbook has it for {row.RouteName}");
+    }
+
+    private async Task SaveAsync(Func<Task> action, string auditAction, string cardCode, string describe)
+    {
+        isSaving = true;
+        message = null;
+        try
+        {
+            await action();
+            await ReloadAsync();
+            await AuditService.LogAsync(auditAction, "DeliveryRoute", cardCode, describe, true, null);
+            message = describe;
+            messageIsError = false;
+        }
+        catch (Exception ex)
+        {
+            message = $"That change did not save: {ex.Message}";
+            messageIsError = true;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

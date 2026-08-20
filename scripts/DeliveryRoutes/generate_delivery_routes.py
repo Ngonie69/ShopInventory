@@ -368,6 +368,19 @@ def emit(catalogue: list) -> str:
             comment = re.sub(r"\s+", " ", ascii_fold(name)).strip()
             lines.append(f'            "{code}", // {comment}')
         lines.append("        ]),")
+    lines += ["    ];", ""]
+
+    # The partner name for each code, so a page can list a route's shops without
+    # a round trip to the partner cache -- and can still name a shop the cache
+    # has since dropped. Comments are not enough: they do not survive to runtime.
+    names = {}
+    for entry in catalogue:
+        for code, name in entry["codes"].items():
+            names[code] = re.sub(r"\s+", " ", ascii_fold(name)).strip()
+    lines.append("    private static readonly (string Code, string Name)[] CardNameTable =")
+    lines.append("    [")
+    for code, name in sorted(names.items()):
+        lines.append(f'        ("{code}", "{name}"),')
     lines += ["    ];", "}", ""]
     return "\n".join(lines)
 

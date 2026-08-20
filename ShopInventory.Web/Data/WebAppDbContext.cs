@@ -24,6 +24,7 @@ public class WebAppDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<AppSetting> AppSettings { get; set; }
     public DbSet<PodReportEmailSchedule> PodReportEmailSchedules { get; set; }
+    public DbSet<RouteAssignmentOverride> RouteAssignmentOverrides { get; set; }
     public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
     // Customer Portal entities
@@ -445,6 +446,37 @@ public class WebAppDbContext : DbContext, IDataProtectionKeyContext
                 .HasMaxLength(100);
 
             entity.HasIndex(e => e.Enabled);
+        });
+
+        // RouteAssignmentOverride configuration
+        modelBuilder.Entity<RouteAssignmentOverride>(entity =>
+        {
+            entity.ToTable("RouteAssignmentOverrides");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.CardCode)
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(e => e.CardName)
+                .HasMaxLength(200);
+
+            entity.Property(e => e.RouteName)
+                .HasMaxLength(100)
+                .IsRequired();
+
+            entity.Property(e => e.Note)
+                .HasMaxLength(500);
+
+            entity.Property(e => e.CreatedBy)
+                .HasMaxLength(100);
+
+            // One row per shop per route: adding a shop twice is the same fact,
+            // and an add and a removal for the same pair would contradict.
+            entity.HasIndex(e => new { e.CardCode, e.RouteName })
+                .IsUnique();
+
+            entity.HasIndex(e => e.RouteName);
         });
 
         // CustomerPortalUser configuration
