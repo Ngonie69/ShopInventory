@@ -116,6 +116,53 @@ public sealed class GenerateOfflineFileApiRequest
     /// device signature. This is how an offline device's day is closed — there is no separate close call.
     /// </summary>
     public bool CloseFiscalDay { get; set; }
+
+    /// <summary>
+    /// A close the device signed for itself, for a device whose private key the platform does not hold.
+    /// </summary>
+    /// <remarks>
+    /// Left null for a device the platform signs for, which is every device except a van handset. A
+    /// handset generates its key inside its own keystore and ZIMRA registers the public half from that
+    /// device's CSR, so the platform holds the certificate and can verify a close but never produce one.
+    /// Sending null for such a device means its day cannot be closed at all.
+    /// </remarks>
+    public DeclaredFiscalDayCloseApiRequest? DeclaredClose { get; set; }
+}
+
+/// <summary>The counters a device totalled for its own fiscal day, and its signature over them.</summary>
+public sealed class DeclaredFiscalDayCloseApiRequest
+{
+    public List<DeclaredFiscalDayCounterApiRequest> Counters { get; set; } = [];
+
+    /// <summary>Base64 SHA-256 of the canonical fiscal-day payload the device signed.</summary>
+    public string? SignatureHash { get; set; }
+
+    /// <summary>Base64 RSA-PKCS1-SHA256 signature over that same payload.</summary>
+    public string? SignatureValue { get; set; }
+}
+
+/// <summary>One declared counter, carried through verbatim.</summary>
+/// <remarks>
+/// Nothing is normalised in transit — not the currency's case, not an absent tax percentage. The device
+/// signed these exact values and the platform recomputes and compares against them, so tidying one on the
+/// way past turns a good close into a refused one.
+///
+/// The counter type travels as its name, which is the vocabulary the platform's own responses use and
+/// which its request model accepts alongside the numeric form.
+/// </remarks>
+public sealed class DeclaredFiscalDayCounterApiRequest
+{
+    public string FiscalCounterType { get; set; } = string.Empty;
+
+    public string? FiscalCounterCurrency { get; set; }
+
+    public int? FiscalCounterTaxID { get; set; }
+
+    public decimal? FiscalCounterTaxPercent { get; set; }
+
+    public string? FiscalCounterMoneyType { get; set; }
+
+    public decimal FiscalCounterValue { get; set; }
 }
 
 public sealed class GenerateOfflineFileApiResponse
