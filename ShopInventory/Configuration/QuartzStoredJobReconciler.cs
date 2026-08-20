@@ -22,6 +22,18 @@ namespace ShopInventory.Configuration;
 /// an older one on its way out during a blue/green overlap; an old node that restarts declares it
 /// again, and a new one removes it again. Only jobs registered through the container exist today;
 /// anything scheduled at runtime in future would need its own group excluded from the sweep.
+///
+/// <para>
+/// A stored job with no triggers is left alone, and that exemption is load-bearing rather than tidy.
+/// Quartz writes a build's jobs in one pass and their triggers in the next, so for the moment between
+/// those passes every job a peer node is introducing is sitting in the store triggerless. Deleting one
+/// there does not merely lose a job — the peer's very next statement stores the trigger, is told the
+/// job it references does not exist, and its host fails to start. That is a deploy that never goes
+/// live, and it is what happened when <c>pod-report-warm</c> was added: the build already in
+/// production did not declare the new job, swept it as stale mid-introduction, and the incoming slot
+/// died on the trigger. Skipping triggerless jobs costs the sweep nothing, because the thing it
+/// exists to stop is a retired job that keeps <em>firing</em>, and a job with no trigger cannot fire.
+/// </para>
 /// </remarks>
 internal sealed class QuartzStoredJobReconciler(
     ISchedulerFactory schedulerFactory,
@@ -38,7 +50,26 @@ internal sealed class QuartzStoredJobReconciler(
             // returns the store holds this build's set plus whatever earlier builds left behind.
             var scheduler = await schedulerFactory.GetScheduler(cancellationToken);
             var stored = await scheduler.GetJobKeys(GroupMatcher<JobKey>.AnyGroup(), cancellationToken);
-            var stale = stored.Where(key => !declared.Contains(key)).OrderBy(key => key.ToString()).ToList();
+            var undeclared = stored.Where(key => !declared.Contains(key)).OrderBy(key => key.ToString()).ToList();
+
+            var stale = new List<JobKey>(undeclared.Count);
+            foreach (var key in undeclared)
+            {
+                // Triggerless means either a peer part-way through introducing this job, or a job that
+                // cannot fire. Neither is what the sweep is for, and deleting the first kills that
+                // peer's startup — see the remarks above.
+                var triggers = await scheduler.GetTriggersOfJob(key, cancellationToken);
+                if (triggers.Count == 0)
+                {
+                    logger.LogDebug(
+                        "Leaving stored Quartz job {JobKey} alone: this build does not declare it, but it has no triggers, "
+                            + "so it is either mid-introduction on another node or unable to fire",
+                        key);
+                    continue;
+                }
+
+                stale.Add(key);
+            }
 
             if (stale.Count == 0)
             {
