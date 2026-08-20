@@ -196,7 +196,17 @@ dotnet build ShopInventory/ShopInventory.csproj
 dotnet build ShopInventory.Web/ShopInventory.Web.csproj
 ```
 
-There is currently no dedicated test project in this repo. Report the build performed and any manual verification. For Web UI changes, manually check the touched surface in light mode and dark mode.
+`ShopInventory.Tests` is the unit test project (xUnit, SQLite in-memory rather than the EF InMemory
+provider, so an untranslatable query fails the test instead of being evaluated in memory). Run it for
+any change with logic behind it:
+
+```powershell
+dotnet test ShopInventory.Tests/ShopInventory.Tests.csproj
+dotnet test ShopInventory.Tests/ShopInventory.Tests.csproj --filter "FullyQualifiedName~<ClassName>"
+```
+
+`ShopInventory.IntegrationTests` covers the cross-service paths. Report the build and the test run.
+For Web UI changes, manually check the touched surface in light mode and dark mode.
 
 Run locally when needed:
 
