@@ -643,9 +643,12 @@ public class StockValidationService : IStockValidationService
             {
                 try
                 {
+                    // Live, never a snapshot: this figure decides whether a document may post, and a
+                    // stale one posts a line the warehouse cannot fill.
                     batches = await _sapClient.GetBatchNumbersForItemsInWarehouseAsync(
                         batchItemCodes,
                         wh,
+                        allowCachedSnapshot: false,
                         cancellationToken);
                 }
                 catch (Exception ex)

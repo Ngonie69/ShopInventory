@@ -45,6 +45,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private const string GLAccountsCacheKey = "SAP_GLAccounts";
     private const string PriceListsCacheKey = "SAP_PriceLists";
     private const string WarehouseItemCodesCacheKeyPrefix = "SAP_WarehouseItemCodes_";
+    private const string WarehouseBatchSnapshotCacheKeyPrefix = "SAP_WarehouseBatchSnapshot_";
     private const string VanSalesApprovedItemCodesCacheKey = "SAP_VanSalesApprovedItemCodes";
     private const string SalesOrderLineSapUomCacheKeyPrefix = "SAP_SalesOrderLineUoM_";
     private const string CostCentresCacheKey = "SAP_CostCentres";
@@ -73,6 +74,13 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // permanent only because another node running a different build is the one thing that can
     // redefine a fixed code out from under us; an hour lets a rolling deploy settle it.
     private static readonly TimeSpan SqlQueryVerificationLifetime = TimeSpan.FromHours(1);
+
+    // How long a whole-warehouse batch read is reused to answer per-item batch questions on display
+    // paths. Deliberately the same window as the warehouse item-code cache above: both halves of a
+    // product page — which codes the warehouse holds, and how much of each — then come from the same
+    // moment. Reading one live against the other cached is what lets them disagree, and a page whose
+    // codes say "in stock" while its batches say nothing is a page of items that silently vanish.
+    private static readonly TimeSpan WarehouseBatchSnapshotLifetime = TimeSpan.FromMinutes(2);
 
     // How many rows the U_OrderNumber duplicate probe pulls back. U_OrderNumber is meant to be
     // unique, so this only needs enough headroom to spot and report pre-existing duplicates.
@@ -3103,7 +3111,17 @@ ORDER BY T0.""ItemCode""";
         }
 
         var approved = await QueryVanSalesApprovedItemCodesAsync(cancellationToken);
-        _memoryCache.Set(VanSalesApprovedItemCodesCacheKey, approved, TimeSpan.FromMinutes(15));
+
+        // An empty approval list is held briefly rather than for the usual quarter of an hour. Every
+        // van sells nothing while it stands, so it is either a flag nobody has set yet or a mistake
+        // someone is fixing right now — and in the second case a fifteen-minute cache means the fix
+        // lands and the vans stay dead anyway. Long enough to blunt a retry storm, short enough that
+        // putting the flag back in SAP is visibly the remedy.
+        _memoryCache.Set(
+            VanSalesApprovedItemCodesCacheKey,
+            approved,
+            approved.Count == 0 ? TimeSpan.FromMinutes(1) : TimeSpan.FromMinutes(15));
+
         return approved;
     }
 
@@ -3162,9 +3180,24 @@ ORDER BY T0.""ItemCode""";
 
             using var responseOwner = response;
 
+            // Not "no item is approved for van sale". The statement was just ensured to exist, so a
+            // 404 means SAP no longer holds the query object this read names — another node redefining
+            // it, or a create that did not take. Answering [] would intersect every warehouse page
+            // down to nothing and hand back an HTTP 200: every van in the fleet empty, with no error
+            // anywhere for a rep to report. Forget the verification so the next caller re-establishes
+            // the query, and say what happened.
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                return [];
+                InvalidateSqlQueryVerification(queryCode);
+
+                _logger.LogError(
+                    "Van sales approval query '{QueryCode}' is missing from SAP; refusing to report an empty catalogue",
+                    queryCode);
+
+                throw new HttpRequestException(
+                    $"The van sales approval list could not be read: SAP does not hold query '{queryCode}'.",
+                    null,
+                    HttpStatusCode.NotFound);
             }
 
             if (!response.IsSuccessStatusCode)
@@ -3883,9 +3916,27 @@ ORDER BY T0.""ItemCode""";
         }
     }
 
+    /// <summary>
+    /// The batches backing <paramref name="itemCodes"/> in one warehouse.
+    /// </summary>
+    /// <param name="itemCodes">The item codes to report batches for. Others are filtered out.</param>
+    /// <param name="warehouseCode">The warehouse whose batch quantities are wanted.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <param name="allowCachedSnapshot">
+    /// Answer from a recent whole-warehouse read instead of querying for these codes.
+    /// <para>
+    /// Off by default, and it must stay off wherever the answer authorises a stock movement —
+    /// validation and transfer allocation read live because a two-minute-old quantity there is a
+    /// document that cannot post. It is for the display paths, where it is the difference between a
+    /// catalogue that loads and one a rep gives up on: the per-code path buckets by item-code prefix
+    /// and issues one query per family <em>per page</em>, so walking a van's catalogue costs dozens
+    /// of round trips that between them fetch the same warehouse the snapshot fetches once.
+    /// </para>
+    /// </param>
     public async Task<List<BatchNumber>> GetBatchNumbersForItemsInWarehouseAsync(
         IEnumerable<string> itemCodes,
         string warehouseCode,
+        bool allowCachedSnapshot = false,
         CancellationToken cancellationToken = default)
     {
         var codes = itemCodes
@@ -3897,6 +3948,16 @@ ORDER BY T0.""ItemCode""";
         if (codes.Count == 0)
         {
             return [];
+        }
+
+        if (allowCachedSnapshot)
+        {
+            var snapshot = await GetWarehouseBatchSnapshotAsync(warehouseCode, cancellationToken);
+            var wanted = new HashSet<string>(codes, StringComparer.OrdinalIgnoreCase);
+
+            return snapshot
+                .Where(batch => !string.IsNullOrWhiteSpace(batch.ItemCode) && wanted.Contains(batch.ItemCode))
+                .ToList();
         }
 
         await EnsureAuthenticatedAsync(cancellationToken);
@@ -4238,6 +4299,36 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
         return await ExecuteBatchQueryAsync(queryCode, warehouseCode, cancellationToken);
     }
 
+    /// <summary>
+    /// One warehouse's batches, read whole and held briefly, for callers that will ask about many
+    /// item codes in a row.
+    /// </summary>
+    /// <remarks>
+    /// It is the same <c>OBTN ⋈ OBTQ</c> join that <see cref="GetAllItemCodesInWarehouseAsync"/>
+    /// takes the warehouse's item codes from, so the two now agree by construction on the display
+    /// paths rather than by both happening to be current. That matters more than the round trips it
+    /// saves: a code appears on a product page precisely because that join said it holds stock, and
+    /// when the second read then came back with no batches for it, the item fell through to a
+    /// company-wide quantity that has nothing to do with this warehouse and disappeared off the page
+    /// if that figure was committed away.
+    /// </remarks>
+    private async Task<List<BatchNumber>> GetWarehouseBatchSnapshotAsync(
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        var cacheKey = WarehouseBatchSnapshotCacheKeyPrefix + warehouseCode.Trim().ToUpperInvariant();
+
+        if (_memoryCache.TryGetValue(cacheKey, out List<BatchNumber>? cached) && cached is not null)
+        {
+            return cached;
+        }
+
+        var batches = await GetAllBatchNumbersInWarehouseAsync(warehouseCode, cancellationToken);
+        _memoryCache.Set(cacheKey, batches, WarehouseBatchSnapshotLifetime);
+
+        return batches;
+    }
+
     private async Task<List<BatchNumber>> ExecuteBatchQueryAsync(
         string queryCode,
         string warehouseCode,
@@ -4286,11 +4377,31 @@ ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
 
-            // Handle 404 as no results found (empty batch list for the warehouse)
+            // Not "the warehouse holds no batches". A query with no rows answers 200 with an empty
+            // value array, and this loop ends on the absence of a nextLink — so a 404 is never how
+            // either the end of the results or an empty result arrives. It means SAP no longer holds
+            // the query object this read names, moments after it was ensured to exist.
+            //
+            // Breaking here returned whatever had been read so far as though it were the whole
+            // warehouse: empty on the first page, truncated on a later one. Both understate stock,
+            // and neither leaves an error for anyone to act on — a batch quantity that goes missing
+            // reads downstream as an item nobody is carrying.
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                _logger.LogInformation("No batch numbers found in warehouse {Warehouse}", warehouseCode);
-                break;
+                InvalidateSqlQueryVerification(queryCode);
+
+                _logger.LogError(
+                    "Batch query '{QueryCode}' for warehouse {Warehouse} is missing from SAP at row {Skip}; "
+                        + "refusing to report {Count} batches as the whole warehouse",
+                    queryCode,
+                    warehouseCode,
+                    skip,
+                    batches.Count);
+
+                throw new HttpRequestException(
+                    $"The batches in warehouse {warehouseCode} could not be read: SAP does not hold query '{queryCode}'.",
+                    null,
+                    HttpStatusCode.NotFound);
             }
 
             if (!response.IsSuccessStatusCode)
@@ -10507,9 +10618,11 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                 {
                     try
                     {
+                        // Live, never a snapshot: these batches are allocated onto a transfer.
                         var batches = await GetBatchNumbersForItemsInWarehouseAsync(
                             entry.Value,
                             entry.Key,
+                            allowCachedSnapshot: false,
                             cancellationToken);
                         return (Warehouse: entry.Key, ItemCodes: entry.Value, Batches: (List<BatchNumber>?)batches);
                     }

@@ -35,9 +35,13 @@ public sealed class GetPagedProductsInWarehouseHandler(
                 .Select(code => code!)
                 .ToList();
 
+            // A snapshot read: this is a catalogue page, and every extra round trip here is spent
+            // with a rep watching a spinner. See the parameter's remarks for why the movement paths
+            // must not do the same.
             var allBatches = itemCodes.Count == 0
                 ? []
-                : await sapClient.GetBatchNumbersForItemsInWarehouseAsync(itemCodes, request.WarehouseCode, cancellationToken);
+                : await sapClient.GetBatchNumbersForItemsInWarehouseAsync(
+                    itemCodes, request.WarehouseCode, allowCachedSnapshot: true, cancellationToken);
 
             var priceMap = await BuildPriceMapAsync(request, itemCodes, cancellationToken);
 

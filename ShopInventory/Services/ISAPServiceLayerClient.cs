@@ -191,7 +191,17 @@ public interface ISAPServiceLayerClient
     /// </remarks>
     Task<Dictionary<string, string?>> GetItemNamesAsync(IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
     Task<List<BatchNumber>> GetBatchNumbersForItemInWarehouseAsync(string itemCode, string warehouseCode, CancellationToken cancellationToken = default);
-    Task<List<BatchNumber>> GetBatchNumbersForItemsInWarehouseAsync(IEnumerable<string> itemCodes, string warehouseCode, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// The batches backing <paramref name="itemCodes"/> in one warehouse.
+    /// </summary>
+    /// <param name="itemCodes">The item codes to report batches for. Others are filtered out.</param>
+    /// <param name="warehouseCode">The warehouse whose batch quantities are wanted.</param>
+    /// <param name="allowCachedSnapshot">
+    /// Answer from a recent whole-warehouse read rather than querying for these codes. For display
+    /// paths only — anything that authorises a stock movement must leave it off and read live.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    Task<List<BatchNumber>> GetBatchNumbersForItemsInWarehouseAsync(IEnumerable<string> itemCodes, string warehouseCode, bool allowCachedSnapshot = false, CancellationToken cancellationToken = default);
     Task<List<BatchNumber>> GetAllBatchNumbersInWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
     Task<List<BatchSearchResult>> SearchBatchesByBatchNumberAsync(string searchTerm, CancellationToken cancellationToken = default);
     Task UpdateBatchStatusAsync(int batchEntryId, string status, CancellationToken cancellationToken = default);
