@@ -130,6 +130,13 @@ The five things to get right at the call site:
 - **`Class`**: `nsel-block` to fill a filter cell, `nsel-sm` for a rows-per-page
   control, `nsel-end` to right-anchor the menu on a trailing control, `nsel-auto`
   to shrink to content, `nsel-bs` on the pages still built out of Bootstrap rows.
+- **`Fixed`** for a control inside a scrolling table — a `<td>` under a wrap
+  carrying `overflow-x: auto`. That wrap computes `overflow-y` to `auto` with it,
+  so the menu is clipped to the height of its own row: three options that are
+  present, focusable and unclickable. The wrap's `overflow` cannot be lifted —
+  it is what gives a 900px-wide table its horizontal scroll — so the menu leaves
+  the box instead. It is off everywhere else: a menu in a filter row wants the
+  absolute default. `nsel-fixed` in `nocturne-select.css` has the rest.
 - **Passing a method group to `ValueChanged` does not compile.** TValue inference
   fails and the error names the non-generic `EventCallback`, which points nowhere
   near the cause. State `TValue` explicitly and wrap the handler in a lambda:

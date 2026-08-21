@@ -25,7 +25,7 @@
    document listener, which keeps the component free of JS interop — the same
    trade NocturneDateField makes. *@
 
-<div class="nsel @Class @(_open ? "nsel-open" : "")" @onkeydown="OnKeyDown" @attributes="Extra">
+<div class="nsel @Class @(_open ? "nsel-open" : "") @(Fixed ? "nsel-fixed" : "")" @onkeydown="OnKeyDown" @attributes="Extra">
     <button type="button" id="@Id"
             class="nsel-btn @(HasValue ? "nsel-set" : "") @FamilyClass(_current?.Family)"
             disabled="@Disabled" @onclick="Toggle"
@@ -47,7 +47,20 @@
 
     @if (_open)
     {
-        <div class="nsel-veil" @onclick="Close"></div>
+        @* A fixed menu is placed once, so on an engine without anchor
+           positioning a scroll would slide it off its own trigger and onto
+           another row's. The veil covers the viewport, so it is where the wheel
+           lands — close there rather than let the list drift. A menu long
+           enough to scroll on its own is not affected: that wheel goes to the
+           menu, which is not a child of the veil. *@
+        @if (Fixed)
+        {
+            <div class="nsel-veil" @onclick="Close" @onwheel="Close" @ontouchmove="Close"></div>
+        }
+        else
+        {
+            <div class="nsel-veil" @onclick="Close"></div>
+        }
         <div class="nsel-menu" role="listbox" aria-label="@(Caption ?? AriaLabel)">
             @if (!string.IsNullOrEmpty(Caption))
             {
@@ -119,6 +132,14 @@
     [Parameter] public bool Disabled { get; set; }
     [Parameter] public string? Id { get; set; }
     [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>
+    /// Draws the menu outside the flow so an ancestor's <c>overflow</c> cannot
+    /// clip it — what a control inside a scrolling table needs, and only that.
+    /// See the <c>nsel-fixed</c> block in nocturne-select.css for what the
+    /// menu gives up in exchange, and what it gets back.
+    /// </summary>
+    [Parameter] public bool Fixed { get; set; }
 
     /// <summary>
     /// Extra classes on the wrapper. The ones the sheet defines are
