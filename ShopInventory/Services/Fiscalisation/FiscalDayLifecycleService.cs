@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.EntityFrameworkCore;
@@ -775,7 +776,13 @@ public sealed class FiscalDayLifecycleService(
                 {
                     DeviceId = state.DeviceId,
                     FiscalDayNo = state.FiscalDayNo,
-                    CloseFiscalDay = true
+                    CloseFiscalDay = true,
+
+                    // Null for every device the platform signs for, which is all of them except a van
+                    // handset. A handset's key lives in its own keystore, so the platform can verify the
+                    // close it signed but never produce one — send null for such a device and its day
+                    // cannot be closed at all.
+                    DeclaredClose = ReadDeclaredClose(state)
                 },
                 cancellationToken);
         }
@@ -844,6 +851,44 @@ public sealed class FiscalDayLifecycleService(
     /// one carrying the close declaration — uploading it over a gap would declare a day whose counters do not
     /// match the receipts FDMS holds.
     /// </remarks>
+    /// <summary>
+    /// The close a handset signed for this day, or null when none was held.
+    /// </summary>
+    /// <remarks>
+    /// Null is the normal answer and means "platform, sign this yourself" — which is right for every
+    /// device whose key the platform holds. It is only wrong for a van handset, and there the platform
+    /// refuses the close rather than signing a wrong one, so a missing close surfaces as a day that will
+    /// not package instead of a day closed on totals nobody signed.
+    ///
+    /// A stored value that will not parse is treated as absent and logged rather than thrown. The
+    /// alternative is a lifecycle run that dies on one malformed row and stops advancing every other
+    /// device's day.
+    /// </remarks>
+    private DeclaredFiscalDayCloseApiRequest? ReadDeclaredClose(FiscalDayStateEntity state)
+    {
+        if (string.IsNullOrWhiteSpace(state.DeclaredCloseJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<DeclaredFiscalDayCloseApiRequest>(state.DeclaredCloseJson);
+        }
+        catch (JsonException ex)
+        {
+            logger.LogError(
+                ex,
+                "The signed close held for device {DeviceId}, fiscal day {FiscalDayNo} could not be read, so the "
+                + "day will be offered without it and the platform will refuse to close it. The handset must "
+                + "re-send.",
+                state.DeviceId,
+                state.FiscalDayNo);
+
+            return null;
+        }
+    }
+
     private async Task UploadAsync(
         FiscalDayStateEntity state,
         GenerateOfflineFileApiResponse generated,

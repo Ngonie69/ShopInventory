@@ -83,6 +83,26 @@ public class FiscalDayStateEntity
     /// </remarks>
     public bool DurationWarningRaised { get; set; }
 
+    /// <summary>
+    /// The close a van handset signed for this day, as the JSON forwarded to the platform. Null for a
+    /// device the platform signs for, which is every device except a handset.
+    /// </summary>
+    /// <remarks>
+    /// Stored rather than fetched on demand because of when the two events happen. A handset signs its
+    /// close the moment its day ends, which is out on a route with no signal; the day is packaged and
+    /// uploaded later, by a scheduled run here. Holding the signed close in between is what lets those two
+    /// happen hours apart.
+    ///
+    /// Kept as the serialized payload rather than shredded into columns, deliberately. The device's
+    /// signature covers those exact values, so round-tripping them through another shape risks handing
+    /// back a subtly different one — a currency re-cased, a trailing zero dropped — and the platform would
+    /// refuse the close. What arrived is what is sent on.
+    /// </remarks>
+    public string? DeclaredCloseJson { get; set; }
+
+    /// <summary>When the handset's signed close arrived, or null if it has not.</summary>
+    public DateTime? DeclaredCloseReceivedAtUtc { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

@@ -299,6 +299,85 @@ public sealed class FiscalDayLifecycleTests : IDisposable
         Assert.Equal(FiscalDayLifecycleStatus.Submitted, (await ReadStateAsync()).Status);
     }
 
+    /// <summary>
+    /// The close a handset signed travels with the day's last file. This is the only way a van's day can
+    /// close: the platform holds that device's certificate and not its key, so it can verify this
+    /// declaration but never produce one.
+    /// </summary>
+    [Fact]
+    public async Task A_handsets_signed_close_is_forwarded_with_the_day()
+    {
+        AddSale("VAN006-1", DesktopSaleReceiptIngestStatus.Ingested);
+        await _context.SaveChangesAsync();
+
+        HoldSignedClose(
+            """{"Counters":[{"FiscalCounterType":"SaleByTax","FiscalCounterCurrency":"USD","FiscalCounterTaxID":1,"FiscalCounterTaxPercent":15.00,"FiscalCounterValue":200.00}],"SignatureHash":"aGFzaA==","SignatureValue":"c2lnbmF0dXJl"}""");
+        await _context.SaveChangesAsync();
+
+        await Service().AdvanceDueDaysAsync(NowUtc, CancellationToken.None);
+
+        var generate = Assert.Single(_admin.Generates);
+        Assert.NotNull(generate.DeclaredClose);
+        Assert.Equal("c2lnbmF0dXJl", generate.DeclaredClose!.SignatureValue);
+
+        var counter = Assert.Single(generate.DeclaredClose.Counters);
+        Assert.Equal("SaleByTax", counter.FiscalCounterType);
+        Assert.Equal(200.00m, counter.FiscalCounterValue);
+    }
+
+    /// <summary>
+    /// Null is the right answer for every device the platform signs for, and it must stay null rather than
+    /// becoming an empty declaration — which would assert the day sold nothing.
+    /// </summary>
+    [Fact]
+    public async Task A_day_with_no_held_close_is_offered_without_one()
+    {
+        AddSale("VAN006-1", DesktopSaleReceiptIngestStatus.Ingested);
+        await _context.SaveChangesAsync();
+
+        await Service().AdvanceDueDaysAsync(NowUtc, CancellationToken.None);
+
+        Assert.Null(Assert.Single(_admin.Generates).DeclaredClose);
+    }
+
+    /// <summary>
+    /// A stored close that will not parse must not take the run down with it: one malformed row would
+    /// otherwise stop every other device's day from advancing. The platform then refuses the close, so the
+    /// day stalls visibly instead of closing on totals nobody signed.
+    /// </summary>
+    [Fact]
+    public async Task A_held_close_that_cannot_be_read_does_not_stop_the_run()
+    {
+        AddSale("VAN006-1", DesktopSaleReceiptIngestStatus.Ingested);
+        await _context.SaveChangesAsync();
+
+        HoldSignedClose("{ this is not json");
+        await _context.SaveChangesAsync();
+
+        await Service().AdvanceDueDaysAsync(NowUtc, CancellationToken.None);
+
+        Assert.Null(Assert.Single(_admin.Generates).DeclaredClose);
+    }
+
+    /// <summary>
+    /// Seeds the day's state row carrying a close the handset already signed, which is how the row looks
+    /// by the time the day is ready to package: the close arrives while the day is still open.
+    /// </summary>
+    private void HoldSignedClose(string json)
+    {
+        _context.FiscalDayStates.Add(new FiscalDayStateEntity
+        {
+            DeviceId = DeviceId,
+            FiscalDayNo = FiscalDayNo,
+            OpenedAtLocal = NowLocal.Date.AddHours(6),
+            Status = FiscalDayLifecycleStatus.Open,
+            DeclaredCloseJson = json,
+            DeclaredCloseReceivedAtUtc = NowUtc,
+            CreatedAt = NowUtc,
+            UpdatedAt = NowUtc
+        });
+    }
+
     /// <summary>Only a day whose files FDMS accepted cleanly is recorded as being with ZIMRA.</summary>
     [Fact]
     public async Task A_day_reaches_ZIMRA_only_once_every_file_is_settled()
