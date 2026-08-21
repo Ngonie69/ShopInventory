@@ -1,4 +1,4 @@
-﻿@page "/api-explorer"
+@page "/api-explorer"
 @using Microsoft.AspNetCore.Authorization
 @using System.Text.Json
 @attribute [Authorize(Roles = "Admin")]
@@ -341,8 +341,8 @@ new("GET", "/api/Invoice/date-range", "Get invoices in a date range"),
 new("GET", "/api/Invoice/open", "Get open invoices"),
 new("GET", "/api/Invoice/paged", "Get invoices with pagination"),
 new("GET", "/api/Invoice/pod-dashboard", "Get POD dashboard"),
-new("GET", "/api/Invoice/pods", "Get all PODs"),
 new("GET", "/api/Invoice/pod-upload-status", "Get POD upload status"),
+new("GET", "/api/Invoice/pods", "Get all PODs"),
 new("POST", "/api/Invoice", "Create a new invoice"),
 new("POST", "/api/Invoice/{docEntry}/crate-pod", "Upload invoice crate POD"),
 new("POST", "/api/Invoice/{docEntry}/fiscalize", "Fiscalize invoice"),
@@ -473,9 +473,9 @@ new("GET", "/api/InventoryTransfer/{warehouseCode}/paged", "Get paged inventory 
 new("GET", "/api/InventoryTransfer/detail/{docEntry}", "Get transfer by document entry"),
 new("GET", "/api/InventoryTransfer/pending", "Get transfers held for approval"),
 new("GET", "/api/InventoryTransfer/pending/{id}", "Get pending inventory transfer"),
-new("GET", "/api/InventoryTransfer/request/{docEntry}", "Get transfer request by doc entry"),
 new("GET", "/api/InventoryTransfer/request-edits", "Get pending request edits"),
 new("GET", "/api/InventoryTransfer/request-edits/{id}", "Get pending request edit"),
+new("GET", "/api/InventoryTransfer/request/{docEntry}", "Get transfer request by doc entry"),
 new("GET", "/api/InventoryTransfer/requests", "Get transfer requests with pagination"),
 new("GET", "/api/InventoryTransfer/requests/{warehouseCode}", "Get transfer requests by warehouse"),
 new("POST", "/api/InventoryTransfer", "Submit an inventory transfer for approval"),
@@ -483,11 +483,11 @@ new("POST", "/api/InventoryTransfer/pending/{id}/cancel", "Cancel pending invent
 new("POST", "/api/InventoryTransfer/pending/{id}/decision", "Decide pending inventory transfer"),
 new("POST", "/api/InventoryTransfer/pending/{id}/post", "Retry posting an approved transfer to SAP"),
 new("POST", "/api/InventoryTransfer/request", "Create a transfer request"),
+new("POST", "/api/InventoryTransfer/request-edits/{id}/cancel", "Cancel pending request edit"),
+new("POST", "/api/InventoryTransfer/request-edits/{id}/decision", "Decide pending request edit"),
 new("PATCH", "/api/InventoryTransfer/request/{docEntry}", "Edit transfer request"),
 new("POST", "/api/InventoryTransfer/request/{docEntry}/close", "Close transfer request"),
-new("POST", "/api/InventoryTransfer/request/{docEntry}/convert", "Convert a request into a transfer"),
-new("POST", "/api/InventoryTransfer/request-edits/{id}/cancel", "Cancel pending request edit"),
-new("POST", "/api/InventoryTransfer/request-edits/{id}/decision", "Decide pending request edit")
+new("POST", "/api/InventoryTransfer/request/{docEntry}/convert", "Convert a request into a transfer")
 }
 },
 new ApiModule
@@ -558,11 +558,11 @@ Color = Color.Secondary,
 Methods = new[] { "GET", "POST" },
 Endpoints = new List<ApiEndpoint>
 {
+new("GET", "/api/Stock/warehouse-codes", "Get warehouse codes"),
 new("GET", "/api/Stock/warehouse/{warehouseCode}", "Get stock by warehouse"),
 new("GET", "/api/Stock/warehouse/{warehouseCode}/items", "Get stock for specific items"),
 new("GET", "/api/Stock/warehouse/{warehouseCode}/paged", "Get warehouse stock with pagination"),
 new("GET", "/api/Stock/warehouse/{warehouseCode}/sales", "Get warehouse sales for a date range"),
-new("GET", "/api/Stock/warehouse-codes", "Get warehouse codes"),
 new("GET", "/api/Stock/warehouses", "Get all warehouses"),
 new("POST", "/api/Stock/warehouse/{warehouseCode}/sales", "Get sales in warehouse post")
 }
@@ -992,6 +992,7 @@ new("POST", "/api/vansales/auth/refresh", "Refresh a handset token (anonymous, r
 new("POST", "/api/vansales/customer", "Create a route customer"),
 new("POST", "/api/vansales/day/end", "Back in: closing odometer and the takings counted"),
 new("POST", "/api/vansales/day/start", "Out of the depot: truck, route, opening odometer"),
+new("POST", "/api/vansales/fiscal/day-close", "Record fiscal day close"),
 new("POST", "/api/vansales/inventory/confirm", "Confirm a transfer into the van"),
 new("POST", "/api/vansales/inventory/request", "Ask the depot for stock"),
 new("POST", "/api/vansales/order", "Create a direct invoice (202 when queued rather than posted)"),

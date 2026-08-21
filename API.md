@@ -2890,6 +2890,7 @@ of that dialect matter before you call anything here:
 | POST | `/api/vansales/order/history` | `invoices.view` | Invoice history; also a POST |
 | GET | `/api/vansales/fiscal` | `invoices.view` | Fiscal device details for the handset |
 | GET | `/api/vansales/fiscal/lease` | `invoices.create` | Optional `pendingSales`. Returned **bare**, not enveloped |
+| POST | `/api/vansales/fiscal/day-close` | `invoices.create` | The close a handset signed for its own fiscal day. Held rather than forwarded — the day is packaged once its receipts have landed |
 | POST | `/api/vansales/pod` | `invoices.view` | Upload proof of delivery |
 | POST | `/api/vansales/order` | `invoices.create` | Direct invoice. `202` when queued rather than posted |
 | POST | `/api/vansales/order/with-batches` | `invoices.create` | The same action as `/order` — one more route on it, not a second endpoint |
