@@ -44,7 +44,7 @@ public sealed class GetProductsInWarehouseHandler(
                 var pageBatches = itemCodes.Count == 0
                     ? []
                     : await sapClient.GetBatchNumbersForItemsInWarehouseAsync(
-                        itemCodes, request.WarehouseCode, cancellationToken);
+                        itemCodes, request.WarehouseCode, allowCachedSnapshot: true, cancellationToken);
 
                 var batchesByItem = pageBatches
                     .Where(b => b.ItemCode is not null && itemCodeSet.Contains(b.ItemCode))

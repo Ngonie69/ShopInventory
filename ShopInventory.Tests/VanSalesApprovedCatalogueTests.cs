@@ -178,6 +178,67 @@ public class VanSalesApprovedCatalogueTests
         Assert.Empty(sap.ItemReads);
     }
 
+    // ── A missing query object is a fault, not an answer ────────────────────
+
+    /// <summary>
+    /// The statement is ensured to exist immediately before it is read, so a 404 means SAP no longer
+    /// holds it. Reporting that as "nothing is approved for van sale" is the shape of failure this
+    /// codebase keeps having to close: it intersects every warehouse page down to nothing and comes
+    /// back HTTP 200, so every van in the fleet reads as empty and there is no error to report.
+    /// </summary>
+    [Fact]
+    public async Task A_missing_approval_query_is_an_error_rather_than_an_empty_approval_list()
+    {
+        var sap = new RecordingServiceLayer
+        {
+            VanSaleRows = """[{"ItemCode":"CHE011"}]""",
+            VanSaleQueryMissing = true
+        };
+        var client = CreateClient(sap);
+
+        await Assert.ThrowsAsync<HttpRequestException>(
+            () => client.GetVanSalesApprovedItemCodesAsync());
+    }
+
+    /// <summary>
+    /// And it has to reach the caller, not be absorbed into an empty page on the way. This is the read
+    /// a handset makes to fill its sell screen.
+    /// </summary>
+    [Fact]
+    public async Task A_missing_approval_query_never_reads_as_a_van_carrying_nothing()
+    {
+        var sap = new RecordingServiceLayer
+        {
+            WarehouseRows = """[{"ItemCode":"CHE011"},{"ItemCode":"NRI049"}]""",
+            VanSaleRows = """[{"ItemCode":"CHE011"}]""",
+            VanSaleQueryMissing = true
+        };
+        var client = CreateClient(sap);
+
+        await Assert.ThrowsAsync<HttpRequestException>(
+            () => client.GetPagedItemsInWarehouseAsync("MSA", page: 1, pageSize: 20, vanSaleOnly: true));
+    }
+
+    /// <summary>
+    /// The failure is not cached as though it were an answer: the next read tries again rather than
+    /// serving an empty catalogue from memory for a quarter of an hour.
+    /// </summary>
+    [Fact]
+    public async Task A_missing_approval_query_is_retried_rather_than_cached()
+    {
+        var sap = new RecordingServiceLayer
+        {
+            VanSaleRows = """[{"ItemCode":"CHE011"}]""",
+            VanSaleQueryMissing = true
+        };
+        var client = CreateClient(sap);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => client.GetVanSalesApprovedItemCodesAsync());
+        await Assert.ThrowsAsync<HttpRequestException>(() => client.GetVanSalesApprovedItemCodesAsync());
+
+        Assert.Equal(2, sap.ExecutedVanSaleQueries.Count);
+    }
+
     private static SAPServiceLayerClient CreateClient(RecordingServiceLayer sap)
     {
         var httpClient = new HttpClient(sap)
@@ -209,6 +270,9 @@ public class VanSalesApprovedCatalogueTests
         public string WarehouseRows { get; init; } = "[]";
 
         public string VanSaleRows { get; init; } = "[]";
+
+        /// <summary>SAP no longer holds the approval query object the read names.</summary>
+        public bool VanSaleQueryMissing { get; init; }
 
         public List<string> CreatedCodes { get; } = [];
 
@@ -245,6 +309,11 @@ public class VanSalesApprovedCatalogueTests
                 if (isVanSale)
                 {
                     ExecutedVanSaleQueries.Add(Uri.UnescapeDataString(uri.Query));
+
+                    if (VanSaleQueryMissing)
+                    {
+                        return Json("{}", HttpStatusCode.NotFound);
+                    }
                 }
 
                 // Everything comes back on the first page; a $skip is the caller checking for a second.
