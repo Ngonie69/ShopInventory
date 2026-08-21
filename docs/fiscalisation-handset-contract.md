@@ -702,6 +702,12 @@ reconciliation reads the tender as takings.
 | `tax_id` | int, nullable | From the lease's `item_taxes`. |
 | `tax_percent` | decimal, nullable | From the lease's `taxes`. **Null and zero are different.** |
 | `hs_code` | string, nullable | 4 or 8 digits, from the lease. FDMS refuses a VAT-payer line without one and says so only at day upload. |
+| `uom_code` | string, nullable | The unit the line was sold and priced in — the unit `quantity` counts and `price` is per. Nothing fiscal depends on it; the van sales reports do. `VanSaleLineFact` cannot total a quantity without it, because summing across items adds eaches to kilograms and yields a figure that looks like a number and is not one. The product endpoints already return it as `UoM`; send back what they sent. |
+| `discount_percent` | decimal, nullable | The discount given on the line, as a percentage. **Reported, never applied** — `price` above is the signed, tax-inclusive figure and is already net of it. The server stores the percentage and leaves the money alone; recomputing a line total from the two would restate a figure ZIMRA holds a signature over. Absent means no discount, not a zero-price line. |
+
+Both of the last two are nullable throughout and absent from handsets that predate them, which reads as
+*not recorded* rather than as any particular unit or a full discount
+(`IngestVanSalesOfflineSalesHandler.cs`, `VanSalesCompatibilityMapper.MapServerAllocatedInvoiceLine`).
 
 Line order is part of the contract: the server rebuilds `ReceiptLineNo` from the array index
 (`ReceiptBuilder.cs:24-27`) and the API stores `LineNum` from it

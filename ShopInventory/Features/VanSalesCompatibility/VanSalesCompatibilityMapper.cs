@@ -222,10 +222,20 @@ public static partial class VanSalesCompatibilityMapper
         {
             LineNum = index,
             ItemCode = item.Code.Trim(),
+            // The handset's own name for the line. It was previously dropped here, which left every
+            // reservation line on this path undescribed — and the reservation is the only record an
+            // online van sale leaves for the reports to read.
+            ItemDescription = string.IsNullOrWhiteSpace(item.Description) ? null : item.Description.Trim(),
             Quantity = item.Quantity,
             UnitPrice = Convert.ToDecimal(item.Price, CultureInfo.InvariantCulture),
             WarehouseCode = warehouseCode,
             CostCentreCode = costCentreCode,
+
+            // Reported, not acted on — the same rule as the offline ingest. UnitPrice above is what the
+            // customer was charged and is already net of any discount.
+            UoMCode = string.IsNullOrWhiteSpace(item.UoMCode) ? null : item.UoMCode.Trim(),
+            DiscountPercent = item.DiscountPercent,
+
             AutoAllocateBatches = true,
             BatchNumbers = null
         };

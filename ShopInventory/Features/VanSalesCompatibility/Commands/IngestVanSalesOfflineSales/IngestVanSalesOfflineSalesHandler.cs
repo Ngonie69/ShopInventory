@@ -583,6 +583,12 @@ public sealed class IngestVanSalesOfflineSalesHandler(
             WarehouseCode = warehouseCode,
             TaxCode = item.TaxCode,
 
+            // Both reported rather than acted on. The unit is what makes the line's quantity totallable
+            // at all; the discount is history, because Price above is already net of it and is the figure
+            // the device signed. Deriving either from the other would restate a signed receipt.
+            UoMCode = string.IsNullOrWhiteSpace(item.UoMCode) ? null : item.UoMCode.Trim(),
+            DiscountPercent = item.DiscountPercent ?? 0m,
+
             // Carried so the signed receipt can be rebuilt for the platform. Order matters as much as the
             // values do — the receipt was signed over these lines in the order they arrived.
             TaxId = item.TaxId,

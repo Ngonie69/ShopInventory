@@ -16,6 +16,7 @@ using ShopInventory.Features.VanSalesCompatibility.Commands.EndVanSalesDay;
 using ShopInventory.Features.VanSalesCompatibility.Commands.ConfirmVanSalesTransferRequest;
 using ShopInventory.Features.VanSalesCompatibility.Commands.IngestVanSalesOfflineSales;
 using ShopInventory.Features.VanSalesCompatibility.Commands.RecordVanSalesFiscalDayClose;
+using ShopInventory.Features.VanSalesCompatibility.Commands.ReportVanSalesStockPosition;
 using ShopInventory.Features.VanSalesCompatibility.Commands.UploadVanSalesPod;
 using ShopInventory.Features.VanSalesCompatibility.Commands.LoginVanSales;
 using ShopInventory.Features.VanSalesCompatibility.Commands.RefreshVanSales;
@@ -514,6 +515,34 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
         return result.Match(
             value => StatusCode(StatusCodes.Status201Created, value),
             errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// What this van is carrying, as its own handset counts it.
+    /// </summary>
+    /// <remarks>
+    /// The van is the only live source for this. SAP's figure for a van warehouse is a day behind —
+    /// the sales that moved it were signed on the handset and are still queued — so the daily snapshot
+    /// job, which reads SAP, cannot answer it, and does not visit van warehouses at all unless they are
+    /// named in its configured list. The first count of a day is the one kept; see the handler.
+    /// </remarks>
+    [HttpPost("stock/position")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.TransferInventory)]
+    public async Task<IActionResult> ReportStockPosition(
+        [FromBody] VanSalesStockPositionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(
+            new ReportVanSalesStockPositionCommand(request, userId.Value), cancellationToken);
+
+        return result.Match<IActionResult>(Ok, errors => Problem(errors));
     }
 
     [HttpGet("inventory/request")]

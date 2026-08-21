@@ -179,6 +179,31 @@ public sealed class VanSalesOfflineSaleItemRequest
 
     [JsonPropertyName("hs_code")]
     public string? HsCode { get; set; }
+
+    /// <summary>
+    /// The unit the line was sold and priced in — the unit <see cref="Quantity"/> counts and
+    /// <see cref="Price"/> is per.
+    /// </summary>
+    /// <remarks>
+    /// Reported, never acted on. It exists because <c>VanSaleLineFact</c> cannot be totalled without
+    /// it: a report that sums quantity across items mixes eaches with kilograms and produces a figure
+    /// that looks like a number and means nothing. Null from a handset that predates this field, which
+    /// reads as "not recorded" rather than as any particular unit.
+    /// </remarks>
+    [JsonPropertyName("uom_code")]
+    public string? UoMCode { get; set; }
+
+    /// <summary>
+    /// The discount given on this line, as a percentage of the undiscounted price.
+    /// </summary>
+    /// <remarks>
+    /// <b>Reported, never applied.</b> <see cref="Price"/> is the tax-inclusive unit price the receipt
+    /// was actually signed over and is already net of this. Recomputing a line total from the two would
+    /// contradict a figure ZIMRA holds a signature for, and the platform refuses a receipt whose
+    /// recomputed payload does not hash to what the device signed.
+    /// </remarks>
+    [JsonPropertyName("discount_percent")]
+    public decimal? DiscountPercent { get; set; }
 }
 
 /// <summary>

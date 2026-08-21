@@ -122,6 +122,67 @@ public sealed class VanSalesOfflineIngestTests : IDisposable
     }
 
     /// <summary>
+    /// The unit a line was sold in reaches the stored line.
+    /// </summary>
+    /// <remarks>
+    /// It is what makes a line's quantity totallable at all. <c>VanSaleLineFact</c> says so in as many
+    /// words — sum quantity across items without it and eaches are added to kilograms — so a van report
+    /// built on a null UoM produces a figure that looks like a number and is not one. The handset was
+    /// dropping the value the product endpoints already send it, and there was no field here to put it
+    /// in even if it had not.
+    /// </remarks>
+    [Fact]
+    public async Task The_unit_a_line_was_sold_in_is_stored()
+    {
+        var sale = BuildSale("VAN006-INV-20260810-AAA111");
+        sale.Items[0].UoMCode = "KG";
+
+        await IngestAsync(sale);
+
+        var line = await _context.DesktopSaleLines.SingleAsync();
+        Assert.Equal("KG", line.UoMCode);
+    }
+
+    /// <summary>
+    /// A discount is recorded against the line and never applied to it.
+    /// </summary>
+    /// <remarks>
+    /// <c>Price</c> is the tax-inclusive unit price the device signed and is already net of the
+    /// discount. Recomputing the line total from the percentage would restate a figure ZIMRA holds a
+    /// signature over, and the platform refuses a receipt whose recomputed payload does not hash to
+    /// what was signed. So the percentage is history, and the money is left exactly as it arrived.
+    /// </remarks>
+    [Fact]
+    public async Task A_discount_is_recorded_without_restating_the_signed_price()
+    {
+        var sale = BuildSale("VAN006-INV-20260810-AAA111");
+        sale.Items[0].DiscountPercent = 10m;
+
+        await IngestAsync(sale);
+
+        var line = await _context.DesktopSaleLines.SingleAsync();
+        Assert.Equal(10m, line.DiscountPercent);
+
+        // 2 x 50.00, exactly as sent. Not 90.00, which is what applying the percentage would give.
+        Assert.Equal(50m, line.UnitPrice);
+        Assert.Equal(100m, line.LineTotal);
+    }
+
+    /// <summary>
+    /// A handset that predates these two fields is not a handset that sold in no unit at a full
+    /// discount. Absent reads as absent.
+    /// </summary>
+    [Fact]
+    public async Task An_older_handset_reports_no_unit_and_no_discount()
+    {
+        await IngestAsync(BuildSale("VAN006-INV-20260810-AAA111"));
+
+        var line = await _context.DesktopSaleLines.SingleAsync();
+        Assert.Null(line.UoMCode);
+        Assert.Equal(0m, line.DiscountPercent);
+    }
+
+    /// <summary>
     /// A handset that never saw the response re-sends. That must be answered as a duplicate — a success
     /// from its point of view, so it clears its queue — and must not create a second row.
     /// </summary>
