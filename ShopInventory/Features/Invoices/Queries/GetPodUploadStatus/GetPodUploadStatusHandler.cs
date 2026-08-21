@@ -8,6 +8,7 @@ using ShopInventory.Common;
 using ShopInventory.Common.Caching;
 using ShopInventory.Common.Crates;
 using ShopInventory.Common.Mobile;
+using ShopInventory.Common.Sap;
 using ShopInventory.Common.Pods;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
@@ -32,6 +33,26 @@ public sealed class GetPodUploadStatusHandler(
 ) : IRequestHandler<GetPodUploadStatusQuery, ErrorOr<PodUploadStatusReportDto>>
 {
     private const decimal FullCreditTolerance = 0.01m;
+
+    /// <summary>
+    /// Fixed SqlCodes for this handler's three SAP statements.
+    /// </summary>
+    /// <remarks>
+    /// Fixed, not content-addressed, because every value these statements vary on is now bound. A
+    /// content-addressed code is the right answer when the statement's *shape* varies; when only its
+    /// values do, it mints one undeletable OUQR row per distinct value set. Measured on production
+    /// 2026-08-20: the interpolated forms of these three had left 841, 587 and 315 rows behind.
+    ///
+    /// The credit-note link query needs two codes rather than one because it genuinely has two
+    /// shapes — the same rows are reachable through an integer <c>BaseEntry</c> or a text
+    /// <c>BaseRef</c>, and a text column has to be compared against text. Two shapes, two objects,
+    /// both constant.
+    /// </remarks>
+    internal const string CrateInvoiceClassificationQueryCode = "PODCRA_RANGE";
+    internal const string CreditNoteLinkByEntryQueryCode = "PODCN_ENTRY";
+    internal const string CreditNoteLinkByRefQueryCode = "PODCN_REF";
+    internal const string CreditNoteActivityQueryCode = "PODCNDT_RANGE";
+
     private static readonly TimeSpan CreditNoteEnrichmentTimeout = TimeSpan.FromSeconds(45);
     private static readonly HashSet<string> CrateInvoiceItemCodes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -596,22 +617,16 @@ public sealed class GetPodUploadStatusHandler(
             lines);
     }
 
-    private async Task<CreditNoteActivityInvoiceLinks> GetCreditNoteActivityInvoiceLinksAsync(
-        DateTime fromDate,
-        DateTime toDate,
-        CancellationToken cancellationToken)
-    {
-        // Whole months rather than the caller's exact dates: see SqlMonthRangeCover. Every distinct
-        // range picked in the UI would otherwise leave another undeletable SAP query object behind.
-        // DocDate is projected so the surplus days can be dropped here.
-        var rows = new List<Dictionary<string, object?>>();
-
-        foreach (var (monthStart, monthEnd) in SqlMonthRangeCover.CoverMonths(fromDate, toDate))
-        {
-            var monthStartText = monthStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            var monthEndText = monthEnd.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-
-            var sqlText = $@"
+    /// <summary>
+    /// Credit-note lines raised against invoices in a date window. Constant text; the window binds.
+    /// </summary>
+    /// <remarks>
+    /// The dates are compared against the bare parameter. SAP's validator rejects <c>TO_DATE</c>
+    /// outright, and it accepts <c>yyyy-MM-dd</c> on the way in — which is what
+    /// <see cref="SapSqlRow.FormatDate"/> produces. <c>yyyyMMdd</c>, the format SAP hands back,
+    /// matches nothing on the way in and does so silently, as zero rows.
+    /// </remarks>
+    internal const string CreditNoteActivitySql = @"
 SELECT
     T0.""BaseEntry"" AS ""InvoiceDocEntry"",
     T0.""BaseRef"" AS ""InvoiceDocNum"",
@@ -627,17 +642,33 @@ INNER JOIN ORIN T1
         ON T1.""DocEntry"" = T0.""DocEntry""
 WHERE T0.""BaseType"" = 13
   AND T1.""CANCELED"" = 'N'
-  AND T1.""DocDate"" >= '{monthStartText}'
-  AND T1.""DocDate"" <= '{monthEndText}'
+  AND T1.""DocDate"" >= :fromDate
+  AND T1.""DocDate"" <= :toDate
 ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""LineNum""";
 
-            var monthRows = await sapClient.ExecuteScopedRawSqlQueryAsync(
-                "PODCNDT",
+    private async Task<CreditNoteActivityInvoiceLinks> GetCreditNoteActivityInvoiceLinksAsync(
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken)
+    {
+        // The caller's exact dates, bound. This used to widen the window to whole months so the
+        // statement text would recur across requests; binding makes the text constant whatever the
+        // dates are, so the widening — and the surplus days it pulled over the wire — is no longer
+        // buying anything. The day filter below stays as a guard, not as a correctness dependency.
+        var rows = new List<Dictionary<string, object?>>();
+
+        {
+            var monthRows = await sapClient.ExecuteParameterisedSqlQueryAsync(
+                CreditNoteActivityQueryCode,
                 "POD credit note activity invoice links",
-                sqlText,
+                CreditNoteActivitySql,
+                new Dictionary<string, string>
+                {
+                    ["fromDate"] = SapSqlRow.FormatDate(fromDate),
+                    ["toDate"] = SapSqlRow.FormatDate(toDate)
+                },
                 cancellationToken);
 
-            // Drop the days the month covers but the caller did not ask for.
             foreach (var row in monthRows)
             {
                 var docDate = TryGetDateTime(row, "CreditNoteDocDate");
@@ -683,6 +714,42 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
         return new CreditNoteActivityInvoiceLinks(docEntries, docNums, creditNoteLines);
     }
 
+    /// <summary>
+    /// Credit-note lines linked to invoices over a bound range, in the two forms the link can take.
+    /// </summary>
+    /// <remarks>
+    /// Built from one template so the projection cannot drift between them, because the two results
+    /// are unioned and read through the same column names. The filter is the only difference and the
+    /// two are not interchangeable: <c>BaseEntry</c> is an integer key, while <c>BaseRef</c> holds
+    /// the source document number as text — and a text column compared against a range only agrees
+    /// with numeric order when both ends carry the same digit count, which is why
+    /// <see cref="SqlIdRangeCover.CoverSameDigitWidth"/> feeds the <c>BaseRef</c> form and plain
+    /// <see cref="SqlIdRangeCover.Cover"/> feeds the other.
+    /// </remarks>
+    private static string BuildCreditNoteLinkSql(string rangeFilter) => $@"
+SELECT
+    T0.""BaseEntry"" AS ""InvoiceDocEntry"",
+    T0.""BaseRef"" AS ""InvoiceDocNum"",
+    T1.""DocEntry"" AS ""CreditNoteDocEntry"",
+    T1.""DocNum"" AS ""CreditNoteDocNum"",
+    T0.""LineNum"" AS ""CreditLineNum"",
+    T0.""LineTotal"" AS ""CreditLineTotal"",
+    T0.""VatSum"" AS ""CreditVatSum"",
+    T0.""U_Reasons"" AS ""CreditReason""
+FROM RIN1 T0
+INNER JOIN ORIN T1
+        ON T1.""DocEntry"" = T0.""DocEntry""
+WHERE T0.""BaseType"" = 13
+  AND {rangeFilter}
+  AND T1.""CANCELED"" = 'N'
+ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""LineNum""";
+
+    internal static readonly string CreditNoteLinkByEntrySql =
+        BuildCreditNoteLinkSql(@"T0.""BaseEntry"" BETWEEN :rangeStart AND :rangeEnd");
+
+    internal static readonly string CreditNoteLinkByRefSql =
+        BuildCreditNoteLinkSql(@"T0.""BaseRef"" BETWEEN :rangeStart AND :rangeEnd");
+
     private async Task<Dictionary<int, CreditNoteInfo>> GetCreditNoteLookupAsync(
         IReadOnlyList<Invoice> invoices,
         DateTime fromDate,
@@ -718,45 +785,44 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
             // single range covers it. Split into one ranged query per column and union the results:
             // BaseEntry numerically, BaseRef over same-digit-width ranges so the text comparison
             // agrees with numeric order. See SqlIdRangeCover.
-            var linkFilters = new List<string>();
+            //
+            // Two statements, two fixed codes — the shapes differ, so they cannot share an object
+            // without PATCHing over each other on every call. Within each shape the range binds, so
+            // the pair is all SAP ever holds for this path.
+            var linkQueries = new List<(string QueryCode, string SqlText, string Start, string End)>();
 
-            linkFilters.AddRange(
+            linkQueries.AddRange(
                 SqlIdRangeCover
                     .Cover(reportInvoices.Select(invoice => invoice.DocEntry))
-                    .Select(range => $@"T0.""BaseEntry"" BETWEEN {range.Start} AND {range.End}"));
+                    .Select(range => (
+                        CreditNoteLinkByEntryQueryCode,
+                        CreditNoteLinkByEntrySql,
+                        range.Start.ToString(CultureInfo.InvariantCulture),
+                        range.End.ToString(CultureInfo.InvariantCulture))));
 
-            linkFilters.AddRange(
+            linkQueries.AddRange(
                 SqlIdRangeCover
                     .CoverSameDigitWidth(reportInvoices.Select(invoice => invoice.DocNum))
-                    .Select(range => $@"T0.""BaseRef"" BETWEEN '{range.Start}' AND '{range.End}'"));
+                    .Select(range => (
+                        CreditNoteLinkByRefQueryCode,
+                        CreditNoteLinkByRefSql,
+                        range.Start.ToString(CultureInfo.InvariantCulture),
+                        range.End.ToString(CultureInfo.InvariantCulture))));
 
             // A credit note line can satisfy both predicates; keep it once.
             var seenCreditNoteLines = new HashSet<(int CreditNoteDocEntry, int CreditLineNum)>();
 
-            foreach (var linkFilter in linkFilters)
+            foreach (var (queryCode, sqlText, rangeStart, rangeEnd) in linkQueries)
             {
-                var sqlText = $@"
-SELECT
-    T0.""BaseEntry"" AS ""InvoiceDocEntry"",
-    T0.""BaseRef"" AS ""InvoiceDocNum"",
-    T1.""DocEntry"" AS ""CreditNoteDocEntry"",
-    T1.""DocNum"" AS ""CreditNoteDocNum"",
-    T0.""LineNum"" AS ""CreditLineNum"",
-    T0.""LineTotal"" AS ""CreditLineTotal"",
-    T0.""VatSum"" AS ""CreditVatSum"",
-    T0.""U_Reasons"" AS ""CreditReason""
-FROM RIN1 T0
-INNER JOIN ORIN T1
-        ON T1.""DocEntry"" = T0.""DocEntry""
-WHERE T0.""BaseType"" = 13
-  AND {linkFilter}
-  AND T1.""CANCELED"" = 'N'
-ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""LineNum""";
-
-                var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
-                    "PODCN",
+                var rows = await sapClient.ExecuteParameterisedSqlQueryAsync(
+                    queryCode,
                     "POD credit note links",
                     sqlText,
+                    new Dictionary<string, string>
+                    {
+                        ["rangeStart"] = rangeStart,
+                        ["rangeEnd"] = rangeEnd
+                    },
                     cancellationToken);
 
                 foreach (var row in rows)
@@ -1167,8 +1233,11 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
             .Distinct()
             .ToList();
 
-        // Ranges rather than the exact doc entries: see SqlIdRangeCover. A range recurs across
-        // requests, so SAP reuses one query object instead of accumulating one per request.
+        // The range is bound, so the statement is constant and SAP holds exactly one object for
+        // this path however many ranges are asked for. The cover is still here, but its job has
+        // changed: it no longer exists to make the text recur — binding does that — it exists to
+        // keep each execution a bounded index seek instead of one scan across the whole span
+        // between the oldest and newest invoice in the report.
         var requestedDocEntries = unresolvedDocEntries.ToHashSet();
         var rangeIndex = 0;
         try
@@ -1176,10 +1245,15 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
             foreach (var (start, end) in SqlIdRangeCover.Cover(unresolvedDocEntries))
             {
                 rangeIndex++;
-                var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
-                    "PODCRA",
+                var rows = await sapClient.ExecuteParameterisedSqlQueryAsync(
+                    CrateInvoiceClassificationQueryCode,
                     "POD SAP crate invoice classification",
-                    BuildCrateInvoiceClassificationSql(start, end),
+                    CrateInvoiceClassificationSql,
+                    new Dictionary<string, string>
+                    {
+                        ["docEntryStart"] = start.ToString(CultureInfo.InvariantCulture),
+                        ["docEntryEnd"] = end.ToString(CultureInfo.InvariantCulture)
+                    },
                     cancellationToken);
 
                 foreach (var row in rows)
@@ -1231,23 +1305,26 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
             CrateInvoiceItemCodes.Contains(line.ItemCode.Trim())) == true;
 
     /// <summary>
-    /// Classification SQL for one aligned slice of DocEntry space. The item codes are a compile-time
-    /// constant, so the whole statement is fixed once the range is chosen.
+    /// Classification SQL for one slice of DocEntry space. Constant text: the range arrives as bound
+    /// parameters and the item codes are a compile-time constant.
     /// </summary>
-    private static string BuildCrateInvoiceClassificationSql(int docEntryStart, int docEntryEnd)
-    {
-        var itemCodeFilter = string.Join(", ", CrateInvoiceItemCodes
-            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
-            .Select(code => $"'{code}'"));
-
-        return $@"
+    /// <remarks>
+    /// The item codes stay interpolated deliberately. One SAP parameter cannot carry an <c>IN</c>
+    /// list — <c>IN (:codes)</c> binds the whole value as a single literal and silently matches
+    /// nothing — but they are a literal in this file rather than request data, so they move only
+    /// when someone edits this line. Note what that edit costs: it changes the statement, and every
+    /// object created under the previous text is orphaned in a table whose rows cannot be deleted.
+    /// One row now, where the interpolated range made it one row per bucket ever touched.
+    /// </remarks>
+    internal static readonly string CrateInvoiceClassificationSql = $@"
 SELECT DISTINCT
     T0.""DocEntry"" AS ""InvoiceDocEntry""
 FROM INV1 T0
-WHERE T0.""DocEntry"" BETWEEN {docEntryStart} AND {docEntryEnd}
-  AND T0.""ItemCode"" IN ({itemCodeFilter})
+WHERE T0.""DocEntry"" BETWEEN :docEntryStart AND :docEntryEnd
+  AND T0.""ItemCode"" IN ({string.Join(", ", CrateInvoiceItemCodes
+      .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+      .Select(code => $"'{code}'"))})
 ORDER BY T0.""DocEntry""";
-    }
 
     private async Task<Dictionary<int, PodStatusInfo>> GetCratePodStatusByInvoiceDocNumsAsync(
         List<int> invoiceDocNums,

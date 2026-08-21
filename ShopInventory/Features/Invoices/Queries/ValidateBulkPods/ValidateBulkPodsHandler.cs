@@ -21,6 +21,34 @@ public sealed class ValidateBulkPodsHandler(
     ILogger<ValidateBulkPodsHandler> logger
 ) : IRequestHandler<ValidateBulkPodsQuery, ErrorOr<BulkPodValidationResponseDto>>
 {
+    /// <summary>
+    /// Fixed SqlCode: every value this statement varies on is bound, so one object serves every
+    /// range. The previous content-addressed form left one undeletable OUQR row per bucket ever
+    /// validated — 115 of them on production as of 2026-08-20, across two prefix spellings.
+    /// </summary>
+    internal const string SalesOrderLinkQueryCode = "POD_SO_RANGE";
+
+    /// <summary>
+    /// Invoices raised against a range of sales orders. Constant text; the range binds.
+    /// </summary>
+    internal const string SalesOrderLinkSql = @"
+SELECT DISTINCT
+    so.""DocEntry"" AS ""SalesOrderDocEntry"",
+    so.""DocNum"" AS ""SalesOrderDocNum"",
+    so.""CardCode"" AS ""CustomerCode"",
+    so.""CardName"" AS ""CustomerName"",
+    inv.""DocEntry"" AS ""InvoiceDocEntry"",
+    inv.""DocNum"" AS ""InvoiceDocNum"",
+    inv.""DocDate"" AS ""InvoiceDocDate""
+FROM ORDR so
+INNER JOIN INV1 invl
+        ON invl.""BaseType"" = 17
+       AND invl.""BaseEntry"" = so.""DocEntry""
+INNER JOIN OINV inv
+        ON inv.""DocEntry"" = invl.""DocEntry""
+WHERE so.""DocNum"" BETWEEN :docNumStart AND :docNumEnd
+ORDER BY so.""DocNum"", inv.""DocDate"", inv.""DocNum""";
+
     public async Task<ErrorOr<BulkPodValidationResponseDto>> Handle(
         ValidateBulkPodsQuery request,
         CancellationToken cancellationToken)
@@ -220,9 +248,10 @@ public sealed class ValidateBulkPodsHandler(
             .Where(docNum => !locallyResolvedSalesOrderDocNums.Contains(docNum))
             .ToList();
 
-        // Aligned ranges rather than the exact doc nums: see SqlIdRangeCover. An id list made this
-        // statement unique per request, and a SAP SQLQueries object cannot be deleted, so every
-        // bulk validation left a permanent row behind. Surplus rows are filtered below.
+        // Ranges rather than the exact doc nums: see SqlIdRangeCover. The range now binds, so the
+        // statement is constant and SAP holds one object for this path; the cover survives to keep
+        // each execution a bounded seek rather than a scan of the whole span. Surplus rows are
+        // filtered below.
         var unresolvedSalesOrderDocNumSet = unresolvedSalesOrderDocNums.ToHashSet();
 
         foreach (var (rangeStart, rangeEnd) in SqlIdRangeCover.Cover(unresolvedSalesOrderDocNums))
@@ -236,31 +265,18 @@ public sealed class ValidateBulkPodsHandler(
 
             try
             {
-                var sqlText = $@"
-SELECT DISTINCT
-    so.""DocEntry"" AS ""SalesOrderDocEntry"",
-    so.""DocNum"" AS ""SalesOrderDocNum"",
-    so.""CardCode"" AS ""CustomerCode"",
-    so.""CardName"" AS ""CustomerName"",
-    inv.""DocEntry"" AS ""InvoiceDocEntry"",
-    inv.""DocNum"" AS ""InvoiceDocNum"",
-    inv.""DocDate"" AS ""InvoiceDocDate""
-FROM ORDR so
-INNER JOIN INV1 invl
-        ON invl.""BaseType"" = 17
-       AND invl.""BaseEntry"" = so.""DocEntry""
-INNER JOIN OINV inv
-        ON inv.""DocEntry"" = invl.""DocEntry""
-WHERE so.""DocNum"" BETWEEN {rangeStart} AND {rangeEnd}
-ORDER BY so.""DocNum"", inv.""DocDate"", inv.""DocNum""";
-
-                // The query object is shared by every caller running this same range. That is safe
-                // because the code is derived from the SQL text itself, so a shared code implies
-                // identical text - concurrent callers cannot read each other's rows.
-                var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
-                    "POD_SO",
+                // One object shared by every caller, each binding its own range on its own request.
+                // Concurrent callers cannot read each other's rows: the values travel with the
+                // execution, not with the stored statement.
+                var rows = await sapClient.ExecuteParameterisedSqlQueryAsync(
+                    SalesOrderLinkQueryCode,
                     "Sales order POD links",
-                    sqlText,
+                    SalesOrderLinkSql,
+                    new Dictionary<string, string>
+                    {
+                        ["docNumStart"] = rangeStart.ToString(CultureInfo.InvariantCulture),
+                        ["docNumEnd"] = rangeEnd.ToString(CultureInfo.InvariantCulture)
+                    },
                     cancellationToken);
 
                 foreach (var row in rows)
