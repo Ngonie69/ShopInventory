@@ -65,4 +65,19 @@ public class VanSalesOrderItemRequest
 
     [JsonPropertyName("hs_code")]
     public string? HsCode { get; set; }
+
+    /// <summary>
+    /// The unit the line was sold and priced in. Same field, same reason, as its counterpart on
+    /// <see cref="VanSalesOfflineSaleItemRequest"/>: without it a line's quantity cannot be totalled
+    /// against another line's.
+    /// </summary>
+    [JsonPropertyName("uom_code")]
+    public string? UoMCode { get; set; }
+
+    /// <summary>
+    /// The discount given on this line, as a percentage. Reported, never applied —
+    /// <see cref="Price"/> is already net of it.
+    /// </summary>
+    [JsonPropertyName("discount_percent")]
+    public decimal? DiscountPercent { get; set; }
 }

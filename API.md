@@ -2896,6 +2896,7 @@ of that dialect matter before you call anything here:
 | POST | `/api/vansales/order/with-batches` | `invoices.create` | The same action as `/order` — one more route on it, not a second endpoint |
 | POST | `/api/vansales/sales` | `invoices.create` | Take custody of offline, already-ZIMRA-stamped sales |
 | POST | `/api/vansales/order/convert-to-invoice` | `invoices.create` | Always `202` |
+| POST | `/api/vansales/stock/position` | `inventory.transfer` | What the van is carrying, as its own handset counts it. Becomes that van's stock snapshot for the trading day — the first count of a day is the one kept |
 | POST | `/api/vansales/inventory/request` | `inventory.transfer` | Ask the depot for stock. `201` |
 | GET | `/api/vansales/inventory/request` | `inventory.transfer` | The caller's transfer requests |
 | POST | `/api/vansales/inventory/confirm` | `inventory.transfer` | Confirm a transfer into the van |
