@@ -1401,7 +1401,10 @@ Methods = new[] { "GET", "PUT" },
 Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/fiscal-devices/{deviceId}/offline-lease", "Get"),
+new("GET", "/api/fiscal-devices/{deviceId}/preview", "Preview"),
+new("GET", "/api/fiscal-devices/handsets", "Get handsets"),
 new("GET", "/api/fiscal-devices/offline-leases", "Get all"),
+new("PUT", "/api/fiscal-devices/{deviceId}/handset", "Register handset"),
 new("PUT", "/api/fiscal-devices/{deviceId}/offline-lease", "Assign")
 }
 },

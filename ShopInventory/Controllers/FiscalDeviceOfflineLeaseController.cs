@@ -4,7 +4,10 @@ using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Common.Security;
 using ShopInventory.DTOs;
 using ShopInventory.Features.FiscalisationConfiguration.Commands.AssignOfflineSigningLease;
+using ShopInventory.Features.FiscalisationConfiguration.Commands.RegisterFiscalDeviceHandset;
+using ShopInventory.Features.FiscalisationConfiguration.Queries.GetFiscalDeviceHandsets;
 using ShopInventory.Features.FiscalisationConfiguration.Queries.GetOfflineSigningLease;
+using ShopInventory.Features.FiscalisationConfiguration.Queries.PreviewFiscalDevice;
 
 namespace ShopInventory.Controllers;
 
@@ -24,6 +27,69 @@ public class FiscalDeviceOfflineLeaseController(IMediator mediator) : ApiControl
     public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetOfflineSigningLeaseOverviewQuery(), cancellationToken);
+        return result.Match<IActionResult>(Ok, errors => Problem(errors));
+    }
+
+    /// <summary>Active van accounts, and the device each already carries. Who a device can be given to.</summary>
+    [HttpGet("handsets")]
+    public async Task<IActionResult> GetHandsets(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetFiscalDeviceHandsetsQuery(), cancellationToken);
+        return result.Match<IActionResult>(Ok, errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// What the Fiscalisation platform says about a device, and whether it may be given to a van.
+    /// </summary>
+    /// <remarks>
+    /// Answers for ids this application has never seen — that is the point. Reads only; the same checks
+    /// run again on the save, because a device's mode or certificate can change between looking and
+    /// deciding.
+    ///
+    /// <c>handsetUserId</c> is the van it is intended for, once one is chosen. Without it the device is
+    /// judged on its own merits, which is what the screen needs while someone is still typing.
+    /// </remarks>
+    [HttpGet("{deviceId:int}/preview")]
+    public async Task<IActionResult> Preview(
+        int deviceId,
+        CancellationToken cancellationToken,
+        [FromQuery] Guid? handsetUserId = null)
+    {
+        var result = await mediator.Send(new PreviewFiscalDeviceQuery(deviceId, handsetUserId), cancellationToken);
+        return result.Match<IActionResult>(Ok, errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Registers the one handset that signs as this device, or releases it when
+    /// <see cref="RegisterFiscalDeviceHandsetRequest.HandsetUserId"/> is null.
+    /// </summary>
+    /// <remarks>
+    /// Answers 409 when the handset losing the device is still carrying signed receipts the server has
+    /// not seen — the same guard as moving a nomination, for the same reason, and cleared the same way
+    /// with <c>force</c>.
+    /// </remarks>
+    [HttpPut("{deviceId:int}/handset")]
+    public async Task<IActionResult> RegisterHandset(
+        int deviceId,
+        [FromBody] RegisterFiscalDeviceHandsetRequest request,
+        CancellationToken cancellationToken,
+        [FromQuery] bool force = false)
+    {
+        var actorId = UserClaimReader.GetUserId(User);
+        if (actorId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(
+            new RegisterFiscalDeviceHandsetCommand(
+                deviceId,
+                request.HandsetUserId,
+                force,
+                actorId.Value,
+                User.Identity?.Name ?? "Unknown"),
+            cancellationToken);
+
         return result.Match<IActionResult>(Ok, errors => Problem(errors));
     }
 

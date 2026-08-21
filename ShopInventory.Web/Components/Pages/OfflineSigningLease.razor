@@ -65,6 +65,214 @@
                 </div>
             </section>
 
+            @* Registration comes before nomination on the page because it comes before it in fact: a
+               device nobody carries has nobody to nominate. *@
+            <section class="stg-card">
+                <div class="stg-section-head">
+                    <span class="stg-section-icon"><i class="ph ph-plus-circle"></i></span>
+                    <div class="stg-section-text">
+                        <h2>Register a fiscal device</h2>
+                        <p>
+                            Give a van the ZIMRA device it signs as. The Fiscalisation platform is asked what
+                            the device actually is before anything is saved, because the number on its own
+                            cannot tell you whether it is a van's device or this server's.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="stg-row">
+                    <div class="stg-row-info">
+                        <div class="stg-row-label"><span>Device id</span></div>
+                        <span class="stg-row-desc">
+                            The number ZIMRA registered the device under. It is read from the Fiscalisation
+                            platform, not from this application, so a device added there is available here
+                            straight away.
+                        </span>
+                    </div>
+                    <div class="stg-row-control">
+                        <input id="osl-device-id" class="stg-input" type="number" min="1" step="1"
+                               style="max-width:9rem"
+                               placeholder="e.g. 7"
+                               disabled="@isChecking"
+                               value="@deviceIdInput"
+                               @onchange="OnDeviceIdChanged" />
+                        <button id="osl-check" type="button" class="stg-btn"
+                                disabled="@(isChecking || deviceIdInput is not > 0)"
+                                @onclick="() => CheckAsync()">
+                            @if (isChecking)
+                            {
+                                <span class="stg-spin"></span><span>Checking…</span>
+                            }
+                            else
+                            {
+                                <text><i class="ph ph-magnifying-glass"></i> Check</text>
+                            }
+                        </button>
+                    </div>
+                </div>
+
+                <div class="stg-row">
+                    <div class="stg-row-info">
+                        <div class="stg-row-label"><span>Give it to</span></div>
+                        <span class="stg-row-desc">
+                            One handset, and only one — the receipt chain has a single writer. A van already
+                            carrying another device is shown with it, because giving this one to that van
+                            takes the other away.
+                        </span>
+                    </div>
+                    <div class="stg-row-control">
+                        <NocturneSelect Class="nsel-block" TValue="string"
+                                        Options="HandsetOptions"
+                                        Value="@handsetSelection"
+                                        ValueChanged="@(value => OnHandsetChanged(value))"
+                                        OnChanged="@(() => CheckAsync())"
+                                        Disabled="@isChecking"
+                                        Caption="Handset to register the device to"
+                                        AriaLabel="Handset to register the device to"
+                                        Placeholder="Choose a handset" />
+                    </div>
+                </div>
+
+                @if (preview is not null)
+                {
+                    <div class="stg-row">
+                        <div class="stg-row-info">
+                            <div class="stg-row-label"><span>Serial number</span></div>
+                            <span class="stg-row-desc">
+                                @(string.IsNullOrWhiteSpace(preview.BranchName)
+                                    ? "As ZIMRA holds it."
+                                    : $"At {preview.BranchName}.")
+                                @if (!string.IsNullOrWhiteSpace(preview.TaxPayerName))
+                                {
+                                    <text> Registered to @preview.TaxPayerName.</text>
+                                }
+                            </span>
+                        </div>
+                        <div class="stg-row-control">
+                            <span class="stg-tag stg-tag-neutral">@(preview.SerialNumber ?? "Unknown")</span>
+                        </div>
+                    </div>
+
+                    <div class="stg-row">
+                        <div class="stg-row-info">
+                            <div class="stg-row-label"><span>Operating mode</span></div>
+                            <span class="stg-row-desc">
+                                Only an Offline device signs its own receipts. An Online device's sequence
+                                belongs to FDMS, which makes it this server's to post on and not a van's.
+                            </span>
+                        </div>
+                        <div class="stg-row-control">
+                            <span class="stg-tag @(IsHandsetMode(preview.OperatingMode) ? "stg-tag-neutral" : "stg-tag-danger")">
+                                @(preview.OperatingMode ?? "Unknown")
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="stg-row">
+                        <div class="stg-row-info">
+                            <div class="stg-row-label"><span>Certificate</span></div>
+                            <span class="stg-row-desc">
+                                A van out of coverage cannot be told its certificate lapsed, so it is worth
+                                knowing here rather than in a dead spot.
+                            </span>
+                        </div>
+                        <div class="stg-row-control">
+                            @if (preview.CertificateValidTill is null)
+                            {
+                                <span class="stg-tag stg-tag-neutral">Unknown</span>
+                            }
+                            else
+                            {
+                                <span class="stg-tag @(preview.CertificateDaysRemaining is > 30 ? "stg-tag-neutral" : "stg-tag-danger")">
+                                    @preview.CertificateValidTill.Value.ToLocalTime().ToString("dd MMM yyyy")
+                                </span>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="stg-row">
+                        <div class="stg-row-info">
+                            <div class="stg-row-label"><span>Registered to</span></div>
+                            <span class="stg-row-desc">
+                                The handset that signs as this device today. Only one account may carry it.
+                            </span>
+                        </div>
+                        <div class="stg-row-control">
+                            <span class="stg-tag stg-tag-neutral">@(preview.CurrentHolderLabel ?? "Nobody")</span>
+                        </div>
+                    </div>
+
+                    @foreach (var finding in preview.Findings)
+                    {
+                        <div class="stg-alert @AlertClass(finding.Severity)">
+                            <i class="ph @AlertIcon(finding.Severity)"></i>
+                            <span>@finding.Message</span>
+                        </div>
+                    }
+
+                    @if (registerForceWarning is not null)
+                    {
+                        <div class="stg-alert stg-alert-warn">
+                            <i class="ph ph-warning"></i>
+                            <div>
+                                <p style="margin:0 0 .5rem">@registerForceWarning</p>
+                                <button type="button" class="stg-btn stg-btn-danger"
+                                        disabled="@isRegistering"
+                                        @onclick="() => RegisterAsync(force: true)">
+                                    Move it anyway
+                                </button>
+                                <button type="button" class="stg-btn" @onclick="() => registerForceWarning = null">
+                                    Leave it where it is
+                                </button>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="stg-row">
+                        <div class="stg-row-info">
+                            <div class="stg-row-label"><span>@(preview.CanRelease ? "Release the device" : "Save the registration")</span></div>
+                            <span class="stg-row-desc">
+                                @if (preview.CanRelease)
+                                {
+                                    <text>
+                                        Takes the device off @preview.CurrentHolderLabel and clears its nomination,
+                                        leaving it free to register elsewhere. This is the step that checks whether
+                                        that handset is still carrying receipts.
+                                    </text>
+                                }
+                                else
+                                {
+                                    <text>
+                                        The same checks run again on save — a device's mode or certificate can
+                                        change between looking and deciding. Nominating the van to sign offline is
+                                        the separate step below.
+                                    </text>
+                                }
+                            </span>
+                        </div>
+                        <div class="stg-row-control">
+                            <button id="osl-register" type="button"
+                                    class="stg-btn @(preview.CanRelease ? "stg-btn-danger" : "stg-btn-primary")"
+                                    disabled="@(isRegistering || !(preview.CanRegister || preview.CanRelease))"
+                                    @onclick="() => RegisterAsync(force: false)">
+                                @if (isRegistering)
+                                {
+                                    <span class="stg-spin"></span><span>Saving…</span>
+                                }
+                                else if (preview.CanRelease)
+                                {
+                                    <text>Release</text>
+                                }
+                                else
+                                {
+                                    <text>Register</text>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                }
+            </section>
+
             @if (isLoading)
             {
                 <div class="stg-pane-loading"><span class="stg-spin"></span><span>Loading offline signing…</span></div>
@@ -79,6 +287,7 @@
                             <p>
                                 Offline signing is nominated per fiscal device, and no active user carries one yet.
                                 Until a handset is registered against a device, every van trades online only.
+                                Register one above, and it appears here to be nominated.
                             </p>
                         </div>
                     </div>
@@ -235,12 +444,181 @@
     private string? successMessage;
     private string? errorMessage;
 
+    // --- Registering a device to a handset ---
+
+    /// <summary>Every active van account, and the device each already carries.</summary>
+    private List<FiscalDeviceHandsetResponse> handsets = [];
+
+    private int? deviceIdInput;
+
+    /// <summary>The chosen handset's id as text; empty means "release this device".</summary>
+    private string handsetSelection = string.Empty;
+
+    /// <summary>What the platform last said about <see cref="deviceIdInput"/>. Null until it is asked.</summary>
+    private FiscalDevicePreviewResponse? preview;
+
+    private bool isChecking;
+    private bool isRegistering;
+
+    /// <summary>Set when the API refused because the outgoing handset is still carrying receipts.</summary>
+    private string? registerForceWarning;
+
     protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    /// <summary>
+    /// The handsets a device can be given to, plus the row that takes it away from everyone.
+    /// </summary>
+    /// <remarks>
+    /// The device a handset already carries goes in the hint rather than the label, because it is the
+    /// thing that changes the meaning of choosing that row: picking a van that is already on device 3
+    /// takes device 3 off it. Family follows the same fact so it reads before the text does.
+    /// </remarks>
+    private IEnumerable<INocturneSelectOption<string>> HandsetOptions
+    {
+        get
+        {
+            yield return new NocturneSelectOption<string>(
+                string.Empty, "Nobody — release this device", "neutral")
+            {
+                RuleAfter = true,
+                IsUnset = true
+            };
+
+            foreach (var handset in handsets)
+            {
+                var carries = handset.FiscalDeviceId is > 0;
+                var carriesThisOne = handset.FiscalDeviceId == deviceIdInput;
+
+                yield return new NocturneSelectOption<string>(
+                    handset.UserId.ToString(),
+                    handset.Label,
+                    carries && !carriesThisOne ? "warn" : "good")
+                {
+                    Hint = carries ? $"device {handset.FiscalDeviceId}" : handset.Role
+                };
+            }
+        }
+    }
+
+    private static bool IsHandsetMode(string? mode) =>
+        string.Equals(mode?.Trim(), "Offline", StringComparison.OrdinalIgnoreCase);
+
+    private static string AlertClass(string severity) => severity switch
+    {
+        "Block" => "stg-alert-error",
+        "Warn" => "stg-alert-warn",
+        _ => "stg-alert-info"
+    };
+
+    private static string AlertIcon(string severity) => severity switch
+    {
+        "Block" => "ph-x-circle",
+        "Warn" => "ph-warning",
+        _ => "ph-info"
+    };
+
+    private async Task OnDeviceIdChanged(ChangeEventArgs args)
+    {
+        deviceIdInput = int.TryParse(args.Value?.ToString(), out var parsed) && parsed > 0 ? parsed : null;
+
+        // Whatever the platform said was about the previous number.
+        preview = null;
+        registerForceWarning = null;
+
+        await Task.CompletedTask;
+    }
+
+    private async Task OnHandsetChanged(string? value)
+    {
+        handsetSelection = value ?? string.Empty;
+        registerForceWarning = null;
+
+        await Task.CompletedTask;
+    }
+
+    /// <summary>Asks the platform what this device is, and what registering it would mean.</summary>
+    private async Task CheckAsync()
+    {
+        if (deviceIdInput is not { } deviceId)
+        {
+            return;
+        }
+
+        isChecking = true;
+        errorMessage = null;
+        successMessage = null;
+        registerForceWarning = null;
+
+        var result = await OfflineSigningLeaseService.PreviewDeviceAsync(deviceId, ChosenHandsetId());
+
+        isChecking = false;
+
+        if (result.Success)
+        {
+            preview = result.Device;
+            return;
+        }
+
+        preview = null;
+        errorMessage = result.Message;
+    }
+
+    private Guid? ChosenHandsetId() =>
+        string.IsNullOrWhiteSpace(handsetSelection) ? null : Guid.Parse(handsetSelection);
+
+    private async Task RegisterAsync(bool force)
+    {
+        if (deviceIdInput is not { } deviceId)
+        {
+            return;
+        }
+
+        isRegistering = true;
+        errorMessage = null;
+        successMessage = null;
+
+        var handsetId = ChosenHandsetId();
+        var result = await OfflineSigningLeaseService.RegisterHandsetAsync(deviceId, handsetId, force);
+
+        isRegistering = false;
+
+        if (result.Success)
+        {
+            registerForceWarning = null;
+            preview = result.Device;
+
+            successMessage = result.Device?.CurrentHolderLabel is { } holder
+                ? $"{holder} now signs as fiscal device {deviceId}. Nominate it below to let it trade out of coverage."
+                : $"Fiscal device {deviceId} is not registered to any handset now.";
+
+            Logger.LogInformation(
+                "Fiscal device {DeviceId} registration changed from the admin screen{Forced}.",
+                deviceId,
+                force ? " (forced)" : string.Empty);
+
+            // The device list below is built from who carries what, so it has to be re-read.
+            await LoadAsync();
+            return;
+        }
+
+        if (result.NeedsForce)
+        {
+            registerForceWarning = result.Message;
+            return;
+        }
+
+        errorMessage = result.Message;
+    }
 
     private async Task LoadAsync()
     {
         isLoading = true;
         pendingForce.Clear();
+
+        // Read together: the registration card needs the handset list whether or not any device exists
+        // yet, and an empty overview is the normal state on a fleet that has not registered one.
+        var handsetList = await OfflineSigningLeaseService.GetHandsetsAsync();
+        handsets = handsetList ?? [];
 
         var overview = await OfflineSigningLeaseService.GetOverviewAsync();
 

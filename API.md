@@ -3218,8 +3218,31 @@ view of the same arrangement.
 | GET | `/api/fiscal-devices/offline-leases` | Every device's offline lease |
 | GET | `/api/fiscal-devices/{deviceId}/offline-lease` | One device's |
 | PUT | `/api/fiscal-devices/{deviceId}/offline-lease` | Assign or reassign it |
+| GET | `/api/fiscal-devices/handsets` | Active van accounts, and the device each already carries |
+| GET | `/api/fiscal-devices/{deviceId}/preview` | What the platform says a device is, and whether it may be given to a van |
+| PUT | `/api/fiscal-devices/{deviceId}/handset` | Register the handset that signs as this device, or release it |
 
-See [Fiscalisation](#32-fiscalisation) for the platform this signs against.
+Registration and nomination are two steps, in that order: a device nobody carries has nobody to
+nominate. `preview` answers for device ids this application has never seen — that is the point of it,
+since a device being registered for the first time is by definition not one it knows — and reports
+what would refuse the registration rather than only whether it passes. `handsetUserId` on `preview` is
+optional; without it the device is judged on its own merits, which is what the screen needs while
+someone is still typing an id.
+
+The refusal that matters is the operating mode. An `Online` device is one whose receipt sequence FDMS
+owns, so a handset signing its own receipts into it forks the chain — that is a server device, not a
+van's. Also refused: this server's own `Fiscalisation:DefaultDeviceId`, an expired certificate, a
+device another handset already carries, an inactive or non-van account, and a device the platform
+cannot describe.
+
+`PUT .../handset` with a null `handsetUserId` releases the device instead of registering it, and
+clears its nomination with it. That is the only way a device leaves a handset, which is why it is
+where the outgoing van's queue is checked: it answers **409** when that handset is still carrying
+signed receipts, or has never said whether it is, and `?force=true` goes through — the same guard as
+moving a nomination, for the same reason.
+
+See [Fiscalisation](#32-fiscalisation) for the platform this signs against, and
+[Fiscalisation Console](#45a-fiscalisation-console) for the read-only view of devices already in use.
 
 ---
 
