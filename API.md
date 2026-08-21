@@ -2885,6 +2885,9 @@ of that dialect matter before you call anything here:
 | POST | `/api/vansales/day/end` | `timesheets.manage` | Back in: closing odometer and the takings counted |
 | GET | `/api/vansales/customer` | `customers.view` | The shops on the caller's route |
 | POST | `/api/vansales/customer` | `customers.create` | Create a route customer |
+| PUT | `/api/vansales/customer/{code}` | `customers.edit` | Correct a shop the caller already services. Keyed by code, because a handset is never given the route customer id. Narrower than the administrator's update: the route, the code and the active flag are read off the row, not taken from the body |
+| DELETE | `/api/vansales/customer/{code}` | `customers.delete` | Take a shop off the caller's route. Deactivates rather than removes, so the route keeps its trading history, and resolves the row whether or not it is still active — a removal replayed off the offline queue is ordinary, not an error |
+| GET | `/api/vansales/customer/{code}/history` | `customers.view` | What that one shop has bought and still has on order (`from`, `to`). The same detail the office's route customer report reads |
 | POST | `/api/vansales/sales-order` | `salesorders.create` | Create a sales order |
 | POST | `/api/vansales/sales-order/history` | `salesorders.view` | Search — a POST because the filter is a body |
 | POST | `/api/vansales/order/history` | `invoices.view` | Invoice history; also a POST |
@@ -2979,7 +2982,13 @@ are disjoint. Both are read from the all-time `lastSaleAt` rather than from the 
 a shop with no sales inside the window has not necessarily never bought, and answering it from the
 window files every lapsed shop under never-converted. `dormantDays` sets the threshold between them.
 
-`POST /api/vansales/customer` creates one of these too — see [Van Sales](#34-van-sales).
+The handset has its own set, keyed by the customer code rather than by the `{id}` it is never
+told: `POST /api/vansales/customer` creates one, `PUT /api/vansales/customer/{code}` corrects
+one, `DELETE /api/vansales/customer/{code}` removes one, and
+`GET /api/vansales/customer/{code}/history` answers the same question as `{id}/sales` above.
+Each resolves which shop on the caller's own route that code names and then hands off to the
+handler above, so a van and the office never have two different ways to change or read a route
+customer — see [Van Sales](#34-van-sales).
 
 ---
 
