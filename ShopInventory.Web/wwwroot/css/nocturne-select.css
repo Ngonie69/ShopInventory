@@ -250,6 +250,66 @@
     animation-name: nsel-fall;
 }
 
+/* A menu inside a scrolling table cannot be freed by anything done to the
+   table. `overflow-x: auto` on the wrap is what gives a 900px-wide table its
+   horizontal scroll, and it computes `overflow-y` to `auto` alongside — so the
+   menu is clipped to the row it sits in and drags a stray vertical scrollbar
+   out of the wrap, leaving a list that is present, focusable and unclickable.
+   `nsel-fixed` takes the menu out of that box rather than trying to open it.
+
+   A fixed box's containing block is the viewport, so no ancestor `overflow`
+   reaches it, and with every inset `auto` it is drawn at its static position —
+   where it would have sat in flow. That is under the trigger only once the
+   wrapper is a block: a flex container puts an out-of-flow child at its
+   content-box corner, which is on top of the trigger rather than below it.
+
+   Two things go with the containing block. `min-width: 100%` would resolve
+   against the viewport, so the menu sizes to its rows instead of its trigger;
+   and a static position is a position, not a relationship, so the menu neither
+   follows a scroll nor flips when the window has no room below. The @supports
+   block buys both back where the engine has anchor positioning. Where it does
+   not, the veil closes the menu on a scroll — see NocturneSelect's `Fixed` —
+   so a drifting list can never come to rest over a row it does not belong to.
+
+   Use it only inside a scrollport. A menu in a filter row wants the default. */
+.nsel.nsel-fixed {
+    display: block;
+}
+
+.nsel.nsel-fixed .nsel-btn {
+    display: flex;
+}
+
+.nsel.nsel-fixed .nsel-menu {
+    position: fixed;
+    inset: auto;
+    margin-top: 6px;
+    min-width: 0;
+}
+
+/* `anchor-scope` is in the gate rather than assumed. Every trigger in a table
+   carries the same anchor name, and where the name resolves but the scope does
+   not, each menu anchors to the *last* trigger on the page — row one's list
+   drawn against row fifteen's control, which is worse than the fallback it
+   would have had. An engine without the scope has to stay on that fallback. */
+@supports (anchor-name: --a) and (anchor-scope: --a) and (position-try-fallbacks: flip-block) {
+    .nsel.nsel-fixed {
+        anchor-scope: --nsel-trigger;
+    }
+
+    .nsel.nsel-fixed .nsel-btn {
+        anchor-name: --nsel-trigger;
+    }
+
+    .nsel.nsel-fixed .nsel-menu {
+        position-anchor: --nsel-trigger;
+        position-area: block-end span-inline-end;
+        position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+        margin-bottom: 6px;                /* the gap once flip-block has run */
+        max-height: min(340px, calc(100vh - 24px));
+    }
+}
+
 @keyframes nsel-rise {
     from { opacity: 0; transform: translateY(-4px); }
     to   { opacity: 1; transform: none; }

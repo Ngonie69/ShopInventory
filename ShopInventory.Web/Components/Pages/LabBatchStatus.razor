@@ -156,8 +156,13 @@
                                     </td>
                                     <td>
                                         @* The unselectable current status is carried in the list
-                                           by StatusSelectOptionsFor, disabled — see that helper. *@
-                                        <NocturneSelect Class="nsel-block" Options="StatusSelectOptionsFor(item)"
+                                           by StatusSelectOptionsFor, disabled — see that helper.
+
+                                           Fixed because the menu opens inside .bsc-table-wrap,
+                                           whose horizontal scroll clips it to the row's height —
+                                           see the nsel-fixed block in nocturne-select.css. *@
+                                        <NocturneSelect Class="nsel-block" Fixed="true"
+                                                        Options="StatusSelectOptionsFor(item)"
                                                         @bind-Value="item.PendingStatus"
                                                         Caption="Set batch status"
                                                         AriaLabel="@($"New status for batch {item.BatchNumber} in {item.WarehouseCode}")" />
