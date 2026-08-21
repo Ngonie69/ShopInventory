@@ -473,7 +473,7 @@
             }
         </header>
         <div class="ras-panel-body">
-            @foreach (var row in changeRows)
+            @foreach (var row in ChangePageRows)
             {
                 <div class="ras-change" @key="row.Key">
                     <span class="ras-shop">
@@ -505,6 +505,21 @@
                 </p>
             }
         </div>
+        @if (ChangePageCount > 1)
+        {
+            <footer class="ras-panel-foot">
+                <span class="ras-count">@ChangeRangeLabel</span>
+                <div class="ras-pager">
+                    <button type="button" class="ras-btn ras-btn-ghost ras-btn-sm"
+                            disabled="@(changePage == 0)"
+                            @onclick="() => GoToChangePage(changePage - 1)">Previous</button>
+                    <span class="ras-pager-at">Page @(changePage + 1) of @ChangePageCount</span>
+                    <button type="button" class="ras-btn ras-btn-ghost ras-btn-sm"
+                            disabled="@(changePage >= ChangePageCount - 1)"
+                            @onclick="() => GoToChangePage(changePage + 1)">Next</button>
+                </div>
+            </footer>
+        }
     </section>
 </div>
 
@@ -523,6 +538,17 @@
     private readonly Dictionary<(string Code, string Route), RouteChange> staged = [];
 
     private List<ChangeRow> changeRows = [];
+
+    /// <summary>How many change rows one page of the change log holds.</summary>
+    private const int ChangePageSize = 25;
+
+    /// <summary>
+    /// Which page of the change log is showing. Zero-based, and clamped every
+    /// time the rows are rebuilt -- reverting the last change on the last page
+    /// would otherwise leave the panel looking empty rather than showing what
+    /// is left.
+    /// </summary>
+    private int changePage;
     private Dictionary<string, int> stopCounts = new(StringComparer.OrdinalIgnoreCase);
     private int placedCount;
     private int retiredOnRoute;
@@ -662,6 +688,7 @@
             : map.GetStops(selectedRoute).Count(stop => IsRetired(stop.CardCode));
 
         changeRows = BuildChangeRows();
+        changePage = Math.Clamp(changePage, 0, Math.Max(0, ChangePageCount - 1));
         RebuildUnplaced();
     }
 
@@ -809,6 +836,19 @@
         staged.Count == 0
             ? "No changes to save"
             : $"Save {staged.Count} change{(staged.Count == 1 ? "" : "s")}";
+
+    private int ChangePageCount =>
+        (changeRows.Count + ChangePageSize - 1) / ChangePageSize;
+
+    private IEnumerable<ChangeRow> ChangePageRows =>
+        changeRows.Skip(changePage * ChangePageSize).Take(ChangePageSize);
+
+    private string ChangeRangeLabel =>
+        $"{(changePage * ChangePageSize) + 1}–"
+        + $"{Math.Min((changePage + 1) * ChangePageSize, changeRows.Count)} of {changeRows.Count}";
+
+    private void GoToChangePage(int page) =>
+        changePage = Math.Clamp(page, 0, Math.Max(0, ChangePageCount - 1));
 
     private string ChangeCountLabel =>
         changeRows.Count == 0
