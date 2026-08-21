@@ -1,9 +1,15 @@
-/* Delivery route assignments (/route-assignments).
+/* Delivery route assignments (/route-assignments), built from
+   "Delivery Routes.dc.html".
+
+   Three panes side by side -- the routes, the shops on the chosen one, and the
+   shops on no route -- with the change log underneath. Each pane scrolls inside
+   itself so the page barely moves: rearranging routes means dragging between
+   panes, and a page that scrolls out from under a drag is unusable.
 
    Same palette as pod-report.css: both pages are about the same thing seen from
    different ends, so they alias the same nocturne-tokens.css variables rather
-   than each picking their own. Light is the base and `.dark-theme` overrides it,
-   which is the convention every page sheet here follows. */
+   than each picking their own. Light is the base and `.dark-theme` overrides it
+   at the root, which is the convention every page sheet here follows. */
 
 .ras {
     --ras-bg: var(--noct-bg);
@@ -13,6 +19,7 @@
     --ras-ink-2: var(--noct-ink-2);
     --ras-mute: var(--noct-mute);
     --ras-mute-3: var(--noct-mute-3);
+    --ras-faint: var(--noct-faint);
     --ras-divider: var(--noct-divider);
     --ras-rule: var(--noct-rule);
     --ras-hover: var(--noct-hover);
@@ -21,37 +28,47 @@
     --ras-accent: var(--noct-accent);
     --ras-accent-rgb: var(--noct-accent-rgb);
     --ras-accent-text: var(--noct-accent-text);
+    --ras-on-accent: var(--noct-on-accent);
     --ras-fam-accent-rgb: var(--noct-fam-accent-rgb);
     --ras-fam-bad-rgb: var(--noct-fam-bad-rgb);
+    --ras-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --ras-fam-warn: var(--noct-fam-warn);
     --ras-fam-bad: var(--noct-fam-bad);
     --ras-r-sm: var(--noct-r-sm);
     --ras-r-md: var(--noct-r-md);
     --ras-r-lg: var(--noct-r-lg);
 
+    /* The panes are as tall as the viewport allows, less the chrome above them.
+       A single token so the three cannot drift apart. */
+    --ras-pane-h: calc(100vh - 330px);
+
     min-height: 100vh;
+    padding: 24px 28px 40px;
     background: var(--ras-bg);
     color: var(--ras-ink);
     font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+    /* clip, not hidden: `hidden` would make this a scrollport and break the
+       sticky bar below. See the sticky-header note in the Nocturne sheets. */
+    overflow-x: clip;
 }
 
-.ras-head {
-    border-bottom: 1px solid var(--ras-divider);
-    background: var(--ras-surface);
-}
+/* ---------------------------------------------------------------- top bar */
 
-.ras-head-inner,
-.ras-body {
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 0 24px;
-}
-
-.ras-head-inner {
+/* Sticky because Save is up here and the change log is down there. Opaque
+   ground, never a translucent one: a bar that content scrolls under cannot
+   depend on a blur the compositor is free to skip. */
+.ras-bar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 16px;
-    min-height: 56px;
+    margin: -24px -28px 0;
+    padding: 14px 28px;
+    background: var(--ras-bg);
+    border-bottom: 1px solid var(--ras-rule);
 }
 
 .ras-crumbs {
@@ -61,23 +78,28 @@
     font-size: 12.5px;
     color: var(--ras-mute-3);
 }
-
 .ras-crumbs [aria-current] { color: var(--ras-ink-2); }
 
-.ras-head-meta {
+.ras-bar-actions {
+    margin-left: auto;
     display: flex;
     align-items: center;
     gap: 10px;
 }
+.ras-bar-actions .ras-btn { flex: none; white-space: nowrap; }
 
-.ras-stamp {
-    font-size: 12px;
-    color: var(--ras-mute-3);
+/* ------------------------------------------------------------------- hero */
+
+.ras-hero {
+    display: flex;
+    align-items: flex-end;
+    gap: 48px;
+    flex-wrap: wrap;
+    padding: 26px 0 20px;
 }
 
-.ras-body { padding-bottom: 56px; }
+.ras-hero-text { max-width: 620px; }
 
-.ras-hero { padding: 26px 0 18px; }
 .ras-kicker {
     font-size: 11.5px;
     letter-spacing: .09em;
@@ -85,17 +107,46 @@
     color: var(--ras-accent-text);
 }
 .ras-hero h1 {
-    margin: 6px 0 4px;
-    font-size: 26px;
+    margin: 8px 0 6px;
+    font-size: 28px;
     font-weight: 650;
     letter-spacing: -.02em;
 }
 .ras-hero p {
     margin: 0;
-    max-width: 62ch;
+    max-width: 54ch;
     font-size: 13.5px;
     color: var(--ras-mute-3);
+    text-wrap: pretty;
 }
+
+.ras-figures {
+    margin-left: auto;
+    display: flex;
+    gap: 34px;
+    padding-bottom: 4px;
+}
+.ras-figure {
+    flex: none;
+    min-width: 0;
+}
+.ras-figure-n {
+    font-size: 26px;
+    line-height: 1;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+.ras-figure-n.is-nil { color: var(--ras-faint); }
+.ras-figure-n.is-accent { color: var(--ras-accent-text); }
+.ras-figure-label {
+    margin-top: 6px;
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ras-mute-3);
+}
+
+/* ----------------------------------------------------------------- banner */
 
 .ras-msg {
     display: flex;
@@ -114,91 +165,195 @@
     color: var(--ras-fam-bad);
 }
 
-.ras-panel {
-    margin-bottom: 18px;
-    padding: 16px 18px;
+/* ------------------------------------------------------------------ panes */
+
+.ras-panes {
+    display: grid;
+    grid-template-columns: 268px minmax(420px, 1fr) 300px;
+    gap: 18px;
+    align-items: stretch;
+    overflow-x: auto;
+    padding-bottom: 4px;
+}
+
+.ras-pane {
+    display: flex;
+    flex-direction: column;
+    min-height: 520px;
+    height: var(--ras-pane-h);
     border: 1px solid var(--ras-rule);
     border-radius: var(--ras-r-lg);
     background: var(--ras-surface);
+    overflow: hidden;
+}
+.ras-pane.is-drop {
+    outline: 1px solid var(--ras-accent);
+    outline-offset: -1px;
 }
 
-.ras-panel-head {
+/* A rule that fades out at both ends rather than stopping dead -- the Nocturne
+   signature, painted as a background strip so it spans the header, not each
+   child. */
+.ras-pane-head {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 14px 12px;
+    background: linear-gradient(to right,
+        transparent, var(--ras-divider) 40px,
+        var(--ras-divider) calc(100% - 40px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.ras-pane-title {
     display: flex;
     align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 12px;
+    gap: 8px;
+    min-width: 0;
 }
-.ras-panel-head h2 {
+.ras-pane-title h2 {
     margin: 0;
     font-size: 15px;
     font-weight: 620;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
+.ras-pane-title .ras-count { margin-left: auto; }
+.ras-pane-title .ras-tag { align-self: center; }
+
 .ras-count {
+    flex: none;
     font-size: 12px;
     color: var(--ras-mute-3);
+    font-variant-numeric: tabular-nums;
 }
 
-/* Routes beside their shops. Collapses to one column on a narrow screen, where
-   two panels side by side would each be too narrow to read a shop name in. */
-.ras-split {
-    display: grid;
-    grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
-    gap: 18px;
-    align-items: start;
-}
+.ras-pane-row { display: flex; gap: 8px; }
+.ras-pane-row .ras-input { min-width: 0; }
+.ras-pane-row .ras-btn { flex: none; white-space: nowrap; }
 
-.ras-route-list {
+.ras-note {
     margin: 0;
-    padding: 0;
-    list-style: none;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--ras-mute-3);
+    text-wrap: pretty;
+}
+
+.ras-pane-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 6px;
+}
+
+.ras-pane-foot {
+    flex: none;
+    padding: 10px;
+}
+
+/* --------------------------------------------------------- pane 1: routes */
+
+.ras-chips {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.ras-chip {
+    padding: 3px 9px;
+    border: 1px solid var(--ras-divider);
+    border-radius: 6px;
+    background: none;
+    color: var(--ras-mute-3);
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: .02em;
+    cursor: pointer;
+}
+.ras-chip:hover { background: var(--ras-hover); color: var(--ras-ink-2); }
+.ras-chip.is-on {
+    border-color: rgba(var(--ras-fam-accent-rgb), .45);
+    background: rgba(var(--ras-fam-accent-rgb), .16);
+    color: var(--ras-accent-text);
 }
 
 .ras-route {
+    position: relative;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px;
+    gap: 8px;
     width: 100%;
-    padding: 8px 10px;
+    margin-bottom: 2px;
+    padding: 8px 10px 8px 12px;
     border: 1px solid transparent;
-    border-radius: var(--ras-r-sm);
+    border-radius: var(--ras-r-md);
     background: none;
     color: var(--ras-ink-2);
     font: inherit;
-    font-size: 13px;
     text-align: left;
     cursor: pointer;
 }
 .ras-route:hover { background: var(--ras-hover); }
+
+/* The mark is the only thing that says "this one" at a glance once the row is
+   scrolled away from the header. */
+.ras-route-mark {
+    position: absolute;
+    left: 0;
+    top: 9px;
+    bottom: 9px;
+    width: 2px;
+    border-radius: 2px;
+    background: transparent;
+}
 .ras-route.is-on {
-    border-color: rgba(var(--ras-fam-accent-rgb), .38);
-    background: rgba(var(--ras-fam-accent-rgb), .12);
-    color: var(--ras-accent-text);
+    border-color: rgba(var(--ras-fam-accent-rgb), .40);
+    background: rgba(var(--ras-fam-accent-rgb), .13);
+}
+.ras-route.is-on .ras-route-mark { background: var(--ras-accent); }
+.ras-route.is-on .ras-route-name { color: var(--ras-accent-text); }
+.ras-route.is-on .ras-route-count { color: var(--ras-accent-text); }
+
+/* Held over as a drop target. Stronger than the selected state on purpose --
+   during a drag this is the only thing being asked about. */
+.ras-route.is-drop {
+    border-color: var(--ras-accent);
+    background: rgba(var(--ras-fam-accent-rgb), .24);
+}
+
+.ras-route-text { flex: 1; min-width: 0; }
+.ras-route-name {
+    display: block;
+    font-size: 13px;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ras-route-day {
+    display: block;
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--ras-mute-3);
 }
 .ras-route-count {
     flex: none;
-    font-size: 11.5px;
-    color: var(--ras-mute-3);
+    font-size: 12px;
+    color: var(--ras-mute);
     font-variant-numeric: tabular-nums;
 }
-.ras-route.is-on .ras-route-count { color: var(--ras-accent-text); }
-
-.ras-add { width: 100%; justify-content: center; margin-top: 10px; }
+.ras-route-count.is-nil { color: var(--ras-faint); }
 
 /* Adding a route: a small form under the route list rather than a modal, so the
    list it is adding to stays on screen. */
 .ras-new {
-    margin-top: 10px;
-    padding: 12px;
-    border: 1px dashed var(--ras-rule);
-    border-radius: var(--ras-r-md);
     display: flex;
     flex-direction: column;
     gap: 10px;
+    padding: 12px;
+    border: 1px dashed var(--ras-rule);
+    border-radius: var(--ras-r-md);
 }
 .ras-new-field { display: flex; flex-direction: column; gap: 4px; }
 .ras-new-label {
@@ -210,7 +365,271 @@
 .ras-new-actions { display: flex; gap: 8px; }
 .ras-new-actions .ras-btn { flex: 1 1 auto; justify-content: center; }
 
-.ras-search { display: block; margin-bottom: 12px; }
+/* ---------------------------------------------------------- pane 2/3: shops */
+
+.ras-stop {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    margin-bottom: 2px;
+    padding: 9px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--ras-r-md);
+    cursor: grab;
+}
+.ras-stop:hover { background: var(--ras-hover); }
+.ras-stop.is-compact { gap: 8px; }
+.ras-stop.is-picked {
+    border-color: rgba(var(--ras-fam-accent-rgb), .35);
+    background: rgba(var(--ras-fam-accent-rgb), .11);
+}
+.ras-stop.is-dragging { opacity: .4; }
+.ras-stop:active { cursor: grabbing; }
+
+.ras-grip {
+    flex: none;
+    font-size: 15px;
+    color: var(--ras-faint);
+}
+
+.ras-check {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 15px;
+    height: 15px;
+    border: 1.5px solid var(--ras-field-edge);
+    border-radius: 4px;
+}
+.ras-check i {
+    font-size: 11px;
+    color: var(--ras-on-accent);
+    opacity: 0;
+}
+.ras-stop.is-picked .ras-check {
+    border-color: var(--ras-accent);
+    background: var(--ras-accent);
+}
+.ras-stop.is-picked .ras-check i { opacity: 1; }
+
+.ras-shop {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.ras-shop-name {
+    font-size: 13.5px;
+    line-height: 1.3;
+    color: var(--ras-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ras-shop-code {
+    font-size: 11px;
+    color: var(--ras-mute-3);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ras-group {
+    margin: 10px 4px 4px;
+    background: linear-gradient(to right,
+        transparent, var(--ras-divider) 24px,
+        var(--ras-divider) calc(100% - 24px), transparent) no-repeat bottom / 100% 1px;
+    padding-bottom: 6px;
+}
+.ras-group-label {
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ras-mute-3);
+}
+
+/* The bar that appears once shops are ticked. Sits at the foot of the pane so
+   it never covers the list it acts on. */
+.ras-selbar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: rgba(var(--ras-fam-accent-rgb), .14);
+    box-shadow: 0 -1px 0 rgba(var(--ras-fam-accent-rgb), .3);
+}
+.ras-selbar-label {
+    font-size: 13px;
+    color: var(--ras-accent-text);
+}
+.ras-selbar .nsel, .ras-selbar > :nth-child(2) { margin-left: auto; }
+.ras-selbar .ras-btn { flex: none; }
+
+/* ------------------------------------------------------------ empty states */
+
+.ras-empty {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 40px 24px;
+    text-align: center;
+}
+.ras-empty i {
+    font-size: 28px;
+    color: var(--ras-accent);
+}
+.ras-empty h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 620;
+}
+.ras-empty p {
+    margin: 0;
+    max-width: 34ch;
+    font-size: 13px;
+    color: var(--ras-mute-3);
+    text-wrap: pretty;
+}
+
+.ras-none {
+    margin: 0;
+    padding: 22px 10px;
+    font-size: 12.5px;
+    color: var(--ras-mute-3);
+}
+
+/* ---------------------------------------------------------------- skeleton */
+
+.ras-skeleton { padding: 8px 4px; }
+.ras-skeleton-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 8px;
+    animation: ras-pulse 1.4s ease-in-out infinite;
+}
+.ras-skeleton-box,
+.ras-skeleton-bar,
+.ras-skeleton-tail {
+    background: var(--ras-field-bg);
+    border-radius: 3px;
+}
+.ras-skeleton-box { flex: none; width: 15px; height: 15px; border-radius: 4px; }
+.ras-skeleton-bar { height: 10px; }
+.ras-skeleton-tail { height: 8px; width: 54px; margin-left: auto; }
+
+@keyframes ras-pulse {
+    0%, 100% { opacity: .35; }
+    50% { opacity: .75; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ras-skeleton-row { animation: none; opacity: .5; }
+}
+
+/* ------------------------------------------------------------- change log */
+
+.ras-panel {
+    margin-top: 18px;
+    border: 1px solid var(--ras-rule);
+    border-radius: var(--ras-r-lg);
+    background: var(--ras-surface);
+    overflow: hidden;
+}
+
+.ras-panel-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px 12px;
+    background: linear-gradient(to right,
+        transparent, var(--ras-divider) 48px,
+        var(--ras-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+.ras-panel-head h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 620;
+}
+.ras-panel-action { margin-left: auto; }
+.ras-panel-body { padding: 6px 10px 12px; }
+
+.ras-change {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 18px minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 8px;
+    background: linear-gradient(to right,
+        transparent, var(--ras-rule) 48px,
+        var(--ras-rule) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+.ras-change:last-child { background: none; }
+
+.ras-change-from,
+.ras-change-to {
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ras-change-from { color: var(--ras-mute-3); }
+.ras-change-to { color: var(--ras-accent-text); }
+.ras-change-to.is-nil { color: var(--ras-faint); }
+.ras-change-arrow {
+    font-size: 14px;
+    color: var(--ras-accent);
+}
+.ras-change-who {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    font-size: 12px;
+    color: var(--ras-mute-3);
+}
+.ras-change-when { font-size: 11px; }
+
+/* ------------------------------------------------------------------- bits */
+
+.ras-tag {
+    flex: none;
+    padding: 1px 7px;
+    border-radius: var(--ras-r-sm);
+    background: rgba(var(--ras-fam-accent-rgb), .14);
+    color: var(--ras-accent-text);
+    font-size: 11px;
+    letter-spacing: .02em;
+    white-space: nowrap;
+}
+.ras-tag.is-quiet {
+    background: var(--ras-field-bg);
+    color: var(--ras-mute);
+}
+.ras-tag.is-outline {
+    background: none;
+    border: 1px solid rgba(var(--ras-fam-accent-rgb), .5);
+}
+.ras-tag.is-pending {
+    background: none;
+    border: 1px dashed rgba(var(--ras-fam-accent-rgb), .55);
+}
+.ras-tag.is-bad {
+    background: rgba(var(--ras-fam-bad-rgb), .14);
+    color: var(--ras-fam-bad);
+}
+/* Frozen marks a row without hiding it, so it reads as a caution rather than a
+   fault -- the shop is usually on credit hold, not closed. */
+.ras-tag.is-warn {
+    background: rgba(var(--ras-fam-warn-rgb), .16);
+    color: var(--ras-fam-warn);
+}
+
 .ras-input {
     width: 100%;
     height: 34px;
@@ -222,6 +641,7 @@
     font: inherit;
     font-size: 13px;
 }
+.ras-input-sm { height: 32px; font-size: 12.5px; }
 .ras-input::placeholder { color: var(--ras-mute-3); }
 .ras-input:focus-visible {
     outline: none;
@@ -229,91 +649,10 @@
     box-shadow: 0 0 0 3px rgba(var(--ras-accent-rgb), .18);
 }
 
-.ras-results {
-    margin-bottom: 14px;
-    padding: 8px;
-    border: 1px dashed var(--ras-rule);
-    border-radius: var(--ras-r-md);
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.ras-stop-list,
-.ras-changes {
-    display: flex;
-    flex-direction: column;
-}
-
-.ras-stop,
-.ras-result,
-.ras-change {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 9px 4px;
-    border-bottom: 1px solid var(--ras-divider);
-}
-.ras-stop:last-child,
-.ras-result:last-child,
-.ras-change:last-child { border-bottom: none; }
-.ras-result { border-bottom: none; padding: 6px 4px; }
-
-.ras-shop {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-}
-.ras-shop-name {
-    font-size: 13px;
-    color: var(--ras-ink);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.ras-shop-code,
-.ras-shop-on {
-    font-size: 11.5px;
-    color: var(--ras-mute-3);
-}
-
-.ras-stop-actions {
-    flex: none;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.ras-who {
-    flex: none;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    font-size: 12px;
-    color: var(--ras-mute-3);
-}
-.ras-when { font-size: 11px; }
-
-/* A shop somebody put here, as against one the workbook places. */
-.ras-tag {
-    flex: none;
-    padding: 1px 7px;
-    border-radius: var(--ras-r-sm);
-    background: rgba(var(--ras-fam-accent-rgb), .14);
-    color: var(--ras-accent-text);
-    font-size: 11px;
-    letter-spacing: .02em;
-}
-.ras-tag.is-bad {
-    background: rgba(var(--ras-fam-bad-rgb), .14);
-    color: var(--ras-fam-bad);
-}
-
 .ras-btn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 7px;
     height: 30px;
     padding: 0 12px;
@@ -328,24 +667,64 @@
 }
 .ras-btn:hover:not(:disabled) { background: var(--ras-hover); color: var(--ras-ink); }
 .ras-btn:disabled { opacity: .55; cursor: default; }
-.ras-btn-ghost { background: none; border-color: transparent; color: var(--ras-mute-3); }
-.ras-btn-ghost:hover:not(:disabled) { border-color: var(--ras-field-edge); }
+.ras-btn i { font-size: 14px; }
 
-.ras-empty {
-    padding: 22px 6px;
-    text-align: center;
-    font-size: 13px;
+.ras-btn-sm { height: 26px; padding: 0 9px; font-size: 12px; }
+.ras-btn-block { width: 100%; }
+.ras-btn-primary {
+    border-color: var(--ras-accent);
+    background: none;
+    color: var(--ras-accent-text);
+}
+.ras-btn-primary:hover:not(:disabled) { background: rgba(var(--ras-fam-accent-rgb), .12); }
+.ras-btn-ghost {
+    background: none;
+    border-color: transparent;
     color: var(--ras-mute-3);
 }
+.ras-btn-ghost:hover:not(:disabled) { border-color: var(--ras-field-edge); }
+.ras-btn-dashed { border-style: dashed; background: none; }
 
-@media (max-width: 900px) {
-    .ras-split { grid-template-columns: minmax(0, 1fr); }
+.ras-link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ras-accent-text);
+    font: inherit;
+    font-size: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
 
-    .ras-stop,
+/* The pickers inside the panes are narrower than the app default. */
+.ras { --nsel-h: 30px; --nsel-fs: 12.5px; }
+
+/* ----------------------------------------------------------- narrow screens */
+
+/* Below three panes' worth of width the columns stack. The panes stop being
+   viewport-tall at the same time -- a stacked column with its own scrollbar
+   inside a scrolling page is two scrollbars for one list. */
+@media (max-width: 1180px) {
+    .ras-panes { grid-template-columns: 240px minmax(0, 1fr); }
+    .ras-panes > :nth-child(3) { grid-column: 1 / -1; height: 420px; }
+}
+
+@media (max-width: 860px) {
+    .ras { padding: 16px 14px 32px; }
+    .ras-bar { margin: -16px -14px 0; padding: 12px 14px; }
+
+    .ras-panes { grid-template-columns: minmax(0, 1fr); }
+    .ras-pane { height: auto; min-height: 0; max-height: 70vh; }
+    .ras-panes > :nth-child(3) { grid-column: auto; height: auto; }
+
+    .ras-hero { gap: 20px; }
+    .ras-figures { margin-left: 0; gap: 22px; flex-wrap: wrap; }
+
     .ras-change {
-        flex-wrap: wrap;
-        align-items: flex-start;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 6px 12px;
     }
-
-    .ras-who { align-items: flex-start; }
+    .ras-change-arrow { display: none; }
+    .ras-change-who { align-items: flex-start; }
 }

@@ -10,6 +10,57 @@ public sealed record RouteStop(string CardCode, string CardName, bool FromWorkbo
 /// <summary>A shop offered for adding to a route, and the routes it is on now.</summary>
 public sealed record ShopCandidate(string CardCode, string CardName, IReadOnlyList<string> Routes);
 
+/// <summary>A shop on no route at all, offered for placing on one.</summary>
+public sealed record UnplacedShop(string CardCode, string CardName);
+
+/// <summary>
+/// What SAP says about a shop, for the two things that decide whether a truck
+/// should still be routed to its code.
+/// </summary>
+/// <param name="IsFrozen">
+/// SAP's Frozen flag. Read as a credit hold, not a closed shop: measured
+/// against live SAP on 2026-08-20, 49 route stops were frozen while still on a
+/// currency in use, and several of those had been invoiced that quarter
+/// (Megasave Mvurwi 2026-07-30, Sai Mart Gweru 2026-07-29). So this marks a row
+/// and never hides one.
+/// </param>
+/// <param name="IsRetiredCurrency">
+/// The code is held in Zimbabwe dollars, which stopped being used when ZiG
+/// replaced ZWL in April 2024. A shop holds one code per currency, so a retired
+/// code is a duplicate row of a shop that is still served under its USD or ZiG
+/// code. 111 of the catalogue's 368 stops are these, and dropping every one of
+/// them leaves no route without a code for a shop it actually calls at.
+/// </param>
+public sealed record ShopStanding(bool IsFrozen, bool IsRetiredCurrency);
+
+/// <summary>
+/// What the unassigned pane shows: a bounded page of shops, and how many there
+/// are altogether. The two differ because the list is capped -- there are
+/// several hundred shops on no route, and rendering them all would cost far
+/// more than anyone reads.
+/// </summary>
+public sealed record UnplacedShops(IReadOnlyList<UnplacedShop> Shops, int Total)
+{
+    public static readonly UnplacedShops None = new([], 0);
+}
+
+/// <summary>
+/// One staged reassignment, before it is written. The page collects these while
+/// somebody rearranges routes and saves them in one go.
+/// </summary>
+public sealed record RouteChange(
+    string CardCode, string? CardName, string RouteName, bool IsRemoval, string? Note = null);
+
+/// <summary>
+/// Everything held about routes outside the generated catalogue: the
+/// reassignments and the routes somebody added. Read once, so that a page
+/// rearranging routes can work out what its unsaved changes would come to
+/// without going back to the database on every drag.
+/// </summary>
+public sealed record RouteState(
+    IReadOnlyList<RouteAssignmentOverride> Overrides,
+    IReadOnlyList<CustomDeliveryRoute> AddedRoutes);
+
 /// <summary>
 /// A route as the page needs to show it: what it is called, when it runs, how
 /// many shops it has, and whether it came from the workbook or somebody added it.
@@ -113,6 +164,12 @@ public interface IDeliveryRouteDirectory
 {
     Task<RouteMap> GetMapAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The saved reassignments and added routes, for a caller that needs to
+    /// project unsaved changes on top of them.
+    /// </summary>
+    Task<RouteState> GetStateAsync(CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<RouteAssignmentOverride>> GetOverridesAsync(
         CancellationToken cancellationToken = default);
 
@@ -152,6 +209,43 @@ public interface IDeliveryRouteDirectory
     Task<IReadOnlyList<ShopCandidate>> SearchShopsAsync(
         string term, RouteMap map, string? excludingRoute = null,
         int limit = 12, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every active customer, code and name only, for the pane that places
+    /// shops on routes.
+    /// </summary>
+    /// <remarks>
+    /// The whole set rather than a filtered page, and no route filtering here:
+    /// which shops have a route changes with every unsaved move, so the caller
+    /// works that out against its own map. Read once per load and filtered in
+    /// memory afterwards -- a query per keystroke over a few thousand partners
+    /// is the shape that makes a filter box feel broken.
+    /// </remarks>
+    Task<IReadOnlyList<UnplacedShop>> ListActiveShopsAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How each shop stands with SAP, for the codes where it is worth saying.
+    /// Only codes that are frozen or on a retired currency appear; anything the
+    /// cache does not mention is in good standing.
+    /// </summary>
+    /// <remarks>
+    /// Keyed only on the ones worth flagging so that a code the cache does not
+    /// hold at all reads as "nothing known against it" rather than as retired.
+    /// That distinction is what stops a half-synced cache emptying every route
+    /// on the page.
+    /// </remarks>
+    Task<IReadOnlyDictionary<string, ShopStanding>> GetShopStandingsAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Write a batch of staged reassignments, all in one save. Returns how many
+    /// of them actually changed anything -- one that the workbook already
+    /// agrees with is dropped rather than stored.
+    /// </summary>
+    Task<int> ApplyAsync(
+        IReadOnlyList<RouteChange> changes, string username,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -181,6 +275,63 @@ public sealed class DeliveryRouteDirectory(
 
         return Build(overrides, custom);
     }
+
+    public async Task<RouteState> GetStateAsync(CancellationToken cancellationToken = default) =>
+        new(await GetOverridesAsync(cancellationToken),
+            await context.CustomDeliveryRoutes
+                .AsNoTracking()
+                .OrderBy(route => route.Name)
+                .ToListAsync(cancellationToken));
+
+    /// <summary>
+    /// The map as it would stand with these unsaved changes applied on top of
+    /// the saved ones -- what the page draws while somebody rearranges routes.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately the same reasoning as <c>StageAsync</c>, applied to the
+    /// same override list rather than to the database: a staged change replaces
+    /// the saved row for its shop-and-route pair, and one the workbook already
+    /// agrees with leaves no row at all. Written once here so that what the
+    /// page shows before saving and what the database holds afterwards cannot
+    /// come apart.
+    /// </remarks>
+    public static RouteMap Project(RouteState state, IEnumerable<RouteChange> staged)
+    {
+        var changes = staged.ToList();
+        var replaced = changes.Select(KeyOf).ToHashSet();
+
+        var effective = state.Overrides
+            .Where(row => !replaced.Contains(KeyOf(row)))
+            .ToList();
+
+        foreach (var change in changes)
+        {
+            if (!IsMeaningfulOverride(change.CardCode, change.RouteName, change.IsRemoval))
+            {
+                continue;
+            }
+
+            effective.Add(new RouteAssignmentOverride
+            {
+                CardCode = DeliveryRoutes.NormalizeCardCode(change.CardCode),
+                CardName = change.CardName,
+                RouteName = change.RouteName.Trim(),
+                IsRemoval = change.IsRemoval,
+                Note = change.Note
+            });
+        }
+
+        return Build(effective, state.AddedRoutes);
+    }
+
+    /// <summary>One shop on one route, however the code was spaced or cased.</summary>
+    public static (string Code, string Route) KeyOf(string? cardCode, string? routeName) =>
+        (DeliveryRoutes.NormalizeCardCode(cardCode).ToUpperInvariant(),
+         (routeName ?? string.Empty).Trim().ToUpperInvariant());
+
+    private static (string, string) KeyOf(RouteAssignmentOverride row) => KeyOf(row.CardCode, row.RouteName);
+
+    private static (string, string) KeyOf(RouteChange change) => KeyOf(change.CardCode, change.RouteName);
 
     internal static IReadOnlyList<string> SplitDays(string? days) =>
         string.IsNullOrWhiteSpace(days)
@@ -322,7 +473,50 @@ public sealed class DeliveryRouteDirectory(
         string? note, string username, CancellationToken cancellationToken = default) =>
         WriteAsync(cardCode, cardName, routeName, isRemoval: true, note, username, cancellationToken);
 
+    /// <summary>
+    /// Whether an override would actually say anything, or whether the workbook
+    /// already agrees with it.
+    /// </summary>
+    /// <remarks>
+    /// Storing one the workbook agrees with would leave a row that says nothing
+    /// and would show the shop as reassigned when it was never moved. The page
+    /// asks this before staging a change so that dragging a shop back where it
+    /// started leaves no trace, rather than leaving a change to save that would
+    /// then be silently discarded.
+    /// </remarks>
+    public static bool IsMeaningfulOverride(string? cardCode, string? routeName, bool isRemoval)
+    {
+        var code = DeliveryRoutes.NormalizeCardCode(cardCode);
+        if (code.Length == 0 || string.IsNullOrWhiteSpace(routeName))
+        {
+            return false;
+        }
+
+        // A removal says something only where the workbook puts the shop here;
+        // an assignment only where it does not.
+        return isRemoval == DeliveryRoutes.IsOnRoute(code, routeName);
+    }
+
     private async Task WriteAsync(
+        string cardCode, string? cardName, string routeName, bool isRemoval,
+        string? note, string username, CancellationToken cancellationToken)
+    {
+        if (await StageAsync(cardCode, cardName, routeName, isRemoval, note, username, cancellationToken))
+        {
+            await context.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Works out what one reassignment means for the override table and puts it
+    /// on the context, without saving. Returns whether anything was put there.
+    /// </summary>
+    /// <remarks>
+    /// Split from the save so that one change and a batch of forty go through
+    /// exactly the same rules -- the batch is the same call in a loop with one
+    /// SaveChanges after it, rather than a second copy of this reasoning.
+    /// </remarks>
+    private async Task<bool> StageAsync(
         string cardCode, string? cardName, string routeName, bool isRemoval,
         string? note, string username, CancellationToken cancellationToken)
     {
@@ -334,28 +528,24 @@ public sealed class DeliveryRouteDirectory(
 
         routeName = routeName.Trim();
 
-        // Where the workbook already agrees, no override is needed. Recording one
-        // anyway would leave a row that says nothing and would show the shop as
-        // reassigned when it was never moved.
-        var onWorkbookRoute = DeliveryRoutes.IsOnRoute(code, routeName);
         var existing = await context.RouteAssignmentOverrides
             .FirstOrDefaultAsync(row => row.CardCode == code && row.RouteName == routeName, cancellationToken);
 
-        if (isRemoval == !onWorkbookRoute)
+        if (!IsMeaningfulOverride(code, routeName, isRemoval))
         {
             // Removing a shop the workbook never placed here, or adding one it
             // already places here: the request is a no-op against the workbook,
             // so the right state is no override at all.
-            if (existing is not null)
+            if (existing is null)
             {
-                context.RouteAssignmentOverrides.Remove(existing);
-                await context.SaveChangesAsync(cancellationToken);
-                logger.LogInformation(
-                    "{User} cleared the route override for {CardCode} on {Route}; the workbook already agrees",
-                    username, code, routeName);
+                return false;
             }
 
-            return;
+            context.RouteAssignmentOverrides.Remove(existing);
+            logger.LogInformation(
+                "{User} cleared the route override for {CardCode} on {Route}; the workbook already agrees",
+                username, code, routeName);
+            return true;
         }
 
         if (existing is not null)
@@ -380,10 +570,44 @@ public sealed class DeliveryRouteDirectory(
             });
         }
 
-        await context.SaveChangesAsync(cancellationToken);
         logger.LogInformation(
             "{User} {Verb} {CardCode} {Preposition} route {Route}",
             username, isRemoval ? "removed" : "assigned", code, isRemoval ? "from" : "to", routeName);
+        return true;
+    }
+
+    public async Task<int> ApplyAsync(
+        IReadOnlyList<RouteChange> changes, string username,
+        CancellationToken cancellationToken = default)
+    {
+        // One change per shop-and-route wins, the last staged. Two rows for the
+        // same pair would each read the table before either was saved, so the
+        // second would not see the first and the write order would decide the
+        // outcome. The page keys its staged changes the same way.
+        var deduped = changes
+            .GroupBy(KeyOf)
+            .Select(group => group.Last())
+            .ToList();
+
+        var written = 0;
+        foreach (var change in deduped)
+        {
+            if (await StageAsync(
+                    change.CardCode, change.CardName, change.RouteName,
+                    change.IsRemoval, change.Note, username, cancellationToken))
+            {
+                written++;
+            }
+        }
+
+        if (written > 0)
+        {
+            await context.SaveChangesAsync(cancellationToken);
+        }
+
+        logger.LogInformation(
+            "{User} saved {Written} route change(s) of {Staged} staged", username, written, deduped.Count);
+        return written;
     }
 
     public async Task<int> ResetAsync(
@@ -464,13 +688,22 @@ public sealed class DeliveryRouteDirectory(
                 && (EF.Functions.ILike(partner.CardName!, $"%{term}%")
                     || EF.Functions.ILike(partner.CardCode, $"%{term}%")))
             .OrderBy(partner => partner.CardName)
-            .Take(limit * 3)
+            .Take(limit * 4)
             .ToListAsync(cancellationToken);
 
         var results = new List<ShopCandidate>();
         foreach (var row in rows)
         {
             if (excludingRoute is not null && map.IsOnRoute(row.CardCode, excludingRoute))
+            {
+                continue;
+            }
+
+            // Never offer a retired Zimbabwe dollar code to put on a route. The
+            // page hides those on the route itself, so offering one means
+            // clicking Place and watching nothing appear -- the change is real
+            // and staged, and the row it should have made is filtered away.
+            if (IsRetiredCurrency(row.Currency))
             {
                 continue;
             }
@@ -487,6 +720,74 @@ public sealed class DeliveryRouteDirectory(
         }
 
         return results;
+    }
+
+    public async Task<IReadOnlyList<UnplacedShop>> ListActiveShopsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        // Active customers only, matching how the rest of the Web reads this
+        // cache. Code, name and currency: the currency is not shown, it is what
+        // keeps retired Zimbabwe dollar accounts out of a list whose whole
+        // purpose is choosing a shop to start delivering to.
+        var rows = await context.CachedBusinessPartners
+            .AsNoTracking()
+            .Where(partner => partner.IsActive && partner.CardType == "cCustomer")
+            .OrderBy(partner => partner.CardName)
+            .Select(partner => new { partner.CardCode, partner.CardName, partner.Currency })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Where(row => !IsRetiredCurrency(row.Currency))
+            .Select(row => new UnplacedShop(
+                row.CardCode.Trim(),
+                string.IsNullOrWhiteSpace(row.CardName) ? row.CardCode.Trim() : row.CardName!.Trim()))
+            .ToList();
+    }
+
+    /// <summary>
+    /// The Zimbabwe dollar, in the spellings the partner master uses. ZiG
+    /// replaced it in April 2024 and accounts held in it stopped being invoiced
+    /// then.
+    /// </summary>
+    /// <remarks>
+    /// More than one spelling because more than one company database is in
+    /// play: production writes "ZWL" and the test company writes "ZW$", so
+    /// matching only the one seen locally would quietly do nothing in
+    /// production -- the failure that looks exactly like success.
+    /// </remarks>
+    private static readonly HashSet<string> RetiredCurrencies =
+        new(StringComparer.OrdinalIgnoreCase) { "ZWL", "ZW$", "ZWD", "RTGS" };
+
+    internal static bool IsRetiredCurrency(string? currency) =>
+        currency is not null && RetiredCurrencies.Contains(currency.Trim());
+
+    public async Task<IReadOnlyDictionary<string, ShopStanding>> GetShopStandingsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var rows = await context.CachedBusinessPartners
+            .AsNoTracking()
+            .Where(partner => partner.CardType == "cCustomer")
+            .Select(partner => new { partner.CardCode, partner.IsActive, partner.Currency })
+            .ToListAsync(cancellationToken);
+
+        var standings = new Dictionary<string, ShopStanding>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+        {
+            var frozen = !row.IsActive;
+            var retired = IsRetiredCurrency(row.Currency);
+            if (!frozen && !retired)
+            {
+                continue;
+            }
+
+            var code = DeliveryRoutes.NormalizeCardCode(row.CardCode);
+            if (code.Length > 0)
+            {
+                standings[code] = new ShopStanding(frozen, retired);
+            }
+        }
+
+        return standings;
     }
 
     public async Task DeleteRouteAsync(
