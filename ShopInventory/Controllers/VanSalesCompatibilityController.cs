@@ -8,6 +8,9 @@ using ShopInventory.Common.Security;
 using ShopInventory.DTOs;
 using ShopInventory.Features.VanSalesCompatibility.Commands.CreateVanSalesDirectInvoice;
 using ShopInventory.Features.VanSalesCompatibility.Commands.ChangeVanSalesPassword;
+using ShopInventory.Features.VanSalesCompatibility.Commands.DeleteVanSalesCustomer;
+using ShopInventory.Features.VanSalesCompatibility.Commands.UpdateVanSalesCustomer;
+using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCustomerHistory;
 using ShopInventory.Features.VanSalesCompatibility.Commands.CreateVanSalesSalesOrder;
 using ShopInventory.Features.VanSalesCompatibility.Commands.CreateVanSalesTransferRequest;
 using ShopInventory.Features.VanSalesCompatibility.Commands.PostVanSalesAttendance;
@@ -275,6 +278,95 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
                     CreatedAt = value.CreatedAt.ToString("O")
                 }
             }),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Corrects the contact details the handset holds for a shop on its own route.
+    /// </summary>
+    /// <remarks>
+    /// Narrower than the administrator's update: the route, the code and the active flag are read off
+    /// the row rather than taken from the body, so a handset cannot move a shop to another van,
+    /// rename the identity its sales are filed under, or perform the removal through this.
+    /// </remarks>
+    [HttpPut("customer/{code}")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.EditCustomers)]
+    public async Task<IActionResult> UpdateCustomer(
+        string code,
+        [FromBody] VanSalesUpdateCustomerRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(
+            new UpdateVanSalesCustomerCommand(userId.Value, code, request),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(new VanSalesEnvelope<VanSalesShopDto> { Success = value }),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// What one shop on the handset's route has bought, and what it still has on order.
+    /// </summary>
+    /// <remarks>
+    /// The same detail the office's route customer report reads, so the rep standing in the shop and
+    /// the office looking at the route are never told two different things about it.
+    /// </remarks>
+    [HttpGet("customer/{code}/history")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.ViewCustomers)]
+    public async Task<IActionResult> GetCustomerHistory(
+        string code,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(
+            new GetVanSalesCustomerHistoryQuery(userId.Value, code, from, to),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(new VanSalesEnvelope<RouteCustomerSalesDetailDto> { Success = value }),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Takes a shop the rep no longer services off their route.
+    /// </summary>
+    /// <remarks>
+    /// By code, because a handset is never given the route customer id — the customer payload carries
+    /// a compatibility id derived from the code instead. The row is deactivated rather than removed,
+    /// so the route keeps its trading history.
+    /// </remarks>
+    [HttpDelete("customer/{code}")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.DeleteCustomers)]
+    public async Task<IActionResult> DeleteCustomer(
+        string code,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(new DeleteVanSalesCustomerCommand(userId.Value, code), cancellationToken);
+        return result.Match(
+            _ => Ok(new VanSalesEnvelope<string> { Success = code }),
             errors => Problem(errors));
     }
 

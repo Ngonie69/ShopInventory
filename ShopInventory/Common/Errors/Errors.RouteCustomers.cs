@@ -34,5 +34,21 @@ public static partial class Errors
             Error.Conflict(
                 "RouteCustomers.CodeAlreadyExists",
                 $"Route customer code '{code}' already exists for route '{assignedBusinessPartnerCode}'.");
+
+        public static Error CodeNotFoundOnRoute(string code) =>
+            Error.NotFound(
+                "RouteCustomers.CodeNotFoundOnRoute",
+                $"No customer with code '{code}' is on this route.");
+
+        /// <remarks>
+        /// Only a route that keeps its own customer list can remove one. An account whose customers
+        /// come from head office has nothing local to deactivate, and removing it there would mean
+        /// unassigning it from the account — a different act with different consequences, so it is
+        /// refused here rather than guessed at.
+        /// </remarks>
+        public static readonly Error RouteCustomersNotManagedHere =
+            Error.Forbidden(
+                "RouteCustomers.RouteCustomersNotManagedHere",
+                "This account's customers are managed by head office and cannot be removed on the handset.");
     }
 }
