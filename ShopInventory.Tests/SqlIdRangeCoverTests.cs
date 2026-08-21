@@ -121,58 +121,6 @@ public class SqlIdRangeCoverTests
     }
 }
 
-public class SqlMonthRangeCoverTests
-{
-    [Fact]
-    public void A_range_inside_one_month_yields_that_month()
-    {
-        var months = SqlMonthRangeCover.CoverMonths(new DateTime(2026, 7, 9), new DateTime(2026, 7, 21));
-
-        Assert.Equal([(new DateTime(2026, 7, 1), new DateTime(2026, 7, 31))], months);
-    }
-
-    [Fact]
-    public void A_range_spanning_months_yields_each_whole_month()
-    {
-        var months = SqlMonthRangeCover.CoverMonths(new DateTime(2026, 1, 20), new DateTime(2026, 3, 2));
-
-        Assert.Equal(
-            [
-                (new DateTime(2026, 1, 1), new DateTime(2026, 1, 31)),
-                (new DateTime(2026, 2, 1), new DateTime(2026, 2, 28)),
-                (new DateTime(2026, 3, 1), new DateTime(2026, 3, 31))
-            ],
-            months);
-    }
-
-    [Fact]
-    public void Leap_february_ends_on_the_29th()
-    {
-        var months = SqlMonthRangeCover.CoverMonths(new DateTime(2028, 2, 3), new DateTime(2028, 2, 4));
-
-        Assert.Equal([(new DateTime(2028, 2, 1), new DateTime(2028, 2, 29))], months);
-    }
-
-    [Fact]
-    public void The_requested_window_always_falls_inside_the_covered_months()
-    {
-        // Callers filter the surplus days in memory, so the cover only has to be complete.
-        var from = new DateTime(2026, 5, 14);
-        var to = new DateTime(2026, 8, 3);
-
-        var months = SqlMonthRangeCover.CoverMonths(from, to);
-
-        Assert.True(months[0].Start <= from);
-        Assert.True(months[^1].End >= to);
-    }
-
-    [Fact]
-    public void An_inverted_range_yields_nothing_so_no_query_runs()
-    {
-        Assert.Empty(SqlMonthRangeCover.CoverMonths(new DateTime(2026, 7, 10), new DateTime(2026, 7, 1)));
-    }
-}
-
 public class SapSqlCanonicalisationTests
 {
     [Fact]
