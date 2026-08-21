@@ -276,15 +276,27 @@ class Chrome:
         ) or ""
 
     def set_theme(self, dark: bool) -> None:
-        """Nocturne keys off a `dark-theme` class on <body>/<html>."""
+        """Switch the app between its light and dark palettes.
+
+        Two mechanisms, and both have to move. App.razor's pre-paint script
+        stamps `data-theme` on <html> and a `dark-theme` class on <html> and
+        <body>; nocturne-tokens.css keys its dark block on the attribute, while
+        the page sheets and app.css key theirs on the class. Toggling only the
+        class leaves `data-theme="dark"` in place, every token stays dark, and
+        the "light" screenshot comes out dark -- a check that reports the same
+        thing whether it ran or not.
+        """
         self.eval(
             "(() => { const on = %s;"
-            " for (const el of [document.body, document.documentElement]) {"
+            " const r = document.documentElement;"
+            " for (const el of [document.body, r]) {"
             "   if (!el) continue;"
             "   el.classList.toggle('dark-theme', on);"
-            " } return true; })()" % ("true" if dark else "false")
+            " }"
+            " r.setAttribute('data-theme', on ? 'dark' : 'light');"
+            " return true; })()" % ("true" if dark else "false")
         )
-        time.sleep(0.25)
+        time.sleep(0.35)
 
     def screenshot(self, path: str, full_page: bool = True) -> str:
         params = {"format": "png", "captureBeyondViewport": bool(full_page)}

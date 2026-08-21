@@ -92,6 +92,38 @@ public static partial class DeliveryRoutes
                                                    StringSplitOptions.TrimEntries));
 
     /// <summary>
+    /// The currency a code is for, read off its suffix, or null for a code that
+    /// carries none.
+    /// </summary>
+    /// <remarks>
+    /// The suffix is the only place the currency is written where it matters:
+    /// the same shop holds one code per currency, so "SPA059" and "SPA059 USD"
+    /// are two rows that look identical without it. Taken from the code rather
+    /// than from the partner cache's Currency column on purpose -- most codes
+    /// have no suffix and their partner row still names a currency, so reading
+    /// the column would badge every shop on the page and tell nobody anything.
+    /// The four suffixes the catalogue actually uses are USD, ZIG, FCA and
+    /// (FCA); anything else is left unbadged rather than guessed at.
+    /// </remarks>
+    public static string? CurrencyOf(string? cardCode)
+    {
+        var key = NormalizeCardCode(cardCode);
+        var space = key.LastIndexOf(' ');
+        if (space < 0)
+        {
+            return null;
+        }
+
+        return key[(space + 1)..].Trim('(', ')').ToUpperInvariant() switch
+        {
+            "USD" => "USD",
+            "ZIG" => "ZiG",
+            "FCA" => "FCA",
+            _ => null
+        };
+    }
+
+    /// <summary>
     /// The SAP name for a code the catalogue carries, or null for one it does
     /// not. Names come from the generated table rather than the partner cache,
     /// so a route still reads properly when a shop has been archived.
