@@ -1059,6 +1059,12 @@ public class SalesOrderService : ISalesOrderService
         order.MerchandiserNotes = request.MerchandiserNotes ?? order.MerchandiserNotes;
         order.UpdatedAt = DateTime.UtcNow;
 
+        // The recorded reason describes the order as it was, not as it now is. An edit is how a
+        // refused post gets fixed - the unpriced line removed, the quantity corrected - so keeping
+        // the old message leaves the list still reporting a failure the order no longer has, which
+        // reads as "the fix did not take". The next attempt writes its own reason if it fails.
+        order.SyncError = null;
+
         // Remove existing lines and add new ones
         _context.SalesOrderLines.RemoveRange(order.Lines);
         order.Lines.Clear();
@@ -1239,7 +1245,7 @@ public class SalesOrderService : ISalesOrderService
             order.ApprovedDate = null;
         }
 
-        if (order.Status != SalesOrderStatus.Draft && order.Status != SalesOrderStatus.Pending)
+        if (!CanApprove(order.Status))
             throw new InvalidOperationException("Only draft or pending orders can be approved");
 
         var originalStatus = order.Status;
@@ -2713,6 +2719,20 @@ public class SalesOrderService : ISalesOrderService
         status is SalesOrderStatus.Draft
             or SalesOrderStatus.Pending
             or SalesOrderStatus.Approved;
+
+    /// <summary>
+    /// The statuses an order can still be approved from, and so the statuses a list must offer the
+    /// action for.
+    /// </summary>
+    /// <remarks>
+    /// Draft is not a resting state. A Web order is created as Draft and auto-posted in the same
+    /// call; when that post is refused the create path puts it back to Draft with the reason
+    /// recorded, so Draft is precisely where an order that needs approving again sits. A list that
+    /// offers approval on Pending alone strands every one of those orders: the cause can be edited
+    /// away but nothing is left that will retry the post.
+    /// </remarks>
+    internal static bool CanApprove(SalesOrderStatus status) =>
+        status is SalesOrderStatus.Draft or SalesOrderStatus.Pending;
 
     /// <summary>
     /// Selects local orders created since <paramref name="cutoff"/> that were submitted to SAP but
