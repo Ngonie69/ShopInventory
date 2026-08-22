@@ -351,7 +351,7 @@
                                                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h11v9H3z"></path><path d="M14 10h4l3 3v3h-7"></path><path d="M7 19a2 2 0 1 0 0-.01M18 19a2 2 0 1 0 0-.01"></path></svg>
                                                 </button>
                                             }
-                                            @if ((order.Status == SalesOrderStatus.Draft || order.Status == SalesOrderStatus.Pending) && !order.IsSynced)
+                                            @if (SalesOrderActions.CanEdit(order))
                                             {
                                                 <button type="button" class="mox-iconbtn" title="Edit"
                                                         disabled="@IsOrderActionBusy(order.Id)"
@@ -382,7 +382,7 @@
                                             {
                                                 <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="approveAccess">
                                                     <Authorized>
-                                                        @if (order.Status == SalesOrderStatus.Draft || order.Status == SalesOrderStatus.Pending)
+                                                        @if (SalesOrderActions.CanApprove(order))
                                                         {
                                                             <button type="button" class="mox-iconbtn is-accent" title="Approve"
                                                                     disabled="@IsOrderActionBusy(order.Id)"
@@ -401,7 +401,7 @@
                                                 </AuthorizeView>
                                                 <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="statusActionAccess">
                                                     <Authorized>
-                                                        @if (CanCancelOrder(order))
+                                                        @if (SalesOrderActions.CanCancel(order))
                                                         {
                                                             <button type="button" class="mox-iconbtn is-bad" title="Cancel"
                                                                     disabled="@IsOrderActionBusy(order.Id)"
@@ -416,7 +416,7 @@
                                                                 }
                                                             </button>
                                                         }
-                                                        @if (CanRestoreToDraft(order))
+                                                        @if (SalesOrderActions.CanRestoreToDraft(order))
                                                         {
                                                             <button type="button" class="mox-iconbtn" title="Back to draft"
                                                                     disabled="@IsOrderActionBusy(order.Id)"
@@ -428,7 +428,7 @@
                                                 </AuthorizeView>
                                                 <AuthorizeView Roles="Admin" Context="deleteAccess">
                                                     <Authorized>
-                                                        @if (CanDeleteOrder(order))
+                                                        @if (SalesOrderActions.CanDelete(order))
                                                         {
                                                             <button type="button" class="mox-iconbtn is-bad" title="Delete"
                                                                     disabled="@IsOrderActionBusy(order.Id)"
@@ -2273,15 +2273,6 @@
         }
     }
 
-    private static bool CanCancelOrder(SalesOrderDto order)
-        => !order.IsSynced && order.Status is SalesOrderStatus.Draft or SalesOrderStatus.Pending or SalesOrderStatus.Approved or SalesOrderStatus.PartiallyFulfilled or SalesOrderStatus.OnHold;
-
-    private static bool CanRestoreToDraft(SalesOrderDto order)
-        => !order.IsSynced && order.Status == SalesOrderStatus.Cancelled;
-
-    private static bool CanDeleteOrder(SalesOrderDto order)
-        => !order.IsSynced && (order.Status == SalesOrderStatus.Draft || order.Status == SalesOrderStatus.Pending || order.Status == SalesOrderStatus.Cancelled);
-
     private static string GetStatusChangeVerb(SalesOrderStatus status)
         => status == SalesOrderStatus.Draft ? "restore" : "cancel";
 
@@ -2385,11 +2376,8 @@
     private List<SalesOrderDto> GetSelectedOrders()
         => orders?.Where(order => selectedOrderIds.Contains(order.Id)).ToList() ?? [];
 
-    private static bool CanApproveOrder(SalesOrderDto order)
-        => !order.IsSynced && order.Status is SalesOrderStatus.Draft or SalesOrderStatus.Pending;
-
     private List<SalesOrderDto> GetApprovableSelectedOrders()
-        => GetSelectedOrders().Where(CanApproveOrder).ToList();
+        => GetSelectedOrders().Where(SalesOrderActions.CanApprove).ToList();
 
     private bool CanBulkApprove => !isBulkApproving && GetApprovableSelectedOrders().Count > 0;
 

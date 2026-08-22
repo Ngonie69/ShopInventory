@@ -241,7 +241,7 @@
                                                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"></path><circle cx="12" cy="12" r="2.6"></circle></svg>
                                                 }
                                             </button>
-                                            @if ((order.Status == SalesOrderStatus.Draft || order.Status == SalesOrderStatus.Pending) && !order.IsSynced)
+                                            @if (SalesOrderActions.CanEdit(order))
                                             {
                                                 <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
                                                         title="Edit order" aria-label="Edit order @order.OrderNumber"
@@ -268,7 +268,7 @@
                                             }
                                             @if (!order.IsSynced)
                                             {
-                                                @if (CanApproveOrder(order))
+                                                @if (SalesOrderActions.CanApprove(order))
                                                 {
                                                     <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
                                                             title="Approve" aria-label="Approve order @order.OrderNumber"
@@ -284,7 +284,7 @@
                                                         }
                                                     </button>
                                                 }
-                                                @if (CanRejectOrder(order))
+                                                @if (SalesOrderActions.CanReject(order))
                                                 {
                                                     <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
                                                             title="Reject" aria-label="Reject order @order.OrderNumber"
@@ -293,7 +293,7 @@
                                                         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M8 12h8"></path></svg>
                                                     </button>
                                                 }
-                                                @if (CanCancelOrder(order))
+                                                @if (SalesOrderActions.CanCancel(order))
                                                 {
                                                     <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
                                                             title="Cancel" aria-label="Cancel order @order.OrderNumber"
@@ -309,7 +309,7 @@
                                                         }
                                                     </button>
                                                 }
-                                                @if (CanRestoreToDraft(order))
+                                                @if (SalesOrderActions.CanRestoreToDraft(order))
                                                 {
                                                     <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
                                                             title="Back to draft" aria-label="Move order @order.OrderNumber back to draft"
@@ -320,7 +320,7 @@
                                                 }
                                                 <AuthorizeView Roles="Admin" Context="deleteAccess">
                                                     <Authorized>
-                                                        @if (CanDeleteOrder(order))
+                                                        @if (SalesOrderActions.CanDelete(order))
                                                         {
                                                             <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
                                                                     title="Delete" aria-label="Delete order @order.OrderNumber"
@@ -529,8 +529,7 @@
                 }
             </div>
             <div class="sox-drawer-foot">
-                @if ((selectedOrder.Status == SalesOrderStatus.Draft || selectedOrder.Status == SalesOrderStatus.Pending)
-                     && !selectedOrder.IsSynced)
+                @if (SalesOrderActions.CanEdit(selectedOrder))
                 {
                     <button type="button" class="sox-btn sox-btn-secondary"
                             disabled="@IsOrderActionBusy(selectedOrder.Id)"
@@ -538,7 +537,7 @@
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path></svg>Edit
                     </button>
                 }
-                @if (!selectedOrder.IsSynced && CanRejectOrder(selectedOrder))
+                @if (SalesOrderActions.CanReject(selectedOrder))
                 {
                     <button type="button" class="sox-btn sox-btn-bad"
                             disabled="@IsOrderActionBusy(selectedOrder.Id)"
@@ -554,7 +553,7 @@
                         }
                     </button>
                 }
-                @if (CanApproveOrder(selectedOrder))
+                @if (SalesOrderActions.CanApprove(selectedOrder))
                 {
                     <button type="button" class="sox-btn sox-btn-primary"
                             disabled="@IsOrderActionBusy(selectedOrder.Id)"
@@ -1644,33 +1643,6 @@
     /// </summary>
     private static string? GetPostingBlockReason(SalesOrderDto order)
         => order.IsSynced || order.SAPDocNum.HasValue ? null : order.SyncError;
-
-    /// <summary>
-    /// Whether an order can still be sent for approval and on to SAP.
-    /// </summary>
-    /// <remarks>
-    /// Draft belongs here as much as Pending. A Web order is created as Draft and auto-posted
-    /// straight away; when that post is refused - an unpriced line, a credit hold, SAP down - the
-    /// create path resets it to Draft and records the reason. Gating approval on Pending alone
-    /// left every one of those orders with no way forward on this page: editing the order fixed
-    /// the cause but no button existed to retry it, so the fix looked like it had not worked.
-    /// The API has always accepted a Draft here (SalesOrderService.ApproveAsync), and the mobile
-    /// drafts page has always offered it; this page was the one that did not.
-    /// </remarks>
-    private static bool CanApproveOrder(SalesOrderDto order)
-        => !order.IsSynced && order.Status is SalesOrderStatus.Draft or SalesOrderStatus.Pending;
-
-    private static bool CanRejectOrder(SalesOrderDto order)
-        => !order.IsSynced && order.Status is SalesOrderStatus.Draft or SalesOrderStatus.Pending or SalesOrderStatus.OnHold;
-
-    private static bool CanCancelOrder(SalesOrderDto order)
-        => !order.IsSynced && order.Status is SalesOrderStatus.Draft or SalesOrderStatus.Pending or SalesOrderStatus.Approved or SalesOrderStatus.PartiallyFulfilled or SalesOrderStatus.OnHold;
-
-    private static bool CanRestoreToDraft(SalesOrderDto order)
-        => !order.IsSynced && (order.Status == SalesOrderStatus.Cancelled || order.Status == SalesOrderStatus.Rejected);
-
-    private static bool CanDeleteOrder(SalesOrderDto order)
-        => !order.IsSynced && (order.Status == SalesOrderStatus.Draft || order.Status == SalesOrderStatus.Cancelled || order.Status == SalesOrderStatus.Rejected);
 
     private static string GetStatusChangeVerb(SalesOrderStatus status)
         => status == SalesOrderStatus.Draft ? "restore" : "cancel";
