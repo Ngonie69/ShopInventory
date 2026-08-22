@@ -595,7 +595,11 @@
                                 <span class="snav-text">Product POD Report</span>
                             </NavLink>
                         }
-                        <AuthorizeView Roles="Admin,Manager" Context="routeCtx">
+                        @* A sales rep owns the round: which shops a route calls at,
+                           and on which days. So they get the same view of this page
+                           an admin has, edits included -- there is no read-only
+                           version of it to give them. *@
+                        <AuthorizeView Roles="Admin,Manager,SalesRep" Context="routeCtx">
                             <Authorized>
                                 <NavLink class="snav-link" href="/route-assignments" Match="NavLinkMatch.Prefix">
                                     <span class="snav-icon">

@@ -4,7 +4,7 @@
 @using ShopInventory.Web.Common
 @using ShopInventory.Web.Data
 @using ShopInventory.Web.Services
-@attribute [Authorize(Roles = "Admin,Manager")]
+@attribute [Authorize(Roles = "Admin,Manager,SalesRep")]
 @inject IDeliveryRouteDirectory RouteDirectory
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IAuditService AuditService
