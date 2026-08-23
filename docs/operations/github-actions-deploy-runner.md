@@ -10,12 +10,12 @@ waits.
 
 ## Why a self-hosted runner
 
-Production is `10.10.10.9`, a private address. GitHub-hosted runners run in Azure and cannot route
-to it, so no cloud runner can deploy this application regardless of how the workflow is written.
-The runner has to live on a machine that can already reach production.
+Production is `10.10.10.9` and `10.10.10.58`, both private addresses. GitHub-hosted runners run in
+Azure and cannot route to either, so no cloud runner can deploy this application regardless of how
+the workflow is written. The runner has to live on a machine that can already reach production.
 
 `Update-Production.ps1` transfers over WinRM (`Copy-Item -ToSession`), not SMB, so the runner needs
-WinRM to `10.10.10.9` and HTTPS out to `github.com`. It does not need a file share.
+WinRM to both nodes and HTTPS out to `github.com`. It does not need a file share.
 
 ## Choosing the machine
 
@@ -35,8 +35,10 @@ The rest of this runbook says *the runner* for whichever you picked.
 - Windows with PowerShell 5.1 or later.
 - .NET 10 SDK on `PATH`. The workflow refuses to start without it.
 - `git` on `PATH`.
-- WinRM reachable from the runner to `10.10.10.9`.
-- A domain or local account with administrator rights on `10.10.10.9` — the *deploy account*.
+- WinRM reachable from the runner to `10.10.10.9` **and** `10.10.10.58`.
+- One account with administrator rights on **both** nodes — the *deploy account*. A single account
+  covering both is what lets one credential file serve the whole deployment; see
+  [Both IIS nodes](#both-iis-nodes).
 - A second account for the runner service — the *service account*. It needs no rights on
   production at all; see below.
 
@@ -82,7 +84,7 @@ username and password and seals them to disk:
 
 ```powershell
 New-Item -ItemType Directory -Force "C:\ProgramData\ShopInventory" | Out-Null
-Get-Credential -Message "Deploy account: administrator on 10.10.10.9" | Export-Clixml -LiteralPath "C:\ProgramData\ShopInventory\deploy.credential.xml"
+Get-Credential -Message "Deploy account: administrator on 10.10.10.9 and 10.10.10.58" | Export-Clixml -LiteralPath "C:\ProgramData\ShopInventory\deploy.credential.xml"
 ```
 
 Lock it down to the service account:
@@ -122,13 +124,15 @@ In that environment:
   until one of them approves.
 - Optionally set **Deployment branches** to `main` only.
 
-Two optional settings, both in the same environment:
+Three optional settings, all in the same environment:
 
 - Secret `SHOPINVENTORY_WEB_SMTP_PASSWORD` — the POD report SMTP password. If it is absent the
   deployment still succeeds and production keeps the password it already has; the script only
   writes that setting when it is given one.
 - Variable `PRODUCTION_HEALTH_URL` — overrides the post-deploy check, which defaults to
   `https://sis.kefaloscheese.com/health/ready`.
+- Variable `ADDITIONAL_PRODUCTION_SERVERS` — the IIS nodes past the primary, comma separated.
+  Defaults to `10.10.10.58`; set it to `none` to deploy `10.10.10.9` alone.
 
 ## First run
 
@@ -139,7 +143,8 @@ A healthy run:
 
 1. Checks out the exact commit that passed tests.
 2. Confirms the runner has the SDK and the credential file.
-3. Publishes both projects, backs up, migrates, copies to the idle slot, warms it, cuts over.
+3. Publishes both projects, then for each node in turn: backs up, migrates, copies to the idle
+   slot, warms it, cuts over. The log names each node as it starts and finishes.
 4. Verifies `https://sis.kefaloscheese.com/health/ready` from the runner, over the public address.
 
 Step 4 exists because the script's own probe runs on the production box against `localhost`, so it
@@ -184,11 +189,40 @@ report green over it.
 completing. If the Tests run was skipped or cancelled rather than passing, there is nothing to
 trigger from. Use **Run workflow** to deploy manually.
 
+**"Deployment failed for 10.10.10.58".** The nodes deploy in order and the run stops at the first
+failure, so `10.10.10.9` is already updated and `.58` is not — the two are serving different
+builds. Fix the failing node and re-run; the primary simply redeploys the same commit. If it cannot
+be fixed quickly, take `.58` out of the load balancer rather than leaving the mismatch in place.
+
+**"Credential file not found for 10.10.10.58".** Only happens when
+`-AdditionalSerializedCredentialPaths` is in use — that parameter consumes the file it is given, so
+it works once. Use one deploy account across both nodes and a single `-CredentialPath` instead.
+
+## Both IIS nodes
+
+The deployment covers `10.10.10.9` and `10.10.10.58`. Both sit behind the load balancer, so both
+have to move together or the two serve different builds to different users.
+
+The node list is the repo variable `ADDITIONAL_PRODUCTION_SERVERS`, comma separated, defaulting to
+`10.10.10.58`. Set it to `none` to deploy the primary alone.
+
+They share one deploy account, and that is what lets a single credential file cover both. The
+script deploys each node in turn by re-invoking itself as a child process, re-sealing a single-use
+copy of the credential for each one. The unattended switches are passed down to those children too
+— without that, a child would downgrade a failed health probe to a warning and the parent would
+report the whole run as a success.
+
+Per-node accounts would need `-AdditionalSerializedCredentialPaths` instead. Be aware that
+parameter **consumes the file it is given**: the child deletes it on read, so the second deployment
+fails with a missing credential file. Sharing one account avoids this entirely.
+
+Nodes are deployed **sequentially**, so for the couple of minutes between them the two are on
+different builds. That is inherent to a rolling deploy and is why each node is individually
+blue-green and health-checked before the next one starts.
+
 ## What this does not do
 
 - **No automatic rollback.** Blue-green keeps the previous slot, but swapping back is manual. A
-  failed run leaves production on whatever slot the cutover reached.
-- **One node only.** It deploys `10.10.10.9`. If `10.10.10.58` is also serving traffic, it needs
-  `-AdditionalProductionServers` and a second credential file, and the workflow does not currently
-  pass either.
+  failed run leaves production on whatever slot the cutover reached. With two nodes, a failure on
+  the second leaves the first already updated.
 - **No deploy on a red build.** By design — a failed or cancelled test run cannot reach the gate.

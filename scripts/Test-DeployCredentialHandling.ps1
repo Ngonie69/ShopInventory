@@ -135,8 +135,40 @@ Write-Host "Unattended switches still exist on the script" -ForegroundColor Cyan
 
 Check "the workflow's parameters are all still bindable" {
     $parameters = (Get-Command $ScriptPath).Parameters
-    foreach ($name in 'CredentialPath', 'NonInteractive', 'SuppressExitPrompt', 'FailOnVerificationError', 'DeployTarget', 'WebEmailSmtpPassword') {
+    foreach ($name in 'CredentialPath', 'NonInteractive', 'SuppressExitPrompt', 'FailOnVerificationError', 'DeployTarget', 'WebEmailSmtpPassword', 'AdditionalProductionServers') {
         if (-not $parameters.ContainsKey($name)) { throw "-$name is gone; .github/workflows/deploy-production.yml passes it" }
+    }
+}
+
+Write-Host ""
+Write-Host "Multi-server child processes" -ForegroundColor Cyan
+
+# A multi-server run deploys nothing itself: it re-invokes this same script once per server and
+# each child does the real work. Any switch missing from that argument list is simply not applied
+# to any node, and nothing says so - the parent still prints "Multi-server deployment completed!".
+# Three if-statements test this same condition - two of them only pick the wording for the banner.
+# The fan-out is the one that builds the child argument list, so match on that rather than on
+# position, which would silently start checking a Write-Host block if the banners ever move.
+$multiServerBlock = $ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.IfStatementAst] -and
+        $node.Clauses[0].Item1.Extent.Text -match 'targetServers\.Count\s+-gt\s+1' -and
+        $node.Extent.Text -match '\$argumentList'
+    }, $true) | Select-Object -First 1
+
+Check "the multi-server fan-out block is still recognisable" {
+    if (-not $multiServerBlock) { throw "could not find the 'if (`$targetServers.Count -gt 1)' block" }
+}
+
+# Not $switch: that is an automatic variable in PowerShell, and inside the Check scriptblock it
+# resolves to the enumerator rather than to this loop, so every comparison silently reads empty.
+foreach ($switchName in '-NonInteractive', '-FailOnVerificationError', '-SuppressExitPrompt') {
+    $expected = $switchName
+    Check "children are launched with $expected" {
+        if (-not $multiServerBlock) { throw "the fan-out block was not found, so this cannot be checked" }
+        if ($multiServerBlock.Extent.Text -notmatch [regex]::Escape("'$expected'")) {
+            throw "$expected is never passed to the per-server child process"
+        }
     }
 }
 

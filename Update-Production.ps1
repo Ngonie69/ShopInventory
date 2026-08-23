@@ -560,6 +560,15 @@ if ($targetServers.Count -gt 1) {
                 '-SuppressExitPrompt'
             )
 
+            # The child does the actual publish, cutover and verification for its server, so the
+            # unattended switches have to travel with it. Dropping -FailOnVerificationError here
+            # fails silently and completely: the child downgrades a failed probe to a warning and
+            # exits 0, and the parent prints "Multi-server deployment completed!" over a node that
+            # is not serving. Dropping -NonInteractive leaves a child that could not read its
+            # credential file parked on a Get-Credential prompt nobody can see.
+            if ($NonInteractive) { $argumentList += '-NonInteractive' }
+            if ($FailOnVerificationError) { $argumentList += '-FailOnVerificationError' }
+
             if ($SkipBackup) { $argumentList += '-SkipBackup' }
             if ($IncludeRuntimeDataInBackup) { $argumentList += '-IncludeRuntimeDataInBackup' }
             if ($SkipDatabaseMigrations) { $argumentList += '-SkipDatabaseMigrations' }
