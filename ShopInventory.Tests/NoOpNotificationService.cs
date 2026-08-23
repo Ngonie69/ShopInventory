@@ -1,16 +1,28 @@
-using ShopInventory.DTOs;
+﻿using ShopInventory.DTOs;
 using ShopInventory.Services;
 
 namespace ShopInventory.Tests;
 
 /// <summary>
 /// Notification sink for tests. The approval engine publishes as a side effect of recording a
-/// decision; nothing under test asserts on those, and a real sink would need a transport.
+/// decision, and a real sink would need a transport.
 /// </summary>
+/// <remarks>
+/// Everything handed to it is kept in <see cref="Sent"/> rather than dropped, so a test that cares
+/// what was published can assert on it and a test that does not can carry on ignoring it. Worth
+/// keeping for the ones that publish to a van: a notification that is never sent and a notification
+/// sent to nobody look identical from outside, and neither fails anything on its own.
+/// </remarks>
 internal sealed class NoOpNotificationService : INotificationService
 {
+    /// <summary>Every request this sink was handed, in the order it was handed them.</summary>
+    public List<CreateNotificationRequest> Sent { get; } = [];
+
     public Task<NotificationDto> CreateNotificationAsync(CreateNotificationRequest request, CancellationToken cancellationToken = default)
-        => Task.FromResult(new NotificationDto());
+    {
+        Sent.Add(request);
+        return Task.FromResult(new NotificationDto());
+    }
 
     public Task<NotificationListResponseDto> GetNotificationsAsync(string? username, IReadOnlyCollection<string>? roles, int page = 1, int pageSize = 20, bool unreadOnly = false, string? category = null, CancellationToken cancellationToken = default)
         => Task.FromResult(new NotificationListResponseDto());
