@@ -22,8 +22,9 @@ namespace ShopInventory.Tests;
 /// <para>
 /// ShopInventory.Web does not reference the API project, so the helper is a hand-mirrored copy.
 /// Every status is listed explicitly below rather than derived, so changing a gate means changing
-/// this file and stating the new rule outright. Two invariants are checked against the live API
-/// code instead of against a list, because those are the ones a hand-mirror silently gets wrong.
+/// this file and stating the new rule outright. Three checks run against live API code instead of
+/// against a list - the approve gate itself, that approvable implies postable, and the status enum
+/// the gates are written in terms of - because those are the ones a hand-mirror silently gets wrong.
 /// </para>
 /// </remarks>
 public class SalesOrderActionsTests
@@ -149,14 +150,30 @@ public class SalesOrderActionsTests
         => Assert.Equal(expected, SalesOrderActions.CanDelete(status));
 
     /// <summary>
+    /// The Web's approve gate must be the API's approve gate, status for status.
+    /// </summary>
+    /// <remarks>
+    /// Checked against SalesOrderService.CanApprove itself, not against a copy of its list. The
+    /// two projects share no code, so this is the assertion that makes the Web copy a mirror
+    /// rather than a guess: the page cannot offer approval the API would refuse, and cannot
+    /// withhold it where the API would accept - which is the failure that stranded Draft orders.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(AllStatuses))]
+    public void Approve_agrees_with_the_api_status_for_status(SalesOrderStatus status)
+        => Assert.Equal(
+            ApiSalesOrderService.CanApprove((ApiStatus)status),
+            SalesOrderActions.CanApprove(status));
+
+    /// <summary>
     /// Approving posts to SAP, so anything the Web offers approval on must be a status the API's
     /// posting gate accepts — otherwise approval would move the order to a status posting then
     /// refuses, and it would strand a second time.
     /// </summary>
     /// <remarks>
-    /// Checked against the API's CanPostToSap itself rather than against a copy of its
-    /// list. This is the one place the two projects' rules are compared directly, so widening the
-    /// Web's approve gate past what the API will post fails here rather than in production.
+    /// The API pins this for its own gate in SalesOrderSafetyTests. Pinned again from the Web side
+    /// because the Web gate is a separate copy: the two could agree with the posting rule
+    /// individually and still be reachable only through the page.
     /// </remarks>
     [Theory]
     [MemberData(nameof(AllStatuses))]
