@@ -54,6 +54,7 @@ param(
     [string[]]$Labels = @("shopinventory-deploy"),
     [string]$DeployCredentialPath = "C:\ProgramData\ShopInventory\deploy.credential.xml",
     [string[]]$ProductionNodes = @("10.10.10.9", "10.10.10.58"),
+    [string]$HealthUrl = "https://sis.kefaloscheese.com/health/ready",
     [switch]$ValidateOnly
 )
 
@@ -102,11 +103,19 @@ function Test-Prerequisites {
     # Deployment packages travel over WinRM, not SMB, so 5985 is the port that matters.
     foreach ($node in $ProductionNodes) {
         $reachable = Test-NetConnection -ComputerName $node -Port 5985 -WarningAction SilentlyContinue
-        if ($reachable.TcpTestSucceeded) {
-            Write-Ok "WinRM reachable on $node"
-        }
-        else {
+        if (-not $reachable.TcpTestSucceeded) {
             $problems.Add("Cannot reach WinRM (5985) on $node. This machine cannot deploy that node.")
+            continue
+        }
+
+        # An open port is not a working WinRM stack. Test-WSMan completes the handshake, which
+        # is what the deployment actually depends on.
+        try {
+            $null = Test-WSMan -ComputerName $node -ErrorAction Stop
+            Write-Ok "WinRM answers on $node"
+        }
+        catch {
+            $problems.Add("Port 5985 is open on $node but WinRM did not answer: $($_.Exception.Message)")
         }
     }
 
@@ -120,6 +129,44 @@ function Test-Prerequisites {
     $chassis = (Get-CimInstance Win32_SystemEnclosure).ChassisTypes
     if ($chassis | Where-Object { $_ -in 8, 9, 10, 14 }) {
         Write-Warn "$env:COMPUTERNAME is a portable machine. Deployments will only run while it is awake and on the LAN."
+    }
+
+    # Hosting the runner on a node it also deploys is supported and has two consequences worth
+    # naming, because both are invisible until the first real deployment.
+    $localAddresses = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty IPAddress)
+    $selfHosted = @($ProductionNodes | Where-Object { $_ -in $localAddresses })
+
+    if ($selfHosted.Count -gt 0) {
+        Write-Warn "This machine is production node $($selfHosted -join ', ')."
+        Write-Warn "  Publishing will compete with the live application for CPU and disk."
+        Write-Warn "  Its own deployment runs over a loopback WinRM session, checked below."
+
+        # Loopback remoting with an explicit credential is where a local (non-domain) service
+        # account quietly fails: the token filter strips the admin rights and Invoke-Command
+        # returns access denied. Confirming the listener answers at least separates "WinRM is
+        # wrong" from "the credential is wrong" on the first failed deployment.
+        try {
+            $null = Test-WSMan -ComputerName $selfHosted[0] -ErrorAction Stop
+            Write-Ok "Loopback WinRM answers on $($selfHosted[0])"
+        }
+        catch {
+            $problems.Add("This node cannot open a WinRM session to itself ($($selfHosted[0])): $($_.Exception.Message)")
+        }
+    }
+
+    # The workflow's last step fetches the public URL from the runner. On a machine inside the
+    # network that can hairpin back through NAT or split-horizon DNS, and when it cannot the
+    # check fails on every deployment while the site is perfectly healthy.
+    try {
+        $response = Invoke-WebRequest -Uri $HealthUrl -UseBasicParsing -TimeoutSec 20
+        if ($response.StatusCode -eq 200) { Write-Ok "Public health URL reachable from here ($HealthUrl)" }
+        else { Write-Warn "$HealthUrl answered HTTP $($response.StatusCode); the deploy workflow expects 200." }
+    }
+    catch {
+        Write-Warn "Cannot reach $HealthUrl from this machine: $($_.Exception.Message)"
+        Write-Warn "  The workflow's final verification runs from here and would fail every deployment."
+        Write-Warn "  Fix DNS/hairpin, or point the PRODUCTION_HEALTH_URL repo variable somewhere reachable."
     }
 
     if (Get-Service actions.runner.* -ErrorAction SilentlyContinue) {

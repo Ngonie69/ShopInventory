@@ -17,30 +17,39 @@ the workflow is written. The runner has to live on a machine that can already re
 `Update-Production.ps1` transfers over WinRM (`Copy-Item -ToSession`), not SMB, so the runner needs
 WinRM to both nodes and HTTPS out to `github.com`. It does not need a file share.
 
-## Choosing the machine
+## The machine
 
-Any Windows machine on the LAN that can reach both. Two reasonable choices:
+The runner lives on **`10.10.10.9`**, the primary production node. It is always on and always on
+the LAN, so a merge never parks a deployment waiting for a machine to wake up.
 
-- **A separate build box.** Preferred. `dotnet publish` runs on the runner, so the build stays off
-  the production server, and the deployment has exactly the shape it has today: one machine
-  publishing and pushing to another over WinRM.
-- **The production server itself.** Works, and avoids provisioning a machine, but the build then
-  competes with the live application for CPU and disk, and the remoting session becomes a loopback
-  to itself.
+Three consequences of that choice, all invisible until the first real deployment, so all checked
+by `-ValidateOnly` before anything is installed:
 
-The rest of this runbook says *the runner* for whichever you picked.
+- **`dotnet publish` runs on a box that is serving traffic.** The build competes with the live
+  application for CPU and disk. Deploy outside peak hours if this proves noticeable.
+- **`10.10.10.9` deploys itself over a loopback WinRM session.** That works, but it is the one
+  place a *local* (non-domain) deploy account quietly fails: the token filter strips its
+  administrator rights and `Invoke-Command` returns access denied. Use a domain account.
+- **The final health check runs from inside the network.** It fetches the public URL, which has to
+  hairpin back through NAT or resolve through split-horizon DNS. Where that does not work the
+  check fails on every deployment while the site is perfectly healthy. It also means the check no
+  longer proves the path an actual user takes — the weakness you accept for hosting on production.
+
+`10.10.10.58` needs nothing installed. It is deployed *to*, over WinRM, like today.
 
 ## Prerequisites
 
 - Windows with PowerShell 5.1 or later.
-- .NET 10 SDK on `PATH`. The workflow refuses to start without it.
+- **.NET 10 SDK** on `PATH`. Note this is the SDK, not the ASP.NET Core Hosting Bundle that
+  production already has — publishing needs the full SDK, and installing it on a production box is
+  a real change to that box.
 - `git` on `PATH`.
-- WinRM reachable from the runner to `10.10.10.9` **and** `10.10.10.58`.
+- WinRM answering on `10.10.10.9` **and** `10.10.10.58`.
 - One account with administrator rights on **both** nodes — the *deploy account*. A single account
   covering both is what lets one credential file serve the whole deployment; see
-  [Both IIS nodes](#both-iis-nodes).
-- A second account for the runner service — the *service account*. It needs no rights on
-  production at all; see below.
+  [Both IIS nodes](#both-iis-nodes). Make it a domain account, per the loopback note above.
+- An account for the runner service — the *service account*. It needs no rights on production at
+  all, but you must be able to log in as it; see below.
 
 ## Two accounts, on purpose
 
@@ -52,51 +61,53 @@ unprivileged and merely holds a sealed secret, and the production password never
 The one hard rule: **the credential file must be created by the same account the runner service
 runs as, on the same machine.** DPAPI will not decrypt it anywhere else.
 
-## Install the runner
+## Install
 
-In the repository, go to **Settings → Actions → Runners → New self-hosted runner**, pick Windows,
-and follow the download and `config.cmd` steps shown there — they include a registration token that
-is generated per runner and expires.
-
-When `config.cmd` asks for labels, add `shopinventory-deploy`. The workflow selects the runner with
-`[self-hosted, windows, shopinventory-deploy]`, and `self-hosted` and `windows` are applied
-automatically.
-
-Install it as a service running as the service account:
+`scripts/Install-DeployRunner.ps1` does the whole install. Check the machine first — this needs no
+elevation and changes nothing, so it is safe to run before committing to anything:
 
 ```powershell
-.\config.cmd --runasservice --windowslogonaccount "DOMAIN\svc-shopinventory-runner" --windowslogonpassword "<password>"
+.\scripts\Install-DeployRunner.ps1 -ValidateOnly
 ```
 
-Confirm it came up:
+Fix anything it reports, then install from an **elevated** PowerShell on `10.10.10.9`:
 
 ```powershell
-Get-Service actions.runner.* | Format-Table Name, Status, StartName
+.\scripts\Install-DeployRunner.ps1 -ServiceAccount "KEFALOS\<service-account>"
 ```
 
-`StartName` must show the service account. If it shows `NT AUTHORITY\NETWORK SERVICE` the next step
-cannot be completed — reconfigure the service before continuing.
+It downloads the runner and checks its SHA256 against the published release, registers it with the
+`shopinventory-deploy` label, installs the service under that account, seals the deploy credential
+*as* that account, and reads it back to prove the seal opens.
 
-## Create the credential file
+You are prompted for two things, both typed straight into Windows and neither written anywhere in
+the clear:
 
-Log in to the runner **as the service account** and run this. It prompts for the deploy account's
-username and password and seals them to disk:
+1. The **service account's** password — for the service install.
+2. The **deploy account's** credentials — the production administrator, which gets sealed.
+
+The registration token is fetched through `gh` at run time rather than pasted in, so `gh` must be
+authenticated with admin rights on the repository (`gh auth status`).
+
+Rerunning is safe: it refuses to overwrite a configured runner, and asks before replacing an
+existing credential file.
+
+### If you would rather do it by hand
+
+Use **Settings → Actions → Runners → New self-hosted runner** for the download and `config.cmd`
+steps, adding `shopinventory-deploy` to the labels, and `--runasservice` with
+`--windowslogonaccount` / `--windowslogonpassword` so the service runs as the service account —
+not `NETWORK SERVICE`, which cannot create the seal. Then, **logged in as the service account**:
 
 ```powershell
 New-Item -ItemType Directory -Force "C:\ProgramData\ShopInventory" | Out-Null
 Get-Credential -Message "Deploy account: administrator on 10.10.10.9 and 10.10.10.58" | Export-Clixml -LiteralPath "C:\ProgramData\ShopInventory\deploy.credential.xml"
 ```
 
-Lock it down to the service account:
+Lock it down, point the runner at it, and restart so the service sees the new variable:
 
 ```powershell
-icacls "C:\ProgramData\ShopInventory\deploy.credential.xml" /inheritance:r /grant "DOMAIN\svc-shopinventory-runner:(R)"
-```
-
-Point the runner at it with a machine-scoped variable, then restart the service so it picks the
-variable up:
-
-```powershell
+icacls "C:\ProgramData\ShopInventory\deploy.credential.xml" /inheritance:r /grant "KEFALOS\<service-account>:(R)"
 [Environment]::SetEnvironmentVariable("SHOPINVENTORY_DEPLOY_CREDENTIAL", "C:\ProgramData\ShopInventory\deploy.credential.xml", "Machine")
 Restart-Service actions.runner.*
 ```
@@ -104,7 +115,7 @@ Restart-Service actions.runner.*
 The path is a machine variable rather than a GitHub secret deliberately. It is only a path, and the
 credential it points at is useless off this machine, so nothing sensitive is stored in GitHub.
 
-Verify the seal works before relying on it — run this **as the service account**:
+Verify the seal before relying on it — **as the service account**:
 
 ```powershell
 (Import-Clixml -LiteralPath $env:SHOPINVENTORY_DEPLOY_CREDENTIAL).UserName
@@ -184,6 +195,23 @@ empty when the script ran. Same cause as above, one step earlier.
 on the box but not on its public address — look at the reverse proxy, the certificate and DNS
 before touching the application. The site may genuinely be down; this is the check refusing to
 report green over it.
+
+Because the runner sits on `10.10.10.9`, rule out one thing first: the check runs from *inside* the
+network and has to hairpin out and back. Confirm from the runner itself —
+
+```powershell
+Invoke-WebRequest https://sis.kefaloscheese.com/health/ready -UseBasicParsing
+```
+
+If that fails while the site is fine from outside, it is a NAT or split-horizon DNS problem, not a
+deployment problem. Fix the resolution, or point `PRODUCTION_HEALTH_URL` at an address the runner
+can actually reach — accepting that the check then proves less.
+
+**"Access is denied" from `Invoke-Command` against `10.10.10.9` specifically, while `10.10.10.58`
+works.** The primary deploys itself over a loopback WinRM session, and Windows strips administrator
+rights from a *local* account arriving that way. Use a domain account for the deploy credential.
+`-ValidateOnly` confirms the listener answers but cannot detect this — it only shows up once a real
+credential is used.
 
 **Tests pass but no deployment appears.** The deploy workflow triggers on the *Tests* workflow
 completing. If the Tests run was skipped or cancelled rather than passing, there is nothing to
