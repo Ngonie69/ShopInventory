@@ -83,6 +83,31 @@ public class CustomerStatementSqlTests
     }
 
     /// <summary>
+    /// SAP rewrites `FROM OJDT` to `FROM "OJDT"` in the text it stores, so an unquoted statement
+    /// never compares equal to the one SAP holds.
+    /// </summary>
+    /// <remarks>
+    /// That mismatch makes EnsureSqlQueryAsync PATCH on every cold call, and the execution right
+    /// after a PATCH is pathologically slow — measured repeatedly over 25s against 0.3s warm. A
+    /// timeout then invalidates the verification memo, so the next call PATCHes and stalls again,
+    /// which is a loop that does not settle. Quoting the names is what keeps the text stable.
+    /// </remarks>
+    [Fact]
+    public async Task Table_names_are_quoted_so_the_stored_text_matches_what_sap_holds()
+    {
+        var calls = await RunStatementAsync(["ACME"]);
+
+        Assert.NotEmpty(calls);
+        foreach (var call in calls)
+        {
+            Assert.Contains("\"OJDT\"", call.SqlText, StringComparison.Ordinal);
+            Assert.Contains("\"JDT1\"", call.SqlText, StringComparison.Ordinal);
+            Assert.DoesNotContain("FROM OJDT", call.SqlText, StringComparison.Ordinal);
+            Assert.DoesNotContain("JOIN JDT1", call.SqlText, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
     /// SAP returns dates from SQLQueries as yyyyMMdd. General parsing rejects that, which left every
     /// statement line dated 01/01/0001.
     /// </summary>
