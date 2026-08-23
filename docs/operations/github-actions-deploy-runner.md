@@ -195,8 +195,13 @@ builds. Fix the failing node and re-run; the primary simply redeploys the same c
 be fixed quickly, take `.58` out of the load balancer rather than leaving the mismatch in place.
 
 **"Credential file not found for 10.10.10.58".** Only happens when
-`-AdditionalSerializedCredentialPaths` is in use — that parameter consumes the file it is given, so
-it works once. Use one deploy account across both nodes and a single `-CredentialPath` instead.
+`-AdditionalSerializedCredentialPaths` is in use, and now means what it says: the path is wrong or
+the file was moved. It no longer means the previous deployment ate it — the script re-seals a copy
+for the child rather than handing over the original.
+
+**"Credential file unusable for 10.10.10.58".** The file exists but does not decrypt or does not
+hold a `PSCredential`. Almost always it was created by a different account than the one reading it;
+`Export-Clixml` seals under the writing account. Re-create it as the runner's service account.
 
 ## Both IIS nodes
 
@@ -212,9 +217,9 @@ copy of the credential for each one. The unattended switches are passed down to 
 — without that, a child would downgrade a failed health probe to a warning and the parent would
 report the whole run as a success.
 
-Per-node accounts would need `-AdditionalSerializedCredentialPaths` instead. Be aware that
-parameter **consumes the file it is given**: the child deletes it on read, so the second deployment
-fails with a missing credential file. Sharing one account avoids this entirely.
+Per-node accounts are supported through `-AdditionalSerializedCredentialPaths`, one file per entry
+in `-AdditionalProductionServers`. The script reads each one and re-seals a single-use copy for the
+child, so the files survive and can be reused on every deployment.
 
 Nodes are deployed **sequentially**, so for the couple of minutes between them the two are on
 different builds. That is inherent to a rolling deploy and is why each node is individually

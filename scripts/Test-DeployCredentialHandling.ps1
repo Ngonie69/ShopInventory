@@ -23,7 +23,8 @@ if ($parseErrors.Count -gt 0) {
     throw "Update-Production.ps1 does not parse."
 }
 
-$wanted = 'Import-PersistentCredential', 'Get-DeploymentCredential'
+$wanted = 'Import-PersistentCredential', 'Get-DeploymentCredential',
+          'Export-SerializedCredential', 'Import-SerializedCredential'
 $source = ($ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -in $wanted
@@ -131,6 +132,38 @@ Check "the failure names the switch that fixes it" {
 }
 
 Write-Host ""
+Write-Host "Per-server credential re-sealing" -ForegroundColor Cyan
+
+# A per-server file given through -AdditionalSerializedCredentialPaths used to be handed straight
+# to the child, and -SerializedCredentialPath deletes what it reads. So it worked once and then the
+# operator's own file was gone. The fix reads it and re-seals a single-use copy; these cover the
+# mechanism that makes that safe.
+Check "a re-sealed copy carries the same credential the operator supplied" {
+    $secret = ConvertTo-SecureString 'node-58-password' -AsPlainText -Force
+    (New-Object System.Management.Automation.PSCredential('KEFALOS\deploy58', $secret)) |
+        Export-Clixml -LiteralPath $fixture
+
+    $operatorCopy = Import-PersistentCredential -Path $fixture
+    $oneShotPath = Export-SerializedCredential -Credential $operatorCopy
+    try {
+        $childSees = Import-SerializedCredential -Path $oneShotPath
+        if ($childSees.UserName -ne 'KEFALOS\deploy58') { throw "child received '$($childSees.UserName)'" }
+        if ($childSees.GetNetworkCredential().Password -ne 'node-58-password') { throw "the password did not survive re-sealing" }
+    }
+    finally {
+        Remove-Item -LiteralPath $oneShotPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Check "the child consuming its copy leaves the operator's file untouched" {
+    $oneShotPath = Export-SerializedCredential -Credential (Import-PersistentCredential -Path $fixture)
+    $null = Import-SerializedCredential -Path $oneShotPath
+
+    if (Test-Path -LiteralPath $oneShotPath) { throw "the single-use copy was not consumed, so credentials linger in TEMP" }
+    if (-not (Test-Path -LiteralPath $fixture)) { throw "the operator's own credential file was deleted - the bug is back" }
+}
+
+Write-Host ""
 Write-Host "Unattended switches still exist on the script" -ForegroundColor Cyan
 
 Check "the workflow's parameters are all still bindable" {
@@ -168,6 +201,29 @@ foreach ($switchName in '-NonInteractive', '-FailOnVerificationError', '-Suppres
         if (-not $multiServerBlock) { throw "the fan-out block was not found, so this cannot be checked" }
         if ($multiServerBlock.Extent.Text -notmatch [regex]::Escape("'$expected'")) {
             throw "$expected is never passed to the per-server child process"
+        }
+    }
+}
+
+# The functional tests above prove re-sealing preserves the credential and spares the source file.
+# This one proves the script actually re-seals, rather than reverting to handing the child the
+# operator's own path - which no unit test can catch, because the deletion happens in a child
+# process during a real deployment.
+Check "the operator's own credential path is never given to a child" {
+    if (-not $multiServerBlock) { throw "the fan-out block was not found, so this cannot be checked" }
+
+    $assignments = $multiServerBlock.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            $node.Left.Extent.Text -eq '$childCredentialPath'
+        }, $true)
+
+    if ($assignments.Count -eq 0) { throw "nothing assigns `$childCredentialPath any more" }
+
+    foreach ($assignment in $assignments) {
+        $right = $assignment.Right.Extent.Text
+        if ($right -match 'additionalCredentialPathByServer') {
+            throw "`$childCredentialPath is assigned '$right' - the child deletes what it is given, so this consumes the operator's file"
         }
     }
 }

@@ -520,18 +520,36 @@ if ($targetServers.Count -gt 1) {
         $serializedCredentialForTarget = $null
         $childCredentialPath = $null
         try {
+            # Both branches end at a freshly sealed single-use file, and the caller's own file is
+            # never handed to the child. -SerializedCredentialPath deletes what it reads - that is
+            # deliberate, so an elevated child cannot leave a credential in TEMP - which meant a
+            # path supplied through -AdditionalSerializedCredentialPaths worked exactly once and
+            # then vanished, and the next deployment failed on a missing file nobody had deleted.
             if ($additionalCredentialPathByServer.ContainsKey($targetServer)) {
-                $childCredentialPath = $additionalCredentialPathByServer[$targetServer]
-                if (-not (Test-Path -LiteralPath $childCredentialPath)) {
-                    Write-Host "ERROR: Credential file not found for $targetServer at $childCredentialPath" -ForegroundColor Red
+                $suppliedCredentialPath = $additionalCredentialPathByServer[$targetServer]
+                if (-not (Test-Path -LiteralPath $suppliedCredentialPath)) {
+                    Write-Host "ERROR: Credential file not found for $targetServer at $suppliedCredentialPath" -ForegroundColor Red
                     Wait-ForExitPrompt
                     exit 1
                 }
+
+                try {
+                    $suppliedCredential = Import-PersistentCredential -Path $suppliedCredentialPath
+                }
+                catch {
+                    Write-Host "ERROR: Credential file unusable for $targetServer at $suppliedCredentialPath" -ForegroundColor Red
+                    Write-Host "       $($_.Exception.Message)" -ForegroundColor Red
+                    Wait-ForExitPrompt
+                    exit 1
+                }
+
+                $serializedCredentialForTarget = Export-SerializedCredential -Credential $suppliedCredential
             }
             else {
                 $serializedCredentialForTarget = Export-SerializedCredential -Credential $Credential
-                $childCredentialPath = $serializedCredentialForTarget
             }
+
+            $childCredentialPath = $serializedCredentialForTarget
 
             $argumentList = @(
                 '-NoProfile'
