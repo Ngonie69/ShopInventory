@@ -1,0 +1,165 @@
+name: Deploy to production
+
+# A merge alone deploys nothing. Tests must go green on main first, and then the `production`
+# environment's reviewer has to approve - the job sits pending, having run no steps at all, until
+# someone clicks it through. Setup, including who may approve, is in
+# docs/operations/github-actions-deploy-runner.md.
+#
+# This cannot run on a GitHub-hosted runner: production is 10.10.10.9, a private address no Azure
+# runner can route to. It needs the self-hosted runner described in that same document.
+on:
+  workflow_run:
+    workflows: ["Tests"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Which applications to deploy
+        type: choice
+        options: [Both, API, Web]
+        default: Both
+
+# Queue, never cancel. Two publishes racing for the same IIS slots is the one thing blue-green
+# cannot absorb, and cancelling a run mid-cutover would leave a site half-swapped with no one
+# watching.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Publish and cut over
+    # workflow_run fires for failed and cancelled runs too, so the conclusion is checked rather
+    # than assumed. Without this a red test run would still reach the approval gate, and the whole
+    # point of the gate is that what reaches it is already known good.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: [self-hosted, windows, shopinventory-deploy]
+    environment:
+      name: production
+      url: https://sis.kefaloscheese.com
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout the commit that passed
+        uses: actions/checkout@v7
+        with:
+          # workflow_run identifies the run that passed, not a branch ref, and the two drift apart
+          # the moment a second merge lands while this one waits for approval. Naming the sha is
+          # what makes the thing deployed the same thing that was tested and approved.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          # Update-Production.ps1 runs `merge-base --is-ancestor origin/main HEAD` as its own
+          # safety check, and a shallow clone has no history to answer that with.
+          fetch-depth: 0
+
+      - name: Check the runner is provisioned
+        shell: pwsh
+        run: |
+          $problems = @()
+
+          $sdks = & dotnet --list-sdks 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            $problems += "dotnet is not on this runner's PATH."
+          }
+          elseif (-not ($sdks -match '^10\.')) {
+            $problems += "No .NET 10 SDK on this runner. Installed: $($sdks -join '; ')"
+          }
+
+          # Set as a machine-scoped variable on the runner box, not a GitHub secret: it holds a
+          # path, and the credential it points at is sealed with DPAPI under the runner's own
+          # account, so the production password never enters GitHub at all.
+          $credentialPath = $env:SHOPINVENTORY_DEPLOY_CREDENTIAL
+          if ([string]::IsNullOrWhiteSpace($credentialPath)) {
+            $problems += "SHOPINVENTORY_DEPLOY_CREDENTIAL is not set on this runner."
+          }
+          elseif (-not (Test-Path -LiteralPath $credentialPath)) {
+            $problems += "SHOPINVENTORY_DEPLOY_CREDENTIAL points at '$credentialPath', which does not exist."
+          }
+
+          if ($problems.Count -gt 0) {
+            $problems | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
+            throw "This runner is not provisioned for deployment. See docs/operations/github-actions-deploy-runner.md"
+          }
+
+          Write-Host "Runner is provisioned." -ForegroundColor Green
+
+      - name: Publish, cut over and verify
+        shell: pwsh
+        env:
+          # Deliberately not named SHOPINVENTORY_WEB_SMTP_PASSWORD. A workflow-level `env` key is
+          # set even when the secret behind it is empty, so reusing that name would shadow the
+          # machine-scoped variable of the same name and silently blank it.
+          DEPLOY_SMTP_PASSWORD: ${{ secrets.SHOPINVENTORY_WEB_SMTP_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $deployArgs = @{
+            DeployTarget            = '${{ inputs.target || 'Both' }}'
+            CredentialPath          = $env:SHOPINVENTORY_DEPLOY_CREDENTIAL
+            NonInteractive          = $true
+            SuppressExitPrompt      = $true
+            FailOnVerificationError = $true
+          }
+
+          # Prefer the environment secret, fall back to a machine variable on the runner. Omitting
+          # it entirely is also fine: the script only writes Email__SmtpPassword when it has one,
+          # so production keeps the password it already has.
+          $smtp = $env:DEPLOY_SMTP_PASSWORD
+          if ([string]::IsNullOrWhiteSpace($smtp)) { $smtp = $env:SHOPINVENTORY_WEB_SMTP_PASSWORD }
+          if (-not [string]::IsNullOrWhiteSpace($smtp)) { $deployArgs.WebEmailSmtpPassword = $smtp }
+
+          ./Update-Production.ps1 @deployArgs
+
+          exit $LASTEXITCODE
+
+      - name: Verify production answers on its public address
+        shell: pwsh
+        env:
+          HEALTH_URL: ${{ vars.PRODUCTION_HEALTH_URL || 'https://sis.kefaloscheese.com/health/ready' }}
+        run: |
+          # The script's own probe runs on the production box against localhost, so it is blind to
+          # a broken binding, an expired certificate or a reverse-proxy rule - every way the site
+          # can be down while the box insists it is up. This one arrives the way a user does.
+          $url = $env:HEALTH_URL
+          $last = 'no attempt made'
+
+          for ($attempt = 1; $attempt -le 5; $attempt++) {
+            try {
+              $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 20
+              if ($response.StatusCode -eq 200) {
+                Write-Host "$url -> HTTP 200 ($($response.Content.Trim()))" -ForegroundColor Green
+                exit 0
+              }
+              $last = "HTTP $($response.StatusCode)"
+            }
+            catch {
+              $last = $_.Exception.Message
+            }
+
+            Write-Host "  attempt $attempt/5: $last" -ForegroundColor Yellow
+            Start-Sleep -Seconds 10
+          }
+
+          throw "$url never answered 200. Last result: $last"
+
+      - name: Record what went out
+        if: always()
+        shell: pwsh
+        run: |
+          $sha = '${{ github.event.workflow_run.head_sha || github.sha }}'
+          $lines = @(
+            '### Production deployment',
+            '',
+            '| Field | Value |',
+            '| --- | --- |',
+            "| Commit | $sha |",
+            "| Target | ${{ inputs.target || 'Both' }} |",
+            "| Trigger | ${{ github.event_name }} |",
+            "| Result | ${{ job.status }} |"
+          )
+          $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8

@@ -34,7 +34,10 @@ param(
     [string]$ApiKeyExpiresAt,
     [switch]$SuppressExitPrompt,
     [PSCredential]$Credential,
-    [string]$SerializedCredentialPath
+    [string]$SerializedCredentialPath,
+    [string]$CredentialPath,
+    [switch]$NonInteractive,
+    [switch]$FailOnVerificationError
 )
 
 function Export-SerializedCredential {
@@ -65,10 +68,51 @@ function Import-SerializedCredential {
     }
 }
 
+# Import-SerializedCredential above is a one-shot handoff: it deletes the file so an elevated
+# child process cannot leave a credential sitting in TEMP. An unattended runner needs the
+# opposite - a file it can read on every deploy - so this one reads without removing.
+# Export-Clixml seals the password with DPAPI under the account that wrote it, which means the
+# file is inert if it is copied off the machine, and the runner service must run as the same
+# account that created it.
+function Import-PersistentCredential {
+    param(
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $null
+    }
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "Credential file not found at '$Path'."
+    }
+
+    try {
+        $imported = Import-Clixml -LiteralPath $Path
+    }
+    catch {
+        throw "Could not read the credential file at '$Path'. Export-Clixml seals it under the account that wrote it, so it only decrypts for that account on that machine. Error: $($_.Exception.Message)"
+    }
+
+    if ($imported -isnot [PSCredential]) {
+        throw "The file at '$Path' does not contain a PSCredential."
+    }
+
+    return $imported
+}
+
 function Get-DeploymentCredential {
     param(
         [string]$Server
     )
+
+    # Both call sites land here, so the unattended guard belongs in the function rather than
+    # duplicated at each. Get-Credential on a build agent has no console to prompt on: it either
+    # throws something that reads like a WinRM fault or blocks until the job times out. Naming
+    # the missing switch here turns a 45-minute hang into an immediate, actionable failure.
+    if ($NonInteractive) {
+        throw "No deployment credential was supplied and -NonInteractive is set, so there is no console to prompt on. Pass -Credential, or -CredentialPath pointing at a file written by 'Get-Credential | Export-Clixml' under the account this process runs as."
+    }
 
     return Get-Credential -Message "Enter credentials with administrator access to \\$Server\C`$ and PowerShell remoting."
 }
@@ -438,6 +482,10 @@ if (-not $RestartOnly) {
 
 if (-not $Credential -and $SerializedCredentialPath) {
     $Credential = Import-SerializedCredential -Path $SerializedCredentialPath
+}
+
+if (-not $Credential -and $CredentialPath) {
+    $Credential = Import-PersistentCredential -Path $CredentialPath
 }
 
 if ($targetServers.Count -gt 1) {
@@ -2168,8 +2216,19 @@ try {
     }
 }
 catch {
+    # Interactively this stays a warning on purpose: someone is watching, the cutover has already
+    # happened, and they are better placed than the script to judge whether one flaky probe is
+    # worth a rollback. Unattended there is nobody to judge, and a green pipeline sitting next to
+    # a dead site is the exact failure this automation exists to prevent - so the caller opts in.
     Write-Host "WARNING: Post-cutover verification reported a problem." -ForegroundColor Yellow
     Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+
+    if ($FailOnVerificationError) {
+        Write-Host ""
+        Write-Host "ERROR: -FailOnVerificationError is set; treating failed verification as a failed deployment." -ForegroundColor Red
+        Wait-ForExitPrompt
+        exit 1
+    }
 }
 
 Write-Host ""
@@ -2209,3 +2268,8 @@ foreach ($result in $cutoverResults) {
 Write-Host ""
 
 Wait-ForExitPrompt
+
+# Falling off the end of a script leaves whatever $LASTEXITCODE the last native command happened
+# to set, and robocopy returns non-zero on copies that were entirely successful. An unattended
+# caller reads that code as the verdict on the deployment, so state it rather than inherit it.
+exit 0

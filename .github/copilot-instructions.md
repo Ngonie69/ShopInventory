@@ -231,6 +231,13 @@ Production deployments must use `.\Update-Production.ps1`. Never manually copy f
 
 The script handles Release builds, IIS app pool stop/start, backup, file copy, `web.config` preservation, secrets preservation, slot warm-up, and readiness checks.
 
+Merging to `main` also runs the same script automatically, behind a manual approval: the
+`Deploy to production` workflow waits for the tests to pass, then parks a deployment that runs
+no steps at all until a reviewer approves it. Setup and troubleshooting live in
+`docs/operations/github-actions-deploy-runner.md`. Running the script by hand stays supported and
+unchanged — the workflow only adds `-CredentialPath`, `-NonInteractive`, `-SuppressExitPrompt` and
+`-FailOnVerificationError` for unattended use.
+
 ## Definition of Done
 
 Before finishing a feature or change:
