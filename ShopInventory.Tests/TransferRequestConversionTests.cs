@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -159,6 +159,63 @@ public sealed class TransferRequestConversionTests : IDisposable
         Assert.Equal(0, sap.Conversions);
     }
 
+    // ── What the van is told ───────────────────────
+
+    /// <summary>
+    /// The conversion is the moment a rep's request becomes stock on their van, and the one event of
+    /// the day the handset cannot discover for itself.
+    /// </summary>
+    /// <remarks>
+    /// SAP holds the link on the transfer line as BaseEntry and neither the $select nor the DTO
+    /// carries it, so all the handset can otherwise do is parse the sentence the conversion writes
+    /// into the transfer's remarks. This asserts the pair travels as fields instead — reword that
+    /// sentence and the parse goes quiet, with every request reading as outstanding while its stock
+    /// is already on the van.
+    /// </remarks>
+    [Fact]
+    public async Task Converting_a_request_tells_the_rep_who_raised_it()
+    {
+        var requester = await AddUserAsync(ApplicationRoles.StockController);
+        await OpenApprovalAsync(requester);
+        var officer = await AddUserAsync(ApplicationRoles.StockController);
+
+        var result = await Handler(new RecordingSapClient())
+            .Handle(new ConvertTransferRequestCommand(RequestDocEntry, officer.Id), default);
+
+        Assert.False(result.IsError);
+        var published = Assert.Single(_published.Sent);
+
+        // Addressed, not broadcast. Category "InventoryTransfer" resolves to the inventory audience,
+        // which is Admin, StockController and DepotController — a van's own roles, ADR and Sales, are
+        // in none of them, so a broadcast would reach every desk and no handset.
+        Assert.Equal(requester.Id, published.TargetUserId);
+
+        // The transfer, because that is the document carrying what actually moved.
+        Assert.Equal("InventoryTransfer", published.EntityType);
+        Assert.Equal(published.Data?["transferDocEntry"], published.EntityId);
+
+        // The link itself, which is the whole point.
+        Assert.Equal(RequestDocEntry.ToString(), published.Data?["requestDocEntry"]);
+        Assert.Contains("requestDocNum", published.Data!.Keys);
+    }
+
+    /// <summary>
+    /// A request raised straight into SAP has nobody on file who asked for it, and inventing a
+    /// recipient would be worse than staying quiet — the obvious wrong guess is the person doing the
+    /// converting, who is standing at the depot and already knows.
+    /// </summary>
+    [Fact]
+    public async Task Converting_a_request_raised_in_SAP_tells_nobody()
+    {
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+
+        var result = await Handler(new RecordingSapClient())
+            .Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
+
+        Assert.False(result.IsError);
+        Assert.Empty(_published.Sent);
+    }
+
     // ── A request this app raised ───────────────────────
 
     [Fact]
@@ -289,9 +346,15 @@ public sealed class TransferRequestConversionTests : IDisposable
     private InventoryTransferApprovalService ApprovalService() =>
         new(_context, new NoOpNotificationService(), NullLogger<InventoryTransferApprovalService>.Instance);
 
+    /// <summary>
+    /// What the handler published, kept apart from what the approval engine publishes on its own so
+    /// an assertion on one is never satisfied by the other.
+    /// </summary>
+    private readonly NoOpNotificationService _published = new();
+
     private ConvertTransferRequestHandler Handler(RecordingSapClient sap) =>
         new(sap.AsClient(), ApprovalService(), new TransferWarehouseAuthorizer(_context),
-            new AlwaysAcquiresStore(), new NoOpAuditService(),
+            new AlwaysAcquiresStore(), new NoOpAuditService(), _published,
             Options.Create(new SAPSettings { Enabled = true }),
             NullLogger<ConvertTransferRequestHandler>.Instance);
 
