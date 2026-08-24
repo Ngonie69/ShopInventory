@@ -330,6 +330,23 @@ public interface ISAPServiceLayerClient
     Task<BusinessPartnerDto?> GetBusinessPartnerByCodeAsync(string cardCode, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Every customer whose <c>U_Channel</c> is <paramref name="channel"/>, exactly.
+    /// </summary>
+    /// <remarks>
+    /// Its own read rather than a filter over <see cref="GetBusinessPartnersAsync"/>, for two reasons
+    /// that both matter. The shared business partner <c>$select</c> deliberately carries no UDF: a UDF
+    /// is per company and per table, so naming one there would make every business partner read in the
+    /// solution fail in a company database that lacks it. And <c>BusinessPartnerDto.Channel</c> is read
+    /// by <c>VanSalesCompatibilityMapper.ResolveBranch</c> as a fallback for an invoice's branch, which
+    /// is dead only because nothing populates it — filling it in on the shared path would quietly start
+    /// stamping a channel name into invoice branches.
+    ///
+    /// <para>Filtered in SAP rather than here. The channel is a column on OCRD, so the server can do it,
+    /// and the alternative is walking every business partner in the company to keep a tenth of them.</para>
+    /// </remarks>
+    Task<List<BusinessPartnerDto>> GetCustomersByChannelAsync(string channel, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads several business partners in as few requests as possible, for callers that already
     /// know the exact set of card codes they want.
     /// <para>

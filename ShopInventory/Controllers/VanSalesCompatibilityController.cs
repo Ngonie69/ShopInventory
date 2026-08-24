@@ -11,6 +11,9 @@ using ShopInventory.Features.VanSalesCompatibility.Commands.ChangeVanSalesPasswo
 using ShopInventory.Features.VanSalesCompatibility.Commands.DeleteVanSalesCustomer;
 using ShopInventory.Features.VanSalesCompatibility.Commands.UpdateVanSalesCustomer;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCustomerHistory;
+using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesChannelCustomers;
+using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCustomerInvoices;
+using ShopInventory.Common.Mobile;
 using ShopInventory.Features.VanSalesCompatibility.Commands.CreateVanSalesSalesOrder;
 using ShopInventory.Features.VanSalesCompatibility.Commands.CreateVanSalesTransferRequest;
 using ShopInventory.Features.VanSalesCompatibility.Commands.PostVanSalesAttendance;
@@ -322,6 +325,78 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
     /// The same detail the office's route customer report reads, so the rep standing in the shop and
     /// the office looking at the route are never told two different things about it.
     /// </remarks>
+    /// <summary>
+    /// Every General Trade customer in the company, and then the invoices SAP holds against one.
+    /// </summary>
+    /// <remarks>
+    /// The only customer reads on this controller that are not scoped to the signed-in rep's route, so
+    /// both are gated on role inside their handlers — see
+    /// <see cref="ShopInventory.Common.Mobile.ChannelCustomerAccess"/>.
+    ///
+    /// <para>Both carry <c>ViewCustomers</c> rather than <c>ViewInvoices</c>, and that is not an
+    /// oversight. It is what <c>customer/{code}/history</c> beside them already does for the same
+    /// question about a route customer, and a stock controller — one of the two roles allowed here —
+    /// holds <c>ViewCustomers</c> but not <c>ViewInvoices</c>. Gating on invoices would have meant
+    /// widening that role's rights across the whole platform to open one handset screen.</para>
+    ///
+    /// <para>The channel is fixed rather than taken from the route. Nothing yet asks for a second one,
+    /// and a path segment a caller chooses would be a filter over the customer book that no permission
+    /// covers; widening it later is a parameter here and a constant in
+    /// <see cref="ShopInventory.Common.Mobile.ChannelCustomerAccess"/>.</para>
+    /// </remarks>
+    [HttpGet("customer/general-trade")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.ViewCustomers)]
+    public async Task<IActionResult> GetGeneralTradeCustomers(CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(
+            new GetVanSalesChannelCustomersQuery(userId.Value, ChannelCustomerAccess.GeneralTrade),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(new VanSalesEnvelope<List<VanSalesChannelCustomerDto>> { Success = value }),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The invoices SAP holds against one customer, whoever raised them.
+    /// </summary>
+    /// <remarks>
+    /// Route-order matters: this sits after <c>customer/general-trade</c> so that literal segment is
+    /// never captured as a customer code.
+    /// </remarks>
+    [HttpGet("customer/{code}/invoices")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.ViewCustomers)]
+    public async Task<IActionResult> GetCustomerInvoices(
+        string code,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(
+            new GetVanSalesCustomerInvoicesQuery(userId.Value, code, from, to, page, pageSize),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(new VanSalesEnvelope<InvoiceDateResponseDto> { Success = value }),
+            errors => Problem(errors));
+    }
+
     [HttpGet("customer/{code}/history")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.ViewCustomers)]
