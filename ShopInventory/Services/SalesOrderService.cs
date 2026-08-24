@@ -1,4 +1,4 @@
-﻿using System.Linq.Expressions;
+using System.Linq.Expressions;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
@@ -944,7 +944,13 @@ public class SalesOrderService : ISalesOrderService
                 .Select(u => u.Username)
                 .FirstOrDefaultAsync(cancellationToken);
 
-            var source = order.Source == SalesOrderSource.Mobile ? "Mobile" : "Web";
+            // Named rather than a Mobile/else pair, which labelled every new source "Web".
+            var source = order.Source switch
+            {
+                SalesOrderSource.Mobile => "Mobile",
+                SalesOrderSource.VanSalesCustomer => "Customer app",
+                _ => "Web"
+            };
             await _notificationService.CreateSalesOrderNotificationAsync(
                 order.Id,
                 order.OrderNumber,

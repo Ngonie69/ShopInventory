@@ -5,6 +5,7 @@ internal static class MobileVersionPolicyAppCatalog
     public const string CheesemanPolicyKey = "cheeseman-driver";
     public const string KefalosSalesOrderPolicyKey = "kefalos-so";
     public const string KefalosVanSalesPolicyKey = "kefalos-vansales";
+    public const string KefalosCustomerOrdersPolicyKey = "kefalos-customer-orders";
 
     private static readonly Dictionary<string, string> PolicyKeyAliases = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -22,10 +23,15 @@ internal static class MobileVersionPolicyAppCatalog
         ["kefalos-van-sales"] = KefalosVanSalesPolicyKey,
         ["vansales"] = KefalosVanSalesPolicyKey,
         ["kefalosvansales"] = KefalosVanSalesPolicyKey,
-        ["com.kefalos.vansales"] = KefalosVanSalesPolicyKey
+        ["com.kefalos.vansales"] = KefalosVanSalesPolicyKey,
+        [KefalosCustomerOrdersPolicyKey] = KefalosCustomerOrdersPolicyKey,
+        ["kefalos-orders"] = KefalosCustomerOrdersPolicyKey,
+        ["customerorders"] = KefalosCustomerOrdersPolicyKey,
+        ["com.kefalos.orders"] = KefalosCustomerOrdersPolicyKey
     };
 
-    public static readonly string[] SupportedPolicyKeys = [CheesemanPolicyKey, KefalosSalesOrderPolicyKey, KefalosVanSalesPolicyKey];
+    public static readonly string[] SupportedPolicyKeys =
+        [CheesemanPolicyKey, KefalosSalesOrderPolicyKey, KefalosVanSalesPolicyKey, KefalosCustomerOrdersPolicyKey];
 
     public static bool IsSupportedPolicyKey(string? appId) => TryResolvePolicyKey(appId, out _);
 
@@ -46,6 +52,7 @@ internal static class MobileVersionPolicyAppCatalog
         CheesemanPolicyKey => "Cheeseman Driver App",
         KefalosSalesOrderPolicyKey => "Kefalos SO App",
         KefalosVanSalesPolicyKey => "Kefalos Van Sales App",
+        KefalosCustomerOrdersPolicyKey => "Kefalos Orders App",
         _ => "Mobile App"
     };
 
@@ -54,6 +61,10 @@ internal static class MobileVersionPolicyAppCatalog
         CheesemanPolicyKey => ["Driver", "PodOperator"],
         KefalosSalesOrderPolicyKey => ["Merchandiser"],
         KefalosVanSalesPolicyKey => ["ADR", "Sales"],
+        // The customer ordering app has no staff audience: its users are van sales customers,
+        // not employees, and they hold no role in ApplicationRoles. Version-policy notices for
+        // that app reach its users through their own push registrations, not a role broadcast.
+        KefalosCustomerOrdersPolicyKey => [],
         _ => []
     };
 }

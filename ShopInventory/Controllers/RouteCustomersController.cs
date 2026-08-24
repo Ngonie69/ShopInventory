@@ -6,11 +6,13 @@ using ShopInventory.Common.Security;
 using ShopInventory.DTOs;
 using ShopInventory.Features.RouteCustomers.Commands.CreateRouteCustomer;
 using ShopInventory.Features.RouteCustomers.Commands.DeleteRouteCustomer;
+using ShopInventory.Features.RouteCustomers.Commands.SetRouteCustomerVisitDays;
 using ShopInventory.Features.RouteCustomers.Commands.UpdateRouteCustomer;
 using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerProductMix;
 using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomers;
 using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSales;
 using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerSalesSummary;
+using ShopInventory.Features.RouteCustomers.Queries.GetRouteCustomerVisitDays;
 using ShopInventory.Models;
 
 namespace ShopInventory.Controllers;
@@ -148,5 +150,42 @@ public class RouteCustomersController(ISender mediator) : ApiControllerBase
             cancellationToken);
 
         return result.Match(_ => NoContent(), Problem);
+    }
+
+    /// <summary>
+    /// The weekdays the van calls, for one shop or for a whole route.
+    /// </summary>
+    /// <remarks>
+    /// Read under ViewCustomers rather than a schedule-specific permission: this is a property of
+    /// the customer record, and anyone entitled to see the customer is entitled to see when it is
+    /// called on.
+    /// </remarks>
+    [HttpGet("visit-days")]
+    [RequirePermission(Permission.ViewCustomers)]
+    public async Task<IActionResult> GetVisitDays(
+        [FromQuery] int? routeCustomerId = null,
+        [FromQuery] string? assignedBusinessPartnerCode = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetRouteCustomerVisitDaysQuery(routeCustomerId, assignedBusinessPartnerCode),
+            cancellationToken);
+
+        return result.Match(Ok, Problem);
+    }
+
+    /// <summary>Replace the weekdays the van calls on a shop.</summary>
+    [HttpPut("{id:int}/visit-days")]
+    [RequirePermission(Permission.EditCustomers)]
+    public async Task<IActionResult> SetVisitDays(
+        int id,
+        [FromBody] SetRouteCustomerVisitDaysRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new SetRouteCustomerVisitDaysCommand(id, request.VisitDays),
+            cancellationToken);
+
+        return result.Match(Ok, Problem);
     }
 }

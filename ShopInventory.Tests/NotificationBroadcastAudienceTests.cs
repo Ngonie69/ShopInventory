@@ -305,6 +305,14 @@ public sealed class NotificationBroadcastAudienceTests : IDisposable
         public Task<List<DeviceRegistrationDto>> GetUserDevicesAsync(Guid userId, CancellationToken ct = default) =>
             Task.FromResult(new List<DeviceRegistrationDto>());
 
+        public Task<int> SendToDeviceTokensAsync(
+            IReadOnlyCollection<string> deviceTokens,
+            string title,
+            string body,
+            Dictionary<string, string>? data = null,
+            CancellationToken ct = default)
+            => Task.FromResult(0);
+
         public Task CleanupStaleTokensAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 

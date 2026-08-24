@@ -1,4 +1,4 @@
-﻿namespace ShopInventory.Models;
+namespace ShopInventory.Models;
 
 /// <summary>
 /// Canonical backend role definitions.
@@ -24,6 +24,24 @@ public static class ApplicationRoles
     /// prints nothing — its sales fiscalise in the background rather than at a counter.
     /// </summary>
     public const string CartVendor = "CartVendor";
+
+    /// <summary>
+    /// A van sales customer signing in on the customer ordering app. Not an employee.
+    /// </summary>
+    /// <remarks>
+    /// This constant is deliberately absent from <see cref="ApiAccessRoles"/>,
+    /// <see cref="ApiAccessWithOperatorRoles"/>, <see cref="AssignableRoles"/> and
+    /// <see cref="RetainableManagedRoles"/>, and that absence is the security control rather than an
+    /// oversight. The "ApiAccess" policy is <c>RequireRole(ApiAccessRoles)</c> and guards nearly
+    /// every staff endpoint, so a token carrying only this role is refused by all of them by
+    /// default — a new staff endpoint is safe from customers the moment it is written, without
+    /// anyone having to remember. Customer endpoints require the separate
+    /// "VanSalesCustomerAccess" policy instead.
+    ///
+    /// Adding this role to any of those arrays would hand every van sales customer the staff API.
+    /// VanSalesCustomerAuthPolicyTests fails if that happens.
+    /// </remarks>
+    public const string VanSalesCustomer = "VanSalesCustomer";
 
     // Legacy compatibility roles retained for existing records and workflows.
     public const string User = "User";
