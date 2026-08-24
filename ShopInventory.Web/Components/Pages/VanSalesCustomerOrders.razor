@@ -1,0 +1,175 @@
+﻿@page "/van-sales-customer-orders"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
+@attribute [Authorize(Roles = "Admin,Manager,Cashier,StockController,DepotController")]
+@inject IVanSalesOrderService VanSalesOrderService
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<PageTitle>Customer Orders - Shop Inventory</PageTitle>
+
+@* Scoped to `ops ops-vso`, sharing wwwroot/css/operations.css with the other operational pages —
+   see that file's header. Every class used here already exists in that sheet, so this page adds no
+   CSS of its own and inherits dark mode from the shared variables rather than needing overrides. *@
+
+<div class="ops ops-vso">
+
+    <div class="ops-hero">
+        <div class="ops-hero-text">
+            <div class="ops-kicker">Van sales</div>
+            <h1>Customer Orders</h1>
+            <p>
+                Orders shops placed for themselves in the ordering app. Load the van from the totals,
+                record what was actually delivered, and convert an order when it should become a
+                sales order.
+            </p>
+        </div>
+        <div class="ops-hero-actions">
+            <span class="ops-count">@load.OrderCount order(s)</span>
+        </div>
+    </div>
+
+    <div class="ops-filters">
+        <div class="ops-field">
+            <label for="vso-date">Delivery day</label>
+            <input id="vso-date" type="date" class="ops-input" @bind="visitDate" @bind:after="ReloadAsync" />
+        </div>
+
+        <div class="ops-field">
+            <label for="vso-bp">Van (business partner)</label>
+            <input id="vso-bp" type="text" class="ops-input" placeholder="All vans"
+                   @bind="businessPartnerCode" @bind:after="ReloadAsync" />
+        </div>
+
+        <div class="ops-field">
+            <label for="vso-status">Status</label>
+            <select id="vso-status" class="ops-input" @bind="status" @bind:after="ReloadAsync">
+                <option value="">Open only</option>
+                <option value="@VanSalesOrderStatusModel.Fulfilled">Delivered</option>
+                <option value="@VanSalesOrderStatusModel.PartiallyFulfilled">Part delivered</option>
+                <option value="@VanSalesOrderStatusModel.Cancelled">Cancelled</option>
+                <option value="@VanSalesOrderStatusModel.Expired">Not delivered</option>
+            </select>
+        </div>
+
+        <button class="ops-btn ops-btn-ghost" @onclick="ReloadAsync" disabled="@isBusy">
+            <span>Refresh</span>
+        </button>
+    </div>
+
+    @if (isBusy)
+    {
+        <div class="ops-empty"><p>Loading…</p></div>
+    }
+    else if (load.OrderCount == 0)
+    {
+        <div class="ops-empty">
+            <p>No customer orders for that day.</p>
+        </div>
+    }
+    else
+    {
+        @* The load list first. It is what the depot acts on, and burying it under a dozen
+           per-customer cards is how the totals get added up by hand instead. *@
+        <section class="ops-panel">
+            <header class="ops-panel-head">
+                <h2>Load list</h2>
+                <span class="ops-count">@load.LoadLines.Count item(s), @load.DocTotal.ToString("N2") total</span>
+            </header>
+
+            <table class="ops-table">
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th class="ops-num">Quantity</th>
+                        <th class="ops-num">Shops</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var line in load.LoadLines)
+                    {
+                        <tr>
+                            <td>
+                                <strong>@(line.ItemDescription ?? line.ItemCode)</strong>
+                                <div class="ops-sub">@line.ItemCode</div>
+                            </td>
+                            <td class="ops-num">@line.QuantityOrdered.ToString("N2") @line.UnitOfMeasure</td>
+                            <td class="ops-num">@line.OrderCount</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </section>
+
+        @foreach (var order in load.Orders)
+        {
+            <section class="ops-panel">
+                <header class="ops-panel-head">
+                    <div>
+                        <h2>@order.CustomerName</h2>
+                        <div class="ops-sub">@order.OrderNumber · @order.CustomerCode</div>
+                    </div>
+                    <div class="ops-hero-actions">
+                        <span class="ops-badge">@StatusLabel(order.Status)</span>
+                        <span class="ops-count">@order.Currency @order.DocTotal.ToString("N2")</span>
+                    </div>
+                </header>
+
+                @if (!string.IsNullOrWhiteSpace(order.CustomerNotes))
+                {
+                    <p class="ops-hint">“@order.CustomerNotes”</p>
+                }
+
+                <table class="ops-table">
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th class="ops-num">Ordered</th>
+                            <th class="ops-num">Delivered</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var line in order.Lines)
+                        {
+                            <tr>
+                                <td>
+                                    <strong>@(line.ItemDescription ?? line.ItemCode)</strong>
+                                    <div class="ops-sub">@line.ItemCode</div>
+                                </td>
+                                <td class="ops-num">@line.QuantityOrdered.ToString("N2") @line.UnitOfMeasure</td>
+                                <td class="ops-num">
+                                    @if (order.Status == VanSalesOrderStatusModel.Accepted)
+                                    {
+                                        <input type="number" class="ops-input ops-qty" step="0.01" min="0"
+                                               max="@line.QuantityOrdered"
+                                               @bind="line.DeliveredInput" />
+                                    }
+                                    else
+                                    {
+                                        @line.QuantityFulfilled.ToString("N2")
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+
+                @if (order.Status == VanSalesOrderStatusModel.Accepted)
+                {
+                    <div class="ops-panel-tools">
+                        <button class="ops-btn" disabled="@isBusy"
+                                @onclick="() => RecordDeliveryAsync(order)">
+                            <span>Record delivery</span>
+                        </button>
+
+                        <button class="ops-btn ops-btn-ghost" disabled="@isBusy"
+                                @onclick="() => ConvertAsync(order)">
+                            <span>Convert to sales order</span>
+                        </button>
+                    </div>
+                }
+            </section>
+        }
+    }
+</div>

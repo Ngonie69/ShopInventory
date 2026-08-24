@@ -86,6 +86,7 @@ Examples:
   - [Batches](#46-batches)
   - [App Version](#47-app-version)
   - [Purchasing Documents](#48-purchasing-documents)
+  - [Van Sales Customer Ordering](#49-van-sales-customer-ordering)
 - [DTOs Reference](#dtos-reference)
 
 ---
@@ -2970,6 +2971,8 @@ is the link between the two.
 | POST | `/api/route-customers` | `customers.create` | Create one |
 | PUT | `/api/route-customers/{id}` | `customers.edit` | Update one |
 | DELETE | `/api/route-customers/{id}` | `customers.delete` | Delete one |
+| GET | `/api/route-customers/visit-days` | `customers.view` | Which weekdays the van calls (`routeCustomerId`, `assignedBusinessPartnerCode`) |
+| PUT | `/api/route-customers/{id}/visit-days` | `customers.edit` | Replace the calling days for one shop |
 
 | Endpoint | Parameters |
 |----------|------------|
@@ -2984,6 +2987,12 @@ counts them, because a shop that went quiet is the thing a dormancy report exist
 are disjoint. Both are read from the all-time `lastSaleAt` rather than from the window's sale count —
 a shop with no sales inside the window has not necessarily never bought, and answering it from the
 window files every lapsed shop under never-converted. `dormantDays` sets the threshold between them.
+
+The calling days are the **plan** - which weekdays a van is due at a shop - and are what the
+ordering app reads to tell a customer their next delivery date and their cut-off. They are not
+`VanRouteDayEntity`, which records what a rep actually did on a given day; a van that skips a shop
+must not retroactively edit the schedule it is measured against. An empty list is a legitimate state
+meaning "not yet known", and a shop in that state can still order: it goes on the next available run.
 
 The handset has its own set, keyed by the customer code rather than by the `{id}` it is never
 told: `POST /api/vansales/customer` creates one, `PUT /api/vansales/customer/{code}` corrects
@@ -3348,6 +3357,121 @@ Each one answers:
 
 There is no update and no delete on any of the four. `/api/PurchaseRequest` is the one that takes no
 `cardCode` filter — a request names what is wanted, not who it will be bought from.
+
+---
+
+### 49. Van Sales Customer Ordering
+
+Orders van sales customers place for themselves in the Kefalos Orders Android app, replacing the
+free-text WhatsApp messages someone used to read and retype.
+
+The intake is deliberately **standalone**: a customer's order lives in `VanSalesOrders` and never
+touches `SalesOrders` until staff explicitly convert it. That table feeds the SAP posting jobs and
+the staff reports, and letting an unvetted customer-facing channel write into it would mean auditing
+every existing query in the system for "is this row one a shopkeeper typed?".
+
+#### Customer sign-in
+
+**Base route:** `/api/van-sales-customer/auth`
+**Auth:** none on the first three - a customer has no session yet, and refresh exists precisely to be
+callable once the access token has expired. Rate limited under the `auth` policy.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/van-sales-customer/auth/otp/request` | Send a sign-in code to a phone number |
+| POST | `/api/van-sales-customer/auth/otp/verify` | Exchange a code for a session |
+| POST | `/api/van-sales-customer/auth/token/refresh` | Rotate the refresh token for a new session |
+| POST | `/api/van-sales-customer/auth/logout` | End this device's session (requires a session) |
+
+`otp/request` answers **200 with the same body for every well-formed number**, registered or not, and
+the resend cooldown is a silent no-op rather than an error. Any observable difference between a known
+and an unknown number would turn this endpoint into a way to read a supplier's customer list one
+number at a time. `retryAfterSeconds` and `expiresInSeconds` come from configuration, not from what
+happened.
+
+Codes are delivered over **WhatsApp** through the OpenWA gateway - the channel these customers
+already use - and are stored only as a keyed HMAC. A six-digit code has a million possibilities, so
+what protects an account is the cap on attempts and the account lockout, not the code.
+
+#### The customer's own surface
+
+**Auth:** Bearer + the `VanSalesCustomerAccess` policy, which requires the `VanSalesCustomer` role and
+a customer-code claim. That role is deliberately absent from `ApiAccessRoles`, so a customer token is
+refused by every staff endpoint - including ones not yet written.
+
+Every action resolves the customer **from the token**. Nothing in a body or a route identifies whose
+order it is; an id a caller can supply is an id a caller can change.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/van-sales-customer/profile` | The shop, its route, calling days, next delivery and cut-off |
+| GET | `/api/van-sales-customer/catalogue` | Priced items with a stock band. Honours `If-None-Match` |
+| POST | `/api/van-sales-customer/devices` | Register this handset's push token |
+| POST | `/api/van-sales-customer/orders` | Place an order |
+| GET | `/api/van-sales-customer/orders` | Order history (`page` 1, `pageSize` 20) |
+| GET | `/api/van-sales-customer/orders/{orderId}` | One of the caller's own orders |
+| GET | `/api/van-sales-customer/orders/by-client-request/{clientRequestId}` | Did this key already produce an order? |
+| POST | `/api/van-sales-customer/orders/{orderId}/cancel` | Withdraw an order before its cut-off |
+
+`POST /orders` is **idempotent on `clientRequestId`** - a GUID the app mints when the draft is
+created, not when it is sent. Sending the same key again returns the original order with `200` rather
+than creating a second one or reporting a conflict: a handset that never saw the first reply is not
+in error, and a `409` would make it retry forever. A replay carrying different lines still returns
+the original; the key identifies the order, not the payload.
+
+`by-client-request` is the reconciliation an offline app depends on. After a submit whose reply was
+lost, `404` means no order exists and it is safe to send again.
+
+The request carries **no prices**. The app shows a cached catalogue that may be days old; the server
+prices against the current list and returns the priced order.
+
+Stock is a **band** (`Unknown`, `InStock`, `Low`, `OutOfStock`), never a quantity - a depot figure
+taken the afternoon before loading is not a promise, and what a supplier holds is not a customer's
+business. An out-of-stock item is still accepted: orders are auto-accepted and the rep adjusts at
+delivery, so refusing would throw away demand the depot may restock before the van loads.
+
+#### Operator: accounts
+
+**Base route:** `/api/van-sales-customer-accounts`
+**Auth:** Bearer + `ApiAccess`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/van-sales-customer-accounts` | List sign-ins (`routeCustomerId`, `includeInactive`) |
+| POST | `/api/van-sales-customer-accounts` | Give a customer a sign-in, or re-point one at a new handset |
+| POST | `/api/van-sales-customer-accounts/{accountId}/deactivate` | Withdraw a sign-in |
+
+There is no self-registration: a customer who could sign themselves up could order as a shop they do
+not own, and the rep visiting the shop is the only party able to confirm otherwise. Deactivating
+**revokes the refresh tokens and push registrations in the same operation** - clearing the flag alone
+would leave a lost handset signed in for the ninety days its token was issued for.
+
+#### Operator: the van's load list
+
+**Base route:** `/api/van-sales-orders`
+**Auth:** Bearer + `ApiAccess`, plus the permission below
+
+| Method | Endpoint | Permission | Description |
+|--------|----------|------------|-------------|
+| GET | `/api/van-sales-orders/route-load` | `salesorders.view` | What a van has been asked to carry |
+| POST | `/api/van-sales-orders/{orderId}/delivery` | `salesorders.edit` | Record what was actually delivered |
+| POST | `/api/van-sales-orders/{orderId}/convert` | `salesorders.create` | Turn a customer's order into a sales order |
+
+`route-load` takes `assignedBusinessPartnerCode`, `routeCode`, `visitDate` and `status`, and returns
+two views of the same orders: per-item totals for the depot to load to, and the orders themselves for
+the door. It defaults to open orders only - a cancelled or delivered order on a load list is stock
+loaded for nobody.
+
+`delivery` **derives** the resulting status from the quantities rather than taking one: everything
+delivered is `Fulfilled`, some is `PartiallyFulfilled`, none is `Expired`. A line left out of the
+request is untouched, not zeroed, so a rep recording the one line they were short on does not thereby
+declare the rest undelivered. Delivering more than was ordered is refused - extra goods handed over
+at the door are a sale that belongs on an invoice, not inflated onto the order the customer can see.
+
+`convert` is the single crossing into the SAP-bound pipeline, and always a person's decision. The
+sales order it creates carries `SalesOrderSource.VanSalesCustomer` and lands as **Draft** for the
+normal approval flow rather than auto-posting; credit is enforced here, where whoever is converting
+can act on it.
 
 ---
 

@@ -58,6 +58,24 @@ public interface IPushNotificationService
     /// <summary>
     /// Send push notification to all registered devices
     /// </summary>
+    /// <summary>
+    /// Sends to a set of device tokens the caller has resolved itself.
+    /// </summary>
+    /// <remarks>
+    /// The FCM transport on its own — batching, Android priority, and the invalidation of tokens
+    /// Firebase reports as dead — without any assumption about whose devices these are. It exists so
+    /// that a subject which is not a <c>User</c> can reuse the messaging setup without its
+    /// registrations being added to <c>PushDeviceRegistrations</c>: everything else here resolves
+    /// tokens from that table, and <see cref="SendToAllAsync"/> in particular takes every row in it,
+    /// so a non-staff registration living there would receive staff broadcasts.
+    /// </remarks>
+    Task<int> SendToDeviceTokensAsync(
+        IReadOnlyCollection<string> deviceTokens,
+        string title,
+        string body,
+        Dictionary<string, string>? data = null,
+        CancellationToken ct = default);
+
     Task<int> SendToAllAsync(string title, string body, Dictionary<string, string>? data = null, CancellationToken ct = default);
 
     /// <summary>
@@ -268,6 +286,14 @@ public class PushNotificationService : IPushNotificationService
             _logger.LogInformation("Cleaned up {Count} stale push device tokens", staleTokens.Count);
         }
     }
+
+    public Task<int> SendToDeviceTokensAsync(
+        IReadOnlyCollection<string> deviceTokens,
+        string title,
+        string body,
+        Dictionary<string, string>? data = null,
+        CancellationToken ct = default)
+        => SendToTokensAsync(deviceTokens.ToList(), title, body, data, ct);
 
     private Task<int> SendToTokensAsync(List<string> tokens, string title, string body, Dictionary<string, string>? data, CancellationToken ct) =>
         SendToTokensAsync(

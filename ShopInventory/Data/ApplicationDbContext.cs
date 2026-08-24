@@ -125,6 +125,24 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // One rep's trading day on a route: the departure compliance record
   public DbSet<VanRouteDayEntity> VanRouteDays { get; set; }
 
+  // The weekly pattern of calls: which shops the van is due at on which weekday
+  public DbSet<RouteCustomerVisitDayEntity> RouteCustomerVisitDays { get; set; }
+
+  // Van sales customers signing in on the customer ordering app — a subject apart from staff Users
+  public DbSet<VanSalesCustomerAccountEntity> VanSalesCustomerAccounts { get; set; }
+
+  public DbSet<VanSalesCustomerOtpEntity> VanSalesCustomerOtps { get; set; }
+
+  public DbSet<VanSalesCustomerRefreshTokenEntity> VanSalesCustomerRefreshTokens { get; set; }
+
+  // Orders van sales customers placed for themselves — the intake, kept apart from SalesOrders
+  public DbSet<VanSalesOrderEntity> VanSalesOrders { get; set; }
+
+  public DbSet<VanSalesOrderLineEntity> VanSalesOrderLines { get; set; }
+
+  // Customer handsets, kept apart from PushDeviceRegistrations so staff broadcasts cannot reach them
+  public DbSet<VanSalesCustomerDeviceEntity> VanSalesCustomerDevices { get; set; }
+
   // Purchase Order tables
   public DbSet<PurchaseOrderEntity> PurchaseOrders { get; set; }
   public DbSet<PurchaseOrderLineEntity> PurchaseOrderLines { get; set; }
@@ -1732,6 +1750,134 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
             .WithMany()
             .HasForeignKey(e => e.RouteId)
             .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    modelBuilder.Entity<RouteCustomerVisitDayEntity>(entity =>
+    {
+      entity.ToTable("RouteCustomerVisitDays");
+      entity.HasKey(e => e.Id);
+
+      // Cascade: the schedule is a property of the customer and means nothing without it. Route
+      // customers are hard-deleted here, and a widowed schedule row would keep a deleted shop on
+      // the van's load list.
+      entity.HasOne(e => e.RouteCustomer)
+            .WithMany()
+            .HasForeignKey(e => e.RouteCustomerId)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    // ── Van sales customer ordering: the customer's own sign-in ──────────
+
+    modelBuilder.Entity<VanSalesCustomerAccountEntity>(entity =>
+    {
+      entity.ToTable("VanSalesCustomerAccounts");
+      entity.HasKey(e => e.Id);
+
+      entity.Property(e => e.PhoneE164).IsRequired().HasMaxLength(20);
+      entity.Property(e => e.DisplayName).HasMaxLength(200);
+
+      // Restrict, not Cascade: a route customer being removed must not silently delete the
+      // sign-in that placed orders under it. Deactivate the account instead.
+      entity.HasOne(e => e.RouteCustomer)
+            .WithMany()
+            .HasForeignKey(e => e.RouteCustomerId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    modelBuilder.Entity<VanSalesCustomerOtpEntity>(entity =>
+    {
+      entity.ToTable("VanSalesCustomerOtps");
+      entity.HasKey(e => e.Id);
+
+      entity.Property(e => e.PhoneE164).IsRequired().HasMaxLength(20);
+      entity.Property(e => e.CodeHash).IsRequired().HasMaxLength(128);
+      entity.Property(e => e.RequestedFromIp).HasMaxLength(64);
+      entity.Property(e => e.DeliveryChannel).HasMaxLength(20);
+    });
+
+    modelBuilder.Entity<VanSalesCustomerRefreshTokenEntity>(entity =>
+    {
+      entity.ToTable("VanSalesCustomerRefreshTokens");
+      entity.HasKey(e => e.Id);
+
+      entity.Property(e => e.TokenHash).IsRequired().HasMaxLength(128);
+      entity.Property(e => e.ReplacedByTokenHash).HasMaxLength(128);
+      entity.Property(e => e.DeviceId).HasMaxLength(128);
+      entity.Property(e => e.DeviceName).HasMaxLength(200);
+      entity.Property(e => e.CreatedByIp).HasMaxLength(64);
+
+      entity.HasOne(e => e.Account)
+            .WithMany()
+            .HasForeignKey(e => e.VanSalesCustomerAccountId)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<VanSalesOrderEntity>(entity =>
+    {
+      entity.ToTable("VanSalesOrders");
+      entity.HasKey(e => e.Id);
+
+      entity.Property(e => e.OrderNumber).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.ClientRequestId).IsRequired().HasMaxLength(100);
+      entity.Property(e => e.RouteCustomerCode).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.RouteCustomerName).IsRequired().HasMaxLength(200);
+
+      // Restrict on both: an order is a record of what a shop asked for, and deleting the account
+      // or the customer must not take the evidence with it. The snapshot columns exist for the
+      // same reason.
+      entity.HasOne(e => e.Account)
+            .WithMany()
+            .HasForeignKey(e => e.VanSalesCustomerAccountId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.RouteCustomer)
+            .WithMany()
+            .HasForeignKey(e => e.RouteCustomerId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasOne(e => e.ConvertedSalesOrder)
+            .WithMany()
+            .HasForeignKey(e => e.ConvertedSalesOrderId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasMany(e => e.Lines)
+            .WithOne(l => l.Order!)
+            .HasForeignKey(l => l.VanSalesOrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<VanSalesOrderLineEntity>(entity =>
+    {
+      entity.ToTable("VanSalesOrderLines");
+      entity.HasKey(e => e.Id);
+
+      entity.Property(e => e.ItemCode).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.ItemDescription).HasMaxLength(200);
+      entity.Property(e => e.UoMCode).HasMaxLength(50);
+    });
+
+    modelBuilder.Entity<VanSalesCustomerDeviceEntity>(entity =>
+    {
+      entity.ToTable("VanSalesCustomerDevices");
+      entity.HasKey(e => e.Id);
+
+      entity.Property(e => e.DeviceToken).IsRequired().HasMaxLength(512);
+      entity.Property(e => e.DeviceId).HasMaxLength(128);
+      entity.Property(e => e.DeviceName).HasMaxLength(200);
+      entity.Property(e => e.AppVersion).HasMaxLength(50);
+
+      // Cascade: a registration is meaningless without the account, and an account being removed
+      // should take its push tokens with it rather than leave a handset receiving another shop's
+      // notifications if the id were ever reused.
+      entity.HasOne(e => e.Account)
+            .WithMany()
+            .HasForeignKey(e => e.VanSalesCustomerAccountId)
+            .OnDelete(DeleteBehavior.Cascade);
     });
 
     // ── Desktop Offline Invoicing ────────────────────────────────────────

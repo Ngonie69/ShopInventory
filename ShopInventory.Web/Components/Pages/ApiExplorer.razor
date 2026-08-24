@@ -728,9 +728,11 @@ new("GET", "/api/route-customers", "Get route customers"),
 new("GET", "/api/route-customers/{id}/sales", "Get sales"),
 new("GET", "/api/route-customers/product-mix", "Get product mix"),
 new("GET", "/api/route-customers/sales-summary", "Get sales summary"),
+new("GET", "/api/route-customers/visit-days", "Get visit days"),
 new("POST", "/api/route-customers", "Create route customer"),
 new("DELETE", "/api/route-customers/{id}", "Delete route customer"),
-new("PUT", "/api/route-customers/{id}", "Update route customer")
+new("PUT", "/api/route-customers/{id}", "Update route customer"),
+new("PUT", "/api/route-customers/{id}/visit-days", "Set visit days")
 }
 },
 new ApiModule
@@ -1527,6 +1529,84 @@ Endpoints = new List<ApiEndpoint>
 new("GET", "/api/fiscalisation-console/devices", "Get devices"),
 new("GET", "/api/fiscalisation-console/fiscal-days", "Get fiscal days"),
 new("GET", "/api/fiscalisation-console/work-queue", "Get work queue")
+}
+},
+new ApiModule
+{
+Name = "Van Sales Customer Accounts",
+BasePath = "/api/van-sales-customer-accounts",
+Description = "3 endpoints under /api/van-sales-customer-accounts.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Info,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/van-sales-customer-accounts", "Get accounts"),
+new("POST", "/api/van-sales-customer-accounts", "Onboard"),
+new("POST", "/api/van-sales-customer-accounts/{accountId}/deactivate", "Deactivate")
+}
+},
+new ApiModule
+{
+Name = "Van Sales Customer Auth",
+BasePath = "/api/van-sales-customer/auth",
+Description = "4 endpoints under /api/van-sales-customer/auth.",
+Icon = Icons.Material.Filled.Api,
+Color = Color.Success,
+Methods = new[] { "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("POST", "/api/van-sales-customer/auth/logout", "Logout"),
+new("POST", "/api/van-sales-customer/auth/otp/request", "Request otp"),
+new("POST", "/api/van-sales-customer/auth/otp/verify", "Verify otp"),
+new("POST", "/api/van-sales-customer/auth/token/refresh", "Refresh")
+}
+},
+new ApiModule
+{
+Name = "Van Sales Customer",
+BasePath = "/api/van-sales-customer",
+Description = "3 endpoints under /api/van-sales-customer.",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Warning,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/van-sales-customer/catalogue", "Get catalogue"),
+new("GET", "/api/van-sales-customer/profile", "Get profile"),
+new("POST", "/api/van-sales-customer/devices", "Register device")
+}
+},
+new ApiModule
+{
+Name = "Van Sales Customer Orders",
+BasePath = "/api/van-sales-customer/orders",
+Description = "5 endpoints under /api/van-sales-customer/orders.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Primary,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/van-sales-customer/orders", "Get orders"),
+new("GET", "/api/van-sales-customer/orders/{orderId}", "Get order"),
+new("GET", "/api/van-sales-customer/orders/by-client-request/{clientRequestId}", "Get by client request ID"),
+new("POST", "/api/van-sales-customer/orders", "Submit"),
+new("POST", "/api/van-sales-customer/orders/{orderId}/cancel", "Cancel")
+}
+},
+new ApiModule
+{
+Name = "Van Sales Orders",
+BasePath = "/api/van-sales-orders",
+Description = "3 endpoints under /api/van-sales-orders.",
+Icon = Icons.Material.Filled.Api,
+Color = Color.Secondary,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/van-sales-orders/route-load", "Get route load"),
+new("POST", "/api/van-sales-orders/{orderId}/convert", "Convert"),
+new("POST", "/api/van-sales-orders/{orderId}/delivery", "Record delivery")
 }
 }
 }

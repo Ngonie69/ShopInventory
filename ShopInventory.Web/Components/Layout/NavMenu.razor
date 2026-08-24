@@ -1,4 +1,4 @@
-@using ShopInventory.Web.Common
+﻿@using ShopInventory.Web.Common
 @inject NavSectionState SectionState
 
 @* Navigation for the staff shell. Presentation lives in
@@ -555,6 +555,19 @@
                                         <i class="ph ph-chart-bar" aria-hidden="true"></i>
                                     </span>
                                     <span class="snav-text">Route Sales Report</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+                        @* Orders shops placed for themselves in the app. Sits with the route
+                           customers because that is whose orders these are, and the depot roles
+                           are here too because loading the van is what this screen is for. *@
+                        <AuthorizeView Roles="Admin,Manager,Cashier,StockController,DepotController" Context="vanSalesOrderCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/van-sales-customer-orders" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-shopping-cart" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Customer Orders</span>
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>

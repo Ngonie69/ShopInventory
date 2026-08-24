@@ -321,6 +321,14 @@ public sealed class TransferApprovalNotificationTests : IDisposable
         public Task<int> SendSilentDataToRoleAsync(string role, Dictionary<string, string> data, CancellationToken ct = default)
             => Task.FromResult(0);
 
+        public Task<int> SendToDeviceTokensAsync(
+            IReadOnlyCollection<string> deviceTokens,
+            string title,
+            string body,
+            Dictionary<string, string>? data = null,
+            CancellationToken ct = default)
+            => Task.FromResult(0);
+
         public Task CleanupStaleTokensAsync(CancellationToken ct = default)
             => Task.CompletedTask;
     }

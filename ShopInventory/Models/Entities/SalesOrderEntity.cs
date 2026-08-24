@@ -24,7 +24,20 @@ public enum SalesOrderStatus
 public enum SalesOrderSource
 {
     Web = 0,
-    Mobile = 1
+    Mobile = 1,
+
+    /// <summary>
+    /// Converted from an order a van sales customer placed themselves in the ordering app.
+    /// </summary>
+    /// <remarks>
+    /// Appended, and the existing values left alone: these are persisted as integers on every sales
+    /// order ever written, so renumbering would silently relabel history.
+    ///
+    /// Distinct from <see cref="Mobile"/>, which means a rep keyed it on a handset. The difference
+    /// matters commercially — one is demand the shop expressed unprompted, the other is what a rep
+    /// sold them — and it is the only place that distinction is recorded once the order reaches SAP.
+    /// </remarks>
+    VanSalesCustomer = 2
 }
 
 /// <summary>

@@ -24,6 +24,8 @@ using ShopInventory.Features.AppVersion;
 using ShopInventory.Features.InventoryTransfers;
 using ShopInventory.Features.InventoryTransfers.Queries.GetPendingRequestEdits;
 using ShopInventory.Features.VanSalesCompatibility;
+using ShopInventory.Features.VanSalesCustomerAuth;
+using ShopInventory.Features.VanSalesOrders;
 using ShopInventory.Features.SalesOrders.Commands.BackfillSalesOrderCardNames;
 using ShopInventory.Health;
 using ShopInventory.Middleware;
@@ -257,6 +259,7 @@ try
     builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
     builder.Services.Configure<RateLimitSettings>(builder.Configuration.GetSection("RateLimit"));
     builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection("Security"));
+    builder.Services.Configure<VanSalesCustomerAuthSettings>(builder.Configuration.GetSection("VanSalesCustomerAuth"));
     builder.Services.Configure<TaxSettings>(builder.Configuration.GetSection(TaxSettings.SectionName));
     builder.Services.Configure<DailyStockSettings>(builder.Configuration.GetSection("DailyStock"));
     builder.Services.Configure<DesktopSalePostingSettings>(
@@ -349,6 +352,19 @@ try
         options.AddPolicy("ApiAccessWithOperator", policy =>
             policy.RequireRole(ApplicationRoles.ApiAccessWithOperatorRoles)
                   .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
+
+        // Van sales customers ordering on their own phones. A separate subject from staff, so a
+        // separate policy — and JWT only, deliberately: the API key scheme authenticates
+        // integrations, and an integration key must not be able to act as a customer.
+        //
+        // The customer code claim is required as well as the role. A token with the role but no
+        // customer on it cannot be resolved to an account, and an endpoint that read the customer
+        // from the request body instead would be an IDOR; requiring the claim here means every
+        // handler downstream can take the identity from the token and nothing else.
+        options.AddPolicy("VanSalesCustomerAccess", policy =>
+            policy.RequireRole(ApplicationRoles.VanSalesCustomer)
+                  .RequireClaim(VanSalesCustomerClaims.CustomerCode)
+                  .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme));
     });
 
     // Configure Rate Limiting for DDoS protection
@@ -512,6 +528,15 @@ try
 
     // Register authentication service
     builder.Services.AddScoped<IAuthService, AuthService>();
+
+    // Van sales customer sign-in. A separate subject from staff with its own token issuer, so the
+    // two can never be issued through the same call by accident.
+    builder.Services.AddSingleton<IVanSalesCustomerTokenIssuer, VanSalesCustomerTokenIssuer>();
+    builder.Services.AddScoped<IVanSalesCustomerSessionIssuer, VanSalesCustomerSessionIssuer>();
+    builder.Services.AddScoped<IVanSalesCustomerOtpSender, VanSalesCustomerOtpSender>();
+    builder.Services.AddScoped<IVanSalesOrderingPolicy, VanSalesOrderingPolicy>();
+    builder.Services.AddScoped<IVanSalesCatalogueReader, VanSalesCatalogueReader>();
+    builder.Services.AddScoped<IVanSalesCustomerNotifier, VanSalesCustomerNotifier>();
     builder.Services.AddSingleton<IPasskeyOperationStore, PasskeyOperationStore>();
 
     // Register stock validation service - CRITICAL for preventing negative quantities

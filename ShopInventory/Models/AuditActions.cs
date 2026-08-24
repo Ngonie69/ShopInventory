@@ -128,4 +128,22 @@ public static class AuditActions
     public const string IngestVanSalesOfflineBatch = "IngestVanSalesOfflineBatch";
     public const string RejectVanSalesOfflineSale = "RejectVanSalesOfflineSale";
     public const string UnsignableVanSalesOfflineSale = "UnsignableVanSalesOfflineSale";
+
+    // Van sales customer app sign-ins
+    //
+    // Granting or withdrawing one of these decides who may place orders in a shop's name, and it is
+    // done in the field on a rep's say-so rather than by anyone in the office. The audit row is the
+    // only place that decision is recorded.
+    public const string CreateVanSalesCustomerAccount = "CreateVanSalesCustomerAccount";
+    public const string DeactivateVanSalesCustomerAccount = "DeactivateVanSalesCustomerAccount";
+
+    // Orders a van sales customer placed for themselves. Auto-accepted, so the audit row is the
+    // only place a human decision is recorded — there is no approval step to look back at.
+    public const string SubmitVanSalesCustomerOrder = "SubmitVanSalesCustomerOrder";
+    public const string CancelVanSalesCustomerOrder = "CancelVanSalesCustomerOrder";
+    public const string RecordVanSalesCustomerOrderDelivery = "RecordVanSalesCustomerOrderDelivery";
+
+    // The moment a customer's order becomes a document in the ERP. The only crossing between the
+    // standalone intake and the SAP-bound pipeline, and always a person's decision.
+    public const string ConvertVanSalesCustomerOrder = "ConvertVanSalesCustomerOrder";
 }
