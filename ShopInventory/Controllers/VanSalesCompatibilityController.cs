@@ -21,6 +21,8 @@ using ShopInventory.Features.VanSalesCompatibility.Commands.IngestVanSalesOfflin
 using ShopInventory.Features.VanSalesCompatibility.Commands.RecordVanSalesFiscalDayClose;
 using ShopInventory.Features.VanSalesCompatibility.Commands.ReportVanSalesStockPosition;
 using ShopInventory.Features.VanSalesCompatibility.Commands.UploadVanSalesPod;
+using ShopInventory.Features.VanSalesCompatibility.Commands.UploadVanSalesPodFile;
+using ShopInventory.Middleware;
 using ShopInventory.Features.VanSalesCompatibility.Commands.LoginVanSales;
 using ShopInventory.Features.VanSalesCompatibility.Commands.RefreshVanSales;
 using ShopInventory.Features.VanSalesCompatibility.Commands.ConvertVanSalesSalesOrderToInvoice;
@@ -474,6 +476,73 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             new GetVanSalesFiscalLeaseQuery(userId.Value, pendingSales), cancellationToken);
 
         return result.Match<IActionResult>(Ok, errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// One page of a delivery note, sent as a file.
+    /// </summary>
+    /// <remarks>
+    /// The same upload the drivers' POD app makes against <c>invoice/{docEntry}/pod</c>, reachable by a
+    /// van rep. That route is gated by role and a van rep's role is <c>Sales</c>, which is not on its
+    /// list — see <see cref="UploadVanSalesPodFileCommand"/> for why this mirrors it rather than
+    /// widening it.
+    ///
+    /// <para>Preferred over <c>pod</c> beside it, which carries whole photographs as base64 inside a
+    /// JSON body: a page arrives here at its own size, one request per page, and each page says whether
+    /// it is a further page of the same note.</para>
+    /// </remarks>
+    [HttpPost("pod/{order:int}/file")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.ViewInvoices)]
+    [MaxRequestBodySize(20 * 1024 * 1024)]
+    public async Task<IActionResult> UploadPodFile(
+        int order,
+        IFormFile file,
+        [FromForm] string? description = null,
+        [FromForm] string? externalReference = null,
+        [FromForm] bool isAdditionalPage = false,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        if (file is null || file.Length == 0)
+        {
+            return Problem([Error.Validation(
+                "VanSalesCompatibility.MissingPodImages",
+                "Please capture the delivery note first.")]);
+        }
+
+        // The same list the portal's own POD upload accepts. A handset sends JPEG; the rest are here so
+        // a page scanned to PDF or saved as PNG is not refused for the sake of its container.
+        var allowed = new[] { "image/jpeg", "image/png", "image/webp", "application/pdf" };
+        if (!allowed.Contains(file.ContentType, StringComparer.OrdinalIgnoreCase))
+        {
+            return Problem([Error.Validation(
+                "VanSalesCompatibility.InvalidPodImage",
+                "Only JPEG, PNG, WebP images and PDF files can be filed as a delivery note.")]);
+        }
+
+        using var stream = file.OpenReadStream();
+
+        var result = await mediator.Send(
+            new UploadVanSalesPodFileCommand(
+                order,
+                stream,
+                file.FileName,
+                file.ContentType,
+                description,
+                externalReference,
+                isAdditionalPage,
+                userId.Value),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(new VanSalesEnvelope<DocumentAttachmentDto> { Success = value }),
+            errors => Problem(errors));
     }
 
     [HttpPost("pod")]

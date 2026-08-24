@@ -1,4 +1,4 @@
-# ShopInventory API Documentation
+﻿# ShopInventory API Documentation
 
 ## Overview
 
@@ -2895,6 +2895,7 @@ of that dialect matter before you call anything here:
 | GET | `/api/vansales/fiscal/lease` | `invoices.create` | Optional `pendingSales`. Returned **bare**, not enveloped |
 | POST | `/api/vansales/fiscal/day-close` | `invoices.create` | The close a handset signed for its own fiscal day. Held rather than forwarded — the day is packaged once its receipts have landed |
 | POST | `/api/vansales/pod` | `invoices.view` | Upload proof of delivery |
+| POST | `/api/vansales/pod/{order}/file` | `invoices.view` | One page of a delivery note, as `multipart/form-data` (`file`, `description`, `externalReference`, `isAdditionalPage`). The van sales mirror of `POST /api/invoice/{docEntry}/pod`, which is gated on a role list carrying `SalesRep` — a different role from the van's `Sales`. Preferred over `POST /api/vansales/pod` above, which carries whole photographs as base64 in a JSON body and sends a note's pages in one request, where the double-submit window reads all but the first as duplicates |
 | POST | `/api/vansales/order` | `invoices.create` | Direct invoice. `202` when queued rather than posted |
 | POST | `/api/vansales/order/with-batches` | `invoices.create` | The same action as `/order` — one more route on it, not a second endpoint |
 | POST | `/api/vansales/sales` | `invoices.create` | Take custody of offline, already-ZIMRA-stamped sales |

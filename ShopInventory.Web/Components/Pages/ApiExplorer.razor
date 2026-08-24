@@ -1003,9 +1003,11 @@ new("POST", "/api/vansales/order/convert-to-invoice", "Convert a sales order to 
 new("POST", "/api/vansales/order/history", "Search invoices (a POST because the filter is a body)"),
 new("POST", "/api/vansales/order/with-batches", "The same action as /order, on a second route"),
 new("POST", "/api/vansales/pod", "Upload proof of delivery"),
+new("POST", "/api/vansales/pod/{order}/file", "Upload POD file"),
 new("POST", "/api/vansales/sales", "Take custody of offline, already-ZIMRA-stamped sales"),
 new("POST", "/api/vansales/sales-order", "Create a sales order"),
-new("POST", "/api/vansales/sales-order/history", "Search sales orders (a POST because the filter is a body)")
+new("POST", "/api/vansales/sales-order/history", "Search sales orders (a POST because the filter is a body)"),
+new("POST", "/api/vansales/stock/position", "Report stock position")
 }
 },
 new ApiModule

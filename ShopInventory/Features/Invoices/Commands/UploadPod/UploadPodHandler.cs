@@ -51,11 +51,14 @@ public sealed class UploadPodHandler(
     /// <see cref="UploadPodCommand.IsAdditionalPage"/>.
     /// </para>
     /// <para>
-    /// Fifteen seconds is deliberately conservative while the handsets do not yet send that flag:
-    /// anything longer would start swallowing genuine second pages from a client with no way to say
-    /// otherwise. The two 2026-08-20 duplicates 73 and 77 seconds apart are therefore still stored,
-    /// and cannot be told apart from a real second page from here. Widen this once the flag is
-    /// adopted.
+    /// Fifteen seconds stays as it is, and the reason it cannot simply be widened has changed shape
+    /// rather than gone away. The van sales route now sets the flag itself — see
+    /// <c>UploadVanSalesPodHandler</c>, which sends a whole note in one request and so had every page
+    /// after the first swallowed by this window until it did. The multipart route only passes through
+    /// what its caller posts, so a client that says nothing is still a client with no way to say
+    /// otherwise, and widening the window would start swallowing that client's genuine second pages.
+    /// The two 2026-08-20 duplicates 73 and 77 seconds apart are therefore still stored, and still
+    /// cannot be told apart from a real second page from here.
     /// </para>
     /// </remarks>
     private static readonly TimeSpan DoubleSubmitWindow = TimeSpan.FromSeconds(15);
