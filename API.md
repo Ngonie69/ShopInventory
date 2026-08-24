@@ -1,4 +1,4 @@
-# ShopInventory API Documentation
+﻿# ShopInventory API Documentation
 
 ## Overview
 
@@ -2888,6 +2888,8 @@ of that dialect matter before you call anything here:
 | PUT | `/api/vansales/customer/{code}` | `customers.edit` | Correct a shop the caller already services. Keyed by code, because a handset is never given the route customer id. Narrower than the administrator's update: the route, the code and the active flag are read off the row, not taken from the body |
 | DELETE | `/api/vansales/customer/{code}` | `customers.delete` | Take a shop off the caller's route. Deactivates rather than removes, so the route keeps its trading history, and resolves the row whether or not it is still active — a removal replayed off the offline queue is ordinary, not an error |
 | GET | `/api/vansales/customer/{code}/history` | `customers.view` | What that one shop has bought and still has on order (`from`, `to`). The same detail the office's route customer report reads |
+| GET | `/api/vansales/customer/general-trade` | `customers.view` | Every customer the office has classified as General Trade (`OCRD.U_Channel`), company-wide. The only customer read here that is not scoped to the caller's route, so the handler admits `Admin` and `StockController` only. Carries `customers.view` rather than `invoices.view` because a stock controller holds the first and not the second |
+| GET | `/api/vansales/customer/{code}/invoices` | `customers.view` | Every invoice SAP holds against one customer, whoever raised it (`from`, `to`, `page`, `pageSize`). Distinct from `{code}/history` above, which answers for a shop on the caller's own route out of this platform's tables; this reads SAP and is not route-scoped. Same two roles |
 | POST | `/api/vansales/sales-order` | `salesorders.create` | Create a sales order |
 | POST | `/api/vansales/sales-order/history` | `salesorders.view` | Search — a POST because the filter is a body |
 | POST | `/api/vansales/order/history` | `invoices.view` | Invoice history; also a POST |
