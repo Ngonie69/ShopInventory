@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Mobile;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Invoices.Commands.UploadPod;
@@ -42,7 +43,8 @@ public sealed class UploadVanSalesPodHandler(
                 "Please capture the invoice first.");
         }
 
-        var invoiceDocEntry = await ResolveInvoiceDocEntryAsync(command.Request.Order, cancellationToken);
+        var invoiceDocEntry = await VanSalesPodTarget.ResolveInvoiceDocEntryAsync(
+            db, command.Request.Order, cancellationToken);
         if (!invoiceDocEntry.HasValue)
         {
             return Error.NotFound(
@@ -72,6 +74,17 @@ public sealed class UploadVanSalesPodHandler(
             var fileName = $"mobile-pod-{invoiceDocEntry.Value}-{index + 1}.{fileExtension}";
             var externalReference = BuildExternalReference(invoiceDocEntry.Value, bytes);
 
+            // Every page after the first says so, and that is what makes a multi-page POD arrive.
+            // UploadPodCommand drops any upload landing within its double-submit window of the same
+            // uploader's last one on the same invoice, and the pages of one send arrive milliseconds
+            // apart — so without this the handset's second and third pages were read as the first
+            // one arriving again, and only page one was ever stored. Nothing said so: the loop
+            // reported success per page and the reply below counts what was sent.
+            //
+            // The first page is deliberately left to the window, because that is the guard doing its
+            // real job — a rep double-tapping Send. A genuine re-send of the same batch is caught
+            // instead by the external reference, which is a hash of the page's own bytes: the same
+            // photographs re-posted produce the same reference and are recognised page for page.
             var uploadResult = await mediator.Send(
                 new UploadPodCommand(
                     invoiceDocEntry.Value,
@@ -81,7 +94,8 @@ public sealed class UploadVanSalesPodHandler(
                     user.Username,
                     user.Username,
                     externalReference,
-                    user.Id),
+                    user.Id,
+                    IsAdditionalPage: index > 0),
                 cancellationToken);
 
             if (uploadResult.IsError)
@@ -93,31 +107,6 @@ public sealed class UploadVanSalesPodHandler(
         return command.Request.Images.Count == 1
             ? "POD uploaded successfully"
             : $"{command.Request.Images.Count} POD files uploaded successfully";
-    }
-
-    private async Task<int?> ResolveInvoiceDocEntryAsync(int legacyOrderId, CancellationToken cancellationToken)
-    {
-        var salesOrder = await db.SalesOrders
-            .AsNoTracking()
-            .Where(order => order.Id == legacyOrderId)
-            .Select(order => new
-            {
-                InvoiceSapDocEntry = order.Invoice != null ? order.Invoice.SAPDocEntry : null
-            })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (salesOrder is not null)
-        {
-            return salesOrder.InvoiceSapDocEntry;
-        }
-
-        var invoiceDocEntry = await db.Invoices
-            .AsNoTracking()
-            .Where(invoice => invoice.SAPDocEntry == legacyOrderId || invoice.Id == legacyOrderId)
-            .Select(invoice => invoice.SAPDocEntry)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        return invoiceDocEntry > 0 ? invoiceDocEntry : legacyOrderId;
     }
 
     private static (byte[] Bytes, string ContentType, string FileExtension) DecodeImage(string encodedImage)
