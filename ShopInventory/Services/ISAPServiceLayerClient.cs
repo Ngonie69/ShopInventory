@@ -112,7 +112,15 @@ public interface ISAPServiceLayerClient
     Task<List<Invoice>> GetInvoiceHeadersByDateRangeAsync(DateTime fromDate, DateTime toDate, List<string>? excludeCardCodes = null, bool includeDocumentLines = false, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetPagedInvoicesAsync(int page, int pageSize, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, CancellationToken cancellationToken = default);
-    Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// One window of invoices, filtered in SAP rather than here.
+    /// </summary>
+    /// <remarks>
+    /// <c>includeDocumentLines</c> is off by default because the list screens this serves show totals
+    /// only, and expanding lines multiplies the payload. A caller that renders a document has to ask
+    /// for it: an invoice that arrives without its lines looks exactly like one that has none.
+    /// </remarks>
+    Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, bool includeDocumentLines = false, CancellationToken cancellationToken = default);
     Task<int> GetInvoicesCountAsync(int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, CancellationToken cancellationToken = default);
 
     // Product/Item Operations

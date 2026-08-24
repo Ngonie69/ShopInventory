@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
@@ -2652,10 +2652,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     public async Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, CancellationToken cancellationToken = default)
     {
-        return await GetPagedInvoicesByOffsetAsync(skip, pageSize, null, null, null, null, null, cancellationToken);
+        return await GetPagedInvoicesByOffsetAsync(skip, pageSize, null, null, null, null, null, cancellationToken: cancellationToken);
     }
 
-    public async Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, CancellationToken cancellationToken = default)
+    public async Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, bool includeDocumentLines = false, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
@@ -2675,7 +2675,14 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                 : "(U_Van_saleorder eq null or U_Van_saleorder eq '')");
 
         var filterClause = filters.Count > 0 ? $"$filter={string.Join(" and ", filters)}&" : "";
-        var selectClause = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled,U_Van_saleorder";
+        var selectFields = "DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled,U_Van_saleorder";
+        if (includeDocumentLines)
+            selectFields += ",DocumentLines";
+        var selectClause = $"$select={selectFields}";
+
+        // Lines multiply the rows behind each invoice, so they are asked for in smaller bites. The
+        // same 100 GetInvoiceHeadersByDateRangeAsync uses for the same reason.
+        const int linesPageSize = 100;
 
         // SAP B1 Service Layer returns max 20 records per response by default.
         // We must loop using odata.nextLink to get all requested records.
@@ -2686,13 +2693,14 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         while (remaining > 0)
         {
-            var url = $"Invoices?{filterClause}{selectClause}&$orderby=DocEntry desc&$top={remaining}&$skip={currentSkip}";
+            var requestTop = includeDocumentLines ? Math.Min(remaining, linesPageSize) : remaining;
+            var url = $"Invoices?{filterClause}{selectClause}&$orderby=DocEntry desc&$top={requestTop}&$skip={currentSkip}";
 
             HttpRequestMessage CreateRequest()
             {
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Add("Prefer", "odata.maxpagesize=500");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={(includeDocumentLines ? linesPageSize : 500)}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 return request;
             }
