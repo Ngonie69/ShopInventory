@@ -39,7 +39,7 @@ public sealed class GetPagedInvoicesHandler(
         try
         {
             var skip = (request.Page - 1) * request.PageSize;
-            var invoices = await sapClient.GetPagedInvoicesByOffsetAsync(skip, request.PageSize, request.DocNum, request.CardCode, request.FromDate, request.ToDate, request.VanSalesOnly, cancellationToken);
+            var invoices = await sapClient.GetPagedInvoicesByOffsetAsync(skip, request.PageSize, request.DocNum, request.CardCode, request.FromDate, request.ToDate, request.VanSalesOnly, cancellationToken: cancellationToken);
             var totalCount = await sapClient.GetInvoicesCountAsync(request.DocNum, request.CardCode, request.FromDate, request.ToDate, request.VanSalesOnly, cancellationToken);
             var invoiceDtos = invoices.ToDto();
 
