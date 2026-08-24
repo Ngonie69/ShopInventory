@@ -9472,6 +9472,115 @@ ORDER BY T1."ItemCode"
         return allPartners;
     }
 
+    /// <summary>
+    /// The fields a channel listing needs, plus the channel itself.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="BusinessPartnerSelectFields"/> on purpose — see
+    /// <c>ISAPServiceLayerClient.GetCustomersByChannelAsync</c> for why the shared select must not name
+    /// a UDF. Narrow because this feeds a list on a handset over a van's network.
+    /// </remarks>
+    private const string BusinessPartnerChannelSelectFields =
+        "$select=CardCode,CardName,CardType,Phone1,Address,City,Currency,Frozen,CurrentAccountBalance,U_Channel";
+
+    public async Task<List<BusinessPartnerDto>> GetCustomersByChannelAsync(
+        string channel,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(channel))
+        {
+            return new List<BusinessPartnerDto>();
+        }
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        // Exact match, not contains: 'General Trade' and 'Trade' are different channels and a rep
+        // reading one as the other is looking at the wrong book of customers.
+        var filterExpression = $"CardType eq 'cCustomer' and U_Channel eq '{EscapeODataStringLiteral(channel)}'";
+
+        var partners = new List<BusinessPartnerDto>();
+        var skip = 0;
+        const int pageSize = 500;
+        var hasMore = true;
+
+        while (hasMore)
+        {
+            // $orderby CardName so the handset gets the list in the order a person would look for a
+            // shop in, and $skip walks it. The Prefer header is not optional: without it SAP answers
+            // 20 rows and a nextLink, and a caller that trusts the body silently sees a fifth of the
+            // channel. See docs/sap-interaction-audit.md.
+            var url = $"BusinessPartners?{BusinessPartnerChannelSelectFields}" +
+                      $"&$filter={Uri.EscapeDataString(filterExpression)}" +
+                      $"&$orderby=CardName&$skip={skip}";
+
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                return request;
+            }
+
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseHeadersRead,
+                $"customers in channel '{channel}' at skip {skip}",
+                cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    $"customers in channel '{channel}' at skip {skip} after SAP re-authentication",
+                    cancellationToken);
+            }
+
+            using var responseOwner = response;
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+
+                // A rejected $select or $filter here means the UDF is not defined on OCRD in this
+                // company database, which is a configuration fact and not an empty channel. Thrown
+                // rather than swallowed: answering "no customers" would read as a channel nobody is
+                // in, and the office would go looking for the customers instead of the field.
+                _logger.LogError(
+                    "Failed to read customers in channel {Channel}: {StatusCode} - {Error}",
+                    channel, response.StatusCode, errorContent);
+
+                throw new Exception(
+                    $"Failed to read customers in channel '{channel}': {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var page = ParseBusinessPartnersFromResponse(content);
+            partners.AddRange(page);
+
+            using var doc = JsonDocument.Parse(content);
+            hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                      doc.RootElement.TryGetProperty("@odata.nextLink", out _);
+
+            if (page.Count == 0)
+            {
+                hasMore = false;
+            }
+
+            skip += page.Count > 0 ? page.Count : pageSize;
+        }
+
+        _logger.LogInformation(
+            "Read {Count} customer(s) in channel {Channel}", partners.Count, channel);
+
+        return partners;
+    }
+
     public async Task<List<BusinessPartnerDto>> GetBusinessPartnersByTypeAsync(string cardType, CancellationToken cancellationToken = default)
     {
         var allPartners = await GetBusinessPartnersAsync(cancellationToken);
@@ -9998,7 +10107,13 @@ ORDER BY T1."ItemCode"
             PriceListNum = item.TryGetProperty("PriceListNum", out var priceListNum) ? GetIntOrNull(priceListNum) : null,
             PayTermGrpCode = item.TryGetProperty("PayTermsGrpCode", out var payTermGrpCode) ? GetIntOrNull(payTermGrpCode) : null,
             VatRegNo = item.TryGetProperty("FederalTaxID", out var fedTaxId) ? fedTaxId.GetString() : null,
-            TinNumber = item.TryGetProperty("CardForeignName", out var cardForeignName) ? cardForeignName.GetString() : null
+            TinNumber = item.TryGetProperty("CardForeignName", out var cardForeignName) ? cardForeignName.GetString() : null,
+
+            // Only ever present when the caller asked for it, which today is the channel listing
+            // alone. Every other business partner read leaves this null, and that matters: the
+            // van sales mapper reads Channel as a fallback for an invoice's branch, so populating
+            // it on the shared path would change what lands on invoices.
+            Channel = item.TryGetProperty("U_Channel", out var channel) ? channel.GetString() : null
         };
     }
 
