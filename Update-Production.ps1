@@ -34,7 +34,10 @@ param(
     [string]$ApiKeyExpiresAt,
     [switch]$SuppressExitPrompt,
     [PSCredential]$Credential,
-    [string]$SerializedCredentialPath
+    [string]$SerializedCredentialPath,
+    [string]$CredentialPath,
+    [switch]$NonInteractive,
+    [switch]$FailOnVerificationError
 )
 
 function Export-SerializedCredential {
@@ -65,10 +68,51 @@ function Import-SerializedCredential {
     }
 }
 
+# Import-SerializedCredential above is a one-shot handoff: it deletes the file so an elevated
+# child process cannot leave a credential sitting in TEMP. An unattended runner needs the
+# opposite - a file it can read on every deploy - so this one reads without removing.
+# Export-Clixml seals the password with DPAPI under the account that wrote it, which means the
+# file is inert if it is copied off the machine, and the runner service must run as the same
+# account that created it.
+function Import-PersistentCredential {
+    param(
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $null
+    }
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "Credential file not found at '$Path'."
+    }
+
+    try {
+        $imported = Import-Clixml -LiteralPath $Path
+    }
+    catch {
+        throw "Could not read the credential file at '$Path'. Export-Clixml seals it under the account that wrote it, so it only decrypts for that account on that machine. Error: $($_.Exception.Message)"
+    }
+
+    if ($imported -isnot [PSCredential]) {
+        throw "The file at '$Path' does not contain a PSCredential."
+    }
+
+    return $imported
+}
+
 function Get-DeploymentCredential {
     param(
         [string]$Server
     )
+
+    # Both call sites land here, so the unattended guard belongs in the function rather than
+    # duplicated at each. Get-Credential on a build agent has no console to prompt on: it either
+    # throws something that reads like a WinRM fault or blocks until the job times out. Naming
+    # the missing switch here turns a 45-minute hang into an immediate, actionable failure.
+    if ($NonInteractive) {
+        throw "No deployment credential was supplied and -NonInteractive is set, so there is no console to prompt on. Pass -Credential, or -CredentialPath pointing at a file written by 'Get-Credential | Export-Clixml' under the account this process runs as."
+    }
 
     return Get-Credential -Message "Enter credentials with administrator access to \\$Server\C`$ and PowerShell remoting."
 }
@@ -440,6 +484,10 @@ if (-not $Credential -and $SerializedCredentialPath) {
     $Credential = Import-SerializedCredential -Path $SerializedCredentialPath
 }
 
+if (-not $Credential -and $CredentialPath) {
+    $Credential = Import-PersistentCredential -Path $CredentialPath
+}
+
 if ($targetServers.Count -gt 1) {
     if ($FirstTimeSetup) {
         Write-Host "ERROR: Multi-server deployment is not supported with -FirstTimeSetup. Run first-time setup once per server." -ForegroundColor Red
@@ -472,18 +520,36 @@ if ($targetServers.Count -gt 1) {
         $serializedCredentialForTarget = $null
         $childCredentialPath = $null
         try {
+            # Both branches end at a freshly sealed single-use file, and the caller's own file is
+            # never handed to the child. -SerializedCredentialPath deletes what it reads - that is
+            # deliberate, so an elevated child cannot leave a credential in TEMP - which meant a
+            # path supplied through -AdditionalSerializedCredentialPaths worked exactly once and
+            # then vanished, and the next deployment failed on a missing file nobody had deleted.
             if ($additionalCredentialPathByServer.ContainsKey($targetServer)) {
-                $childCredentialPath = $additionalCredentialPathByServer[$targetServer]
-                if (-not (Test-Path -LiteralPath $childCredentialPath)) {
-                    Write-Host "ERROR: Credential file not found for $targetServer at $childCredentialPath" -ForegroundColor Red
+                $suppliedCredentialPath = $additionalCredentialPathByServer[$targetServer]
+                if (-not (Test-Path -LiteralPath $suppliedCredentialPath)) {
+                    Write-Host "ERROR: Credential file not found for $targetServer at $suppliedCredentialPath" -ForegroundColor Red
                     Wait-ForExitPrompt
                     exit 1
                 }
+
+                try {
+                    $suppliedCredential = Import-PersistentCredential -Path $suppliedCredentialPath
+                }
+                catch {
+                    Write-Host "ERROR: Credential file unusable for $targetServer at $suppliedCredentialPath" -ForegroundColor Red
+                    Write-Host "       $($_.Exception.Message)" -ForegroundColor Red
+                    Wait-ForExitPrompt
+                    exit 1
+                }
+
+                $serializedCredentialForTarget = Export-SerializedCredential -Credential $suppliedCredential
             }
             else {
                 $serializedCredentialForTarget = Export-SerializedCredential -Credential $Credential
-                $childCredentialPath = $serializedCredentialForTarget
             }
+
+            $childCredentialPath = $serializedCredentialForTarget
 
             $argumentList = @(
                 '-NoProfile'
@@ -511,6 +577,15 @@ if ($targetServers.Count -gt 1) {
                 $childCredentialPath
                 '-SuppressExitPrompt'
             )
+
+            # The child does the actual publish, cutover and verification for its server, so the
+            # unattended switches have to travel with it. Dropping -FailOnVerificationError here
+            # fails silently and completely: the child downgrades a failed probe to a warning and
+            # exits 0, and the parent prints "Multi-server deployment completed!" over a node that
+            # is not serving. Dropping -NonInteractive leaves a child that could not read its
+            # credential file parked on a Get-Credential prompt nobody can see.
+            if ($NonInteractive) { $argumentList += '-NonInteractive' }
+            if ($FailOnVerificationError) { $argumentList += '-FailOnVerificationError' }
 
             if ($SkipBackup) { $argumentList += '-SkipBackup' }
             if ($IncludeRuntimeDataInBackup) { $argumentList += '-IncludeRuntimeDataInBackup' }
@@ -2168,8 +2243,19 @@ try {
     }
 }
 catch {
+    # Interactively this stays a warning on purpose: someone is watching, the cutover has already
+    # happened, and they are better placed than the script to judge whether one flaky probe is
+    # worth a rollback. Unattended there is nobody to judge, and a green pipeline sitting next to
+    # a dead site is the exact failure this automation exists to prevent - so the caller opts in.
     Write-Host "WARNING: Post-cutover verification reported a problem." -ForegroundColor Yellow
     Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+
+    if ($FailOnVerificationError) {
+        Write-Host ""
+        Write-Host "ERROR: -FailOnVerificationError is set; treating failed verification as a failed deployment." -ForegroundColor Red
+        Wait-ForExitPrompt
+        exit 1
+    }
 }
 
 Write-Host ""
@@ -2209,3 +2295,8 @@ foreach ($result in $cutoverResults) {
 Write-Host ""
 
 Wait-ForExitPrompt
+
+# Falling off the end of a script leaves whatever $LASTEXITCODE the last native command happened
+# to set, and robocopy returns non-zero on copies that were entirely successful. An unattended
+# caller reads that code as the verdict on the deployment, so state it rather than inherit it.
+exit 0

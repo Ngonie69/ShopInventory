@@ -77,3 +77,23 @@ jobs:
         run: |
           ./scripts/Test-RouteCatalogues.ps1
           exit $LASTEXITCODE
+
+  # Update-Production.ps1 grew switches so the deploy workflow can run it with no console attached.
+  # Breaking them fails nothing here that anyone would notice - it hangs a production deployment on
+  # a credential prompt, or reports a dead site as deployed. So it gets its own check.
+  #
+  # windows-latest rather than ubuntu because the credential file is DPAPI-sealed, which only means
+  # anything on Windows - and Windows is the only place this script ever runs.
+  deploy-script:
+    name: Deploy script contract
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check the unattended deployment path still holds
+        shell: pwsh
+        run: |
+          ./scripts/Test-DeployCredentialHandling.ps1
+          exit $LASTEXITCODE
