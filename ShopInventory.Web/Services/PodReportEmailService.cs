@@ -14,7 +14,13 @@ public sealed record PodReportEmailSendResult(
     string Message,
     int TotalInvoices = 0,
     int UploadedCount = 0,
-    int PendingCount = 0);
+    int PendingCount = 0,
+    /// <summary>
+    /// Invoices credit notes fully reversed. Not part of the three counts above: they are
+    /// excluded from the report and from its completion figure, and shipped as their own
+    /// attachment.
+    /// </summary>
+    int FullyCreditedCount = 0);
 
 public interface IPodReportEmailService
 {
@@ -167,9 +173,26 @@ public sealed class PodReportEmailService(
             var fileName = $"pod-report-{fileSlug}-{fromDate:yyyyMMdd}-{toDate:yyyyMMdd}.xlsx";
             var htmlBody = BuildEmailBody(report, frequencyLabel, fromDate, toDate, triggeredBy);
 
+            // A second workbook rather than a sheet on the first: the credited invoices are
+            // what the POD report no longer counts, and a reader reviewing reversals wants
+            // them on their own. Attached only when the period actually reversed something --
+            // an empty workbook on every send trains people to ignore both attachments.
+            var attachments = new List<EmailAttachmentContent>
+            {
+                new(fileName, ExcelContentType, excel)
+            };
+
+            if (report.FullyCreditedItems.Count > 0)
+            {
+                var creditedExcel = reportExportService.ExportPodFullyCreditedInvoicesToExcel(report, routeMap);
+                var creditedFileName =
+                    $"pod-fully-credited-{fileSlug}-{fromDate:yyyyMMdd}-{toDate:yyyyMMdd}.xlsx";
+                attachments.Add(new EmailAttachmentContent(creditedFileName, ExcelContentType, creditedExcel));
+            }
+
             logger.LogInformation(
                 ReportGeneratedEvent,
-                "POD report data generated. ScheduleId={ScheduleId}, Frequency={Frequency}, FromDate={FromDate}, ToDate={ToDate}, TotalInvoices={TotalInvoices}, UploadedCount={UploadedCount}, PendingCount={PendingCount}, ItemCount={ItemCount}",
+                "POD report data generated. ScheduleId={ScheduleId}, Frequency={Frequency}, FromDate={FromDate}, ToDate={ToDate}, TotalInvoices={TotalInvoices}, UploadedCount={UploadedCount}, PendingCount={PendingCount}, FullyCreditedCount={FullyCreditedCount}, ItemCount={ItemCount}, AttachmentCount={AttachmentCount}",
                 schedule.Id,
                 frequencyLabel,
                 fromText,
@@ -177,7 +200,9 @@ public sealed class PodReportEmailService(
                 report.TotalInvoices,
                 report.UploadedCount,
                 report.PendingCount,
-                report.Items?.Count ?? 0);
+                report.FullyCreditedItems.Count,
+                report.Items?.Count ?? 0,
+                attachments.Count);
 
             logger.LogInformation(
                 DeliveryStartedEvent,
@@ -197,10 +222,7 @@ public sealed class PodReportEmailService(
                 cc,
                 subject,
                 htmlBody,
-                attachments:
-                [
-                    new EmailAttachmentContent(fileName, ExcelContentType, excel)
-                ],
+                attachments: attachments,
                 cancellationToken: cancellationToken);
 
             if (!emailResult.Success)
@@ -270,7 +292,8 @@ public sealed class PodReportEmailService(
                 $"{frequencyLabel} POD report sent to {to.Count} recipient{(to.Count == 1 ? string.Empty : "s")}.",
                 report.TotalInvoices,
                 report.UploadedCount,
-                report.PendingCount);
+                report.PendingCount,
+                report.FullyCreditedItems.Count);
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
@@ -630,9 +653,32 @@ public sealed class PodReportEmailService(
                 </table>
                 <p style='color: #666; font-size: 12px; margin-top: 8px;'>Rows are ordered by highest pending POD count.</p>";
 
+        // Said in the body, not just carried by the attachment. The completion figure below
+        // is over the invoices that can still be documented, so a period with reversals has a
+        // denominator that moved -- and a figure whose denominator moved silently is a figure
+        // the reader is right to distrust.
+        var fullyCreditedRow = report.FullyCreditedItems.Count == 0
+            ? string.Empty
+            : $@"
+                <tr>
+                    <td style='padding: 8px; border: 1px solid #ddd; background: #f5f5f5;'><strong>Fully Credited</strong></td>
+                    <td style='padding: 8px; border: 1px solid #ddd; text-align: right; color: #c62828;'>{report.FullyCreditedItems.Count:N0}</td>
+                </tr>";
+        var creditedNote = report.FullyCreditedItems.Count == 0
+            ? string.Empty
+            : $@"<p style='color: #666; font-size: 13px; margin-top: 8px;'>
+                    {report.FullyCreditedItems.Count:N0} invoice{(report.FullyCreditedItems.Count == 1 ? " was" : "s were")}
+                    fully reversed by credit notes and {(report.FullyCreditedItems.Count == 1 ? "is" : "are")} excluded
+                    from the totals and the completion figure above. There is no proof of delivery to chase on a
+                    delivery that did not stand. They are listed in full in the second attachment.
+                 </p>";
+        var attachmentSentence = report.FullyCreditedItems.Count == 0
+            ? "is attached as an Excel workbook"
+            : "is attached as an Excel workbook, along with a second workbook listing the fully credited invoices";
+
         return $@"
             <h2>{WebUtility.HtmlEncode(frequencyLabel)} POD Report</h2>
-            <p>The POD upload report for <strong>{WebUtility.HtmlEncode(period)}</strong> is attached as an Excel workbook.</p>
+            <p>The POD upload report for <strong>{WebUtility.HtmlEncode(period)}</strong> {attachmentSentence}.</p>
             <table style='border-collapse: collapse; width: 100%; max-width: 520px;'>
                 <tr>
                     <td style='padding: 8px; border: 1px solid #ddd; background: #f5f5f5;'><strong>Total Invoices</strong></td>
@@ -646,11 +692,13 @@ public sealed class PodReportEmailService(
                     <td style='padding: 8px; border: 1px solid #ddd; background: #f5f5f5;'><strong>Pending POD</strong></td>
                     <td style='padding: 8px; border: 1px solid #ddd; text-align: right;'>{report.PendingCount:N0}</td>
                 </tr>
+                {fullyCreditedRow}
                 <tr>
                     <td style='padding: 8px; border: 1px solid #ddd; background: #f5f5f5;'><strong>Completion</strong></td>
                     <td style='padding: 8px; border: 1px solid #ddd; text-align: right;'>{completion:N1}%</td>
                 </tr>
             </table>
+            {creditedNote}
             <h3 style='margin-top: 24px; margin-bottom: 10px;'>Breakdown by Invoicing Point</h3>
             {invoicingPointBreakdown}
             <p style='color: #666; font-size: 13px; margin-top: 16px;'>Triggered by {WebUtility.HtmlEncode(triggeredBy)}.</p>";

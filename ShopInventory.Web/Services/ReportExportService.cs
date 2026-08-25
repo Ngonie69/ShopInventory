@@ -33,6 +33,13 @@ public interface IReportExportService
     byte[] ExportProfitOverviewToExcel(ProfitOverviewReport report);
     byte[] ExportSlowMovingProductsToExcel(SlowMovingProductsReport report);
     byte[] ExportPodUploadStatusToExcel(PodUploadStatusReport report, RouteMap routeMap);
+
+    /// <summary>
+    /// The invoices credit notes have fully reversed, which the POD report itself leaves out.
+    /// A separate workbook rather than a sheet on the main one: it answers a different question
+    /// (what was reversed, and why) for a different reader.
+    /// </summary>
+    byte[] ExportPodFullyCreditedInvoicesToExcel(PodUploadStatusReport report, RouteMap routeMap);
     byte[] ExportTimesheetReportToExcel(TimesheetReportResponse report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportVanAttendanceReportToExcel(VanVisitReportResponse report, DateTime? fromDate = null, DateTime? toDate = null);
 
@@ -3350,6 +3357,13 @@ public class ReportExportService : IReportExportService
             .Where(item => !IsPodReportExcludedInvoice(item))
             .ToList();
 
+        // The fully credited list is scoped the same way. It is drawn from the same invoices
+        // and read by the same people, so an excluded creator or business partner has to fall
+        // out of both or the two workbooks disagree about what the period held.
+        var fullyCreditedItems = report.FullyCreditedItems
+            .Where(item => !IsPodReportExcludedInvoice(item))
+            .ToList();
+
         return new PodUploadStatusReport
         {
             FromDate = report.FromDate,
@@ -3357,9 +3371,11 @@ public class ReportExportService : IReportExportService
             TotalInvoices = items.Count,
             UploadedCount = items.Count(item => item.HasPod),
             PendingCount = items.Count(item => !item.HasPod),
+            FullyCreditedCount = fullyCreditedItems.Count,
             CreditNoteDataComplete = report.CreditNoteDataComplete,
             CreditNoteDataWarning = report.CreditNoteDataWarning,
-            Items = items
+            Items = items,
+            FullyCreditedItems = fullyCreditedItems
         };
     }
 
@@ -3821,6 +3837,463 @@ public class ReportExportService : IReportExportService
         }
 
         return WorkbookToBytes(workbook);
+    }
+
+    /// <summary>
+    /// The currency the invoice was raised in, defaulted so a blank never groups with a real
+    /// currency. The POD sheets carry no currency column because they count invoices; this
+    /// workbook is read for the money, so it has to say which money.
+    /// </summary>
+    private static string PodCurrencyOf(PodUploadStatusItem item) =>
+        string.IsNullOrWhiteSpace(item.DocCurrency) ? "Unstated" : item.DocCurrency.Trim();
+
+    /// <summary>
+    /// Credited value stated per currency rather than summed. A period can hold USD, ZWG and
+    /// ZAR invoices at once, and one total across them would be a number that is not an amount
+    /// of anything.
+    /// </summary>
+    private static string FormatPodCreditedValue(IEnumerable<PodUploadStatusItem> items)
+    {
+        var totals = items
+            .GroupBy(PodCurrencyOf, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new { Currency = group.Key, Total = group.Sum(item => item.DocTotal) })
+            .OrderByDescending(entry => entry.Total)
+            .ToList();
+
+        if (totals.Count == 0)
+            return "-";
+
+        return string.Join(" | ", totals.Select(entry => $"{entry.Currency} {FormatPodAmount(entry.Total)}"));
+    }
+
+    private static string FormatPodCount(int count, string singular, string plural) =>
+        $"{count:N0} {(count == 1 ? singular : plural)}";
+
+    private static string FormatPodCreditReasonDisplay(PodUploadStatusItem item) =>
+        string.IsNullOrWhiteSpace(item.CreditNoteReason) ? PodNoCreditReasonLabel : item.CreditNoteReason.Trim();
+
+    private const string PodNoCreditReasonLabel = "No reason supplied";
+
+    private const string PodNoCreditedInvoicesLabel = "No invoice in this period was fully credited.";
+
+    public byte[] ExportPodFullyCreditedInvoicesToExcel(PodUploadStatusReport report, RouteMap routeMap)
+    {
+        using var workbook = NewWorkbook("Fully Credited Invoices");
+        var now = CurrentCatNow();
+        var periodText = FormatPodReportPeriod(report);
+
+        // Same reporting scope as the POD workbook: the two are read side by side, so an
+        // excluded creator or business partner has to fall out of both.
+        var scoped = ApplyPodReportingScope(report);
+        var creditedItems = scoped.FullyCreditedItems
+            .OrderByDescending(item => item.DocNum)
+            .ToList();
+
+        BuildPodFullyCreditedSheet(workbook, creditedItems, scoped.Items.Count, periodText, now, routeMap);
+        BuildPodFullyCreditedByCustomerSheet(workbook, creditedItems, periodText, now);
+        BuildPodFullyCreditedByReasonSheet(workbook, creditedItems, periodText, now);
+
+        return WorkbookToBytes(workbook);
+    }
+
+    private static void BuildPodFullyCreditedSheet(
+        XLWorkbook workbook,
+        IReadOnlyList<PodUploadStatusItem> creditedItems,
+        int chaseableCount,
+        string periodText,
+        DateTime now,
+        RouteMap routeMap)
+    {
+        var ws = workbook.Worksheets.Add("Fully Credited");
+        const int lastCol = 13;
+        PodApplyDefaults(ws);
+
+        // The share the credited invoices would have been of the period had they been left in.
+        // Stated because it is exactly what the POD report's completion no longer carries, and a
+        // reader holding the two workbooks side by side will otherwise go looking for it.
+        var periodInvoiceCount = chaseableCount + creditedItems.Count;
+        var creditedShare = periodInvoiceCount > 0
+            ? creditedItems.Count / (double)periodInvoiceCount * 100
+            : 0;
+        var withPodCount = creditedItems.Count(item => item.HasPod);
+
+        var row = PodTitleBar(ws, $"FULLY CREDITED INVOICES - {periodText}", lastCol, now);
+        row = PodKpiStrip(ws, row, lastCol,
+            ("Fully Credited", creditedItems.Count.ToString("N0"), creditedItems.Count > 0 ? PodRed : PodGreen),
+            ("Credited Value", FormatPodCreditedValue(creditedItems), PodRed),
+            ("Share Of Period", $"{creditedShare:N1}%", creditedShare > 5 ? PodOrange : PodTextMuted),
+            ("POD Still On File", withPodCount.ToString("N0"), PodTextMuted),
+            ("Still Chased", chaseableCount.ToString("N0"), PodNavy));
+
+        PodSectionTitle(
+            ws,
+            row,
+            lastCol,
+            "Invoices credit notes have fully reversed - excluded from POD completion");
+        row++;
+
+        var headerRow = row;
+        row = PodColumnHeaders(ws, row, lastCol,
+        [
+            "Invoice #",
+            "Customer",
+            "Card Code",
+            "Delivery Route",
+            "Invoice Date",
+            "Generated Location",
+            "Currency",
+            "Credit Note #",
+            "Credit Reason",
+            "POD Status",
+            "POD Type",
+            "Invoice Age",
+            "TOTAL"
+        ]);
+
+        var rowIndex = 0;
+        foreach (var item in creditedItems)
+        {
+            var isStripe = rowIndex % 2 == 1;
+            var daysAging = CalculatePodDaysAging(item.DocDate, now);
+            PodDataRow(ws, row, lastCol, isStripe);
+
+            ws.Cell(row, 1).Value = item.DocNum;
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 1).Style.Font.FontColor = PodTextMuted;
+            ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 2).Value = item.CardName ?? "-";
+            ws.Cell(row, 3).Value = item.CardCode ?? "-";
+            ws.Cell(row, 4).Value = FormatPodRouteDisplay(routeMap, item);
+            ws.Cell(row, 4).Style.Font.FontColor = PodTextMuted;
+            WriteDateCell(ws.Cell(row, 5), item.DocDate);
+            ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 6).Value = FormatPodGeneratedLocationDisplay(item);
+            ws.Cell(row, 6).Style.Font.FontColor = PodTextMuted;
+            ws.Cell(row, 7).Value = PodCurrencyOf(item);
+            ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 7).Style.Font.FontColor = PodTextMuted;
+
+            // Every row on this sheet is fully credited, so the credit note number is never
+            // the "Not verified" the shared writer falls back to on unverified data.
+            WritePodCreditNoteCells(ws, row, 8, 9, item, creditNoteDataComplete: true);
+
+            ws.Cell(row, 10).Value = item.HasPod ? "Uploaded" : "Never uploaded";
+            StylePodStatusCell(ws.Cell(row, 10), item.HasPod, isStripe);
+            ws.Cell(row, 11).Value = FormatPodTypeDisplay(item);
+            StylePodTypeCell(ws.Cell(row, 11), item);
+            ws.Cell(row, 12).Value = daysAging;
+            StylePodAgingCell(ws.Cell(row, 12), daysAging);
+            ws.Cell(row, 13).Value = item.DocTotal;
+            StylePodTotalCell(ws.Cell(row, 13), isStripe);
+
+            row++;
+            rowIndex++;
+        }
+
+        if (creditedItems.Count == 0)
+            row = WritePodCreditedEmptyRow(ws, row, lastCol);
+
+        var podLastDataRow = row - 1;
+        PodSummaryRow(ws, row, lastCol);
+        ws.Cell(row, 1).Value = "TOTAL";
+        ws.Cell(row, 2).Value = FormatPodCount(creditedItems.Count, "invoice", "invoices");
+        ws.Cell(row, 5).Value = periodText;
+        ws.Cell(row, 7).Value = FormatPodCreditedValue(creditedItems);
+        ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, 8).Value = FormatPodCount(CountDistinctCreditNotes(creditedItems), "credit note", "credit notes");
+        ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, 9).Value =
+            $"{creditedItems.Count(item => string.IsNullOrWhiteSpace(item.CreditNoteReason)):N0} without a reason";
+        ws.Cell(row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, 10).Value = $"{withPodCount:N0} had a POD";
+        ws.Cell(row, 12).Value = "Age at export";
+        ws.Cell(row, 12).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, 11).Value = "Excluded from completion";
+        ws.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+        PodCreditedNoteRow(
+            ws,
+            row + 2,
+            lastCol,
+            "These invoices are left out of the POD upload report and out of its completion percentage. "
+                + "A credit note that fully reverses an invoice means the delivery did not stand, so there "
+                + "is no proof of delivery to chase and never will be.");
+        PodDisclaimerRow(ws, row + 4, lastCol, now);
+        PodFinalize(ws, lastCol, headerRow, 2, podLastDataRow);
+        ws.Column(1).Width = 12;
+        ws.Column(2).Width = 38;
+        ws.Column(3).Width = 12;
+        ws.Column(4).Width = 24;
+        ws.Column(5).Width = 14;
+        ws.Column(6).Width = 22;
+        ws.Column(7).Width = 12;
+        ws.Column(8).Width = 16;
+        ws.Column(9).Width = 32;
+        ws.Column(10).Width = 16;
+        ws.Column(11).Width = 20;
+        ws.Column(12).Width = 12;
+        ws.Column(13).Width = 14;
+    }
+
+    private static void BuildPodFullyCreditedByCustomerSheet(
+        XLWorkbook workbook,
+        IReadOnlyList<PodUploadStatusItem> creditedItems,
+        string periodText,
+        DateTime now)
+    {
+        // Grouped by customer and currency together. A shop invoiced in two currencies has a
+        // separate SAP card code per currency anyway, and summing across them would produce a
+        // total that is not an amount of anything.
+        var byCustomer = creditedItems
+            .GroupBy(item => (
+                Customer: string.IsNullOrWhiteSpace(item.CardName) ? "Unnamed customer" : item.CardName.Trim(),
+                CardCode: string.IsNullOrWhiteSpace(item.CardCode) ? "-" : item.CardCode.Trim(),
+                Currency: PodCurrencyOf(item)))
+            .Select(group => new
+            {
+                group.Key.Customer,
+                group.Key.CardCode,
+                group.Key.Currency,
+                InvoiceCount = group.Count(),
+                CreditedValue = group.Sum(item => item.DocTotal),
+                CreditNotes = CountDistinctCreditNotes(group)
+            })
+            .OrderByDescending(group => group.InvoiceCount)
+            .ThenByDescending(group => group.CreditedValue)
+            .ThenBy(group => group.Customer, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var customerCount = CountDistinctPodCustomers(creditedItems);
+
+        var ws = workbook.Worksheets.Add("By Customer");
+        const int lastCol = 6;
+        PodApplyDefaults(ws);
+
+        var row = PodTitleBar(ws, $"FULLY CREDITED BY CUSTOMER - {periodText}", lastCol, now);
+        row = PodKpiStrip(ws, row, lastCol,
+            ("Customers", customerCount.ToString("N0"), PodNavy),
+            ("Invoices", creditedItems.Count.ToString("N0"), PodRed),
+            ("Credited Value", FormatPodCreditedValue(creditedItems), PodRed));
+
+        PodSectionTitle(ws, row, lastCol, "Customers with fully credited invoices");
+        row++;
+
+        var headerRow = row;
+        row = PodColumnHeaders(ws, row, lastCol,
+        [
+            "Customer",
+            "Card Code",
+            "Currency",
+            "Invoices",
+            "Credit Notes",
+            "Credited Value"
+        ]);
+
+        var rowIndex = 0;
+        foreach (var group in byCustomer)
+        {
+            var isStripe = rowIndex % 2 == 1;
+            PodDataRow(ws, row, lastCol, isStripe);
+
+            ws.Cell(row, 1).Value = group.Customer;
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 2).Value = group.CardCode;
+            ws.Cell(row, 2).Style.Font.FontColor = PodTextMuted;
+            ws.Cell(row, 3).Value = group.Currency;
+            ws.Cell(row, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 4).Value = group.InvoiceCount;
+            ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 5).Value = group.CreditNotes;
+            ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 6).Value = group.CreditedValue;
+            StylePodCurrencyCell(ws.Cell(row, 6), bold: true, fontColor: PodRed);
+
+            row++;
+            rowIndex++;
+        }
+
+        if (byCustomer.Count == 0)
+            row = WritePodCreditedEmptyRow(ws, row, lastCol);
+
+        var podLastDataRow = row - 1;
+        PodSummaryRow(ws, row, lastCol);
+        ws.Cell(row, 1).Value = "TOTAL";
+        ws.Cell(row, 2).Value = FormatPodCount(customerCount, "customer", "customers");
+        ws.Cell(row, 4).Value = creditedItems.Count;
+        ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, 5).Value = CountDistinctCreditNotes(creditedItems);
+        ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        // A string rather than a sum: the column can hold more than one currency.
+        ws.Cell(row, 6).Value = FormatPodCreditedValue(creditedItems);
+        ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+        PodDisclaimerRow(ws, row + 2, lastCol, now);
+        PodFinalize(ws, lastCol, headerRow, 1, podLastDataRow);
+        ws.Column(1).Width = 38;
+        ws.Column(2).Width = 14;
+        ws.Column(3).Width = 12;
+        ws.Column(4).Width = 12;
+        ws.Column(5).Width = 14;
+        ws.Column(6).Width = 18;
+    }
+
+    private static void BuildPodFullyCreditedByReasonSheet(
+        XLWorkbook workbook,
+        IReadOnlyList<PodUploadStatusItem> creditedItems,
+        string periodText,
+        DateTime now)
+    {
+        var byReason = creditedItems
+            .GroupBy(item => (Reason: FormatPodCreditReasonDisplay(item), Currency: PodCurrencyOf(item)))
+            .Select(group => new
+            {
+                group.Key.Reason,
+                group.Key.Currency,
+                InvoiceCount = group.Count(),
+                CreditedValue = group.Sum(item => item.DocTotal),
+                Customers = CountDistinctPodCustomers(group)
+            })
+            .OrderByDescending(group => group.InvoiceCount)
+            .ThenByDescending(group => group.CreditedValue)
+            .ThenBy(group => group.Reason, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var ws = workbook.Worksheets.Add("By Reason");
+        const int lastCol = 5;
+        PodApplyDefaults(ws);
+
+        var unstatedCount = creditedItems.Count(item => string.IsNullOrWhiteSpace(item.CreditNoteReason));
+        var reasonCount = byReason
+            .Select(group => group.Reason)
+            .Where(reason => !string.Equals(reason, PodNoCreditReasonLabel, StringComparison.Ordinal))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+        var row = PodTitleBar(ws, $"FULLY CREDITED BY REASON - {periodText}", lastCol, now);
+        row = PodKpiStrip(ws, row, lastCol,
+            ("Distinct Reasons", reasonCount.ToString("N0"), PodNavy),
+            ("Invoices", creditedItems.Count.ToString("N0"), PodRed),
+            ("Without A Reason", unstatedCount.ToString("N0"), unstatedCount > 0 ? PodOrange : PodGreen));
+
+        PodSectionTitle(ws, row, lastCol, "Why the invoices were reversed");
+        row++;
+
+        var headerRow = row;
+        row = PodColumnHeaders(ws, row, lastCol,
+        [
+            "Credit Reason",
+            "Currency",
+            "Invoices",
+            "Customers",
+            "Credited Value"
+        ]);
+
+        var rowIndex = 0;
+        foreach (var group in byReason)
+        {
+            var isStripe = rowIndex % 2 == 1;
+            PodDataRow(ws, row, lastCol, isStripe);
+
+            ws.Cell(row, 1).Value = group.Reason;
+            ws.Cell(row, 1).Style.Alignment.WrapText = true;
+            ws.Cell(row, 1).Style.Font.FontColor =
+                string.Equals(group.Reason, PodNoCreditReasonLabel, StringComparison.Ordinal)
+                    ? PodTextMuted
+                    : PodTextDark;
+            ws.Cell(row, 2).Value = group.Currency;
+            ws.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 3).Value = group.InvoiceCount;
+            ws.Cell(row, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 4).Value = group.Customers;
+            ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 5).Value = group.CreditedValue;
+            StylePodCurrencyCell(ws.Cell(row, 5), bold: true, fontColor: PodRed);
+
+            row++;
+            rowIndex++;
+        }
+
+        if (byReason.Count == 0)
+            row = WritePodCreditedEmptyRow(ws, row, lastCol);
+
+        var podLastDataRow = row - 1;
+        PodSummaryRow(ws, row, lastCol);
+        ws.Cell(row, 1).Value = "TOTAL";
+        ws.Cell(row, 2).Value = FormatPodCount(
+            byReason.Select(group => group.Currency).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+            "currency",
+            "currencies");
+        ws.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, 3).Value = creditedItems.Count;
+        ws.Cell(row, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, 4).Value = CountDistinctPodCustomers(creditedItems);
+        ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, 5).Value = FormatPodCreditedValue(creditedItems);
+        ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+        PodDisclaimerRow(ws, row + 2, lastCol, now);
+        PodFinalize(ws, lastCol, headerRow, 1, podLastDataRow);
+        ws.Column(1).Width = 42;
+        ws.Column(2).Width = 12;
+        ws.Column(3).Width = 12;
+        ws.Column(4).Width = 14;
+        ws.Column(5).Width = 18;
+    }
+
+    /// <summary>
+    /// A period with nothing credited still produces the sheet. An empty grid between a header
+    /// and a totals row reads as a report that failed to run rather than as a clean period.
+    /// </summary>
+    private static int WritePodCreditedEmptyRow(IXLWorksheet ws, int row, int lastCol)
+    {
+        PodDataRow(ws, row, lastCol, isStripe: false);
+        ws.Range(row, 1, row, lastCol).Merge();
+        ws.Cell(row, 1).Value = PodNoCreditedInvoicesLabel;
+        ws.Cell(row, 1).Style.Font.Italic = true;
+        ws.Cell(row, 1).Style.Font.FontColor = PodTextMuted;
+        ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        return row + 1;
+    }
+
+    /// <summary>
+    /// One invoice can carry several credit notes and one credit note several invoices, so the
+    /// note count is over the distinct numbers rather than over the rows.
+    /// </summary>
+    private static int CountDistinctCreditNotes(IEnumerable<PodUploadStatusItem> items) =>
+        items
+            .SelectMany(item => (item.CreditNoteNumber ?? string.Empty)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+    /// <summary>
+    /// Counted on the card code, which is the identity SAP keys on -- one shop holds a separate
+    /// code per currency, and those are separate accounts rather than one customer counted twice.
+    /// </summary>
+    private static int CountDistinctPodCustomers(IEnumerable<PodUploadStatusItem> items) =>
+        items
+            .Select(item => string.IsNullOrWhiteSpace(item.CardCode)
+                ? string.IsNullOrWhiteSpace(item.CardName) ? "-" : item.CardName.Trim()
+                : item.CardCode.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+    /// <summary>
+    /// A standing note under a sheet, distinct from <see cref="PodDisclaimerRow"/>: that one
+    /// says where the data came from, this one says what the sheet means.
+    /// </summary>
+    private static void PodCreditedNoteRow(IXLWorksheet ws, int row, int lastCol, string text)
+    {
+        ws.Range(row, 1, row, lastCol).Merge();
+        var cell = ws.Cell(row, 1);
+        cell.Value = text;
+        cell.Style.Font.FontSize = 9;
+        cell.Style.Font.Italic = true;
+        cell.Style.Font.FontColor = PodTextMuted;
+        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+        cell.Style.Alignment.WrapText = true;
+        ws.Row(row).Height = 26;
     }
 
     private static void BuildPodInvoiceSheet(

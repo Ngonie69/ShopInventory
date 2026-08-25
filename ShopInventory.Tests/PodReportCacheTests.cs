@@ -230,6 +230,10 @@ public sealed class PodReportCacheTests : IDisposable
         Assert.Equal(1, result.Value.PendingCount);
     }
 
+    /// <summary>
+    /// The projection both supplies the credit-note detail and decides where the invoice
+    /// belongs: fully reversed puts it on the credited list rather than on the chase list.
+    /// </summary>
     [Fact]
     public async Task Cached_report_is_reenriched_from_the_fresh_credit_note_projection()
     {
@@ -314,11 +318,17 @@ public sealed class PodReportCacheTests : IDisposable
             CancellationToken.None);
 
         Assert.False(result.IsError);
-        var item = Assert.Single(result.Value.Items);
+        var item = Assert.Single(result.Value.FullyCreditedItems);
         Assert.Equal("9001", item.CreditNoteNumber);
         Assert.Equal("Returned", item.CreditNoteReason);
         Assert.True(item.IsFullyCredited);
         Assert.True(result.Value.CreditNoteDataComplete);
+
+        // Off the report proper, and out of every count the completion figure is drawn from.
+        Assert.Empty(result.Value.Items);
+        Assert.Equal(0, result.Value.TotalInvoices);
+        Assert.Equal(0, result.Value.PendingCount);
+        Assert.Equal(1, result.Value.FullyCreditedCount);
     }
 
     [Fact]

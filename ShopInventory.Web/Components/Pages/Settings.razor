@@ -2309,7 +2309,7 @@
             var result = await PodEmailService.SendForScheduleAsync(schedule, currentUsername);
             podEmailMessageSuccess = result.Success;
             podEmailMessage = result.Success
-                ? $"{result.Message} Total: {result.TotalInvoices:N0}, uploaded: {result.UploadedCount:N0}, pending: {result.PendingCount:N0}."
+                ? $"{result.Message} Total: {result.TotalInvoices:N0}, uploaded: {result.UploadedCount:N0}, pending: {result.PendingCount:N0}{FormatCreditedSuffix(result.FullyCreditedCount)}."
                 : result.Message;
 
             if (result.Success)
@@ -2318,7 +2318,7 @@
                 await LoadSchedulesAsync();
                 await LogAudit(
                     AuditActions.UpdateSettings,
-                    $"Sent POD report email schedule '{schedule.Name}' manually: total {result.TotalInvoices}, uploaded {result.UploadedCount}, pending {result.PendingCount}.");
+                    $"Sent POD report email schedule '{schedule.Name}' manually: total {result.TotalInvoices}, uploaded {result.UploadedCount}, pending {result.PendingCount}, fully credited {result.FullyCreditedCount}.");
             }
         }
         catch (Exception ex)
@@ -2333,6 +2333,14 @@
             StateHasChanged();
         }
     }
+
+    // Named only when there is something to name. The three counts above are over
+    // the invoices the report still asks for a POD on; a period with reversals has
+    // a fourth figure that is deliberately outside them.
+    private static string FormatCreditedSuffix(int fullyCreditedCount) =>
+        fullyCreditedCount == 0
+            ? string.Empty
+            : $", fully credited (excluded): {fullyCreditedCount:N0}";
 
     private static string GetScheduleFrequencyLabel(PodReportEmailSchedule schedule) =>
         PodReportEmailService.ParseFrequency(schedule.Frequency) switch

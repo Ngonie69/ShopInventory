@@ -72,6 +72,29 @@
                         <span>Export Excel</span>
                     }
                 </button>
+                @* Its own download rather than a sheet on the workbook above: the
+                   credited invoices answer a different question, for a reader who is
+                   reviewing reversals rather than chasing uploads. *@
+                <button type="button" class="podr-btn podr-btn-quiet"
+                        disabled="@(isExportingCredited || report == null || FullyCreditedCount == 0)"
+                        title="@(report != null && FullyCreditedCount == 0 ? "Nothing in this window was fully credited" : null)"
+                        @onclick="ExportFullyCreditedToExcel">
+                    @if (isExportingCredited)
+                    {
+                        <span class="podr-spin" aria-hidden="true"></span>
+                        <span>Exporting&#8230;</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M12 3v12"></path>
+                            <path d="M7.5 10.5L12 15l4.5-4.5"></path>
+                            <path d="M4 19h16"></path>
+                        </svg>
+                        <span>Credited (@FullyCreditedCount)</span>
+                    }
+                </button>
                 <button type="button" class="podr-btn podr-btn-primary" disabled="@isLoading" @onclick="LoadReport">
                     @if (isLoading)
                     {
@@ -272,6 +295,18 @@
                         <div class="podr-meter-on" style="width: @CompletePercentLabel"></div>
                     </div>
                     <div class="podr-fig-label">Fully documented</div>
+                    @* The figure is over the invoices that can still be documented. A
+                       fully credited invoice is a delivery that did not stand, so it is
+                       out of the count rather than sitting in it as a permanent miss --
+                       said here because a denominator that moved silently is a
+                       denominator nobody trusts. *@
+                    @if (FullyCreditedCount > 0)
+                    {
+                        <div class="podr-fig-sub">
+                            @FullyCreditedCount fully credited @(FullyCreditedCount == 1 ? "invoice" : "invoices")
+                            excluded &#8212; @FormatCreditedValue(FullyCreditedFilteredItems)
+                        </div>
+                    }
                 </div>
                 <div class="podr-fig @(MissingProductCount > 0 ? "podr-fig-risk" : null)">
                     <div class="podr-fig-top">
@@ -594,6 +629,7 @@
     private PodUploadStatusReport? report;
     private bool isLoading;
     private bool isExporting;
+    private bool isExportingCredited;
     private bool isRefreshingCreditNotes;
     private bool isDisposed;
     private string? errorMessage;
@@ -745,60 +781,68 @@
     private bool HasGeneratedLocationFilter =>
         !string.Equals(generatedLocationFilter, "all", StringComparison.OrdinalIgnoreCase);
 
-    private IEnumerable<PodUploadStatusItem> BaseFilteredItems
+    // The invoices the report still asks for a POD on. The API holds the fully
+    // credited ones apart on FullyCreditedItems, so nothing here has to exclude
+    // them -- and the completion figure below is over this list alone.
+    private IEnumerable<PodUploadStatusItem> BaseFilteredItems => ApplyBaseFilters(report?.Items);
+
+    // The same filters over the credited list, so the credited export answers for
+    // the same slice of the window the table is showing rather than for the whole
+    // range regardless of what the user narrowed to.
+    private IEnumerable<PodUploadStatusItem> FullyCreditedFilteredItems =>
+        ApplyBaseFilters(report?.FullyCreditedItems);
+
+    private IEnumerable<PodUploadStatusItem> ApplyBaseFilters(IEnumerable<PodUploadStatusItem>? source)
     {
-        get
+        if (source == null)
+            return Enumerable.Empty<PodUploadStatusItem>();
+
+        var items = source;
+
+        if (!string.IsNullOrWhiteSpace(searchTerm))
         {
-            if (report?.Items == null)
-                return Enumerable.Empty<PodUploadStatusItem>();
-
-            var items = report.Items.AsEnumerable();
-
-            if (!string.IsNullOrWhiteSpace(searchTerm))
-            {
-                var term = searchTerm.Trim();
-                items = items.Where(i =>
-                    (i.CardName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    (i.CardCode?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    (i.CreditNoteNumber?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    (i.CreditNoteReason?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    i.DocNum.ToString().Contains(term));
-            }
-
-            if (routeMap is not null && !string.Equals(routeFilter, "all", StringComparison.OrdinalIgnoreCase))
-            {
-                items = string.Equals(routeFilter, UnroutedFilterValue, StringComparison.Ordinal)
-                    ? items.Where(i => routeMap.GetRoutes(i.CardCode).Count == 0)
-                    : items.Where(i => routeMap.IsOnRoute(i.CardCode, routeFilter));
-            }
-
-            if (!string.Equals(currencyFilter, "all", StringComparison.OrdinalIgnoreCase))
-            {
-                items = items.Where(i => string.Equals(i.DocCurrency?.Trim(), currencyFilter, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (HasUploaderIdentityFilters)
-            {
-                items = items.Where(i => GetUploaderFilteredPodUploadedByUsers(i).Any());
-            }
-
-            if (HasGeneratedLocationFilter)
-            {
-                items = items.Where(MatchesGeneratedLocationFilter);
-            }
-
-            if (minAmount.HasValue)
-            {
-                items = items.Where(i => i.DocTotal >= EffectiveMinAmount);
-            }
-
-            if (maxAmount.HasValue)
-            {
-                items = items.Where(i => i.DocTotal <= EffectiveMaxAmount);
-            }
-
-            return items;
+            var term = searchTerm.Trim();
+            items = items.Where(i =>
+                (i.CardName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (i.CardCode?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (i.CreditNoteNumber?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (i.CreditNoteReason?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                i.DocNum.ToString().Contains(term));
         }
+
+        if (routeMap is not null && !string.Equals(routeFilter, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            items = string.Equals(routeFilter, UnroutedFilterValue, StringComparison.Ordinal)
+                ? items.Where(i => routeMap.GetRoutes(i.CardCode).Count == 0)
+                : items.Where(i => routeMap.IsOnRoute(i.CardCode, routeFilter));
+        }
+
+        if (!string.Equals(currencyFilter, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            items = items.Where(i => string.Equals(i.DocCurrency?.Trim(), currencyFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (HasUploaderIdentityFilters)
+        {
+            items = items.Where(i => GetUploaderFilteredPodUploadedByUsers(i).Any());
+        }
+
+        if (HasGeneratedLocationFilter)
+        {
+            items = items.Where(MatchesGeneratedLocationFilter);
+        }
+
+        if (minAmount.HasValue)
+        {
+            items = items.Where(i => i.DocTotal >= EffectiveMinAmount);
+        }
+
+        if (maxAmount.HasValue)
+        {
+            items = items.Where(i => i.DocTotal <= EffectiveMaxAmount);
+        }
+
+        return items;
     }
 
     // An invoice is either a crate invoice or a product one — never both — so a
@@ -859,6 +903,7 @@
     private sealed record TabDefinition(string Key, string Label, int Count);
 
     private int BaseFilteredCount => BaseFilteredItems.Count();
+    private int FullyCreditedCount => FullyCreditedFilteredItems.Count();
     private int DocumentedCount => BaseFilteredItems.Count(i => i.HasPod);
     private int MissingProductCount => MissingProductItems.Count();
     private int MissingCrateCount => MissingCrateItems.Count();
@@ -944,6 +989,29 @@
             label += $" +{totals.Count - 2} more";
 
         return label + " at risk";
+    }
+
+    // Per currency, for the reason FormatAtRisk gives: one total across USD, ZWG
+    // and ZAR would be a number that is not an amount of anything.
+    private static string FormatCreditedValue(IEnumerable<PodUploadStatusItem> items)
+    {
+        var totals = items
+            .GroupBy(i => string.IsNullOrWhiteSpace(i.DocCurrency) ? "?" : i.DocCurrency!.Trim(),
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group => new { Currency = group.Key, Total = group.Sum(i => i.DocTotal) })
+            .OrderByDescending(entry => entry.Total)
+            .ToList();
+
+        if (totals.Count == 0)
+            return "nothing credited";
+
+        var shown = totals.Take(2).Select(entry => $"{entry.Currency} {entry.Total:N2}");
+        var label = string.Join(" · ", shown);
+
+        if (totals.Count > 2)
+            label += $" +{totals.Count - 2} more";
+
+        return label + " reversed";
     }
 
     private static string FormatDelay(int index) =>
@@ -1319,20 +1387,8 @@
         StateHasChanged();
         try
         {
-            var exportItems = BaseFilteredItems.ToList();
-            var exportReport = new PodUploadStatusReport
-            {
-                FromDate = report.FromDate,
-                ToDate = report.ToDate,
-                TotalInvoices = exportItems.Count,
-                UploadedCount = exportItems.Count(i => i.HasPod),
-                PendingCount = exportItems.Count(i => !i.HasPod),
-                CreditNoteDataComplete = report.CreditNoteDataComplete,
-                Items = exportItems
-            };
-
             var bytes = ExportService.ExportPodUploadStatusToExcel(
-                exportReport, routeMap ?? await RouteDirectory.GetMapAsync());
+                BuildExportReport(), routeMap ?? await RouteDirectory.GetMapAsync());
             var base64 = Convert.ToBase64String(bytes);
             await JS.InvokeVoidAsync("downloadFile", $"POD_Upload_Report_{DateTime.UtcNow:yyyyMMdd_HHmm}.xlsx", base64);
         }
@@ -1343,6 +1399,55 @@
         finally
         {
             isExporting = false;
+            StateHasChanged();
+        }
+    }
+
+    // Both downloads are built from the same filtered window, so the credited
+    // workbook covers exactly the invoices the table's filters left standing --
+    // and its "Still Chased" figure agrees with the page's own denominator.
+    private PodUploadStatusReport BuildExportReport()
+    {
+        var exportItems = BaseFilteredItems.ToList();
+        var creditedItems = FullyCreditedFilteredItems.ToList();
+
+        return new PodUploadStatusReport
+        {
+            FromDate = report!.FromDate,
+            ToDate = report.ToDate,
+            TotalInvoices = exportItems.Count,
+            UploadedCount = exportItems.Count(i => i.HasPod),
+            PendingCount = exportItems.Count(i => !i.HasPod),
+            FullyCreditedCount = creditedItems.Count,
+            CreditNoteDataComplete = report.CreditNoteDataComplete,
+            CreditNoteDataWarning = report.CreditNoteDataWarning,
+            Items = exportItems,
+            FullyCreditedItems = creditedItems
+        };
+    }
+
+    private async Task ExportFullyCreditedToExcel()
+    {
+        if (report == null || FullyCreditedCount == 0) return;
+        isExportingCredited = true;
+        StateHasChanged();
+        try
+        {
+            var bytes = ExportService.ExportPodFullyCreditedInvoicesToExcel(
+                BuildExportReport(), routeMap ?? await RouteDirectory.GetMapAsync());
+            var base64 = Convert.ToBase64String(bytes);
+            await JS.InvokeVoidAsync(
+                "downloadFile",
+                $"POD_Fully_Credited_{DateTime.UtcNow:yyyyMMdd_HHmm}.xlsx",
+                base64);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Credited export failed: {ex.Message}";
+        }
+        finally
+        {
+            isExportingCredited = false;
             StateHasChanged();
         }
     }
