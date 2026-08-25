@@ -745,10 +745,10 @@ WHERE T0.""BaseType"" = 13
 ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""LineNum""";
 
     internal static readonly string CreditNoteLinkByEntrySql =
-        BuildCreditNoteLinkSql(@"T0.""BaseEntry"" BETWEEN :rangeStart AND :rangeEnd");
+        BuildCreditNoteLinkSql(@"T0.""BaseEntry"" >= :rangeStart AND T0.""BaseEntry"" <= :rangeEnd");
 
     internal static readonly string CreditNoteLinkByRefSql =
-        BuildCreditNoteLinkSql(@"T0.""BaseRef"" BETWEEN :rangeStart AND :rangeEnd");
+        BuildCreditNoteLinkSql(@"T0.""BaseRef"" >= :rangeStart AND T0.""BaseRef"" <= :rangeEnd");
 
     private async Task<Dictionary<int, CreditNoteInfo>> GetCreditNoteLookupAsync(
         IReadOnlyList<Invoice> invoices,
@@ -1320,7 +1320,7 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
 SELECT DISTINCT
     T0.""DocEntry"" AS ""InvoiceDocEntry""
 FROM INV1 T0
-WHERE T0.""DocEntry"" BETWEEN :docEntryStart AND :docEntryEnd
+WHERE T0.""DocEntry"" >= :docEntryStart AND T0.""DocEntry"" <= :docEntryEnd
   AND T0.""ItemCode"" IN ({string.Join(", ", CrateInvoiceItemCodes
       .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
       .Select(code => $"'{code}'"))})

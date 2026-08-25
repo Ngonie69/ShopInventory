@@ -46,7 +46,7 @@ INNER JOIN INV1 invl
        AND invl.""BaseEntry"" = so.""DocEntry""
 INNER JOIN OINV inv
         ON inv.""DocEntry"" = invl.""DocEntry""
-WHERE so.""DocNum"" BETWEEN :docNumStart AND :docNumEnd
+WHERE so.""DocNum"" >= :docNumStart AND so.""DocNum"" <= :docNumEnd
 ORDER BY so.""DocNum"", inv.""DocDate"", inv.""DocNum""";
 
     public async Task<ErrorOr<BulkPodValidationResponseDto>> Handle(

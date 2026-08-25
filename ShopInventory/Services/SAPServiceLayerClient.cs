@@ -7909,6 +7909,10 @@ ORDER BY T0.""ItemCode""";
     /// zero rows. Call once per value instead.</description></item>
     /// <item><description>String concatenation with <c>||</c> is rejected by the validator, which
     /// rules out the usual delimited-list matching tricks.</description></item>
+    /// <item><description><c>BETWEEN :a AND :b</c> is rejected. The validator strips the statement's
+    /// whitespace before parsing, so it sees <c>colBETWEEN:aAND:b</c> and refuses the whole
+    /// expression. Write <c>col &gt;= :a AND col &lt;= :b</c>, which every working report uses.
+    /// A single bound parameter against a literal bound is fine.</description></item>
     /// </list>
     /// </remarks>
     public async Task<List<Dictionary<string, object?>>> ExecuteParameterisedSqlQueryAsync(
