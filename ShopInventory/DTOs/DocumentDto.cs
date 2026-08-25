@@ -370,12 +370,26 @@ public class PodUploadStatusReportDto
 {
     public string FromDate { get; set; } = string.Empty;
     public string ToDate { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The counts below, and <see cref="Items"/> itself, cover only the invoices the report
+    /// still asks for a POD on. Invoices that credit notes have fully reversed are held apart
+    /// in <see cref="FullyCreditedItems"/> and counted by <see cref="FullyCreditedCount"/>.
+    /// </summary>
     public int TotalInvoices { get; set; }
     public int UploadedCount { get; set; }
     public int PendingCount { get; set; }
+    public int FullyCreditedCount { get; set; }
     public bool CreditNoteDataComplete { get; set; } = true;
     public string? CreditNoteDataWarning { get; set; }
     public List<PodUploadStatusItemDto> Items { get; set; } = new();
+
+    /// <summary>
+    /// Invoices credit notes have fully reversed. A delivery that did not stand has no proof
+    /// of delivery to chase and never will, so these are kept out of the completion figure
+    /// rather than held against it -- but they are still reported, as their own list.
+    /// </summary>
+    public List<PodUploadStatusItemDto> FullyCreditedItems { get; set; } = new();
 }
 
 #endregion

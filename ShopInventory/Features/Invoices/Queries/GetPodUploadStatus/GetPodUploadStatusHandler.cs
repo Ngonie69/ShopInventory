@@ -297,13 +297,12 @@ public sealed class GetPodUploadStatusHandler(
             {
                 FromDate = request.FromDate.ToString("yyyy-MM-dd"),
                 ToDate = request.ToDate.ToString("yyyy-MM-dd"),
-                TotalInvoices = items.Count,
-                UploadedCount = items.Count(i => i.HasPod),
-                PendingCount = items.Count(i => !i.HasPod),
                 CreditNoteDataComplete = creditNoteLookupResult.IsComplete,
                 CreditNoteDataWarning = creditNoteLookupResult.Warning,
                 Items = items
             };
+
+            ApplyFullyCreditedSplit(result);
 
             if (cacheScopeKey is not null && result.CreditNoteDataComplete)
             {
@@ -387,6 +386,16 @@ public sealed class GetPodUploadStatusHandler(
         PodUploadStatusReportDto report,
         CancellationToken cancellationToken)
     {
+        // Put the fully credited invoices back on the working list before enriching. Their POD
+        // and credit-note status still has to be refreshed -- a credit note can be cancelled,
+        // which puts the invoice back on the chase list -- and the split below is what decides
+        // where each one belongs once that refresh has run.
+        if (report.FullyCreditedItems.Count > 0)
+        {
+            report.Items.AddRange(report.FullyCreditedItems);
+            report.FullyCreditedItems = [];
+        }
+
         // Snapshots cached before an exclusion was added still hold the excluded invoices.
         report.Items.RemoveAll(item => PodExclusions.IsExcludedCardName(item.CardName));
 
@@ -458,10 +467,43 @@ public sealed class GetPodUploadStatusHandler(
             report.CreditNoteDataWarning = creditNoteResult.Warning;
         }
 
+        ApplyFullyCreditedSplit(report);
+        return report;
+    }
+
+    /// <summary>
+    /// Moves the invoices credit notes have fully reversed off the report's own list and into
+    /// <see cref="PodUploadStatusReportDto.FullyCreditedItems"/>, then states the counts over
+    /// what is left.
+    /// </summary>
+    /// <remarks>
+    /// A fully credited invoice is a delivery that did not stand. There is no proof of delivery
+    /// to chase and there never will be, so leaving it in the denominator holds a completion
+    /// figure down against work nobody can do. It is not dropped, though: the credited set is
+    /// exactly what someone reviewing the reversals wants to see, and the Web exports it as its
+    /// own workbook.
+    ///
+    /// The split reads both lists, so a report rebuilt from a cached snapshot re-partitions on
+    /// the credit-note status as it now stands rather than as it stood when the snapshot was
+    /// written -- and a snapshot written before this field existed simply arrives with the
+    /// credited invoices still on <c>Items</c> and gets partitioned here.
+    /// </remarks>
+    internal static void ApplyFullyCreditedSplit(PodUploadStatusReportDto report)
+    {
+        var all = report.FullyCreditedItems.Count > 0
+            ? report.Items.Concat(report.FullyCreditedItems).ToList()
+            : report.Items;
+
+        report.Items = all.Where(item => !item.IsFullyCredited).ToList();
+        report.FullyCreditedItems = all
+            .Where(item => item.IsFullyCredited)
+            .OrderByDescending(item => item.DocNum)
+            .ToList();
+
         report.TotalInvoices = report.Items.Count;
         report.UploadedCount = report.Items.Count(item => item.HasPod);
         report.PendingCount = report.Items.Count(item => !item.HasPod);
-        return report;
+        report.FullyCreditedCount = report.FullyCreditedItems.Count;
     }
 
     private async Task<PodUploadStatusReportDto> UseStaleSnapshotAsync(
@@ -1559,8 +1601,10 @@ ORDER BY T0.""DocEntry""";
             TotalInvoices = 0,
             UploadedCount = 0,
             PendingCount = 0,
+            FullyCreditedCount = 0,
             CreditNoteDataComplete = true,
-            Items = []
+            Items = [],
+            FullyCreditedItems = []
         };
 
     private sealed record CreditNoteLookupResult(

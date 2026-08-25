@@ -87,12 +87,26 @@ public class PodUploadStatusReport
 {
     public string FromDate { get; set; } = string.Empty;
     public string ToDate { get; set; } = string.Empty;
+
+    /// <summary>
+    /// These counts, and <see cref="Items"/> itself, cover only the invoices the report still
+    /// asks for a POD on. Invoices that credit notes have fully reversed are held apart in
+    /// <see cref="FullyCreditedItems"/>, so they neither pad the total nor sit in the pending
+    /// column of a completion figure nobody can move.
+    /// </summary>
     public int TotalInvoices { get; set; }
     public int UploadedCount { get; set; }
     public int PendingCount { get; set; }
+    public int FullyCreditedCount { get; set; }
     public bool CreditNoteDataComplete { get; set; } = true;
     public string? CreditNoteDataWarning { get; set; }
     public List<PodUploadStatusItem> Items { get; set; } = new();
+
+    /// <summary>
+    /// Invoices credit notes have fully reversed, reported as their own list and exported as
+    /// their own workbook.
+    /// </summary>
+    public List<PodUploadStatusItem> FullyCreditedItems { get; set; } = new();
 }
 
 public class PodDashboardModel
