@@ -33,7 +33,9 @@ public static class NotificationAudienceRules
     public static readonly string[] DashboardAudienceRoles = ["Admin", "Cashier", "StockController", "Manager", "SalesRep"];
     public static readonly string[] SalesOrderPageAudienceRoles = ["Admin", "Cashier", "SalesRep"];
     public static readonly string[] SalesOrderEditAudienceRoles = ["Admin", "Cashier", "Merchandiser", "SalesRep"];
-    public static readonly string[] QuotationAudienceRoles = ["Admin", "Cashier"];
+    // Matches who can open /quotations. A rep who raises a quotation is told about it; leave them
+    // out and their own document's notification is stored and shown to nobody.
+    public static readonly string[] QuotationAudienceRoles = ["Admin", "Cashier", "SalesRep"];
     public static readonly string[] MobileSalesAudienceRoles = ["Admin", "Cashier", "Merchandiser", "SalesRep", "ADR", "Sales"];
     public static readonly string[] MerchandiserAccountAudienceRoles = ["Admin", "SalesRep"];
     public static readonly string[] CatalogueAudienceRoles = ["Admin", "Cashier", "StockController", "Manager", "Merchandiser"];

@@ -144,6 +144,21 @@
                             </span>
                             <span class="snav-text">Mobile Orders</span>
                         </NavLink>
+                        @* The same two pages the invoicing roles get. A rep quotes a customer and
+                           converts the quote to a sales order; the credit note beside them in that
+                           nav stays out of this one. *@
+                        <NavLink class="snav-link" href="/quotations" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-file-text" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Quotations</span>
+                        </NavLink>
+                        <NavLink class="snav-link" href="/quotations/create" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <i class="ph ph-file-plus" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Create Quotation</span>
+                        </NavLink>
                         @* A rep's copy of the report is scoped to one business partner they pick;
                            the page requires the choice before it will load. *@
                         <NavLink class="snav-link" href="/reports/order-fulfillment" Match="NavLinkMatch.Prefix">

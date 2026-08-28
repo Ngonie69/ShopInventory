@@ -24,13 +24,24 @@ using System.Security.Claims;
 
 namespace ShopInventory.Controllers;
 
+/// <summary>
+/// Customer (sales) quotations.
+/// </summary>
+/// <remarks>
+/// Guarded by the <c>quotations.*</c> permissions rather than the <c>invoices.*</c> ones these
+/// actions used to borrow. A quotation binds nobody: it is a priced offer a customer may ignore,
+/// so raising one is not the same trust as raising an invoice, and a sales rep holds the first
+/// without the second. Roles that could reach these endpoints only because they held
+/// <c>invoices.view</c> — Driver, PodOperator, Operator, CartVendor, User, ReadOnly — no longer
+/// can; none of them has ever had a quotation surface to reach them from.
+/// </remarks>
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
 [Produces("application/json")]
 public class QuotationController(IMediator mediator) : ApiControllerBase
 {
     [HttpGet]
-    [RequirePermission(Permission.ViewInvoices)]
+    [RequirePermission(Permission.ViewQuotations)]
     public async Task<IActionResult> GetAll(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
@@ -45,7 +56,7 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpGet("sap")]
-    [RequirePermission(Permission.ViewInvoices)]
+    [RequirePermission(Permission.ViewQuotations)]
     public async Task<IActionResult> GetFromSAP(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
@@ -59,7 +70,7 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpGet("sap/{docEntry}")]
-    [RequirePermission(Permission.ViewInvoices)]
+    [RequirePermission(Permission.ViewQuotations)]
     public async Task<IActionResult> GetFromSAPByDocEntry(int docEntry, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetQuotationFromSAPByDocEntryQuery(docEntry), cancellationToken);
@@ -67,7 +78,7 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpGet("sap/{docEntry:int}/pdf")]
-    [RequirePermission(Permission.ViewInvoices)]
+    [RequirePermission(Permission.ViewQuotations)]
     public async Task<IActionResult> DownloadSapQuotationPdf(int docEntry, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new DownloadSapQuotationPdfQuery(docEntry), cancellationToken);
@@ -77,7 +88,7 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpGet("{id}")]
-    [RequirePermission(Permission.ViewInvoices)]
+    [RequirePermission(Permission.ViewQuotations)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetQuotationByIdQuery(id), cancellationToken);
@@ -85,7 +96,7 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpGet("number/{quotationNumber}")]
-    [RequirePermission(Permission.ViewInvoices)]
+    [RequirePermission(Permission.ViewQuotations)]
     public async Task<IActionResult> GetByQuotationNumber(string quotationNumber, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetQuotationByNumberQuery(quotationNumber), cancellationToken);
@@ -93,7 +104,7 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpGet("{id:int}/pdf")]
-    [RequirePermission(Permission.ViewInvoices)]
+    [RequirePermission(Permission.ViewQuotations)]
     public async Task<IActionResult> DownloadQuotationPdf(int id, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new DownloadQuotationPdfQuery(id), cancellationToken);
@@ -103,7 +114,7 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPost]
-    [RequirePermission(Permission.CreateInvoices)]
+    [RequirePermission(Permission.CreateQuotations)]
     public async Task<IActionResult> Create([FromBody] CreateQuotationRequest request, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.ClientRequestId) && Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyValues))
@@ -120,7 +131,7 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPut("{id}")]
-    [RequirePermission(Permission.EditInvoices)]
+    [RequirePermission(Permission.EditQuotations)]
     public async Task<IActionResult> Update(int id, [FromBody] CreateQuotationRequest request, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new UpdateQuotationCommand(id, request), cancellationToken);
@@ -128,7 +139,7 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPatch("{id}/status")]
-    [RequirePermission(Permission.EditInvoices)]
+    [RequirePermission(Permission.EditQuotations)]
     public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateQuotationStatusRequest request, CancellationToken cancellationToken)
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -140,7 +151,7 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPost("{id}/approve")]
-    [RequirePermission(Permission.EditInvoices)]
+    [RequirePermission(Permission.EditQuotations)]
     public async Task<IActionResult> Approve(int id, CancellationToken cancellationToken)
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -152,7 +163,7 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPost("{id}/apply-standard-vat")]
-    [RequirePermission(Permission.EditInvoices)]
+    [RequirePermission(Permission.EditQuotations)]
     public async Task<IActionResult> ApplyStandardVat(int id, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new ApplyStandardVatCommand(id), cancellationToken);
@@ -160,7 +171,7 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPut("{id}/reprice")]
-    [RequirePermission(Permission.EditInvoices)]
+    [RequirePermission(Permission.EditQuotations)]
     public async Task<IActionResult> Reprice(int id, [FromBody] CreateQuotationRequest request, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new RepriceQuotationCommand(id, request), cancellationToken);
@@ -168,7 +179,7 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPost("{id}/convert-to-sales-order")]
-    [RequirePermission(Permission.CreateInvoices)]
+    [RequirePermission(Permission.CreateQuotations)]
     public async Task<IActionResult> ConvertToSalesOrder(int id, CancellationToken cancellationToken)
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -180,7 +191,7 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpDelete("{id}")]
-    [RequirePermission(Permission.DeleteInvoices)]
+    [RequirePermission(Permission.DeleteQuotations)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new DeleteQuotationCommand(id), cancellationToken);
