@@ -38,6 +38,12 @@ public class RequirePermissionAttribute : AuthorizeAttribute, IAsyncAuthorizatio
         _requireAll = requireAll;
     }
 
+    /// <summary>
+    /// What this attribute demands, so a guard can read an endpoint's permissions rather than
+    /// its source. The filter below reads the field directly; this exists to be asserted on.
+    /// </summary>
+    public IReadOnlyList<string> RequiredPermissions => _permissions;
+
     public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
         var user = context.HttpContext.User;

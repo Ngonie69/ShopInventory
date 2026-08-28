@@ -152,6 +152,7 @@ Endpoints may require specific permissions checked via the `[RequirePermission]`
 | **Dashboard** | `dashboard.view` |
 | **Products** | `products.view`, `products.create`, `products.edit`, `products.delete`, `products.manage_prices` |
 | **Invoices** | `invoices.view`, `invoices.create`, `invoices.edit`, `invoices.delete`, `invoices.void` |
+| **Sales Quotations** | `quotations.view`, `quotations.create`, `quotations.edit`, `quotations.delete` |
 | **Purchasing** | `purchasing.view`, `purchasing.create`, `purchasing.edit`, `purchasing.delete`, `purchasing.approve`, `purchasing.receive` |
 | **Payments** | `payments.view`, `payments.create`, `payments.refund`, `payments.process_refunds` |
 | **Inventory** | `stock.view`, `stock.edit`, `stock.transfer`, `stock.adjust`, `inventory.view`, `inventory.transfer`, `inventory.adjust` |
@@ -1126,23 +1127,29 @@ Configurable under `CreditLimit` in `appsettings.json`: `Enabled`, `IncludeOpenO
 **Base route:** `/api/Quotation`  
 **Auth:** Bearer + permissions as noted
 
+The `quotations.*` family is separate from `invoices.*`, which these endpoints used to borrow. A
+quotation is an offer that binds nobody, so raising one is not the trust that raising an invoice is:
+Admin, Manager, Cashier and SalesRep hold view/create/edit by default, and only Admin holds delete.
+A sales rep therefore quotes a customer and converts the quote to a sales order without ever gaining
+the right to invoice.
+
 | Method | Endpoint | Permission | Description |
 |--------|----------|-----------|-------------|
-| GET | `/api/Quotation` | `invoices.view` | List local quotations |
-| GET | `/api/Quotation/sap` | `invoices.view` | List SAP quotations |
-| GET | `/api/Quotation/sap/{docEntry}` | `invoices.view` | One SAP quotation |
-| GET | `/api/Quotation/sap/{docEntry}/pdf` | `invoices.view` | A SAP quotation as a PDF |
-| GET | `/api/Quotation/{id}` | `invoices.view` | Get by ID |
-| GET | `/api/Quotation/number/{quotationNumber}` | `invoices.view` | Get by quotation number |
-| GET | `/api/Quotation/{id}/pdf` | `invoices.view` | Download as a PDF |
-| POST | `/api/Quotation` | `invoices.create` | Create quotation |
-| PUT | `/api/Quotation/{id}` | `invoices.edit` | Update quotation |
-| PATCH | `/api/Quotation/{id}/status` | `invoices.edit` | Change its status |
-| POST | `/api/Quotation/{id}/approve` | `invoices.edit` | Approve it |
-| POST | `/api/Quotation/{id}/apply-standard-vat` | `invoices.edit` | Re-apply the standard VAT rate to every line |
-| PUT | `/api/Quotation/{id}/reprice` | `invoices.edit` | Reprice it against current prices |
-| POST | `/api/Quotation/{id}/convert-to-sales-order` | `invoices.create` | Convert to a sales order |
-| DELETE | `/api/Quotation/{id}` | `invoices.delete` | Delete it |
+| GET | `/api/Quotation` | `quotations.view` | List local quotations |
+| GET | `/api/Quotation/sap` | `quotations.view` | List SAP quotations |
+| GET | `/api/Quotation/sap/{docEntry}` | `quotations.view` | One SAP quotation |
+| GET | `/api/Quotation/sap/{docEntry}/pdf` | `quotations.view` | A SAP quotation as a PDF |
+| GET | `/api/Quotation/{id}` | `quotations.view` | Get by ID |
+| GET | `/api/Quotation/number/{quotationNumber}` | `quotations.view` | Get by quotation number |
+| GET | `/api/Quotation/{id}/pdf` | `quotations.view` | Download as a PDF |
+| POST | `/api/Quotation` | `quotations.create` | Create quotation |
+| PUT | `/api/Quotation/{id}` | `quotations.edit` | Update quotation |
+| PATCH | `/api/Quotation/{id}/status` | `quotations.edit` | Change its status |
+| POST | `/api/Quotation/{id}/approve` | `quotations.edit` | Approve it |
+| POST | `/api/Quotation/{id}/apply-standard-vat` | `quotations.edit` | Re-apply the standard VAT rate to every line |
+| PUT | `/api/Quotation/{id}/reprice` | `quotations.edit` | Reprice it against current prices |
+| POST | `/api/Quotation/{id}/convert-to-sales-order` | `quotations.create` | Convert to a sales order |
+| DELETE | `/api/Quotation/{id}` | `quotations.delete` | Delete it |
 
 **Query parameters:** `page` (1), `pageSize` (20), `cardCode`, `fromDate`, `toDate`; the local list
 also takes `status`

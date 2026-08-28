@@ -97,6 +97,15 @@ public static class Permissions
     public const string ApproveSalesOrders = "salesorders.approve";
     public const string PostSalesOrdersToSAP = "salesorders.post_to_sap";
 
+    // Sales Quotations. Deliberately its own family rather than the invoice one it used to
+    // borrow: a quotation commits nobody to anything, so the roles that may raise one are not
+    // the roles trusted with an invoice. A sales rep quoting a customer is the case that made
+    // the difference matter.
+    public const string ViewQuotations = "quotations.view";
+    public const string CreateQuotations = "quotations.create";
+    public const string EditQuotations = "quotations.edit";
+    public const string DeleteQuotations = "quotations.delete";
+
     // Sync & System
     public const string ViewSyncStatus = "sync.view";
     public const string ManageSync = "sync.manage";
@@ -226,6 +235,13 @@ public static class Permissions
                 new(ApproveSalesOrders, "Approve Sales Orders", "Approve pending sales orders"),
                 new(PostSalesOrdersToSAP, "Post to SAP", "Post approved sales orders to SAP")
             },
+            ["Sales Quotations"] = new()
+            {
+                new(ViewQuotations, "View Quotations", "View customer quotation listings and details"),
+                new(CreateQuotations, "Create Quotations", "Raise new customer quotations"),
+                new(EditQuotations, "Edit Quotations", "Edit, reprice, approve and convert quotations"),
+                new(DeleteQuotations, "Delete Quotations", "Delete quotations")
+            },
             ["Timesheets"] = new()
             {
                 new(ViewTimesheets, "View Timesheets", "View merchandiser check-in/check-out timesheets"),
@@ -274,6 +290,7 @@ public static class Permissions
                 ViewGoodsReceiptPurchaseOrders, CreateGoodsReceiptPurchaseOrders,
                 ViewPurchaseInvoices, CreatePurchaseInvoices,
                 ViewSalesOrders, CreateSalesOrders, EditSalesOrders, DeleteSalesOrders, ApproveSalesOrders, PostSalesOrdersToSAP,
+                ViewQuotations, CreateQuotations, EditQuotations,
                 ViewReports, ExportReports,
                 ViewCustomers, CreateCustomers, EditCustomers,
                 ViewUsers,
@@ -300,6 +317,7 @@ public static class Permissions
                 ViewStock, ViewInventory,
                 ViewCustomers, CreateCustomers, EditCustomers,
                 ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders,
+                ViewQuotations, CreateQuotations, EditQuotations,
                 ViewReports
             },
             // Narrower than Cashier on purpose. A cart vendor invoices vendors from a list somebody
@@ -375,11 +393,16 @@ public static class Permissions
                 TransferStock, TransferInventory,
                 ViewTimesheets, ManageTimesheets
             },
+            // A sales rep quotes a customer and, when the quote is taken up, turns it into the
+            // sales order they were already trusted to raise. Quoting stops there: no invoice
+            // rights come with it, which is why the quotation permissions are their own family
+            // rather than the invoice ones QuotationController used to borrow.
             ApplicationRoles.SalesRep => new List<string>
             {
                 ViewDashboard,
                 CreateMerchandiserAccounts,
                 ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders, PostSalesOrdersToSAP,
+                ViewQuotations, CreateQuotations, EditQuotations,
                 ViewTimesheets, ManageTimesheets
             },
             ApplicationRoles.MerchandiserPurchaseOrderViewer => new List<string>
@@ -493,6 +516,12 @@ public static class Permission
     public const string DeleteSalesOrders = Permissions.DeleteSalesOrders;
     public const string ApproveSalesOrders = Permissions.ApproveSalesOrders;
     public const string PostSalesOrdersToSAP = Permissions.PostSalesOrdersToSAP;
+
+    // Sales Quotations
+    public const string ViewQuotations = Permissions.ViewQuotations;
+    public const string CreateQuotations = Permissions.CreateQuotations;
+    public const string EditQuotations = Permissions.EditQuotations;
+    public const string DeleteQuotations = Permissions.DeleteQuotations;
 
     // Backups
     public const string ViewBackups = Permissions.ViewBackups;

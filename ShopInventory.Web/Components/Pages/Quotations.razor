@@ -3,7 +3,7 @@
 @using System.Text
 @using Microsoft.AspNetCore.Authorization
 @using MudBlazor
-@attribute [Authorize(Roles = "Admin,Cashier")]
+@attribute [Authorize(Roles = UserRoles.QuotationRoles)]
 @inject IQuotationService QuotationService
 @inject IBusinessPartnerService BusinessPartnerService
 @inject IMasterDataCacheService CacheService
@@ -298,17 +298,25 @@
                                             </svg>
                                         </button>
                                     }
+                                    @* Admin is the only role holding quotations.delete, so for
+                                       everyone else this button could only ever come back
+                                       "Failed to delete quotation." Role-gated rather than
+                                       hidden by status alone. *@
                                     @if (quotation.Status == QuotationStatus.Draft || quotation.Status == QuotationStatus.Cancelled)
                                     {
-                                        <button type="button" class="qtn-icon-btn" title="Delete"
-                                                aria-label="Delete @quotation.QuotationNumber"
-                                                @onclick="() => DeleteQuotation(quotation.Id)" @onclick:stopPropagation>
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
-                                                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                                <path d="M4 7h16M9.5 7V5h5v2M6.8 7l.9 13h8.6l.9-13"></path>
-                                                <path d="M10 11v6M14 11v6"></path>
-                                            </svg>
-                                        </button>
+                                        <AuthorizeView Roles="@UserRoles.Admin" Context="deleteCtx">
+                                            <Authorized>
+                                                <button type="button" class="qtn-icon-btn" title="Delete"
+                                                        aria-label="Delete @quotation.QuotationNumber"
+                                                        @onclick="() => DeleteQuotation(quotation.Id)" @onclick:stopPropagation>
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                                                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                        <path d="M4 7h16M9.5 7V5h5v2M6.8 7l.9 13h8.6l.9-13"></path>
+                                                        <path d="M10 11v6M14 11v6"></path>
+                                                    </svg>
+                                                </button>
+                                            </Authorized>
+                                        </AuthorizeView>
                                     }
                                 </span>
                             </div>

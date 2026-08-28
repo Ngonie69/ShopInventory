@@ -113,6 +113,15 @@ public static class UserRoles
     public const string InsightsRoles = "Admin,Cashier,StockController,Manager";
     public const string SystemRoles = "Admin,Cashier,StockController,Manager";
     public const string InvoicingRoles = "Admin,Cashier";
+
+    /// <summary>
+    /// Who can open /quotations and /quotations/create. Wider than <see cref="InvoicingRoles"/>
+    /// by the sales rep, and deliberately not the same list: a quotation is an offer a customer
+    /// may ignore, so a rep raises one and converts it to the sales order they could already
+    /// raise, without ever gaining the right to invoice. The API agrees through its own
+    /// <c>quotations.*</c> permissions — see <c>QuotationController</c>.
+    /// </summary>
+    public const string QuotationRoles = "Admin,Cashier,SalesRep";
     public const string PaymentRoles = "Admin,Cashier";
     public const string InventoryTransferRoles = "Admin,Manager,StockController,DepotController";
     public const string SalesOrderRoles = "Admin,Cashier,Merchandiser,SalesRep";
