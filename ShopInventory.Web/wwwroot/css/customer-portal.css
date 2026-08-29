@@ -2168,6 +2168,17 @@
     --nsel-min-w: 0;
 }
 
+/* Why the Load button is unreachable, on the one occasion the fields do not say
+   it themselves. An empty date explains its own disabled button; two filled ones
+   in the wrong order do not. A sibling of the row rather than a cell in it —
+   `.cpd-filters` is an auto-fit grid, and a note inside it would take a column
+   and stand beside the fields instead of under them. */
+.cpx .cpd-filter-note {
+    margin: var(--cpx-s3) 0 0;
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-warn);
+}
+
 .cpx .cpd-field {
     display: flex;
     flex-direction: column;

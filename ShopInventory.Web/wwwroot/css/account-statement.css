@@ -888,6 +888,40 @@
     margin-top: 2px;
 }
 
+/* The state the page opens on, and returns to whenever there is no statement to
+   show. Quieter than .cst-gate: the gate is a dead end, this is a page waiting on
+   one field, and it sits under a filter bar that is already the thing to look at. */
+.cst .cst-prompt {
+    padding: clamp(1.75rem, 6vw, 3.5rem) 0;
+    text-align: center;
+}
+
+.cst .cst-prompt svg {
+    margin: 0 auto var(--cst-s3);
+    color: var(--cst-t35);
+}
+
+.cst .cst-prompt h2 {
+    margin: 0 0 var(--cst-s2);
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--cst-ink);
+}
+
+.cst .cst-prompt p {
+    max-width: 42ch;
+    margin: 0 auto;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--cst-t50);
+}
+
+.cst .cst-prompt strong {
+    font-weight: 600;
+    color: var(--cst-t70);
+}
+
 .cst .cst-gate {
     padding: clamp(2rem, 8vw, 4.5rem) 0;
     text-align: center;

@@ -108,7 +108,7 @@
                 </div>
                 <div class="cpd-field cpd-field-action">
                     <button type="button" class="btn btn-primary" @onclick="ApplyFilters"
-                            disabled="@(isLoading || !fromDate.HasValue || !toDate.HasValue)">
+                            disabled="@(isLoading || !HasPeriod || PeriodIsInverted)">
                         @if (isLoading)
                         {
                             <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
@@ -121,6 +121,12 @@
                     </button>
                 </div>
             </div>
+            @if (PeriodIsInverted)
+            {
+                <p class="cpd-filter-note" role="alert">
+                    The From date falls after the To date. Swap them to load items.
+                </p>
+            }
         </section>
 
         @if (hasLoadedData)
@@ -304,8 +310,16 @@
     private string searchText = string.Empty;
     private string sortColumn = "NetAmt";
     private bool sortAscending = false;
-    private DateTime? fromDate = DateTime.Today.AddMonths(-3);
-    private DateTime? toDate = DateTime.Today;
+    // Deliberately empty. This is a live read of the customer's purchase history, and the
+    // reader who opened the page has not said which period they want yet — so both
+    // fields start blank and the button stays out of reach until they do.
+    private DateTime? fromDate;
+    private DateTime? toDate;
+
+    private bool HasPeriod => fromDate.HasValue && toDate.HasValue;
+
+    // Refused at the button rather than sent: an inverted range is not a query.
+    private bool PeriodIsInverted => HasPeriod && fromDate > toDate;
     private string? selectedCategory;
     private List<string> availableCategories = new();
     private bool isMultiAccount;
@@ -365,6 +379,8 @@
 
     private async Task LoadData()
     {
+        if (!HasPeriod || PeriodIsInverted) return;
+
         isLoading = true;
 
         try
@@ -401,7 +417,6 @@
 
     private async Task ApplyFilters()
     {
-        if (!fromDate.HasValue || !toDate.HasValue) return;
         await LoadData();
     }
 
