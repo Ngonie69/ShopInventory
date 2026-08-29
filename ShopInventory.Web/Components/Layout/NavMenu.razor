@@ -586,6 +586,20 @@
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
+                        @* Who may order in the app at all. Kept to the roles that own the
+                           customer relationship rather than the depot ones above: loading a van is
+                           a daily job, granting a shop access is not, and the two being adjacent
+                           should not make the second look like part of the first. *@
+                        <AuthorizeView Roles="Admin,Manager,Cashier" Context="vanSalesAccountCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/van-sales-customer-accounts" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-device-mobile" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Customer App Access</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
                     </NavSection>
                 </Authorized>
             </AuthorizeView>
