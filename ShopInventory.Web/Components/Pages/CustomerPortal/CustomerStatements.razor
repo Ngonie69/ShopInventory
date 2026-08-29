@@ -44,11 +44,11 @@
    repoints to the portal's teal — see its `.cst .ndf` block. *@
 
 <div class="cst fade-in">
-    @if (isLoading && statement == null)
+    @if (isInitialising)
     {
         <div class="cst-loading">
             <span class="cst-spin" aria-hidden="true"></span>
-            <span>Loading your statement&#8230;</span>
+            <span>Loading your account&#8230;</span>
         </div>
     }
     else if (customerInfo == null)
@@ -124,7 +124,8 @@
                                     Placeholder="All accounts" />
                 </label>
             }
-            <button type="button" class="cst-btn cst-btn-primary" @onclick="GenerateStatement" disabled="@isLoading">
+            <button type="button" class="cst-btn cst-btn-primary" @onclick="GenerateStatement"
+                    disabled="@(isLoading || !HasPeriod || PeriodIsInverted)">
                 @if (isLoading)
                 {
                     <span class="cst-spin" aria-hidden="true"></span>
@@ -147,6 +148,13 @@
             </div>
         </div>
 
+        @if (PeriodIsInverted)
+        {
+            <p class="cpd-filter-note" role="alert">
+                The From date falls after the To date. Swap them to generate a statement.
+            </p>
+        }
+
         @if (!string.IsNullOrWhiteSpace(errorMessage))
         {
             <div class="cst-msg" role="alert">
@@ -156,6 +164,30 @@
                     <path d="M12 7.5v5.5M12 16.2v.1"></path>
                 </svg>
                 <span>@errorMessage</span>
+            </div>
+        }
+
+        @if (isLoading && statement == null)
+        {
+            <div class="cst-loading">
+                <span class="cst-spin" aria-hidden="true"></span>
+                <span>Generating your statement&#8230;</span>
+            </div>
+        }
+        else if (statement == null && string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="cst-prompt">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="3.5" y="5" width="17" height="15.5" rx="2.5"></rect>
+                    <path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"></path>
+                    <path d="M7.5 13.5h3M13.5 13.5h3M7.5 17h3"></path>
+                </svg>
+                <h2>Choose a period</h2>
+                <p>
+                    Pick a <strong>From</strong> and a <strong>To</strong> date above &#8212; or one of the quick
+                    ranges &#8212; then generate. Nothing is fetched from your account until you do.
+                </p>
             </div>
         }
 
@@ -342,9 +374,17 @@
     private CustomerPortalSession? portalSession;
     private CustomerInfo? customerInfo;
     private CustomerStatementResponse? statement;
-    private DateTime? fromDate = IAuditService.ToCAT(DateTime.UtcNow).AddMonths(-3);
-    private DateTime? toDate = IAuditService.ToCAT(DateTime.UtcNow);
-    private bool isLoading = true;
+    // Deliberately empty. A statement is a live SAP read over a whole ledger, and the
+    // reader who opened this page has not yet said which one they want — so the page
+    // rests on the filter bar and fetches nothing until they name a period, either by
+    // typing both dates or by pressing a quick range.
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private bool isLoading;
+
+    // The session read, which does still run on open: it is what decides between the
+    // page and the sign-in gate, and it is a local lookup rather than a SAP call.
+    private bool isInitialising = true;
     private bool isDownloading = false;
     private bool isMultiAccount;
     private string? errorMessage;
@@ -362,34 +402,34 @@
 
     private bool ledgerExpanded;
 
+    private bool HasPeriod => fromDate.HasValue && toDate.HasValue;
+
+    // Refused at the button rather than sent: an inverted range is not a query.
+    private bool PeriodIsInverted => HasPeriod && fromDate > toDate;
+
+    // Callers gate on HasPeriod first: a request built from a defaulted period would
+    // fetch a range the reader never asked for and label it with the one they see.
     private CustomerStatementRequest BuildRequest() => new()
     {
-        FromDate = fromDate ?? IAuditService.ToCAT(DateTime.UtcNow).AddMonths(-3),
-        ToDate = toDate ?? IAuditService.ToCAT(DateTime.UtcNow),
+        FromDate = fromDate!.Value,
+        ToDate = toDate!.Value,
         IncludeClosedInvoices = true,
         CardCodes = ResolveRequestedCardCodes()
     };
 
     protected override async Task OnInitializedAsync()
     {
-        // Loading here rather than in OnAfterRender starts the fetch before the first render
-        // instead of after it. The guard keeps the session read off any non-interactive pass;
-        // see CustomerPortalLayout for why it is here even though prerendering is off.
+        // Only the session is read here — the statement waits for a period. Reading it in
+        // OnInitializedAsync rather than OnAfterRender still gets the answer in before the
+        // first render. The guard keeps the session read off any non-interactive pass; see
+        // CustomerPortalLayout for why it is here even though prerendering is off.
         if (!RendererInfo.IsInteractive)
         {
             return;
         }
 
         await LoadCustomerInfo();
-
-        if (customerInfo != null)
-        {
-            await GenerateStatement();
-        }
-        else
-        {
-            isLoading = false;
-        }
+        isInitialising = false;
     }
 
     private async Task LoadCustomerInfo()
@@ -411,13 +451,6 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading customer info");
-        }
-        finally
-        {
-            if (customerInfo == null)
-            {
-                isLoading = false;
-            }
         }
     }
 
@@ -446,12 +479,33 @@
         }
 
         selectedAccountFilter = value;
-        await GenerateStatement();
+
+        // Only re-runs what is already on screen. Before a period has been chosen there is
+        // nothing to re-scope, and firing here would fetch behind the reader's back.
+        if (HasPeriod)
+        {
+            await GenerateStatement();
+        }
     }
 
     private async Task GenerateStatement()
     {
         if (customerInfo == null) return;
+
+        if (!HasPeriod)
+        {
+            errorMessage = "Choose a from and a to date before generating the statement.";
+            return;
+        }
+
+        // Unreachable from the button, which is disabled on an inverted period; kept
+        // for the callers that are not the button.
+        if (PeriodIsInverted)
+        {
+            statement = null;
+            errorMessage = "The from date falls after the to date. Swap them and generate again.";
+            return;
+        }
 
         isLoading = true;
         errorMessage = null;
@@ -486,7 +540,7 @@
 
     private async Task DownloadPdf()
     {
-        if (customerInfo == null) return;
+        if (customerInfo == null || !HasPeriod) return;
 
         isDownloading = true;
         StateHasChanged();
@@ -743,7 +797,9 @@
 
     private string PeriodLabel => statement != null
         ? $"{FormatDate(statement.FromDate)} — {FormatDate(statement.ToDate)}"
-        : $"{FormatDate(fromDate)} — {FormatDate(toDate)}";
+        : HasPeriod
+            ? $"{FormatDate(fromDate)} — {FormatDate(toDate)}"
+            : "No period selected";
 
     private string AccountScopeLabel => string.IsNullOrEmpty(selectedAccountFilter)
         ? "All main accounts"
