@@ -18,7 +18,7 @@
 
       Remove once Microsoft.AspNetCore.DataProtection references a patched version directly.
     -->
-    <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.10" />
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.11" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\ShopInventory.Web\ShopInventory.Web.csproj" />
