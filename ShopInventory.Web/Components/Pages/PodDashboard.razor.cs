@@ -12,12 +12,10 @@ namespace ShopInventory.Web.Components.Pages;
 /// The proof-of-delivery dashboard, and the page a POD operator lands on when
 /// they sign in (see <see cref="RoleLandingRoutes"/>).
 ///
-/// It serves two readings of the same shape. An operator runs a section: the
-/// upload figures the API returns are their whole section's, so the page adds
-/// the section's compliance — what is still missing proof, and who is
-/// uploading. Everyone else reaching this page (a driver, a cashier, a rep)
-/// gets the same panels reporting their own uploads, which is what the API
-/// scopes for them.
+/// It serves two readings of the same shape. A POD operator oversees the
+/// company-wide upload and compliance picture, including what is still missing
+/// proof and who is uploading. Everyone else reaching this page (a driver, a
+/// cashier, a rep) gets the same panels reporting their own uploads.
 ///
 /// Built on the Nocturne system shared with the sales-rep dashboard —
 /// wwwroot/css/pod-dashboard.css, linked from App.razor, carries the light and
@@ -26,7 +24,6 @@ namespace ShopInventory.Web.Components.Pages;
 public partial class PodDashboard
 {
     [Inject] private IPodService PodService { get; set; } = default!;
-    [Inject] private IUserManagementService UserManagementService { get; set; } = default!;
     [Inject] private IAuditService AuditService { get; set; } = default!;
     [Inject] private ILogger<PodDashboard> Logger { get; set; } = default!;
 
@@ -54,13 +51,6 @@ public partial class PodDashboard
     private bool isOperator;
     private string? username;
 
-    /// <summary>
-    /// The operator's depot. Null when the account carries none, or when the
-    /// lookup failed — in which case the compliance panels report every section
-    /// and say so, rather than passing the company's figures off as one depot's.
-    /// </summary>
-    private string? section;
-
     private PodDashboardModel? uploads;
     private Coverage? coverage;
     private IReadOnlyList<PodUploadStatusItem> outstanding = [];
@@ -69,24 +59,12 @@ public partial class PodDashboard
     private IReadOnlyList<ChartBar> bars = [];
     private int axisMax;
 
-    /// <summary>
-    /// Invoices in the window that no section can be attributed to. The
-    /// generated location comes from a map of the SAP users who raise invoices,
-    /// so anything raised by a user outside it belongs to no section and is
-    /// left out of a section-scoped reading. It is stated rather than buried.
-    /// </summary>
-    private int unattributed;
-
     private static DateTime Today => DateTime.Today;
 
     private DateTime RangeStart => Today.AddDays(-(rangeDays - 1));
 
-    private bool SectionScoped => isOperator && !string.IsNullOrWhiteSpace(section);
-
-    private string SectionLabel => AssignedSectionOptions.GetLabel(section);
-
     /// <summary>What the compliance panels are counting, said in one phrase.</summary>
-    private string ScopeNote => SectionScoped ? SectionLabel : "All sections";
+    private const string ScopeNote = "All locations";
 
     private string Greeting => DateTime.Now.Hour switch
     {
@@ -119,7 +97,7 @@ public partial class PodDashboard
     }
 
     private string Kicker => isOperator
-        ? $"POD control · {(SectionScoped ? SectionLabel : "Section unassigned")}"
+        ? "POD control · All locations"
         : $"Proof of delivery · {Today:dddd dd MMMM}";
 
     private string Standfirst
@@ -135,11 +113,7 @@ public partial class PodDashboard
 
             if (coverage.Total == 0)
             {
-                return $"No invoices were raised {ScopeNote.ToLowerInvariant() switch
-                {
-                    "all sections" => "anywhere",
-                    _ => $"at {SectionLabel}"
-                }} in the last {rangeDays} days.";
+                return $"No invoices were raised anywhere in the last {rangeDays} days.";
             }
 
             if (coverage.Outstanding == 0)
@@ -155,7 +129,7 @@ public partial class PodDashboard
         }
     }
 
-    private string TodayLabel => isOperator ? "Section uploads today" : "Your uploads today";
+    private string TodayLabel => isOperator ? "Uploads today" : "Your uploads today";
 
     private string CoverageNote => coverage is null
         ? isLoading ? "Loading…" : "Unavailable"
@@ -197,14 +171,6 @@ public partial class PodDashboard
             canOpenCratePods = CratePodRoles.Any(user.IsInRole);
         }
 
-        // The section is the operator's own, and cannot change under them, so it
-        // is read once rather than with every window.
-        if (isOperator)
-        {
-            var me = await UserManagementService.GetCurrentUserAsync();
-            section = string.IsNullOrWhiteSpace(me?.AssignedSection) ? null : me!.AssignedSection!.Trim();
-        }
-
         await LoadAsync();
 
         await AuditService.LogAsync(AuditActions.ViewDashboard, "PodDashboard", null);
@@ -241,7 +207,7 @@ public partial class PodDashboard
 
     /// <summary>
     /// The upload figures and the activity series. The API scopes these itself:
-    /// a POD operator gets their section's uploads, everybody else their own.
+    /// a POD operator gets all uploads, everybody else their own.
     /// </summary>
     private async Task LoadUploadsAsync(int version)
     {
@@ -274,9 +240,7 @@ public partial class PodDashboard
     }
 
     /// <summary>
-    /// The window's invoices and whether each carries proof. The report is
-    /// company-wide, so an operator's copy is narrowed to the invoices their own
-    /// section raised before anything is counted.
+    /// The company-wide window's invoices and whether each carries proof.
     /// </summary>
     private async Task LoadComplianceAsync(int version)
     {
@@ -293,17 +257,6 @@ public partial class PodDashboard
             }
 
             var items = report.Items;
-
-            unattributed = SectionScoped
-                ? items.Count(item => string.IsNullOrWhiteSpace(item.CreatedLocation))
-                : 0;
-
-            if (SectionScoped)
-            {
-                items = items
-                    .Where(item => AssignedSectionOptions.AreSameSection(item.CreatedLocation, section))
-                    .ToList();
-            }
 
             BuildCoverage(items);
             BuildOutstanding(items);
@@ -367,17 +320,13 @@ public partial class PodDashboard
     }
 
     /// <summary>
-    /// Who has been uploading. For an operator this is their own people —
-    /// uploaders are matched on the section recorded against their account, so
-    /// the panel ranks the drivers they manage rather than whoever happened to
-    /// touch a section invoice.
+    /// Who has been uploading across all locations in the selected window.
     /// </summary>
     private void BuildUploaders(IReadOnlyList<PodUploadStatusItem> items)
     {
         var ranked = items
             .SelectMany(item => item.PodUploadedByUsers.Select(user => (Invoice: item.DocEntry, User: user)))
             .Where(entry => !string.IsNullOrWhiteSpace(entry.User.Username))
-            .Where(entry => !SectionScoped || AssignedSectionOptions.AreSameSection(entry.User.AssignedSection, section))
             .GroupBy(entry => entry.User.Username.Trim(), StringComparer.OrdinalIgnoreCase)
             .Select(group => new
             {
@@ -394,7 +343,7 @@ public partial class PodDashboard
         uploaderCount = ranked.Count;
 
         // Bars read against the leader rather than the group's total, so the
-        // ranking stays legible when one driver carries most of the section.
+        // ranking stays legible when one driver carries most of the company-wide activity.
         var leader = ranked.Count == 0 ? 0 : ranked[0].Files;
 
         uploaders = ranked
@@ -600,7 +549,7 @@ public partial class PodDashboard
                 "1",
                 "Collect the proof",
                 isOperator
-                    ? "Upload signed delivery notes against the section's invoices as they come back in."
+                    ? "Upload signed delivery notes against invoices from any location as they come back in."
                     : "Upload the signed delivery note against the invoice it belongs to.",
                 "/pods",
                 "Open Product PODs");

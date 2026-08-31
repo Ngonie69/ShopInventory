@@ -6,7 +6,7 @@
 @attribute [Authorize(Roles = UserRoles.PodRoles)]
 @rendermode InteractiveServer
 
-<PageTitle>@(isOperator ? "Section POD Dashboard" : "POD Dashboard") - Kefalos Cheese</PageTitle>
+<PageTitle>POD Dashboard - Kefalos Cheese</PageTitle>
 
 @* The POD operator's workspace, on the Nocturne system the sales-rep dashboard
    uses — wwwroot/css/pod-dashboard.css carries the light and dark palettes and
@@ -155,7 +155,7 @@
                         <div>
                             <span class="pdo-card-title">Upload activity</span>
                             <span class="pdo-card-sub">
-                                Files a day, last @rangeDays days · @(isOperator ? "the whole section" : "your uploads")
+                                Files a day, last @rangeDays days · @(isOperator ? "all locations" : "your uploads")
                             </span>
                         </div>
                         <div class="pdo-chart-total">
@@ -262,7 +262,7 @@
 
                 <section class="pdo-card" aria-label="Recent uploads">
                     <div class="pdo-card-head">
-                        <span class="pdo-card-title">@(isOperator ? "Recent section uploads" : "Your recent uploads")</span>
+                        <span class="pdo-card-title">@(isOperator ? "Recent uploads" : "Your recent uploads")</span>
                         <a class="pdo-link pdo-card-note" href="/pods">View all</a>
                     </div>
 
@@ -337,17 +337,10 @@
                                 </div>
                             </div>
 
-                            @* What these figures cover, said plainly. The
-                               generated location is only known for invoices
-                               raised by a mapped SAP user, so a section reading
-                               states what it had to leave out. *@
+                            @* What these figures cover, said plainly. *@
                             <div class="pdo-scope">
                                 <i class="ph ph-funnel" aria-hidden="true"></i>
-                                <span>
-                                    @ScopeNote@(unattributed > 0
-                                        ? $" · {unattributed:N0} invoices carry no section and are not counted"
-                                        : null)
-                                </span>
+                                <span>@ScopeNote</span>
                             </div>
 
                             <a class="pdo-btn pdo-btn-primary pdo-btn-block" href="/pod-report">
@@ -378,9 +371,7 @@
                             <div class="pdo-empty">
                                 @(isLoading ? "Loading uploaders…"
                                     : complianceFailed ? "Unavailable."
-                                    : SectionScoped
-                                        ? $"Nobody at {SectionLabel} uploaded in the last {rangeDays} days."
-                                        : $"Nothing was uploaded in the last {rangeDays} days.")
+                                    : $"Nothing was uploaded in the last {rangeDays} days.")
                             </div>
                         }
                         else
@@ -417,7 +408,7 @@
 
                 <section class="pdo-card" aria-label="Totals">
                     <div class="pdo-card-head">
-                        <span class="pdo-card-title">@(isOperator ? "Section totals" : "Your totals")</span>
+                        <span class="pdo-card-title">@(isOperator ? "Company totals" : "Your totals")</span>
                         <span class="pdo-card-note">All time</span>
                     </div>
 

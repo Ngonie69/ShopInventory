@@ -1,17 +1,14 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using ShopInventory.Common.Pods;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
-using ShopInventory.Services;
 
 namespace ShopInventory.Features.Invoices.Queries.GetPodDashboard;
 
 public sealed class GetPodDashboardHandler(
     ApplicationDbContext context,
-    ISAPServiceLayerClient sapClient,
     ILogger<GetPodDashboardHandler> logger
 ) : IRequestHandler<GetPodDashboardQuery, ErrorOr<PodDashboardDto>>
 {
@@ -41,40 +38,9 @@ public sealed class GetPodDashboardHandler(
                     EF.Functions.ILike(a.Description, "%pod%") ||
                     EF.Functions.ILike(a.Description, "%proof of delivery%"))));
 
-        if (string.Equals(user?.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
-        {
-            var sectionFilterValues = PodLocationScope.GetSectionFilterValues(user?.AssignedSection)
-                .Select(value => value.ToUpperInvariant())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            var canonicalSection = PodLocationScope.CanonicalizeSection(user?.AssignedSection);
-            var warehouseCodes = string.IsNullOrWhiteSpace(canonicalSection)
-                ? Array.Empty<string>()
-                : PodLocationScope.GetWarehouseCodesForAssignedSection(
-                        await sapClient.GetWarehousesAsync(cancellationToken),
-                        canonicalSection)
-                    .Select(code => code.ToUpperInvariant())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
-
-            if (sectionFilterValues.Length == 0 && warehouseCodes.Length == 0)
-            {
-                baseQuery = baseQuery.Where(_ => false);
-            }
-            else
-            {
-                baseQuery = baseQuery.Where(a =>
-                    (a.UploadedByUser != null &&
-                     a.UploadedByUser.AssignedSection != null &&
-                     sectionFilterValues.Contains(a.UploadedByUser.AssignedSection.ToUpper())) ||
-                    context.Invoices.Any(invoice =>
-                        invoice.SAPDocEntry == a.EntityId &&
-                        invoice.DocumentLines.Any(line =>
-                            line.WarehouseCode != null &&
-                            warehouseCodes.Contains(line.WarehouseCode.ToUpper()))));
-            }
-        }
-        else
+        // A POD operator oversees every uploaded POD, independent of their own assigned location.
+        // Other roles retain the dashboard's existing "my uploads" view.
+        if (!string.Equals(user?.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
         {
             baseQuery = baseQuery.Where(a => a.UploadedByUserId == request.UserId);
         }

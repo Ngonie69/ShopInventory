@@ -178,12 +178,20 @@ public sealed class DocumentAttachmentAccessService(
             return Errors.Document.AccessDenied("Drivers can only access PODs they uploaded.");
         }
 
+        // Reading the company-wide product POD list is only useful if its files can be opened too.
+        // POD operators therefore have global read access, just as they already do for crate PODs.
+        // This does not broaden write/delete access.
+        if (!isWriteOperation && IsRole(role, "PodOperator"))
+        {
+            return true;
+        }
+
         var isScopedPodViewer = IsRole(role, "PodOperator") || IsRole(role, "Operator");
 
         if (isScopedPodViewer)
         {
-            // POD operators may upload a POD to any invoice (matching driver behaviour); the
-            // assigned-section scope only governs which invoices' PODs they are allowed to view.
+            // POD operators may upload a POD to any invoice (matching driver behaviour). Existing
+            // attachment-level write operations still retain their assigned-section boundary.
             // A null uploadedByUserId marks the entity-level upload path (AuthorizeEntityAccessAsync);
             // attachment-level operations (e.g. delete) still fall through to the section check below.
             if (isWriteOperation && uploadedByUserId is null && IsRole(role, "PodOperator"))

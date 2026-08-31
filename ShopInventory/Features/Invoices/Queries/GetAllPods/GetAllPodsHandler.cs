@@ -34,8 +34,9 @@ public sealed class GetAllPodsHandler(
             return ShopInventory.Common.Errors.Errors.Auth.UserNotFound;
         }
 
-        var isScopedPodViewer = string.Equals(currentUser?.Role, "PodOperator", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(currentUser?.Role, "Operator", StringComparison.OrdinalIgnoreCase);
+        // POD operators oversee uploads across the company. Only the legacy Operator role is
+        // location-scoped; this matches the crate POD list and keeps the two POD views consistent.
+        var isScopedPodViewer = string.Equals(currentUser?.Role, "Operator", StringComparison.OrdinalIgnoreCase);
 
         if (isScopedPodViewer && string.IsNullOrWhiteSpace(currentUser!.AssignedSection))
         {

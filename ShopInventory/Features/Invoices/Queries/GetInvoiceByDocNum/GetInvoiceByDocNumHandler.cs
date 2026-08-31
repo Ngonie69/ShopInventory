@@ -180,8 +180,7 @@ public sealed class GetInvoiceByDocNumHandler(
                 return Errors.Auth.UserNotFound;
 
             var isDriver = string.Equals(user.Role, "Driver", StringComparison.OrdinalIgnoreCase);
-            var isScopedPodViewer = string.Equals(user.Role, "PodOperator", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(user.Role, "Operator", StringComparison.OrdinalIgnoreCase);
+            var isScopedPodViewer = string.Equals(user.Role, "Operator", StringComparison.OrdinalIgnoreCase);
 
             var canAccessInvoice = true;
 
