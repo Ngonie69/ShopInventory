@@ -1,0 +1,269 @@
+@page "/van-sales-customer-accounts"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = "Admin,Manager,Cashier")]
+@rendermode InteractiveServer
+
+<PageTitle>Customer App Access - Shop Inventory</PageTitle>
+
+@* Scoped to `ops ops-vsa`, sharing wwwroot/css/operations.css with the other operational pages —
+   see that file's header. Every class used here already exists in that sheet, so this page adds no
+   CSS of its own and inherits dark mode from the shared variables rather than needing overrides. *@
+
+<div class="ops ops-vsa">
+
+    <div class="ops-hero">
+        <div class="ops-hero-text">
+            <div class="ops-kicker">Van sales</div>
+            <h1>Customer App Access</h1>
+            <p>
+                Which shops can order for themselves in the app, and from which handset. Setting one
+                up here is what used to be done by hand over WhatsApp — the shop still gets its
+                sign-in code on WhatsApp, but the account is created here.
+            </p>
+        </div>
+        <div class="ops-hero-actions">
+            <span class="ops-count">@ActiveCount active</span>
+            <a class="ops-btn ops-btn-ghost" href="/van-sales-customer-orders">
+                <i class="ph ph-shopping-cart" aria-hidden="true"></i>
+                <span>Customer orders</span>
+            </a>
+        </div>
+    </div>
+
+    <section class="ops-panel">
+        <div class="ops-panel-head">
+            <h2><i class="ph ph-device-mobile" aria-hidden="true"></i>Give a shop access</h2>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(formErrorMessage))
+        {
+            <div class="ops-msg ops-fam-bad" role="alert">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <div class="ops-msg-body">@formErrorMessage</div>
+            </div>
+        }
+
+        <form @onsubmit="GiveAccessAsync" @onsubmit:preventDefault="true">
+            <div class="ops-form-grid">
+                <div class="ops-field">
+                    <label class="ops-label" for="vsa-customer">Shop</label>
+                    <select id="vsa-customer" class="ops-input" @bind="form.RouteCustomerId">
+                        <option value="0">Select a shop</option>
+                        @foreach (var customer in view.RouteCustomers)
+                        {
+                            <option value="@customer.Id">@customer.Name (@customer.Code)</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="ops-field">
+                    <label class="ops-label" for="vsa-phone">Phone number</label>
+                    @* Typed however the rep has it written down. The API normalises to E.164 and is
+                       the only place that decides what counts as a number. *@
+                    <input id="vsa-phone" class="ops-input" type="tel" maxlength="32"
+                           placeholder="0771234567"
+                           @bind="form.PhoneNumber" @bind:event="oninput" />
+                </div>
+
+                <div class="ops-field">
+                    <label class="ops-label" for="vsa-name">Who holds the phone <span class="ops-unit">(optional)</span></label>
+                    <input id="vsa-name" class="ops-input" type="text" maxlength="200"
+                           placeholder="e.g. Rudo, the owner"
+                           @bind="form.DisplayName" @bind:event="oninput" />
+                </div>
+            </div>
+
+            <div class="ops-panel-tools">
+                <button type="submit" class="ops-btn ops-btn-primary" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="ops-spin"></span>
+                        <span>Setting up&hellip;</span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-check-circle" aria-hidden="true"></i>
+                        <span>Give access</span>
+                    }
+                </button>
+                <p class="ops-hint">
+                    A shop that already has access will be moved to this handset. The same number
+                    cannot be used by two different shops.
+                </p>
+            </div>
+        </form>
+    </section>
+
+    <section class="ops-panel">
+        <div class="ops-panel-head">
+            <h2><i class="ph ph-users-three" aria-hidden="true"></i>Sign-ins</h2>
+            <span class="ops-count">@FilteredAccounts.Count() of @view.Accounts.Count</span>
+        </div>
+
+        <div class="ops-filters">
+            <div class="ops-field ops-search">
+                <label class="ops-label" for="vsa-search">Search</label>
+                <input id="vsa-search" class="ops-input" type="search"
+                       placeholder="Shop, code, number or person"
+                       @bind="searchTerm" @bind:event="oninput" />
+            </div>
+
+            <div class="ops-field">
+                <label class="ops-label" for="vsa-filter">Shop</label>
+                <select id="vsa-filter" class="ops-input" @bind="routeCustomerFilter" @bind:after="LoadAsync">
+                    <option value="">All shops</option>
+                    @foreach (var customer in view.RouteCustomers)
+                    {
+                        <option value="@customer.Id">@customer.Name (@customer.Code)</option>
+                    }
+                </select>
+            </div>
+
+            <div class="ops-field">
+                <label class="ops-label" for="vsa-inactive">Withdrawn</label>
+                <select id="vsa-inactive" class="ops-input" @bind="withdrawnFilter" @bind:after="LoadAsync">
+                    <option value="show-withdrawn">Show withdrawn</option>
+                    <option value="active-only">Active only</option>
+                </select>
+            </div>
+
+            <button type="button" class="ops-btn ops-btn-ghost" @onclick="LoadAsync" disabled="@isLoading">
+                <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                <span>Refresh</span>
+            </button>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="ops-empty"><p>Loading&hellip;</p></div>
+        }
+        else if (!FilteredAccounts.Any())
+        {
+            <div class="ops-empty">
+                <p>
+                    @if (view.Accounts.Count == 0)
+                    {
+                        <text>No shop has app access yet. Set the first one up above.</text>
+                    }
+                    else
+                    {
+                        <text>No sign-in matches that search.</text>
+                    }
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="ops-scroll">
+                <table class="ops-table">
+                    <thead>
+                        <tr>
+                            <th>Shop</th>
+                            <th>Handset</th>
+                            <th>Status</th>
+                            <th>Last signed in</th>
+                            <th class="ops-num">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var account in FilteredAccounts)
+                        {
+                            <tr class="@(account.IsActive ? null : "ops-row-warn")">
+                                <td>
+                                    <strong>@account.RouteCustomerName</strong>
+                                    <div class="ops-sub">@account.RouteCustomerCode</div>
+                                </td>
+                                <td>
+                                    <span class="ops-code">@account.PhoneE164</span>
+                                    @if (!string.IsNullOrWhiteSpace(account.DisplayName))
+                                    {
+                                        <div class="ops-sub">@account.DisplayName</div>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="ops-badge @StatusFamily(account)">@StatusLabel(account)</span>
+                                </td>
+                                <td>@LastSeen(account)</td>
+                                <td class="ops-num">
+                                    @if (account.IsActive)
+                                    {
+                                        <button type="button" class="ops-btn ops-btn-sm ops-btn-danger"
+                                                disabled="@isSaving"
+                                                @onclick="() => BeginWithdraw(account)">
+                                            <i class="ph ph-prohibit" aria-hidden="true"></i>
+                                            <span>Withdraw</span>
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="ops-btn ops-btn-sm ops-btn-ghost"
+                                                disabled="@isSaving"
+                                                @onclick="() => ReinstateAsync(account)">
+                                            <i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i>
+                                            <span>Reinstate</span>
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+</div>
+
+@if (accountPendingWithdrawal is not null)
+{
+    <div class="ops-overlay ops-overlay-center" @onclick="CancelWithdraw">
+        <div class="ops-dialog" role="dialog" aria-modal="true" aria-label="Withdraw app access"
+             @onclick:stopPropagation="true">
+            <div class="ops-dialog-head">
+                <h2>Withdraw app access</h2>
+                <button type="button" class="ops-x" aria-label="Close" @onclick="CancelWithdraw"
+                        disabled="@isWithdrawing">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </div>
+
+            <div class="ops-dialog-body">
+                @if (!string.IsNullOrWhiteSpace(withdrawErrorMessage))
+                {
+                    <div class="ops-msg ops-fam-bad" role="alert">
+                        <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                        <div class="ops-msg-body">@withdrawErrorMessage</div>
+                    </div>
+                }
+
+                <p>
+                    <strong>@accountPendingWithdrawal.RouteCustomerName</strong>
+                    (@accountPendingWithdrawal.PhoneE164) will be signed out on every handset and
+                    will not be able to place orders.
+                </p>
+                <p class="ops-hint">
+                    Orders they have already placed are kept. You can reinstate this sign-in later
+                    from the list.
+                </p>
+            </div>
+
+            <div class="ops-dialog-foot">
+                <button type="button" class="ops-btn ops-btn-ghost" @onclick="CancelWithdraw"
+                        disabled="@isWithdrawing">Cancel</button>
+                <button type="button" class="ops-btn ops-btn-danger" @onclick="ConfirmWithdrawAsync"
+                        disabled="@isWithdrawing">
+                    @if (isWithdrawing)
+                    {
+                        <span class="ops-spin"></span>
+                        <span>Withdrawing&hellip;</span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-prohibit" aria-hidden="true"></i>
+                        <span>Withdraw access</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}

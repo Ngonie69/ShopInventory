@@ -1,4 +1,4 @@
-using Blazored.LocalStorage;
+﻿using Blazored.LocalStorage;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
@@ -307,6 +307,7 @@ try
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
     builder.Services.AddScoped<IRouteCustomerService, RouteCustomerService>();
     builder.Services.AddScoped<IVanSalesOrderService, VanSalesOrderService>();
+    builder.Services.AddScoped<IVanSalesCustomerAccountService, VanSalesCustomerAccountService>();
     builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
     builder.Services.AddScoped<IPurchaseRequestService, PurchaseRequestService>();
     builder.Services.AddScoped<IPurchaseQuotationService, PurchaseQuotationService>();
