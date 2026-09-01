@@ -37,26 +37,45 @@ public partial class VanSalesCustomerAccounts : ComponentBase, IDisposable
     private string searchTerm = string.Empty;
     private int? routeCustomerFilter;
 
-    private const string ShowWithdrawnFilter = "show-withdrawn";
-    private const string ActiveOnlyFilter = "active-only";
+    /// <summary>Which sign-ins the list is showing.</summary>
+    private enum AccountView
+    {
+        All,
+        Active,
+        Withdrawn
+    }
 
     /// <summary>
-    /// Withdrawn sign-ins are shown by default.
+    /// The window control, in the design's order: the two narrow answers first, the whole list
+    /// last.
+    /// </summary>
+    private static readonly (AccountView Value, string Label)[] ViewFilters =
+    [
+        (AccountView.Active, "Active"),
+        (AccountView.Withdrawn, "Withdrawn"),
+        (AccountView.All, "All")
+    ];
+
+    /// <summary>
+    /// The list opens on every sign-in, withdrawn ones included.
     /// </summary>
     /// <remarks>
     /// The question this screen is opened with is usually "why can this shop not order?", and a
-    /// withdrawn account hidden from the list looks identical to one that was never created — which
-    /// sends the operator to create a second one rather than reinstate the first.
+    /// withdrawn account hidden behind a filter looks identical to one that was never created —
+    /// which sends the operator to create a second one rather than reinstate the first.
     /// <para>
-    /// Held as a string rather than the bool it means, because a <c>select</c> bound to a bool
-    /// renders no selection at all: .NET formats <c>true</c> as "True" and no option value matches
-    /// it, so the control comes up blank while the filter is in fact on. The other filter screens
-    /// back their selects with strings for the same reason.
+    /// The design rests its control on Active instead. Narrowing is a click away either way; what
+    /// is not recoverable is the operator who never learns the row exists, so the wider window is
+    /// the one to open on.
     /// </para>
     /// </remarks>
-    private string withdrawnFilter = ShowWithdrawnFilter;
+    private AccountView viewFilter = AccountView.All;
 
-    private bool IncludeInactive => withdrawnFilter == ShowWithdrawnFilter;
+    /// <summary>
+    /// Only the Active window narrows the query. Withdrawn and All read the same rows, and differ
+    /// by which of them this page then shows.
+    /// </summary>
+    private bool IncludeInactive => viewFilter != AccountView.Active;
 
     private bool isLoading = true;
     private bool isSaving;
@@ -67,13 +86,37 @@ public partial class VanSalesCustomerAccounts : ComponentBase, IDisposable
 
     private string? formErrorMessage;
 
+    /// <summary>The shops a sign-in can be given to. The code rides as the row's hint.</summary>
+    private IEnumerable<NocturneSelectOption<int>> ShopOptions =>
+        view.RouteCustomers.Select(customer =>
+            new NocturneSelectOption<int>(customer.Id, customer.Name) { Hint = customer.Code });
+
+    /// <summary>The same shops as a filter, behind an "All shops" row that clears it.</summary>
+    private IEnumerable<NocturneSelectOption<int?>> ShopFilterOptions =>
+        view.RouteCustomers
+            .Select(customer =>
+                new NocturneSelectOption<int?>(customer.Id, customer.Name) { Hint = customer.Code })
+            .Prepend(new NocturneSelectOption<int?>(null, "All shops", "neutral")
+            {
+                RuleAfter = true
+            });
+
     private IEnumerable<VanSalesCustomerAccountModel> FilteredAccounts =>
-        view.Accounts.Where(account =>
-            string.IsNullOrWhiteSpace(searchTerm) ||
-            account.RouteCustomerName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
-            account.RouteCustomerCode.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
-            account.PhoneE164.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
-            (account.DisplayName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+        view.Accounts.Where(account => MatchesView(account) && MatchesSearch(account));
+
+    private bool MatchesView(VanSalesCustomerAccountModel account) => viewFilter switch
+    {
+        AccountView.Active => account.IsActive,
+        AccountView.Withdrawn => !account.IsActive,
+        _ => true
+    };
+
+    private bool MatchesSearch(VanSalesCustomerAccountModel account) =>
+        string.IsNullOrWhiteSpace(searchTerm) ||
+        account.RouteCustomerName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+        account.RouteCustomerCode.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+        account.PhoneE164.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+        (account.DisplayName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false);
 
     private int ActiveCount => view.Accounts.Count(a => a.IsActive);
 
@@ -83,6 +126,26 @@ public partial class VanSalesCustomerAccounts : ComponentBase, IDisposable
     {
         disposeCts.Cancel();
         disposeCts.Dispose();
+    }
+
+    /// <summary>
+    /// Moves the list to another window, reloading only when the new one needs rows the last query
+    /// did not ask for.
+    /// </summary>
+    private async Task SetViewAsync(AccountView value)
+    {
+        if (viewFilter == value)
+        {
+            return;
+        }
+
+        var wasIncludingInactive = IncludeInactive;
+        viewFilter = value;
+
+        if (IncludeInactive != wasIncludingInactive)
+        {
+            await LoadAsync();
+        }
     }
 
     private async Task LoadAsync()
@@ -260,11 +323,16 @@ public partial class VanSalesCustomerAccounts : ComponentBase, IDisposable
         }
     }
 
+    /// <summary>
+    /// The badge's hue. Active takes the accent rather than the good family, which is the design's
+    /// reading and the right one: on this list active is the ordinary state of nearly every row, and
+    /// a column of green ticks would spend the alarm colours on saying "normal".
+    /// </summary>
     private static string StatusFamily(VanSalesCustomerAccountModel account) => account switch
     {
-        { IsActive: false } => "ops-fam-neutral",
-        { IsLockedOut: true } => "ops-fam-bad",
-        _ => "ops-fam-good"
+        { IsActive: false } => "caa-fam-neutral",
+        { IsLockedOut: true } => "caa-fam-bad",
+        _ => "caa-fam-accent"
     };
 
     private static string StatusLabel(VanSalesCustomerAccountModel account) => account switch
@@ -278,12 +346,33 @@ public partial class VanSalesCustomerAccounts : ComponentBase, IDisposable
     /// When the shop last signed in, or that it never has.
     /// </summary>
     /// <remarks>
+    /// Relative for the first week and a date after that, which is the design's treatment and the
+    /// one that reads: "4 days ago" answers the question the column is scanned for, while a date
+    /// three weeks old has to be subtracted from today before it means anything.
+    /// <para>
     /// "Not yet" is the useful answer for a sign-in nobody has used: it separates a shop that was
     /// set up and never got going from one that is ordering, which is the difference between a
     /// follow-up call and no action.
+    /// </para>
     /// </remarks>
-    private static string LastSeen(VanSalesCustomerAccountModel account) =>
-        account.LastLoginAt is { } lastLogin
-            ? lastLogin.ToLocalTime().ToString("d MMM yyyy")
-            : "Not yet";
+    private static string LastSeen(VanSalesCustomerAccountModel account)
+    {
+        if (account.LastLoginAt is not { } lastLogin)
+        {
+            return "Not yet";
+        }
+
+        var local = lastLogin.ToLocalTime();
+        var days = (DateTime.Today - local.Date).Days;
+
+        // A negative count means a clock ahead of this one; it falls to the date, which is the
+        // answer that cannot be read as nonsense.
+        return days switch
+        {
+            0 => $"Today, {local:HH:mm}",
+            1 => $"Yesterday, {local:HH:mm}",
+            > 1 and < 7 => $"{days} days ago",
+            _ => local.ToString("d MMM yyyy")
+        };
+    }
 }

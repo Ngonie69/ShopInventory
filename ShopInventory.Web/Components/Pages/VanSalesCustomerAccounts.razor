@@ -6,233 +6,264 @@
 
 <PageTitle>Customer App Access - Shop Inventory</PageTitle>
 
-@* Scoped to `ops ops-vsa`, sharing wwwroot/css/operations.css with the other operational pages —
-   see that file's header. Every class used here already exists in that sheet, so this page adds no
-   CSS of its own and inherits dark mode from the shared variables rather than needing overrides. *@
+@* Nocturne, from `Customer App Access.dc.html`. Rules live in
+   wwwroot/css/customer-app-access.css under the `caa` prefix — see that file's
+   header for what this build takes from the design and the three places it
+   departs from it, each because of what the data actually is.
 
-<div class="ops ops-vsa">
+   Both shop pickers are <NocturneSelect> rather than native <select>s: they are
+   page controls the operator scans, and a native popup takes its background
+   from the field, which on a Nocturne field's translucent wash renders the list
+   near-white on near-white in dark theme. *@
 
-    <div class="ops-hero">
-        <div class="ops-hero-text">
-            <div class="ops-kicker">Van sales</div>
-            <h1>Customer App Access</h1>
-            <p>
-                Which shops can order for themselves in the app, and from which handset. Setting one
-                up here is what used to be done by hand over WhatsApp — the shop still gets its
-                sign-in code on WhatsApp, but the account is created here.
-            </p>
-        </div>
-        <div class="ops-hero-actions">
-            <span class="ops-count">@ActiveCount active</span>
-            <a class="ops-btn ops-btn-ghost" href="/van-sales-customer-orders">
-                <i class="ph ph-shopping-cart" aria-hidden="true"></i>
-                <span>Customer orders</span>
-            </a>
-        </div>
-    </div>
+<div class="caa">
+    <div class="caa-body">
 
-    <section class="ops-panel">
-        <div class="ops-panel-head">
-            <h2><i class="ph ph-device-mobile" aria-hidden="true"></i>Give a shop access</h2>
-        </div>
-
-        @if (!string.IsNullOrWhiteSpace(formErrorMessage))
-        {
-            <div class="ops-msg ops-fam-bad" role="alert">
-                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
-                <div class="ops-msg-body">@formErrorMessage</div>
+        <div class="caa-hero">
+            <div class="caa-hero-text">
+                <div class="caa-kicker">Van sales</div>
+                <h1>Customer App Access</h1>
+                <p>
+                    Which shops can order for themselves in the app, and from which handset. Setting
+                    one up here is what used to be done by hand over WhatsApp — the shop still gets
+                    its sign-in code on WhatsApp, but the account is created here.
+                </p>
             </div>
-        }
-
-        <form @onsubmit="GiveAccessAsync" @onsubmit:preventDefault="true">
-            <div class="ops-form-grid">
-                <div class="ops-field">
-                    <label class="ops-label" for="vsa-customer">Shop</label>
-                    <select id="vsa-customer" class="ops-input" @bind="form.RouteCustomerId">
-                        <option value="0">Select a shop</option>
-                        @foreach (var customer in view.RouteCustomers)
-                        {
-                            <option value="@customer.Id">@customer.Name (@customer.Code)</option>
-                        }
-                    </select>
+            <div class="caa-hero-meta">
+                <div class="caa-fig">
+                    <span class="caa-fig-num">@ActiveCount</span>
+                    <span class="caa-fig-label">Shops active</span>
                 </div>
+                <a class="caa-btn caa-btn-quiet" href="/van-sales-customer-orders">
+                    <i class="ph ph-shopping-cart" aria-hidden="true"></i>
+                    <span>Customer orders</span>
+                </a>
+            </div>
+        </div>
 
-                <div class="ops-field">
-                    <label class="ops-label" for="vsa-phone">Phone number</label>
+        <section class="caa-panel">
+            <div class="caa-panel-head">
+                <h2><i class="ph ph-device-mobile" aria-hidden="true"></i>Give a shop access</h2>
+                <span class="caa-panel-note">One handset per shop</span>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(formErrorMessage))
+            {
+                <div class="caa-msg" role="alert">
+                    <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                    <div>@formErrorMessage</div>
+                </div>
+            }
+
+            <form @onsubmit="GiveAccessAsync" @onsubmit:preventDefault="true">
+                <div class="caa-form">
+                    <label class="caa-field">
+                        <span class="caa-label">Shop</span>
+                        <NocturneSelect Class="nsel-block" TValue="int" Options="ShopOptions"
+                                        @bind-Value="form.RouteCustomerId"
+                                        Placeholder="Select a shop" Caption="Choose the shop"
+                                        EmptyText="No shops are on a route yet" AriaLabel="Shop" />
+                    </label>
+
                     @* Typed however the rep has it written down. The API normalises to E.164 and is
                        the only place that decides what counts as a number. *@
-                    <input id="vsa-phone" class="ops-input" type="tel" maxlength="32"
-                           placeholder="0771234567"
-                           @bind="form.PhoneNumber" @bind:event="oninput" />
+                    <label class="caa-field">
+                        <span class="caa-label">Phone number</span>
+                        <input class="caa-input" type="tel" maxlength="32" placeholder="077 123 4567"
+                               @bind="form.PhoneNumber" @bind:event="oninput" />
+                    </label>
+
+                    <label class="caa-field">
+                        <span class="caa-label">
+                            Who holds the phone <span class="caa-optional">(optional)</span>
+                        </span>
+                        <input class="caa-input" type="text" maxlength="200"
+                               placeholder="e.g. Rudo, the owner"
+                               @bind="form.DisplayName" @bind:event="oninput" />
+                    </label>
+
+                    <button type="submit" class="caa-btn caa-btn-primary caa-form-submit"
+                            disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="caa-spin"></span>
+                            <span>Setting up&hellip;</span>
+                        }
+                        else
+                        {
+                            <i class="ph ph-check-circle" aria-hidden="true"></i>
+                            <span>Give access</span>
+                        }
+                    </button>
                 </div>
 
-                <div class="ops-field">
-                    <label class="ops-label" for="vsa-name">Who holds the phone <span class="ops-unit">(optional)</span></label>
-                    <input id="vsa-name" class="ops-input" type="text" maxlength="200"
-                           placeholder="e.g. Rudo, the owner"
-                           @bind="form.DisplayName" @bind:event="oninput" />
-                </div>
-            </div>
-
-            <div class="ops-panel-tools">
-                <button type="submit" class="ops-btn ops-btn-primary" disabled="@isSaving">
-                    @if (isSaving)
-                    {
-                        <span class="ops-spin"></span>
-                        <span>Setting up&hellip;</span>
-                    }
-                    else
-                    {
-                        <i class="ph ph-check-circle" aria-hidden="true"></i>
-                        <span>Give access</span>
-                    }
-                </button>
-                <p class="ops-hint">
+                <p class="caa-hint">
                     A shop that already has access will be moved to this handset. The same number
                     cannot be used by two different shops.
                 </p>
+            </form>
+        </section>
+
+        <section class="caa-panel">
+            <div class="caa-panel-head">
+                <h2>Sign-ins</h2>
+                <span class="caa-count">@FilteredAccounts.Count() of @view.Accounts.Count</span>
+
+                <div class="caa-tools">
+                    <div class="caa-search">
+                        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                        <input class="caa-input caa-input-search" type="search"
+                               placeholder="Shop, code, number or person" aria-label="Search sign-ins"
+                               @bind="searchTerm" @bind:event="oninput" />
+                    </div>
+
+                    <NocturneSelect Class="nsel-block" TValue="int?" Options="ShopFilterOptions"
+                                    @bind-Value="routeCustomerFilter" OnChanged="LoadAsync"
+                                    Placeholder="All shops" Caption="Filter by shop"
+                                    AriaLabel="Filter by shop" />
+
+                    <div class="caa-seg" role="group" aria-label="Which sign-ins to show">
+                        @* `aria-pressed` is written out as words rather than bound to the bool:
+                           Blazor treats a false bool attribute as absent and a true one as
+                           valueless, and ARIA needs "true"/"false". The comment sits here rather
+                           than among the attributes — a Razor comment inside a start tag compiles
+                           clean and is then emitted as an attribute *name* at runtime, which
+                           throws InvalidCharacterError and takes the whole render batch with it. *@
+                        @foreach (var option in ViewFilters)
+                        {
+                            <button type="button"
+                                    class="caa-seg-opt @(viewFilter == option.Value ? "is-on" : null)"
+                                    aria-pressed="@(viewFilter == option.Value ? "true" : "false")"
+                                    @onclick="() => SetViewAsync(option.Value)">
+                                @option.Label
+                            </button>
+                        }
+                    </div>
+
+                    <button type="button" class="caa-btn caa-btn-icon" title="Refresh"
+                            aria-label="Refresh" @onclick="LoadAsync" disabled="@isLoading">
+                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    </button>
+                </div>
             </div>
-        </form>
-    </section>
 
-    <section class="ops-panel">
-        <div class="ops-panel-head">
-            <h2><i class="ph ph-users-three" aria-hidden="true"></i>Sign-ins</h2>
-            <span class="ops-count">@FilteredAccounts.Count() of @view.Accounts.Count</span>
-        </div>
+            @if (isLoading)
+            {
+                <div class="caa-empty"><p>Loading&hellip;</p></div>
+            }
+            else if (!FilteredAccounts.Any())
+            {
+                <div class="caa-empty">
+                    <p>
+                        @if (view.Accounts.Count == 0)
+                        {
+                            <text>No shop has app access yet. Set the first one up above.</text>
+                        }
+                        else
+                        {
+                            <text>No sign-in matches that search.</text>
+                        }
+                    </p>
+                </div>
+            }
+            else
+            {
+                <div class="caa-scroll">
+                    <div class="caa-grid">
+                        <div class="caa-thead">
+                            <div>Shop</div>
+                            <div>Handset</div>
+                            <div>Who holds it</div>
+                            <div>Last signed in</div>
+                            <div>Status</div>
+                            <div></div>
+                        </div>
 
-        <div class="ops-filters">
-            <div class="ops-field ops-search">
-                <label class="ops-label" for="vsa-search">Search</label>
-                <input id="vsa-search" class="ops-input" type="search"
-                       placeholder="Shop, code, number or person"
-                       @bind="searchTerm" @bind:event="oninput" />
-            </div>
-
-            <div class="ops-field">
-                <label class="ops-label" for="vsa-filter">Shop</label>
-                <select id="vsa-filter" class="ops-input" @bind="routeCustomerFilter" @bind:after="LoadAsync">
-                    <option value="">All shops</option>
-                    @foreach (var customer in view.RouteCustomers)
-                    {
-                        <option value="@customer.Id">@customer.Name (@customer.Code)</option>
-                    }
-                </select>
-            </div>
-
-            <div class="ops-field">
-                <label class="ops-label" for="vsa-inactive">Withdrawn</label>
-                <select id="vsa-inactive" class="ops-input" @bind="withdrawnFilter" @bind:after="LoadAsync">
-                    <option value="show-withdrawn">Show withdrawn</option>
-                    <option value="active-only">Active only</option>
-                </select>
-            </div>
-
-            <button type="button" class="ops-btn ops-btn-ghost" @onclick="LoadAsync" disabled="@isLoading">
-                <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
-                <span>Refresh</span>
-            </button>
-        </div>
-
-        @if (isLoading)
-        {
-            <div class="ops-empty"><p>Loading&hellip;</p></div>
-        }
-        else if (!FilteredAccounts.Any())
-        {
-            <div class="ops-empty">
-                <p>
-                    @if (view.Accounts.Count == 0)
-                    {
-                        <text>No shop has app access yet. Set the first one up above.</text>
-                    }
-                    else
-                    {
-                        <text>No sign-in matches that search.</text>
-                    }
-                </p>
-            </div>
-        }
-        else
-        {
-            <div class="ops-scroll">
-                <table class="ops-table">
-                    <thead>
-                        <tr>
-                            <th>Shop</th>
-                            <th>Handset</th>
-                            <th>Status</th>
-                            <th>Last signed in</th>
-                            <th class="ops-num">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
                         @foreach (var account in FilteredAccounts)
                         {
-                            <tr class="@(account.IsActive ? null : "ops-row-warn")">
-                                <td>
-                                    <strong>@account.RouteCustomerName</strong>
-                                    <div class="ops-sub">@account.RouteCustomerCode</div>
-                                </td>
-                                <td>
-                                    <span class="ops-code">@account.PhoneE164</span>
-                                    @if (!string.IsNullOrWhiteSpace(account.DisplayName))
+                            <div class="caa-row @(account.IsActive ? null : "caa-row-off")">
+                                <div class="caa-cell caa-cell-shop">
+                                    <span class="caa-strong">@account.RouteCustomerName</span>
+                                    <span class="caa-weak">@account.RouteCustomerCode</span>
+                                </div>
+
+                                <div class="caa-cell caa-cell-phone">
+                                    <span class="caa-rl">Handset</span>
+                                    <span class="caa-phone">@account.PhoneE164</span>
+                                </div>
+
+                                <div class="caa-cell caa-cell-holder">
+                                    <span class="caa-rl">Who holds it</span>
+                                    @if (string.IsNullOrWhiteSpace(account.DisplayName))
                                     {
-                                        <div class="ops-sub">@account.DisplayName</div>
+                                        <span class="caa-none">&mdash;</span>
                                     }
-                                </td>
-                                <td>
-                                    <span class="ops-badge @StatusFamily(account)">@StatusLabel(account)</span>
-                                </td>
-                                <td>@LastSeen(account)</td>
-                                <td class="ops-num">
+                                    else
+                                    {
+                                        <span class="caa-weak">@account.DisplayName</span>
+                                    }
+                                </div>
+
+                                <div class="caa-cell caa-cell-seen">
+                                    <span class="caa-rl">Last signed in</span>
+                                    <span class="caa-seen @(account.LastLoginAt is null ? "caa-seen-never" : null)">
+                                        @LastSeen(account)
+                                    </span>
+                                </div>
+
+                                <div class="caa-cell caa-cell-status">
+                                    <span class="caa-badge @StatusFamily(account)">@StatusLabel(account)</span>
+                                </div>
+
+                                <div class="caa-actions">
                                     @if (account.IsActive)
                                     {
-                                        <button type="button" class="ops-btn ops-btn-sm ops-btn-danger"
+                                        <button type="button" class="caa-btn caa-btn-ghost caa-btn-sm"
                                                 disabled="@isSaving"
                                                 @onclick="() => BeginWithdraw(account)">
-                                            <i class="ph ph-prohibit" aria-hidden="true"></i>
-                                            <span>Withdraw</span>
+                                            Withdraw
                                         </button>
                                     }
                                     else
                                     {
-                                        <button type="button" class="ops-btn ops-btn-sm ops-btn-ghost"
+                                        <button type="button" class="caa-btn caa-btn-ghost caa-btn-sm"
                                                 disabled="@isSaving"
                                                 @onclick="() => ReinstateAsync(account)">
-                                            <i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i>
-                                            <span>Reinstate</span>
+                                            Reinstate
                                         </button>
                                     }
-                                </td>
-                            </tr>
+                                </div>
+                            </div>
                         }
-                    </tbody>
-                </table>
-            </div>
-        }
-    </section>
+                    </div>
+                </div>
+            }
+        </section>
+    </div>
 </div>
 
+@* Outside `.caa` so the page cannot clip it, and on the `.caa-overlay` peer
+   class rather than the page root — the root carries `min-height: 100vh`, which
+   would beat the dialog's own height and push its footer below the fold. *@
 @if (accountPendingWithdrawal is not null)
 {
-    <div class="ops-overlay ops-overlay-center" @onclick="CancelWithdraw">
-        <div class="ops-dialog" role="dialog" aria-modal="true" aria-label="Withdraw app access"
+    <div class="caa-overlay" @onclick="CancelWithdraw">
+        <div class="caa-dialog" role="dialog" aria-modal="true" aria-label="Withdraw app access"
              @onclick:stopPropagation="true">
-            <div class="ops-dialog-head">
+            <div class="caa-dialog-head">
                 <h2>Withdraw app access</h2>
-                <button type="button" class="ops-x" aria-label="Close" @onclick="CancelWithdraw"
-                        disabled="@isWithdrawing">
+                <button type="button" class="caa-btn caa-btn-icon caa-dialog-x" aria-label="Close"
+                        @onclick="CancelWithdraw" disabled="@isWithdrawing">
                     <i class="ph ph-x" aria-hidden="true"></i>
                 </button>
             </div>
 
-            <div class="ops-dialog-body">
+            <div class="caa-dialog-body">
                 @if (!string.IsNullOrWhiteSpace(withdrawErrorMessage))
                 {
-                    <div class="ops-msg ops-fam-bad" role="alert">
+                    <div class="caa-msg" role="alert">
                         <i class="ph ph-warning-octagon" aria-hidden="true"></i>
-                        <div class="ops-msg-body">@withdrawErrorMessage</div>
+                        <div>@withdrawErrorMessage</div>
                     </div>
                 }
 
@@ -241,20 +272,20 @@
                     (@accountPendingWithdrawal.PhoneE164) will be signed out on every handset and
                     will not be able to place orders.
                 </p>
-                <p class="ops-hint">
+                <p class="caa-dialog-note">
                     Orders they have already placed are kept. You can reinstate this sign-in later
                     from the list.
                 </p>
             </div>
 
-            <div class="ops-dialog-foot">
-                <button type="button" class="ops-btn ops-btn-ghost" @onclick="CancelWithdraw"
+            <div class="caa-dialog-foot">
+                <button type="button" class="caa-btn caa-btn-quiet" @onclick="CancelWithdraw"
                         disabled="@isWithdrawing">Cancel</button>
-                <button type="button" class="ops-btn ops-btn-danger" @onclick="ConfirmWithdrawAsync"
+                <button type="button" class="caa-btn caa-btn-danger" @onclick="ConfirmWithdrawAsync"
                         disabled="@isWithdrawing">
                     @if (isWithdrawing)
                     {
-                        <span class="ops-spin"></span>
+                        <span class="caa-spin"></span>
                         <span>Withdrawing&hellip;</span>
                     }
                     else

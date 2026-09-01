@@ -1,0 +1,1035 @@
+/* ==========================================================================
+   Customer App Access — Nocturne
+
+   Imported from `Customer App Access.dc.html` in the claude.ai design project
+   7ca83797-1477-453f-9a17-19d09a8ef00b. Only the content region is built here;
+   the sidebar and top bar the design draws are the app's own chrome, carried by
+   nocturne-shell.css.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system. Light is the base and `.dark-theme` the override, both
+   stated there in the order App.razor's pre-paint script stamps the class in,
+   so neither scheme flashes.
+
+   Rules live here rather than in an inline Razor <style> block for the reason
+   the sibling sheets give: app.css carries global `.dark-theme input/select`
+   rules at (0,1,1) that would otherwise repaint every field #1e293b, so each
+   control carries a class and each control selector is two classes deep,
+   winning regardless of load order. Headings are pinned to Nocturne's 500
+   because Bootstrap's global `h1-h6 { font-weight: 600 }` would bolden them
+   past the weight this system allows.
+
+   The token block is declared on `.caa, .caa-overlay` so the withdraw dialog
+   reaches the tokens without carrying the page root class — which would bring
+   `min-height: 100vh` with it and hang the dialog below the fold. That is
+   business-partners.css's arrangement, and it is the one to copy.
+
+   ── Three departures from the design, all forced by what the data is ──
+
+   - **No sign-in code column.** The design draws a `SIGN-IN CODE` column
+     holding a readable code per shop. There is no such thing to draw: the code
+     is a one-time password, stored only as an HMAC-SHA256 digest
+     (`VanSalesCustomerOtpEntity.CodeHash`, "Never the code itself"), and the
+     API's account result opens by saying it "Never carries a code or a token".
+     Rendering that column would mean keeping OTPs in plaintext and showing
+     them to back-office staff, undoing a deliberate decision on the API side.
+     The design ships a `showCodeColumn` toggle, so a build without the column
+     is inside its own vocabulary rather than a rejection of it.
+
+   - **`LAST ORDER` is last sign-in.** The accounts endpoint carries
+     `LastLoginAt` and no order data, so the column keeps the design's shape and
+     its relative-time treatment ("Today, 08:14", "4 days ago") under an honest
+     heading. Reading a shop's last *order* out of this list would need the
+     query to join the orders table — worth doing, but it is an API change
+     rather than a restyle.
+
+   - **The list opens on All, not Active.** The design shows the segmented
+     control resting on Active. The screen is opened with "why can this shop not
+     order?", and a withdrawn sign-in hidden behind a filter looks identical to
+     one that was never created — which sends the operator to make a second
+     rather than reinstate the first. That reasoning is the page's own, recorded
+     against `viewFilter`; the design's three-way control is what makes it cheap
+     to narrow afterwards, which the two-way dropdown it replaces did not.
+
+   One further reading, not a departure: the row action is drawn in the accent
+   rather than in the danger hue, which is the design's own choice and the right
+   one here — withdrawing is reversible from the same row, and the confirm
+   dialog is where the weight belongs.
+   ========================================================================== */
+
+.caa,
+.caa-overlay {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --caa-bg: var(--noct-bg);
+    --caa-surface: var(--noct-surface);
+    --caa-wash: var(--noct-wash);
+    --caa-ink: var(--noct-ink);
+    --caa-ink-2: var(--noct-ink-2);
+    --caa-mute: var(--noct-mute);
+    --caa-mute-2: var(--noct-mute-2);
+    --caa-mute-3: var(--noct-mute-3);
+    --caa-faint: var(--noct-faint);
+    --caa-placeholder: var(--noct-placeholder);
+    --caa-divider: var(--noct-divider);
+    --caa-rule: var(--noct-rule);
+    --caa-hover: var(--noct-hover);
+    --caa-press: var(--noct-press);
+    --caa-field-bg: var(--noct-field-bg);
+    --caa-field-edge: var(--noct-field-edge);
+    --caa-field-edge-hi: var(--noct-field-edge-hi);
+    --caa-accent: var(--noct-accent);
+    --caa-accent-rgb: var(--noct-accent-rgb);
+    --caa-accent-text: var(--noct-accent-text);
+    --caa-scrim: var(--noct-scrim);
+    --caa-thumb: var(--noct-thumb);
+    --caa-shadow-pop: var(--noct-shadow-pop);
+    --caa-clear: var(--noct-clear);
+    --caa-scheme: var(--noct-scheme);
+
+    --caa-fam-neutral: var(--noct-fam-neutral);
+    --caa-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --caa-fam-accent: var(--noct-fam-accent);
+    --caa-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --caa-fam-good: var(--noct-fam-good);
+    --caa-fam-good-rgb: var(--noct-fam-good-rgb);
+    --caa-fam-warn: var(--noct-fam-warn);
+    --caa-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --caa-fam-bad: var(--noct-fam-bad);
+    --caa-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --caa-s1: var(--noct-s1);
+    --caa-s2: var(--noct-s2);
+    --caa-s3: var(--noct-s3);
+    --caa-s4: var(--noct-s4);
+    --caa-s6: var(--noct-s6);
+    --caa-s8: var(--noct-s8);
+    --caa-r-sm: var(--noct-r-sm);
+    --caa-r-md: var(--noct-r-md);
+    --caa-r-lg: var(--noct-r-lg);
+
+    /* Shop, handset, who holds it, last sign-in, status, action. The three
+       fixed columns are sized to their longest real value — an E.164 number,
+       "Yesterday, 08:14" and "Locked out" — so none of them wraps. */
+    --caa-cols: minmax(0, 1.6fr) 154px minmax(0, 1.15fr) 150px 116px 112px;
+
+    color-scheme: var(--caa-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.caa {
+    min-height: 100vh;
+    background: var(--caa-bg);
+    color: var(--caa-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* The dialog renders outside `.caa`, so it repeats the page root's whole font
+   context — size and leading included, not just family and colour, or its
+   controls inherit Bootstrap's 16px body instead. `min-height` and `background`
+   are the two declarations that must *not* come along: they are what would give
+   the fixed overlay a page-coloured viewport of dead scroll. */
+.caa-overlay {
+    color: var(--caa-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.caa *,
+.caa-overlay * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside this page that would flatten the hues the status badges
+   carry on WebKit, so hand the fill back to `color`. */
+.caa,
+.caa *,
+.caa-overlay,
+.caa-overlay * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.caa :focus-visible,
+.caa-overlay :focus-visible {
+    outline: 2px solid var(--caa-accent);
+    outline-offset: 2px;
+}
+
+.caa ::selection,
+.caa-overlay ::selection {
+    background: rgba(var(--caa-accent-rgb), .3);
+}
+
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. The colour is stated for the same reason and is
+   not redundant: measured, an unstated heading resolves to pure black rather
+   than inheriting the page ink, so in dark theme it would be a near-invisible
+   title on a dark surface. */
+.caa h1,
+.caa h2,
+.caa h3,
+.caa-overlay h2,
+.caa-overlay h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    color: var(--caa-ink);
+    margin: 0;
+}
+
+.caa a {
+    text-decoration: none;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.caa-body {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 26px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--caa-s6);
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.caa-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.caa-hero-text {
+    min-width: 0;
+}
+
+.caa-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--caa-accent-text);
+    margin-bottom: 9px;
+}
+
+.caa-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.caa-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--caa-mute-2);
+    max-width: 60ch;
+    text-wrap: pretty;
+}
+
+.caa-hero-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--caa-s6);
+    flex: none;
+}
+
+/* The one figure the page carries. Ruled off from the prose rather than boxed
+   in a card: there is a single number here, and a card for one number reads as
+   a dashboard the page is not. */
+.caa-fig {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    padding-left: var(--caa-s6);
+    border-left: 1px solid var(--caa-divider);
+}
+
+.caa-fig-num {
+    font-size: 30px;
+    font-weight: 500;
+    line-height: 1.05;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--caa-accent);
+}
+
+.caa-fig-label {
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--caa-mute-2);
+    white-space: nowrap;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.caa .caa-btn,
+.caa-overlay .caa-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--caa-s2) calc(var(--caa-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--caa-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--caa-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.caa .caa-btn:disabled,
+.caa-overlay .caa-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.caa .caa-btn i,
+.caa-overlay .caa-btn i {
+    display: block;
+    flex: none;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.caa .caa-btn-primary,
+.caa-overlay .caa-btn-primary {
+    color: var(--caa-accent);
+    border-color: var(--caa-accent);
+    letter-spacing: .02em;
+}
+
+.caa .caa-btn-primary:hover:not(:disabled),
+.caa-overlay .caa-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--caa-accent-rgb), .12);
+}
+
+.caa .caa-btn-primary:active:not(:disabled),
+.caa-overlay .caa-btn-primary:active:not(:disabled) {
+    background: rgba(var(--caa-accent-rgb), .22);
+}
+
+.caa .caa-btn-quiet,
+.caa-overlay .caa-btn-quiet {
+    color: var(--caa-mute-2);
+    border-color: var(--caa-divider);
+}
+
+.caa .caa-btn-quiet:hover:not(:disabled),
+.caa-overlay .caa-btn-quiet:hover:not(:disabled) {
+    color: var(--caa-ink);
+    border-color: var(--caa-field-edge-hi);
+    background: var(--caa-hover);
+}
+
+.caa .caa-btn-ghost,
+.caa-overlay .caa-btn-ghost {
+    color: var(--caa-accent);
+    padding-inline: var(--caa-s2);
+}
+
+.caa .caa-btn-ghost:hover:not(:disabled),
+.caa-overlay .caa-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--caa-accent-rgb), .1);
+}
+
+/* Only the dialog's confirm carries the danger hue. The row action that opens
+   it does not — see the header. */
+.caa-overlay .caa-btn-danger {
+    color: var(--caa-fam-bad);
+    border-color: rgba(var(--caa-fam-bad-rgb), .55);
+}
+
+.caa-overlay .caa-btn-danger:hover:not(:disabled) {
+    background: rgba(var(--caa-fam-bad-rgb), .12);
+}
+
+.caa .caa-btn-sm,
+.caa-overlay .caa-btn-sm {
+    height: 26px;
+    font-size: 12px;
+    padding-inline: var(--caa-s3);
+}
+
+/* A square button carrying only a glyph — the refresh control on the filter
+   row, and the dialog's close. */
+.caa .caa-btn-icon,
+.caa-overlay .caa-btn-icon {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    flex: none;
+    color: var(--caa-mute-2);
+    border-color: var(--caa-divider);
+}
+
+.caa .caa-btn-icon:hover:not(:disabled),
+.caa-overlay .caa-btn-icon:hover:not(:disabled) {
+    color: var(--caa-ink);
+    border-color: var(--caa-field-edge-hi);
+    background: var(--caa-hover);
+}
+
+.caa-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: caa-spin .7s linear infinite;
+}
+
+@keyframes caa-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .caa-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+/* The metrics here are nocturne-select.css's own fallbacks, so the two shop
+   pickers sit level with the text fields beside them without this sheet
+   setting a single `--nsel-*` value. */
+
+.caa .caa-input,
+.caa-overlay .caa-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--caa-ink);
+    caret-color: var(--caa-accent);
+    background: var(--caa-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--caa-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.caa .caa-input:hover,
+.caa-overlay .caa-input:hover {
+    border-color: var(--caa-field-edge);
+}
+
+.caa .caa-input:focus-visible,
+.caa-overlay .caa-input:focus-visible {
+    border-color: rgba(var(--caa-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.caa .caa-input::placeholder,
+.caa-overlay .caa-input::placeholder {
+    color: var(--caa-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--caa-placeholder);
+}
+
+.caa .caa-input-search {
+    padding-left: 33px;
+    border-radius: 999px;
+}
+
+.caa .caa-input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    margin-left: var(--caa-s2);
+    background: var(--caa-clear) no-repeat center / contain;
+    opacity: .7;
+    cursor: pointer;
+}
+
+.caa .caa-input[type="search"]::-webkit-search-cancel-button:hover {
+    opacity: 1;
+}
+
+.caa-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 210px;
+}
+
+.caa-search i {
+    position: absolute;
+    left: 12px;
+    pointer-events: none;
+    color: var(--caa-mute-3);
+    font-size: 14px;
+    line-height: 1;
+}
+
+.caa-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+/* Sentence case rather than the uppercase rail the sibling sheets use over a
+   filter row: these three label a form the operator types into, and the design
+   draws them as prose. */
+.caa-label {
+    font-size: 12px;
+    color: var(--caa-mute-2);
+}
+
+.caa-label .caa-optional {
+    color: var(--caa-mute-3);
+}
+
+/* The window control — Nocturne's segmented choice, on native buttons. */
+
+.caa-seg {
+    display: flex;
+    flex: none;
+    padding: 3px;
+    gap: 3px;
+    border-radius: var(--caa-r-md);
+    box-shadow: inset 0 0 0 1px var(--caa-divider);
+}
+
+.caa .caa-seg-opt {
+    height: 26px;
+    padding: 0 11px;
+    display: grid;
+    place-items: center;
+    font: inherit;
+    font-size: 12px;
+    color: var(--caa-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--caa-r-sm);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, color .15s, box-shadow .15s;
+}
+
+.caa .caa-seg-opt:hover:not(.is-on) {
+    background: var(--caa-hover);
+    color: var(--caa-ink);
+}
+
+.caa .caa-seg-opt.is-on {
+    color: var(--caa-accent-text);
+    background: rgba(var(--caa-accent-rgb), .14);
+    box-shadow: inset 0 0 0 1px rgba(var(--caa-accent-rgb), .38);
+}
+
+/* ── Panels ────────────────────────────────────────────────────────────── */
+/* A wash that falls away into the ground over its first 240px rather than a
+   filled card — the design's one gradient, shared by both panels. */
+
+.caa-panel {
+    border: 1px solid var(--caa-divider);
+    border-radius: var(--caa-r-lg);
+    background: linear-gradient(to bottom, var(--caa-wash), transparent 240px);
+}
+
+.caa-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--caa-s3);
+    padding: var(--caa-s4) var(--caa-s6);
+    flex-wrap: wrap;
+}
+
+.caa-panel-head h2 {
+    display: flex;
+    align-items: center;
+    gap: var(--caa-s3);
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.caa-panel-head h2 i {
+    color: var(--caa-accent);
+    font-size: 16px;
+    line-height: 1;
+}
+
+/* The rule the form states about itself, kept on the panel head rather than
+   under the fields: it is a constraint on the whole form, not on one input. */
+.caa-panel-note {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--caa-mute-3);
+    white-space: nowrap;
+}
+
+.caa-count {
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--caa-field-bg);
+    font-size: 11.5px;
+    color: var(--caa-mute-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ── The form ──────────────────────────────────────────────────────────── */
+/* One row: three fields and the action. `align-items: end` so the button sits
+   on the fields' baseline while the labels hold their own height above. */
+
+.caa-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: var(--caa-s4);
+    align-items: end;
+    padding: 0 var(--caa-s6);
+}
+
+.caa .caa-form-submit {
+    height: 34px;
+}
+
+.caa-hint {
+    margin: 0;
+    padding: var(--caa-s3) var(--caa-s6) var(--caa-s6);
+    font-size: 12.5px;
+    color: var(--caa-mute-3);
+    max-width: 78ch;
+    text-wrap: pretty;
+}
+
+.caa-msg {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--caa-s3);
+    margin: 0 var(--caa-s6) var(--caa-s4);
+    padding: var(--caa-s3) var(--caa-s4);
+    border: 1px solid rgba(var(--caa-fam-bad-rgb), .4);
+    border-radius: var(--caa-r-md);
+    background: rgba(var(--caa-fam-bad-rgb), .1);
+    color: var(--caa-fam-bad);
+    font-size: 13px;
+}
+
+.caa-overlay .caa-msg {
+    margin: 0 0 var(--caa-s4);
+}
+
+.caa-msg i {
+    flex: none;
+    margin-top: 1px;
+    font-size: 15px;
+    line-height: 1.3;
+}
+
+/* ── The filter row ────────────────────────────────────────────────────── */
+
+.caa-tools {
+    display: flex;
+    align-items: center;
+    gap: var(--caa-s3);
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+
+.caa-tools .nsel {
+    flex: none;
+    width: 178px;
+}
+
+/* ── The list ──────────────────────────────────────────────────────────── */
+/* A grid rather than the design's <table>, so the same markup can re-lay as a
+   labelled card below 1040px — the treatment the sibling sheets use. */
+
+.caa-scroll {
+    overflow-x: auto;
+}
+
+.caa-grid {
+    min-width: 1020px;
+}
+
+.caa-thead,
+.caa-row {
+    display: grid;
+    grid-template-columns: var(--caa-cols);
+    align-items: center;
+    gap: var(--caa-s4);
+}
+
+.caa-thead {
+    padding: var(--caa-s3) var(--caa-s6);
+    border-top: 1px solid var(--caa-rule);
+    border-bottom: 1px solid var(--caa-rule);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--caa-mute-3);
+}
+
+.caa-row {
+    padding: 11px var(--caa-s6);
+    border-bottom: 1px solid var(--caa-rule);
+    transition: background-color .12s ease;
+}
+
+.caa-row:last-child {
+    border-bottom: 0;
+}
+
+.caa-row:hover {
+    background: var(--caa-hover);
+}
+
+/* A withdrawn sign-in is quietened rather than marked: it is a former state,
+   not a fault, and a warning treatment on it would read as something to fix. */
+.caa-row-off .caa-strong {
+    color: var(--caa-mute-2);
+}
+
+.caa-cell {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.caa-strong {
+    font-size: 13.5px;
+    color: var(--caa-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.caa-weak {
+    font-size: 12px;
+    color: var(--caa-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The handset. Tabular figures so a column of numbers lines up digit for digit,
+   which is what makes a wrong one findable by eye. */
+.caa-phone {
+    font-size: 13.5px;
+    color: var(--caa-ink);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.caa-seen {
+    font-size: 13px;
+    color: var(--caa-mute-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* Nobody has signed in on this one yet — held apart from a date so the two do
+   not read as the same kind of answer. */
+.caa-seen-never {
+    color: var(--caa-faint);
+}
+
+.caa-none {
+    color: var(--caa-faint);
+}
+
+/* Structure only — every badge carries a family class as well, so a hue is
+   declared in exactly one place and a badge can never be drawn in a colour this
+   rule silently supplied. */
+.caa-badge {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    max-width: 100%;
+    padding: 2px 8px;
+    border-radius: var(--caa-r-sm);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.caa-fam-neutral {
+    color: var(--caa-fam-neutral);
+    background: rgba(var(--caa-fam-neutral-rgb), .14);
+    box-shadow: inset 0 0 0 1px rgba(var(--caa-fam-neutral-rgb), .3);
+}
+
+.caa-fam-accent {
+    color: var(--caa-accent-text);
+    background: rgba(var(--caa-fam-accent-rgb), .16);
+    box-shadow: inset 0 0 0 1px rgba(var(--caa-fam-accent-rgb), .34);
+}
+
+.caa-fam-bad {
+    color: var(--caa-fam-bad);
+    background: rgba(var(--caa-fam-bad-rgb), .12);
+    box-shadow: inset 0 0 0 1px rgba(var(--caa-fam-bad-rgb), .3);
+}
+
+.caa-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+}
+
+/* Row labels, carried for the card layout below 1040px and hidden above it. */
+.caa-rl {
+    display: none;
+}
+
+.caa-empty {
+    padding: 46px var(--caa-s6) 54px;
+    text-align: center;
+    color: var(--caa-mute-3);
+    font-size: 13px;
+}
+
+.caa-empty p {
+    margin: 0;
+    text-wrap: pretty;
+}
+
+/* ── The withdraw dialog ───────────────────────────────────────────────── */
+/* Rendered outside `.caa` so the page cannot clip it, and reaching the tokens
+   through the `.caa-overlay` half of the block at the top of this sheet rather
+   than by carrying the page root class — which would bring `min-height: 100vh`
+   with it and push the footer past the fold. */
+
+.caa-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+    display: grid;
+    place-items: center;
+    padding: var(--caa-s6);
+    background: var(--caa-scrim);
+}
+
+.caa-dialog {
+    width: min(520px, 100%);
+    max-height: calc(100vh - 2 * var(--caa-s8));
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--caa-r-lg);
+    background: var(--caa-surface);
+    box-shadow: var(--caa-shadow-pop);
+    overflow: hidden;
+}
+
+.caa-dialog-head {
+    display: flex;
+    align-items: center;
+    gap: var(--caa-s3);
+    padding: var(--caa-s4) var(--caa-s6);
+    border-bottom: 1px solid var(--caa-rule);
+}
+
+.caa-dialog-head h2 {
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.caa-overlay .caa-dialog-x {
+    margin-left: auto;
+}
+
+.caa-dialog-body {
+    padding: var(--caa-s6);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--caa-s3);
+    font-size: 13.5px;
+    color: var(--caa-mute);
+}
+
+.caa-dialog-body p {
+    margin: 0;
+    text-wrap: pretty;
+}
+
+.caa-dialog-body strong {
+    color: var(--caa-ink);
+    font-weight: 500;
+}
+
+.caa-dialog-note {
+    font-size: 12.5px;
+    color: var(--caa-mute-3);
+}
+
+.caa-dialog-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--caa-s3);
+    padding: var(--caa-s4) var(--caa-s6);
+    border-top: 1px solid var(--caa-rule);
+}
+
+/* ── Narrow ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+    .caa-form {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    .caa .caa-form-submit {
+        grid-column: 2;
+        justify-self: end;
+    }
+}
+
+/* The grid becomes a card per sign-in. The column headings go with it — a
+   heading row above stacked cards labels nothing — and each cell picks up the
+   label it lost. */
+@media (max-width: 1040px) {
+    .caa-grid {
+        min-width: 0;
+    }
+
+    .caa-thead {
+        display: none;
+    }
+
+    .caa-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: start;
+        gap: var(--caa-s2) var(--caa-s4);
+        padding: var(--caa-s4) var(--caa-s6);
+    }
+
+    /* Both are pinned to the first row rather than left to auto-placement,
+       which would flow the badge past the three full-width cells and strand it
+       on a line of its own between the data and the action. */
+    .caa-cell-shop {
+        grid-row: 1;
+        grid-column: 1;
+    }
+
+    .caa-cell-status {
+        grid-row: 1;
+        grid-column: 2;
+        justify-self: end;
+    }
+
+    .caa-cell-phone,
+    .caa-cell-holder,
+    .caa-cell-seen {
+        grid-column: 1 / -1;
+        flex-direction: row;
+        align-items: baseline;
+        gap: 6px;
+    }
+
+    .caa-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+        margin-top: var(--caa-s2);
+    }
+
+    .caa-rl {
+        display: inline;
+        font-size: 10.5px;
+        letter-spacing: .09em;
+        text-transform: uppercase;
+        color: var(--caa-faint);
+        flex: none;
+    }
+}
+
+@media (max-width: 860px) {
+    .caa-body {
+        padding-inline: 18px;
+    }
+
+    .caa-panel-head,
+    .caa-form,
+    .caa-hint,
+    .caa-row,
+    .caa-empty {
+        padding-inline: var(--caa-s4);
+    }
+
+    .caa-msg {
+        margin-inline: var(--caa-s4);
+    }
+
+    .caa-tools {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .caa-search {
+        min-width: 100%;
+    }
+
+    .caa-tools .nsel {
+        flex: 1;
+        width: auto;
+    }
+}
+
+@media (max-width: 620px) {
+    .caa-hero h1 {
+        font-size: 24px;
+    }
+
+    .caa-hero-meta {
+        margin-left: 0;
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .caa-fig {
+        align-items: flex-start;
+        padding-left: 0;
+        border-left: 0;
+    }
+
+    .caa-form {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .caa .caa-form-submit {
+        grid-column: 1;
+        justify-self: stretch;
+    }
+
+    .caa-seg {
+        width: 100%;
+    }
+
+    .caa .caa-seg-opt {
+        flex: 1;
+    }
+}
