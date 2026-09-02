@@ -9,6 +9,7 @@
 @inject NavigationManager NavigationManager
 @inject ILogger<CreateTransferRequest> Logger
 @inject AuthenticationStateProvider AuthStateProvider
+@implements IDisposable
 @rendermode InteractiveServer
 
 <PageTitle>Create Transfer Request - Shop Inventory</PageTitle>
@@ -115,7 +116,7 @@
                             <span class="tfm-lab-t">From warehouse <span class="tfm-req">*</span></span>
                             <select class="tfm-select @(FromWarehouseError is not null ? "is-bad" : "")"
                                     value="@selectedFromWarehouse?.WarehouseCode"
-                                    @onchange="e => OnFromWarehouseChangedAsync(e.Value?.ToString())"
+                                    @onchange="e => OnFromWarehouseChanged(e.Value?.ToString())"
                                     disabled="@isLoadingMasterData">
                                 <option value="">@(isLoadingMasterData ? "Loading warehouses…" : "Select source warehouse…")</option>
                                 @foreach (var warehouse in cachedWarehouses)
@@ -275,7 +276,7 @@
                                                         {
                                                             <button type="button" class="tfm-drop-i"
                                                                     @onmousedown:preventDefault="true"
-                                                                    @onclick="() => SelectProductAsync(line, product)">
+                                                                    @onclick="() => SelectProduct(line, product)">
                                                                 <span>
                                                                     <span class="tfm-drop-code">@product.ItemCode</span>
                                                                     <span class="tfm-drop-sub">@Truncate(product.ItemName, 40)</span>
@@ -478,6 +479,13 @@
     private List<TransferLineItem> lines = new() { new TransferLineItem() };
 
     /// <summary>
+    /// The per-line stock confirmations, coalesced into one call at a time. Each one becomes a SAP
+    /// round trip holding one of six process-wide slots, so a form firing one per line could starve
+    /// every other user of the app.
+    /// </summary>
+    private StockRefreshBatcher? stockRefresh;
+
+    /// <summary>
     /// Validation is shown from the first submit attempt onwards, never before: the form opens
     /// empty, and a panel headed "please fix the following" on an untouched form is noise. After
     /// an attempt it tracks live, so entries disappear as they are fixed.
@@ -551,6 +559,11 @@
     }
 
     // ── Load ────────────────────────────────────────────
+    protected override void OnInitialized() =>
+        stockRefresh = new StockRefreshBatcher(StockCacheService, Logger, ApplyStockBatchAsync);
+
+    public void Dispose() => stockRefresh?.Dispose();
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender && !_hasLoadedData)
@@ -604,9 +617,14 @@
     }
 
     // ── Warehouses ──────────────────────────────────────
-    private async Task OnFromWarehouseChangedAsync(string? warehouseCode)
+    private void OnFromWarehouseChanged(string? warehouseCode)
     {
         selectedFromWarehouse = FindWarehouse(warehouseCode);
+
+        // Explicitly, not by relying on the re-queue below to supersede it: clearing the source back
+        // to blank queues nothing, and a read still in flight would go on holding a SAP slot for a
+        // warehouse the form no longer has.
+        stockRefresh?.Cancel();
 
         // Stock is reported per warehouse, so every line's figure is stale the moment the
         // source changes.
@@ -614,9 +632,12 @@
         {
             line.StockInSource = 0;
             line.HasStockFigure = false;
+            line.IsLoadingStock = false;
         }
 
-        await RefreshStockForAllLinesAsync();
+        // Re-queued rather than re-read one line at a time: every line here is answered by a single
+        // call instead of one per line.
+        QueueStockRefreshForAllLines();
     }
 
     private void OnToWarehouseChanged(string? warehouseCode) =>
@@ -666,68 +687,78 @@
             .ToList();
     }
 
-    private async Task SelectProductAsync(TransferLineItem line, ProductDto product)
+    private void SelectProduct(TransferLineItem line, ProductDto product)
     {
         line.SelectedProduct = product;
         line.ItemCode = product.ItemCode;
         line.UoMCode = string.IsNullOrWhiteSpace(product.UoM) ? null : product.UoM.Trim();
         line.ShowDropdown = false;
 
-        await RefreshStockAsync(line);
+        QueueStockRefresh(line);
     }
 
     // ── Stock ───────────────────────────────────────────
-    private async Task RefreshStockForAllLinesAsync()
+    private void QueueStockRefreshForAllLines()
     {
         foreach (var line in lines.Where(l => l.SelectedProduct is not null))
         {
-            await RefreshStockAsync(line);
+            QueueStockRefresh(line);
         }
     }
 
     /// <summary>
-    /// Reads the line's stock in the source warehouse, and takes the unit of measure from the same
-    /// response when the product cache has none — the API rejects a fractional quantity it cannot
-    /// match to a unit, so this is the second chance to find one.
+    /// Asks for the line's stock in the source warehouse. Queued rather than read here: the batcher
+    /// folds every line's request into one call, so a form of any length holds one SAP slot.
     /// </summary>
-    private async Task RefreshStockAsync(TransferLineItem line)
+    private void QueueStockRefresh(TransferLineItem line)
     {
         var warehouseCode = selectedFromWarehouse?.WarehouseCode;
         var itemCode = line.SelectedProduct?.ItemCode;
         if (string.IsNullOrWhiteSpace(warehouseCode) || string.IsNullOrWhiteSpace(itemCode))
             return;
 
-        var product = line.SelectedProduct;
         line.IsLoadingStock = true;
-
-        try
-        {
-            var stockByItem = await StockCacheService.GetStockForItemsAsync(
-                warehouseCode, [itemCode], CancellationToken.None);
-
-            // Drop a late response if the source warehouse or the line's product has moved on.
-            if (!string.Equals(selectedFromWarehouse?.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase)
-                || !ReferenceEquals(line.SelectedProduct, product))
-                return;
-
-            if (stockByItem.TryGetValue(itemCode, out var stock))
-            {
-                line.StockInSource = stock.QuantityInStock;
-                line.HasStockFigure = true;
-                if (string.IsNullOrWhiteSpace(line.UoMCode) && !string.IsNullOrWhiteSpace(stock.UoM))
-                    line.UoMCode = stock.UoM.Trim();
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Failed to read stock for {ItemCode} in {Warehouse}", itemCode, warehouseCode);
-        }
-        finally
-        {
-            line.IsLoadingStock = false;
-            await InvokeAsync(StateHasChanged);
-        }
+        stockRefresh?.Request(warehouseCode, itemCode);
     }
+
+    /// <summary>
+    /// Writes one batch's figures onto the lines waiting for them, taking the unit of measure from
+    /// the same rows when the product cache has none — the API rejects a fractional quantity it
+    /// cannot match to a unit, so this is the second chance to find one.
+    /// </summary>
+    /// <remarks>
+    /// Runs off the circuit's synchronisation context, so every touch of component state goes
+    /// through InvokeAsync. Lines are matched by the code they currently hold rather than by the
+    /// product object queued: a line the operator has since typed past no longer has a selection and
+    /// is skipped, and one they have pointed at a different item does not match this batch.
+    /// </remarks>
+    private Task ApplyStockBatchAsync(StockRefreshBatch batch) => InvokeAsync(() =>
+    {
+        // Drop a late batch if the source warehouse moved on while it was in flight.
+        if (!string.Equals(selectedFromWarehouse?.WarehouseCode, batch.WarehouseCode, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        foreach (var line in lines)
+        {
+            var itemCode = line.SelectedProduct?.ItemCode;
+            if (string.IsNullOrWhiteSpace(itemCode) || !batch.RequestedItemCodes.Contains(itemCode))
+                continue;
+
+            // Cleared for every code that was asked about, so a line for an item the warehouse
+            // holds no row for stops spinning too.
+            line.IsLoadingStock = false;
+
+            if (!batch.Stock.TryGetValue(itemCode, out var stock))
+                continue;
+
+            line.StockInSource = stock.QuantityInStock;
+            line.HasStockFigure = true;
+            if (string.IsNullOrWhiteSpace(line.UoMCode) && !string.IsNullOrWhiteSpace(stock.UoM))
+                line.UoMCode = stock.UoM.Trim();
+        }
+
+        StateHasChanged();
+    });
 
     private string StockClass(TransferLineItem line)
     {
@@ -877,6 +908,7 @@
 
     private void ClearForm()
     {
+        stockRefresh?.Cancel();
         selectedFromWarehouse = null;
         selectedToWarehouse = null;
         docDate = DateTime.Today;
