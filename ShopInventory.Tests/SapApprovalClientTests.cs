@@ -325,6 +325,25 @@ public sealed class SapApprovalClientTests
 
     // ── Harness ──────────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// A share the server cannot open and a file SAP no longer holds both answer false from
+    /// <c>File.Exists</c>, and they are fixed by different people — one is the file server or the app
+    /// pool's credentials, the other is a stale attachment line. Reporting the first as "not in the
+    /// folder" sends somebody hunting through a folder they cannot even reach.
+    /// </summary>
+    [Fact]
+    public async Task An_unreachable_attachments_folder_is_not_reported_as_a_missing_file()
+    {
+        var missingFolder = Path.Combine(Path.GetTempPath(), $"sap-attachments-{Guid.NewGuid():N}", "never-created");
+        var client = CreateClient(new FakeServiceLayer(), new SAPSettings { AttachmentsPath = missingFolder });
+        var line = new SAPAttachmentLine { FileName = "return-note", FileExtension = "pdf" };
+
+        var failure = await Assert.ThrowsAsync<IOException>(() => client.ReadAttachmentFromShareAsync(line));
+
+        Assert.Contains("could not be reached", failure.Message, StringComparison.Ordinal);
+        Assert.Contains(missingFolder, failure.Message, StringComparison.Ordinal);
+    }
+
     private static SAPServiceLayerClient CreateClient(FakeServiceLayer sap, SAPSettings? settings = null)
     {
         var httpClient = new HttpClient(sap) { BaseAddress = new Uri("https://sap.invalid/b1s/v1/") };

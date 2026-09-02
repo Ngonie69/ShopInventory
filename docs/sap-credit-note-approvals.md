@@ -50,7 +50,7 @@ curl -sk -H "Cookie: B1SESSION=$SID" "$B/Users?\$filter=UserCode%20eq%20'manager
 | `SAP:ApprovalApproverUsername` | `SAP:Username` | The SAP user decisions are recorded as |
 | `SAP:ApprovalApproverPassword` | `SAP:Password` when the approver is the session user, else omitted from the payload | Its password; never logged |
 | `CreditNoteApprovals:FiscaliseAfterAdd` | `true` | Fiscalise the credit note right after the add. A document added through the Service Layer never passes the fiscalisation platform's B1 print bridge, so with this off it is fiscalised only when somebody next prints it in the B1 client |
-| `CreditNoteApprovals:AttachmentReadMode` | `ServiceLayer` | `Share` reads the file off `SAP:AttachmentsPath` with the share credentials instead of streaming `$value`, for a Service Layer that cannot serve the folder |
+| `CreditNoteApprovals:AttachmentReadMode` | `Share` in `appsettings.json`; `ServiceLayer` if the key is absent | `Share` reads the file off `SAP:AttachmentsPath` with the share credentials instead of streaming `$value`, for a Service Layer that cannot serve the folder — which is this landscape, see below |
 
 ## The routes
 
@@ -145,13 +145,25 @@ Every form of the call — filename quoted, unquoted, extension-less, or omitted
 ```
 
 The Service Layer runs on Linux and its `AttachmentsFolderPath` is not mounted, so it can serve no
-attachment for any document. Only a SAP administrator can fix that. Until they do, set
-`CreditNoteApprovals:AttachmentReadMode` to `Share`, which reads from `SAP:AttachmentsPath` — the folder
-the API already writes POD attachments to, reachable from the API host but not from a developer machine.
+attachment for any document. Only a SAP administrator can fix that. Confirmed on both companies —
+`KEFALOS_TEST_3` (attachment 28995, `epic 11.pdf`) and, on 2026-09-02, `KEFALOS_USD_NEW2` for the
+document a manager actually clicked: approval request 84752 → draft 76744 → attachment 105063,
+`brian 01_09_26.pdf`. The metadata reads back perfectly in both; it is only the bytes that are gone.
+
+`appsettings.json` therefore ships `CreditNoteApprovals:AttachmentReadMode = Share`, which reads from
+`SAP:AttachmentsPath` — the folder the API already writes POD attachments to, reachable from the API
+host but not from a developer machine. Put it back to `ServiceLayer` once SAP mounts the folder.
 
 The refusal is reported in SAP's own words as `CreditNoteApproval.AttachmentUnavailable`, deliberately
 **not** `AttachmentNotFound`: the drawer is listing the file by name, and telling somebody it does not
-exist would send them hunting for a document that is right there.
+exist would send them hunting for a document that is right there. A share read separates the two
+failures it can have, because different people fix them: a folder the server cannot open at all is an
+`IOException` naming the path, and only a folder that opens but holds no such file is "not there".
+
+That sentence reaches the person who clicked. The API answers `application/problem+json`, the Web's
+download proxy forwards that body rather than a bare status code, `app.js` lifts its `detail` into the
+error it throws, and the page shows it on the snackbar and in the drawer under the file list. What a
+manager used to get for all of this was "The attachment could not be opened."
 
 Note also that `Attachments2_Line.SourcePath` is where the person picked the file from — one row read
 `C:\Users\Alice.Manyangala\Documents` — so it is not a location any server can open. The share read

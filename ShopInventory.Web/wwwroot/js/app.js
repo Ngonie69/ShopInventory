@@ -444,18 +444,63 @@ function getFileNameFromDisposition(disposition, fallbackFileName) {
     return fileNameMatch?.[1]?.trim() || fallbackFileName || 'download';
 }
 
+// Every message thrown from here is one we wrote, because the page shows it to the person who
+// clicked: Blazor hands the .NET side `${error.message}\n${error.stack}`, so the first line is what
+// lands on the snackbar. A raw "TypeError: Failed to fetch" is not an explanation.
+async function getDownloadFailureMessage(response) {
+    let body = '';
+    try {
+        body = await response.text();
+    } catch {
+        body = '';
+    }
+
+    const trimmed = body.trim();
+    if (trimmed) {
+        try {
+            const problem = JSON.parse(trimmed);
+            const detail = problem?.detail || problem?.title || problem?.message;
+            if (typeof detail === 'string' && detail.trim()) {
+                return detail.trim();
+            }
+        } catch {
+            // Not JSON: a short plain-text body is still the server explaining itself, but an HTML
+            // error page is chrome, not a message.
+            if (trimmed.length <= 400 && !trimmed.startsWith('<')) {
+                return trimmed;
+            }
+        }
+    }
+
+    if (response.status === 401) {
+        return 'Your session has expired. Please sign in again.';
+    }
+
+    if (response.status === 403) {
+        return 'You do not have permission to open this file.';
+    }
+
+    return `The server refused the download (status ${response.status}).`;
+}
+
 async function fetchAuthenticatedBlob(url, tokenKey, fallbackFileName) {
     const token = getStoredBearerToken(tokenKey);
-    const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${token}`
-        },
-        credentials: 'same-origin'
-    });
+
+    let response;
+    try {
+        response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            credentials: 'same-origin'
+        });
+    } catch {
+        throw new Error('The server could not be reached. Check your connection and try again.');
+    }
 
     if (!response.ok) {
-        throw new Error(`Download failed with status ${response.status}`);
+        throw new Error(await getDownloadFailureMessage(response));
     }
 
     return {

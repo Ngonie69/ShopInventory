@@ -345,6 +345,14 @@
                                 }
                             </div>
                         }
+
+                        @if (!string.IsNullOrEmpty(attachmentError))
+                        {
+                            <div class="cna-alert" role="alert">
+                                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                                <div class="cna-alert-body">@attachmentError</div>
+                            </div>
+                        }
                     </div>
 
                     @if (detail.Lines.Count > 0)
