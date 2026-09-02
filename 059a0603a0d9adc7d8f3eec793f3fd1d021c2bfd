@@ -1,0 +1,21 @@
+Correction to this commit message.
+
+The opening paragraph says the one-time code "meant waiting for an SMS, which
+costs money per message". That is wrong on both counts, and the code this
+commit adds never behaved that way.
+
+Codes are delivered over WhatsApp through the OpenWA gateway.
+OtpDeliveryChannel offers only WhatsApp and a development-log channel; there is
+no SMS path anywhere in the van sales customer sign-in.
+VanSalesCustomerAuthSettings records why WhatsApp was chosen, and one of the
+stated reasons is that it costs nothing per message: these customers were
+already sending their orders that way, so the number is known to work and the
+message arrives where they are already looking.
+
+What the paragraph should have said is that a code has to arrive before anyone
+can sign in, and it fails wherever the signal does. That reason stands on its
+own and is the real motivation for adding a password.
+
+The rest of the message is accurate: the nullable columns and why, the hashing
+and its work factor, the refusals that are indistinguishable in wording and in
+time, the shared lockout budget, and the onboarding rules.
