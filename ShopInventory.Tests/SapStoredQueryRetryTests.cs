@@ -24,11 +24,12 @@ public class SapStoredQueryRetryTests
     private static readonly Regex StoredQueryExecuteUrl = new(@"SQLQueries\('\{[^}]+\}'\)/List");
 
     /// <summary>
-    /// <c>SendPriceListRequestWithBudgetAsync</c> counts: it is the retry helper with a deadline
-    /// around it, not a way past it.
+    /// The budgeted wrappers count: each is the retry helper with a deadline around it, not a way
+    /// past it. Add a new one here only when it delegates to
+    /// <c>SendSapRequestWithTransientRetryAsync</c>.
     /// </summary>
     private static readonly Regex RetriedSend =
-        new(@"SendSapRequestWithTransientRetryAsync\(|SendPriceListRequestWithBudgetAsync\(");
+        new(@"SendSapRequestWithTransientRetryAsync\(|SendPriceListRequestWithBudgetAsync\(|SendStockRequestWithBudgetAsync\(");
 
     private static readonly Regex BareSend = new(@"\bawait\s+_?\w*[Cc]lient\.SendAsync\(");
 

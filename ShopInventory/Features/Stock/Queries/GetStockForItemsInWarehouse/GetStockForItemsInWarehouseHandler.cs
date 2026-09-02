@@ -63,6 +63,12 @@ public sealed class GetStockForItemsInWarehouseHandler(
             logger.LogError(ex, "Timeout connecting to SAP Service Layer");
             return Errors.Stock.SapTimeout;
         }
+        catch (TimeoutException ex)
+        {
+            // The read's own budget, not the client's: SAP took the request and did not answer.
+            logger.LogWarning(ex, "SAP stock read for warehouse {Warehouse} exceeded its budget", request.WarehouseCode);
+            return Errors.Stock.SapTimeout;
+        }
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
             logger.LogError(ex, "SAP connection aborted for warehouse {Warehouse} item stock lookup", request.WarehouseCode);

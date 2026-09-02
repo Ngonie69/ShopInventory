@@ -231,6 +231,17 @@ public sealed class InventoryTransferPostingJob : IJob
                 string.Join("; ", stockValidationResult.Errors.Select(error => error.Message)));
         }
 
+        if (!stockValidationResult.StockWasFullyRead)
+        {
+            // Deliberately worded so IsPermanentStockRejection does not match it: SAP going quiet
+            // is the condition this queue was built for, and retiring the entry for a shortage it
+            // never reported is how a replay that should have waited became a dead entry.
+            throw new InvalidOperationException(
+                "Could not read stock from SAP for warehouse(s) " +
+                string.Join(", ", stockValidationResult.UnreadableWarehouses) +
+                "; the transfer was not posted.");
+        }
+
         // Post to SAP as direct transfer
         var result = await sapService.CreateInventoryTransferAsync(
             transferDto, stockValidationResult.PreFetchedData, stoppingToken);

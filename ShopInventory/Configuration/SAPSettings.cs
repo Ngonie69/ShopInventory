@@ -35,6 +35,35 @@ public class SAPSettings
     public int PriceListSqlMaxAttempts { get; set; } = 1;
 
     /// <summary>
+    /// Maximum time allowed for a single stock read against SAP's SQLQueries endpoint.
+    /// </summary>
+    /// <remarks>
+    /// Without a budget of its own a stock read inherits <see cref="RequestTimeoutMinutes"/>, so a
+    /// Service Layer that accepts the request and then never answers holds one of
+    /// <see cref="MaxConcurrentRequests"/> slots for five minutes. On 2026-09-02 enough of those
+    /// piled up that requests a person was waiting on queued 55 seconds for a slot and inventory
+    /// transfer submissions ran out the browser's own timeout. A healthy read of this shape answers
+    /// in well under a second, so this is well past the point where waiting longer costs more than
+    /// giving up and letting the caller degrade.
+    /// </remarks>
+    public int StockSqlRequestTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>
+    /// How long an inventory transfer submission waits for SAP to measure its stock before the
+    /// transfer is held for approval anyway.
+    /// </summary>
+    /// <remarks>
+    /// The submission check is advisory — the poster re-runs it authoritatively before anything
+    /// reaches SAP — but it used to have no deadline of its own, so a slow Service Layer ran it
+    /// until the browser's five-minute timeout fired and took the submission with it. On
+    /// 2026-09-02 that lost eleven of thirteen attempts, each after five minutes of waiting. A
+    /// healthy validation answers in about three seconds and the slowest that has ever succeeded
+    /// took thirty-three, so the default is generous for the check and still a small fraction of
+    /// what the client will wait.
+    /// </remarks>
+    public int TransferStockValidationBudgetSeconds { get; set; } = 45;
+
+    /// <summary>
     /// Maximum number of concurrent outbound requests allowed to SAP Service Layer
     /// across the API process.
     /// </summary>

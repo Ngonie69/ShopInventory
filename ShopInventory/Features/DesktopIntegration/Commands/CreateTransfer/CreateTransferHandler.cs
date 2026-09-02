@@ -77,6 +77,16 @@ public sealed class CreateTransferHandler(
                 return Errors.DesktopIntegration.ValidationFailed(
                     string.Join("; ", validationResult.Errors.Select(e => e.Message)));
 
+            if (!validationResult.StockWasFullyRead)
+            {
+                // SAP went quiet rather than rejecting anything, which is the case the queue
+                // exists for — the same route the open circuit breaker takes above.
+                logger.LogWarning(
+                    "SAP did not answer for warehouse(s) {Warehouses} while creating a direct transfer. Falling back to queue.",
+                    string.Join(", ", validationResult.UnreadableWarehouses));
+                return await QueueTransferFallbackAsync(request, null, cancellationToken);
+            }
+
             var transfer = await sapClient.CreateInventoryTransferAsync(sapRequest, cancellationToken);
 
             return new InventoryTransferCreatedResponseDto { Transfer = transfer.ToDto() };

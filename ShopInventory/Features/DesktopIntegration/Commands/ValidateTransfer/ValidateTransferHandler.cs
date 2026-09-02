@@ -53,6 +53,18 @@ public sealed class ValidateTransferHandler(
 
         var result = await stockValidation.ValidateInventoryTransferStockAsync(sapRequest, cancellationToken);
 
+        // The caller is asking whether this transfer would post. A warehouse SAP never answered
+        // for was not measured, and reporting that as a pass is the answer they cannot act on.
+        if (result.IsValid && !result.StockWasFullyRead)
+        {
+            return new ValidateTransferResult(
+                IsValid: false,
+                Message: "Could not read stock from SAP for warehouse(s) " +
+                         string.Join(", ", result.UnreadableWarehouses),
+                Errors: [],
+                LinesValidated: request.Lines.Count);
+        }
+
         return new ValidateTransferResult(
             IsValid: result.IsValid,
             Message: result.IsValid ? "Transfer validation successful" : "Transfer validation failed",
