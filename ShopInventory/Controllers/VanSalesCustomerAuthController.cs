@@ -8,6 +8,7 @@ using ShopInventory.Features.VanSalesCustomerAuth;
 using ShopInventory.Features.VanSalesCustomerAuth.Commands.LogoutVanSalesCustomer;
 using ShopInventory.Features.VanSalesCustomerAuth.Commands.RefreshVanSalesCustomerSession;
 using ShopInventory.Features.VanSalesCustomerAuth.Commands.RequestVanSalesCustomerOtp;
+using ShopInventory.Features.VanSalesCustomerAuth.Commands.SignInVanSalesCustomer;
 using ShopInventory.Features.VanSalesCustomerAuth.Commands.VerifyVanSalesCustomerOtp;
 using ShopInventory.Models;
 
@@ -17,8 +18,8 @@ namespace ShopInventory.Controllers;
 /// Sign-in for van sales customers ordering on their own phones.
 /// </summary>
 /// <remarks>
-/// The class-level policy is the default, and the three <c>[AllowAnonymous]</c> actions below are
-/// the only exceptions: two because a customer has no session yet, and refresh because its whole
+/// The class-level policy is the default, and the four <c>[AllowAnonymous]</c> actions below are the
+/// only exceptions: three because a customer has no session yet, and refresh because its whole
 /// purpose is to be callable once the access token has expired. Everything else added to this
 /// controller inherits the policy — which is the intended direction for a mistake to fall.
 /// </remarks>
@@ -26,6 +27,33 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "VanSalesCustomerAccess")]
 public class VanSalesCustomerAuthController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// Exchange a phone number and its password for a session.
+    /// </summary>
+    /// <remarks>
+    /// What the ordering app uses. The code endpoints below remain for accounts that have no
+    /// password yet and as the way back in when one is forgotten.
+    /// </remarks>
+    [HttpPost("login")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType(typeof(VanSalesCustomerSessionResult), StatusCodes.Status200OK)]
+    public async Task<IActionResult> SignIn(
+        [FromBody] VanSalesCustomerSignInRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new SignInVanSalesCustomerCommand(
+                request.PhoneNumber,
+                request.Password,
+                request.DeviceId,
+                request.DeviceName,
+                GetIpAddress()),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
     /// <summary>
     /// Send a sign-in code to a phone number.
     /// </summary>

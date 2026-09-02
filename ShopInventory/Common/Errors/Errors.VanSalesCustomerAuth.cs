@@ -33,10 +33,25 @@ public static partial class Errors
                 "VanSalesCustomerAuth.InvalidCode",
                 "That code is not valid. Request a new one.");
 
+        /// <summary>
+        /// The number is not registered, the password is wrong, or the account has never been given
+        /// a password — one message for all three.
+        /// </summary>
+        /// <remarks>
+        /// The three must not be told apart. "No account for that number" would make sign-in the
+        /// customer-list oracle the code endpoint spends all its effort refusing to be, and "no
+        /// password set" would name exactly which accounts are worth attacking. The customer's
+        /// remedy is the same either way: check the number, check the password, then ask the office.
+        /// </remarks>
+        public static Error InvalidCredentials =>
+            Error.Validation(
+                "VanSalesCustomerAuth.InvalidCredentials",
+                "That number and password do not match an account.");
+
         public static Error TooManyAttempts =>
             Error.Validation(
                 "VanSalesCustomerAuth.TooManyAttempts",
-                "Too many incorrect codes. Try again later.");
+                "Too many incorrect attempts. Try again later.");
 
         public static Error SessionExpired =>
             Error.Unauthorized(
@@ -61,6 +76,11 @@ public static partial class Errors
             Error.Validation(
                 "VanSalesCustomerAuth.RouteCustomerInactive",
                 $"Route customer {code} is not active and cannot be given an app sign-in.");
+
+        public static Error PasswordRequired =>
+            Error.Validation(
+                "VanSalesCustomerAuth.PasswordRequired",
+                "Set a password for this shop. They sign in with their number and this password.");
 
         public static Error PhoneAlreadyInUse(string maskedPhone) =>
             Error.Conflict(

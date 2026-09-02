@@ -3380,25 +3380,41 @@ every existing query in the system for "is this row one a shopkeeper typed?".
 #### Customer sign-in
 
 **Base route:** `/api/van-sales-customer/auth`
-**Auth:** none on the first three - a customer has no session yet, and refresh exists precisely to be
+**Auth:** none on the first four - a customer has no session yet, and refresh exists precisely to be
 callable once the access token has expired. Rate limited under the `auth` policy.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| POST | `/api/van-sales-customer/auth/login` | Exchange a phone number and its password for a session |
 | POST | `/api/van-sales-customer/auth/otp/request` | Send a sign-in code to a phone number |
 | POST | `/api/van-sales-customer/auth/otp/verify` | Exchange a code for a session |
 | POST | `/api/van-sales-customer/auth/token/refresh` | Rotate the refresh token for a new session |
 | POST | `/api/van-sales-customer/auth/logout` | End this device's session (requires a session) |
 
-`otp/request` answers **200 with the same body for every well-formed number**, registered or not, and
-the resend cooldown is a silent no-op rather than an error. Any observable difference between a known
-and an unknown number would turn this endpoint into a way to read a supplier's customer list one
-number at a time. `retryAfterSeconds` and `expiresInSeconds` come from configuration, not from what
-happened.
+`login` is what the Kefalos Orders app uses. It takes `phoneNumber`, `password`, and the optional
+`deviceId`/`deviceName` pair, and returns the same session body `otp/verify` returns. The password is
+set by back-office staff when the shop is given access, stored as a BCrypt hash, and never returned
+by any endpoint.
+
+An unregistered number, an account with no password, and a wrong password are **one refusal**:
+`VanSalesCustomerAuth.InvalidCredentials`, with the same wording and - because a verification runs
+against a decoy hash when there is no account - the same time on the clock. Telling them apart would
+name both the shops that trade with us and the accounts that cannot yet sign in.
+
+The code endpoints remain for accounts that have no password and as the way back in when one is
+forgotten. `otp/request` answers **200 with the same body for every well-formed number**, registered
+or not, and the resend cooldown is a silent no-op rather than an error. Any observable difference
+between a known and an unknown number would turn that endpoint into a way to read a supplier's
+customer list one number at a time. `retryAfterSeconds` and `expiresInSeconds` come from
+configuration, not from what happened.
 
 Codes are delivered over **WhatsApp** through the OpenWA gateway - the channel these customers
 already use - and are stored only as a keyed HMAC. A six-digit code has a million possibilities, so
 what protects an account is the cap on attempts and the account lockout, not the code.
+
+Failures of either kind spend **one** budget: the account's consecutive-failure counter, which locks
+the account when it fills. Two counters would let an attacker use whichever credential still had
+attempts left.
 
 #### The customer's own surface
 
@@ -3452,6 +3468,12 @@ There is no self-registration: a customer who could sign themselves up could ord
 not own, and the rep visiting the shop is the only party able to confirm otherwise. Deactivating
 **revokes the refresh tokens and push registrations in the same operation** - clearing the flag alone
 would leave a lost handset signed in for the ninety days its token was issued for.
+
+The POST carries the shop's `password`, which is **required for a sign-in that does not exist yet**
+and optional for one that does: blank keeps the password already set, anything else replaces it. That
+replacement is the reset path - a shop that has forgotten its password is re-onboarded by the rep
+standing in it, which is the same check that justified creating the account. No endpoint reads a
+password back, so an operator who loses one sets a new one.
 
 #### Operator: the van's load list
 

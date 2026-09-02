@@ -17,4 +17,14 @@ public class OnboardVanSalesCustomerAccountRequest
     /// <summary>Who holds the phone, for the operator's list.</summary>
     [MaxLength(200)]
     public string? DisplayName { get; set; }
+
+    /// <summary>
+    /// What the shop signs in with, alongside its number.
+    /// </summary>
+    /// <remarks>
+    /// Required for a shop that has no sign-in yet. For one that already has, blank keeps the
+    /// password already set and anything else replaces it — which is how a forgotten one is reset.
+    /// </remarks>
+    [MaxLength(72)]
+    public string? Password { get; set; }
 }

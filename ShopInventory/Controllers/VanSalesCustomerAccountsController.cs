@@ -50,7 +50,8 @@ public class VanSalesCustomerAccountsController(IMediator mediator) : ApiControl
                 request.RouteCustomerId,
                 request.PhoneNumber,
                 request.DisplayName,
-                GetAuthenticatedUserId()),
+                GetAuthenticatedUserId(),
+                request.Password),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));

@@ -12,9 +12,16 @@ namespace ShopInventory.Features.VanSalesCustomerAuth.Commands.OnboardVanSalesCu
 /// up could place orders as a shop they do not own, and the rep visiting the shop is the only party
 /// in a position to confirm that the person holding the phone is the person who runs it.
 /// </remarks>
+/// <param name="Password">
+/// What the shop will sign in with. Required for a new account; on one that already exists, blank
+/// leaves the current password alone and anything else replaces it. Replacing it here is also how a
+/// forgotten password is reset — the rep is standing in the shop confirming who this is, which is
+/// the same check that justified creating the account in the first place.
+/// </param>
 public sealed record OnboardVanSalesCustomerAccountCommand(
     int RouteCustomerId,
     string? PhoneNumber,
     string? DisplayName,
-    Guid? CreatedByUserId
+    Guid? CreatedByUserId,
+    string? Password = null
 ) : IRequest<ErrorOr<VanSalesCustomerAccountResult>>;

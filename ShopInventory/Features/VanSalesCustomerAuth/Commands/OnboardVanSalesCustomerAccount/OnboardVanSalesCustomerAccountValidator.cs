@@ -15,5 +15,15 @@ public sealed class OnboardVanSalesCustomerAccountValidator
             .MaximumLength(32);
 
         RuleFor(x => x.DisplayName).MaximumLength(200);
+
+        // Checked only when one was typed. Blank is how an operator says "leave the existing
+        // password alone", and whether that is allowed depends on the account already existing —
+        // a question for the handler, not for a rule that has never looked at the database.
+        RuleFor(x => x.Password)
+            .MinimumLength(VanSalesCustomerPassword.MinimumLength)
+                .WithMessage($"Use at least {VanSalesCustomerPassword.MinimumLength} characters.")
+            .MaximumLength(VanSalesCustomerPassword.MaximumLength)
+                .WithMessage($"Use at most {VanSalesCustomerPassword.MaximumLength} characters.")
+            .When(x => !string.IsNullOrWhiteSpace(x.Password));
     }
 }

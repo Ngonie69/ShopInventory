@@ -16,10 +16,10 @@ namespace ShopInventory.Models.Entities;
 /// endpoint is refusal rather than permission.
 /// </summary>
 /// <remarks>
-/// One account per phone number, not per customer: the phone is what the customer proves ownership
-/// of, and it is the only credential in this flow. A shop with two phones gets two accounts pointed
-/// at the same <see cref="RouteCustomerEntity"/>, which is the honest description of what is
-/// happening and keeps revocation per-device rather than per-shop.
+/// One account per phone number, not per customer: the phone is what the customer is known by, and
+/// it is half of what they sign in with — the password on this row is the other half. A shop with
+/// two phones gets two accounts pointed at the same <see cref="RouteCustomerEntity"/>, which is the
+/// honest description of what is happening and keeps revocation per-device rather than per-shop.
 /// </remarks>
 [Index(nameof(PhoneE164), IsUnique = true)]
 [Index(nameof(RouteCustomerId))]
@@ -49,14 +49,41 @@ public class VanSalesCustomerAccountEntity
     public string? DisplayName { get; set; }
 
     /// <summary>
+    /// BCrypt hash of the password the shop signs in with, or null for an account that has never
+    /// been given one.
+    /// </summary>
+    /// <remarks>
+    /// Nullable because it has to be: every account created before passwords existed has none, and
+    /// they keep working through the one-time code until an operator sets one. A null is not an open
+    /// door — sign-in refuses it, and refuses it with the same sentence a wrong password gets, so it
+    /// cannot be used to sort numbers into those that have a password and those that do not.
+    /// <para>
+    /// 255 rather than 60: BCrypt's output is 60 characters today, and a column sized exactly to
+    /// today's algorithm is one that has to be migrated before the algorithm can ever change.
+    /// </para>
+    /// </remarks>
+    [MaxLength(255)]
+    public string? PasswordHash { get; set; }
+
+    /// <summary>When the password was last set. For the operator's list and for support calls.</summary>
+    public DateTime? PasswordSetAt { get; set; }
+
+    /// <summary>
     /// Whether this account may sign in. Deactivating is the revocation path — the row is kept so
     /// the orders it placed still resolve to a signer.
     /// </summary>
     public bool IsActive { get; set; } = true;
 
     /// <summary>
-    /// Consecutive failed OTP verifications. Reset on success; drives <see cref="LockedUntil"/>.
+    /// Consecutive failed sign-in attempts, by code or by password. Reset on success; drives
+    /// <see cref="LockedUntil"/>.
     /// </summary>
+    /// <remarks>
+    /// Deliberately one counter for both credentials rather than one each. An attacker choosing
+    /// whichever endpoint has attempts left would otherwise get two budgets against the same
+    /// account, and the lockout exists to cap what an account can be subjected to in total. The
+    /// column keeps its original name because renaming it buys a migration and nothing else.
+    /// </remarks>
     public int FailedOtpCount { get; set; }
 
     /// <summary>

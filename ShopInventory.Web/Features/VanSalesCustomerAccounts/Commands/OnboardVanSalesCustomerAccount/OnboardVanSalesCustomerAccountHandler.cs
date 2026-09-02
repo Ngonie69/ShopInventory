@@ -38,7 +38,14 @@ public sealed class OnboardVanSalesCustomerAccountHandler(
                     PhoneNumber = request.PhoneNumber.Trim(),
                     DisplayName = string.IsNullOrWhiteSpace(request.DisplayName)
                         ? null
-                        : request.DisplayName.Trim()
+                        : request.DisplayName.Trim(),
+
+                    // Trimmed like the rest: a password carrying a stray space off a paste is one
+                    // the shopkeeper can never type. Blank stays null, which is the operator saying
+                    // "keep the password they already have".
+                    Password = string.IsNullOrWhiteSpace(request.Password)
+                        ? null
+                        : request.Password.Trim()
                 },
                 cancellationToken);
 
