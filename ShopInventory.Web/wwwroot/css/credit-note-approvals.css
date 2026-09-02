@@ -1,0 +1,1211 @@
+/* ==========================================================================
+   Credit Note Approvals — Nocturne
+
+   The SAP-held A/R credit memos a manager decides. Derived from
+   credit-notes.css: the same page shape — sticky header, filter row, a dense
+   table washing into the ground, a right-hand drawer — so the two credit-note
+   surfaces read as one place, with what this page needs and nothing the other
+   page has that it does not (no row selection, no bulk toolbar, no balances).
+
+   The palette is an alias layer over nocturne-tokens.css rather than a copy of
+   it: the canonical tokens flip at the root, so this sheet has no `.dark-theme`
+   block of its own and cannot drift from the system. Its own values are the
+   four decision states and the viewer's paper — see the blocks that carry them.
+
+   `.cna-overlay` repeats every token because it is a *peer* of the page root,
+   not a descendant: the drawer, the dialogs and the file viewer render outside
+   `.cna` so the app bar cannot paint over them, and inherit nothing from it.
+   The type context comes with the palette for the same reason — without it the
+   overlays fall through to Bootstrap's 16px/1.6 body type.
+
+   Controls are two classes deep (`.cna .cna-input`) because app.css carries
+   global `.dark-theme input/select/textarea` rules that have to be
+   out-specified, whatever order the sheets load in.
+   ========================================================================== */
+
+.cna,
+.cna-overlay {
+    --cna-bg: var(--noct-bg);
+    --cna-surface: var(--noct-surface);
+    --cna-field: var(--noct-surface);
+    --cna-ink: var(--noct-ink);
+    --cna-ink-2: var(--noct-ink-2);
+    --cna-mute: var(--noct-mute);
+    --cna-mute-2: var(--noct-mute-2);
+    --cna-mute-3: var(--noct-mute-3);
+    --cna-faint: var(--noct-faint);
+    --cna-placeholder: var(--noct-placeholder);
+    --cna-divider: var(--noct-divider);
+    --cna-rowline: var(--noct-rule);
+    --cna-hover: var(--noct-hover);
+    --cna-press: var(--noct-press);
+    --cna-field-edge: var(--noct-field-edge);
+    --cna-field-edge-hi: var(--noct-field-edge-hi);
+    --cna-accent: var(--noct-accent);
+    --cna-accent-rgb: var(--noct-accent-rgb);
+    --cna-accent-text: var(--noct-accent-text);
+    --cna-tag-bg: var(--noct-avatar-bg);
+    --cna-tag-ink: var(--noct-ink-2);
+    --cna-scrim: var(--noct-scrim);
+    --cna-shadow-sm: 0 0 0 1px var(--noct-rule);
+    --cna-shadow-lg: var(--noct-shadow-lg);
+
+    /* The four states a request can be in, taken from the system's families so
+       they agree with every other status chip in the app: waiting, cleared,
+       refused, and the settled grey of one already added or cancelled. */
+    --cna-pending: var(--noct-fam-warn);
+    --cna-pending-rgb: var(--noct-fam-warn-rgb);
+    --cna-approved: var(--noct-fam-good);
+    --cna-approved-rgb: var(--noct-fam-good-rgb);
+    --cna-rejected: var(--noct-fam-bad);
+    --cna-rejected-rgb: var(--noct-fam-bad-rgb);
+    --cna-settled: var(--noct-fam-neutral);
+    --cna-bad: var(--noct-fam-bad);
+    --cna-bad-bg: rgba(var(--noct-fam-bad-rgb), .1);
+    --cna-bad-edge: rgba(var(--noct-fam-bad-rgb), .35);
+    --cna-warn-bg: var(--noct-warn-bg);
+    --cna-warn-edge: var(--noct-warn-edge);
+    --cna-warn-ink: var(--noct-warn-ink);
+
+    --cna-s1: var(--noct-s1);
+    --cna-s2: var(--noct-s2);
+    --cna-s3: var(--noct-s3);
+    --cna-s4: var(--noct-s4);
+    --cna-s6: var(--noct-s6);
+    --cna-s8: var(--noct-s8);
+    --cna-r-sm: var(--noct-r-sm);
+    --cna-r-md: var(--noct-r-md);
+    --cna-r-lg: var(--noct-r-lg);
+
+    color-scheme: var(--noct-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.cna {
+    min-height: 100vh;
+    background: var(--cna-bg);
+    color: var(--cna-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.cna *,
+.cna-overlay * {
+    box-sizing: border-box;
+}
+
+.cna :focus-visible,
+.cna-overlay :focus-visible {
+    outline: 2px solid var(--cna-accent);
+    outline-offset: 2px;
+}
+
+.cna ::selection,
+.cna-overlay ::selection {
+    background: rgba(var(--cna-accent-rgb), .3);
+}
+
+.cna-rule {
+    height: 1px;
+    background: linear-gradient(to right,
+            transparent, var(--cna-divider) 48px,
+            var(--cna-divider) calc(100% - 48px), transparent);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Opaque, not translucent: the compositor skips backdrop-filter often enough
+   (headless, remote sessions, reduced-transparency settings) that a frosted
+   header lets the page's own title read through the one below it. */
+
+.cna-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--cna-bg);
+}
+
+.cna-shell {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: var(--cna-s6) 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--cna-s8);
+}
+
+.cna-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-right: auto;
+    min-width: 0;
+}
+
+.cna-titles-row {
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s3);
+}
+
+.cna-titles-row i {
+    font-size: 17px;
+    color: var(--cna-accent);
+}
+
+.cna-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: -.01em;
+    color: var(--cna-ink);
+}
+
+.cna-sub {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--cna-mute-2);
+}
+
+.cna-head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s4);
+}
+
+.cna-count {
+    font-size: 12px;
+    color: var(--cna-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.cna-body {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: var(--cna-s8) 32px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--cna-s6);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.cna .cna-btn,
+.cna-overlay .cna-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: var(--cna-s2) calc(var(--cna-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--cna-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--cna-r-md);
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.cna .cna-btn:disabled,
+.cna-overlay .cna-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.cna .cna-btn-primary,
+.cna-overlay .cna-btn-primary {
+    color: var(--cna-accent);
+    border-color: var(--cna-accent);
+    letter-spacing: .02em;
+}
+
+.cna .cna-btn-primary:hover:not(:disabled),
+.cna-overlay .cna-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--cna-accent-rgb), .12);
+}
+
+.cna .cna-btn-primary:active:not(:disabled),
+.cna-overlay .cna-btn-primary:active:not(:disabled) {
+    background: rgba(var(--cna-accent-rgb), .22);
+}
+
+.cna .cna-btn-secondary,
+.cna-overlay .cna-btn-secondary {
+    border-color: var(--cna-divider);
+}
+
+.cna .cna-btn-secondary:hover:not(:disabled),
+.cna-overlay .cna-btn-secondary:hover:not(:disabled) {
+    background: var(--cna-hover);
+}
+
+.cna .cna-btn-secondary:active:not(:disabled),
+.cna-overlay .cna-btn-secondary:active:not(:disabled) {
+    background: var(--cna-press);
+}
+
+.cna .cna-btn-ghost,
+.cna-overlay .cna-btn-ghost {
+    color: var(--cna-accent);
+    padding-inline: var(--cna-s1);
+}
+
+.cna .cna-btn-ghost:hover:not(:disabled),
+.cna-overlay .cna-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--cna-accent-rgb), .1);
+}
+
+.cna .cna-btn-ghost:active:not(:disabled),
+.cna-overlay .cna-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--cna-accent-rgb), .18);
+}
+
+/* The two decisions: outlined in their own state's hue, so approve and reject
+   are told apart before the label is read. */
+.cna .cna-btn-good,
+.cna-overlay .cna-btn-good {
+    color: var(--cna-approved);
+    border-color: rgba(var(--cna-approved-rgb), .5);
+}
+
+.cna .cna-btn-good:hover:not(:disabled),
+.cna-overlay .cna-btn-good:hover:not(:disabled) {
+    background: rgba(var(--cna-approved-rgb), .12);
+}
+
+.cna .cna-btn-bad,
+.cna-overlay .cna-btn-bad {
+    color: var(--cna-bad);
+    border-color: var(--cna-bad-edge);
+}
+
+.cna .cna-btn-bad:hover:not(:disabled),
+.cna-overlay .cna-btn-bad:hover:not(:disabled) {
+    background: var(--cna-bad-bg);
+}
+
+.cna .cna-btn-sm,
+.cna-overlay .cna-btn-sm {
+    height: 30px;
+    font-size: 12.5px;
+}
+
+.cna .cna-btn-icon,
+.cna-overlay .cna-btn-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+}
+
+.cna .cna-btn-icon-sm,
+.cna-overlay .cna-btn-icon-sm {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+}
+
+.cna .cna-btn svg,
+.cna-overlay .cna-btn svg {
+    display: block;
+    width: 1em;
+    height: 1em;
+    fill: currentColor;
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+.cna-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--cna-s4);
+    flex-wrap: wrap;
+}
+
+.cna-field > label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+    color: var(--cna-mute);
+}
+
+/* The status filter is a segmented control rather than a dropdown: three
+   choices, all of them worth seeing at once, and the count of each is the
+   thing the page is for. */
+.cna-seg {
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    border-radius: var(--cna-r-md);
+    background: var(--cna-hover);
+}
+
+.cna .cna-seg-btn {
+    height: 28px;
+    padding: 0 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--cna-mute);
+    background: transparent;
+    border: 0;
+    border-radius: calc(var(--cna-r-md) - 2px);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.cna .cna-seg-btn:hover:not(.is-on) {
+    color: var(--cna-ink-2);
+}
+
+.cna .cna-seg-btn.is-on {
+    color: var(--cna-accent-text);
+    background: var(--cna-surface);
+    box-shadow: var(--cna-shadow-sm);
+}
+
+.cna .cna-input,
+.cna-overlay .cna-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.3;
+    color: var(--cna-ink);
+    caret-color: var(--cna-accent);
+    background: var(--cna-field);
+    background-image: none;
+    border: 1px solid var(--cna-field-edge);
+    border-radius: var(--cna-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.cna .cna-input:hover,
+.cna-overlay .cna-input:hover {
+    border-color: var(--cna-field-edge-hi);
+}
+
+.cna .cna-input:focus-visible,
+.cna-overlay .cna-input:focus-visible {
+    border-color: var(--cna-accent);
+    outline-offset: 0;
+}
+
+.cna .cna-input::placeholder,
+.cna-overlay .cna-input::placeholder {
+    color: var(--cna-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--cna-placeholder);
+}
+
+.cna-overlay .cna-textarea {
+    min-height: 76px;
+    resize: vertical;
+    line-height: 1.5;
+    padding: var(--cna-s2) 10px;
+}
+
+.cna-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s2);
+    margin-left: auto;
+}
+
+/* ── Card ──────────────────────────────────────────────────────────────── */
+
+.cna-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--cna-surface);
+    border-radius: var(--cna-r-md);
+    box-shadow: var(--cna-shadow-sm);
+    overflow: hidden;
+}
+
+.cna-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s4);
+    padding: var(--cna-s4) var(--cna-s6);
+    min-height: 54px;
+}
+
+.cna-range {
+    font-size: 13px;
+    color: var(--cna-mute-2);
+}
+
+.cna-hint {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cna-s2);
+    font-size: 12px;
+    color: var(--cna-mute-3);
+}
+
+.cna-hint i {
+    font-size: 13px;
+}
+
+/* ── Table ─────────────────────────────────────────────────────────────── */
+
+.cna-tablewrap {
+    overflow-x: auto;
+}
+
+.cna-table {
+    width: 100%;
+    min-width: 980px;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.cna-table th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cna-mute);
+    padding: var(--cna-s2);
+    white-space: nowrap;
+}
+
+.cna-table td {
+    padding: var(--cna-s2);
+    vertical-align: middle;
+}
+
+.cna-table th:first-child,
+.cna-table td:first-child {
+    padding-left: var(--cna-s6);
+}
+
+.cna-table th:last-child,
+.cna-table td:last-child {
+    padding-right: var(--cna-s6);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.cna-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.cna-table thead tr {
+    background: linear-gradient(to right,
+            transparent, var(--cna-divider) 48px,
+            var(--cna-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.cna-table tbody tr {
+    background: linear-gradient(to right,
+            transparent, var(--cna-rowline) 48px,
+            var(--cna-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.cna-table tbody tr:hover {
+    background:
+        linear-gradient(var(--cna-hover), var(--cna-hover)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--cna-rowline) 48px,
+            var(--cna-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.cna-table tbody tr.is-open-row,
+.cna-table tbody tr.is-open-row:hover {
+    background:
+        linear-gradient(rgba(var(--cna-accent-rgb), .09), rgba(var(--cna-accent-rgb), .09)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--cna-rowline) 48px,
+            var(--cna-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.cna-table tbody tr.is-dim {
+    opacity: .66;
+}
+
+.cna .cna-link {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    color: var(--cna-accent);
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    font-family: inherit;
+    cursor: pointer;
+    text-decoration: none;
+    text-underline-offset: 3px;
+}
+
+.cna .cna-link:hover {
+    color: var(--cna-accent-text);
+    text-decoration: underline;
+}
+
+.cna-cust {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 130px;
+}
+
+.cna-cust-name {
+    font-weight: 500;
+}
+
+.cna-cust-code {
+    font-size: 11.5px;
+    letter-spacing: .02em;
+    color: var(--cna-mute-3);
+}
+
+.cna-date {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: var(--cna-ink-2);
+}
+
+.cna-tag {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    letter-spacing: .02em;
+    padding: 2px 8px;
+    border-radius: calc(var(--cna-r-md) * .75);
+    white-space: nowrap;
+    background: var(--cna-tag-bg);
+    color: var(--cna-tag-ink);
+}
+
+.cna-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 120px;
+}
+
+.cna-stack-sub {
+    font-size: 11.5px;
+    color: var(--cna-mute-3);
+}
+
+/* Status: a dot in the state's hue and the word beside it, the same pairing
+   the credit notes list uses. */
+.cna-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.cna-status .cna-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--cna-settled);
+}
+
+.cna-status .cna-dot.is-pending {
+    background: var(--cna-pending);
+}
+
+.cna-status .cna-dot.is-approved {
+    background: var(--cna-approved);
+}
+
+.cna-status .cna-dot.is-rejected {
+    background: var(--cna-rejected);
+}
+
+.cna-status-text {
+    color: var(--cna-mute);
+}
+
+.cna-status-text.is-pending {
+    color: var(--cna-pending);
+}
+
+.cna-status-text.is-approved {
+    color: var(--cna-approved);
+}
+
+.cna-status-text.is-rejected {
+    color: var(--cna-rejected);
+}
+
+.cna-clip {
+    color: var(--cna-mute-3);
+    font-size: 14px;
+}
+
+.cna-rowactions {
+    display: inline-flex;
+    gap: var(--cna-s1);
+    justify-content: flex-end;
+}
+
+/* ── Empty / loading ───────────────────────────────────────────────────── */
+
+.cna-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--cna-s3);
+    padding: 56px var(--cna-s6);
+    font-size: 13.5px;
+}
+
+.cna-empty i {
+    font-size: 22px;
+    color: var(--cna-accent);
+    opacity: .8;
+}
+
+.cna-skel {
+    height: 11px;
+    border-radius: var(--cna-r-sm);
+    background: var(--cna-rowline);
+    animation: cna-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes cna-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: .45;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cna-skel {
+        animation: none;
+    }
+}
+
+/* ── Footer / pager ────────────────────────────────────────────────────── */
+
+.cna-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s4);
+    padding: var(--cna-s4) var(--cna-s6);
+    border-top: 1px solid var(--cna-divider);
+}
+
+.cna-foot-range {
+    font-size: 12px;
+    color: var(--cna-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.cna-pager {
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s2);
+    margin-left: auto;
+}
+
+.cna-page-label {
+    font-size: 12px;
+    color: var(--cna-mute-2);
+    font-variant-numeric: tabular-nums;
+    min-width: 74px;
+    text-align: center;
+}
+
+/* ── Alerts ────────────────────────────────────────────────────────────── */
+
+.cna-alert,
+.cna-overlay .cna-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--cna-s3);
+    padding: var(--cna-s3) var(--cna-s4);
+    border-radius: var(--cna-r-md);
+    background: var(--cna-bad-bg);
+    border: 1px solid var(--cna-bad-edge);
+    color: var(--cna-bad);
+    font-size: 13px;
+}
+
+.cna-alert-body {
+    flex: 1;
+}
+
+/* Why an action is unavailable — a sentence from SAP's own state, not a
+   failure, so it is the notice colour rather than the danger one. */
+.cna-blocked {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--cna-s3);
+    padding: var(--cna-s3) var(--cna-s4);
+    border-radius: var(--cna-r-md);
+    background: var(--cna-warn-bg);
+    border: 1px solid var(--cna-warn-edge);
+    color: var(--cna-warn-ink);
+    font-size: 13px;
+}
+
+/* ── Overlays: drawer, dialogs and the file viewer ─────────────────────── */
+
+.cna-overlay {
+    color: var(--cna-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.cna-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    background: var(--cna-scrim);
+    z-index: 9998;
+}
+
+.cna-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 74px);
+    right: 0;
+    width: min(680px, 96vw);
+    height: calc(100vh - var(--kf-topbar-h, 74px));
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    background: var(--cna-surface);
+    box-shadow: var(--cna-shadow-lg);
+    font-size: 14px;
+}
+
+.cna-drawer-head {
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s4);
+    padding: var(--cna-s4) var(--cna-s6);
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--cna-divider);
+}
+
+.cna-drawer-title {
+    margin: 0 auto 0 0;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s3);
+}
+
+.cna-drawer-title i {
+    color: var(--cna-accent);
+    font-size: 15px;
+}
+
+.cna-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--cna-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--cna-s6);
+}
+
+.cna-drawer-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--cna-s2);
+    padding: var(--cna-s4) var(--cna-s6);
+    border-top: 1px solid var(--cna-divider);
+    flex-shrink: 0;
+}
+
+.cna-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--cna-s4);
+}
+
+.cna-dt {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cna-mute-3);
+    margin-bottom: 2px;
+}
+
+.cna-dd {
+    font-size: 13.5px;
+    color: var(--cna-ink);
+}
+
+.cna-sect {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cna-accent);
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s2);
+    margin-bottom: var(--cna-s3);
+}
+
+.cna-note {
+    padding: var(--cna-s3) var(--cna-s4);
+    border-radius: var(--cna-r-md);
+    background: var(--cna-hover);
+    font-size: 13px;
+    color: var(--cna-ink-2);
+}
+
+.cna-note .cna-dt {
+    color: var(--cna-mute-3);
+}
+
+.cna-lines {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.cna-lines th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cna-mute);
+    padding: var(--cna-s2);
+    white-space: nowrap;
+}
+
+.cna-lines td {
+    padding: var(--cna-s2);
+    color: var(--cna-ink-2);
+}
+
+/* A row rule, not a row fill: a bare colour in `background` ignores the 1px
+   size and floods the row. Inside a box these stay solid rather than fading. */
+.cna-lines thead tr,
+.cna-lines tbody tr {
+    background: linear-gradient(var(--cna-rowline), var(--cna-rowline)) no-repeat bottom / 100% 1px;
+}
+
+.cna-total {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--cna-s4) var(--cna-s6);
+    border-radius: var(--cna-r-md);
+    border: 1px solid var(--cna-accent);
+    background: rgba(var(--cna-accent-rgb), .08);
+}
+
+.cna-total-label {
+    font-size: 13px;
+    color: var(--cna-mute);
+}
+
+.cna-total-value {
+    font-size: 20px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--cna-accent-text);
+}
+
+/* The approver rail: one row per approver per stage, so a multi-stage template
+   reads as a sequence rather than a list of names. */
+.cna-rail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cna-s2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.cna-rail-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--cna-s3);
+    padding: var(--cna-s3) var(--cna-s4);
+    border-radius: var(--cna-r-md);
+    background: var(--cna-hover);
+}
+
+.cna-rail-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.cna-rail-who {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.cna-rail-meta {
+    font-size: 11.5px;
+    color: var(--cna-mute-3);
+}
+
+.cna-rail-remarks {
+    margin-top: 2px;
+    font-size: 12.5px;
+    font-style: italic;
+    color: var(--cna-mute-2);
+}
+
+/* Attachments: one row per file, name and date on the left, the two actions
+   right. */
+.cna-files {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cna-s2);
+}
+
+.cna-file {
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s3);
+    padding: var(--cna-s3) var(--cna-s4);
+    border-radius: var(--cna-r-md);
+    border: 1px solid var(--cna-divider);
+}
+
+.cna-file i {
+    font-size: 16px;
+    color: var(--cna-accent);
+    flex: none;
+}
+
+.cna-file-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.cna-file-name {
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cna-file-meta {
+    font-size: 11.5px;
+    color: var(--cna-mute-3);
+}
+
+.cna-file-actions {
+    display: inline-flex;
+    gap: var(--cna-s2);
+    flex: none;
+}
+
+.cna-dialog-wrap {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 10000;
+    display: grid;
+    place-items: center;
+    padding: var(--cna-s4);
+    background: var(--cna-scrim);
+}
+
+.cna-dialog {
+    width: min(560px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--cna-s8));
+    display: flex;
+    flex-direction: column;
+    gap: var(--cna-s4);
+    padding: var(--cna-s6);
+    border-radius: var(--cna-r-lg);
+    background: var(--cna-surface);
+    box-shadow: var(--cna-shadow-lg);
+    font-size: 14px;
+}
+
+.cna-dialog-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -.015em;
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s3);
+}
+
+.cna-dialog-title i {
+    font-size: 17px;
+    color: var(--cna-accent);
+}
+
+.cna-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cna-s4);
+    overflow-y: auto;
+}
+
+.cna-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--cna-s2);
+}
+
+.cna-confirm {
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s4);
+    padding: var(--cna-s3) var(--cna-s4);
+    border-radius: var(--cna-r-md);
+    background: var(--cna-hover);
+}
+
+.cna-confirm-copy {
+    font-size: 13.5px;
+}
+
+.cna-confirm-sub {
+    font-size: 12.5px;
+    color: var(--cna-mute-2);
+}
+
+/* The viewer is sized to the artefact, not to a dialog grid: a scanned return
+   note is the thing being read, so it gets the frame minus the app bar. */
+.cna-viewer {
+    width: min(1100px, 100%);
+    height: calc(100vh - var(--kf-topbar-h, 74px) - var(--cna-s8));
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--cna-r-lg);
+    background: var(--cna-surface);
+    box-shadow: var(--cna-shadow-lg);
+    overflow: hidden;
+}
+
+.cna-viewer-head {
+    display: flex;
+    align-items: center;
+    gap: var(--cna-s4);
+    padding: var(--cna-s4) var(--cna-s6);
+    border-bottom: 1px solid var(--cna-divider);
+    flex-shrink: 0;
+}
+
+.cna-viewer-name {
+    margin: 0 auto 0 0;
+    font-size: 14px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cna-viewer-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--cna-s4);
+    background: var(--cna-hover);
+}
+
+.cna-viewer-image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: var(--cna-r-sm);
+}
+
+/* Deliberately white in both schemes: a PDF's own page is paper, and a dark
+   frame behind it reads as a rendering fault. */
+.cna-viewer-pdf {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: var(--cna-r-sm);
+    background: #ffffff;
+}
+
+.cna-viewer-fallback {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--cna-s3);
+    font-size: 13.5px;
+    color: var(--cna-mute-2);
+}
+
+.cna-spin,
+.cna-overlay .cna-spin {
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: cna-spin .7s linear infinite;
+}
+
+.cna-overlay .cna-spin-lg {
+    width: 22px;
+    height: 22px;
+    border-width: 3px;
+}
+
+@keyframes cna-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Narrow screens ───────────────────────────────────────────────────── */
+
+@media (max-width: 860px) {
+    .cna-shell,
+    .cna-body {
+        padding-left: var(--cna-s6);
+        padding-right: var(--cna-s6);
+    }
+
+    .cna-shell {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--cna-s4);
+    }
+
+    .cna-head-actions {
+        justify-content: space-between;
+    }
+
+    .cna-filter-actions {
+        margin-left: 0;
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .cna-grid {
+        grid-template-columns: 1fr;
+    }
+}

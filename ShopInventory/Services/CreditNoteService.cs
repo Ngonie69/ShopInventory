@@ -1020,46 +1020,13 @@ public class CreditNoteService : ICreditNoteService
         return creditNote.Status != CreditNoteStatus.Cancelled;
     }
 
-    private async Task CaptureCreditNoteFiscalizationIncidentAsync(
+    private Task CaptureCreditNoteFiscalizationIncidentAsync(
         string reference,
         int? sapDocNum,
         string cardCode,
         string message,
         CancellationToken cancellationToken)
-    {
-        try
-        {
-            var now = DateTime.UtcNow;
-            var incident = new ExceptionCenterIncidentEntity
-            {
-                Source = "credit-note-fiscalization",
-                Category = "Fiscalisation",
-                Title = "Credit note fiscalization issue",
-                Reference = string.IsNullOrWhiteSpace(reference)
-                    ? $"SAP Credit Note {sapDocNum}"
-                    : reference,
-                Status = "RequiresReview",
-                SourceSystem = "CreditNote",
-                Provider = "Fiscalisation",
-                LastError = message.Length > 2000 ? message[..2000] : message,
-                RetryCount = 0,
-                MaxRetries = 0,
-                CanRetry = false,
-                CreatedAtUtc = now,
-                OccurredAtUtc = now,
-                DetailsJson = JsonSerializer.Serialize(new
-                {
-                    SapDocNum = sapDocNum,
-                    CardCode = cardCode
-                })
-            };
+        => Features.CreditNotes.CreditNoteFiscalisationIncidents.CaptureAsync(
+            _context, _logger, reference, sapDocNum, cardCode, message, cancellationToken);
 
-            _context.ExceptionCenterIncidents.Add(incident);
-            await _context.SaveChangesAsync(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to capture credit note fiscalization incident for {Reference}", reference);
-        }
-    }
 }

@@ -106,6 +106,13 @@ public static class Permissions
     public const string EditQuotations = "quotations.edit";
     public const string DeleteQuotations = "quotations.delete";
 
+    // Credit note approvals — A/R credit memos raised in the SAP client and held by SAP's own approval
+    // procedure. Its own family rather than invoices.*: deciding another person's credit memo and
+    // posting it are management calls, not the cashier's invoicing right, and a cashier who can raise
+    // a credit note must not thereby be able to approve one.
+    public const string ApproveSapCreditNotes = "creditnotes.approve";
+    public const string AddApprovedCreditNotes = "creditnotes.add_approved";
+
     // Sync & System
     public const string ViewSyncStatus = "sync.view";
     public const string ManageSync = "sync.manage";
@@ -242,6 +249,11 @@ public static class Permissions
                 new(EditQuotations, "Edit Quotations", "Edit, reprice, approve and convert quotations"),
                 new(DeleteQuotations, "Delete Quotations", "Delete quotations")
             },
+            ["Credit Note Approvals"] = new()
+            {
+                new(ApproveSapCreditNotes, "Approve SAP Credit Notes", "Approve or reject A/R credit memos held by SAP's approval procedure"),
+                new(AddApprovedCreditNotes, "Add Approved Credit Notes", "Convert an approved SAP credit memo draft into the posted credit note")
+            },
             ["Timesheets"] = new()
             {
                 new(ViewTimesheets, "View Timesheets", "View merchandiser check-in/check-out timesheets"),
@@ -291,6 +303,7 @@ public static class Permissions
                 ViewPurchaseInvoices, CreatePurchaseInvoices,
                 ViewSalesOrders, CreateSalesOrders, EditSalesOrders, DeleteSalesOrders, ApproveSalesOrders, PostSalesOrdersToSAP,
                 ViewQuotations, CreateQuotations, EditQuotations,
+                ApproveSapCreditNotes, AddApprovedCreditNotes,
                 ViewReports, ExportReports,
                 ViewCustomers, CreateCustomers, EditCustomers,
                 ViewUsers,
@@ -522,6 +535,10 @@ public static class Permission
     public const string CreateQuotations = Permissions.CreateQuotations;
     public const string EditQuotations = Permissions.EditQuotations;
     public const string DeleteQuotations = Permissions.DeleteQuotations;
+
+    // Credit note approvals
+    public const string ApproveSapCreditNotes = Permissions.ApproveSapCreditNotes;
+    public const string AddApprovedCreditNotes = Permissions.AddApprovedCreditNotes;
 
     // Backups
     public const string ViewBackups = Permissions.ViewBackups;

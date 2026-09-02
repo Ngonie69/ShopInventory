@@ -1,0 +1,544 @@
+@page "/credit-notes/approvals"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = UserRoles.CreditNoteApprovalRoles)]
+@rendermode InteractiveServer
+
+<PageTitle>Credit Note Approvals - Shop Inventory</PageTitle>
+
+@* Nocturne, derived from the Credit Notes page: wwwroot/css/credit-note-approvals.css
+   (linked from App.razor) carries both schemes and follows the app's theme toggle.
+   Icon-only buttons draw their glyph inline rather than from the Phosphor font,
+   because the glyph is the whole label and a font that fails to load would leave
+   them reading as dead controls. *@
+
+<div class="cna">
+
+    <header class="cna-head">
+        <div class="cna-shell">
+            <div class="cna-titles">
+                <div class="cna-titles-row">
+                    <i class="ph ph-seal-check" aria-hidden="true"></i>
+                    <h1 class="cna-title">Credit Note Approvals</h1>
+                </div>
+                <p class="cna-sub">Credit memos raised in SAP and held for approval</p>
+            </div>
+            <div class="cna-head-actions">
+                <span class="cna-count">@totalCount.ToString("N0") requests</span>
+                <button type="button" class="cna-btn cna-btn-secondary" @onclick="RefreshAsync" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="cna-spin" aria-hidden="true"></span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    }
+                    <span>Refresh</span>
+                </button>
+            </div>
+        </div>
+        <div class="cna-rule"></div>
+    </header>
+
+    <div class="cna-body">
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="cna-alert" role="alert">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <div class="cna-alert-body">@errorMessage</div>
+                <button type="button" class="cna-btn cna-btn-ghost cna-btn-icon-sm" title="Dismiss"
+                        aria-label="Dismiss error" @onclick="() => errorMessage = null">
+                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                        <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                    </svg>
+                </button>
+            </div>
+        }
+
+        <section class="cna-filters">
+            <div class="cna-field">
+                <label id="cna-f-status-label">Show</label>
+                <div class="cna-seg" role="group" aria-labelledby="cna-f-status-label">
+                    @foreach (var option in StatusOptions)
+                    {
+                        <button type="button" class="cna-seg-btn @(statusFilter == option.Value ? "is-on" : "")"
+                                aria-pressed="@(statusFilter == option.Value)"
+                                @onclick="() => SetStatusFilterAsync(option.Value)">
+                            @option.Label
+                        </button>
+                    }
+                </div>
+            </div>
+            <div class="cna-field" style="width:220px">
+                <label for="cna-f-customer">Customer</label>
+                <input id="cna-f-customer" class="cna-input" type="text" placeholder="Code or name"
+                       @bind="customerFilter" @bind:event="oninput" />
+            </div>
+            @if (!string.IsNullOrWhiteSpace(customerFilter))
+            {
+                <div class="cna-filter-actions">
+                    <button type="button" class="cna-btn cna-btn-ghost" @onclick="() => customerFilter = null">Clear</button>
+                </div>
+            }
+        </section>
+
+        <section class="cna-card">
+
+            <div class="cna-toolbar">
+                <span class="cna-range">@RangeLabel</span>
+                <span class="cna-hint">
+                    <i class="ph ph-info" aria-hidden="true"></i>Decisions are recorded in SAP
+                </span>
+            </div>
+
+            <div class="cna-tablewrap">
+                <table class="cna-table">
+                    <thead>
+                        <tr>
+                            <th>Request #</th>
+                            <th>Draft #</th>
+                            <th>Customer</th>
+                            <th>Date</th>
+                            <th class="cna-num">Total</th>
+                            <th>Originator</th>
+                            <th>Template / stage</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (isLoading)
+                        {
+                            @for (var skeletonRow = 0; skeletonRow < 6; skeletonRow++)
+                            {
+                                <tr>
+                                    @for (var skeletonCell = 0; skeletonCell < 9; skeletonCell++)
+                                    {
+                                        <td><div class="cna-skel"></div></td>
+                                    }
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            @foreach (var request in VisibleRequests)
+                            {
+                                <tr @key="request.Code" class="@RowClass(request)">
+                                    <td>
+                                        <button type="button" class="cna-link" @onclick="() => OpenAsync(request.Code)">
+                                            @request.Code
+                                        </button>
+                                    </td>
+                                    <td class="cna-num">@(request.DraftNum?.ToString() ?? "—")</td>
+                                    <td>
+                                        <span class="cna-cust">
+                                            <span class="cna-cust-name">@(request.CardName ?? "—")</span>
+                                            <span class="cna-cust-code">@request.CardCode</span>
+                                        </span>
+                                    </td>
+                                    <td class="cna-date">@FormatDate(request.DocDate)</td>
+                                    <td class="cna-num">@FormatMoney(request.DocTotal, request.DocCurrency)</td>
+                                    <td>
+                                        <span class="cna-stack">
+                                            <span>@(request.OriginatorName ?? request.OriginatorUserCode ?? "—")</span>
+                                            @if (!string.IsNullOrWhiteSpace(request.OriginatorName) && !string.IsNullOrWhiteSpace(request.OriginatorUserCode))
+                                            {
+                                                <span class="cna-stack-sub">@request.OriginatorUserCode</span>
+                                            }
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="cna-stack">
+                                            <span>@(request.TemplateName ?? "—")</span>
+                                            @if (!string.IsNullOrWhiteSpace(request.StageName))
+                                            {
+                                                <span class="cna-stack-sub">@request.StageName</span>
+                                            }
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="cna-status">
+                                            <span class="cna-dot @StatusModifier(request.Status)" aria-hidden="true"></span>
+                                            <span class="cna-status-text @StatusModifier(request.Status)">@request.Status</span>
+                                            @if (request.HasAttachment)
+                                            {
+                                                <i class="ph ph-paperclip cna-clip" title="Has an attachment" aria-label="Has an attachment"></i>
+                                            }
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="cna-rowactions">
+                                            <button type="button" class="cna-btn cna-btn-ghost cna-btn-icon-sm"
+                                                    title="View request" aria-label="View request @request.Code"
+                                                    @onclick="() => OpenAsync(request.Code)">
+                                                <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                                                    <path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,94,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,192c-30.78,0-57.67-11.19-79.93-33.25A133.47,133.47,0,0,1,25,128,133.33,133.33,0,0,1,48.07,97.25C70.33,75.19,97.22,64,128,64s57.67,11.19,79.93,33.25A133.46,133.46,0,0,1,231.05,128C223.84,141.46,192.43,192,128,192Zm0-112a48,48,0,1,0,48,48A48,48,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Z" />
+                                                </svg>
+                                            </button>
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (!isLoading && VisibleRequests.Count == 0)
+            {
+                <div class="cna-empty">
+                    <i class="ph ph-seal-check" aria-hidden="true"></i>
+                    <span>@EmptyMessage</span>
+                </div>
+            }
+
+            <div class="cna-foot">
+                <span class="cna-foot-range">@RangeLabel</span>
+                <div class="cna-pager">
+                    <button type="button" class="cna-btn cna-btn-secondary cna-btn-icon" title="Previous page"
+                            aria-label="Previous page" disabled="@(currentPage <= 1 || isLoading)" @onclick="PreviousPageAsync">
+                        <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                            <path d="M165.66,202.34a8,8,0,0,1-11.32,11.32l-80-80a8,8,0,0,1,0-11.32l80-80a8,8,0,0,1,11.32,11.32L91.31,128Z" />
+                        </svg>
+                    </button>
+                    <span class="cna-page-label">Page @currentPage / @TotalPages</span>
+                    <button type="button" class="cna-btn cna-btn-secondary cna-btn-icon" title="Next page"
+                            aria-label="Next page" disabled="@(currentPage >= TotalPages || isLoading)" @onclick="NextPageAsync">
+                        <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                            <path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </section>
+    </div>
+</div>
+
+@if (detailCode is not null)
+{
+    <div class="cna-overlay">
+        <div class="cna-scrim" @onclick="CloseDetail"></div>
+        <aside class="cna-drawer" aria-label="Approval request details">
+            <div class="cna-drawer-head">
+                <h2 class="cna-drawer-title">
+                    <i class="ph ph-seal-check" aria-hidden="true"></i>
+                    Request @detailCode
+                </h2>
+                <button type="button" class="cna-btn cna-btn-ghost cna-btn-icon" title="Close"
+                        aria-label="Close details" @onclick="CloseDetail">
+                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                        <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="cna-drawer-body">
+                @if (isLoadingDetail)
+                {
+                    <div class="cna-note">Reading the request from SAP…</div>
+                }
+                else if (detail is null)
+                {
+                    <div class="cna-alert" role="alert">
+                        <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                        <div class="cna-alert-body">@(detailError ?? "This request could not be read from SAP.")</div>
+                    </div>
+                }
+                else
+                {
+                    @if (!string.IsNullOrEmpty(detailError))
+                    {
+                        <div class="cna-alert" role="alert">
+                            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                            <div class="cna-alert-body">@detailError</div>
+                        </div>
+                    }
+
+                    <div class="cna-grid">
+                        <div>
+                            <div class="cna-dt">Customer</div>
+                            <div class="cna-dd">@detail.Request.CardCode — @detail.Request.CardName</div>
+                        </div>
+                        <div>
+                            <div class="cna-dt">Draft #</div>
+                            <div class="cna-dd">@(detail.Request.DraftNum?.ToString() ?? "—")</div>
+                        </div>
+                        <div>
+                            <div class="cna-dt">Document date</div>
+                            <div class="cna-dd">@FormatDate(detail.Request.DocDate)</div>
+                        </div>
+                        <div>
+                            <div class="cna-dt">Total</div>
+                            <div class="cna-dd">@FormatMoney(detail.Request.DocTotal, detail.Request.DocCurrency)</div>
+                        </div>
+                        <div>
+                            <div class="cna-dt">Status</div>
+                            <div class="cna-dd">
+                                <span class="cna-status">
+                                    <span class="cna-dot @StatusModifier(detail.Request.Status)" aria-hidden="true"></span>
+                                    <span class="cna-status-text @StatusModifier(detail.Request.Status)">@detail.Request.Status</span>
+                                </span>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="cna-dt">Raised by</div>
+                            <div class="cna-dd">@(detail.Request.OriginatorName ?? detail.Request.OriginatorUserCode ?? "—")</div>
+                        </div>
+                        <div>
+                            <div class="cna-dt">Template</div>
+                            <div class="cna-dd">@(detail.Request.TemplateName ?? "—")</div>
+                        </div>
+                        <div>
+                            <div class="cna-dt">Current stage</div>
+                            <div class="cna-dd">@(detail.Stage?.Name ?? detail.Request.StageName ?? "—")</div>
+                        </div>
+                        @if (detail.Request.CreditNoteDocEntry is int creditNoteDocEntry)
+                        {
+                            <div>
+                                <div class="cna-dt">Credit note</div>
+                                <div class="cna-dd">DocEntry @creditNoteDocEntry</div>
+                            </div>
+                        }
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(detail.Request.Comments))
+                    {
+                        <div class="cna-note">
+                            <div class="cna-dt">Comments on the draft</div>
+                            @detail.Request.Comments
+                        </div>
+                    }
+
+                    <div>
+                        <div class="cna-sect"><i class="ph ph-paperclip" aria-hidden="true"></i>Attachments</div>
+                        @if (detail.AttachmentsUnavailable)
+                        {
+                            <div class="cna-note">The attached files could not be listed. @detail.AttachmentsMessage</div>
+                        }
+                        else if (detail.Attachments.Count == 0)
+                        {
+                            <div class="cna-note">Nothing is attached to this draft in SAP.</div>
+                        }
+                        else
+                        {
+                            <div class="cna-files">
+                                @foreach (var file in detail.Attachments)
+                                {
+                                    <div class="cna-file">
+                                        <i class="@FileIcon(file)" aria-hidden="true"></i>
+                                        <div class="cna-file-body">
+                                            <div class="cna-file-name" title="@file.FileName">@file.FileName</div>
+                                            <div class="cna-file-meta">@FormatDate(file.AttachedOn)</div>
+                                        </div>
+                                        <div class="cna-file-actions">
+                                            @if (file.IsViewable)
+                                            {
+                                                <button type="button" class="cna-btn cna-btn-ghost cna-btn-sm"
+                                                        @onclick="() => ViewAttachmentAsync(file)">View</button>
+                                            }
+                                            <button type="button" class="cna-btn cna-btn-secondary cna-btn-sm"
+                                                    @onclick="() => DownloadAttachmentAsync(file)">Download</button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    @if (detail.Lines.Count > 0)
+                    {
+                        <div>
+                            <div class="cna-sect"><i class="ph ph-list-bullets" aria-hidden="true"></i>Draft lines</div>
+                            <table class="cna-lines">
+                                <thead>
+                                    <tr>
+                                        <th>Item</th>
+                                        <th>Description</th>
+                                        <th class="cna-num">Qty</th>
+                                        <th class="cna-num">Unit price</th>
+                                        <th class="cna-num">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var line in detail.Lines)
+                                    {
+                                        <tr>
+                                            <td><span class="cna-cust-name">@line.ItemCode</span></td>
+                                            <td>@line.ItemDescription</td>
+                                            <td class="cna-num">@QuantityDisplay.Format(line.Quantity)</td>
+                                            <td class="cna-num">@line.UnitPrice.ToString("N2")</td>
+                                            <td class="cna-num">@line.LineTotal.ToString("N2")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+
+                            <div class="cna-total" style="margin-top:var(--cna-s4)">
+                                <span class="cna-total-label">Total</span>
+                                <span class="cna-total-value">@FormatMoney(detail.Request.DocTotal, detail.Request.DocCurrency)</span>
+                            </div>
+                        </div>
+                    }
+
+                    @if (detail.Decisions.Count > 0)
+                    {
+                        <div>
+                            <div class="cna-sect"><i class="ph ph-users-three" aria-hidden="true"></i>Approvers</div>
+                            <ul class="cna-rail">
+                                @foreach (var decision in detail.Decisions)
+                                {
+                                    <li class="cna-rail-item">
+                                        <span class="cna-dot @StatusModifier(decision.Status)" aria-hidden="true"></span>
+                                        <div class="cna-rail-body">
+                                            <div class="cna-rail-who">@(decision.UserName ?? decision.UserCode ?? $"User {decision.UserId}")</div>
+                                            <div class="cna-rail-meta">
+                                                @(decision.StageName ?? $"Stage {decision.StageCode}") · @decision.Status
+                                                @if (decision.DecidedDate is not null)
+                                                {
+                                                    <span> · @FormatDate(decision.DecidedDate)</span>
+                                                }
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(decision.Remarks))
+                                            {
+                                                <div class="cna-rail-remarks">@decision.Remarks</div>
+                                            }
+                                        </div>
+                                    </li>
+                                }
+                            </ul>
+                        </div>
+                    }
+
+                    @if (detail.Request.CanDecide)
+                    {
+                        <div>
+                            <div class="cna-sect"><i class="ph ph-gavel" aria-hidden="true"></i>Your decision</div>
+                            <div class="cna-field">
+                                <label for="cna-remarks">Remarks</label>
+                                <textarea id="cna-remarks" class="cna-input cna-textarea" maxlength="150"
+                                          placeholder="Optional. Recorded in SAP beside your name."
+                                          @bind="decisionRemarks"></textarea>
+                            </div>
+                        </div>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(detail.Request.StatusNote))
+                    {
+                        <div class="cna-blocked">
+                            <i class="ph ph-info" aria-hidden="true"></i>
+                            <div class="cna-alert-body">@detail.Request.StatusNote</div>
+                        </div>
+                    }
+                }
+            </div>
+            <div class="cna-drawer-foot">
+                <button type="button" class="cna-btn cna-btn-secondary" @onclick="CloseDetail" disabled="@isSubmitting">Close</button>
+                @if (detail?.Request.CanDecide == true)
+                {
+                    <button type="button" class="cna-btn cna-btn-bad" @onclick="RejectAsync" disabled="@isSubmitting">
+                        @if (isSubmitting && submittingAction == "reject")
+                        {
+                            <span class="cna-spin" aria-hidden="true"></span>
+                        }
+                        <span>Reject</span>
+                    </button>
+                    <button type="button" class="cna-btn cna-btn-good" @onclick="ApproveAsync" disabled="@isSubmitting">
+                        @if (isSubmitting && submittingAction == "approve")
+                        {
+                            <span class="cna-spin" aria-hidden="true"></span>
+                        }
+                        <span>Approve</span>
+                    </button>
+                }
+                @if (detail?.Request.CanAdd == true)
+                {
+                    <button type="button" class="cna-btn cna-btn-primary" @onclick="OpenAddConfirm" disabled="@isSubmitting">
+                        <i class="ph ph-plus-circle" aria-hidden="true"></i>
+                        <span>Add credit note</span>
+                    </button>
+                }
+            </div>
+        </aside>
+    </div>
+}
+
+@if (showAddConfirm && detail is not null)
+{
+    <div class="cna-overlay">
+        <div class="cna-dialog-wrap" @onclick="CloseAddConfirm">
+            <div class="cna-dialog" role="dialog" aria-modal="true" aria-label="Add credit note"
+                 @onclick:stopPropagation="true">
+                <h2 class="cna-dialog-title"><i class="ph ph-plus-circle" aria-hidden="true"></i>Add credit note</h2>
+                <div class="cna-dialog-body">
+                    <div class="cna-confirm">
+                        <div>
+                            <div class="cna-confirm-copy">
+                                Post draft @detail.Request.DraftNum as a credit note for
+                                @FormatMoney(detail.Request.DocTotal, detail.Request.DocCurrency)
+                                to @detail.Request.CardName.
+                            </div>
+                            <div class="cna-confirm-sub">
+                                The document is created in SAP and fiscalised. This cannot be undone.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="cna-dialog-actions">
+                    <button type="button" class="cna-btn cna-btn-secondary" @onclick="CloseAddConfirm"
+                            disabled="@isSubmitting">Close</button>
+                    <button type="button" class="cna-btn cna-btn-primary" @onclick="AddAsync" disabled="@isSubmitting">
+                        @if (isSubmitting)
+                        {
+                            <span class="cna-spin" aria-hidden="true"></span>
+                        }
+                        <span>Add credit note</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showViewer)
+{
+    <div class="cna-overlay">
+        <div class="cna-dialog-wrap" @onclick="CloseViewerAsync">
+            <div class="cna-viewer" role="dialog" aria-modal="true" aria-label="Attachment viewer"
+                 @onclick:stopPropagation="true">
+                <div class="cna-viewer-head">
+                    <h2 class="cna-viewer-name">@viewerFileName</h2>
+                    <button type="button" class="cna-btn cna-btn-secondary cna-btn-sm"
+                            @onclick="() => DownloadAttachmentAsync(viewerFile!)">Download</button>
+                    <button type="button" class="cna-btn cna-btn-ghost cna-btn-icon" title="Close"
+                            aria-label="Close viewer" @onclick="CloseViewerAsync">
+                        <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                            <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="cna-viewer-body">
+                    @if (isLoadingViewer)
+                    {
+                        <span class="cna-spin cna-spin-lg" aria-hidden="true"></span>
+                    }
+                    else if (viewerMimeType?.StartsWith("image/") == true)
+                    {
+                        <img src="@viewerObjectUrl" alt="@viewerFileName" class="cna-viewer-image" />
+                    }
+                    else if (viewerMimeType == "application/pdf")
+                    {
+                        <iframe src="@viewerObjectUrl" class="cna-viewer-pdf" title="@viewerFileName"></iframe>
+                    }
+                    else
+                    {
+                        <div class="cna-viewer-fallback">
+                            <i class="ph ph-file" aria-hidden="true"></i>
+                            <span>This file cannot be shown here. Download it instead.</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}

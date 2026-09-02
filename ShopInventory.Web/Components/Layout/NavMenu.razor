@@ -1,4 +1,4 @@
-﻿@using ShopInventory.Web.Common
+@using ShopInventory.Web.Common
 @inject NavSectionState SectionState
 
 @* Navigation for the staff shell. Presentation lives in
@@ -35,8 +35,10 @@
 
             @* ── Sales & Billing ──
                Merchandiser is in the gate for Mobile Orders alone, which used to
-               sit here with no heading over it at all. *@
-            <AuthorizeView Roles="Admin,Cashier,Merchandiser" Context="salesBillingCtx">
+               sit here with no heading over it at all; Manager is in it for
+               Credit Note Approvals alone. The section gate is the union of its
+               row gates. *@
+            <AuthorizeView Roles="Admin,Cashier,Merchandiser,Manager" Context="salesBillingCtx">
                 <Authorized>
                     <NavSection Title="Sales & Billing">
                         <AuthorizeView Roles="Admin,Cashier" Context="invoiceCtx">
@@ -116,6 +118,17 @@
                                         <i class="ph ph-plus-circle" aria-hidden="true"></i>
                                     </span>
                                     <span class="snav-text">Create Credit Note</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
+
+                        <AuthorizeView Roles="@UserRoles.CreditNoteApprovalRoles" Context="creditNoteApprovalCtx">
+                            <Authorized>
+                                <NavLink class="snav-link sub-link" href="/credit-notes/approvals" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-seal-check" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Credit Note Approvals</span>
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>

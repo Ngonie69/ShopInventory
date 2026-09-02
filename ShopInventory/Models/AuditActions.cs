@@ -37,6 +37,12 @@ public static class AuditActions
     public const string BulkCancelCreditNotes = "BulkCancelCreditNotes";
     public const string DuplicateCancelledCreditNotes = "DuplicateCancelledCreditNotes";
 
+    // SAP-held credit note approvals (the B1 approval procedure, decided from here)
+    public const string ApproveSapCreditNote = "ApproveSapCreditNote";
+    public const string RejectSapCreditNote = "RejectSapCreditNote";
+    public const string AddApprovedCreditNote = "AddApprovedCreditNote";
+    public const string ViewCreditNoteDraftAttachment = "ViewCreditNoteDraftAttachment";
+
     // Sales Order actions
     public const string CreateSalesOrder = "CreateSalesOrder";
     public const string CreateMobileSalesOrder = "Create Mobile Sales Order";

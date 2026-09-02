@@ -369,6 +369,13 @@ lives under `StockTransfer_ApprovalRequests`. Always null today. Left as-is: unl
 fields nothing computes with them, so they are cosmetically wrong rather than arithmetically wrong,
 and populating them properly means reading a different collection.
 
+Since 2026-09 the approval collections *are* read, for one document type: the credit note approvals
+feature reads `ApprovalRequests`, `ApprovalStages`, `ApprovalTemplates`, `Users`, the `Drafts` behind
+them and `Attachments2` (metadata and the `$value` stream) through
+`Services/SAPServiceLayerClient.Approvals.cs`, with its own select constants registered in
+`SapSelectClauseTests`. See `docs/sap-credit-note-approvals.md`. The transfer request fields above are
+unchanged.
+
 ### 5.2 `Items('{code}')` pulls the entire item master record — FIXED
 
 **Fixed** alongside §6, since it is the same method. `GetItemByCodeAsync` now sends `ItemSelect` —

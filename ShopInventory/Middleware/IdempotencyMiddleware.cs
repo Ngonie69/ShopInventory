@@ -105,6 +105,11 @@ public class IdempotencyMiddleware
             // header could not do — and replays the transfer it created. The sibling routes under
             // /pending/ are unaffected: neither /decision nor /cancel ends in "/post".
             ("POST /api/inventorytransfer/pending/", "/post"),
+            // The decision and the add each hold their own key — per stage and person for a decision,
+            // per draft for an add — and replay the real result (the request's new status, the credit
+            // note it became). The middleware's bare message would lose both.
+            ("POST /api/credit-note-approvals/", "/decision"),
+            ("POST /api/credit-note-approvals/", "/add"),
     };
 
     private static readonly string[] MobileSalesOrderCompatibilityRoles =

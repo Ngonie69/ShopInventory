@@ -1,4 +1,4 @@
-﻿using Blazored.LocalStorage;
+using Blazored.LocalStorage;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
@@ -271,6 +271,7 @@ try
     builder.Services.AddScoped<IInventoryTransferCacheService, InventoryTransferCacheService>();
     builder.Services.AddScoped<IInventoryTransferService, InventoryTransferService>();
     builder.Services.AddScoped<IApprovalProcessService, ApprovalProcessService>();
+    builder.Services.AddScoped<ICreditNoteApprovalService, CreditNoteApprovalService>();
     builder.Services.AddScoped<IIncomingPaymentCacheService, IncomingPaymentCacheService>();
     builder.Services.AddScoped<IPaymentService, PaymentService>();
     builder.Services.AddScoped<IWarehouseStockCacheService, WarehouseStockCacheService>();
@@ -583,6 +584,26 @@ try
         {
             AuthenticationSchemes = ApiBearerAuthenticationHandler.SchemeName,
             Roles = "Admin,Manager,Cashier,Merchandiser,SalesRep,MerchandiserPurchaseOrderViewer"
+        });
+
+    // Files attached to a SAP-held credit memo draft, streamed from SAP through the API. The same
+    // shape as the POD route above: the page turns the response into a blob URL for its viewer.
+    app.MapGet("/download/credit-note-approval/{code:int}/{lineNum:int}", async (
+        int code,
+        int lineNum,
+        HttpContext httpContext,
+        AuthenticatedDownloadProxy proxy,
+        CancellationToken ct) =>
+        await proxy.ProxyAsync(
+            httpContext,
+            $"api/credit-note-approvals/{code}/attachments/{lineNum}/download",
+            $"credit-note-draft-{code}-{lineNum}",
+            ["Admin", "Manager"],
+            ct))
+        .RequireAuthorization(new AuthorizeAttribute
+        {
+            AuthenticationSchemes = ApiBearerAuthenticationHandler.SchemeName,
+            Roles = "Admin,Manager"
         });
 
     app.Run();

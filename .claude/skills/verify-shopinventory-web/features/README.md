@@ -14,6 +14,7 @@ approval and the request flow are both in scope.
 | Sign in | `/login` | [sign-in.md](sign-in.md) |
 | Inventory transfers | `/inventory-transfers`, `/inventory-transfer/create`, `/transfer-request/create` | [inventory-transfers.md](inventory-transfers.md) |
 | Credit notes | `/credit-notes`, `/credit-notes/create` | [credit-notes.md](credit-notes.md) |
+| Credit note approvals (SAP) | `/credit-notes/approvals` | [credit-note-approvals.md](credit-note-approvals.md) |
 | Reports and Excel export | `/reports`, `/reports/*` | [reports-and-export.md](reports-and-export.md) |
 | Customer portal | `/customer-portal/*` | [customer-portal.md](customer-portal.md) |
 

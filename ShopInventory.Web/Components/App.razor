@@ -1,4 +1,4 @@
-﻿@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.Components.Web
 
 <!DOCTYPE html>
 <html lang="en">
@@ -38,6 +38,10 @@
        /invoices/create, which this replaced create-invoice.css to absorb. *@
     <link rel="stylesheet" href="@Assets["css/sales-forms.css"]" />
     <link rel="stylesheet" href="@Assets["css/credit-notes.css"]" />
+    @* Derived from credit-notes.css — the same list-and-drawer shape — for the
+       SAP-held credit memos a manager decides; its palette is aliased from
+       nocturne-tokens.css. *@
+    <link rel="stylesheet" href="@Assets["css/credit-note-approvals.css"]" />
     <link rel="stylesheet" href="@Assets["css/settings.css"]" />
     <link rel="stylesheet" href="@Assets["css/batch-status.css"]" />
     <link rel="stylesheet" href="@Assets["css/exception-center.css"]" />

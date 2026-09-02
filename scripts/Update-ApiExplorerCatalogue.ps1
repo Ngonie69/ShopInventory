@@ -149,6 +149,7 @@ function ConvertTo-Sentence {
 $categoryOf = @{
     'InvoiceController'='Core Business'; 'SalesOrderController'='Core Business'
     'CreditNoteController'='Core Business'; 'QuotationController'='Core Business'
+    'CreditNoteApprovalController'='Core Business'
     'PaymentController'='Core Business'; 'IncomingPaymentController'='Core Business'
     'BatchController'='Core Business'
 
@@ -212,6 +213,7 @@ $moduleNameOf = @{
     'PurchaseInvoiceController'='Purchase Invoices'; 'PurchaseQuotationController'='Purchase Quotations'
     'PurchaseRequestController'='Purchase Requests'; 'GoodsReceiptPurchaseOrderController'='Goods Receipt POs'
     'FiscalDeviceOfflineLeaseController'='Fiscal Device Leases'
+    'CreditNoteApprovalController'='Credit Note Approvals'
 }
 
 function Get-ModuleName {
