@@ -20,6 +20,11 @@ public interface IVanSalesAttendanceService
 
     /// <param name="fromDate">A CAT trading day, not an instant — sent as a plain date.</param>
     /// <param name="toDate">A CAT trading day, inclusive.</param>
+    /// <param name="userId">One van rep, by id. Omitted, the report covers every rep.</param>
+    /// <param name="username">
+    /// The same narrowing for a caller holding the name rather than the id — a screen that has the
+    /// rep's name off a row, not a lookup. An alternative to the id, not a companion to it.
+    /// </param>
     Task<VanVisitReportResponse?> GetReportAsync(
         DateTime? fromDate = null, DateTime? toDate = null,
         Guid? userId = null, string? username = null);

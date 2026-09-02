@@ -388,6 +388,11 @@ public class CustomerStatementService : ICustomerStatementService
     /// Build per-account breakdown showing individual balances and transaction counts.
     /// Fetches all linked accounts in parallel.
     /// </summary>
+    /// <param name="linkedAccounts">
+    /// The accounts to break down. Each one costs a business partner read and a sales order read,
+    /// run in parallel across the set, so this grows with the number of accounts a customer has
+    /// linked rather than with the size of their ledger.
+    /// </param>
     /// <param name="invoicesByAccount">
     /// Open invoices already read for the whole account set, keyed by card code. Passed in rather
     /// than fetched here so the breakdown costs no extra SAP reads.

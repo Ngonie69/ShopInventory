@@ -9,17 +9,34 @@ using ShopInventory.Web.Models;
 
 namespace ShopInventory.Web.Services;
 
+/// <summary>What became of one POD report email, in the terms the sender has to report on screen.</summary>
+/// <param name="Success">
+/// Whether the email went out. Every failure path returns false with the counts left at zero, so a
+/// caller reading a count without checking this is reading a report that was never sent.
+/// </param>
+/// <param name="Message">
+/// Shown to the operator as written, which is why it is a sentence and not a code. On a failure it
+/// is the entire explanation — nothing else on this record carries anything on that path.
+/// </param>
+/// <param name="TotalInvoices">
+/// Invoices in the reported period, already less the fully credited ones.
+/// </param>
+/// <param name="UploadedCount">How many of those have their POD in.</param>
+/// <param name="PendingCount">
+/// How many are still missing one. This and the uploaded count are the completion figure the report
+/// exists to carry.
+/// </param>
+/// <param name="FullyCreditedCount">
+/// Invoices credit notes fully reversed. Not part of the three counts above: they are
+/// excluded from the report and from its completion figure, and shipped as their own
+/// attachment.
+/// </param>
 public sealed record PodReportEmailSendResult(
     bool Success,
     string Message,
     int TotalInvoices = 0,
     int UploadedCount = 0,
     int PendingCount = 0,
-    /// <summary>
-    /// Invoices credit notes fully reversed. Not part of the three counts above: they are
-    /// excluded from the report and from its completion figure, and shipped as their own
-    /// attachment.
-    /// </summary>
     int FullyCreditedCount = 0);
 
 public interface IPodReportEmailService
