@@ -11,6 +11,7 @@
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IAuditService AuditService
+@implements IDisposable
 @rendermode InteractiveServer
 
 <PageTitle>Create Inventory Transfer - Shop Inventory</PageTitle>
@@ -318,7 +319,7 @@
                                                         {
                                                             <button type="button" class="tfm-drop-i"
                                                                     @onmousedown:preventDefault="true"
-                                                                    @onclick="() => SelectProductAsync(line, product)">
+                                                                    @onclick="() => SelectProduct(line, product)">
                                                                 <span>
                                                                     <span class="tfm-drop-code">@product.ItemCode</span>
                                                                     <span class="tfm-drop-sub">@Truncate(product.ItemName, 40)</span>
@@ -537,6 +538,13 @@
     private readonly Dictionary<string, ProductDto> stockBySource = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// The per-line stock confirmations, coalesced into one call at a time. Each one becomes a SAP
+    /// round trip holding one of six process-wide slots, so a form firing one per line could starve
+    /// every other user of the app.
+    /// </summary>
+    private StockRefreshBatcher? stockRefresh;
+
+    /// <summary>
     /// Validation is shown from the first submit attempt onwards, never before: the form opens
     /// empty, and a panel headed "please fix the following" on an untouched form is noise. After
     /// an attempt it tracks live, so entries disappear as they are fixed. The fractional-quantity
@@ -655,6 +663,11 @@
     }
 
     // ── Lifecycle ───────────────────────────────────────
+    protected override void OnInitialized() =>
+        stockRefresh = new StockRefreshBatcher(StockCacheService, Logger, ApplyStockBatchAsync);
+
+    public void Dispose() => stockRefresh?.Dispose();
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender && !_hasLoadedData)
@@ -727,6 +740,10 @@
     {
         selectedFromWarehouse = FindWarehouse(warehouseCode);
 
+        // A per-line confirmation still in flight is reading the warehouse the operator just left,
+        // and holding a SAP slot to do it.
+        stockRefresh?.Cancel();
+
         // Stock is a property of the source, so every figure on screen is stale the moment it
         // changes. The lines themselves are kept — the operator picked those items on purpose, and
         // the new figures are re-read below rather than making them start over.
@@ -734,6 +751,7 @@
         {
             line.StockInSource = 0;
             line.HasStockFigure = false;
+            line.IsLoadingStock = false;
         }
 
         await LoadStockForSourceAsync();
@@ -833,7 +851,7 @@
             .ToList();
     }
 
-    private async Task SelectProductAsync(TransferLineItem line, ProductDto product)
+    private void SelectProduct(TransferLineItem line, ProductDto product)
     {
         line.SelectedProduct = product;
         line.ItemCode = product.ItemCode;
@@ -844,7 +862,7 @@
 
         // The warehouse-wide load is a cache read and can be stale for an item that just moved,
         // so confirm this one against the service.
-        await RefreshStockAsync(line);
+        QueueStockRefresh(line);
     }
 
     // ── Stock ───────────────────────────────────────────
@@ -861,49 +879,61 @@
     }
 
     /// <summary>
-    /// Reads the line's stock in the source warehouse, and takes the unit of measure from the same
-    /// response when the product cache has none — the API rejects a fractional quantity it cannot
-    /// match to a unit, so this is the second chance to find one.
+    /// Asks for the line's stock in the source warehouse. Queued rather than read here: the batcher
+    /// folds every line's request into one call, so a form of any length holds one SAP slot.
     /// </summary>
-    private async Task RefreshStockAsync(TransferLineItem line)
+    private void QueueStockRefresh(TransferLineItem line)
     {
         var warehouseCode = selectedFromWarehouse?.WarehouseCode;
         var itemCode = line.SelectedProduct?.ItemCode;
         if (string.IsNullOrWhiteSpace(warehouseCode) || string.IsNullOrWhiteSpace(itemCode))
             return;
 
-        var product = line.SelectedProduct;
         line.IsLoadingStock = true;
-
-        try
-        {
-            var stockByItem = await StockCacheService.GetStockForItemsAsync(
-                warehouseCode, [itemCode], CancellationToken.None);
-
-            // Drop a late response if the source warehouse or the line's product has moved on.
-            if (!string.Equals(selectedFromWarehouse?.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase)
-                || !ReferenceEquals(line.SelectedProduct, product))
-                return;
-
-            if (stockByItem.TryGetValue(itemCode, out var stock))
-            {
-                line.StockInSource = stock.QuantityInStock;
-                line.HasStockFigure = true;
-                stockBySource[itemCode] = stock;
-                if (string.IsNullOrWhiteSpace(line.UoMCode) && !string.IsNullOrWhiteSpace(stock.UoM))
-                    line.UoMCode = stock.UoM.Trim();
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Failed to read stock for {ItemCode} in {Warehouse}", itemCode, warehouseCode);
-        }
-        finally
-        {
-            line.IsLoadingStock = false;
-            await InvokeAsync(StateHasChanged);
-        }
+        stockRefresh?.Request(warehouseCode, itemCode);
     }
+
+    /// <summary>
+    /// Writes one batch's figures onto the lines waiting for them, taking the unit of measure from
+    /// the same rows when the product cache has none — the API rejects a fractional quantity it
+    /// cannot match to a unit, so this is the second chance to find one.
+    /// </summary>
+    /// <remarks>
+    /// Runs off the circuit's synchronisation context, so every touch of component state goes
+    /// through InvokeAsync. Lines are matched by the code they currently hold rather than by the
+    /// product object queued: a line the operator has since typed past no longer has a selection and
+    /// is skipped, and one they have pointed at a different item does not match this batch.
+    /// </remarks>
+    private Task ApplyStockBatchAsync(StockRefreshBatch batch) => InvokeAsync(() =>
+    {
+        // Drop a late batch if the source warehouse moved on while it was in flight.
+        if (!string.Equals(selectedFromWarehouse?.WarehouseCode, batch.WarehouseCode, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        foreach (var (itemCode, stock) in batch.Stock)
+            stockBySource[itemCode] = stock;
+
+        foreach (var line in lines)
+        {
+            var itemCode = line.SelectedProduct?.ItemCode;
+            if (string.IsNullOrWhiteSpace(itemCode) || !batch.RequestedItemCodes.Contains(itemCode))
+                continue;
+
+            // Cleared for every code that was asked about, so a line for an item the warehouse
+            // holds no row for stops spinning too.
+            line.IsLoadingStock = false;
+
+            if (!batch.Stock.TryGetValue(itemCode, out var stock))
+                continue;
+
+            line.StockInSource = stock.QuantityInStock;
+            line.HasStockFigure = true;
+            if (string.IsNullOrWhiteSpace(line.UoMCode) && !string.IsNullOrWhiteSpace(stock.UoM))
+                line.UoMCode = stock.UoM.Trim();
+        }
+
+        StateHasChanged();
+    });
 
     private bool ExceedsStock(TransferLineItem line) =>
         line.SelectedProduct is not null
@@ -1109,6 +1139,7 @@
 
     private void ClearForm()
     {
+        stockRefresh?.Cancel();
         selectedFromWarehouse = null;
         selectedToWarehouse = null;
         docDate = DateTime.Today;
