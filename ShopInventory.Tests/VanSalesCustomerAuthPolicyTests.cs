@@ -71,8 +71,8 @@ public sealed class VanSalesCustomerAuthPolicyTests
     [Fact]
     public void The_customer_endpoints_require_the_customer_policy_by_default()
     {
-        // Stated at the class so anything added later inherits it. The three exceptions below are
-        // the whole anonymous surface; a fourth added by accident is what this pair of tests exists
+        // Stated at the class so anything added later inherits it. The four exceptions below are
+        // the whole anonymous surface; a fifth added by accident is what this pair of tests exists
         // to catch.
         var authorize = typeof(VanSalesCustomerAuthController)
             .GetCustomAttributes<AuthorizeAttribute>(inherit: true)
@@ -83,11 +83,11 @@ public sealed class VanSalesCustomerAuthPolicyTests
     }
 
     [Fact]
-    public void Only_the_three_pre_session_endpoints_are_anonymous()
+    public void Only_the_four_pre_session_endpoints_are_anonymous()
     {
-        // Requesting and verifying a code happen before a session exists, and refresh exists
-        // precisely to be callable once the access token has expired. Nothing else on this
-        // controller has a reason to be reachable without one.
+        // Signing in with a password, and requesting and verifying a code, all happen before a
+        // session exists; refresh exists precisely to be callable once the access token has expired.
+        // Nothing else on this controller has a reason to be reachable without one.
         var anonymous = typeof(VanSalesCustomerAuthController)
             .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
             .Where(m => m.GetCustomAttributes<AllowAnonymousAttribute>(inherit: true).Any())
@@ -95,7 +95,7 @@ public sealed class VanSalesCustomerAuthPolicyTests
             .OrderBy(name => name)
             .ToArray();
 
-        Assert.Equal(["Refresh", "RequestOtp", "VerifyOtp"], anonymous);
+        Assert.Equal(["Refresh", "RequestOtp", "SignIn", "VerifyOtp"], anonymous);
     }
 
     [Fact]

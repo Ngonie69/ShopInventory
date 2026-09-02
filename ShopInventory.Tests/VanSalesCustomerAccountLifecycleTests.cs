@@ -179,10 +179,19 @@ public sealed class VanSalesCustomerAccountLifecycleTests : IDisposable
 
     private static VanSalesCustomerAuthSettings Settings => new() { DefaultCountryCode = "+263" };
 
+    /// <summary>
+    /// Onboards with a password by default, because a new sign-in requires one.
+    /// </summary>
+    /// <remarks>
+    /// The cases here are about which shop a number belongs to and whether an account can be
+    /// reinstated, none of which the password takes part in. What it does take part in is covered by
+    /// <c>VanSalesCustomerPasswordSignInTests</c>.
+    /// </remarks>
     private async Task<ErrorOr.ErrorOr<VanSalesCustomerAccountResult>> OnboardAsync(
         int routeCustomerId,
         string phone,
-        string? displayName = "Owner")
+        string? displayName = "Owner",
+        string? password = "shop-password")
     {
         var handler = new OnboardVanSalesCustomerAccountHandler(
             _context,
@@ -191,7 +200,7 @@ public sealed class VanSalesCustomerAccountLifecycleTests : IDisposable
             NullLogger<OnboardVanSalesCustomerAccountHandler>.Instance);
 
         var result = await handler.Handle(
-            new OnboardVanSalesCustomerAccountCommand(routeCustomerId, phone, displayName, null),
+            new OnboardVanSalesCustomerAccountCommand(routeCustomerId, phone, displayName, null, password),
             default);
         _context.ChangeTracker.Clear();
         return result;

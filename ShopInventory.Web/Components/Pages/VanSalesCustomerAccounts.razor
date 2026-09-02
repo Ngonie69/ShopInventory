@@ -73,6 +73,22 @@
                                @bind="form.PhoneNumber" @bind:event="oninput" />
                     </label>
 
+                    @* Legible rather than masked. The operator has to read this back to the
+                       shopkeeper on the spot, and a password typed blind is one that gets passed on
+                       wrong and comes back as a report that the app is broken. *@
+                    <label class="caa-field">
+                        <span class="caa-label">
+                            Password
+                            @if (ShopAlreadyHasAccess)
+                            {
+                                <span class="caa-optional">(blank keeps the current one)</span>
+                            }
+                        </span>
+                        <input class="caa-input" type="text" maxlength="72" autocomplete="off"
+                               placeholder="At least 8 characters"
+                               @bind="form.Password" @bind:event="oninput" />
+                    </label>
+
                     <label class="caa-field">
                         <span class="caa-label">
                             Who holds the phone <span class="caa-optional">(optional)</span>
@@ -98,8 +114,10 @@
                 </div>
 
                 <p class="caa-hint">
-                    A shop that already has access will be moved to this handset. The same number
-                    cannot be used by two different shops.
+                    The shop signs in on the app with this number and password. A shop that already
+                    has access will be moved to this handset, and a new password typed here replaces
+                    the one they had — which is how a forgotten one is reset. The same number cannot
+                    be used by two different shops.
                 </p>
             </form>
         </section>

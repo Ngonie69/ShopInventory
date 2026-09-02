@@ -49,6 +49,16 @@ public class OnboardVanSalesCustomerAccountModel
     public string PhoneNumber { get; set; } = string.Empty;
 
     public string? DisplayName { get; set; }
+
+    /// <summary>
+    /// What the shop will sign in with, alongside the number.
+    /// </summary>
+    /// <remarks>
+    /// Travels up and is never read back. The API stores a hash and no endpoint returns it, which is
+    /// why <see cref="VanSalesCustomerAccountModel"/> has nowhere to put one — an operator who loses
+    /// a password sets a new one rather than looking the old one up.
+    /// </remarks>
+    public string? Password { get; set; }
 }
 
 /// <summary>The accounts screen's whole payload: the sign-ins, and the shops one can be given to.</summary>

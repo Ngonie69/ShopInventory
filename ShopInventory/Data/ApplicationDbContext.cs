@@ -1775,6 +1775,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
       entity.Property(e => e.PhoneE164).IsRequired().HasMaxLength(20);
       entity.Property(e => e.DisplayName).HasMaxLength(200);
+      entity.Property(e => e.PasswordHash).HasMaxLength(255);
 
       // Restrict, not Cascade: a route customer being removed must not silently delete the
       // sign-in that placed orders under it. Deactivate the account instead.

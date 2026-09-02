@@ -37,6 +37,28 @@ public partial class VanSalesCustomerAccounts : ComponentBase, IDisposable
     private string searchTerm = string.Empty;
     private int? routeCustomerFilter;
 
+    /// <summary>
+    /// Mirrors <c>VanSalesCustomerPassword.MinimumLength</c> on the API.
+    /// </summary>
+    /// <remarks>
+    /// Duplicated rather than shared because the two projects share no assembly. The API's copy is
+    /// the one that decides; this one only saves the operator a round trip to be told the same
+    /// thing.
+    /// </remarks>
+    private const int MinimumPasswordLength = 8;
+
+    /// <summary>
+    /// Whether the shop picked in the form already has a sign-in.
+    /// </summary>
+    /// <remarks>
+    /// Decides only whether the password field says it may be left blank. Getting it wrong costs a
+    /// misleading hint, not a wrong write: the API refuses a new account with no password whatever
+    /// this says.
+    /// </remarks>
+    private bool ShopAlreadyHasAccess =>
+        form.RouteCustomerId > 0
+        && view.Accounts.Any(a => a.RouteCustomerId == form.RouteCustomerId);
+
     /// <summary>Which sign-ins the list is showing.</summary>
     private enum AccountView
     {
@@ -198,6 +220,15 @@ public partial class VanSalesCustomerAccounts : ComponentBase, IDisposable
             return;
         }
 
+        // Caught here as well as on the API so the operator hears it without a round trip. The
+        // API's rule is the one that decides — blank is allowed only for a shop that already has a
+        // password, and only the API knows whether this one does.
+        if (!string.IsNullOrWhiteSpace(form.Password) && form.Password.Trim().Length < MinimumPasswordLength)
+        {
+            formErrorMessage = $"The password needs at least {MinimumPasswordLength} characters.";
+            return;
+        }
+
         isSaving = true;
 
         try
@@ -206,7 +237,8 @@ public partial class VanSalesCustomerAccounts : ComponentBase, IDisposable
                 new OnboardVanSalesCustomerAccountCommand(
                     form.RouteCustomerId,
                     form.PhoneNumber,
-                    form.DisplayName),
+                    form.DisplayName,
+                    form.Password),
                 disposeCts.Token);
 
             if (result.IsError)
@@ -217,12 +249,12 @@ public partial class VanSalesCustomerAccounts : ComponentBase, IDisposable
 
             var account = result.Value;
 
-            // Said in terms of what happens next rather than what was written to a table: the shop
-            // still has to open the app and ask for a code, and an operator who thinks the job is
-            // finished here will not tell them to.
+            // Said in terms of what happens next rather than what was written to a table. The
+            // password is the half the operator has to hand over in person, and an operator who
+            // thinks the job finished here leaves the shop unable to open the app.
             Snackbar.Add(
                 $"{account.RouteCustomerName} can now sign in on {account.PhoneE164}. "
-                + "They will get a code on WhatsApp when they open the app.",
+                + "Give them the password — it cannot be read back later.",
                 Severity.Success);
 
             form = new OnboardVanSalesCustomerAccountModel();

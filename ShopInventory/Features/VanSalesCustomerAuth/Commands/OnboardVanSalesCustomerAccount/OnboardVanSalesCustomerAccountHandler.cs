@@ -74,6 +74,16 @@ public sealed class OnboardVanSalesCustomerAccountHandler(
             return Errors.VanSalesCustomerAuth.PhoneAlreadyInUse(VanSalesCustomerPhone.Mask(phone));
         }
 
+        var password = string.IsNullOrWhiteSpace(command.Password) ? null : command.Password;
+
+        // A new account with no password cannot sign in on the app, and would refuse the shop with
+        // the same sentence a wrong password gets: an account that looks set up in the operator's
+        // list and tells the only person who could have the details right that they do not match.
+        if (existing is null && password is null)
+        {
+            return Errors.VanSalesCustomerAuth.PasswordRequired;
+        }
+
         var account = existing;
 
         if (account is null)
@@ -84,6 +94,8 @@ public sealed class OnboardVanSalesCustomerAccountHandler(
                 PhoneE164 = phone,
                 DisplayName = command.DisplayName,
                 IsActive = true,
+                PasswordHash = VanSalesCustomerPassword.Hash(password!),
+                PasswordSetAt = now,
                 CreatedByUserId = command.CreatedByUserId,
                 CreatedAt = now
             };
@@ -94,6 +106,15 @@ public sealed class OnboardVanSalesCustomerAccountHandler(
         {
             account.DisplayName = command.DisplayName ?? account.DisplayName;
             account.IsActive = true;
+
+            // Only when one was typed. Re-onboarding is mostly done to move a shop to a new handset
+            // or to switch it back on, and clearing the password as a side effect of that would sign
+            // out an app that was working, with nothing on screen to say why.
+            if (password is not null)
+            {
+                account.PasswordHash = VanSalesCustomerPassword.Hash(password);
+                account.PasswordSetAt = now;
+            }
 
             // Re-onboarding clears a lockout. The rep is standing in the shop confirming who this
             // is, which is a stronger check than the one that locked it.
