@@ -620,6 +620,94 @@ public interface ISAPServiceLayerClient
     /// </summary>
     Task LinkAttachmentToInvoiceAsync(int invoiceDocEntry, int attachmentEntry, CancellationToken cancellationToken = default);
 
+    // SAP approval procedure — A/R credit memo drafts held by SAP's own approval procedure. SAP is the
+    // source of truth for these; nothing here is mirrored into the local approval engine.
+
+    /// <summary>
+    /// One page of the approval requests SAP holds against A/R credit memo drafts, newest first, with
+    /// the total for the same status set. <paramref name="sapStatuses"/> takes the Service Layer's
+    /// own literals (<see cref="SapApprovalRequestStatuses"/>); an unknown one is refused.
+    /// </summary>
+    Task<(List<SAPApprovalRequest> Items, int TotalCount)> GetCreditNoteApprovalRequestsAsync(
+        IReadOnlyCollection<string> sapStatuses,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>One approval request with its approver lines; null when SAP has no such code.</summary>
+    Task<SAPApprovalRequest?> GetApprovalRequestAsync(int code, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The headers of the A/R credit memo drafts with these DocEntries, without lines. A key that is
+    /// not a credit memo draft is simply absent from the answer.
+    /// </summary>
+    Task<List<SAPCreditNote>> GetCreditNoteDraftsAsync(IReadOnlyCollection<int> docEntries, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One draft with its lines; null when there is no such draft. Any draft comes back — the caller
+    /// checks <see cref="SAPCreditNote.DocObjectCode"/>.
+    /// </summary>
+    Task<SAPCreditNote?> GetCreditNoteDraftAsync(int docEntry, CancellationToken cancellationToken = default);
+
+    /// <summary>An attachment record and its file lines; null when there is no such record.</summary>
+    Task<SAPAttachment?> GetAttachmentAsync(int absoluteEntry, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The highest-numbered credit note this customer has, or null if they have none. Used to
+    /// recognise the document a draft became: SAP names it nowhere else.
+    /// </summary>
+    Task<SAPCreditNote?> GetNewestCreditNoteForCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
+
+    Task<SAPUser?> GetSapUserAsync(int internalKey, CancellationToken cancellationToken = default);
+    Task<SAPUser?> GetSapUserByCodeAsync(string userCode, CancellationToken cancellationToken = default);
+    Task<SAPApprovalTemplate?> GetApprovalTemplateAsync(int code, CancellationToken cancellationToken = default);
+    Task<SAPApprovalStage?> GetApprovalStageAsync(int code, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records a decision on an approval request. <paramref name="sapDecision"/> is one of
+    /// <see cref="SapApprovalDecisions"/>.
+    /// </summary>
+    /// <remarks>
+    /// A null <paramref name="approverUserName"/> records the decision as the session user and sends
+    /// no credential; naming an approver requires that approver's password, or SAP answers
+    /// <c>400 User code or password is incorrect</c>. Remarks are capped by SAP at 200 characters and
+    /// a longer one is refused outright, so the caller truncates. SAP's refusal — not an approver on
+    /// the stage, already decided, wrong password — surfaces as
+    /// <see cref="SapRequestRejectedException"/>; a transport failure as whatever the transport threw.
+    /// </remarks>
+    Task SubmitApprovalDecisionAsync(
+        int code,
+        string? approverUserName,
+        string? approverPassword,
+        string sapDecision,
+        string? remarks,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Converts an approved draft into its real document (<c>DraftsService_SaveDraftToDocument</c>).
+    /// Returns the created document's DocEntry when SAP's answer names it, otherwise null — the
+    /// approval request's <c>ObjectEntry</c> is then the way to find it.
+    /// </summary>
+    Task<int?> SaveDraftToDocumentAsync(int draftDocEntry, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Streams one attached file through the Service Layer (<c>Attachments2(n)/$value</c>). The stream
+    /// owns the SAP response; dispose it when done.
+    /// </summary>
+    /// <remarks>
+    /// Throws <see cref="SapRequestRejectedException"/> carrying SAP's own message when it will not
+    /// serve the bytes — including the 404 it answers when the Service Layer's attachments folder is
+    /// not mounted, which is a server configuration fault and not a missing file. Where that is the
+    /// landscape, read from the share instead (<c>CreditNoteApprovals:AttachmentReadMode</c>).
+    /// </remarks>
+    Task<SapAttachmentDownload?> DownloadAttachmentAsync(int absoluteEntry, string fileNameWithExtension, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads one attached file straight off the attachments share (<c>SAP:AttachmentsPath</c>), for a
+    /// Service Layer that cannot serve the folder itself. Null when the file is not there.
+    /// </summary>
+    Task<SapAttachmentDownload?> ReadAttachmentFromShareAsync(SAPAttachmentLine line, CancellationToken cancellationToken = default);
+
     // Quotation Operations (from SAP)
     Task<List<SAPQuotation>> GetQuotationsFromSAPAsync(CancellationToken cancellationToken = default);
     Task<List<SAPQuotation>> GetPagedQuotationsFromSAPAsync(int page, int pageSize, CancellationToken cancellationToken = default);

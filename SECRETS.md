@@ -36,6 +36,11 @@ dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Po
 # SAP B1 Service Layer
 dotnet user-secrets set "SAP:Username" "YOUR_SAP_USERNAME"
 dotnet user-secrets set "SAP:Password" "YOUR_SAP_PASSWORD"
+# SAP approval decisions on held A/R credit memos are recorded as this user (defaults to SAP:Username).
+# Set both only when a dedicated approver account is used; that user must be an approver on the
+# credit-memo approval stages in SAP.
+# dotnet user-secrets set "SAP:ApprovalApproverUsername" "YOUR_SAP_APPROVER_USERNAME"
+# dotnet user-secrets set "SAP:ApprovalApproverPassword" "YOUR_SAP_APPROVER_PASSWORD"
 
 # SAP webhook signing secret (required if webhook endpoints are used)
 # dotnet user-secrets set "Webhooks:WebhookSecret" "YOUR_SAP_WEBHOOK_SECRET"

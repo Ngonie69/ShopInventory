@@ -67,6 +67,21 @@ public class SAPCreditNote
     [JsonPropertyName("Address2")]
     public string? Address2 { get; set; }
 
+    /// <summary>Key of the Attachments2 record holding the document's attachments, when it has any.</summary>
+    [JsonPropertyName("AttachmentEntry")]
+    public int? AttachmentEntry { get; set; }
+
+    /// <summary>
+    /// The approval-procedure state: dasWithout, dasPending, dasApproved, dasRejected, dasGenerated,
+    /// dasGeneratedbyAuthorizer or dasCancelled. Read on drafts; never selected on posted credit notes.
+    /// </summary>
+    [JsonPropertyName("AuthorizationStatus")]
+    public string? AuthorizationStatus { get; set; }
+
+    /// <summary>On a row read from Drafts, which document the draft is for — oCreditNotes for an A/R credit memo.</summary>
+    [JsonPropertyName("DocObjectCode")]
+    public string? DocObjectCode { get; set; }
+
     // Reference to original invoice (if credit note was created against an invoice)
     [JsonPropertyName("BaseEntry")]
     public int? BaseEntry { get; set; }

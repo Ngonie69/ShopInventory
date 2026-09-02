@@ -278,6 +278,23 @@ new("PATCH", "/api/Batch/{batchEntryId}/status", "Update status")
 },
 new ApiModule
 {
+Name = "Credit Note Approvals",
+BasePath = "/api/credit-note-approvals",
+Description = "5 endpoints under /api/credit-note-approvals.",
+Icon = Icons.Material.Filled.Bolt,
+Color = Color.Info,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/credit-note-approvals", "Get all"),
+new("GET", "/api/credit-note-approvals/{code}", "Get by code"),
+new("GET", "/api/credit-note-approvals/{code}/attachments/{lineNum}/download", "Download attachment"),
+new("POST", "/api/credit-note-approvals/{code}/add", "Add"),
+new("POST", "/api/credit-note-approvals/{code}/decision", "Decide")
+}
+},
+new ApiModule
+{
 Name = "Credit Notes",
 BasePath = "/api/CreditNote",
 Description = "Create and manage credit notes for returns and adjustments.",

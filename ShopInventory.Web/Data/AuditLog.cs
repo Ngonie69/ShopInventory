@@ -171,6 +171,13 @@ public static class AuditActions
     public const string BulkUploadPod = "BulkUploadPod";
     public const string ViewPod = "ViewPod";
     public const string DownloadPod = "DownloadPod";
+
+    // SAP-held credit note approvals
+    public const string ApproveSapCreditNote = "ApproveSapCreditNote";
+    public const string RejectSapCreditNote = "RejectSapCreditNote";
+    public const string AddApprovedSapCreditNote = "AddApprovedSapCreditNote";
+    public const string ViewSapCreditNoteAttachment = "ViewSapCreditNoteAttachment";
+    public const string DownloadSapCreditNoteAttachment = "DownloadSapCreditNoteAttachment";
     public const string SendPodReportEmail = "SendPodReportEmail";
 
     // Van sales actions

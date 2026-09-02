@@ -111,3 +111,4 @@ Use the credentials configured in your ShopInventory API (typically `admin`/`adm
 | Products | GET /api/product/warehouse/{warehouseCode}, GET /api/product/warehouse/{warehouseCode}/item/{itemCode}/batches |
 | Prices | GET /api/price, GET /api/price/cached, GET /api/price/grouped, GET /api/price/businesspartner/{cardCode} |
 | Van Sales | GET /api/van-sales/compliance-report, GET /api/van-sales/routes, GET /api/van-sales/visits, GET /api/van-sales/visits/report |
+| Credit note approvals | GET /api/credit-note-approvals, GET /api/credit-note-approvals/{code}, GET /api/credit-note-approvals/{code}/attachments/{lineNum}/download, POST /api/credit-note-approvals/{code}/decision, POST /api/credit-note-approvals/{code}/add |

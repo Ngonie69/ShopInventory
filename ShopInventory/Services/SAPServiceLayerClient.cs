@@ -322,6 +322,9 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     /// Layer's default page happened to be — around 20 rows — while their names and return types
     /// promised the lot. That is a silent wrong answer, not a slow one: a supplier with 60 purchase
     /// orders showed 20, with nothing to indicate the rest existed.
+    ///
+    /// <paramref name="orderByClause"/> exists for the entity sets that are not documents and so have
+    /// no <c>DocEntry</c> to order by — the approval requests order by <c>Code</c>.
     /// </remarks>
     private async Task<List<T>> ReadDocumentPagesAsync<T>(
         string entitySet,
@@ -329,7 +332,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         string selectClause,
         string operationDescription,
         CancellationToken cancellationToken,
-        int maxResults = DocumentListMaxResults)
+        int maxResults = DocumentListMaxResults,
+        string orderByClause = "DocEntry desc")
     {
         var all = new List<T>();
         var skip = 0;
@@ -341,7 +345,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                 ? string.Empty
                 : $"$filter={Uri.EscapeDataString(filterExpression)}&";
             var selectPart = string.IsNullOrWhiteSpace(selectClause) ? string.Empty : $"{selectClause}&";
-            var url = $"{entitySet}?{filterClause}{selectPart}$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+            var url = $"{entitySet}?{filterClause}{selectPart}$orderby={orderByClause}&$top={pageSize}&$skip={skip}";
 
             HttpRequestMessage CreateRequest()
             {

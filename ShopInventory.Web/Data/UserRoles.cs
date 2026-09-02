@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 
 namespace ShopInventory.Web.Data;
 
@@ -124,6 +124,14 @@ public static class UserRoles
     public const string QuotationRoles = "Admin,Cashier,SalesRep";
     public const string PaymentRoles = "Admin,Cashier";
     public const string InventoryTransferRoles = "Admin,Manager,StockController,DepotController";
+
+    /// <summary>
+    /// Who can open /credit-notes/approvals: the people who decide another person's SAP credit memo
+    /// and post it. Not <see cref="InvoicingRoles"/> — a cashier raises credit notes and must not
+    /// thereby approve them. The API agrees through its <c>creditnotes.approve</c> and
+    /// <c>creditnotes.add_approved</c> permissions; <c>CreditNoteApprovalAccessTests</c> pins the two.
+    /// </summary>
+    public const string CreditNoteApprovalRoles = "Admin,Manager";
     public const string SalesOrderRoles = "Admin,Cashier,Merchandiser,SalesRep";
     public const string PurchasingRoles = "Admin,Manager";
 

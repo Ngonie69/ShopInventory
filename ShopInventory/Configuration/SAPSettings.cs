@@ -12,6 +12,60 @@ public class SAPSettings
     public string Password { get; set; } = string.Empty;
 
     /// <summary>
+    /// The SAP user that records approval decisions on A/R credit memo drafts held by SAP's own
+    /// approval procedure. Leave empty to decide as <see cref="Username"/>.
+    /// </summary>
+    /// <remarks>
+    /// SAP only accepts a decision from a user listed as an approver on the request's current stage, so
+    /// whichever account this names must be an approver on every stage of every approval template that
+    /// covers A/R credit memos. The app decides who may click through its own
+    /// <c>creditnotes.approve</c> permission and names that person in the decision remarks and the audit
+    /// trail; SAP's own record shows this account.
+    /// </remarks>
+    public string ApprovalApproverUsername { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The password for <see cref="ApprovalApproverUsername"/>. Leave empty to use <see cref="Password"/>.
+    /// Never logged.
+    /// </summary>
+    public string ApprovalApproverPassword { get; set; } = string.Empty;
+
+    /// <summary>The SAP user name a credit memo approval decision is recorded as.</summary>
+    public string ResolveApprovalApproverUsername()
+        => string.IsNullOrWhiteSpace(ApprovalApproverUsername) ? Username : ApprovalApproverUsername.Trim();
+
+    /// <summary>
+    /// Whether decisions are recorded as somebody other than the account this app logs into SAP with.
+    /// </summary>
+    /// <remarks>
+    /// The distinction is not cosmetic, and it was measured rather than assumed (KEFALOS_TEST_3,
+    /// 2026-09-02). A decision that names no approver is recorded as the session user and needs no
+    /// password at all; one that names an approver must carry that approver's password, or SAP
+    /// answers <c>400 User code or password is incorrect</c>. So the common case sends no credential
+    /// over the wire, and the dedicated case is useless without a password.
+    /// </remarks>
+    public bool UsesDedicatedApprovalApprover
+        => !string.IsNullOrWhiteSpace(ApprovalApproverUsername)
+           && !string.Equals(ApprovalApproverUsername.Trim(), Username, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The approver to name on the decision, or null to let SAP record the session user. Null is the
+    /// default and the better one: it puts no password on the wire.
+    /// </summary>
+    public string? ResolveNamedApprovalApprover()
+        => UsesDedicatedApprovalApprover ? ApprovalApproverUsername.Trim() : null;
+
+    /// <summary>
+    /// The password for <see cref="ResolveNamedApprovalApprover"/>, or null when the session user is
+    /// deciding and none is needed. Null alongside a named approver is a configuration fault, not a
+    /// request to omit it — see <see cref="UsesDedicatedApprovalApprover"/>.
+    /// </summary>
+    public string? ResolveApprovalApproverPassword()
+        => UsesDedicatedApprovalApprover && !string.IsNullOrWhiteSpace(ApprovalApproverPassword)
+            ? ApprovalApproverPassword
+            : null;
+
+    /// <summary>
     /// Default timeout for standard SAP requests.
     /// </summary>
     public int RequestTimeoutMinutes { get; set; } = 5;

@@ -46,6 +46,14 @@ public class SapSelectClauseTests
         { "IncomingPaymentSelect", "Payment" },
         { "BusinessPartnerSelectFields", "BusinessPartner" },
         { "BusinessPartnerCreditSelect", "BusinessPartner" },
+        { "DraftSelect", "Document" },
+        { "DraftDetailSelect", "Document" },
+        { "ApprovalRequestSelect", "ApprovalRequest" },
+        { "ApprovalRequestDetailSelect", "ApprovalRequest" },
+        { "ApprovalStageSelect", "ApprovalStage" },
+        { "ApprovalTemplateSelect", "ApprovalTemplate" },
+        { "SapUserSelect", "User" },
+        { "AttachmentSelect", "Attachments2" },
         { "ItemSelect", "Item" },
     };
 
@@ -81,6 +89,7 @@ public class SapSelectClauseTests
         var sets = new[]
         {
             "Orders", "Invoices", "Quotations", "CreditNotes",
+            "Orders", "Invoices", "Quotations", "CreditNotes", "Drafts",
             "PurchaseOrders", "PurchaseInvoices", "PurchaseQuotations", "PurchaseDeliveryNotes"
         };
 

@@ -270,6 +270,8 @@ try
         builder.Configuration.GetSection(PodReportCacheSettings.SectionName));
     builder.Services.Configure<CreditNoteSyncSettings>(
         builder.Configuration.GetSection(CreditNoteSyncSettings.SectionName));
+    builder.Services.Configure<CreditNoteApprovalSettings>(
+        builder.Configuration.GetSection(CreditNoteApprovalSettings.SectionName));
     builder.Services.Configure<CreditLimitSettings>(
         builder.Configuration.GetSection(CreditLimitSettings.SectionName));
     builder.Services.Configure<MobileVersionPolicyOptions>(builder.Configuration.GetSection(MobileVersionPolicyOptions.SectionName));
@@ -521,6 +523,7 @@ try
     builder.Services.AddScoped<IPendingInventoryTransferEnricher, PendingInventoryTransferEnricher>();
     builder.Services.AddScoped<IPendingTransferRequestEditApplier, PendingTransferRequestEditApplier>();
     builder.Services.AddScoped<IPendingTransferRequestEditEnricher, PendingTransferRequestEditEnricher>();
+    builder.Services.AddScoped<ShopInventory.Features.CreditNoteApprovals.ISapApprovalLookups, ShopInventory.Features.CreditNoteApprovals.SapApprovalLookups>();
     builder.Services.AddScoped<VanSalesAuditFilter>();
     builder.Services.AddScoped<MobileOrderStatusCompatibilityService>();
 
