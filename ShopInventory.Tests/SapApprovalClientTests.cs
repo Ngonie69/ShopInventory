@@ -296,8 +296,26 @@ public sealed class SapApprovalClientTests
             Assert.Equal(bytes, read.ToArray());
 
             Assert.Null(await client.ReadAttachmentFromShareAsync(new SAPAttachmentLine { FileName = "missing", FileExtension = "pdf" }));
+
+            // A name SAP hands back is not this application's to trust, and the guard cannot lean on
+            // the running platform's idea of a separator: a backslash is one on Windows and an
+            // ordinary character on Linux, so a Windows-only check passes this on a Linux CI runner.
+            foreach (var traversal in new[] { @"..\..\secrets", "../../secrets", "/etc/passwd", @"C:\Windows\System32\config\SAM" })
+            {
+                await Assert.ThrowsAsync<ArgumentException>(
+                    () => client.ReadAttachmentFromShareAsync(
+                        new SAPAttachmentLine { FileName = traversal, FileExtension = "txt" }));
+            }
+
+            // A line with no extension at all, whose whole name is the parent directory.
             await Assert.ThrowsAsync<ArgumentException>(
-                () => client.ReadAttachmentFromShareAsync(new SAPAttachmentLine { FileName = @"..\..\secrets", FileExtension = "txt" }));
+                () => client.ReadAttachmentFromShareAsync(new SAPAttachmentLine { FileName = ".." }));
+
+            // A dot inside the name is not a traversal, and must still be readable.
+            await File.WriteAllBytesAsync(Path.Combine(folder, "report..final.pdf"), bytes);
+            using var dotted = await client.ReadAttachmentFromShareAsync(
+                new SAPAttachmentLine { FileName = "report..final", FileExtension = "pdf" });
+            Assert.NotNull(dotted);
         }
         finally
         {

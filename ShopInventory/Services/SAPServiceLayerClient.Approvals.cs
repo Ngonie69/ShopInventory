@@ -376,7 +376,7 @@ public partial class SAPServiceLayerClient
         }
 
         var fileName = line.FullFileName;
-        if (string.IsNullOrWhiteSpace(fileName) || fileName != Path.GetFileName(fileName))
+        if (!IsPlainFileName(fileName))
         {
             throw new ArgumentException($"'{fileName}' is not a plain file name.", nameof(line));
         }
@@ -402,6 +402,39 @@ public partial class SAPServiceLayerClient
 
         buffer.Position = 0;
         return new SapAttachmentDownload(buffer, ResolveAttachmentContentType(fileName), fileName);
+    }
+
+    /// <summary>
+    /// Whether a name SAP handed back is a bare file name, safe to combine with the attachments folder.
+    /// </summary>
+    /// <remarks>
+    /// Both separators are rejected on every platform rather than deferring to
+    /// <see cref="Path.GetFileName(string)"/> alone, which only understands the separators of the
+    /// platform it is running on: on Linux a backslash is an ordinary character, so
+    /// <c>..\..\secrets.txt</c> came back unchanged and passed a guard that catches it on Windows.
+    /// A value that reaches here comes from SAP, so it is not this application's to trust either way.
+    /// </remarks>
+    private static bool IsPlainFileName(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return false;
+        }
+
+        if (fileName.Contains('/', StringComparison.Ordinal)
+            || fileName.Contains('\\', StringComparison.Ordinal)
+            || fileName.Contains(':', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (fileName is "." or ".." || Path.IsPathRooted(fileName))
+        {
+            return false;
+        }
+
+        // The platform's own opinion, as a backstop for anything the checks above do not name.
+        return fileName == Path.GetFileName(fileName);
     }
 
     private static string ResolveAttachmentContentType(string fileName)
