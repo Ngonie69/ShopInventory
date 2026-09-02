@@ -548,6 +548,45 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         }
     }
 
+    /// <summary>
+    /// Sends a stock read under a deadline of its own, so a Service Layer that accepts the request
+    /// and never answers cannot hold an SAP concurrency slot for the whole client timeout.
+    /// </summary>
+    /// <remarks>
+    /// There are only <see cref="SAPSettings.MaxConcurrentRequests"/> slots for the process, and a
+    /// stock read is on the path of every transfer submission, approval and line-level stock
+    /// display. Inheriting the five-minute client timeout meant a handful of hung reads took the
+    /// interactive pool with them. The failure is raised as a <see cref="TimeoutException"/>, which
+    /// <c>SapFailureClassifier</c> already reads as transient, so callers fall back rather than
+    /// reporting a shortage.
+    /// </remarks>
+    private async Task<HttpResponseMessage> SendStockRequestWithBudgetAsync(
+        Func<HttpRequestMessage> requestFactory,
+        string operation,
+        CancellationToken cancellationToken)
+    {
+        var timeoutSeconds = Math.Clamp(_settings.StockSqlRequestTimeoutSeconds, 5, 300);
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutSource.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+
+        try
+        {
+            return await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                requestFactory,
+                HttpCompletionOption.ResponseContentRead,
+                operation,
+                timeoutSource.Token);
+        }
+        catch (OperationCanceledException ex) when (
+            !cancellationToken.IsCancellationRequested && timeoutSource.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"SAP stock read exceeded its {timeoutSeconds}-second budget ({operation}).",
+                ex);
+        }
+    }
+
     private async Task EnsureAuthenticatedAsync(CancellationToken cancellationToken)
     {
         // Fast path: session is still valid
@@ -8411,10 +8450,8 @@ ORDER BY T0.""ItemCode""";
             }
 
             var currentSession = _sessionId;
-            var response = await SendSapRequestWithTransientRetryAsync(
-                _httpClient,
+            var response = await SendStockRequestWithBudgetAsync(
                 CreateRequest,
-                HttpCompletionOption.ResponseContentRead,
                 $"read stock for warehouse {warehouseCode} from row {skip}",
                 cancellationToken);
 
@@ -8423,10 +8460,8 @@ ORDER BY T0.""ItemCode""";
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
                 response.Dispose();
 
-                response = await SendSapRequestWithTransientRetryAsync(
-                    _httpClient,
+                response = await SendStockRequestWithBudgetAsync(
                     CreateRequest,
-                    HttpCompletionOption.ResponseContentRead,
                     $"read stock for warehouse {warehouseCode} from row {skip} after SAP re-authentication",
                     cancellationToken);
             }

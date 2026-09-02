@@ -74,6 +74,24 @@ public class StockValidationResult
     public List<string> Suggestions { get; set; } = new();
 
     /// <summary>
+    /// Source warehouses whose stock or batch levels could not be read from SAP during this
+    /// validation.
+    /// </summary>
+    /// <remarks>
+    /// Empty on the happy path, and not a kind of error. A warehouse listed here was never
+    /// measured, so the lines drawing on it carry no <see cref="StockValidationError"/>: "SAP did
+    /// not answer" is not "there is not enough", and reporting the second for the first failed
+    /// approved transfers with a shortage they did not have. A caller that only holds the document
+    /// may proceed on this; a caller that posts must not treat an unmeasured warehouse as checked.
+    /// </remarks>
+    public SortedSet<string> UnreadableWarehouses { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// True when every source warehouse the document draws on was actually measured against SAP.
+    /// </summary>
+    public bool StockWasFullyRead => UnreadableWarehouses.Count == 0;
+
+    /// <summary>
     /// Pre-fetched data from validation that can be reused by CreateInventoryTransferAsync
     /// to avoid redundant SAP calls.
     /// </summary>
@@ -665,12 +683,26 @@ public class StockValidationService : IStockValidationService
         foreach (var (wh, stock, batches) in prefetchResults)
         {
             warehouseStockCache[wh] = stock;
+
+            // A null read is the warehouse going unanswered, which the checks below have to be able
+            // to tell apart from a warehouse that answered and holds nothing.
+            if (stock is null)
+            {
+                result.UnreadableWarehouses.Add(wh);
+            }
+
             if (batches != null)
             {
                 warehouseBatchCache[wh] = batches;
                 warehouseBatchCoverage[wh] = new HashSet<string>(
                     warehouseBatchItemCodes.TryGetValue(wh, out var covered) ? covered : [],
                     StringComparer.OrdinalIgnoreCase);
+            }
+            else if (warehouseBatchItemCodes.ContainsKey(wh))
+            {
+                // Only a warehouse a batch read was attempted for counts as unread; one with no
+                // batch-managed lines has no batch list because none was asked for.
+                result.UnreadableWarehouses.Add(wh);
             }
         }
 
@@ -705,20 +737,21 @@ public class StockValidationService : IStockValidationService
 
         foreach (var ((warehouse, demandItem, batchNumber), (requested, lineNumber)) in batchDemand)
         {
-            decimal available;
-            if (warehouseBatchCache.TryGetValue(warehouse, out var cachedBatches) && cachedBatches != null)
+            if (!warehouseBatchCache.TryGetValue(warehouse, out var cachedBatches) || cachedBatches is null)
             {
-                // Look up batch from pre-fetched data
-                available = cachedBatches
-                    .Where(b => string.Equals(b.ItemCode, demandItem, StringComparison.OrdinalIgnoreCase) &&
-                                string.Equals(b.BatchNum, batchNumber, StringComparison.OrdinalIgnoreCase))
-                    .Sum(b => b.Quantity);
+                // The warehouse read failed. Asking again batch by batch repeats the call that just
+                // failed, once per batch, against a Service Layer that is already not answering —
+                // and the per-batch helper reports 0 when it fails too, which reads as a shortage
+                // rather than as the outage it is. Leave it unmeasured; the warehouse is on
+                // UnreadableWarehouses for the caller to decide about.
+                continue;
             }
-            else
-            {
-                // Fallback to individual lookup if pre-fetch failed
-                available = await GetBatchQuantityAsync(demandItem, batchNumber, warehouse, cancellationToken);
-            }
+
+            // Look up batch from pre-fetched data
+            var available = cachedBatches
+                .Where(b => string.Equals(b.ItemCode, demandItem, StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(b.BatchNum, batchNumber, StringComparison.OrdinalIgnoreCase))
+                .Sum(b => b.Quantity);
 
             if (requested > available)
             {
@@ -758,21 +791,17 @@ public class StockValidationService : IStockValidationService
             if (line.BatchNumbers is not { Count: > 0 })
             {
                 // Check overall item stock using pre-fetched warehouse data
-                decimal availableQty;
-
                 warehouseStockCache.TryGetValue(fromWarehouse, out var cachedStock);
 
-                if (cachedStock != null)
-                {
-                    var stock = cachedStock.FirstOrDefault(s =>
-                        string.Equals(s.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
-                    availableQty = stock?.InStock ?? 0;
-                }
-                else
-                {
-                    // Fallback to individual lookup if warehouse query failed
-                    availableQty = await GetInStockQuantityAsync(itemCode, fromWarehouse, cancellationToken);
-                }
+                // Same reasoning as the batch loop above: an unread warehouse is unmeasured, not
+                // empty. The per-line fallback that used to sit here turned one failed warehouse
+                // read into one more failed read for every line on the document.
+                if (cachedStock is null)
+                    continue;
+
+                var stock = cachedStock.FirstOrDefault(s =>
+                    string.Equals(s.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
+                var availableQty = stock?.InStock ?? 0;
 
                 if (line.Quantity > availableQty)
                 {

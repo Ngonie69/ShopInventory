@@ -245,15 +245,24 @@ public sealed class CreateInventoryTransferHandler(
 
     /// <summary>
     /// Runs stock validation, returning an error only when SAP positively reports insufficient
-    /// stock. A SAP outage is not allowed to block a submission that will not post until later.
+    /// stock. Neither a SAP outage nor a SAP that is merely slow is allowed to block a submission
+    /// that will not post until later.
     /// </summary>
     private async Task<ErrorOr<InventoryTransferCreatedResponseDto>?> ValidateStockBestEffortAsync(
         CreateInventoryTransferRequest request,
         CancellationToken cancellationToken)
     {
+        var budget = TimeSpan.FromSeconds(
+            Math.Clamp(settings.Value.TransferStockValidationBudgetSeconds, 1, 600));
+
         try
         {
-            var stockValidationResult = await stockValidation.ValidateInventoryTransferStockAsync(request, cancellationToken);
+            using var stockValidationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            stockValidationCts.CancelAfter(budget);
+
+            var stockValidationResult = await stockValidation.ValidateInventoryTransferStockAsync(
+                request, stockValidationCts.Token);
+
             if (!stockValidationResult.IsValid)
             {
                 logger.LogWarning("Stock validation failed for inventory transfer submission. {ErrorCount} items have insufficient stock",
@@ -261,10 +270,23 @@ public sealed class CreateInventoryTransferHandler(
                 return Errors.InventoryTransfer.InsufficientStock(
                     $"Insufficient stock in source warehouse: {string.Join("; ", stockValidationResult.Errors.Select(e => e.Message))}");
             }
+
+            if (!stockValidationResult.StockWasFullyRead)
+            {
+                logger.LogWarning(
+                    "Holding an inventory transfer submission SAP did not answer for in warehouse(s) {Warehouses}. Stock is re-checked before posting.",
+                    string.Join(", ", stockValidationResult.UnreadableWarehouses));
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return Errors.InventoryTransfer.CreationFailed("Request was canceled by the client");
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogWarning(
+                "Stock validation exceeded its {BudgetSeconds}s budget while submitting an inventory transfer. Holding it anyway; stock is re-checked before posting.",
+                budget.TotalSeconds);
         }
         catch (Exception exception)
         {

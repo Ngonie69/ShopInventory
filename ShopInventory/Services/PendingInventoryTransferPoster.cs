@@ -163,6 +163,20 @@ public sealed class PendingInventoryTransferPoster(
                 return Errors.InventoryTransfer.InsufficientStock(message);
             }
 
+            if (!stockValidationResult.StockWasFullyRead)
+            {
+                // The document is unmeasured, not short. Posting would put it in against stock
+                // nobody read, and recording it as insufficient stock would retire a transfer
+                // somebody approved for a rejection SAP never made — and read as permanent to
+                // SapFailureClassifier, so nothing would retry it.
+                var unread =
+                    "Could not read stock from SAP for warehouse(s) " +
+                    string.Join(", ", stockValidationResult.UnreadableWarehouses) +
+                    ". The transfer has not been posted; retry it once SAP is answering.";
+                await FailAsync(pending, unread, cancellationToken);
+                return Errors.InventoryTransfer.SapConnectionError(unread);
+            }
+
             var transfer = await sapClient.CreateInventoryTransferAsync(payload, stockValidationResult.PreFetchedData, cancellationToken);
             var transferDto = transfer.ToDto();
 
