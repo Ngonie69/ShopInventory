@@ -46,7 +46,7 @@ dotnet user-secrets set "SAP:Password" "YOUR_SAP_PASSWORD"
 # dotnet user-secrets set "Webhooks:WebhookSecret" "YOUR_SAP_WEBHOOK_SECRET"
 
 # SAP attachment share access (only if the UNC share requires Windows auth)
-# dotnet user-secrets set "SAP:AttachmentsPath" "\\kfdb\b1_shf\Paths\Attachments\"
+# dotnet user-secrets set "SAP:AttachmentsPath" "\\kfldb\b1_shf\Paths\Attachments\"
 # dotnet user-secrets set "SAP:AttachmentsServiceLayerSourcePath" "/path/visible/to/linux/service-layer/Paths/Attachments/"
 # dotnet user-secrets set "SAP:AttachmentsUsername" "share-user"
 # dotnet user-secrets set "SAP:AttachmentsPassword" "YOUR_SHARE_PASSWORD"

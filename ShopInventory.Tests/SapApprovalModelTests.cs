@@ -58,8 +58,8 @@ public sealed class SapApprovalModelTests
         {
           "AbsoluteEntry": 5021,
           "Attachments2_Lines": [
-            { "AbsoluteEntry": 5021, "LineNum": 1, "SourcePath": "\\\\kfdb\\b1_shf\\Paths\\Attachments", "FileName": "return-note-88123", "FileExtension": "pdf", "AttachmentDate": "2026-09-01T00:00:00Z", "FreeText": null },
-            { "AbsoluteEntry": 5021, "LineNum": 2, "SourcePath": "\\\\kfdb\\b1_shf\\Paths\\Attachments", "FileName": "photo", "FileExtension": "jpg", "AttachmentDate": "2026-09-01T00:00:00Z", "FreeText": "front of pack" }
+            { "AbsoluteEntry": 5021, "LineNum": 1, "SourcePath": "\\\\kfldb\\b1_shf\\Paths\\Attachments", "FileName": "return-note-88123", "FileExtension": "pdf", "AttachmentDate": "2026-09-01T00:00:00Z", "FreeText": null },
+            { "AbsoluteEntry": 5021, "LineNum": 2, "SourcePath": "\\\\kfldb\\b1_shf\\Paths\\Attachments", "FileName": "photo", "FileExtension": "jpg", "AttachmentDate": "2026-09-01T00:00:00Z", "FreeText": "front of pack" }
           ]
         }
         """;
@@ -119,7 +119,7 @@ public sealed class SapApprovalModelTests
         Assert.Equal(2, lines.Count);
         Assert.Equal("return-note-88123.pdf", lines[0].FullFileName);
         Assert.Equal("photo.jpg", lines[1].FullFileName);
-        Assert.Equal(@"\\kfdb\b1_shf\Paths\Attachments", lines[0].SourcePath);
+        Assert.Equal(@"\\kfldb\b1_shf\Paths\Attachments", lines[0].SourcePath);
     }
 
     [Fact]

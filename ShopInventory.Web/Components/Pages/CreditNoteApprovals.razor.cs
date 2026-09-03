@@ -60,6 +60,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 
     private bool showViewer;
     private bool isLoadingViewer;
+    private string? attachmentError;
     private CreditNoteDraftAttachmentDto? viewerFile;
     private string? viewerFileName;
     private string? viewerMimeType;
@@ -177,6 +178,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         detailCode = code;
         detail = null;
         detailError = null;
+        attachmentError = null;
         decisionRemarks = null;
         isLoadingDetail = true;
         StateHasChanged();
@@ -230,6 +232,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         detailCode = null;
         detail = null;
         detailError = null;
+        attachmentError = null;
         decisionRemarks = null;
         isLoadingDetail = false;
         showAddConfirm = false;
@@ -348,6 +351,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         {
             await RevokeViewerUrlAsync();
 
+            attachmentError = null;
             viewerFile = file;
             viewerFileName = file.FileName;
             viewerMimeType = file.ContentType;
@@ -364,7 +368,10 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to view attachment {LineNum} on approval request {Code}", file.LineNum, code);
-            Snackbar.Add("The attachment could not be opened.", Severity.Error);
+            // The API says why — the file is not in the SAP attachments folder, the folder cannot be
+            // reached, SAP refused the read — and that sentence is the only actionable thing here.
+            attachmentError = JsInteropErrors.DescribeOrDefault(ex, "The attachment could not be opened.");
+            Snackbar.Add(attachmentError, Severity.Error);
             showViewer = false;
             await TryAuditAsync(AuditActions.ViewSapCreditNoteAttachment, code, file, false, ex.Message);
         }
@@ -384,6 +391,8 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 
         try
         {
+            attachmentError = null;
+
             await JS.InvokeVoidAsync(
                 "downloadAuthenticatedFile",
                 $"/download/credit-note-approval/{code}/{file.LineNum}",
@@ -394,7 +403,8 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to download attachment {LineNum} on approval request {Code}", file.LineNum, code);
-            Snackbar.Add("The attachment could not be downloaded.", Severity.Error);
+            attachmentError = JsInteropErrors.DescribeOrDefault(ex, "The attachment could not be downloaded.");
+            Snackbar.Add(attachmentError, Severity.Error);
             await TryAuditAsync(AuditActions.DownloadSapCreditNoteAttachment, code, file, false, ex.Message);
         }
     }

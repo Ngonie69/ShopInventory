@@ -40,7 +40,26 @@ public sealed class AuthenticatedDownloadProxy(
         var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            return Results.StatusCode((int)response.StatusCode);
+            // Pass the API's own refusal on rather than a bare status code. It answers
+            // application/problem+json whose detail is a sentence written for the person who clicked
+            // the button — "the file is not in the SAP attachments folder" is something they can act
+            // on, where "status 400" sends them to the logs for something the server already said.
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            logger.LogWarning(
+                "Download proxy for {ApiPath} answered {StatusCode}: {Body}",
+                apiPath,
+                (int)response.StatusCode,
+                ApiErrorResponse.SanitizeForLog(body));
+
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                return Results.StatusCode((int)response.StatusCode);
+            }
+
+            return Results.Content(
+                body,
+                response.Content.Headers.ContentType?.ToString() ?? "application/problem+json",
+                statusCode: (int)response.StatusCode);
         }
 
         var stream = await response.Content.ReadAsStreamAsync(cancellationToken);

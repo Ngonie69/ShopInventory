@@ -23,11 +23,12 @@ public sealed class CreditNoteApprovalSettings
     /// with the share credentials, for a Service Layer that cannot reach the attachments folder.
     /// </summary>
     /// <remarks>
-    /// KEFALOS_TEST_3 on 2026-09-02 answered every <c>$value</c> read with
-    /// <c>404 Fail to get the LINUX mount point for AttachmentsFolderPath</c> — its Service Layer has
-    /// no mount for the attachments folder, so it can serve no file for any document. Where that is
-    /// true, this must be <c>Share</c>. The default stays <c>ServiceLayer</c> because it needs no
-    /// share credentials and is right once SAP is configured; see docs/sap-credit-note-approvals.md.
+    /// Both KEFALOS_TEST_3 and KEFALOS_USD_NEW2 on 2026-09-02 answered every <c>$value</c> read with
+    /// <c>404 Fail to get the LINUX mount point for AttachmentsFolderPath</c> — the Service Layer has
+    /// no mount for the attachments folder, so it can serve no file for any document. That is why
+    /// <c>appsettings.json</c> ships <c>Share</c>; the property default stays <c>ServiceLayer</c>
+    /// because it needs no share access and is right once a SAP administrator mounts the folder.
+    /// See docs/sap-credit-note-approvals.md.
     /// </remarks>
     public string AttachmentReadMode { get; set; } = AttachmentReadModes.ServiceLayer;
 

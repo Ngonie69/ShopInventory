@@ -389,6 +389,16 @@ public partial class SAPServiceLayerClient
         // outlive its using block, and a half-read stream across a dropped mapping is worse than a
         // few megabytes in memory.
         using var share = ConnectToSapShareIfNeeded(attachmentsPath);
+
+        // An unreachable share and an absent file both answer false from File.Exists, and the two
+        // are acted on by different people: one is a server or credentials problem, the other means
+        // SAP has a line for a file its own folder no longer holds. Name the folder first.
+        if (!Directory.Exists(attachmentsPath))
+        {
+            throw new IOException(
+                $"The SAP attachments folder '{attachmentsPath}' could not be reached from this server.");
+        }
+
         if (!File.Exists(fullPath))
         {
             return null;
