@@ -74,13 +74,15 @@
             </div>
             <div class="cna-field" style="width:220px">
                 <label for="cna-f-customer">Customer</label>
+                @* Not @bind:event="oninput": that narrowed the table on every keystroke. The value is
+                   set on input so the box keeps up, and the rows follow once the typing rests. *@
                 <input id="cna-f-customer" class="cna-input" type="text" placeholder="Code or name"
-                       @bind="customerFilter" @bind:event="oninput" />
+                       value="@customerFilter" @oninput="OnCustomerFilterInputAsync" />
             </div>
             @if (!string.IsNullOrWhiteSpace(customerFilter))
             {
                 <div class="cna-filter-actions">
-                    <button type="button" class="cna-btn cna-btn-ghost" @onclick="() => customerFilter = null">Clear</button>
+                    <button type="button" class="cna-btn cna-btn-ghost" @onclick="ClearCustomerFilter">Clear</button>
                 </div>
             }
         </section>
@@ -212,7 +214,7 @@
                     </button>
                     <span class="cna-page-label">Page @currentPage / @TotalPages</span>
                     <button type="button" class="cna-btn cna-btn-secondary cna-btn-icon" title="Next page"
-                            aria-label="Next page" disabled="@(currentPage >= TotalPages || isLoading)" @onclick="NextPageAsync">
+                            aria-label="Next page" disabled="@(!CanGoNext || isLoading)" @onclick="NextPageAsync">
                         <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
                             <path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z" />
                         </svg>

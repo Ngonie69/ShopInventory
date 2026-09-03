@@ -52,6 +52,92 @@ public sealed class SapApprovalClientTests
     }
 
     [Fact]
+    public async Task A_cursor_keys_the_page_to_the_last_code_read_and_drops_the_offset()
+    {
+        var sap = new FakeServiceLayer();
+        sap.On(r => r.Method == HttpMethod.Get && r.Path.EndsWith("/ApprovalRequests"),
+            _ => Json("""{"value":[{"Code":5,"ObjectType":"14","Status":"arsPending","DraftEntry":77}]}"""));
+        sap.On(r => r.Path.EndsWith("/ApprovalRequests/$count"), _ => Text("12"));
+        var client = CreateClient(sap);
+
+        var (_, total) = await client.GetCreditNoteApprovalRequestsAsync(
+            [SapApprovalRequestStatuses.Pending], page: 2, pageSize: 5, beforeCode: 85040);
+
+        var list = Assert.Single(sap.Requests, r => r.Path.EndsWith("/ApprovalRequests"));
+        var query = Uri.UnescapeDataString(list.Query);
+
+        // The cursor is a filter clause, so the page names where to continue instead of counting in.
+        Assert.Contains("ObjectType eq '14' and (Status eq 'arsPending') and Code lt 85040", query);
+        Assert.Contains("$orderby=Code desc&$top=5", query);
+        Assert.DoesNotContain("$skip", query);
+
+        // The count is of the whole queue, so it never carries the cursor — the page label says how
+        // far through the queue this page is, not how much of it is below the cursor.
+        var count = Assert.Single(sap.Requests, r => r.Path.EndsWith("/$count"));
+        var countQuery = Uri.UnescapeDataString(count.Query);
+        Assert.DoesNotContain("Code lt", countQuery);
+        Assert.Equal(12, total);
+    }
+
+    /// <summary>
+    /// The reason the cursor exists. A credit memo raised between two page reads takes the highest
+    /// Code, lands at the top of a <c>Code desc</c> queue and pushes every row down one — so the
+    /// offset page re-serves a row the reader has already seen, and buries one they never will.
+    /// </summary>
+    [Fact]
+    public async Task A_memo_raised_mid_paging_repeats_a_row_by_offset_and_does_not_by_cursor()
+    {
+        // Codes 100 down to 91, newest first, three to a page.
+        var queue = Enumerable.Range(0, 10).Select(i => 100 - i).ToList();
+
+        var sap = new FakeServiceLayer();
+        sap.On(r => r.Path.EndsWith("/ApprovalRequests/$count"), _ => Text(queue.Count.ToString()));
+        sap.On(r => r.Method == HttpMethod.Get && r.Path.EndsWith("/ApprovalRequests"), request =>
+        {
+            var query = Uri.UnescapeDataString(request.Query);
+            var rows = queue.AsEnumerable();
+
+            var cursor = System.Text.RegularExpressions.Regex.Match(query, @"Code lt (\d+)");
+            if (cursor.Success)
+            {
+                rows = rows.Where(code => code < int.Parse(cursor.Groups[1].Value));
+            }
+
+            var skip = System.Text.RegularExpressions.Regex.Match(query, @"\$skip=(\d+)");
+            if (skip.Success)
+            {
+                rows = rows.Skip(int.Parse(skip.Groups[1].Value));
+            }
+
+            var top = int.Parse(System.Text.RegularExpressions.Regex.Match(query, @"\$top=(\d+)").Groups[1].Value);
+            var page = string.Join(",", rows.Take(top).Select(code =>
+                $$"""{"Code":{{code}},"ObjectType":"14","Status":"arsPending"}"""));
+            return Json($$"""{"value":[{{page}}]}""");
+        });
+
+        var client = CreateClient(sap);
+        var statuses = new[] { SapApprovalRequestStatuses.Pending };
+
+        var (first, _) = await client.GetCreditNoteApprovalRequestsAsync(statuses, page: 1, pageSize: 3);
+        Assert.Equal([100, 99, 98], first.Select(r => r.Code));
+
+        // Somebody in the SAP client raises a credit memo while the manager reads page one.
+        queue.Insert(0, 101);
+
+        var (byOffset, _) = await client.GetCreditNoteApprovalRequestsAsync(statuses, page: 2, pageSize: 3);
+        var (byCursor, _) = await client.GetCreditNoteApprovalRequestsAsync(
+            statuses, page: 2, pageSize: 3, beforeCode: first[^1].Code);
+
+        // The negative control: without a cursor, 98 comes round again and 95 is never shown.
+        Assert.Contains(98, byOffset.Select(r => r.Code));
+        Assert.Equal([98, 97, 96], byOffset.Select(r => r.Code));
+
+        // With one, page two carries on exactly where page one stopped.
+        Assert.Equal([97, 96, 95], byCursor.Select(r => r.Code));
+        Assert.Empty(byCursor.Select(r => r.Code).Intersect(first.Select(r => r.Code)));
+    }
+
+    [Fact]
     public async Task An_unknown_status_or_decision_is_refused_before_anything_is_sent()
     {
         var sap = new FakeServiceLayer();

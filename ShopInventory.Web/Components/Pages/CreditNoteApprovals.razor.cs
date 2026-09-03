@@ -25,6 +25,9 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 {
     private const int PageSize = 25;
 
+    /// <summary>How long the typing rests before the rows are narrowed to it.</summary>
+    private static readonly TimeSpan FilterDebounce = TimeSpan.FromMilliseconds(200);
+
     private static readonly (string Value, string Label)[] StatusOptions =
     [
         ("open", "Awaiting or approved"),
@@ -40,13 +43,49 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     [Inject] private ILogger<CreditNoteApprovals> Logger { get; set; } = default!;
 
     private List<CreditNoteApprovalListItemDto> requests = [];
+
+    /// <summary>Cleared whenever <see cref="requests"/> or the applied filter changes.</summary>
+    private List<CreditNoteApprovalListItemDto>? visibleRequests;
+
     private int totalCount;
     private int currentPage = 1;
+
+    /// <summary>
+    /// The cursor each page was read with, one per page reached, <c>[0]</c> being null for the top.
+    /// Going back pops rather than recounting, because the count is what moves.
+    /// </summary>
+    /// <remarks>
+    /// The queue is newest-first and live. Paging by offset re-serves a row the manager has already
+    /// decided every time a credit memo is raised behind them, and buries one they never see; the
+    /// cursor names where page N stopped, so page N+1 carries on from exactly there no matter how
+    /// much has arrived above it. Anything that changes which queue is being read — the status
+    /// filter, a refresh, an action — starts the walk again from the top.
+    /// </remarks>
+    private readonly List<int?> pageCursors = [null];
+
+    /// <summary>Where the next page starts; null when SAP has no more below this one.</summary>
+    private int? nextCursor;
     private bool isLoading = true;
     private string? errorMessage;
 
     private string statusFilter = "open";
+
+    /// <summary>What is in the box. The table filters on <see cref="appliedCustomerFilter"/> instead.</summary>
     private string? customerFilter;
+
+    /// <summary>
+    /// The filter the rows are actually narrowed by, which lags the typing by
+    /// <see cref="FilterDebounce"/>.
+    /// </summary>
+    /// <remarks>
+    /// Every keystroke is a round trip on the circuit either way, but it used to re-diff all 25 rows
+    /// with it — every cell rebuilt and compared for a letter that usually changes nothing — which is
+    /// what made typing here feel heavy. Now the box keeps up with the person and the table redraws
+    /// once they pause.
+    /// </remarks>
+    private string? appliedCustomerFilter;
+
+    private int customerFilterVersion;
 
     private int? detailCode;
     private CreditNoteApprovalDetailDto? detail;
@@ -68,13 +107,23 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 
     private int TotalPages => Math.Max(1, (int)Math.Ceiling(totalCount / (double)PageSize));
 
-    /// <summary>The customer filter narrows the page in hand; SAP already answered for this page.</summary>
-    private List<CreditNoteApprovalListItemDto> VisibleRequests =>
-        string.IsNullOrWhiteSpace(customerFilter)
+    /// <summary>
+    /// SAP's answer decides, not the arithmetic: a short page means there is nothing below it, and
+    /// the total is counted separately so it can disagree with what the page actually held.
+    /// </summary>
+    private bool CanGoNext => nextCursor is not null && currentPage < TotalPages;
+
+    /// <summary>
+    /// The customer filter narrows the page in hand; SAP already answered for this page. Held rather
+    /// than recomputed because the markup reads it twice per render — once for the rows and once to
+    /// decide whether to show the empty note — and it used to walk and re-allocate the page both times.
+    /// </summary>
+    private List<CreditNoteApprovalListItemDto> VisibleRequests => visibleRequests ??=
+        string.IsNullOrWhiteSpace(appliedCustomerFilter)
             ? requests
             : requests.Where(request =>
-                (request.CardCode?.Contains(customerFilter, StringComparison.OrdinalIgnoreCase) ?? false)
-                || (request.CardName?.Contains(customerFilter, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+                (request.CardCode?.Contains(appliedCustomerFilter, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (request.CardName?.Contains(appliedCustomerFilter, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
 
     private string RangeLabel
     {
@@ -91,7 +140,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         }
     }
 
-    private string EmptyMessage => string.IsNullOrWhiteSpace(customerFilter)
+    private string EmptyMessage => string.IsNullOrWhiteSpace(appliedCustomerFilter)
         ? statusFilter switch
         {
             "pending" => "No credit memos are awaiting approval in SAP",
@@ -110,31 +159,98 @@ public partial class CreditNoteApprovals : IAsyncDisposable
 
         try
         {
-            var result = await Mediator.Send(new GetCreditNoteApprovalsQuery(statusFilter, currentPage, PageSize));
+            var cursor = currentPage - 1 < pageCursors.Count ? pageCursors[currentPage - 1] : null;
+            var result = await Mediator.Send(
+                new GetCreditNoteApprovalsQuery(statusFilter, currentPage, PageSize, cursor));
             if (result.IsError)
             {
                 errorMessage = result.FirstError.Description;
-                requests = [];
+                SetRequests([]);
                 totalCount = 0;
+                nextCursor = null;
                 return;
             }
 
             errorMessage = null;
-            requests = result.Value.Items;
+            SetRequests(result.Value.Items);
             totalCount = result.Value.TotalCount;
+            nextCursor = result.Value.NextCursor;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to load SAP credit note approval requests");
             errorMessage = "The held credit notes could not be read from SAP.";
-            requests = [];
+            SetRequests([]);
             totalCount = 0;
+            nextCursor = null;
         }
         finally
         {
             isLoading = false;
             StateHasChanged();
         }
+    }
+
+    private void SetRequests(List<CreditNoteApprovalListItemDto> loaded)
+    {
+        requests = loaded;
+        visibleRequests = null;
+    }
+
+    /// <summary>
+    /// Keeps the box in step with the typing but leaves the table alone until it stops. The version
+    /// counter is the debounce: a keystroke arriving while this one waits bumps it, and the older
+    /// call drops out rather than narrowing the rows to a term that has already been typed past.
+    /// </summary>
+    private async Task OnCustomerFilterInputAsync(ChangeEventArgs args)
+    {
+        customerFilter = args.Value?.ToString();
+        var version = ++customerFilterVersion;
+
+        // Clearing the box shows every row again straight away; there is nothing to wait for.
+        if (string.IsNullOrWhiteSpace(customerFilter))
+        {
+            ApplyCustomerFilter();
+            return;
+        }
+
+        await Task.Delay(FilterDebounce);
+        if (customerFilterVersion != version)
+        {
+            return;
+        }
+
+        ApplyCustomerFilter();
+    }
+
+    private void ClearCustomerFilter()
+    {
+        customerFilter = null;
+        customerFilterVersion++;
+        ApplyCustomerFilter();
+    }
+
+    private void ApplyCustomerFilter()
+    {
+        appliedCustomerFilter = customerFilter;
+        visibleRequests = null;
+    }
+
+    /// <summary>
+    /// Back to the top of the queue, for a change of which queue is being read — a cursor taken
+    /// under one status filter counts nothing under another.
+    /// </summary>
+    /// <remarks>
+    /// Deciding a request does not need this, and neither does Refresh. The cursor is a boundary
+    /// value rather than a pointer at a row: <c>Code lt 84120</c> still means the same place in the
+    /// queue after 84120 has been approved and left the filter, so a manager keeps their page.
+    /// </remarks>
+    private void RestartPaging()
+    {
+        currentPage = 1;
+        pageCursors.Clear();
+        pageCursors.Add(null);
+        nextCursor = null;
     }
 
     private Task RefreshAsync() => LoadAsync();
@@ -147,7 +263,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
         }
 
         statusFilter = status;
-        currentPage = 1;
+        RestartPaging();
         await LoadAsync();
     }
 
@@ -158,15 +274,27 @@ public partial class CreditNoteApprovals : IAsyncDisposable
             return;
         }
 
+        // The cursor for the page being returned to is already held, so going back is a re-read of
+        // the same window rather than a fresh count in from the top.
         currentPage--;
         await LoadAsync();
     }
 
     private async Task NextPageAsync()
     {
-        if (currentPage >= TotalPages)
+        if (!CanGoNext)
         {
             return;
+        }
+
+        // Where this page stopped becomes where the next one starts.
+        if (pageCursors.Count == currentPage)
+        {
+            pageCursors.Add(nextCursor);
+        }
+        else
+        {
+            pageCursors[currentPage] = nextCursor;
         }
 
         currentPage++;
@@ -284,9 +412,10 @@ public partial class CreditNoteApprovals : IAsyncDisposable
             submittingAction = null;
         }
 
-        // SAP is the source of truth for what the request is now, so re-read rather than assume.
-        await LoadDetailAsync(code);
-        await LoadAsync();
+        // SAP is the source of truth for what the request is now, so re-read rather than assume —
+        // but the row and the list are independent reads, and this is the manager's inner loop.
+        // Awaiting one and then the other made every decision cost two waits instead of one.
+        await Task.WhenAll(LoadDetailAsync(code), LoadAsync());
     }
 
     private void OpenAddConfirm() => showAddConfirm = true;
@@ -332,8 +461,7 @@ public partial class CreditNoteApprovals : IAsyncDisposable
             isSubmitting = false;
         }
 
-        await LoadDetailAsync(code);
-        await LoadAsync();
+        await Task.WhenAll(LoadDetailAsync(code), LoadAsync());
     }
 
     /// <summary>

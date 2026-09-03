@@ -12,5 +12,11 @@ public sealed class GetCreditNoteApprovalsValidator : AbstractValidator<GetCredi
 
         RuleFor(query => query.Page).GreaterThanOrEqualTo(1);
         RuleFor(query => query.PageSize).InclusiveBetween(1, 100);
+
+        // The cursor is a SAP approval request Code, and it goes into the OData filter as a literal.
+        RuleFor(query => query.BeforeCode)
+            .GreaterThan(0)
+            .When(query => query.BeforeCode is not null)
+            .WithMessage("The paging cursor must be a SAP approval request code.");
     }
 }

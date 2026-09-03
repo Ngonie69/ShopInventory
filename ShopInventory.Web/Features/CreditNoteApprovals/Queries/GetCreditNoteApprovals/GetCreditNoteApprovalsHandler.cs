@@ -17,7 +17,8 @@ public sealed class GetCreditNoteApprovalsHandler(
     {
         try
         {
-            var response = await approvalService.GetApprovalsAsync(request.Status, request.Page, request.PageSize);
+            var response = await approvalService.GetApprovalsAsync(
+                request.Status, request.Page, request.PageSize, request.BeforeCode);
             if (response is null)
             {
                 return Errors.CreditNoteApproval.LoadFailed("The held credit notes could not be read from SAP.");
