@@ -275,10 +275,55 @@ public sealed class CreditNoteApprovalListTests
             => Task.FromResult(Stages.GetValueOrDefault(code));
     }
 
+    [Fact]
+    public async Task A_full_page_hands_back_its_last_code_as_the_cursor_for_the_next_one()
+    {
+        var codes = new[] { 85053, 85051, 85050 };
+        var requests = codes.Select(code => Pending(code, draftEntry: code - 31140, stage: 4, originator: 12, template: 7)).ToList();
+        var drafts = requests.Select(request => Draft(request.DraftEntry!.Value, "TMP092", "Pick n Pay Westgate", 150.15m, attachmentEntry: null)).ToList();
+        var sap = new RecordingSapClient(requests, total: 9729, drafts);
+        var handler = Handler(sap, LookupsWithStage(4, "Production WashBay", 1, 9));
+
+        var result = await handler.Handle(new GetCreditNoteApprovalsQuery("all", 1, 3), CancellationToken.None);
+
+        Assert.False(result.IsError);
+
+        // The rows come back Code desc, so the last one is the lowest and the next page starts below it.
+        Assert.Equal(85050, result.Value.NextCursor);
+        Assert.Null(sap.RequestedBeforeCode);
+    }
+
+    [Fact]
+    public async Task A_short_page_is_the_end_of_the_queue_and_offers_no_cursor()
+    {
+        var request = Pending(code: 3110, draftEntry: 88123, stage: 4, originator: 12, template: 7);
+        var sap = new RecordingSapClient([request], total: 1, [Draft(88123, "SPA059", "Spar Avondale", 10m, attachmentEntry: null)]);
+        var handler = Handler(sap, LookupsWithStage(4, "Finance review", 1, 9));
+
+        // One row against a page size of 25: SAP has nothing below it to continue from.
+        var result = await handler.Handle(new GetCreditNoteApprovalsQuery("all", 1, 25), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        Assert.Null(result.Value.NextCursor);
+    }
+
+    [Fact]
+    public async Task The_cursor_the_page_was_given_is_the_one_sap_is_asked_for()
+    {
+        var request = Pending(code: 84119, draftEntry: 88123, stage: 4, originator: 12, template: 7);
+        var sap = new RecordingSapClient([request], total: 9729, [Draft(88123, "SPA059", "Spar Avondale", 10m, attachmentEntry: null)]);
+        var handler = Handler(sap, LookupsWithStage(4, "Finance review", 1, 9));
+
+        await handler.Handle(new GetCreditNoteApprovalsQuery("all", 2, 25, BeforeCode: 84120), CancellationToken.None);
+
+        Assert.Equal(84120, sap.RequestedBeforeCode);
+    }
+
     private sealed class RecordingSapClient(List<SAPApprovalRequest> requests, int total, List<SAPCreditNote> drafts)
     {
         public IReadOnlyCollection<string>? RequestedStatuses { get; private set; }
         public IReadOnlyCollection<int>? RequestedDraftEntries { get; private set; }
+        public int? RequestedBeforeCode { get; private set; }
 
         public ISAPServiceLayerClient AsClient() => StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
@@ -290,6 +335,7 @@ public sealed class CreditNoteApprovalListTests
         private Task<(List<SAPApprovalRequest> Items, int TotalCount)> Record(object?[] args)
         {
             RequestedStatuses = (IReadOnlyCollection<string>)args[0]!;
+            RequestedBeforeCode = (int?)args[3];
             return Task.FromResult((requests, total));
         }
 

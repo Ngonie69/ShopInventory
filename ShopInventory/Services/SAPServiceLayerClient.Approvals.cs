@@ -41,6 +41,12 @@ public partial class SAPServiceLayerClient
     /// <summary>How many draft keys go into one <c>DocEntry eq … or …</c> filter.</summary>
     private const int DraftKeyChunkSize = 20;
 
+    /// <summary>
+    /// How many draft chunks are read at once. Well under <c>SAP:MaxConcurrentRequests</c> (6), which
+    /// is the whole application's connection budget to the Service Layer, not this call's.
+    /// </summary>
+    private const int DraftChunkConcurrency = 3;
+
     private const string SaveDraftToDocumentOperation = "DraftsService_SaveDraftToDocument";
 
     /// <summary>
@@ -70,10 +76,28 @@ public partial class SAPServiceLayerClient
 
     #region Reads
 
+    /// <summary>One page of the credit memo approval requests SAP holds, newest first.</summary>
+    /// <param name="sapStatuses">The SAP status literals to read; an unknown one is refused.</param>
+    /// <param name="page">Which page, when reading by offset. Ignored when a cursor is given.</param>
+    /// <param name="pageSize">How many rows the page holds.</param>
+    /// <param name="beforeCode">
+    /// The cursor: read the requests below this <c>Code</c>. Given, the page is keyed rather than
+    /// offset — see the remarks. Null reads from the top, and <paramref name="page"/> then offsets.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the reads.</param>
+    /// <remarks>
+    /// The queue is ordered <c>Code desc</c> and it is live: a credit memo raised while somebody is
+    /// paging gets the highest Code yet, lands at position 0, and pushes every row down one. Under
+    /// <c>$skip</c> that means the next page re-shows a row they have already read, and one row
+    /// falls through the gap unseen for each memo raised. Keying the page to the last Code of the
+    /// previous one is stable against that: it names where to continue instead of counting from a
+    /// top that has moved.
+    /// </remarks>
     public async Task<(List<SAPApprovalRequest> Items, int TotalCount)> GetCreditNoteApprovalRequestsAsync(
         IReadOnlyCollection<string> sapStatuses,
         int page,
         int pageSize,
+        int? beforeCode = null,
         CancellationToken cancellationToken = default)
     {
         // The statuses go into the filter as literals, so they are whitelisted rather than escaped.
@@ -95,15 +119,36 @@ public partial class SAPServiceLayerClient
         var skip = (page - 1) * pageSize;
 
         var statusFilter = string.Join(" or ", statuses.Select(status => $"Status eq '{status}'"));
-        var filter = Uri.EscapeDataString($"ObjectType eq '{SapObjectTypes.CreditNote}' and ({statusFilter})");
-        var listUrl = $"ApprovalRequests?$filter={filter}&{ApprovalRequestSelect}&$orderby=Code desc&$top={pageSize}&$skip={skip}";
-        var countUrl = $"ApprovalRequests/$count?$filter={filter}";
+        var baseFilter = $"ObjectType eq '{SapObjectTypes.CreditNote}' and ({statusFilter})";
 
-        var pageResult = await ReadSapJsonAsync<SAPResponse<SAPApprovalRequest>>(
+        // The count is of the whole queue, so it never carries the cursor — the page label says how
+        // far through the queue this page is, not how much of it is below the cursor.
+        var countUrl = $"ApprovalRequests/$count?$filter={Uri.EscapeDataString(baseFilter)}";
+
+        // A cursor names where to continue, so there is nothing to skip past; without one the page
+        // is still an offset, which is what a caller passing only `page` gets.
+        var listFilter = beforeCode is int cursor
+            ? $"{baseFilter} and Code lt {cursor}"
+            : baseFilter;
+        var pagingClause = beforeCode is null ? $"&$skip={skip}" : string.Empty;
+        var listUrl =
+            $"ApprovalRequests?$filter={Uri.EscapeDataString(listFilter)}&{ApprovalRequestSelect}"
+            + $"&$orderby=Code desc&$top={pageSize}{pagingClause}";
+
+        // The rows and the count are independent reads of the same filter, and each is a full SAP
+        // round trip. Awaiting the count after the page doubled what the list costs for no reason —
+        // counting 5,000-odd requests is not fast, and nothing in the page needs it first. The
+        // session is established up front so the two do not both arrive at the login lock.
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var pageTask = ReadSapJsonAsync<SAPResponse<SAPApprovalRequest>>(
             listUrl, $"list credit note approval requests (page {page})", cancellationToken, pageSize);
-        var total = await ReadSapCountAsync(countUrl, "count credit note approval requests", cancellationToken);
+        var countTask = ReadSapCountAsync(countUrl, "count credit note approval requests", cancellationToken);
 
-        return (pageResult?.Value ?? [], total);
+        // WhenAll first so a failure on either side is observed rather than left dangling.
+        await Task.WhenAll(pageTask, countTask);
+
+        return ((await pageTask)?.Value ?? [], await countTask);
     }
 
     public Task<SAPApprovalRequest?> GetApprovalRequestAsync(int code, CancellationToken cancellationToken = default)
@@ -122,17 +167,34 @@ public partial class SAPServiceLayerClient
 
         await EnsureAuthenticatedAsync(cancellationToken);
 
+        // One chunk per SAP round trip, and the chunks do not depend on one another: a 25-row page
+        // is two reads, and waiting for the first before starting the second is latency the caller
+        // pays twice over. Bounded because the client holds SAP:MaxConcurrentRequests connections
+        // process-wide, and one list must not take every slot from the rest of the app.
+        var chunks = keys.Chunk(DraftKeyChunkSize).ToList();
+        var perChunk = new List<SAPCreditNote>[chunks.Count];
+
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, chunks.Count),
+            new ParallelOptions { MaxDegreeOfParallelism = DraftChunkConcurrency, CancellationToken = cancellationToken },
+            async (index, token) =>
+            {
+                var chunk = chunks[index];
+                var keyFilter = string.Join(" or ", chunk.Select(key => $"DocEntry eq {key}"));
+                perChunk[index] = await ReadDocumentPagesAsync<SAPCreditNote>(
+                    "Drafts",
+                    $"DocObjectCode eq '{SapDocObjectCodes.CreditNotes}' and ({keyFilter})",
+                    DraftSelect,
+                    $"read {chunk.Length} credit note draft(s)",
+                    token,
+                    NoDocumentListCeiling);
+            });
+
+        // Rebuilt in chunk order so the result does not depend on which read finished first.
         var drafts = new List<SAPCreditNote>(keys.Count);
-        foreach (var chunk in keys.Chunk(DraftKeyChunkSize))
+        foreach (var chunk in perChunk)
         {
-            var keyFilter = string.Join(" or ", chunk.Select(key => $"DocEntry eq {key}"));
-            drafts.AddRange(await ReadDocumentPagesAsync<SAPCreditNote>(
-                "Drafts",
-                $"DocObjectCode eq '{SapDocObjectCodes.CreditNotes}' and ({keyFilter})",
-                DraftSelect,
-                $"read {chunk.Length} credit note draft(s)",
-                cancellationToken,
-                NoDocumentListCeiling));
+            drafts.AddRange(chunk);
         }
 
         return drafts;

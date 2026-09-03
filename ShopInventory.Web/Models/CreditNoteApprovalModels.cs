@@ -43,6 +43,9 @@ public sealed class CreditNoteApprovalListResponseDto
     public int Page { get; set; }
     public int PageSize { get; set; }
     public string Status { get; set; } = string.Empty;
+
+    /// <summary>Pass back as <c>beforeCode</c> for the next page; null at the end of the queue.</summary>
+    public int? NextCursor { get; set; }
 }
 
 public sealed class CreditNoteDraftLineDto

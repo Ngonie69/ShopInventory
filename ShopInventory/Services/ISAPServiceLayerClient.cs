@@ -625,13 +625,25 @@ public interface ISAPServiceLayerClient
 
     /// <summary>
     /// One page of the approval requests SAP holds against A/R credit memo drafts, newest first, with
-    /// the total for the same status set. <paramref name="sapStatuses"/> takes the Service Layer's
-    /// own literals (<see cref="SapApprovalRequestStatuses"/>); an unknown one is refused.
+    /// the total for the same status set.
     /// </summary>
+    /// <param name="sapStatuses">
+    /// The Service Layer's own literals (<see cref="SapApprovalRequestStatuses"/>); an unknown one is
+    /// refused before anything is sent.
+    /// </param>
+    /// <param name="page">Which page, when reading by offset. Ignored when a cursor is given.</param>
+    /// <param name="pageSize">How many rows the page holds.</param>
+    /// <param name="beforeCode">
+    /// Continue below this <c>Code</c> rather than counting <paramref name="page"/> pages in from the
+    /// top. The queue is live and newest-first, so an offset page shifts under a reader every time a
+    /// credit memo is raised; a cursor does not. Null offsets by <paramref name="page"/> as before.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the reads.</param>
     Task<(List<SAPApprovalRequest> Items, int TotalCount)> GetCreditNoteApprovalRequestsAsync(
         IReadOnlyCollection<string> sapStatuses,
         int page,
         int pageSize,
+        int? beforeCode = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>One approval request with its approver lines; null when SAP has no such code.</summary>

@@ -7008,11 +7008,22 @@ Nothing is mirrored into the local approval engine (§44), which governs documen
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|-----------|-------------|
-| GET | `/api/credit-note-approvals` | `creditnotes.approve` or `creditnotes.add_approved` | The held requests: `status` open (default), pending, approved or all; `page` 1, `pageSize` 25 |
+| GET | `/api/credit-note-approvals` | `creditnotes.approve` or `creditnotes.add_approved` | The held requests: `status` open (default), pending, approved or all; `page` 1, `pageSize` 25, `beforeCode` for cursor paging |
 | GET | `/api/credit-note-approvals/{code}` | either | One request: draft header and lines, attachments, approver lines, current stage |
 | GET | `/api/credit-note-approvals/{code}/attachments/{lineNum}/download` | either | The bytes of one attached file, streamed from SAP |
 | POST | `/api/credit-note-approvals/{code}/decision` | `creditnotes.approve` | Approve or reject: `{ "decision": "Approved" or "NotApproved", "remarks": "…", "clientRequestId": "…" }` |
 | POST | `/api/credit-note-approvals/{code}/add` | `creditnotes.add_approved` | Convert the approved draft into the credit note, then project and fiscalise it |
+
+**Paging the queue.** There are two ways, and they are not equivalent. `page` offsets from the top,
+which is fine for a single read. `beforeCode` — the previous answer's `nextCursor` — continues below
+the last row that answer carried, and is the one to use when walking the queue: `ApprovalRequests` is
+ordered `Code desc` and it is live, so every credit memo raised while somebody pages takes the highest
+Code yet, lands above everything they have read, and pushes one row they have already seen onto their
+next offset page while burying another they never see. A cursor names where to carry on instead of
+counting in from a top that has moved. `nextCursor` is null when the page is the end of the queue;
+`totalCount` is always of the whole status set, never of what is below the cursor, and `page` is
+carried through for the range label only. The approvals screen pages this way and keeps one cursor per
+page reached so Previous is a re-read of the same window rather than a fresh count.
 
 Each row says what may happen next: `canDecide` when the request is pending and SAP's current stage
 lists the service approver, `canAdd` when SAP shows it approved and the draft is still open, and

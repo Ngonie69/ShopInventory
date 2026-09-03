@@ -30,6 +30,15 @@ public sealed class CreditNoteApprovalController(IMediator mediator) : ApiContro
     /// The requests SAP holds. <c>status</c> is open (the default: pending, or approved and not yet
     /// added), pending, approved or all.
     /// </summary>
+    /// <remarks>
+    /// Two ways to page, and the second is the one to use when walking the queue. <c>page</c>
+    /// offsets from the top, which is simple and fine for a single read. <c>beforeCode</c> — the
+    /// previous answer's <c>nextCursor</c> — continues below the last row that answer carried, and
+    /// is the only one that is stable: the queue is newest-first and live, so every credit memo
+    /// raised while somebody pages pushes a row they have already read onto their next offset page,
+    /// and drops one out of sight. Send <c>page</c> alongside it if you want the label to say how
+    /// far in you are; it does not affect which rows come back.
+    /// </remarks>
     [HttpGet]
     [RequirePermission(Permission.ApproveSapCreditNotes, Permission.AddApprovedCreditNotes)]
     [ProducesResponseType(typeof(CreditNoteApprovalListResponseDto), StatusCodes.Status200OK)]
@@ -37,9 +46,11 @@ public sealed class CreditNoteApprovalController(IMediator mediator) : ApiContro
         [FromQuery] string? status = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
+        [FromQuery] int? beforeCode = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetCreditNoteApprovalsQuery(status, page, pageSize), cancellationToken);
+        var result = await mediator.Send(
+            new GetCreditNoteApprovalsQuery(status, page, pageSize, beforeCode), cancellationToken);
         return result.Match(Ok, Problem);
     }
 

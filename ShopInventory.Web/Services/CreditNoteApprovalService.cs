@@ -10,7 +10,7 @@ namespace ShopInventory.Web.Services;
 /// </summary>
 public interface ICreditNoteApprovalService
 {
-    Task<CreditNoteApprovalListResponseDto?> GetApprovalsAsync(string? status, int page, int pageSize);
+    Task<CreditNoteApprovalListResponseDto?> GetApprovalsAsync(string? status, int page, int pageSize, int? beforeCode = null);
     Task<CreditNoteApprovalDetailDto?> GetApprovalAsync(int code);
 
     Task<(bool Success, string Message, CreditNoteApprovalDecisionResultDto? Value)> DecideAsync(
@@ -22,7 +22,8 @@ public interface ICreditNoteApprovalService
 public sealed class CreditNoteApprovalService(HttpClient httpClient, ILogger<CreditNoteApprovalService> logger)
     : ICreditNoteApprovalService
 {
-    public async Task<CreditNoteApprovalListResponseDto?> GetApprovalsAsync(string? status, int page, int pageSize)
+    public async Task<CreditNoteApprovalListResponseDto?> GetApprovalsAsync(
+        string? status, int page, int pageSize, int? beforeCode = null)
     {
         try
         {
@@ -30,6 +31,11 @@ public sealed class CreditNoteApprovalService(HttpClient httpClient, ILogger<Cre
             if (!string.IsNullOrWhiteSpace(status))
             {
                 query += $"&status={Uri.EscapeDataString(status)}";
+            }
+
+            if (beforeCode is int cursor)
+            {
+                query += $"&beforeCode={cursor}";
             }
 
             return await httpClient.GetFromJsonAsync<CreditNoteApprovalListResponseDto>($"api/credit-note-approvals?{query}");

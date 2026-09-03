@@ -65,6 +65,17 @@ public sealed class CreditNoteApprovalListResponseDto
 
     /// <summary>The filter the list was read with: open, pending, approved or all.</summary>
     public string Status { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Pass back as <c>beforeCode</c> to read the next page. Null when this page is the end of the
+    /// queue.
+    /// </summary>
+    /// <remarks>
+    /// Paging by this rather than by <see cref="Page"/> is stable while credit memos are still being
+    /// raised: a new one takes the highest Code, so it lands above everything here and cannot push a
+    /// row this reader has already seen onto their next page.
+    /// </remarks>
+    public int? NextCursor { get; set; }
 }
 
 public sealed class CreditNoteDraftLineDto
