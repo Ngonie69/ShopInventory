@@ -295,6 +295,11 @@ public sealed class FiscalRetryResult
     /// <summary>
     /// The submission was attempted and the outcome could not be established.
     /// </summary>
+    /// <param name="docNum">
+    /// The invoice, named in the sentence the operator is asked to act on. It has to be the number
+    /// they would search the fiscalisation platform by, because looking it up there is the only way
+    /// out of an Unknown.
+    /// </param>
     /// <param name="detail">
     /// What the API actually said, kept verbatim. A ProblemDetails body usually names the real fault —
     /// "the fiscalisation platform did not respond within 30 seconds" — and replacing that with a

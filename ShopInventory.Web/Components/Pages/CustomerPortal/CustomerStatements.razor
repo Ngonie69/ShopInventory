@@ -753,6 +753,20 @@
     /// the sheet naming five buckets, so the labels stay SAP's and only the position
     /// in the ramp is ours.
     /// </param>
+    /// <param name="Label">
+    /// SAP's own name for the bucket, carried through untouched. Only "Current" is ours; the rest
+    /// come off the aging summary, because a shop reading the portal and a clerk reading B1 should
+    /// be looking at the same words.
+    /// </param>
+    /// <param name="Amount">
+    /// What is outstanding in the bucket. It can be negative — an unapplied credit lands here like
+    /// anything else — which is why the bar clamps rather than trusting it to be positive.
+    /// </param>
+    /// <param name="Share">
+    /// The bucket's percentage of the bar, off the summed buckets rather than <c>Aging.Total</c>,
+    /// which is computed separately and would give segments that did not add up to their own bar.
+    /// A negative amount contributes nothing rather than eating another bucket's width.
+    /// </param>
     private sealed record AgingBucket(int Rank, string Label, decimal Amount, decimal Share);
 
     private List<AgingBucket> AgingBuckets

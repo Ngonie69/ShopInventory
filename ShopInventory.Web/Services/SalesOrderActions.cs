@@ -74,7 +74,7 @@ public static class SalesOrderActions
     /// <remarks>
     /// The API also allows Rejected to be cancelled. Neither list has ever offered that and both
     /// agreed on this set, so it is kept as-is: a rejected order is already finished with, and
-    /// <see cref="CanRestoreToDraft"/> is the action it actually needs.
+    /// <see cref="CanRestoreToDraft(SalesOrderStatus)"/> is the action it actually needs.
     /// </remarks>
     public static bool CanCancel(SalesOrderStatus status)
         => status is SalesOrderStatus.Draft

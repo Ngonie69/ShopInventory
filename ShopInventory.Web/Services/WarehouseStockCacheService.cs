@@ -12,11 +12,18 @@ public interface IWarehouseStockCacheService
     /// Gets cached stock for a warehouse. Returns cached data immediately if available,
     /// and triggers background sync if cache is stale.
     /// </summary>
+    /// <param name="warehouseCode">
+    /// The SAP warehouse. It is what the cache is keyed by, so an unknown code reads as an empty
+    /// warehouse rather than an error.
+    /// </param>
+    /// <param name="page">1-based, applied after the search has run across the whole warehouse.</param>
+    /// <param name="pageSize">Rows per page. The count returned describes the filtered set, not the page.</param>
     /// <param name="search">
     /// Optional item code / name / barcode substring, matched across the whole
     /// warehouse before paging — so a caller's filter reaches every row rather than
     /// only the page already in hand.
     /// </param>
+    /// <param name="cancellationToken">Cancels this read's database work.</param>
     Task<WarehouseProductsPagedResponse?> GetCachedStockAsync(
         string warehouseCode,
         int page = 1,

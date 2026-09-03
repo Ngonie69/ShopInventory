@@ -26,6 +26,14 @@ public static class DashboardFigures
     /// <summary>
     /// Invoices raised on one day, and what they came to.
     /// </summary>
+    /// <param name="invoiceService">
+    /// Handed in rather than injected, which is what lets a test reach this at all — the class
+    /// exists so the dashboard's arithmetic is not a third copy buried in a component.
+    /// </param>
+    /// <param name="date">
+    /// The day to report on. It is both ends of the range the API is asked for, so a day is the
+    /// smallest and the largest window this answers.
+    /// </param>
     /// <param name="includeValue">
     /// False asks only for the count, with the smallest page that still returns
     /// an authoritative total — which is all a comparison day needs.

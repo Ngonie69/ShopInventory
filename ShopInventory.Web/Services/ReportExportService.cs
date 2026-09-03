@@ -617,6 +617,21 @@ public class ReportExportService : IReportExportService
     /// a KPI card reading "$12,480,933.10" set the width of the "Rank" column beneath
     /// it, which is most of why these sheets opened looking uneven.
     /// </remarks>
+    /// <param name="ws">
+    /// The sheet, already fully written. Nothing here adds or changes a value; it is presentation
+    /// only, which is why it can be the last call on every sheet regardless of what built it.
+    /// </param>
+    /// <param name="lastCol">
+    /// The rightmost column in use. Columns 1 to this are sized; anything past it is left alone,
+    /// so a stray value out to the right cannot drag the print area with it.
+    /// </param>
+    /// <param name="freezeRow">
+    /// The table's header row, or 0 to freeze nothing. See the remarks for its second job.
+    /// </param>
+    /// <param name="landscape">
+    /// Page orientation for print. Either way the sheet is fit to one page wide, so this decides
+    /// how much of a wide table survives that squeeze legibly.
+    /// </param>
     /// <param name="fitFromRow">
     /// Overrides where width measurement starts, for the sheets whose table should set
     /// the column widths but whose header is not worth freezing.
