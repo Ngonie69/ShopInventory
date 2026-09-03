@@ -192,8 +192,15 @@ The attachment could not be read from SAP: The SAP attachments folder
 
 With `kfldb` the same click opens the file: the viewer loads a `blob:` iframe, and the bytes are the
 share's own. `GET /download/credit-note-approval/72419/1` answers 200 `application/pdf`, 1,168,414
-bytes, `sha256 ec19b3da…`, identical through the Web proxy, straight off the API, and read directly
-from `\\kfldb\b1_shf\Paths\Attachments\epic 11.pdf`.
+bytes, `sha256 ec19b3da…` — identical through the Web proxy, straight off the API, read directly from
+`\\kfldb\b1_shf\Paths\Attachments\epic 11.pdf`, and as saved to disk by clicking Download.
+
+One thing to know when reading a failed download on a Windows desktop: **Internet Download Manager
+takes the response before the page sees it.** With IDM's Advanced Integration on, the fetch answers
+`204 Intercepted by the IDM Advanced Integration` with no body, IDM saves the real file into its own
+category folder (`Downloads\Documents\`), and the page's own `<a download>` writes a 0-byte stub in
+`Downloads\`. The file is fine; the empty one beside it is IDM's. Compare hashes before concluding
+that a download is broken.
 
 Note also that `Attachments2_Line.SourcePath` is where the person picked the file from — one row read
 `C:\Users\Alice.Manyangala\Documents` — so it is not a location any server can open. The share read
