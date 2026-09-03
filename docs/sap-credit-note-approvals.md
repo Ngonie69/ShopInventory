@@ -151,8 +151,21 @@ document a manager actually clicked: approval request 84752 → draft 76744 → 
 `brian 01_09_26.pdf`. The metadata reads back perfectly in both; it is only the bytes that are gone.
 
 `appsettings.json` therefore ships `CreditNoteApprovals:AttachmentReadMode = Share`, which reads from
-`SAP:AttachmentsPath` — the folder the API already writes POD attachments to, reachable from the API
-host but not from a developer machine. Put it back to `ServiceLayer` once SAP mounts the folder.
+`SAP:AttachmentsPath`. Put it back to `ServiceLayer` once SAP mounts the folder.
+
+**`SAP:AttachmentsPath` is unproven configuration.** Nothing calls `UploadAttachmentToSAPAsync` or
+`AppendAttachmentToSAPAsync`, so this app has never written a file to that share — POD uploads go to
+`FileStorage:UploadPath`, which is a different location. Two things to check on the API host before
+trusting a share read:
+
+- The value is `\\kfdb\b1_shf\Paths\Attachments\`, but SAP's own `CompanyService_GetAdminInfo` reports
+  its sibling folders on a **differently spelled host**: `ExcelFolderPath = \\kfldb\B1_SHF\Paths\Excel\`
+  and `XMLFileFolderPath = \\Kfldb\b1_shf\Paths\Xml\`. Same share, same `Paths\` parent, `kfldb` not
+  `kfdb`. Confirm which name the file server answers to.
+- The app pool identity needs read access to it, or `SAP:AttachmentsUsername` / `AttachmentsPassword`
+  must be set.
+
+A wrong path is not silent: the read names it, as below.
 
 The refusal is reported in SAP's own words as `CreditNoteApproval.AttachmentUnavailable`, deliberately
 **not** `AttachmentNotFound`: the drawer is listing the file by name, and telling somebody it does not
@@ -164,6 +177,16 @@ That sentence reaches the person who clicked. The API answers `application/probl
 download proxy forwards that body rather than a bare status code, `app.js` lifts its `detail` into the
 error it throws, and the page shows it on the snackbar and in the drawer under the file list. What a
 manager used to get for all of this was "The attachment could not be opened."
+
+Driven end to end on 2026-09-03 — request 72419, `epic 11.pdf`, clicking View in the drawer:
+
+```
+The attachment could not be read from SAP: The SAP attachments folder
+'\\kfdb\b1_shf\Paths\Attachments\' could not be reached from this server.
+```
+
+on the snackbar and in the drawer, with no console errors. That is the developer machine's own answer
+(it cannot reach the share); the same road on the API host is what decides whether the path is right.
 
 Note also that `Attachments2_Line.SourcePath` is where the person picked the file from — one row read
 `C:\Users\Alice.Manyangala\Documents` — so it is not a location any server can open. The share read
