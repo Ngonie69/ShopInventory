@@ -98,13 +98,12 @@
                 <table class="cna-table">
                     <thead>
                         <tr>
-                            <th>Request #</th>
-                            <th>Draft #</th>
                             <th>Customer</th>
-                            <th>Date</th>
+                            <th>Reason for credit</th>
+                            <th>Raised</th>
                             <th class="cna-num">Total</th>
                             <th>Originator</th>
-                            <th>Template / stage</th>
+                            <th>Stage</th>
                             <th>Status</th>
                             <th></th>
                         </tr>
@@ -115,7 +114,7 @@
                             @for (var skeletonRow = 0; skeletonRow < 6; skeletonRow++)
                             {
                                 <tr>
-                                    @for (var skeletonCell = 0; skeletonCell < 9; skeletonCell++)
+                                    @for (var skeletonCell = 0; skeletonCell < 8; skeletonCell++)
                                     {
                                         <td><div class="cna-skel"></div></td>
                                     }
@@ -128,18 +127,25 @@
                             {
                                 <tr @key="request.Code" class="@RowClass(request)">
                                     <td>
-                                        <button type="button" class="cna-link" @onclick="() => OpenAsync(request.Code)">
-                                            @request.Code
-                                        </button>
-                                    </td>
-                                    <td class="cna-num">@(request.DraftNum?.ToString() ?? "—")</td>
-                                    <td>
                                         <span class="cna-cust">
-                                            <span class="cna-cust-name">@(request.CardName ?? "—")</span>
-                                            <span class="cna-cust-code">@request.CardCode</span>
+                                            <button type="button" class="cna-cust-name"
+                                                    @onclick="() => OpenAsync(request.Code)">
+                                                @(request.CardName ?? "—")
+                                            </button>
+                                            <span class="cna-cust-code" title="@RowMeta(request)">@RowMeta(request)</span>
                                         </span>
                                     </td>
-                                    <td class="cna-date">@FormatDate(request.DocDate)</td>
+                                    <td class="cna-reason">
+                                        <span class="cna-reason-text" title="@request.Comments">
+                                            @(string.IsNullOrWhiteSpace(request.Comments) ? "—" : request.Comments)
+                                        </span>
+                                    </td>
+                                    <td class="cna-date">
+                                        <span class="cna-stack">
+                                            <span>@FormatDate(RaisedDate(request))</span>
+                                            <span class="cna-age">@AgeText(RaisedDate(request))</span>
+                                        </span>
+                                    </td>
                                     <td class="cna-num">@FormatMoney(request.DocTotal, request.DocCurrency)</td>
                                     <td>
                                         <span class="cna-stack">
@@ -152,10 +158,10 @@
                                     </td>
                                     <td>
                                         <span class="cna-stack">
-                                            <span>@(request.TemplateName ?? "—")</span>
-                                            @if (!string.IsNullOrWhiteSpace(request.StageName))
+                                            <span>@(request.StageName ?? "—")</span>
+                                            @if (!string.IsNullOrWhiteSpace(request.TemplateName))
                                             {
-                                                <span class="cna-stack-sub">@request.StageName</span>
+                                                <span class="cna-stack-sub">@request.TemplateName</span>
                                             }
                                         </span>
                                     </td>

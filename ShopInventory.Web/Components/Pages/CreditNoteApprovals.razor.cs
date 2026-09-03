@@ -493,5 +493,53 @@ public partial class CreditNoteApprovals : IAsyncDisposable
     private static string FormatMoney(decimal value, string? currency) =>
         string.IsNullOrWhiteSpace(currency) ? value.ToString("N2") : $"{value:N2} {currency}";
 
+    /// <summary>
+    /// When the request was raised. The approval request carries its own creation date; the draft's
+    /// document date is the fallback for one SAP recorded without it.
+    /// </summary>
+    private static DateTime? RaisedDate(CreditNoteApprovalListItemDto request) =>
+        request.CreatedDate ?? request.DocDate;
+
+    /// <summary>
+    /// How long the request has been waiting, said the way the queue reads it. Blank rather than
+    /// "0 days ago" when SAP gave no date, because an invented age is worse than none.
+    /// </summary>
+    private static string AgeText(DateTime? raised)
+    {
+        if (raised is null)
+        {
+            return string.Empty;
+        }
+
+        var days = (DateTime.UtcNow.Date - raised.Value.Date).Days;
+        return days switch
+        {
+            <= 0 => "today",
+            1 => "yesterday",
+            _ => $"{days} days ago"
+        };
+    }
+
+    /// <summary>
+    /// The request and draft numbers, folded under the customer name. They held their own columns
+    /// before; the queue is read by customer, and the numbers are what you quote once you are in SAP.
+    /// </summary>
+    private static string RowMeta(CreditNoteApprovalListItemDto request)
+    {
+        var parts = new List<string> { $"#{request.Code}" };
+
+        if (request.DraftNum is int draftNum)
+        {
+            parts.Add($"draft {draftNum}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.CardCode))
+        {
+            parts.Add(request.CardCode);
+        }
+
+        return string.Join("  ·  ", parts);
+    }
+
     public async ValueTask DisposeAsync() => await RevokeViewerUrlAsync();
 }

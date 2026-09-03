@@ -470,9 +470,12 @@
 
 .cna-table {
     width: 100%;
-    min-width: 980px;
+    min-width: 1080px;
     border-collapse: collapse;
     font-size: 13px;
+    /* Fixed layout is what lets the customer and reason cells clip with an
+       ellipsis; an auto table stretches to fit the longest reason instead. */
+    table-layout: fixed;
 }
 
 .cna-table th {
@@ -568,11 +571,38 @@
     min-width: 130px;
 }
 
-.cna-cust-name {
+/* The customer name doubles as the row's control. The design gives it the body
+   colour rather than the accent, so it reads as text, but it stays a real button
+   so the row can be opened from the keyboard. */
+.cna .cna-cust-name {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-weight: 500;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--cna-ink);
+    background: none;
+    border: 0;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+}
+
+.cna .cna-cust-name:hover {
+    color: var(--cna-accent-text);
+    text-decoration: underline;
 }
 
 .cna-cust-code {
+    /* One line. SAP card codes carry a currency suffix ("FAZ002 USD"), which wrapped
+       and left the rows at ragged heights; the full value stays on the title. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
     font-size: 11.5px;
     letter-spacing: .02em;
     color: var(--cna-mute-3);
@@ -1208,4 +1238,33 @@
     .cna-grid {
         grid-template-columns: 1fr;
     }
+}
+
+
+/* ---- The design's column rhythm, reason and age ------------------------- */
+
+.cna-table th:nth-child(1) { width: 24%; }
+.cna-table th:nth-child(2) { width: 18%; }
+.cna-table th:nth-child(3) { width: 108px; }
+.cna-table th:nth-child(4) { width: 132px; }
+.cna-table th:nth-child(5) { width: 148px; }
+.cna-table th:nth-child(6) { width: 136px; }
+.cna-table th:nth-child(7) { width: 128px; }
+.cna-table th:nth-child(8) { width: 56px; }
+
+/* Reason for credit. SAP leaves it blank on older memos, so the em dash is a
+   common and correct reading, not a failure to load. */
+.cna-reason-text {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    color: var(--cna-ink-2);
+}
+
+/* How long the request has waited, under the date it was raised. */
+.cna-age {
+    font-size: 11px;
+    color: var(--cna-mute-3);
 }
