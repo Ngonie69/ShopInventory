@@ -43,7 +43,13 @@
 
         <div class="signin-hero-foot">
             <span>Staff access?</span>
-            <a href="/login">
+            @* forceLoad — and this direction is the one that actually breaks.
+               App.razor picks the page stylesheets from the request path, so a
+               portal document carries only the portal's. /login itself would
+               survive that, styling itself inline, but signing in router-
+               navigates onward without a reload and /dashboard would then
+               render with no staff sheet at all. *@
+            <a href="/login" @onclick="GoToStaffSignIn" @onclick:preventDefault>
                 Staff sign-in
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -266,6 +272,18 @@
         [Required(ErrorMessage = "Verification code is required")]
         [StringLength(6, MinimumLength = 6, ErrorMessage = "Code must be 6 digits")]
         public string Code { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Leaves the portal for the staff sign-in with a full document load, so
+    /// the staff stylesheets are chosen for the new request. Without it the
+    /// portal's cut-down shell would survive the router navigation and still be
+    /// in force after sign-in, when Login's NavigateAfterLogin hands the visitor
+    /// on to /dashboard without reloading either.
+    /// </summary>
+    private void GoToStaffSignIn()
+    {
+        NavigationManager.NavigateTo("/login", forceLoad: true);
     }
 
     private void TogglePassword()

@@ -50,7 +50,13 @@
 
         <div class="nsi-cross">
             <span>Customer access?</span>
-            <a href="/customer-portal/login">
+            @* forceLoad, not a router navigation: App.razor now picks the page
+               stylesheets from the request path, and the interactive router
+               never loads a second document, so a click here would land on the
+               portal still carrying the staff shell. The href stays so
+               middle-click and open-in-new-tab keep working — those are full
+               loads already. *@
+            <a href="/customer-portal/login" @onclick="GoToCustomerPortal" @onclick:preventDefault>
                 Customer portal
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -903,6 +909,24 @@
     private void TogglePassword()
     {
         showPassword = !showPassword;
+    }
+
+    /// <summary>
+    /// Crosses into the customer portal with a full document load.
+    ///
+    /// App.razor chooses the page stylesheets from the request path, and the
+    /// interactive router loads no second document, so a plain link would put
+    /// the visitor on the portal under the staff shell. Nothing would look
+    /// wrong — the staff shell is a superset — which is exactly why this is
+    /// worth pinning down: the failure is silent, and it is the whole saving.
+    ///
+    /// Every other crossing of this boundary already forces a load; see
+    /// CustomerLogin, CustomerPortalLayout, CustomerPortalIndex and
+    /// CustomerProfile.
+    /// </summary>
+    private void GoToCustomerPortal()
+    {
+        NavigationManager.NavigateTo("/customer-portal/login", forceLoad: true);
     }
 
     /// <summary>
