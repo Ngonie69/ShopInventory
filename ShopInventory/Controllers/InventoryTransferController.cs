@@ -108,6 +108,9 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One held transfer, posting status included
+    /// </summary>
     [HttpGet("pending/{id:guid}")]
     [ProducesResponseType(typeof(PendingInventoryTransferDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
@@ -176,6 +179,9 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
 
     #endregion
 
+    /// <summary>
+    /// Transfers for a warehouse — the bare {} segment is a warehouse code, not a DocEntry
+    /// </summary>
     [HttpGet("{warehouseCode}")]
     [ProducesResponseType(typeof(InventoryTransferListResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetInventoryTransfersByWarehouse(string warehouseCode, CancellationToken cancellationToken)
@@ -184,6 +190,9 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// List a warehouse's inventory transfers, paginated
+    /// </summary>
     [HttpGet("{warehouseCode}/paged")]
     [ProducesResponseType(typeof(InventoryTransferListResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPagedInventoryTransfers(
@@ -193,6 +202,9 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// A warehouse's transfers on one date
+    /// </summary>
     [HttpGet("{warehouseCode}/date/{date}")]
     [ProducesResponseType(typeof(InventoryTransferDateResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetInventoryTransfersByDate(string warehouseCode, string date, CancellationToken cancellationToken)
@@ -201,6 +213,9 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// A warehouse's transfers between two dates
+    /// </summary>
     [HttpGet("{warehouseCode}/daterange")]
     [ProducesResponseType(typeof(InventoryTransferDateResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetInventoryTransfersByDateRange(
@@ -211,6 +226,9 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get one transfer's details
+    /// </summary>
     [HttpGet("detail/{docEntry:int}")]
     [ProducesResponseType(typeof(InventoryTransferDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
@@ -222,6 +240,9 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
 
     #region Transfer Request Endpoints
 
+    /// <summary>
+    /// Create a transfer request
+    /// </summary>
     [HttpPost("request")]
     [ProducesResponseType(typeof(TransferRequestCreatedResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
@@ -238,6 +259,9 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Authorize a request and generate the SAP transfer. Admin, StockController, DepotController
+    /// </summary>
     [HttpPost("request/{docEntry:int}/convert")]
     [Authorize(Roles = "Admin,StockController,DepotController")]
     [ProducesResponseType(typeof(TransferRequestConvertedResponseDto), StatusCodes.Status201Created)]
@@ -255,6 +279,9 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Close a request in SAP without converting it. Admin, StockController, DepotController
+    /// </summary>
     [HttpPost("request/{docEntry:int}/close")]
     [Authorize(Roles = "Admin,StockController,DepotController")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -320,6 +347,9 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One held change
+    /// </summary>
     [HttpGet("request-edits/{id:guid}")]
     [ProducesResponseType(typeof(PendingTransferRequestEditDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
@@ -372,6 +402,9 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
 
     #endregion
 
+    /// <summary>
+    /// One transfer request
+    /// </summary>
     [HttpGet("request/{docEntry:int}")]
     [ProducesResponseType(typeof(InventoryTransferRequestDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
@@ -381,6 +414,9 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// A warehouse's transfer requests
+    /// </summary>
     [HttpGet("requests/{warehouseCode}")]
     [ProducesResponseType(typeof(TransferRequestListResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetTransferRequestsByWarehouse(string warehouseCode, CancellationToken cancellationToken)

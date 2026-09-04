@@ -35,6 +35,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
 {
     #region Document Templates
 
+    /// <summary>
+    /// List templates
+    /// </summary>
     [HttpGet("templates")]
     public async Task<IActionResult> GetTemplates(
         [FromQuery] string? documentType = null,
@@ -47,6 +50,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get template by ID
+    /// </summary>
     [HttpGet("templates/{id}")]
     public async Task<IActionResult> GetTemplateById(int id, CancellationToken cancellationToken)
     {
@@ -54,6 +60,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get default template for a document type
+    /// </summary>
     [HttpGet("templates/default/{documentType}")]
     public async Task<IActionResult> GetDefaultTemplate(string documentType, CancellationToken cancellationToken)
     {
@@ -61,6 +70,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Create template (Admin/Manager)
+    /// </summary>
     [HttpPost("templates")]
     [Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> CreateTemplate([FromBody] UpsertDocumentTemplateRequest request, CancellationToken cancellationToken)
@@ -70,6 +82,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(value => CreatedAtAction(nameof(GetTemplateById), new { id = value.Id }, value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Update template
+    /// </summary>
     [HttpPut("templates/{id}")]
     [Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> UpdateTemplate(int id, [FromBody] UpsertDocumentTemplateRequest request, CancellationToken cancellationToken)
@@ -78,6 +93,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Delete template
+    /// </summary>
     [HttpDelete("templates/{id}")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> DeleteTemplate(int id, CancellationToken cancellationToken)
@@ -86,6 +104,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Make a template the default for its document type
+    /// </summary>
     [HttpPost("templates/{id}/set-default")]
     [Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> SetDefaultTemplate(int id, CancellationToken cancellationToken)
@@ -94,6 +115,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => Ok(new { message = "Template set as default successfully" }), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The placeholders a template of that type may use
+    /// </summary>
     [HttpGet("templates/placeholders/{documentType}")]
     public async Task<IActionResult> GetPlaceholders(string documentType, CancellationToken cancellationToken)
     {
@@ -105,6 +129,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
 
     #region Document Generation
 
+    /// <summary>
+    /// Render a document
+    /// </summary>
     [HttpPost("generate")]
     public async Task<IActionResult> GenerateDocument([FromBody] GenerateDocumentRequest request, CancellationToken cancellationToken)
     {
@@ -113,6 +140,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Render a document and return the file
+    /// </summary>
     [HttpPost("generate/download")]
     public async Task<IActionResult> GenerateAndDownloadDocument([FromBody] GenerateDocumentRequest request, CancellationToken cancellationToken)
     {
@@ -121,6 +151,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(value => File(value.FileContent, value.ContentType, value.FileName), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Render a document and email it
+    /// </summary>
     [HttpPost("email")]
     public async Task<IActionResult> EmailDocument([FromBody] EmailDocumentRequest request, CancellationToken cancellationToken)
     {
@@ -133,6 +166,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
 
     #region Document Attachments
 
+    /// <summary>
+    /// Upload attachment (multipart form)
+    /// </summary>
     [HttpPost("attachments")]
     public async Task<IActionResult> UploadAttachment(
         [FromForm] string entityType,
@@ -152,6 +188,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(value => CreatedAtAction(nameof(DownloadAttachment), new { id = value.Id }, value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// List attachments for an entity — entityType and entityId are query parameters, not path segments
+    /// </summary>
     [HttpGet("attachments")]
     public async Task<IActionResult> GetAttachments(
         [FromQuery] string entityType,
@@ -162,6 +201,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Download one attachment
+    /// </summary>
     [HttpGet("attachments/{id}/download")]
     public async Task<IActionResult> DownloadAttachment(int id, CancellationToken cancellationToken)
     {
@@ -169,6 +211,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(value => File(value.Stream, value.MimeType, value.FileName), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Delete attachment
+    /// </summary>
     [HttpDelete("attachments/{id}")]
     public async Task<IActionResult> DeleteAttachment(int id, CancellationToken cancellationToken)
     {
@@ -180,6 +225,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
 
     #region Document History
 
+    /// <summary>
+    /// The document generation history
+    /// </summary>
     [HttpGet("history")]
     public async Task<IActionResult> GetDocumentHistory(
         [FromQuery] string? documentType = null,
@@ -196,6 +244,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
 
     #region Digital Signatures
 
+    /// <summary>
+    /// Sign a document
+    /// </summary>
     [HttpPost("signatures")]
     public async Task<IActionResult> CreateSignature([FromBody] CreateSignatureRequest request, CancellationToken cancellationToken)
     {
@@ -211,6 +262,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// List the signatures on one document
+    /// </summary>
     [HttpGet("signatures")]
     public async Task<IActionResult> GetSignatures(
         [FromQuery] string documentType,
@@ -221,6 +275,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Verify a document signature
+    /// </summary>
     [HttpPost("signatures/{id}/verify")]
     [Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> VerifySignature(int id, CancellationToken cancellationToken)
@@ -233,6 +290,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
 
     #region Email Templates
 
+    /// <summary>
+    /// List the email templates
+    /// </summary>
     [HttpGet("email-templates")]
     public async Task<IActionResult> GetEmailTemplates(
         [FromQuery] bool? activeOnly = true,
@@ -242,6 +302,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get an email template by its code
+    /// </summary>
     [HttpGet("email-templates/{templateCode}")]
     public async Task<IActionResult> GetEmailTemplateByCode(string templateCode, CancellationToken cancellationToken)
     {
@@ -249,6 +312,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Create an email template
+    /// </summary>
     [HttpPost("email-templates")]
     [Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> CreateEmailTemplate([FromBody] UpsertEmailTemplateRequest request, CancellationToken cancellationToken)
@@ -257,6 +323,9 @@ public class DocumentController(IMediator mediator) : ApiControllerBase
         return result.Match(value => CreatedAtAction(nameof(GetEmailTemplateByCode), new { templateCode = value.TemplateCode }, value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Update an email template by its id
+    /// </summary>
     [HttpPut("email-templates/{id}")]
     [Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> UpdateEmailTemplate(int id, [FromBody] UpsertEmailTemplateRequest request, CancellationToken cancellationToken)

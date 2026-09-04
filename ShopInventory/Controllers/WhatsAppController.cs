@@ -27,6 +27,9 @@ public class WhatsAppController(
     private readonly OpenWASettings _settings = settings.Value;
     private readonly ILogger<WhatsAppController> _logger = logger;
 
+    /// <summary>
+    /// Bridge health
+    /// </summary>
     [HttpGet("health")]
     [ProducesResponseType(typeof(WhatsAppHealthDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetHealth(CancellationToken cancellationToken)
@@ -35,6 +38,9 @@ public class WhatsAppController(
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The WhatsApp inbox
+    /// </summary>
     [HttpGet("messages")]
     [ProducesResponseType(typeof(WhatsAppInboxResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetMessages(
@@ -47,6 +53,9 @@ public class WhatsAppController(
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// List the WhatsApp bridge sessions
+    /// </summary>
     [HttpGet("sessions")]
     [ProducesResponseType(typeof(List<WhatsAppSessionDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetSessions(CancellationToken cancellationToken)
@@ -68,6 +77,9 @@ public class WhatsAppController(
         }
     }
 
+    /// <summary>
+    /// Create a WhatsApp bridge session
+    /// </summary>
     [HttpPost("sessions")]
     [ProducesResponseType(typeof(WhatsAppSessionDto), StatusCodes.Status201Created)]
     public async Task<IActionResult> CreateSession([FromBody] WhatsAppCreateSessionRequestDto request, CancellationToken cancellationToken)
@@ -89,6 +101,9 @@ public class WhatsAppController(
         }
     }
 
+    /// <summary>
+    /// Start a WhatsApp session
+    /// </summary>
     [HttpPost("sessions/{sessionId}/start")]
     [ProducesResponseType(typeof(WhatsAppSessionDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> StartSession(string sessionId, CancellationToken cancellationToken)
@@ -110,6 +125,9 @@ public class WhatsAppController(
         }
     }
 
+    /// <summary>
+    /// Stop a WhatsApp session
+    /// </summary>
     [HttpPost("sessions/{sessionId}/stop")]
     [ProducesResponseType(typeof(WhatsAppSessionDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> StopSession(string sessionId, CancellationToken cancellationToken)
@@ -131,6 +149,9 @@ public class WhatsAppController(
         }
     }
 
+    /// <summary>
+    /// The QR code to scan
+    /// </summary>
     [HttpGet("sessions/{sessionId}/qr")]
     [ProducesResponseType(typeof(WhatsAppQrCodeDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetSessionQrCode(string sessionId, CancellationToken cancellationToken)
@@ -152,6 +173,9 @@ public class WhatsAppController(
         }
     }
 
+    /// <summary>
+    /// Send a message
+    /// </summary>
     [HttpPost("sessions/{sessionId}/messages/send-text")]
     [ProducesResponseType(typeof(WhatsAppMessageDispatchDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> SendText(string sessionId, [FromBody] WhatsAppSendTextRequestDto request, CancellationToken cancellationToken)
@@ -173,6 +197,9 @@ public class WhatsAppController(
         }
     }
 
+    /// <summary>
+    /// Reply to a message in a WhatsApp session
+    /// </summary>
     [HttpPost("sessions/{sessionId}/messages/reply")]
     [ProducesResponseType(typeof(WhatsAppMessageDispatchDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> Reply(string sessionId, [FromBody] WhatsAppReplyRequestDto request, CancellationToken cancellationToken)
@@ -194,6 +221,9 @@ public class WhatsAppController(
         }
     }
 
+    /// <summary>
+    /// Anonymous. Inbound from the bridge. application/json only, answers 202
+    /// </summary>
     [HttpPost("webhook/openwa")]
     [AllowAnonymous]
     [Consumes("application/json")]

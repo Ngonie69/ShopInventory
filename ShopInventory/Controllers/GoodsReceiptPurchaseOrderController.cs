@@ -15,6 +15,9 @@ namespace ShopInventory.Controllers;
 [Produces("application/json")]
 public class GoodsReceiptPurchaseOrderController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// List goods receipt purchase orders
+    /// </summary>
     [HttpGet]
     [RequirePermission(Permission.ViewGoodsReceiptPurchaseOrders)]
     [ProducesResponseType(typeof(GoodsReceiptPurchaseOrderListResponseDto), StatusCodes.Status200OK)]
@@ -30,6 +33,9 @@ public class GoodsReceiptPurchaseOrderController(IMediator mediator) : ApiContro
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// One goods receipt purchase order
+    /// </summary>
     [HttpGet("{docEntry:int}")]
     [RequirePermission(Permission.ViewGoodsReceiptPurchaseOrders)]
     [ProducesResponseType(typeof(GoodsReceiptPurchaseOrderDto), StatusCodes.Status200OK)]
@@ -39,6 +45,9 @@ public class GoodsReceiptPurchaseOrderController(IMediator mediator) : ApiContro
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Create. Answers 201
+    /// </summary>
     [HttpPost]
     [RequirePermission(Permission.CreateGoodsReceiptPurchaseOrders)]
     [ProducesResponseType(typeof(GoodsReceiptPurchaseOrderDto), StatusCodes.Status201Created)]

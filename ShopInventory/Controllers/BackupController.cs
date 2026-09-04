@@ -21,6 +21,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class BackupController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// List all backups
+    /// </summary>
     [HttpGet]
     [RequirePermission(Permission.ViewBackups)]
     public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
@@ -29,6 +32,9 @@ public class BackupController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// What this deployment can actually do — which backup and restore paths are available
+    /// </summary>
     [HttpGet("capabilities")]
     [RequirePermission(Permission.ViewBackups)]
     public async Task<IActionResult> GetCapabilities(CancellationToken cancellationToken)
@@ -37,6 +43,9 @@ public class BackupController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get backup details
+    /// </summary>
     [HttpGet("{id:int}")]
     [RequirePermission(Permission.ViewBackups)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
@@ -45,6 +54,9 @@ public class BackupController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Backup statistics
+    /// </summary>
     [HttpGet("stats")]
     [RequirePermission(Permission.ViewBackups)]
     public async Task<IActionResult> GetStats(CancellationToken cancellationToken)
@@ -53,6 +65,9 @@ public class BackupController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Create new backup
+    /// </summary>
     [HttpPost]
     [RequirePermission(Permission.CreateBackups)]
     public async Task<IActionResult> Create([FromBody] CreateBackupRequest request, CancellationToken cancellationToken)
@@ -67,6 +82,9 @@ public class BackupController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Restore the database from a backup
+    /// </summary>
     [HttpPost("{id:int}/restore")]
     [RequirePermission(Permission.RestoreBackups)]
     public async Task<IActionResult> Restore(int id, CancellationToken cancellationToken)
@@ -79,6 +97,9 @@ public class BackupController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => Ok(new { message = "Backup restored successfully" }), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Download the backup file
+    /// </summary>
     [HttpGet("{id:int}/download")]
     [RequirePermission(Permission.ViewBackups)]
     public async Task<IActionResult> Download(int id, CancellationToken cancellationToken)
@@ -89,6 +110,9 @@ public class BackupController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Delete a backup
+    /// </summary>
     [HttpDelete("{id:int}")]
     [RequirePermission(Permission.DeleteBackups)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
@@ -97,6 +121,9 @@ public class BackupController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Reset the database
+    /// </summary>
     [HttpPost("reset-database")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> ResetDatabase(CancellationToken cancellationToken)

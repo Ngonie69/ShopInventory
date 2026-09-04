@@ -85,6 +85,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
     #region Stock Reservations
 
+    /// <summary>
+    /// Create stock reservation (holds inventory)
+    /// </summary>
     [HttpPost("reservations")]
     public async Task<IActionResult> CreateReservation(
         [FromBody] CreateStockReservationRequest request,
@@ -96,6 +99,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get reservation details
+    /// </summary>
     [HttpGet("reservations/{reservationId}")]
     public async Task<IActionResult> GetReservation(
         string reservationId,
@@ -105,6 +111,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Find a reservation by the caller's own reference
+    /// </summary>
     [HttpGet("reservations/by-reference/{externalReferenceId}")]
     public async Task<IActionResult> GetReservationByReference(
         string externalReferenceId,
@@ -114,6 +123,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// List reservations
+    /// </summary>
     [HttpGet("reservations")]
     public async Task<IActionResult> ListReservations(
         [FromQuery] string? sourceSystem = null,
@@ -131,6 +143,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Confirm and post to SAP
+    /// </summary>
     [HttpPost("reservations/confirm")]
     public async Task<IActionResult> ConfirmReservation(
         [FromBody] ConfirmReservationRequest request,
@@ -140,6 +155,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Cancel reservation
+    /// </summary>
     [HttpPost("reservations/cancel")]
     public async Task<IActionResult> CancelReservation(
         [FromBody] CancelReservationRequest request,
@@ -149,6 +167,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Extend a reservation before it expires
+    /// </summary>
     [HttpPost("reservations/renew")]
     public async Task<IActionResult> RenewReservation(
         [FromBody] RenewReservationRequest request,
@@ -162,6 +183,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
     #region Stock Information
 
+    /// <summary>
+    /// One item's stock
+    /// </summary>
     [HttpGet("stock/{warehouseCode}/{itemCode}")]
     public async Task<IActionResult> GetAvailableStock(
         string warehouseCode,
@@ -172,6 +196,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// A warehouse's stock (itemCodes, comma-separated)
+    /// </summary>
     [HttpGet("stock/{warehouseCode}")]
     public async Task<IActionResult> GetAvailableStockBulk(
         string warehouseCode,
@@ -182,6 +209,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// List the batches available for one item in one warehouse
+    /// </summary>
     [HttpGet("stock/{warehouseCode}/{itemCode}/batches")]
     public async Task<IActionResult> GetAvailableBatches(
         string warehouseCode,
@@ -192,6 +222,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Validate stock availability for a set of lines
+    /// </summary>
     [HttpPost("stock/validate")]
     public async Task<IActionResult> ValidateStockAvailability(
         [FromBody] ValidateStockRequest request,
@@ -205,6 +238,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
     #region Quick Invoice (Reserve + Confirm in one call)
 
+    /// <summary>
+    /// Reserve and confirm in one call, on the request
+    /// </summary>
     [HttpPost("invoices")]
     public async Task<IActionResult> CreateInvoiceDirect(
         [FromBody] CreateDesktopInvoiceRequest request,
@@ -229,6 +265,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
     #region Queued Invoice (Reserve + Queue for batch posting)
 
+    /// <summary>
+    /// Queue an invoice for async posting
+    /// </summary>
     [HttpPost("invoices/queued")]
     public async Task<IActionResult> CreateQueuedInvoice(
         [FromBody] CreateDesktopInvoiceRequest request,
@@ -238,6 +277,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Accepted(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Check queue status by the caller's own reference
+    /// </summary>
     [HttpGet("queue/{externalReference}")]
     public async Task<IActionResult> GetQueueStatus(
         string externalReference,
@@ -247,6 +289,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Check queue status by reservation
+    /// </summary>
     [HttpGet("queue/by-reservation/{reservationId}")]
     public async Task<IActionResult> GetQueueStatusByReservation(
         string reservationId,
@@ -256,6 +301,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// List invoices waiting to post to SAP
+    /// </summary>
     [HttpGet("queue")]
     public async Task<IActionResult> GetPendingQueue(
         [FromQuery] string? sourceSystem = null,
@@ -266,6 +314,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Queue entries needing a human look
+    /// </summary>
     [HttpGet("queue/review")]
     public async Task<IActionResult> GetInvoicesRequiringReview(
         [FromQuery] int limit = 50,
@@ -275,6 +326,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Invoice queue counts
+    /// </summary>
     [HttpGet("queue/stats")]
     public async Task<IActionResult> GetQueueStats(CancellationToken cancellationToken)
     {
@@ -282,6 +336,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Sync a fiscal transaction back to the local projection
+    /// </summary>
     [HttpPost("fiscal-transactions")]
     public async Task<IActionResult> SyncFiscalTransaction(
         [FromBody] SyncFiscalTransactionRequest request,
@@ -291,6 +348,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Drop a queue entry
+    /// </summary>
     [HttpDelete("queue/{externalReference}")]
     public async Task<IActionResult> CancelQueuedInvoice(
         string externalReference,
@@ -301,6 +361,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Retry a failed queue entry
+    /// </summary>
     [HttpPost("queue/{externalReference}/retry")]
     public async Task<IActionResult> RetryQueuedInvoice(
         string externalReference,
@@ -314,6 +377,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
     #region Invoice Retrieval
 
+    /// <summary>
+    /// One invoice
+    /// </summary>
     [HttpGet("invoices/{docEntry:int}")]
     public async Task<IActionResult> GetInvoice(int docEntry, CancellationToken cancellationToken)
     {
@@ -321,6 +387,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One invoice by DocNum
+    /// </summary>
     [HttpGet("invoices/by-docnum/{docNum:int}")]
     public async Task<IActionResult> GetInvoiceByDocNum(int docNum, CancellationToken cancellationToken)
     {
@@ -328,6 +397,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One credit note by DocNum
+    /// </summary>
     [HttpGet("credit-notes/by-docnum/{docNum:int}")]
     public async Task<IActionResult> GetCreditNoteByDocNum(int docNum, CancellationToken cancellationToken)
     {
@@ -335,6 +407,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// A customer's invoices
+    /// </summary>
     [HttpGet("invoices/customer/{cardCode}")]
     public async Task<IActionResult> GetInvoicesByCustomer(
         string cardCode,
@@ -346,6 +421,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Invoices between two dates (fromDate, toDate, both required)
+    /// </summary>
     [HttpGet("invoices/date-range")]
     public async Task<IActionResult> GetInvoicesByDateRange(
         [FromQuery] DateTime fromDate,
@@ -356,6 +434,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Invoices, paginated
+    /// </summary>
     [HttpGet("invoices/paged")]
     public async Task<IActionResult> GetPagedInvoices(
         [FromQuery] int page = 1,
@@ -366,6 +447,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// An invoice as a PDF
+    /// </summary>
     [HttpGet("invoices/{docEntry:int}/pdf")]
     public async Task<IActionResult> DownloadInvoicePdf(
         int docEntry,
@@ -378,6 +462,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Validate an invoice and its batch allocations. autoAllocateBatches defaults to true and allocationStrategy to FEFO
+    /// </summary>
     [HttpPost("invoices/validate")]
     public async Task<IActionResult> ValidateInvoice(
         [FromBody] CreateDesktopInvoiceRequest request,
@@ -395,6 +482,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
     #region Sales Order to Invoice Conversion
 
+    /// <summary>
+    /// Convert a sales order to an invoice
+    /// </summary>
     [HttpPost("sales-orders/convert-to-invoice")]
     public async Task<IActionResult> ConvertSalesOrderToInvoice(
         [FromBody] ConvertSalesOrderToInvoiceRequest request,
@@ -410,6 +500,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
     #region Direct Stock Transfers
 
+    /// <summary>
+    /// Post a transfer on the request
+    /// </summary>
     [HttpPost("transfers")]
     [Authorize(Roles = "Admin,ApiUser")]
     public async Task<IActionResult> CreateTransferDirect(
@@ -433,6 +526,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Validate before posting
+    /// </summary>
     [HttpPost("transfers/validate")]
     public async Task<IActionResult> ValidateTransfer(
         [FromBody] CreateDesktopTransferRequest request,
@@ -446,6 +542,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
     #region Transfer Retrieval
 
+    /// <summary>
+    /// One transfer
+    /// </summary>
     [HttpGet("transfers/{docEntry:int}")]
     public async Task<IActionResult> GetTransfer(int docEntry, CancellationToken cancellationToken)
     {
@@ -453,6 +552,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// A warehouse's transfers
+    /// </summary>
     [HttpGet("transfers/warehouse/{warehouseCode}")]
     public async Task<IActionResult> GetTransfersByWarehouse(
         string warehouseCode,
@@ -462,6 +564,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// List a warehouse's transfers between two dates
+    /// </summary>
     [HttpGet("transfers/warehouse/{warehouseCode}/date-range")]
     public async Task<IActionResult> GetTransfersByDateRange(
         string warehouseCode,
@@ -475,6 +580,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// List a warehouse's transfers, paginated
+    /// </summary>
     [HttpGet("transfers/warehouse/{warehouseCode}/paged")]
     public async Task<IActionResult> GetPagedTransfers(
         string warehouseCode,
@@ -492,6 +600,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
     #region Transfer Requests (Approval Workflow)
 
+    /// <summary>
+    /// Raise a transfer request
+    /// </summary>
     [HttpPost("transfer-requests")]
     public async Task<IActionResult> CreateTransferRequest(
         [FromBody] CreateDesktopTransferRequestDto request,
@@ -505,6 +616,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One request
+    /// </summary>
     [HttpGet("transfer-requests/{docEntry:int}")]
     public async Task<IActionResult> GetTransferRequest(int docEntry, CancellationToken cancellationToken)
     {
@@ -512,6 +626,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// A warehouse's requests
+    /// </summary>
     [HttpGet("transfer-requests/warehouse/{warehouseCode}")]
     public async Task<IActionResult> GetTransferRequestsByWarehouse(
         string warehouseCode,
@@ -521,6 +638,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Requests, paginated
+    /// </summary>
     [HttpGet("transfer-requests/paged")]
     public async Task<IActionResult> GetPagedTransferRequests(
         [FromQuery] int page = 1,
@@ -531,6 +651,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Authorise and generate the transfer
+    /// </summary>
     [HttpPost("transfer-requests/{docEntry:int}/convert")]
     [Authorize(Roles = "Admin,StockController,DepotController")]
     public async Task<IActionResult> ConvertTransferRequest(int docEntry, CancellationToken cancellationToken)
@@ -545,6 +668,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Close without converting
+    /// </summary>
     [HttpPost("transfer-requests/{docEntry:int}/close")]
     [Authorize(Roles = "Admin,StockController,DepotController")]
     public async Task<IActionResult> CloseTransferRequest(int docEntry, CancellationToken cancellationToken)
@@ -561,6 +687,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
     #region Queued Inventory Transfers
 
+    /// <summary>
+    /// Queue a stock transfer for background posting to SAP
+    /// </summary>
     [HttpPost("transfers/queued")]
     [Authorize(Roles = "Admin,ApiUser")]
     public async Task<IActionResult> CreateQueuedTransfer(
@@ -573,6 +702,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Accepted(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get a queued transfer's status by the caller's own reference
+    /// </summary>
     [HttpGet("transfer-queue/{externalReference}")]
     public async Task<IActionResult> GetTransferQueueStatus(
         string externalReference,
@@ -582,6 +714,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// List transfers waiting to post to SAP
+    /// </summary>
     [HttpGet("transfer-queue")]
     public async Task<IActionResult> GetPendingTransferQueue(
         [FromQuery] string? sourceSystem = null,
@@ -592,6 +727,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Queued transfers needing a human look
+    /// </summary>
     [HttpGet("transfer-queue/review")]
     public async Task<IActionResult> GetTransfersRequiringReview(
         [FromQuery] int limit = 50,
@@ -601,6 +739,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Transfer queue counts
+    /// </summary>
     [HttpGet("transfer-queue/stats")]
     public async Task<IActionResult> GetTransferQueueStats(CancellationToken cancellationToken)
     {
@@ -608,6 +749,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Drop a queued transfer before it posts
+    /// </summary>
     [HttpDelete("transfer-queue/{externalReference}")]
     public async Task<IActionResult> CancelQueuedTransfer(
         string externalReference,
@@ -618,6 +762,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Retry a queued transfer that failed to post
+    /// </summary>
     [HttpPost("transfer-queue/{externalReference}/retry")]
     public async Task<IActionResult> RetryQueuedTransfer(
         string externalReference,
@@ -844,6 +991,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Sync the price lists from SAP
+    /// </summary>
     [HttpPost("prices/pricelists/sync")]
     public async Task<IActionResult> SyncPriceLists(CancellationToken cancellationToken = default)
     {
@@ -852,6 +1002,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Sync item prices from SAP
+    /// </summary>
     [HttpPost("prices/sync")]
     public async Task<IActionResult> SyncPriceCatalog(CancellationToken cancellationToken = default)
     {
@@ -882,6 +1035,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Sync one price list's item prices from SAP
+    /// </summary>
     [HttpPost("prices/pricelists/{priceListNum:int}/sync")]
     public async Task<IActionResult> SyncPricesByPriceList(
         int priceListNum,

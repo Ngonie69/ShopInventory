@@ -17,6 +17,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "AdminOnly")]
 public class WebhookController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// List all webhooks
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetWebhooks(CancellationToken cancellationToken)
     {
@@ -24,6 +27,9 @@ public class WebhookController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get webhook details
+    /// </summary>
     [HttpGet("{id}")]
     public async Task<IActionResult> GetWebhook(int id, CancellationToken cancellationToken)
     {
@@ -31,6 +37,9 @@ public class WebhookController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Create webhook subscription
+    /// </summary>
     [HttpPost]
     public async Task<IActionResult> CreateWebhook([FromBody] CreateWebhookRequest request, CancellationToken cancellationToken)
     {
@@ -40,6 +49,9 @@ public class WebhookController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Update webhook
+    /// </summary>
     [HttpPut("{id}")]
     public async Task<IActionResult> UpdateWebhook(int id, [FromBody] UpdateWebhookRequest request, CancellationToken cancellationToken)
     {
@@ -47,6 +59,9 @@ public class WebhookController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Delete webhook
+    /// </summary>
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteWebhook(int id, CancellationToken cancellationToken)
     {
@@ -54,6 +69,9 @@ public class WebhookController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Send test event to webhook
+    /// </summary>
     [HttpPost("{id}/test")]
     public async Task<IActionResult> TestWebhook(int id, [FromBody] TestWebhookRequest request, CancellationToken cancellationToken)
     {
@@ -61,6 +79,9 @@ public class WebhookController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Delivery attempts
+    /// </summary>
     [HttpGet("deliveries")]
     public async Task<IActionResult> GetDeliveries(
         [FromQuery] int? webhookId = null,
@@ -72,6 +93,9 @@ public class WebhookController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Anonymous. The event types available to subscribe to
+    /// </summary>
     [HttpGet("event-types")]
     [AllowAnonymous]
     public async Task<IActionResult> GetEventTypes(CancellationToken cancellationToken)

@@ -28,6 +28,9 @@ namespace ShopInventory.Controllers;
 [Produces("application/json")]
 public class TimesheetController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// Check into a customer. Answers 201
+    /// </summary>
     [HttpPost("check-in")]
     [RequirePermission(Permission.ManageTimesheets)]
     [ProducesResponseType(typeof(CheckInResult), StatusCodes.Status201Created)]
@@ -59,6 +62,9 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Check out of the open call
+    /// </summary>
     [HttpPost("check-out")]
     [RequirePermission(Permission.ManageTimesheets)]
     [ProducesResponseType(typeof(CheckOutResult), StatusCodes.Status200OK)]
@@ -87,6 +93,9 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The caller's open call, if any
+    /// </summary>
     [HttpGet("active")]
     [RequirePermission(Permission.ManageTimesheets)]
     [ProducesResponseType(typeof(ActiveCheckInResult), StatusCodes.Status200OK)]
@@ -104,6 +113,9 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The customers the caller may check into
+    /// </summary>
     [HttpGet("assigned-customers")]
     [RequirePermission(Permission.ManageTimesheets)]
     [ProducesResponseType(typeof(List<AssignedCustomerDto>), StatusCodes.Status200OK)]
@@ -120,6 +132,9 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// A page of calls
+    /// </summary>
     [HttpGet]
     [RequirePermission(Permission.ViewTimesheets)]
     [ProducesResponseType(typeof(TimesheetListResult), StatusCodes.Status200OK)]
@@ -153,6 +168,9 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Time on the round, summarised per user
+    /// </summary>
     [HttpGet("report")]
     [RequirePermission(Permission.ViewTimesheets)]
     [ProducesResponseType(typeof(TimesheetReportResult), StatusCodes.Status200OK)]

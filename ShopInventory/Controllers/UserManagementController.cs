@@ -28,6 +28,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class UserManagementController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// List users with full details
+    /// </summary>
     [HttpGet]
     [RequirePermission(Permission.ViewUsers)]
     public async Task<IActionResult> GetUsers(
@@ -42,6 +45,9 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get user with permissions
+    /// </summary>
     [HttpGet("{id:guid}")]
     [RequirePermission(Permission.ViewUsers)]
     public async Task<IActionResult> GetUser(Guid id, CancellationToken cancellationToken)
@@ -50,6 +56,9 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Create user with granular permissions
+    /// </summary>
     [HttpPost]
     [RequirePermission(Permission.CreateUsers, Permission.CreateMerchandiserAccounts)]
     public async Task<IActionResult> CreateUser([FromBody] CreateUserDetailRequest request, CancellationToken cancellationToken)
@@ -60,6 +69,9 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The merchandiser accounts the caller manages
+    /// </summary>
     [HttpGet("merchandisers")]
     [RequirePermission(Permission.CreateMerchandiserAccounts)]
     public async Task<IActionResult> GetManagedMerchandiserAccounts(CancellationToken cancellationToken)
@@ -68,6 +80,9 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Set one merchandiser's customers
+    /// </summary>
     [HttpPut("merchandisers/{id:guid}/assigned-customers")]
     [RequirePermission(Permission.CreateMerchandiserAccounts)]
     public async Task<IActionResult> UpdateMerchandiserAssignedCustomers(
@@ -79,6 +94,9 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => Ok(new { message = "Merchandiser assignments updated successfully" }), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Set the drivers' customers globally
+    /// </summary>
     [HttpPut("drivers/assigned-customers")]
     [RequirePermission(Permission.EditUsers)]
     public async Task<IActionResult> UpdateGlobalDriverAssignedCustomers(
@@ -91,6 +109,9 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Update user + permissions
+    /// </summary>
     [HttpPut("{id:guid}")]
     [RequirePermission(Permission.EditUsers)]
     public async Task<IActionResult> UpdateUser(Guid id, [FromBody] UpdateUserDetailRequest request, CancellationToken cancellationToken)
@@ -99,6 +120,9 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => Ok(new { message = "User updated successfully" }), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Delete user
+    /// </summary>
     [HttpDelete("{id:guid}")]
     [RequirePermission(Permission.DeleteUsers)]
     public async Task<IActionResult> DeleteUser(Guid id, CancellationToken cancellationToken)
@@ -107,6 +131,9 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => Ok(new { message = "User deleted successfully" }), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One user's permissions
+    /// </summary>
     [HttpGet("{id:guid}/permissions")]
     [RequirePermission(Permission.ViewUsers)]
     public async Task<IActionResult> GetUserPermissions(Guid id, CancellationToken cancellationToken)
@@ -115,6 +142,9 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Replace a user's permissions
+    /// </summary>
     [HttpPut("{id:guid}/permissions")]
     [RequirePermission(Permission.ManageUserPermissions)]
     public async Task<IActionResult> UpdateUserPermissions(Guid id, [FromBody] UpdatePermissionsRequest request, CancellationToken cancellationToken)
@@ -123,6 +153,9 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => Ok(new { message = "Permissions updated successfully" }), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Every permission that can be granted
+    /// </summary>
     [HttpGet("permissions/available")]
     [RequirePermission(Permission.ViewUsers)]
     public async Task<IActionResult> GetAvailablePermissions(CancellationToken cancellationToken)
@@ -131,6 +164,9 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Unlock a locked-out account
+    /// </summary>
     [HttpPost("{id:guid}/unlock")]
     [RequirePermission(Permission.EditUsers)]
     public async Task<IActionResult> UnlockUser(Guid id, CancellationToken cancellationToken)
@@ -139,6 +175,9 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => Ok(new { message = "User account unlocked successfully" }), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Clear a user's 2FA enrolment
+    /// </summary>
     [HttpPost("{id:guid}/reset-2fa")]
     [RequirePermission(Permission.EditUsers)]
     public async Task<IActionResult> ResetTwoFactor(Guid id, CancellationToken cancellationToken)
@@ -147,6 +186,9 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => Ok(new { message = "Two-factor authentication reset successfully" }), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get the signed-in user's own profile
+    /// </summary>
     [HttpGet("me")]
     public async Task<IActionResult> GetCurrentUser(CancellationToken cancellationToken)
     {
@@ -158,6 +200,9 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The caller's own permissions
+    /// </summary>
     [HttpGet("me/permissions")]
     public async Task<IActionResult> GetCurrentUserPermissions(CancellationToken cancellationToken)
     {

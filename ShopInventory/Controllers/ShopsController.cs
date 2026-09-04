@@ -35,6 +35,9 @@ public class ShopsController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One shop
+    /// </summary>
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetShop(int id, CancellationToken cancellationToken)
     {
@@ -42,6 +45,9 @@ public class ShopsController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Open a shop
+    /// </summary>
     [HttpPost]
     public async Task<IActionResult> CreateShop(
         [FromBody] CreateShopRequest request,
@@ -57,6 +63,9 @@ public class ShopsController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Change a shop's name, business partner, warehouse or cost centre
+    /// </summary>
     [HttpPut("{id:int}")]
     public async Task<IActionResult> UpdateShop(
         int id,

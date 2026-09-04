@@ -12,6 +12,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class BatchController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// Find batches by number
+    /// </summary>
     [HttpGet("search")]
     [ProducesResponseType(typeof(BatchSearchResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -27,6 +30,9 @@ public class BatchController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Change a batch's status
+    /// </summary>
     [HttpPatch("{batchEntryId:int}/status")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

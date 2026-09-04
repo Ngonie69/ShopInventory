@@ -12,6 +12,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class GLAccountController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// Get all G/L accounts from SAP
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetGLAccounts(CancellationToken cancellationToken)
     {
@@ -19,6 +22,9 @@ public class GLAccountController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Filter by type
+    /// </summary>
     [HttpGet("type/{accountType}")]
     public async Task<IActionResult> GetGLAccountsByType(string accountType, CancellationToken cancellationToken)
     {
@@ -26,6 +32,9 @@ public class GLAccountController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get specific account
+    /// </summary>
     [HttpGet("{accountCode}")]
     public async Task<IActionResult> GetGLAccountByCode(string accountCode, CancellationToken cancellationToken)
     {

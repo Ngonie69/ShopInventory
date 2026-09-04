@@ -49,6 +49,9 @@ namespace ShopInventory.Controllers;
 [Route("api/vansales")]
 public class VanSalesCompatibilityController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// Sign a van sales handset in; rate-limited under the auth policy
+    /// </summary>
     [HttpPost("auth/login")]
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
@@ -61,6 +64,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Refresh a van sales handset's tokens; rate-limited under the auth policy
+    /// </summary>
     [HttpPost("auth/refresh")]
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
@@ -73,6 +79,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Change own password
+    /// </summary>
     [HttpPost("auth/password")]
     [Authorize(Policy = "ApiAccess")]
     public async Task<IActionResult> ChangePassword(
@@ -91,6 +100,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The caller's own calls
+    /// </summary>
     [HttpGet("attendance")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.ViewTimesheets)]
@@ -108,6 +120,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             errors => Ok(VanSalesAttendanceMapper.MapListFailure(GetLegacyErrorMessage(errors))));
     }
 
+    /// <summary>
+    /// Query parameter is value
+    /// </summary>
     [HttpGet("attendance/date")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.ViewTimesheets)]
@@ -127,6 +142,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             errors => Ok(VanSalesAttendanceMapper.MapByDateFailure(GetLegacyErrorMessage(errors))));
     }
 
+    /// <summary>
+    /// Whether the caller is checked in
+    /// </summary>
     [HttpGet("attendance/status")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.ManageTimesheets)]
@@ -144,6 +162,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             errors => Ok(VanSalesAttendanceMapper.MapStatusFailure(GetLegacyErrorMessage(errors))));
     }
 
+    /// <summary>
+    /// Check in or out
+    /// </summary>
     [HttpPost("attendance")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.ManageTimesheets)]
@@ -170,6 +191,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
     // visits, this bounds the day they happened in and carries the facts no visit knows (the truck,
     // the odometer, the takings counted at the end).
 
+    /// <summary>
+    /// The open trading day
+    /// </summary>
     [HttpGet("day/current")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.ManageTimesheets)]
@@ -187,6 +211,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             errors => Ok(VanSalesRouteDayMapper.Failure(GetLegacyErrorMessage(errors))));
     }
 
+    /// <summary>
+    /// Out of the depot: truck, route, opening odometer
+    /// </summary>
     [HttpPost("day/start")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.ManageTimesheets)]
@@ -206,6 +233,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             errors => Ok(VanSalesRouteDayMapper.Failure(GetLegacyErrorMessage(errors))));
     }
 
+    /// <summary>
+    /// Back in: closing odometer and the takings counted
+    /// </summary>
     [HttpPost("day/end")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.ManageTimesheets)]
@@ -225,6 +255,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             errors => Ok(VanSalesRouteDayMapper.Failure(GetLegacyErrorMessage(errors))));
     }
 
+    /// <summary>
+    /// The shops on the caller's route
+    /// </summary>
     [HttpGet("customer")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.ViewCustomers)]
@@ -242,6 +275,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Create a route customer
+    /// </summary>
     [HttpPost("customer")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.CreateCustomers)]
@@ -397,6 +433,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// What one shop has bought and still has on order, the detail the office's route customer report reads
+    /// </summary>
     [HttpGet("customer/{code}/history")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.ViewCustomers)]
@@ -448,6 +487,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Create a sales order
+    /// </summary>
     [HttpPost("sales-order")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.CreateSalesOrders)]
@@ -467,6 +509,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Search — a POST because the filter is a body
+    /// </summary>
     [HttpPost("sales-order/history")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.ViewSalesOrders)]
@@ -486,6 +531,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Invoice history; also a POST
+    /// </summary>
     [HttpPost("order/history")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.ViewInvoices)]
@@ -505,6 +553,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Fiscal device details for the handset
+    /// </summary>
     [HttpGet("fiscal")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.ViewInvoices)]
@@ -620,6 +671,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Upload proof of delivery
+    /// </summary>
     [HttpPost("pod")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.ViewInvoices)]
@@ -639,6 +693,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Direct invoice. 202 when queued rather than posted
+    /// </summary>
     [HttpPost("order")]
     [HttpPost("order/with-batches")]
     [Authorize(Policy = "ApiAccess")]
@@ -717,6 +774,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
         return result.Match<IActionResult>(Ok, errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Convert a van sales order to an invoice; always answers 202
+    /// </summary>
     [HttpPost("order/convert-to-invoice")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.CreateInvoices)]
@@ -734,6 +794,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
         return result.Match(value => Accepted(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Ask the depot for stock. 201
+    /// </summary>
     [HttpPost("inventory/request")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.TransferInventory)]
@@ -781,6 +844,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
         return result.Match<IActionResult>(Ok, errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The caller's transfer requests
+    /// </summary>
     [HttpGet("inventory/request")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.TransferInventory)]
@@ -805,6 +871,9 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
             : "Request failed.";
     }
 
+    /// <summary>
+    /// Confirm a transfer into the van
+    /// </summary>
     [HttpPost("inventory/confirm")]
     [Authorize(Policy = "ApiAccess")]
     [RequirePermission(Permission.TransferInventory)]
