@@ -19,6 +19,7 @@ using ShopInventory.Behaviors;
 using ShopInventory.Common.Caching;
 using ShopInventory.Common.ProblemDetails;
 using ShopInventory.Configuration;
+using ShopInventory.Features.RateLimit;
 using ShopInventory.Data;
 using ShopInventory.Features.AppVersion;
 using ShopInventory.Features.InventoryTransfers;
@@ -369,9 +370,13 @@ try
                   .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme));
     });
 
-    // Configure Rate Limiting for DDoS protection
-    var rateLimitSettings = builder.Configuration.GetSection("RateLimit").Get<RateLimitSettings>()
-        ?? new RateLimitSettings();
+    // Configure Rate Limiting for DDoS protection.
+    //
+    // The limits are read per request from IRateLimitConfigStore rather than captured here, so that
+    // PUT /api/RateLimit/config actually moves them. The store answers from a snapshot it refreshes
+    // in the background, so this costs no database work on the request path. See the store for what
+    // a change does and does not reach.
+    builder.Services.AddSingleton<IRateLimitConfigStore, RateLimitConfigStore>();
 
     var securitySettings = builder.Configuration.GetSection("Security").Get<SecuritySettings>()
         ?? new SecuritySettings();
@@ -387,8 +392,10 @@ try
         // Default fixed window policy, partitioned by API key, authenticated user, or IP.
         options.AddPolicy("fixed", httpContext =>
         {
+            var rateLimitSettings = GetLiveRateLimitSettings(httpContext);
+
             if (IsRateLimitWhitelisted(httpContext, rateLimitSettings))
-                return RateLimitPartition.GetNoLimiter(GetIpPartitionKey(httpContext));
+                return RateLimitPartition.GetNoLimiter(GetIpPartitionKey(httpContext, rateLimitSettings));
 
             return RateLimitPartition.GetFixedWindowLimiter(
                 GetClientPartitionKey(httpContext, rateLimitSettings, apiKeyRateLimitPartitions),
@@ -404,8 +411,10 @@ try
         // Stricter rate limiting for authentication endpoints
         options.AddPolicy("auth", httpContext =>
         {
+            var rateLimitSettings = GetLiveRateLimitSettings(httpContext);
+
             if (IsRateLimitWhitelisted(httpContext, rateLimitSettings))
-                return RateLimitPartition.GetNoLimiter(GetIpPartitionKey(httpContext));
+                return RateLimitPartition.GetNoLimiter(GetIpPartitionKey(httpContext, rateLimitSettings));
 
             return RateLimitPartition.GetFixedWindowLimiter(
                 GetClientPartitionKey(httpContext, rateLimitSettings, apiKeyRateLimitPartitions),
@@ -421,8 +430,10 @@ try
         // Sliding window for API endpoints
         options.AddPolicy("api", httpContext =>
         {
+            var rateLimitSettings = GetLiveRateLimitSettings(httpContext);
+
             if (IsRateLimitWhitelisted(httpContext, rateLimitSettings))
-                return RateLimitPartition.GetNoLimiter(GetIpPartitionKey(httpContext));
+                return RateLimitPartition.GetNoLimiter(GetIpPartitionKey(httpContext, rateLimitSettings));
 
             var apiRateLimitValues = GetApiRateLimitValues(httpContext, rateLimitSettings);
 
@@ -442,6 +453,7 @@ try
         options.OnRejected = async (context, cancellationToken) =>
         {
             var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+            var rateLimitSettings = GetLiveRateLimitSettings(context.HttpContext);
             var apiRateLimitValues = GetApiRateLimitValues(context.HttpContext, rateLimitSettings);
             logger.LogWarning("Rate limit exceeded for client: {ClientPartition}, IP: {IpAddress}, Path: {Path}",
                 GetApiPartitionKey(context.HttpContext, rateLimitSettings, apiKeyRateLimitPartitions),
@@ -943,6 +955,21 @@ try
                     string.Join("; ", backfillResult.Errors.Select(error => error.Description)));
             }
 
+            // Load the stored rate limits before the first request rather than on the first stale
+            // read. The limiter builds a client's partition once, from whatever limits are current
+            // at that moment, so a cold start that served its first requests off the configured
+            // values would hold those clients to them until their partition was evicted - an
+            // operator's change quietly not applying to exactly the callers already hammering the
+            // API. A failure here is not fatal: the configured limits are a working fallback.
+            try
+            {
+                await services.GetRequiredService<IRateLimitConfigStore>().ReloadAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Could not load stored rate limits at startup; using the configured limits.");
+            }
+
             // Wire up the reserved quantity provider to the batch validation service
             // This is done after construction to avoid circular dependency
             var batchValidation = services.GetRequiredService<IBatchInventoryValidationService>();
@@ -1158,7 +1185,7 @@ static string GetClientPartitionKey(
             && keyConfig.ExpiresAt.Value >= DateTime.UtcNow)
         {
             var keyName = string.IsNullOrWhiteSpace(keyConfig.Name) ? "unnamed" : keyConfig.Name;
-            return $"api-key:{keyName}";
+            return $"{settings.Fingerprint()}|api-key:{keyName}";
         }
     }
 
@@ -1169,13 +1196,13 @@ static string GetClientPartitionKey(
             ?? httpContext.User.Identity.Name;
 
         if (!string.IsNullOrWhiteSpace(userId))
-            return $"user:{userId}";
+            return $"{settings.Fingerprint()}|user:{userId}";
     }
 
     if (settings.EnableIpRateLimiting)
-        return GetIpPartitionKey(httpContext);
+        return GetIpPartitionKey(httpContext, settings);
 
-    return "anonymous";
+    return $"{settings.Fingerprint()}|anonymous";
 }
 
 static string GetApiPartitionKey(
@@ -1202,10 +1229,11 @@ static (int PermitLimit, int WindowSeconds, int QueueLimit) GetApiRateLimitValue
         QueueLimit: Math.Max(settings.QueueLimit * 50, 200));
 }
 
-static string GetIpPartitionKey(HttpContext httpContext)
+static string GetIpPartitionKey(HttpContext httpContext, RateLimitSettings settings)
 {
     var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
-    return string.IsNullOrWhiteSpace(ipAddress) ? "ip:unknown" : $"ip:{ipAddress}";
+    var key = string.IsNullOrWhiteSpace(ipAddress) ? "ip:unknown" : $"ip:{ipAddress}";
+    return $"{settings.Fingerprint()}|{key}";
 }
 
 static bool IsHighThroughputApiPath(PathString path)
@@ -1219,8 +1247,25 @@ static bool IsHighThroughputApiPath(PathString path)
             && value.EndsWith("/pod", StringComparison.OrdinalIgnoreCase));
 }
 
+// The limits in force right now, rather than the ones configured at startup, so a change made
+// through PUT /api/RateLimit/config takes effect without a restart. Reads a cached snapshot: no
+// database work happens here.
+static RateLimitSettings GetLiveRateLimitSettings(HttpContext httpContext) =>
+    httpContext.RequestServices.GetRequiredService<IRateLimitConfigStore>().Current;
+
 static bool IsRateLimitWhitelisted(HttpContext httpContext, RateLimitSettings settings)
 {
+    if (settings.ApiKeyWhitelist.Count > 0
+        && httpContext.Request.Headers.TryGetValue("X-API-Key", out var apiKeyHeaderValues))
+    {
+        var apiKey = apiKeyHeaderValues.FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(apiKey)
+            && settings.ApiKeyWhitelist.Contains(apiKey, StringComparer.Ordinal))
+        {
+            return true;
+        }
+    }
+
     if (settings.IpWhitelist.Count == 0)
         return false;
 

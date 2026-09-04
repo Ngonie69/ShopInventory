@@ -2349,8 +2349,8 @@ The `signature` is an HMAC-SHA256 of the payload body using the webhook secret.
 | POST | `/api/RateLimit/reset/{clientId}` | `users.edit` | Clear a client's counter **without** lifting a block |
 | GET | `/api/RateLimit/blocked` | `users.edit` | Every client currently blocked |
 | GET | `/api/RateLimit/stats` | `users.edit` | Totals across all clients |
-| GET | `/api/RateLimit/config` | `users.edit` | The limits this process is applying |
-| PUT | `/api/RateLimit/config` | `users.edit` | Reports success and changes nothing — see below |
+| GET | `/api/RateLimit/config` | `users.edit` | The limits in force |
+| PUT | `/api/RateLimit/config` | `users.edit` | Change them, without a restart — see below |
 | POST | `/api/RateLimit/cleanup` | `users.edit` | Clear expired counters |
 
 Rate limit administration is gated on `users.edit`, not on a rate-limit permission of its own —
@@ -2365,22 +2365,47 @@ unfairly — a retry storm, a batch job — where the block has not landed yet; 
 is already shut out. Both `404` on a client id that has no rate limit row, which is the answer for a
 client that has never been counted.
 
-##### `GET config` reads the process, `PUT config` does not write it
+##### `config` changes the limiter that actually returns 429
 
-`GET` returns what this process is applying, read from `RateLimit:MaxRequests`,
-`RateLimit:WindowSeconds` and `RateLimit:BlockDurationMinutes` in configuration (defaults 100, 60,
-15).
+`GET` returns the limits in force. `PUT` changes them: the values are stored in `SystemConfigs` and
+picked up by the ASP.NET Core rate limiter — the one that rejects requests — **without a restart**.
 
-`PUT` answers `200 {"message": "Rate limit configuration updated successfully"}` and has **no effect
-on any later request**. `IRateLimitService` is registered `AddScoped`, and the three limits are
-instance fields on it, so the PUT mutates the instance serving that one request and that instance is
-disposed with it. The next request builds a fresh one from configuration again. Change the limits in
-configuration and restart; do not reach for this endpoint, and do not read a success from it as the
-limits having moved.
+This is what the limits map onto:
 
-Three fields on `RateLimitConfigDto` are not wired to anything either: `isEnabled` is hardcoded
-`true` on the way out, and `whitelistedIPs` and `whitelistedApiKeys` always come back empty whatever
-was sent. Rate limiting cannot be turned off, and nothing can be whitelisted, through this API.
+| Field | Effect |
+|-------|--------|
+| `maxRequests` | Requests per client per window before `429`, on the `fixed` and `api` policies |
+| `windowSizeSeconds` | Length of that window |
+| `isEnabled` | `false` stops partitioning unauthenticated callers **per IP** — see the warning below |
+| `whitelistedIPs` | Addresses exempt from rate limiting entirely |
+| `whitelistedApiKeys` | `X-API-Key` values exempt from rate limiting. Exempts from *throttling* only, and grants no access: a key still has to be a real one under `Security:ApiKeys` to authenticate |
+| `blockDurationMinutes` | How long `/api/RateLimit` blocks a client for. Does **not** affect the ASP.NET Core limiter, which does not block |
+
+The stricter limit protecting the `auth` endpoints, and the queue depth, are deliberately **not**
+settable here — they are deployment settings, and a write that never mentioned them leaves them
+alone rather than resetting them.
+
+**`isEnabled: false` widens the limit, it does not remove it.** With IP partitioning off, every
+unauthenticated caller shares a single `anonymous` bucket — one limit for the whole internet, which
+the first bot exhausts for every real customer. It is a diagnostic setting, not an off switch.
+
+**A change gives every client a fresh window.** The limiter builds a client's partition once and
+caches it, so the settings are folded into the partition key: changed settings mean a new partition
+built with the new limits. That is what makes a change reach a client already being throttled — the
+one it is usually being made for — at the cost of resetting everyone's current window. Limits move
+rarely; a change that silently failed to apply would be worse.
+
+**Propagation is not instant.** Each instance re-reads at most every 10 seconds, so allow that long
+for a change to take everywhere. The instance that served the `PUT` applies it immediately.
+
+**Refusals.** `maxRequests` outside 1–1,000,000, `windowSizeSeconds` outside 1–86,400,
+`blockDurationMinutes` outside 0–43,200, or a `whitelistedIPs` entry that is not an IP address, are
+refused with `400 RateLimit.InvalidConfiguration` and nothing is written. The bounds are not taste:
+a permit limit of `0` makes the limiter throw while building a partition — on the request path, for
+every request — so saving one would take the API down and no restart would clear it.
+
+With nothing ever set, the configured values apply: `RateLimit:PermitLimit`,
+`RateLimit:WindowSeconds` (defaults 100 and 60) and `blockDurationMinutes` 15.
 
 **Blocked clients** — `GET /api/RateLimit/blocked` returns `List<ApiRateLimitDto>`, the same shape
 the list endpoint returns, filtered to those currently blocked.
