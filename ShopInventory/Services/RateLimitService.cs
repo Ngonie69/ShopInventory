@@ -160,6 +160,26 @@ public class RateLimitService : IRateLimitService
     }
 
     public async Task<bool> UnblockClientAsync(string clientId, CancellationToken cancellationToken = default)
+        => await ClearClientAsync(clientId, "Unblocked", cancellationToken);
+
+    /// <summary>
+    /// Give a client a clean slate: counter zeroed, window restarted, block lifted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Shared by <see cref="UnblockClientAsync"/> and <see cref="ResetClientAsync"/> because they
+    /// mean the same thing to whoever calls them - let this client through again. They used to
+    /// differ: reset zeroed the counter and left <c>IsBlocked</c> set, so resetting a blocked client
+    /// left it blocked, which is the one case anybody reaches for reset in. One implementation so
+    /// the two cannot drift apart again.
+    /// </para>
+    /// <para>
+    /// <c>TotalBlockedCount</c> is deliberately untouched. It is the client's history - how often it
+    /// has had to be stopped - and clearing it on every reset would erase the pattern that says a
+    /// client needs a conversation rather than another reset.
+    /// </para>
+    /// </remarks>
+    private async Task<bool> ClearClientAsync(string clientId, string action, CancellationToken cancellationToken)
     {
         var limit = await _context.ApiRateLimits
             .FirstOrDefaultAsync(r => r.ClientId == clientId, cancellationToken);
@@ -174,7 +194,7 @@ public class RateLimitService : IRateLimitService
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation("Unblocked client {ClientId}", clientId);
+        _logger.LogInformation("{Action} client {ClientId}", action, clientId);
         return true;
     }
 
@@ -316,18 +336,7 @@ public class RateLimitService : IRateLimitService
     }
 
     public async Task<bool> ResetClientAsync(string clientId, CancellationToken cancellationToken = default)
-    {
-        var limit = await _context.ApiRateLimits
-            .FirstOrDefaultAsync(r => r.ClientId == clientId, cancellationToken);
-
-        if (limit == null)
-            return false;
-
-        limit.RequestCount = 0;
-        limit.WindowStart = DateTime.UtcNow;
-        await _context.SaveChangesAsync(cancellationToken);
-        return true;
-    }
+        => await ClearClientAsync(clientId, "Reset", cancellationToken);
 
     public async Task<List<ApiRateLimitDto>> GetBlockedClientsAsync(CancellationToken cancellationToken = default)
     {

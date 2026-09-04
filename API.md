@@ -2346,7 +2346,7 @@ The `signature` is an HMAC-SHA256 of the payload body using the webhook secret.
 | GET | `/api/RateLimit/check` | ApiAccess | Check if request would be allowed (non-incrementing) |
 | POST | `/api/RateLimit/block/{clientId}` | `users.edit` | Block a client |
 | POST | `/api/RateLimit/unblock/{clientId}` | `users.edit` | Unblock one |
-| POST | `/api/RateLimit/reset/{clientId}` | `users.edit` | Clear a client's counter **without** lifting a block |
+| POST | `/api/RateLimit/reset/{clientId}` | `users.edit` | Clear a client — same as `unblock` |
 | GET | `/api/RateLimit/blocked` | `users.edit` | Every client currently blocked |
 | GET | `/api/RateLimit/stats` | `users.edit` | Totals across all clients |
 | GET | `/api/RateLimit/config` | `users.edit` | The limits in force |
@@ -2356,14 +2356,21 @@ The `signature` is an HMAC-SHA256 of the payload body using the webhook secret.
 Rate limit administration is gated on `users.edit`, not on a rate-limit permission of its own —
 there isn't one.
 
-##### `reset/{clientId}` is not `unblock/{clientId}`
+##### `reset/{clientId}` and `unblock/{clientId}` do the same thing
 
-`reset` zeroes `requestCount` and restarts the window, and that is all: `isBlocked` and
-`blockExpiresAt` are left where they were, so **resetting a blocked client leaves it blocked**.
-`unblock` clears the block *and* zeroes the counter. Reset is for a client whose window filled
-unfairly — a retry storm, a batch job — where the block has not landed yet; unblock is for one that
-is already shut out. Both `404` on a client id that has no rate limit row, which is the answer for a
-client that has never been counted.
+Both give the client a clean slate: `requestCount` zeroed, the window restarted, and `isBlocked` /
+`blockExpiresAt` cleared. They are one implementation, so they cannot drift apart.
+
+`reset` used to zero the counter and leave the block in place, so **resetting a blocked client left
+it blocked** — the one state anybody reaches for reset in. An operator clearing a client and
+watching it stay shut out cannot tell a broken endpoint from a client that is still hammering the
+API.
+
+`totalBlockedCount` survives both. It is the client's history rather than its current state, and it
+is what says a client needs a conversation rather than another reset.
+
+Both `404` on a client id that has no rate limit row, which is the answer for a client that has
+never been counted — neither creates one.
 
 ##### `config` changes the limiter that actually returns 429
 
