@@ -17,14 +17,22 @@
     an answer that reads like data rather than like a broken URL.
 
     This parses the real routes out of the controllers ([Route] on the class plus the [Http*]
-    attributes on each action), parses the catalogues, and diffs the two. Both directions fail:
+    attributes on each action), parses the catalogues, and diffs the two. Three ways to fail:
 
       * a catalogue claim no route serves, or that names the wrong verb  -> failure
       * a real route no catalogue lists                                  -> failure
+      * a real route API.md does not list, whatever the others say       -> failure
 
     The second was reporting-only until every route was documented; now that the gap is closed,
     holding it closed is the cheap half. A route nobody documents is a route nobody can find, and
     the only moment anyone reliably knows it exists is the moment it is written.
+
+    The third exists because the second is weaker than it looks. Coverage pools the catalogues, so a
+    route listed anywhere counts - and ApiExplorer.razor is generated from these same controllers,
+    so it lists very nearly everything API.md could ever drop. Deleting API.md's whole "### Shops"
+    section left the run green, every /api/Shops route still "documented" by the explorer (measured
+    2026-09-04). API.md is the reference, so it is also checked alone, against $MustBeComplete and
+    the $CoverageBaseline of what it did not document on the day that became a gate.
 
     An entry is anything a catalogue states as an endpoint:
       * a markdown line with an HTTP verb before the path (table rows and prose both qualify)
@@ -40,9 +48,11 @@
     parser that silently matches nothing and a clean catalogue look identical otherwise.
 
 .PARAMETER AllowUndocumented
-    Report routes that no catalogue lists without failing on them. For a local run mid-refactor,
-    when you want to know whether what is written is still *true* before you have finished writing
-    the new entries. CI never passes this, so a route cannot merge undocumented.
+    Report routes that no catalogue lists, and routes missing from a catalogue that must be
+    complete, without failing on either. For a local run mid-refactor, when you want to know whether
+    what is written is still *true* before you have finished writing the new entries. CI never
+    passes this, so a route cannot merge undocumented. It does not excuse a stale $CoverageBaseline:
+    that is a list which has stopped describing the work left to do, not work left to do.
 
 .PARAMETER ShowMentions
     Also list catalogue paths that were parsed but not treated as entries.
@@ -88,6 +98,49 @@ $Catalogues    = @(
     'ShopInventory.Web/Components/Pages/ApiExplorer.razor',
     'ShopInventory.Web/README.md'
 )
+
+# Catalogues that have to document every route *on their own*.
+#
+# Coverage used to pool all three: a route listed in any one of them counted as documented. That
+# made API.md unguarded, because ApiExplorer.razor is generated from the same controllers and so
+# very nearly always lists whatever API.md drops. Deleting API.md's entire "### Shops" section left
+# every /api/Shops route covered by the explorer and the run stayed green - measured 2026-09-04 as a
+# negative control while de-duplicating API.md, which is exactly the edit this script should catch.
+#
+# API.md is the API reference. A route it does not describe is undocumented whatever the generated
+# explorer happens to list, so it is checked alone.
+#
+# The other two are deliberately partial and are not gates. ApiExplorer.razor lists what the admin
+# explorer can exercise, which excludes the /health/* probes (minimal-API) and /hubs/notifications
+# (a SignalR hub). ShopInventory.Web/README.md is the Web project's own table and documents only the
+# routes that project calls.
+$MustBeComplete = @('API.md')
+
+# Routes API.md did not document when it became a gate (2026-09-04). Naming them keeps the gate on
+# for everything else instead of leaving it off until they are written.
+#
+# The list may only shrink. Documenting a route and leaving it here fails the run, as does listing
+# one that is no longer a route, so it cannot quietly go stale. Do not add to it: a new route goes
+# in API.md, which is the moment anyone reliably knows it exists.
+$CoverageBaseline = @{
+    'API.md' = @(
+        'api/auth/login/two-factor',
+        'api/businesspartner/batch',
+        'api/businesspartner/groups',
+        'api/businesspartner/paymentterms/{}',
+        'api/inventorytransfer/request',
+        'api/ratelimit/blocked',
+        'api/ratelimit/config',
+        'api/ratelimit/reset/{}',
+        'api/ratelimit/stats',
+        'api/statement/{}',
+        'api/statement/{}/pdf',
+        'api/twofactor/backup-codes/regenerate',
+        'api/twofactor/enable',
+        'api/useractivity/entity/{}/{}',
+        'api/useractivity/filter-options'
+    )
+}
 
 # Paths that are somebody else's API. API.md documents the ZIMRA FDMS platform at
 # fiscal.kefaloscheese.com under "Platform endpoint" because this API calls it as a client; those
@@ -362,6 +415,9 @@ $reviews   = @()
 $failures  = @()
 $allBases  = @()
 $entryPaths = New-Object 'System.Collections.Generic.HashSet[string]'
+# The same paths again, kept per catalogue, so a catalogue in $MustBeComplete can be asked what it
+# covers by itself rather than what the three of them cover between them.
+$coverageBy = @{}
 $checked   = 0
 
 foreach ($catalogue in $Catalogues) {
@@ -370,6 +426,9 @@ foreach ($catalogue in $Catalogues) {
         Write-Warning "Catalogue not found: $catalogue"
         continue
     }
+
+    $covers = New-Object 'System.Collections.Generic.HashSet[string]'
+    $coverageBy[$catalogue] = $covers
 
     $parsed = Get-CatalogueEntries -Text $text -File $catalogue
     $allBases += $parsed.Bases
@@ -380,6 +439,7 @@ foreach ($catalogue in $Catalogues) {
         if (-not $key) { continue }
         if ($ExternalPaths -contains $key) { continue }
         [void]$entryPaths.Add($key)
+        [void]$covers.Add($key)
 
         if (-not $realRoutes.Contains($key)) {
             $bound = Get-ParameterBoundRoute $key
@@ -413,6 +473,7 @@ foreach ($catalogue in $Catalogues) {
         if (-not $key) { continue }
         if ($ExternalPaths -contains $key) { continue }
         [void]$entryPaths.Add($key)
+        [void]$covers.Add($key)
 
         $servesSomething = $false
         foreach ($real in $realRoutes.Keys) {
@@ -432,7 +493,7 @@ foreach ($catalogue in $Catalogues) {
     # "GET" beside it to satisfy the parser would document it as something it is not.
     foreach ($mention in $parsed.Mentions) {
         $key = ConvertTo-NormalisedRoute $mention.Path
-        if ($key) { [void]$entryPaths.Add($key) }
+        if ($key) { [void]$entryPaths.Add($key); [void]$covers.Add($key) }
     }
 
     if ($ShowMentions -and $parsed.Mentions.Count -gt 0) {
@@ -477,6 +538,70 @@ if ($undocumented.Count -gt 0) {
     }
 }
 
+# Per-catalogue coverage, for the catalogues that have to stand on their own. Pooled coverage above
+# cannot see a whole section deleted out of API.md while the generated explorer still lists the same
+# routes; this can. Baseline entries are excused, and the baseline itself is checked for rot.
+$missingFromRequired = @()
+$staleBaseline       = @()
+
+foreach ($catalogue in $MustBeComplete) {
+    # A gate that quietly switches itself off is worse than no gate. Both ways that could happen -
+    # the name drifting out of $Catalogues, and the file being missing or unreadable at $Ref - stop
+    # the run rather than passing it.
+    if ($Catalogues -notcontains $catalogue) {
+        throw "$catalogue is in `$MustBeComplete but not in `$Catalogues, so it is never parsed."
+    }
+    if (-not $coverageBy.ContainsKey($catalogue)) {
+        throw "$catalogue must be complete, but it could not be read - its coverage is unknown, not zero."
+    }
+    $covers   = $coverageBy[$catalogue]
+    $baseline = @()
+    if ($CoverageBaseline.ContainsKey($catalogue)) { $baseline = @($CoverageBaseline[$catalogue]) }
+
+    $missing = @()
+    foreach ($key in $realRoutes.Keys) {
+        if ($covers.Contains($key)) { continue }
+        if ($baseline -contains $key) { continue }
+        $missing += $key
+    }
+    if ($missing.Count -gt 0) {
+        $missingFromRequired += [pscustomobject]@{ File = $catalogue; Routes = @($missing | Sort-Object) }
+    }
+
+    # A baseline entry that is now documented, or that names a route no longer on a controller, has
+    # done its job. Failing on it is what stops the list drifting into a permanent excuse.
+    foreach ($key in $baseline) {
+        if ($covers.Contains($key)) {
+            $staleBaseline += [pscustomobject]@{ File = $catalogue; Route = $key; Why = 'now documented' }
+        }
+        elseif (-not $realRoutes.Contains($key)) {
+            $staleBaseline += [pscustomobject]@{ File = $catalogue; Route = $key; Why = 'no longer a route' }
+        }
+    }
+}
+
+foreach ($group in $missingFromRequired) {
+    $colour = if ($AllowUndocumented) { 'Yellow' } else { 'Red' }
+    Write-Host ''
+    Write-Host ("Routes {0} does not document: {1}" -f $group.File, $group.Routes.Count) -ForegroundColor $colour
+    Write-Host ("  {0} is the API reference and is checked on its own - another catalogue listing these does not count." -f $group.File) -ForegroundColor DarkGray
+    foreach ($route in $group.Routes) {
+        Write-Host ("  {0,-10} /{1}" -f (($realRoutes[$route].Verbs | Sort-Object) -join ','), $route) -ForegroundColor $colour
+    }
+    if ($AllowUndocumented) {
+        Write-Host '  (-AllowUndocumented: reported, not failed on)' -ForegroundColor DarkGray
+    }
+}
+
+if ($staleBaseline.Count -gt 0) {
+    Write-Host ''
+    Write-Host ("Coverage baseline entries to delete: {0}" -f $staleBaseline.Count) -ForegroundColor Red
+    Write-Host '  The baseline may only shrink. Remove each of these from $CoverageBaseline in this script.' -ForegroundColor DarkGray
+    foreach ($entry in ($staleBaseline | Sort-Object File, Route)) {
+        Write-Host ("  {0,-8} /{1,-45} {2}" -f $entry.File, $entry.Route, $entry.Why) -ForegroundColor Red
+    }
+}
+
 if ($reviews.Count -gt 0) {
     Write-Host ''
     Write-Host ("Claims that reach a route only by binding a literal to a route parameter: {0}" -f $reviews.Count) -ForegroundColor Yellow
@@ -498,14 +623,20 @@ if ($failures.Count -gt 0) {
     }
 }
 
-$coverageFails = $undocumented.Count -gt 0 -and -not $AllowUndocumented
+$requiredMissing = ($missingFromRequired | ForEach-Object { $_.Routes.Count } | Measure-Object -Sum).Sum
+if (-not $requiredMissing) { $requiredMissing = 0 }
+
+# A stale baseline always fails: -AllowUndocumented excuses work not yet done, not a list that has
+# stopped telling the truth about which work that is.
+$coverageFails = (($undocumented.Count -gt 0 -or $requiredMissing -gt 0) -and -not $AllowUndocumented) -or
+                 $staleBaseline.Count -gt 0
 
 if ($failures.Count -eq 0 -and -not $coverageFails) {
     Write-Host ''
-    if ($undocumented.Count -gt 0) {
+    if ($undocumented.Count -gt 0 -or $requiredMissing -gt 0) {
         # -AllowUndocumented was passed. Say what actually held, not what would have.
-        Write-Host ("Every catalogue claim is served by a route. {0} route(s) still undocumented." -f
-            $undocumented.Count) -ForegroundColor Yellow
+        Write-Host ("Every catalogue claim is served by a route. {0} route(s) documented nowhere, {1} missing from a catalogue that must be complete." -f
+            $undocumented.Count, $requiredMissing) -ForegroundColor Yellow
     }
     else {
         Write-Host 'Every catalogue claim is served by a route, and every route is documented.' -ForegroundColor Green
