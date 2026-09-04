@@ -19,6 +19,7 @@
 - If no API version is supplied, the server uses version `1.0`
 - Clients can request a specific API version with the `X-API-Version` header or the `api-version` query string
 - Breaking contract changes must be introduced in a new API version; existing version `1.0` endpoints remain supported for current clients
+- Changes a caller has to act on are recorded in [CHANGELOG.md](CHANGELOG.md), including any that departed from the rule above
 
 Examples:
 
