@@ -1,0 +1,589 @@
+/* ==========================================================================
+   Nocturne picker — Components/NocturnePicker.razor
+
+   Shared rather than page-scoped, for the reason nocturne-select.css is: this
+   dresses one control that any Nocturne page can drop in, and a component
+   cannot see a page's own `--<page>-*` tokens from inside itself. So it carries
+   its own `npick-` prefix and takes its values from nocturne-tokens.css, the
+   same place the page sheets take theirs.
+
+   ── What this is, next to nocturne-select.css ──
+   The same object, drawn for a list that cannot be read by eye. NocturneSelect
+   is for six statuses; this is for several thousand business partners, where
+   the menu has to open on a search box and draw only what the search leaves.
+   The two share a palette and a shape on purpose — a page using both should
+   look like it uses one control — so the trigger's metrics here are
+   nocturne-select.css's, value for value.
+
+   Two page-scoped ancestors do a version of this and neither could be reused:
+   `ofx-pick-` in order-fulfillment.css and `sla-pick-` in sales-analysis.css
+   read `--ofx-*` and `--sla-*` off their own page roots, so each renders
+   unstyled anywhere else. That is what made the second a copy of the first, and
+   it is the thing this sheet exists to stop happening a third time.
+
+   ── Fitting the host page ──
+   The menu is meant to be the same object everywhere; the closed trigger is
+   not. Each page sheet sets its own height, type size and edge for the controls
+   in a form row, and a picker two pixels taller than the field beside it reads
+   as a mistake rather than a design. So the values that actually differ between
+   sheets are read through `var()` fallbacks, and a page tunes them from its
+   root:
+
+       .shop { --npick-h: 38px; --npick-fs: 13px; }
+
+   They are fallbacks rather than declarations on `.npick` on purpose: a value
+   set on `.npick` itself would beat one inherited from the page root, and the
+   page could never win. Nothing below the trigger is reachable this way — the
+   menu is the design being standardised, so it is not up for negotiation.
+
+   Tunable: --npick-h, --npick-pad-y, --npick-pad-x, --npick-fs, --npick-radius,
+   --npick-fill, --npick-edge, --npick-edge-hi, --npick-min-w, --npick-menu-w.
+
+   Every control selector is two classes deep (`.npick .npick-btn`) to
+   out-specify app.css's global `.dark-theme input, .dark-theme select,
+   .dark-theme button` block, which would otherwise repaint the trigger and the
+   search box #1e293b regardless of load order — MudBlazor's sheet lands after
+   this one, so specificity is what decides, not source order.
+   ========================================================================== */
+
+.npick {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values. */
+    --npick-surface: var(--noct-surface);
+    --npick-ink: var(--noct-ink);
+    --npick-mute: var(--noct-mute);
+    --npick-mute-2: var(--noct-mute-2);
+    --npick-mute-3: var(--noct-mute-3);
+    --npick-faint: var(--noct-faint);
+    --npick-placeholder: var(--noct-placeholder);
+    --npick-divider: var(--noct-divider);
+    --npick-rule: var(--noct-rule);
+    --npick-hover: var(--noct-hover);
+    --npick-field-bg: var(--noct-field-bg);
+    --npick-field-edge: var(--noct-field-edge);
+    --npick-accent: var(--noct-accent);
+    --npick-accent-rgb: var(--noct-accent-rgb);
+    --npick-accent-text: var(--noct-accent-text);
+    --npick-bad: var(--noct-fam-bad);
+    --npick-bad-rgb: var(--noct-fam-bad-rgb);
+    --npick-shadow: var(--noct-shadow-pop);
+
+    --npick-r-sm: var(--noct-r-sm);
+    --npick-r-md: var(--noct-r-md);
+    --npick-r-lg: var(--noct-r-lg);
+
+    position: relative;
+    display: inline-flex;
+    /* A form row usually lays these out with the fields, so the wrapper has to
+       be able to stretch and shrink like one. */
+    max-width: 100%;
+    /* Page roots are min-height: 100vh; a wrapper that inherited it would hang a
+       viewport tall. Stated here so no call site has to remember. */
+    min-height: 0;
+    vertical-align: middle;
+}
+
+.npick * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix, which would flatten the accent ink on the chosen row in WebKit. */
+.npick,
+.npick * {
+    -webkit-text-fill-color: currentColor;
+}
+
+/* With the menu up the control has to out-stack the rows beneath it. */
+.npick-open {
+    z-index: 40;
+}
+
+/* ── The trigger ─────────────────────────────────────────────────────────── */
+
+.npick .npick-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--noct-s2);
+    width: 100%;
+    min-width: var(--npick-min-w, 150px);
+    max-width: 100%;
+    min-height: var(--npick-h, 34px);
+    padding: var(--npick-pad-y, 7px) var(--npick-pad-x, 12px);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: var(--npick-fs, 13px);
+    font-weight: 500;
+    line-height: 1.3;
+    text-align: left;
+    color: var(--npick-mute);
+    background: var(--npick-fill, var(--npick-field-bg));
+    background-image: none;
+    border: 1px solid var(--npick-edge, transparent);
+    border-radius: var(--npick-radius, var(--npick-r-md));
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s, color .15s;
+}
+
+.npick .npick-btn:hover:not(:disabled) {
+    color: var(--npick-ink);
+    border-color: var(--npick-edge-hi, var(--npick-field-edge));
+}
+
+.npick .npick-btn:focus-visible {
+    border-color: rgba(var(--npick-accent-rgb), .55);
+    outline: 2px solid var(--npick-accent);
+    outline-offset: 0;
+}
+
+.npick .npick-btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+/* Open and chosen are separate states and have to read differently. Open is
+   transient — an accent ring while the menu is up. Chosen persists after the
+   menu shuts, which is what lets someone see at a glance that a required field
+   has been answered. */
+.npick-open .npick-btn {
+    color: var(--npick-ink);
+    background: var(--npick-hover);
+    border-color: rgba(var(--npick-accent-rgb), .55);
+}
+
+.npick .npick-btn.npick-set {
+    color: var(--npick-ink);
+}
+
+/* The page owns the message; this owns the edge. */
+.npick .npick-btn.npick-bad,
+.npick .npick-btn.npick-bad:hover:not(:disabled) {
+    border-color: rgba(var(--npick-bad-rgb), .7);
+}
+
+/* Room for the clear button, which sits over the trigger's trailing edge. */
+.npick .npick-btn.npick-set {
+    padding-right: calc(var(--npick-pad-x, 12px) + 20px);
+}
+
+.npick-value {
+    display: flex;
+    align-items: baseline;
+    gap: var(--noct-s2);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* The code first and in accent ink: it is the identifier, it is short, and it
+   is what an operator who knows the answer is checking. The name follows in
+   muted ink and gives up its width first when the row is narrow. */
+.npick-code {
+    flex: none;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--npick-accent-text);
+    white-space: nowrap;
+}
+
+.npick-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--npick-mute);
+}
+
+/* A stored code the list does not hold — see NocturnePicker's trigger. Warned
+   rather than muted, because the row is not in the state the page thinks. */
+.npick-gone {
+    flex: none;
+    font-size: .85em;
+    font-style: italic;
+    color: var(--noct-warn-ink);
+}
+
+.npick-placeholder {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--npick-placeholder);
+    font-weight: 500;
+}
+
+.npick-caret {
+    flex: none;
+    color: var(--npick-mute-3);
+    transition: transform .18s ease, color .15s;
+}
+
+.npick-open .npick-caret {
+    transform: rotate(180deg);
+    color: var(--npick-accent);
+}
+
+/* Absolute rather than a third flex child: it belongs to the trigger visually
+   but cannot live inside it — a button inside a button is not parseable, and
+   the browser's repair lifts it somewhere the layout does not expect. */
+.npick .npick-clear {
+    position: absolute;
+    top: 50%;
+    right: calc(var(--npick-pad-x, 12px) + 15px);
+    transform: translateY(-50%);
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    color: var(--npick-mute-3);
+    background: transparent;
+    border: 0;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: color .12s, background-color .12s;
+}
+
+.npick .npick-clear:hover {
+    color: var(--npick-ink);
+    background: var(--npick-hover);
+}
+
+.npick .npick-clear:focus-visible {
+    outline: 2px solid var(--npick-accent);
+    outline-offset: 1px;
+}
+
+/* ── The menu ────────────────────────────────────────────────────────────── */
+
+/* Outside-click target. A transparent sheet under the menu costs one element
+   and keeps the close entirely in Blazor — no document listener to register per
+   render and unregister on dispose. */
+.npick-veil {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+}
+
+.npick-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 61;                          /* above the veil */
+    display: flex;
+    flex-direction: column;
+    min-width: 100%;                      /* never narrower than its trigger */
+    width: var(--npick-menu-w, 340px);
+    max-width: min(92vw, 460px);
+    padding: var(--noct-s2);
+    border: 1px solid var(--npick-divider);
+    border-radius: var(--npick-r-lg);
+    background: var(--npick-surface);      /* opaque: the whole point */
+    box-shadow: var(--npick-shadow);
+    animation: npick-rise .14s ease-out;
+}
+
+/* On the last control in a row a left-anchored menu runs off the edge. */
+.npick-end .npick-menu {
+    left: auto;
+    right: 0;
+}
+
+/* ── The search box ──────────────────────────────────────────────────────── */
+
+/* Pinned above the list rather than scrolling with it: it is the control, and a
+   search box that scrolls away is one the operator has to go back for. */
+.npick-search {
+    position: relative;
+    flex: none;
+    display: flex;
+    align-items: center;
+    margin-bottom: var(--noct-s2);
+}
+
+.npick-search-icon {
+    position: absolute;
+    left: 9px;
+    color: var(--npick-mute-3);
+    pointer-events: none;
+}
+
+.npick .npick-search-input {
+    width: 100%;
+    padding: 7px 10px 7px 28px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--npick-ink);
+    background: var(--npick-field-bg);
+    border: 1px solid var(--npick-field-edge);
+    border-radius: var(--npick-r-sm);
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.npick .npick-search-input::placeholder {
+    color: var(--npick-placeholder);
+}
+
+.npick .npick-search-input:focus {
+    border-color: rgba(var(--npick-accent-rgb), .55);
+}
+
+/* The type="search" clear affordance is the browser's own control, drawn in the
+   platform's metrics and — in dark theme — in a colour nothing here can reach.
+   The picker has its own clear button on the trigger. */
+.npick .npick-search-input::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+/* ── The list ────────────────────────────────────────────────────────────── */
+
+/* The scrollport is the list, not the menu, so the search box above and the
+   count below stay put while the rows move. */
+.npick-list {
+    flex: 1;
+    min-height: 0;
+    max-height: 292px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.npick .npick-item {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s3);
+    width: 100%;
+    padding: 6px 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.35;
+    text-align: left;
+    color: var(--npick-mute);
+    background: transparent;
+    border: 0;
+    border-radius: var(--npick-r-sm);
+    cursor: pointer;
+    transition: background-color .12s, color .12s;
+}
+
+.npick .npick-item:hover {
+    color: var(--npick-ink);
+    background: var(--npick-hover);
+}
+
+/* The keyboard highlight. It is not focus — the caret stays in the search box,
+   so the browser draws nothing and this has to. */
+.npick .npick-item.npick-active {
+    color: var(--npick-ink);
+    background: var(--npick-hover);
+    box-shadow: inset 0 0 0 1px rgba(var(--npick-accent-rgb), .45);
+}
+
+.npick .npick-item.npick-on {
+    color: var(--npick-ink);
+    background: rgba(var(--npick-accent-rgb), .13);
+}
+
+.npick-item-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+}
+
+.npick-item-name {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* Under the name, not beside it: two partners can share a name to the character
+   and differ only here, so the code needs a line the name cannot push it off. */
+.npick-item-code {
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .01em;
+    color: var(--npick-faint);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.npick .npick-item.npick-on .npick-item-code,
+.npick .npick-item.npick-active .npick-item-code {
+    color: var(--npick-accent-text);
+}
+
+.npick-item-hint {
+    flex: none;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--npick-faint);
+}
+
+.npick-tick {
+    flex: none;
+    opacity: 0;
+    color: var(--npick-accent);
+}
+
+.npick .npick-item.npick-on .npick-tick {
+    opacity: 1;
+}
+
+.npick-empty {
+    padding: 14px 10px;
+    font-size: 12.5px;
+    text-align: center;
+    color: var(--npick-faint);
+}
+
+/* ── The count ───────────────────────────────────────────────────────────── */
+
+/* A list this long has to say when it is showing only part of itself. Without
+   it a capped list reads as a complete one, and an operator whose partner is at
+   row 300 concludes the partner is not there. */
+.npick-foot {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 15px;
+    margin-top: var(--noct-s2);
+    padding: var(--noct-s2) 4px 1px;
+    border-top: 1px solid var(--npick-rule);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--npick-faint);
+}
+
+/* ── Size and layout variants ────────────────────────────────────────────── */
+
+/* Fill the cell it is laid into — a form grid, a filter row. */
+.npick-block {
+    display: flex;
+    width: 100%;
+}
+
+.npick-sm {
+    --npick-h: 30px;
+    --npick-pad-y: 5px;
+    --npick-pad-x: 10px;
+    --npick-fs: 12px;
+    --npick-min-w: 0;
+}
+
+/* Shrink to the content instead of holding a minimum. */
+.npick-auto {
+    --npick-min-w: 0;
+}
+
+/* ── The Bootstrap fit ───────────────────────────────────────────────────────
+   Several pages are still built out of Bootstrap rows, where the control beside
+   this one is a `.form-select` or `.form-control`. Those pages have no sheet of
+   their own to hold a tuning block, and there are enough of them that a copy of
+   the same seven declarations per page is worse than one variant here.
+
+   These are nocturne-select.css's `.nsel-bs` values, matched declaration for
+   declaration, so a dropdown and a picker on the same Bootstrap row line up. */
+.npick-bs {
+    --npick-h: 44px;
+    --npick-pad-y: .625rem;
+    --npick-pad-x: .875rem;
+    --npick-fs: .9375rem;
+    --npick-radius: var(--radius, .5rem);
+    --npick-fill: #fff;
+    --npick-edge: var(--border-color, #e0e0e0);
+
+    display: flex;
+    width: 100%;
+}
+
+.dark-theme .npick-bs {
+    --npick-fill: #1e293b;
+    --npick-edge: var(--border-color);
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+
+.npick-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.npick-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.npick-list::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+    background: var(--noct-thumb);
+}
+
+.npick-list {
+    scrollbar-width: thin;
+    scrollbar-color: var(--noct-thumb) transparent;
+}
+
+/* ── Motion ──────────────────────────────────────────────────────────────── */
+
+@keyframes npick-rise {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ── Narrow screens ──────────────────────────────────────────────────────── */
+
+@media (max-width: 700px) {
+    .npick {
+        flex: 1 1 auto;
+    }
+
+    .npick .npick-btn {
+        min-width: 0;
+    }
+
+    /* 16px is the smallest size iOS renders a focused control at without zooming
+       the page to meet it. The trigger is a button and is not focused for text,
+       so only the search box needs it. */
+    .npick .npick-search-input {
+        font-size: 16px;
+    }
+
+    /* A menu hung off the trailing control in a row would otherwise run off the
+       right edge. */
+    .npick:last-child .npick-menu {
+        left: auto;
+        right: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .npick-menu {
+        animation: none;
+    }
+
+    .npick-caret,
+    .npick .npick-btn,
+    .npick .npick-clear,
+    .npick .npick-item {
+        transition: none;
+    }
+}

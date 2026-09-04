@@ -43,6 +43,18 @@
     --shop-mute-3: var(--noct-mute-3);
     --shop-faint: var(--noct-faint);
     --shop-placeholder: var(--noct-placeholder);
+
+    /* The business-partner picker's closed trigger, set to .shop-field's own
+       metrics so it lines up with the code and name inputs beside it. Only the
+       trigger is tunable — the menu is the same object on every page. See
+       nocturne-picker.css. */
+    --npick-h: 38px;
+    --npick-pad-y: 0;
+    --npick-pad-x: 11px;
+    --npick-fs: 0.88rem;
+    --npick-radius: var(--noct-r-md);
+    --npick-edge: var(--noct-field-edge);
+    --npick-edge-hi: var(--noct-field-edge-hi);
     --shop-divider: var(--noct-divider);
     --shop-rule: var(--noct-rule);
     --shop-hover: var(--noct-hover);
