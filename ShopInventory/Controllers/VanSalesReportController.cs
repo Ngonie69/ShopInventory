@@ -1,10 +1,14 @@
-using MediatR;
+﻿using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Authentication;
 using ShopInventory.Common.Security;
+using ShopInventory.Features.VanSalesReports.Commands.DeleteRouteStop;
+using ShopInventory.Features.VanSalesReports.Commands.ReorderRouteStops;
 using ShopInventory.Features.VanSalesReports.Commands.SaveRoute;
+using ShopInventory.Features.VanSalesReports.Commands.SaveRouteStop;
 using ShopInventory.Features.VanSalesReports.Queries.GetDepartureComplianceReport;
+using ShopInventory.Features.VanSalesReports.Queries.GetRouteStops;
 using ShopInventory.Features.VanSalesReports.Queries.GetRoutes;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanReplenishmentReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesCoverageReport;
@@ -299,6 +303,139 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
         return await SaveAsync(id, request, cancellationToken);
     }
 
+    /// <summary>
+    /// The areas the routes work — the published schedule, a row per stop.
+    /// </summary>
+    /// <remarks>
+    /// Gated the same way as <see cref="GetRoutes"/> and for the same reason: this is reference data
+    /// with more than one unrelated caller, and gating it on van attendance alone would empty the
+    /// schedule for everyone who administers routes without overseeing vans, silently.
+    /// </remarks>
+    /// <param name="routeId">One route, or every route when omitted.</param>
+    /// <param name="includeInactive">Bring back stops dropped from the plan too.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("route-stops")]
+    [RequirePermission(
+        Permission.ViewVanSalesAttendance,
+        Permission.ViewUsers,
+        Permission.CreateMerchandiserAccounts)]
+    [ProducesResponseType(typeof(List<RouteStopDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetRouteStops(
+        [FromQuery] int? routeId = null,
+        [FromQuery] bool includeInactive = false,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetRouteStopsQuery(routeId, includeInactive),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>Adds an area to a route's plan.</summary>
+    /// <param name="request">The route, the area, and when it is worked.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpPost("route-stops")]
+    [RequirePermission(Permission.EditUsers)]
+    [ProducesResponseType(typeof(RouteStopDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CreateRouteStop(
+        [FromBody] SaveRouteStopRequest request,
+        CancellationToken cancellationToken)
+    {
+        return await SaveStopAsync(null, request, cancellationToken);
+    }
+
+    /// <summary>Edits an area on a route's plan.</summary>
+    /// <param name="id">The stop to update.</param>
+    /// <param name="request">The route, the area, and when it is worked.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpPut("route-stops/{id:int}")]
+    [RequirePermission(Permission.EditUsers)]
+    [ProducesResponseType(typeof(RouteStopDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateRouteStop(
+        int id,
+        [FromBody] SaveRouteStopRequest request,
+        CancellationToken cancellationToken)
+    {
+        return await SaveStopAsync(id, request, cancellationToken);
+    }
+
+    /// <summary>Puts one weekday's — or one cycle week's — stops into the order the van works them.</summary>
+    /// <param name="request">The heading, and its stops in their new order.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpPost("route-stops/reorder")]
+    [RequirePermission(Permission.EditUsers)]
+    [ProducesResponseType(typeof(List<RouteStopDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ReorderRouteStops(
+        [FromBody] ReorderRouteStopsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new ReorderRouteStopsCommand(
+                request.RouteId,
+                request.DayOfWeek,
+                request.WeekNumber,
+                request.AlternateSet,
+                request.StopIds ?? [],
+                UserClaimReader.GetUserId(User)),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
+    /// <summary>Drops an area from a route's plan. The row is kept and deactivated.</summary>
+    /// <param name="id">The stop to drop.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpDelete("route-stops/{id:int}")]
+    [RequirePermission(Permission.EditUsers)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteRouteStop(
+        int id,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new DeleteRouteStopCommand(id, UserClaimReader.GetUserId(User)),
+            cancellationToken);
+
+        return result.Match<IActionResult>(
+            _ => NoContent(),
+            errors => Problem(errors));
+    }
+
+    private async Task<IActionResult> SaveStopAsync(
+        int? id,
+        SaveRouteStopRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new SaveRouteStopCommand(
+                id,
+                request.RouteId,
+                request.Name,
+                request.DayOfWeek,
+                request.WeekNumber,
+                request.AlternateSet,
+                request.Sequence,
+                request.IsActive,
+                UserClaimReader.GetUserId(User)),
+            cancellationToken);
+
+        return result.Match(
+            value => Ok(value),
+            errors => Problem(errors));
+    }
+
     private async Task<IActionResult> SaveAsync(
         int? id,
         SaveRouteRequest request,
@@ -320,6 +457,39 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 }
+
+/// <summary>
+/// A planned stop as the portal submits it.
+/// </summary>
+/// <remarks>
+/// <c>DayOfWeek</c> and <c>WeekNumber</c> are both optional and mean different things by their
+/// absence: no weekday is an upcountry run that commits to a week rather than a morning, and no week
+/// is a round that repeats every week. Null in both is a stop with no schedule yet, which is a
+/// legitimate state and not an error.
+/// </remarks>
+public record SaveRouteStopRequest(
+    int RouteId,
+    string Name,
+    DayOfWeek? DayOfWeek = null,
+    int? WeekNumber = null,
+    int AlternateSet = 0,
+    int? Sequence = null,
+    bool IsActive = true);
+
+/// <summary>
+/// One heading's stops in their new order, as the portal submits them.
+/// </summary>
+/// <remarks>
+/// The heading is named the same way a stop names it — day, week and alternative set, with the same
+/// meanings for null. <c>StopIds</c> must be exactly the stops that heading holds; a partial list is
+/// refused rather than applied, because it comes from a page that has gone stale.
+/// </remarks>
+public record ReorderRouteStopsRequest(
+    int RouteId,
+    List<int> StopIds,
+    DayOfWeek? DayOfWeek = null,
+    int? WeekNumber = null,
+    int AlternateSet = 0);
 
 /// <summary>A route as the portal submits it. There is no delete: a route names historical days.</summary>
 public record SaveRouteRequest(
