@@ -66,7 +66,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
     [InlineData("UPC4", "Upc 4", "UPC", 11)]
     [InlineData("EAST", "East Truck", "Harare", 13)]
     [InlineData("WEST1", "West 1 Truck", "Harare", 9)]
-    [InlineData("WEST2", "West 2 Truck", "Harare", 10)]
+    [InlineData("WEST2", "West 2 Truck", "Harare", 9)]
     [InlineData("CBDCZA", "CBD/CZA Truck", "Harare", 11)]
     public void SeedList_HasTheRouteAndItsStopCount(string code, string name, string territory, int stops)
     {
@@ -81,7 +81,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
     public void SeedList_HasEightRoutesAndNothingElse()
     {
         Assert.Equal(8, VanSalesRouteSeedData.Routes.Count);
-        Assert.Equal(85, VanSalesRouteSeedData.Routes.Sum(route => route.Stops.Count));
+        Assert.Equal(84, VanSalesRouteSeedData.Routes.Sum(route => route.Stops.Count));
     }
 
     /// <summary>
@@ -219,7 +219,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
             .SelectMany(route => route.Stops.Select(stop => VanSalesRouteSeedData.SeedKeyOf(route.Code, stop)))
             .ToList();
 
-        Assert.Equal(85, keys.Count);
+        Assert.Equal(84, keys.Count);
         Assert.Equal(keys.Count, keys.Distinct(StringComparer.Ordinal).Count());
 
         // And the repeat that is legitimate is still there, on three separate days.
@@ -236,7 +236,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         await SeedAsync();
 
         Assert.Equal(8, await _context.Routes.CountAsync());
-        Assert.Equal(85, await _context.RouteStops.CountAsync());
+        Assert.Equal(84, await _context.RouteStops.CountAsync());
 
         var east = await _context.Routes.SingleAsync(route => route.Code == "EAST");
 
@@ -264,7 +264,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         await SeedAsync();
 
         Assert.Equal(8, await _context.Routes.CountAsync());
-        Assert.Equal(85, await _context.RouteStops.CountAsync());
+        Assert.Equal(84, await _context.RouteStops.CountAsync());
     }
 
     /// <summary>
@@ -314,7 +314,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         await SeedAsync();
 
         Assert.Equal(8, await _context.Routes.CountAsync());
-        Assert.Equal(85, await _context.RouteStops.CountAsync());
+        Assert.Equal(84, await _context.RouteStops.CountAsync());
         Assert.False(await _context.Routes.AnyAsync(r => r.Code == "WEST2"));
     }
 
@@ -336,7 +336,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         await SeedAsync();
 
         Assert.Equal(9, await _context.Routes.CountAsync());
-        Assert.Equal(85, await _context.RouteStops.CountAsync());
+        Assert.Equal(84, await _context.RouteStops.CountAsync());
 
         var seeded = await _context.Routes.SingleAsync(r => r.SeedKey == "EAST");
 
@@ -368,7 +368,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
 
         Assert.Single(epworth);
         Assert.False(epworth[0].IsActive);
-        Assert.Equal(85, await _context.RouteStops.CountAsync());
+        Assert.Equal(84, await _context.RouteStops.CountAsync());
     }
 
     /// <summary>
@@ -385,7 +385,8 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         _context.RouteStops.Remove(removed);
         await _context.SaveChangesAsync();
 
-        Assert.Equal(84, await _context.RouteStops.CountAsync());
+        // One fewer than the schedule places, which is the gap this is about.
+        Assert.Equal(83, await _context.RouteStops.CountAsync());
 
         await SeedAsync();
 
@@ -394,7 +395,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         Assert.Equal(routeId, restored.RouteId);
         Assert.Equal(2, restored.WeekNumber);
         Assert.Null(restored.DayOfWeek);
-        Assert.Equal(85, await _context.RouteStops.CountAsync());
+        Assert.Equal(84, await _context.RouteStops.CountAsync());
     }
 
     /// <summary>
@@ -442,7 +443,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         await SeedAsync();
 
         Assert.Equal(0, await _context.RouteStops.CountAsync(s => s.Name == "Waterfalls"));
-        Assert.Equal(85, await _context.RouteStops.CountAsync());
+        Assert.Equal(84, await _context.RouteStops.CountAsync());
     }
 
     /// <summary>
@@ -469,7 +470,119 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         await SeedAsync();
 
         Assert.Equal(1, await _context.RouteStops.CountAsync(s => s.Name == "Epworth"));
+        Assert.Equal(84, await _context.RouteStops.CountAsync());
+    }
+
+    /// <summary>
+    /// A key the schedule no longer places is withdrawn on the next start.
+    /// </summary>
+    /// <remarks>
+    /// Editing an entry's text in the seed list is a remove and add, not a rename — the key is
+    /// derived from the name, so the edited entry arrives as a new stop while the row placed under
+    /// the old name stays put. That is how "Domboshava Showgrounds", corrected from two stops back
+    /// into one, would have become three on any database that had already run the earlier list.
+    /// </remarks>
+    [Fact]
+    public async Task Seeder_WithdrawsAStopTheScheduleNoLongerPlaces()
+    {
+        await SeedAsync();
+        var route = await _context.Routes.SingleAsync(r => r.Code == "WEST2");
+
+        // Stand in for a database seeded before the correction: the two halves of the old split,
+        // carrying exactly the keys the retirement list names.
+        _context.RouteStops.AddRange(
+            new RouteStopEntity
+            {
+                RouteId = route.Id,
+                Name = "Domboshava",
+                DayOfWeek = DayOfWeek.Thursday,
+                AlternateSet = 0,
+                Sequence = 1,
+                IsActive = true,
+                SeedKey = "WEST2|4|-|0|DOMBOSHAVA"
+            },
+            new RouteStopEntity
+            {
+                RouteId = route.Id,
+                Name = "Showgrounds",
+                DayOfWeek = DayOfWeek.Thursday,
+                AlternateSet = 0,
+                Sequence = 2,
+                IsActive = true,
+                SeedKey = "WEST2|4|-|0|SHOWGROUNDS"
+            });
+
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        await SeedAsync();
+
+        var thursday = await _context.RouteStops
+            .AsNoTracking()
+            .Where(stop => stop.RouteId == route.Id && stop.DayOfWeek == DayOfWeek.Thursday
+                && stop.IsActive)
+            .Select(stop => stop.Name)
+            .ToListAsync();
+
+        Assert.Equal(new[] { "Domboshava Showgrounds" }, thursday);
+
+        // Withdrawn, not deleted — the same treatment every other removal gets.
+        Assert.Equal(2, await _context.RouteStops.CountAsync(stop =>
+            stop.RouteId == route.Id && stop.DayOfWeek == DayOfWeek.Thursday && !stop.IsActive));
+    }
+
+    /// <summary>
+    /// Withdrawing settles: a second start neither withdraws again nor re-places the stop.
+    /// </summary>
+    [Fact]
+    public async Task Seeder_WithdrawalIsIdempotent()
+    {
+        await SeedAsync();
+        var route = await _context.Routes.SingleAsync(r => r.Code == "WEST2");
+
+        _context.RouteStops.Add(new RouteStopEntity
+        {
+            RouteId = route.Id,
+            Name = "Showgrounds",
+            DayOfWeek = DayOfWeek.Thursday,
+            AlternateSet = 0,
+            Sequence = 9,
+            IsActive = true,
+            SeedKey = "WEST2|4|-|0|SHOWGROUNDS"
+        });
+
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        await SeedAsync();
+        await SeedAsync();
+
         Assert.Equal(85, await _context.RouteStops.CountAsync());
+        Assert.Equal(84, await _context.RouteStops.CountAsync(stop => stop.IsActive));
+    }
+
+    /// <summary>
+    /// Every retired key names a stop this list no longer places.
+    /// </summary>
+    /// <remarks>
+    /// A retirement that still matches a live entry would deactivate the stop on every start and the
+    /// page would show the round missing an area, with nothing on screen to say why. Cheap to state,
+    /// and the retirement list is edited by hand.
+    /// </remarks>
+    [Fact]
+    public void RetiredKeys_NameNothingTheScheduleStillPlaces()
+    {
+        var placed = VanSalesRouteSeedData.Routes
+            .SelectMany(route => route.Stops.Select(stop => VanSalesRouteSeedData.SeedKeyOf(route.Code, stop)))
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.All(
+            VanSalesRouteSeedData.RetiredSeedKeys,
+            key => Assert.DoesNotContain(key, placed));
+
+        Assert.Equal(
+            VanSalesRouteSeedData.RetiredSeedKeys.Count,
+            VanSalesRouteSeedData.RetiredSeedKeys.Distinct(StringComparer.Ordinal).Count());
     }
 
     // --- Editing the plan afterwards ---
@@ -589,7 +702,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         Assert.False(result.IsError);
         Assert.Equal(droppedId, result.Value.Id);
         Assert.True(result.Value.IsActive);
-        Assert.Equal(85, await _context.RouteStops.CountAsync());
+        Assert.Equal(84, await _context.RouteStops.CountAsync());
     }
 
     /// <summary>
@@ -665,7 +778,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
             CancellationToken.None);
 
         Assert.False(result.IsError);
-        Assert.Equal(85, await _context.RouteStops.CountAsync());
+        Assert.Equal(84, await _context.RouteStops.CountAsync());
         Assert.False(await _context.RouteStops.Where(s => s.Id == stop.Id).Select(s => s.IsActive).SingleAsync());
     }
 
@@ -901,7 +1014,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         var reread = await MondayAsync(route.Id);
 
         Assert.Equal(new[] { "Hatfield", "Sunningdale", "Waterfalls" }, reread.Select(s => s.Name));
-        Assert.Equal(85, await _context.RouteStops.CountAsync());
+        Assert.Equal(84, await _context.RouteStops.CountAsync());
     }
 
     private async Task<List<RouteStopEntity>> MondayAsync(int routeId)
@@ -931,8 +1044,8 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
         var visible = await QueryHandler().Handle(new GetRouteStopsQuery(), CancellationToken.None);
         var all = await QueryHandler().Handle(new GetRouteStopsQuery(IncludeInactive: true), CancellationToken.None);
 
-        Assert.Equal(84, visible.Value.Count);
-        Assert.Equal(85, all.Value.Count);
+        Assert.Equal(83, visible.Value.Count);
+        Assert.Equal(84, all.Value.Count);
         Assert.DoesNotContain(visible.Value, dto => dto.Name == "Norton");
     }
 
@@ -959,7 +1072,7 @@ public sealed class VanSalesRouteScheduleTests : IDisposable
                 "Kuwadzana",
                 "Dzivarasekwa", "Whitehouse",
                 "Hatcliff", "Mungate",
-                "Domboshava", "Showgrounds",
+                "Domboshava Showgrounds",
                 "Norton"
             },
             result.Value.Select(dto => dto.Name));

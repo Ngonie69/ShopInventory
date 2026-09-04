@@ -118,6 +118,12 @@ public static class DbInitializer
     /// seed list later has a key nothing carries, so it still arrives on the next start without a
     /// migration, which is the point of keeping the schedule as a list.
     /// </para>
+    /// <para>
+    /// The one thing insert-only cannot do by itself is un-place a stop, and editing an entry's text
+    /// needs exactly that — the key is derived from the name, so an edit arrives as a new stop and
+    /// leaves the old row behind. <see cref="VanSalesRouteSeedData.RetiredSeedKeys"/> names the keys
+    /// that are no longer placed, and they are withdrawn here.
+    /// </para>
     /// </remarks>
     internal static async Task SeedVanSalesRoutesAsync(ApplicationDbContext context, ILogger logger)
     {
@@ -191,6 +197,33 @@ public static class DbInitializer
             }
 
             logger.LogInformation("Seeded {Count} van sales route(s)", newRoutes.Count);
+        }
+
+        // Retire before placing, so that a stop split into two and then corrected back into one is
+        // resolved within a single start rather than leaving all three on the page until the next.
+        var retired = VanSalesRouteSeedData.RetiredSeedKeys.ToList();
+
+        if (retired.Count > 0)
+        {
+            var withdrawn = await context.RouteStops
+                .Where(stop => stop.IsActive && stop.SeedKey != null && retired.Contains(stop.SeedKey))
+                .ToListAsync();
+
+            if (withdrawn.Count > 0)
+            {
+                foreach (var stop in withdrawn)
+                {
+                    stop.IsActive = false;
+                    stop.UpdatedAt = now;
+                }
+
+                await context.SaveChangesAsync();
+
+                logger.LogInformation(
+                    "Withdrew {Count} van sales route stop(s) the schedule no longer places: {Names}",
+                    withdrawn.Count,
+                    string.Join(", ", withdrawn.Select(stop => stop.Name)));
+            }
         }
 
         var placedStopKeys = (await context.RouteStops

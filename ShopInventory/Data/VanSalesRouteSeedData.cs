@@ -115,16 +115,17 @@ public static class VanSalesRouteSeedData
         // Thursday-Domboshava Showgrounds
         // Friday-Norton
         //
-        // SPLIT: "Domboshava Showgrounds" is read as the two places. Domboshava is rural, north of
-        // the city; the Showgrounds are in Harare itself, and there is no such thing as a
-        // Domboshava showground. This one is the least certain reading in the file — if the round
-        // means a single place, drop one of the two stops on the routes page.
+        // NOT a split: "Domboshava Showgrounds" is one place. It was read here as the two — the
+        // Showgrounds being in Harare itself — and the business corrected that on 2026-09-04. The
+        // reading is recorded rather than quietly dropped because the same shape recurs twice more
+        // in this file, and the correction is the evidence that a two-word entry cannot be split on
+        // geography alone.
         TownTruck("WEST2", "West 2 Truck",
             Day(DayOfWeek.Monday, "Westlea", "Warren Park"),
             Day(DayOfWeek.Tuesday, "Kuwadzana"),
             Day(DayOfWeek.Wednesday, "Dzivarasekwa", "Whitehouse"),
             Alternative(DayOfWeek.Wednesday, "Hatcliff", "Mungate"),
-            Day(DayOfWeek.Thursday, "Domboshava", "Showgrounds"),
+            Day(DayOfWeek.Thursday, "Domboshava Showgrounds"),
             Day(DayOfWeek.Friday, "Norton")),
 
         // CBD/CZA Truck
@@ -146,6 +147,33 @@ public static class VanSalesRouteSeedData
             Day(DayOfWeek.Wednesday, "CBD town"),
             Day(DayOfWeek.Thursday, "CBD town"),
             Day(DayOfWeek.Friday, "CBD town")),
+    ];
+
+    /// <summary>
+    /// Stops this list used to place and no longer does, named by the key they were placed under.
+    /// </summary>
+    /// <remarks>
+    /// Changing an area's text here is a <em>remove and add</em>, not a rename: the seed key is
+    /// derived from the name, so the edited entry arrives as a new stop and the row placed under the
+    /// old name stays exactly where it was. Left to itself that turns one corrected stop into two
+    /// wrong ones, on a database that has already run the previous list — which is every machine
+    /// that has run this branch.
+    /// <para>
+    /// Retiring the old key deactivates that row on the next start. It is a deactivation for the
+    /// reason every other removal here is one, and it is a list rather than an inference because
+    /// "this key is gone from the schedule" and "somebody renamed the row" look identical from the
+    /// database and mean opposite things.
+    /// </para>
+    /// <para>
+    /// Add to this whenever you change or delete an entry above that has already shipped. Nothing
+    /// enforces it, so the retirement and the edit have to be made together.
+    /// </para>
+    /// </remarks>
+    public static readonly IReadOnlyList<string> RetiredSeedKeys =
+    [
+        // Split from "Domboshava Showgrounds", which is one place. Corrected 2026-09-04.
+        "WEST2|4|-|0|DOMBOSHAVA",
+        "WEST2|4|-|0|SHOWGROUNDS",
     ];
 
     /// <summary>The stops of one weekday, in the order the schedule lists them.</summary>
