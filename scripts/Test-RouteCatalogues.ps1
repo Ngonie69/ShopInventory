@@ -116,30 +116,20 @@ $Catalogues    = @(
 # routes that project calls.
 $MustBeComplete = @('API.md')
 
-# Routes API.md did not document when it became a gate (2026-09-04). Naming them keeps the gate on
-# for everything else instead of leaving it off until they are written.
+# Routes a $MustBeComplete catalogue is allowed not to document yet.
 #
-# The list may only shrink. Documenting a route and leaving it here fails the run, as does listing
-# one that is no longer a route, so it cannot quietly go stale. Do not add to it: a new route goes
-# in API.md, which is the moment anyone reliably knows it exists.
+# Empty, and meant to stay that way: API.md documents every route on every controller. It briefly
+# held the 15 that were undocumented when this gate went in (two-factor enable and backup-code
+# regeneration, the two-factor login step, the four rate-limit management endpoints, three business
+# partner lookups, statement read and PDF, transfer request, and two user activity endpoints); all
+# 15 were written and the list emptied in the same change.
+#
+# It may only shrink. Documenting a route and leaving it here fails the run, as does listing one
+# that is no longer a route, so it cannot quietly go stale, and -AllowUndocumented does not excuse
+# either. Do not add to it: a new route goes in API.md, which is the moment anyone reliably knows it
+# exists.
 $CoverageBaseline = @{
-    'API.md' = @(
-        'api/auth/login/two-factor',
-        'api/businesspartner/batch',
-        'api/businesspartner/groups',
-        'api/businesspartner/paymentterms/{}',
-        'api/inventorytransfer/request',
-        'api/ratelimit/blocked',
-        'api/ratelimit/config',
-        'api/ratelimit/reset/{}',
-        'api/ratelimit/stats',
-        'api/statement/{}',
-        'api/statement/{}/pdf',
-        'api/twofactor/backup-codes/regenerate',
-        'api/twofactor/enable',
-        'api/useractivity/entity/{}/{}',
-        'api/useractivity/filter-options'
-    )
+    'API.md' = @()
 }
 
 # Paths that are somebody else's API. API.md documents the ZIMRA FDMS platform at
