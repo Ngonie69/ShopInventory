@@ -1550,6 +1550,23 @@ new("GET", "/api/fiscalisation-console/work-queue", "Get work queue")
 },
 new ApiModule
 {
+Name = "Shops",
+BasePath = "/api/Shops",
+Description = "The retail shop master — the business partner, warehouse and cost centre a till operator sells on. Administrator only.",
+Icon = Icons.Material.Filled.Storefront,
+Color = Color.Info,
+Methods = new[] { "GET", "POST", "PUT" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/Shops", "List shops; closed ones excluded unless includeInactive=true"),
+new("GET", "/api/Shops/{id}", "Get one shop"),
+new("POST", "/api/Shops", "Open a shop"),
+new("PUT", "/api/Shops/{id}", "Change a shop's name, business partner, warehouse or cost centre"),
+new("PUT", "/api/Shops/{id}/active", "Close a shop, or reopen one; refused while operators are assigned")
+}
+},
+new ApiModule
+{
 Name = "Van Sales Customer Accounts",
 BasePath = "/api/van-sales-customer-accounts",
 Description = "3 endpoints under /api/van-sales-customer-accounts.",
@@ -1573,6 +1590,7 @@ Color = Color.Success,
 Methods = new[] { "POST" },
 Endpoints = new List<ApiEndpoint>
 {
+new("POST", "/api/van-sales-customer/auth/login", "Sign in"),
 new("POST", "/api/van-sales-customer/auth/logout", "Logout"),
 new("POST", "/api/van-sales-customer/auth/otp/request", "Request otp"),
 new("POST", "/api/van-sales-customer/auth/otp/verify", "Verify otp"),

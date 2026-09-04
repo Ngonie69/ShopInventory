@@ -122,6 +122,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // Selling routes — the round a van runs, its territory and its truck
   public DbSet<RouteEntity> Routes { get; set; }
 
+  // Retail shops — the business partner, warehouse and cost centre a till sells on
+  public DbSet<ShopEntity> Shops { get; set; }
+
   // One rep's trading day on a route: the departure compliance record
   public DbSet<VanRouteDayEntity> VanRouteDays { get; set; }
 
@@ -450,6 +453,17 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
                 .WithMany()
                 .HasForeignKey(u => u.RouteId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+      // Restrict for the same reason as the route above, and one more: the shop is where a till
+      // operator's business partner and warehouse come from, so an account left pointing at nothing
+      // could not ring up a sale. Deleting a shop with operators on it should be refused, not
+      // silently disarm their accounts.
+      entity.HasOne(u => u.Shop)
+                .WithMany(s => s.Users)
+                .HasForeignKey(u => u.ShopId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+      entity.HasIndex(u => u.ShopId);
 
       entity.Ignore(u => u.AssignedWarehouseCode);
     });
@@ -1721,6 +1735,33 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.HasOne(e => e.CreatedByUser)
             .WithMany()
             .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // Retail shops — the selling identity a till inherits
+    modelBuilder.Entity<ShopEntity>(entity =>
+    {
+      entity.ToTable("Shops");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.Code).IsUnique();
+      entity.HasIndex(e => e.WarehouseCode);
+      entity.HasIndex(e => e.IsActive);
+
+      entity.Property(e => e.Code).IsRequired().HasMaxLength(30);
+      entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+      entity.Property(e => e.BusinessPartnerCode).IsRequired().HasMaxLength(100);
+      entity.Property(e => e.WarehouseCode).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.CostCentreCode).HasMaxLength(50);
+
+      entity.HasOne(e => e.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.HasOne(e => e.UpdatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.UpdatedByUserId)
             .OnDelete(DeleteBehavior.SetNull);
     });
 

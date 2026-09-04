@@ -264,7 +264,8 @@ public class UserManagementService : IUserManagementService
             AssignedCostCentreCode = model.AssignedCostCentreCode,
             SupplyingWarehouseCode = model.SupplyingWarehouseCode,
             RouteId = model.RouteId,
-            FiscalDeviceId = model.FiscalDeviceId
+            FiscalDeviceId = model.FiscalDeviceId,
+            ShopId = model.ShopId
         });
 
         if (!response.IsSuccessStatusCode)
@@ -377,7 +378,8 @@ public class UserManagementService : IUserManagementService
             AssignedCostCentreCode = model.AssignedCostCentreCode,
             SupplyingWarehouseCode = model.SupplyingWarehouseCode,
             RouteId = model.RouteId,
-            FiscalDeviceId = model.FiscalDeviceId
+            FiscalDeviceId = model.FiscalDeviceId,
+            ShopId = model.ShopId
         });
 
         if (!response.IsSuccessStatusCode)

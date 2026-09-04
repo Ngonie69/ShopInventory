@@ -1,0 +1,373 @@
+@page "/shops"
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+@using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
+@inject IShopService ShopService
+@inject IMasterDataCacheService MasterDataCache
+
+<PageTitle>Shops - Shop Inventory</PageTitle>
+
+@* The retail shop master.
+
+   Carried by wwwroot/css/shops.css (linked from App.razor) in both schemes.
+
+   Three fields that only make sense together: a shop's business partner draws
+   from that shop's warehouse and books to that shop's cost centre. Set per
+   operator they drift — five people at one counter, one warehouse mis-picked,
+   and a day's takings land on the wrong partner — so they are said once here and
+   every till operator assigned to the shop inherits all three.
+
+   The warehouse does double duty and that is why it is unique per shop: it is
+   both what a till sells from and what scopes which sales its operators may read.
+   Two shops sharing one would show each other's takings to both.
+
+   There is no delete. A shop owns its sales history, and its warehouse stays
+   reserved even after it stops trading so that history cannot be handed to a new
+   shop. Close it instead, which the server refuses while operators are still
+   assigned. *@
+
+<div class="shop">
+
+    <div class="shop-head">
+        <div>
+            <h2 class="shop-title">Shops</h2>
+            <p class="shop-subtitle">
+                The business partner, warehouse and cost centre each shop's tills sell on.
+                A till operator is put on a shop from their user account.
+            </p>
+        </div>
+        <div class="shop-actions">
+            <button class="shop-btn shop-btn-accent" @onclick="StartNew" disabled="@isSaving">Add shop</button>
+        </div>
+    </div>
+
+    @if (error is not null)
+    {
+        <div class="shop-notice">@error</div>
+    }
+
+    @if (editing is not null)
+    {
+        <div class="shop-filters">
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <label class="shop-filter-label" for="shop-code">Code</label>
+                    @* Not editable once set: the code is what sales history and reporting group
+                       on, so changing it would silently re-parent a shop's past. *@
+                    <input id="shop-code" class="shop-field" @bind="editing.Code"
+                           placeholder="MACHIPISA" disabled="@(editing.Id > 0)" />
+                </div>
+                <div class="col-md-3">
+                    <label class="shop-filter-label" for="shop-name">Name</label>
+                    <input id="shop-name" class="shop-field" @bind="editing.Name" placeholder="Machipisa" />
+                </div>
+                <div class="col-md-3">
+                    <label class="shop-filter-label" for="shop-bp">Business partner</label>
+                    @if (isLoadingMasterData)
+                    {
+                        <div class="shop-meta">Loading…</div>
+                    }
+                    else
+                    {
+                        <select id="shop-bp" class="shop-field shop-select" @bind="editing.BusinessPartnerCode">
+                            <option value="">-- Select business partner --</option>
+                            @foreach (var bp in businessPartners)
+                            {
+                                <option value="@bp.CardCode">@bp.CardCode - @DisplayName(bp)</option>
+                            }
+                        </select>
+                    }
+                </div>
+                <div class="col-md-2">
+                    <label class="shop-filter-label" for="shop-wh">Warehouse</label>
+                    @if (isLoadingMasterData)
+                    {
+                        <div class="shop-meta">Loading…</div>
+                    }
+                    else
+                    {
+                        <select id="shop-wh" class="shop-field shop-select" @bind="editing.WarehouseCode">
+                            <option value="">-- Select warehouse --</option>
+                            @foreach (var wh in warehouses)
+                            {
+                                <option value="@wh.WarehouseCode">@wh.WarehouseCode - @wh.WarehouseName</option>
+                            }
+                        </select>
+                    }
+                </div>
+                <div class="col-md-2">
+                    <label class="shop-filter-label" for="shop-cc">Cost centre</label>
+                    @if (isLoadingMasterData)
+                    {
+                        <div class="shop-meta">Loading…</div>
+                    }
+                    else
+                    {
+                        @* Optional, unlike the two above: SAP defaults a missing cost centre, so
+                           requiring it would stop a correctly configured shop trading for nothing
+                           that affects the money. *@
+                        <select id="shop-cc" class="shop-field shop-select" @bind="CostCentreCode">
+                            <option value="">-- None --</option>
+                            @foreach (var cc in costCentres.OrderBy(cc => cc.CenterCode))
+                            {
+                                <option value="@cc.CenterCode">@cc.CenterCode - @cc.CenterName</option>
+                            }
+                        </select>
+                    }
+                </div>
+                <div class="col-12 shop-actions">
+                    <button class="shop-btn shop-btn-accent" @onclick="SaveAsync" disabled="@isSaving">
+                        @(isSaving ? "Saving…" : "Save")
+                    </button>
+                    <button class="shop-btn" @onclick="CancelEdit" disabled="@isSaving">Cancel</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="shop-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Loading shops…</span>
+        </div>
+    }
+    else if (shops.Count == 0)
+    {
+        <div class="shop-empty">
+            <div class="shop-empty-title">No shops yet</div>
+            <div>Add one, then assign it to a till operator from their user account.</div>
+        </div>
+    }
+    else
+    {
+        <div class="shop-table-wrap">
+            <table class="shop-table">
+                <thead>
+                    <tr>
+                        <th>Code</th>
+                        <th>Shop</th>
+                        <th>Business partner</th>
+                        <th>Warehouse</th>
+                        <th>Cost centre</th>
+                        <th>Operators</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var shop in shops)
+                    {
+                        <tr>
+                            <td class="shop-primary">@shop.Code</td>
+                            <td>@shop.Name</td>
+                            <td>@shop.BusinessPartnerCode</td>
+                            <td>@shop.WarehouseCode</td>
+                            <td>@(string.IsNullOrWhiteSpace(shop.CostCentreCode) ? "—" : shop.CostCentreCode)</td>
+                            <td class="shop-num">@shop.AssignedOperatorCount</td>
+                            <td>
+                                <span class="shop-chip @(shop.IsActive ? "shop-chip-good" : "shop-chip-neutral")">
+                                    @(shop.IsActive ? "Trading" : "Closed")
+                                </span>
+                            </td>
+                            <td>
+                                <button class="shop-btn" @onclick="() => StartEdit(shop)" disabled="@isSaving">Edit</button>
+                                <button class="shop-btn" @onclick="() => ToggleActiveAsync(shop)" disabled="@isSaving">
+                                    @(shop.IsActive ? "Close" : "Reopen")
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private List<ShopDto> shops = [];
+    private ShopDto? editing;
+
+    private List<BusinessPartnerDto> businessPartners = [];
+    private List<WarehouseDto> warehouses = [];
+    private List<CostCentreDto> costCentres = [];
+
+    private bool isLoading;
+    private bool isLoadingMasterData;
+    private bool isSaving;
+    private string? error;
+
+    /// <summary>
+    /// Binds the optional cost centre through a non-null string, because a &lt;select&gt; posts "" for
+    /// its empty option and the server treats "" and null alike — storing "" would put a value on the
+    /// row that never reaches a sale.
+    /// </summary>
+    private string CostCentreCode
+    {
+        get => editing?.CostCentreCode ?? string.Empty;
+        set
+        {
+            if (editing is not null)
+            {
+                editing.CostCentreCode = string.IsNullOrWhiteSpace(value) ? null : value;
+            }
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        await LoadMasterDataAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            // Closed shops included: this is the page that reopens them, so hiding them would leave
+            // no way back.
+            shops = await ShopService.GetShopsAsync(includeInactive: true);
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadMasterDataAsync()
+    {
+        isLoadingMasterData = true;
+        StateHasChanged();
+
+        try
+        {
+            // The same three caches the user management page loads, rather than three fresh calls.
+            businessPartners = await MasterDataCache.GetBusinessPartnersAsync();
+            warehouses = (await MasterDataCache.GetWarehousesAsync())
+                .Where(warehouse => warehouse.IsActive)
+                .ToList();
+            costCentres = await MasterDataCache.GetCostCentresAsync();
+        }
+        catch (Exception)
+        {
+            // A failed lookup leaves the pickers empty rather than the page broken; the notice tells
+            // an administrator why they cannot choose anything.
+            error = "Business partners, warehouses or cost centres could not be loaded. Try again shortly.";
+        }
+        finally
+        {
+            isLoadingMasterData = false;
+            StateHasChanged();
+        }
+    }
+
+    private void StartNew()
+    {
+        error = null;
+        editing = new ShopDto { IsActive = true };
+    }
+
+    /// <summary>Edit a copy, so cancelling leaves the row on screen as it stands on the server.</summary>
+    private void StartEdit(ShopDto shop)
+    {
+        error = null;
+        editing = new ShopDto
+        {
+            Id = shop.Id,
+            Code = shop.Code,
+            Name = shop.Name,
+            BusinessPartnerCode = shop.BusinessPartnerCode,
+            WarehouseCode = shop.WarehouseCode,
+            CostCentreCode = shop.CostCentreCode,
+            IsActive = shop.IsActive,
+            AssignedOperatorCount = shop.AssignedOperatorCount
+        };
+    }
+
+    private void CancelEdit()
+    {
+        editing = null;
+        error = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (editing is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(editing.Code) || string.IsNullOrWhiteSpace(editing.Name))
+        {
+            error = "A shop needs both a code and a name.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(editing.BusinessPartnerCode) ||
+            string.IsNullOrWhiteSpace(editing.WarehouseCode))
+        {
+            error = "A shop needs a business partner and a warehouse — they are what its tills sell on.";
+            return;
+        }
+
+        isSaving = true;
+        error = null;
+        StateHasChanged();
+
+        try
+        {
+            var (saved, failure) = await ShopService.SaveShopAsync(editing);
+
+            if (saved is null)
+            {
+                error = failure ?? "The shop could not be saved.";
+                return;
+            }
+
+            editing = null;
+            await LoadAsync();
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleActiveAsync(ShopDto shop)
+    {
+        isSaving = true;
+        error = null;
+        StateHasChanged();
+
+        try
+        {
+            var (saved, failure) = await ShopService.SetShopActiveAsync(shop.Id, !shop.IsActive);
+
+            if (saved is null)
+            {
+                // The refusal names how many operators are still assigned, which is the number that
+                // tells an administrator how much reassignment closing this shop actually is.
+                error = failure ?? "The shop could not be updated.";
+                return;
+            }
+
+            await LoadAsync();
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string DisplayName(BusinessPartnerDto businessPartner) =>
+        string.IsNullOrWhiteSpace(businessPartner.CardName)
+            ? businessPartner.CardCode ?? string.Empty
+            : businessPartner.CardName;
+}

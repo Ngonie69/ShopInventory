@@ -17,7 +17,7 @@ namespace ShopInventory.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.10")
+                .HasAnnotation("ProductVersion", "10.0.11")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -5096,6 +5096,69 @@ namespace ShopInventory.Migrations
                     b.ToTable("SapItemUomMappings", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.ShopEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("BusinessPartnerCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("CostCentreCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("WarehouseCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("WarehouseCode");
+
+                    b.ToTable("Shops", (string)null);
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.StockReservationBatchEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -6846,6 +6909,9 @@ namespace ShopInventory.Migrations
                     b.Property<int?>("RouteId")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("ShopId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("SupplyingWarehouseCode")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
@@ -6881,6 +6947,8 @@ namespace ShopInventory.Migrations
                         .HasFilter("\"FiscalDeviceId\" IS NOT NULL");
 
                     b.HasIndex("RouteId");
+
+                    b.HasIndex("ShopId");
 
                     b.HasIndex("Username")
                         .IsUnique();
@@ -7540,6 +7608,23 @@ namespace ShopInventory.Migrations
                     b.Navigation("CreditNote");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.ShopEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("ShopInventory.Models.User", "UpdatedByUser")
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("UpdatedByUser");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.StockReservationBatchEntity", b =>
                 {
                     b.HasOne("ShopInventory.Models.Entities.StockReservationLineEntity", "ReservationLine")
@@ -7757,7 +7842,14 @@ namespace ShopInventory.Migrations
                         .HasForeignKey("RouteId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("ShopInventory.Models.Entities.ShopEntity", "Shop")
+                        .WithMany("Users")
+                        .HasForeignKey("ShopId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Route");
+
+                    b.Navigation("Shop");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.UserNotificationSettings", b =>
@@ -7879,6 +7971,11 @@ namespace ShopInventory.Migrations
             modelBuilder.Entity("ShopInventory.Models.Entities.SapCreditNoteSnapshotEntity", b =>
                 {
                     b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.ShopEntity", b =>
+                {
+                    b.Navigation("Users");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.StockReservationEntity", b =>

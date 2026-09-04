@@ -193,6 +193,18 @@ public sealed class UpdateUserHandler(
             user.RouteId = null;
         }
 
+        if (ApplicationRoles.RequiresShopAssignment(user.Role))
+        {
+            user.ShopId = command.Request.ShopId is > 0 ? command.Request.ShopId : null;
+        }
+        else
+        {
+            // A shop belongs to a till. A user moved off the till role keeps no claim on one — and
+            // leaving it set would keep them scoped to that shop's sales for reading, which is not
+            // what a promotion to manager should mean.
+            user.ShopId = null;
+        }
+
         if (ApplicationRoles.SupportsFiscalDevice(user.Role))
         {
             // Optional, so an empty field posts null and a cleared one posts 0 — neither is a device.
@@ -251,6 +263,32 @@ public sealed class UpdateUserHandler(
             string.IsNullOrWhiteSpace(user.SupplyingWarehouseCode))
         {
             return Errors.UserManagement.UpdateFailed($"A supplying warehouse code is required for {user.Role} role");
+        }
+
+        if (ApplicationRoles.RequiresShopAssignment(user.Role))
+        {
+            if (user.ShopId is null)
+            {
+                return Errors.UserManagement.UpdateFailed($"An assigned shop is required for {user.Role} role");
+            }
+
+            var shop = await context.Shops
+                .AsNoTracking()
+                .FirstOrDefaultAsync(candidate => candidate.Id == user.ShopId, cancellationToken);
+
+            if (shop is null)
+            {
+                return Errors.UserManagement.UpdateFailed($"Shop {user.ShopId} was not found");
+            }
+
+            // Checked on the way in rather than only at creation, so a closed shop cannot be reached
+            // by editing an existing account onto it. Moving an operator to a shop that has stopped
+            // trading would leave them authenticating and then failing at the first sale.
+            if (!shop.IsActive)
+            {
+                return Errors.UserManagement.UpdateFailed(
+                    $"{shop.Name} is closed, so a till operator cannot be assigned to it");
+            }
         }
 
         var shouldNotifyCustomerAssignmentChanges = command.Request.AssignedCustomerCodes != null &&
@@ -316,6 +354,7 @@ public sealed class UpdateUserHandler(
                 .SetProperty(x => x.AssignedBusinessPartnerCode, user.AssignedBusinessPartnerCode)
                 .SetProperty(x => x.AssignedCostCentreCode, user.AssignedCostCentreCode)
                 .SetProperty(x => x.SupplyingWarehouseCode, user.SupplyingWarehouseCode)
+                .SetProperty(x => x.ShopId, user.ShopId)
                 .SetProperty(x => x.RouteId, user.RouteId)
                 .SetProperty(x => x.FiscalDeviceId, user.FiscalDeviceId)
                 .SetProperty(x => x.Permissions, user.Permissions)

@@ -14,6 +14,7 @@
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
 @inject IVanSalesReportService VanSalesReportService
+@inject IShopService ShopService
 @rendermode InteractiveServer
 
 <PageTitle>User Management - Shop Inventory</PageTitle>
@@ -637,6 +638,44 @@
                                                     </div>
                                                 }
 
+                                                @* One field where a van needs three. A shop already
+                                                   holds the business partner, warehouse and cost
+                                                   centre together, so offering the three here as
+                                                   well would give one answer two homes that drift
+                                                   apart — and the API refuses an account carrying
+                                                   both. *@
+                                                @if (userModel.Role == UserRoles.TillOperator)
+                                                {
+                                                    <div class="um-form-field um-form-full">
+                                                        <label>Shop <span class="required">*</span></label>
+                                                        @if (isLoadingShops)
+                                                        {
+                                                            <div class="um-spinner-sm"></div>
+                                                        }
+                                                        else if (ShopOptions.Count == 0)
+                                                        {
+                                                            <div class="um-form-hint">
+                                                                No trading shops yet. Open one on the Shops page first —
+                                                                a till operator cannot sell without one.
+                                                            </div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <InputSelect class="um-input" @bind-Value="userModel.ShopId">
+                                                                <option value="">-- Select Shop --</option>
+                                                                @foreach (var shop in ShopOptions)
+                                                                {
+                                                                    <option value="@shop.Id">@shop.Name (@shop.Code) — @shop.WarehouseCode</option>
+                                                                }
+                                                            </InputSelect>
+                                                        }
+                                                        <ValidationMessage For="@(() => userModel.ShopId)" />
+                                                        <small class="um-form-hint">
+                                                            @SelectedShopSummary
+                                                        </small>
+                                                    </div>
+                                                }
+
                                                 @if (userModel.Role == "ADR" || userModel.Role == "Sales")
                                                 {
                                                     <div class="um-form-field">
@@ -945,6 +984,37 @@
     private bool isLoadingCostCentres = false;
     private List<RouteDto> RouteOptions = new();
     private bool isLoadingRoutes = false;
+
+    /// <summary>
+    /// Trading shops only. A closed shop is deliberately absent: the API refuses an account assigned
+    /// to one, so offering it here would produce a refusal the administrator could not have foreseen.
+    /// </summary>
+    private List<ShopDto> ShopOptions = new();
+    private bool isLoadingShops = false;
+
+    /// <summary>
+    /// What the chosen shop actually means for the till, spelled out under the picker — the whole
+    /// reason the three separate pickers are not shown for this role is that the shop already answers
+    /// them, so the answer has to be visible somewhere.
+    /// </summary>
+    private string SelectedShopSummary
+    {
+        get
+        {
+            var shop = ShopOptions.FirstOrDefault(candidate => candidate.Id == userModel.ShopId);
+
+            if (shop is null)
+            {
+                return "The shop this operator works the till at. Its business partner, warehouse and cost centre are what the till sells on.";
+            }
+
+            var costCentre = string.IsNullOrWhiteSpace(shop.CostCentreCode)
+                ? "no cost centre"
+                : $"cost centre {shop.CostCentreCode}";
+
+            return $"Sells as {shop.BusinessPartnerCode} from {shop.WarehouseCode}, {costCentre}.";
+        }
+    }
     private Dictionary<string, List<PermissionModel>>? permissionCategories;
 
     private bool showUserModal = false;
@@ -1111,6 +1181,7 @@ List<string>(AdminAvailableRoles);
                     await LoadCustomers();
                     await LoadCostCentres();
                     await LoadRoutes();
+                    await LoadShops();
                     StateHasChanged();
                 });
             }
@@ -1175,6 +1246,28 @@ List<string>(AdminAvailableRoles);
         finally
         {
             isLoadingRoutes = false;
+        }
+    }
+
+    /// <summary>
+    /// The shops a till operator may be put on. Trading only — the API refuses an account assigned to
+    /// a closed shop, so offering one here would produce a refusal the administrator could not have
+    /// foreseen from the picker.
+    /// </summary>
+    private async Task LoadShops()
+    {
+        isLoadingShops = true;
+        try
+        {
+            ShopOptions = await ShopService.GetShopsAsync(includeInactive: false);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load shops: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingShops = false;
         }
     }
 
@@ -1365,7 +1458,9 @@ StringComparison.OrdinalIgnoreCase)))
                 AssignedCostCentreCode = u.AssignedCostCentreCode,
                 SupplyingWarehouseCode = u.SupplyingWarehouseCode,
                 RouteId = u.RouteId,
-                FiscalDeviceId = u.FiscalDeviceId
+                FiscalDeviceId = u.FiscalDeviceId,
+                ShopId = u.ShopId,
+                ShopName = u.ShopName
             }).ToList() ?? new List<UserDisplayModel>();
             totalPages = result.TotalPages;
         }
@@ -1474,7 +1569,8 @@ StringComparison.OrdinalIgnoreCase)))
             AssignedCostCentreCode = user.AssignedCostCentreCode,
             SupplyingWarehouseCode = user.SupplyingWarehouseCode,
             RouteId = user.RouteId,
-            FiscalDeviceId = user.FiscalDeviceId
+            FiscalDeviceId = user.FiscalDeviceId,
+            ShopId = user.ShopId
         };
         showUserModal = true;
     }
@@ -1769,7 +1865,8 @@ StringComparison.OrdinalIgnoreCase)))
                 AssignedCostCentreCode = user.AssignedCostCentreCode,
                 SupplyingWarehouseCode = user.SupplyingWarehouseCode,
             RouteId = user.RouteId,
-            FiscalDeviceId = user.FiscalDeviceId
+            FiscalDeviceId = user.FiscalDeviceId,
+            ShopId = user.ShopId
             };
             NormalizeRoleSpecificAssignments(form);
             await UserService.UpdateUserAsync(user.Id, form);
@@ -1825,6 +1922,29 @@ StringComparison.OrdinalIgnoreCase)))
         else
         {
             model.AssignedCustomerCodes = new();
+        }
+
+        // A shop belongs to a till. Cleared for every other role so switching a role in the form
+        // cannot leave a stale shop on the request — the API refuses a shop on any other role, and
+        // that refusal would name a field the administrator can no longer see.
+        if (model.Role != UserRoles.TillOperator)
+        {
+            model.ShopId = null;
+        }
+        else
+        {
+            // The mirror of the clearing above, and the reason the three pickers are not shown for
+            // this role: the shop is where those values come from, and the API refuses an account
+            // carrying both. A role switched from ADR to TillOperator would otherwise still be
+            // carrying the van's codes.
+            model.AssignedWarehouseCodes = new();
+            model.AssignedCustomerCodes = new();
+            model.AssignedBusinessPartnerCode = null;
+            model.AssignedCostCentreCode = null;
+            model.SupplyingWarehouseCode = null;
+            model.AssignedSection = null;
+            model.RouteId = null;
+            model.FiscalDeviceId = null;
         }
     }
 
@@ -1913,6 +2033,12 @@ StringComparison.OrdinalIgnoreCase)))
 
         /// <summary>The ZIMRA device this van's handset signs as, or null if it stamps nothing itself.</summary>
         public int? FiscalDeviceId { get; set; }
+
+        /// <summary>The shop this till operator works at, or null. Managed under System → Shops.</summary>
+        public int? ShopId { get; set; }
+
+        /// <summary>The shop's name, so the grid can say where an operator works without a lookup.</summary>
+        public string? ShopName { get; set; }
     }
 
     public class UserFormModel : IValidatableObject
@@ -1973,6 +2099,18 @@ StringComparison.OrdinalIgnoreCase)))
         public int? FiscalDeviceId { get; set; }
 
         /// <summary>
+        /// The shop a till operator works at, and where its business partner, warehouse and cost
+        /// centre come from.
+        /// </summary>
+        /// <remarks>
+        /// One field instead of the three a van needs, and that is the point rather than a saving of
+        /// screen space: those three only make sense together, so a shop states them once and every
+        /// operator at the counter inherits the same answer. The API refuses an account carrying both
+        /// a shop and any of the three loose codes.
+        /// </remarks>
+        public int? ShopId { get; set; }
+
+        /// <summary>
         /// Flag to indicate this is a new user (password required)
         /// </summary>
         public bool IsNew { get; set; }
@@ -2001,6 +2139,12 @@ nameof(AssignedSection) });
             {
                 yield return new ValidationResult($"At least one customer is required for {Role} role", new[] {
 nameof(AssignedCustomerCodes) });
+            }
+            if (Role == UserRoles.TillOperator && ShopId is null or <= 0)
+            {
+                yield return new ValidationResult(
+                    "A shop is required for a till operator — it is where the business partner, warehouse and cost centre come from",
+                    new[] { nameof(ShopId) });
             }
             if ((Role == "ADR" || Role == "Sales") && AssignedWarehouseCodes.Count == 0)
             {

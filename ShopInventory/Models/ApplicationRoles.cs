@@ -26,6 +26,28 @@ public static class ApplicationRoles
     public const string CartVendor = "CartVendor";
 
     /// <summary>
+    /// A shop till operator, working the desktop app at a counter. Sells to whoever walks in, on the
+    /// business partner, warehouse and cost centre its assigned shop carries.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately absent from <see cref="RouteCustomerScopedRoles"/> and
+    /// <see cref="DepotLoadedRoles"/>, and both absences are load-bearing rather than oversights.
+    ///
+    /// Not route-customer scoped: a till sells to walk-ins, so scoping it to a fixed list of named
+    /// customers would leave it with nobody to sell to. Its selling identity comes from
+    /// <see cref="User.ShopId"/> instead — see <see cref="RequiresShopAssignment"/>.
+    ///
+    /// Not depot loaded: a shop is not loaded from somewhere else and does not carry a ZIMRA fiscal
+    /// device. Its sales fiscalise through the platform at the counter, so requiring a supplying
+    /// warehouse would demand a value nothing reads.
+    ///
+    /// A separate role from <see cref="Cashier"/> rather than a narrowing of it. Cashier carries real
+    /// web access — invoicing, payments, the desktop sales console — and a till operator has no
+    /// business on any of it.
+    /// </remarks>
+    public const string TillOperator = "TillOperator";
+
+    /// <summary>
     /// A van sales customer signing in on the customer ordering app. Not an employee.
     /// </summary>
     /// <remarks>
@@ -73,7 +95,8 @@ public static class ApplicationRoles
         Lab,
         Adr,
         Sales,
-        CartVendor
+        CartVendor,
+        TillOperator
     ];
 
     // Roles that can continue to exist on managed users during compatibility cleanup.
@@ -95,7 +118,8 @@ public static class ApplicationRoles
         ReadOnly,
         Adr,
         Sales,
-        CartVendor
+        CartVendor,
+        TillOperator
     ];
 
     public static readonly string[] ApiAccessRoles =
@@ -115,7 +139,8 @@ public static class ApplicationRoles
         Lab,
         Adr,
         Sales,
-        CartVendor
+        CartVendor,
+        TillOperator
     ];
 
     public static readonly string[] ApiAccessWithOperatorRoles =
@@ -136,7 +161,8 @@ public static class ApplicationRoles
         Lab,
         Adr,
         Sales,
-        CartVendor
+        CartVendor,
+        TillOperator
     ];
 
     public static readonly string[] ScopedPodViewerRoles =
@@ -242,6 +268,23 @@ public static class ApplicationRoles
     /// </remarks>
     public static bool UsesLegacyRouteCustomerScope(string? role)
         => UsesRouteCustomerScope(role);
+
+    /// <summary>
+    /// Whether the role's selling identity comes from an assigned shop rather than from codes set
+    /// directly on the account.
+    /// </summary>
+    /// <remarks>
+    /// The alternative to <see cref="RequiresAssignedBusinessPartnerCode"/> and its siblings, not an
+    /// addition to them: a role answering true here must have <see cref="User.ShopId"/> set and must
+    /// leave the three loose codes alone, because the shop is where all three come from. Setting both
+    /// is a configuration error — two sources for one answer, disagreeing the moment either changes.
+    ///
+    /// <see cref="Common.Sales.SellingAccountResolver"/> prefers the shop wherever one is assigned,
+    /// so an account that somehow held both would sell on the shop's values and quietly ignore the
+    /// others. The user management handlers refuse the combination rather than rely on that.
+    /// </remarks>
+    public static bool RequiresShopAssignment(string? role)
+        => Contains([TillOperator], role);
 
     public static bool RequiresAssignedBusinessPartnerCode(string? role)
         => UsesRouteCustomerScope(role);

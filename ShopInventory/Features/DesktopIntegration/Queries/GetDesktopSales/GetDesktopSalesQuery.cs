@@ -11,8 +11,15 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 /// "everything": it excludes <c>SaleSourceSystems.VanSalesOnline</c>, whose rows are receipt carriers for
 /// sales already recorded as their confirmed reservation and their SAP invoice. Name that source to list
 /// them.
+///
+/// <c>CallerUserId</c> is required and positional rather than an optional trailing parameter, because
+/// it is what the handler resolves the warehouse scope from. Before it existed, <c>WarehouseCode</c>
+/// came off the query string and was checked against nobody, so any authenticated staff account could
+/// read any shop's takings. Making it the first parameter means a new call site cannot compile without
+/// supplying one.
 /// </remarks>
 public sealed record GetDesktopSalesQuery(
+    Guid CallerUserId,
     string? WarehouseCode = null,
     string? CardCode = null,
     string? ConsolidationStatus = null,

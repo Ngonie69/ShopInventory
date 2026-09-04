@@ -207,6 +207,24 @@ public class User
     public string? AssignedCostCentreCode { get; set; }
 
     /// <summary>
+    /// The shop this account works the till at, which is where its business partner, warehouse and
+    /// cost centre come from.
+    /// </summary>
+    /// <remarks>
+    /// Null for everyone who is not a till operator. When it is set it takes precedence over
+    /// <see cref="AssignedBusinessPartnerCode"/>, <see cref="AssignedCostCentreCode"/> and
+    /// <see cref="AssignedWarehouseCodes"/> — see <see cref="Common.Sales.SellingAccountResolver"/>,
+    /// which is the one place all three are read for a sale.
+    ///
+    /// One shop, not several: those three values have to resolve to exactly one answer each before a
+    /// sale can be rung up, so an account spanning shops would have to be asked which one it meant on
+    /// every transaction. Relief staff covering a second shop get a second account.
+    /// </remarks>
+    public int? ShopId { get; set; }
+
+    public Entities.ShopEntity? Shop { get; set; }
+
+    /// <summary>
     /// The selling route this van runs, which is where its territory and truck registration come from.
     /// </summary>
     /// <remarks>

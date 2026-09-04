@@ -3485,6 +3485,89 @@ normal approval flow rather than auto-posting; credit is enforced here, where wh
 can act on it.
 
 ---
+
+### 50. Shops
+
+**Base route:** `/api/Shops`  
+**Auth:** Bearer, `[Authorize(Roles = "Admin")]` on the whole controller
+
+The retail shop master. A shop holds the three values a till sells on — the business partner its
+sales are invoiced to, the warehouse its stock leaves, and the cost centre its takings book against —
+and every `TillOperator` account assigned to it inherits all three.
+
+Administrator-only throughout, and not merely as tidiness: a shop's warehouse decides both what its
+tills sell from and **which sales its operators may read**, so editing one changes who can see whose
+money. See `/api/DesktopIntegration/sales` in [Desktop Integration](#30-desktop-integration) for the
+read side.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/Shops` | List shops; closed ones excluded unless asked for |
+| GET | `/api/Shops/{id}` | One shop |
+| POST | `/api/Shops` | Open a shop |
+| PUT | `/api/Shops/{id}` | Change its name, business partner, warehouse or cost centre |
+| PUT | `/api/Shops/{id}/active` | Close a shop, or reopen one |
+
+##### GET `/api/Shops`
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `includeInactive` | `false` | Bring back closed shops too; they still own their sales history |
+
+**Response:** `List<ShopDto>` — `id`, `code`, `name`, `businessPartnerCode`, `warehouseCode`,
+`costCentreCode`, `isActive`, `assignedOperatorCount`, `createdAt`, `updatedAt`.
+
+`assignedOperatorCount` counts **active** accounts only. A disabled account cannot sell, so it is not
+something closing the shop would strand.
+
+##### POST `/api/Shops`
+
+**Body:** `CreateShopRequest`.
+
+```json
+{
+  "code": "MACHIPISA",
+  "name": "Machipisa",
+  "businessPartnerCode": "C00123",
+  "warehouseCode": "CORMACH2",
+  "costCentreCode": "CC-MACH"
+}
+```
+
+`costCentreCode` is optional — SAP defaults a missing one, so requiring it would stop an otherwise
+correctly configured shop from trading over a reporting dimension. The other four are required.
+
+**Response:** `ShopDto`. `409 Conflict` on a duplicate `code`, and `409` again if another shop
+already uses that `warehouseCode` — including a **closed** one. Each shop needs its own warehouse
+because the warehouse is what scopes an operator's view of the day's takings; two shops sharing one
+would show each other's sales to both, and a closed shop still owns the history behind its warehouse.
+
+##### PUT `/api/Shops/{id}`
+
+**Body:** `UpdateShopRequest` — `name`, `businessPartnerCode`, `warehouseCode`, `costCentreCode`.
+
+Carries no `code` and no `isActive`. The code is what sales history and reporting group on, so a shop
+needing a different one is a new shop; `isActive` has its own endpoint because closing has a rule
+attached that an edit form silently flipping a checkbox would walk past.
+
+**Response:** `ShopDto`. `404` for an unknown id, `409` for a warehouse another shop holds.
+
+##### PUT `/api/Shops/{id}/active`
+
+| Parameter | Notes |
+|-----------|-------|
+| `isActive` | `false` closes the shop, `true` reopens it |
+
+**Response:** `ShopDto`. `409 Conflict` when closing a shop that still has active till operators
+assigned, naming how many — their accounts would keep authenticating and then fail at the first sale
+with a refusal naming the shop, which reads to an operator as a broken till rather than a closed one.
+Reopening runs no such check: it strands nobody. Setting the state it already has is a no-op rather
+than an error, so a double-click is not something an administrator has to read and dismiss.
+
+There is no delete. A shop owns its sales history, and its warehouse stays reserved after it closes so
+that history cannot be handed to a new shop.
+
+---
 # ShopInventory API Documentation
 
 ## Overview

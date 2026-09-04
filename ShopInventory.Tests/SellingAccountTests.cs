@@ -2,6 +2,7 @@ using System.Text.Json;
 using ShopInventory.Common.Sales;
 using ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 using ShopInventory.Models;
+using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Tests;
 
@@ -146,6 +147,141 @@ public sealed class SellingAccountTests
 
         Assert.True(resolved.IsError);
         Assert.Equal("DesktopSales.Unauthenticated", resolved.FirstError.Code);
+    }
+
+    // ---- Resolving through an assigned shop -----------------------------------------------------
+    //
+    // A till operator's three values live on its shop rather than on its account, so that five
+    // operators at one counter cannot drift apart. The shop wins outright where both are set: there
+    // is no reading under which an account should sell as one business partner out of a warehouse
+    // belonging to another, so there is nothing to merge.
+
+    private static ShopEntity Shop(
+        string businessPartner = "SHOP-BP",
+        string warehouse = "CORMACH2",
+        string? costCentre = "CC-SHOP",
+        bool isActive = true) => new()
+        {
+            Id = 7,
+            Code = "MACHIPISA",
+            Name = "Machipisa",
+            BusinessPartnerCode = businessPartner,
+            WarehouseCode = warehouse,
+            CostCentreCode = costCentre,
+            IsActive = isActive,
+        };
+
+    private static User ShopAccount(ShopEntity? shop, bool isActive = true)
+    {
+        var account = Account(isActive: isActive);
+        account.Role = "TillOperator";
+        account.ShopId = shop?.Id ?? 7;
+        account.Shop = shop;
+        return account;
+    }
+
+    [Fact]
+    public void A_shop_assigned_account_sells_on_the_shops_values()
+    {
+        var resolved = SellingAccountResolver.Resolve(ShopAccount(Shop()));
+
+        Assert.False(resolved.IsError);
+        Assert.Equal("SHOP-BP", resolved.Value.CardCode);
+        Assert.Equal("CORMACH2", resolved.Value.WarehouseCode);
+        Assert.Equal("CC-SHOP", resolved.Value.CostCentreCode);
+    }
+
+    [Fact]
+    public void The_shop_wins_over_the_accounts_own_columns()
+    {
+        // Account() carries KEFSHOP-BP / KEFSHOP / CC-01. None of them should reach the sale: an
+        // account holding both is a misconfiguration, and reading half of each would invoice one
+        // partner out of another's warehouse.
+        var resolved = SellingAccountResolver.Resolve(ShopAccount(Shop()));
+
+        Assert.False(resolved.IsError);
+        Assert.NotEqual("KEFSHOP-BP", resolved.Value.CardCode);
+        Assert.NotEqual("KEFSHOP", resolved.Value.WarehouseCode);
+        Assert.NotEqual("CC-01", resolved.Value.CostCentreCode);
+    }
+
+    [Fact]
+    public void An_account_with_no_shop_resolves_exactly_as_before()
+    {
+        // The fallback that lets existing till accounts keep trading through the deploy.
+        var resolved = SellingAccountResolver.Resolve(Account());
+
+        Assert.False(resolved.IsError);
+        Assert.Equal("KEFSHOP-BP", resolved.Value.CardCode);
+        Assert.Equal("KEFSHOP", resolved.Value.WarehouseCode);
+        Assert.Equal("CC-01", resolved.Value.CostCentreCode);
+    }
+
+    [Fact]
+    public void A_closed_shop_cannot_sell()
+    {
+        var resolved = SellingAccountResolver.Resolve(ShopAccount(Shop(isActive: false)));
+
+        Assert.True(resolved.IsError);
+        Assert.Equal("DesktopSales.ShopInactive", resolved.FirstError.Code);
+        Assert.Contains("Machipisa", resolved.FirstError.Description);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void A_shop_with_no_business_partner_cannot_sell(string businessPartner)
+    {
+        var resolved = SellingAccountResolver.Resolve(ShopAccount(Shop(businessPartner: businessPartner)));
+
+        Assert.True(resolved.IsError);
+        Assert.Equal("DesktopSales.ShopMisconfigured", resolved.FirstError.Code);
+        Assert.Contains("business partner", resolved.FirstError.Description);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void A_shop_with_no_warehouse_cannot_sell(string warehouse)
+    {
+        var resolved = SellingAccountResolver.Resolve(ShopAccount(Shop(warehouse: warehouse)));
+
+        Assert.True(resolved.IsError);
+        Assert.Equal("DesktopSales.ShopMisconfigured", resolved.FirstError.Code);
+        Assert.Contains("warehouse", resolved.FirstError.Description);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void A_shop_with_no_cost_centre_still_sells(string? costCentre)
+    {
+        // Same reasoning as the per-account case: SAP defaults it, so it is not worth refusing over.
+        var resolved = SellingAccountResolver.Resolve(ShopAccount(Shop(costCentre: costCentre)));
+
+        Assert.False(resolved.IsError);
+        Assert.Null(resolved.Value.CostCentreCode);
+    }
+
+    [Fact]
+    public void A_deactivated_account_at_a_trading_shop_still_cannot_sell()
+    {
+        // The account check comes first: a dismissed operator must not sell because their shop is open.
+        var resolved = SellingAccountResolver.Resolve(ShopAccount(Shop(), isActive: false));
+
+        Assert.True(resolved.IsError);
+        Assert.Equal("DesktopSales.Unauthenticated", resolved.FirstError.Code);
+    }
+
+    [Fact]
+    public void A_shop_named_but_not_loaded_is_a_fault_rather_than_a_silent_fallback()
+    {
+        // Falling back to the account's own columns here would sell on the values the shop was meant
+        // to replace — the exact confusion deriving these from one place exists to remove. A caller
+        // that forgot its Include should fail loudly in testing, not quietly in production.
+        Assert.Throws<InvalidOperationException>(
+            () => SellingAccountResolver.Resolve(ShopAccount(shop: null)));
     }
 
     // ---- Applying it to the request ---------------------------------------------------------------

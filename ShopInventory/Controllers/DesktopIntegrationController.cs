@@ -721,6 +721,11 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// <paramref name="sourceSystem"/> omitted is the default scope, not every row: the signed-receipt
     /// carriers written for online van sales are left out, because their money belongs to a sale already
     /// listed as its own SAP invoice. Pass <c>KefalosVanSalesOnline</c> to list exactly those.
+    ///
+    /// <paramref name="warehouseCode"/> is a filter, not a choice of whose money to read. An account
+    /// assigned to a shop is confined to that shop's warehouse and naming another is refused; only the
+    /// console and integration roles read across every shop. This needs a real user rather than the
+    /// loose claim read elsewhere on this controller — an API key carries no account to scope by.
     /// </remarks>
     [HttpGet("sales")]
     public async Task<IActionResult> GetDesktopSales(
@@ -734,9 +739,13 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         [FromQuery] string? sourceSystem = null,
         CancellationToken cancellationToken = default)
     {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
         var result = await mediator.Send(
             new GetDesktopSalesQuery(
-                warehouseCode, cardCode, consolidationStatus, fromDate, toDate, page, pageSize, sourceSystem),
+                userId.Value, warehouseCode, cardCode, consolidationStatus, fromDate, toDate, page, pageSize, sourceSystem),
             cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
@@ -744,6 +753,13 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// <summary>
     /// Manually trigger end-of-day consolidation — consolidates sales per BP and posts to SAP.
     /// </summary>
+    /// <remarks>
+    /// Gated for the same reason the sales list is scoped: the class-level "ApiAccess" policy admits
+    /// every staff role, so without this a merchandiser or a driver could post the day's invoices to
+    /// SAP. This one writes, which makes it the worse of the pair — the read at least changed nothing.
+    /// The till never calls it; the only caller is the desktop sales console.
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager,Cashier,ApiUser")]
     [HttpPost("end-of-day/consolidate")]
     public async Task<IActionResult> ConsolidateDailySales(
         [FromBody] ConsolidateDailySalesCommand? command,
@@ -757,6 +773,12 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// <summary>
     /// Get end-of-day sales report with consolidation status, fiscal receipts, and payment matching.
     /// </summary>
+    /// <remarks>
+    /// A whole-business report rather than a per-shop one, so it takes a role gate rather than the
+    /// warehouse scope the sales list uses. Not left on "ApiAccess" alone, which every staff role
+    /// satisfies.
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager,Cashier,ApiUser")]
     [HttpGet("end-of-day/report")]
     public async Task<IActionResult> GetEndOfDayReport(
         [FromQuery] DateTime? reportDate,
@@ -769,6 +791,12 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// <summary>
     /// Manually trigger end-of-day report email.
     /// </summary>
+    /// <remarks>
+    /// Narrower than the two above: this both consolidates and sends the day's takings to the
+    /// configured recipients, and no page calls it — it is an operator's manual lever, so it stays
+    /// with the people who own the day's close.
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager")]
     [HttpPost("end-of-day/email-report")]
     public async Task<IActionResult> EmailEndOfDayReport(
         [FromQuery] DateTime? reportDate,
