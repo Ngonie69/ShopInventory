@@ -58,7 +58,11 @@
                     <input id="shop-code" class="shop-field" @bind="editing.Code"
                            placeholder="MACHIPISA" disabled="@(editing.Id > 0)" />
                 </div>
-                <div class="col-md-3">
+                @* Two, not three. A shop name is a place name — "Machipisa", "Graniteside" — and the
+                   width it gave up goes to the warehouse picker, whose options are "CODE - Name" and
+                   were being clipped mid-word. A text input degrades gracefully when it runs out of
+                   room; a <select> does not, because the browser draws it. *@
+                <div class="col-md-2">
                     <label class="shop-filter-label" for="shop-name">Name</label>
                     <input id="shop-name" class="shop-field" @bind="editing.Name" placeholder="Machipisa" />
                 </div>
@@ -79,7 +83,7 @@
                         </select>
                     }
                 </div>
-                <div class="col-md-2">
+                <div class="col-md-3">
                     <label class="shop-filter-label" for="shop-wh">Warehouse</label>
                     @if (isLoadingMasterData)
                     {
