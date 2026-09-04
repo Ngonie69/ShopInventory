@@ -12,6 +12,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class ExchangeRateController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// Get all active exchange rates
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetAllActive(CancellationToken cancellationToken)
     {
@@ -19,6 +22,9 @@ public class ExchangeRateController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Current rate between two currencies
+    /// </summary>
     [HttpGet("{fromCurrency}/{toCurrency}")]
     public async Task<IActionResult> GetCurrentRate(string fromCurrency, string toCurrency, CancellationToken cancellationToken)
     {
@@ -26,6 +32,9 @@ public class ExchangeRateController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Rate history (default 30 days)
+    /// </summary>
     [HttpGet("{fromCurrency}/{toCurrency}/history")]
     public async Task<IActionResult> GetRateHistory(
         string fromCurrency,
@@ -37,6 +46,9 @@ public class ExchangeRateController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Convert an amount
+    /// </summary>
     [HttpGet("convert")]
     public async Task<IActionResult> Convert(
         [FromQuery] decimal amount,

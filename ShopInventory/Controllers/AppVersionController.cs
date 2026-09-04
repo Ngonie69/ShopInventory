@@ -11,6 +11,9 @@ namespace ShopInventory.Controllers;
 [Route("api/[controller]")]
 public class AppVersionController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// The version policy for the calling build
+    /// </summary>
     [HttpGet("mobile")]
     [AllowAnonymous]
     public async Task<IActionResult> GetMobileVersionPolicy(
@@ -29,6 +32,9 @@ public class AppVersionController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The stored mobile app version policy
+    /// </summary>
     [HttpGet("mobile/settings")]
     [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> GetMobileVersionPolicySettings([FromQuery] string? appId, CancellationToken cancellationToken)
@@ -37,6 +43,9 @@ public class AppVersionController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Update the mobile app version policy
+    /// </summary>
     [HttpPut("mobile/settings")]
     [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> UpdateMobileVersionPolicySettings(

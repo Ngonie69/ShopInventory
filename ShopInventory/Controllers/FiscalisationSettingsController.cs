@@ -12,6 +12,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "AdminOnly")]
 public class FiscalisationSettingsController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// Current fiscalisation settings; the API key comes back masked
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetSettings(CancellationToken cancellationToken)
     {
@@ -19,6 +22,9 @@ public class FiscalisationSettingsController(IMediator mediator) : ApiController
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Store a new API key
+    /// </summary>
     [HttpPut]
     public async Task<IActionResult> UpdateSettings(
         [FromBody] UpdateFiscalisationSettingsRequest request,
@@ -38,6 +44,9 @@ public class FiscalisationSettingsController(IMediator mediator) : ApiController
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Check a key against the platform
+    /// </summary>
     [HttpPost("test-connection")]
     public async Task<IActionResult> TestConnection(
         [FromBody] TestFiscalisationConnectionRequest? request,

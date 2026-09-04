@@ -15,6 +15,9 @@ namespace ShopInventory.Controllers;
 [Produces("application/json")]
 public class PurchaseQuotationController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// List purchase quotations
+    /// </summary>
     [HttpGet]
     [RequirePermission(Permission.ViewPurchaseQuotations)]
     [ProducesResponseType(typeof(PurchaseQuotationListResponseDto), StatusCodes.Status200OK)]
@@ -30,6 +33,9 @@ public class PurchaseQuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// One purchase quotation
+    /// </summary>
     [HttpGet("{docEntry:int}")]
     [RequirePermission(Permission.ViewPurchaseQuotations)]
     [ProducesResponseType(typeof(PurchaseQuotationDto), StatusCodes.Status200OK)]
@@ -39,6 +45,9 @@ public class PurchaseQuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Create. Answers 201
+    /// </summary>
     [HttpPost]
     [RequirePermission(Permission.CreatePurchaseQuotations)]
     [ProducesResponseType(typeof(PurchaseQuotationDto), StatusCodes.Status201Created)]

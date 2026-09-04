@@ -10,6 +10,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class StatementController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// Get customer statement
+    /// </summary>
     [HttpGet("{cardCode}")]
     public async Task<IActionResult> GetStatement(
         string cardCode,
@@ -22,6 +25,9 @@ public class StatementController(IMediator mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Generate a customer statement as a PDF
+    /// </summary>
     [HttpGet("generate/{cardCode}")]
     [HttpGet("{cardCode}/pdf")]
     public async Task<IActionResult> GenerateStatement(

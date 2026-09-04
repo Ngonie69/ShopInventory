@@ -17,6 +17,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class StockController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// Get all warehouses (cached 5 min)
+    /// </summary>
     [HttpGet("warehouses")]
     [OutputCache(PolicyName = "warehouses")]
     public async Task<IActionResult> GetWarehouses(CancellationToken cancellationToken)
@@ -25,6 +28,9 @@ public class StockController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get just warehouse codes
+    /// </summary>
     [HttpGet("warehouse-codes")]
     [OutputCache(PolicyName = "warehouses")]
     public async Task<IActionResult> GetWarehouseCodes(
@@ -35,6 +41,9 @@ public class StockController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get all stock in a specific warehouse
+    /// </summary>
     [HttpGet("warehouse/{warehouseCode}")]
     public async Task<IActionResult> GetStockInWarehouse(
         string warehouseCode,
@@ -45,6 +54,9 @@ public class StockController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// List a warehouse's stock, paginated
+    /// </summary>
     [HttpGet("warehouse/{warehouseCode}/paged")]
     public async Task<IActionResult> GetStockInWarehousePaged(
         string warehouseCode,
@@ -56,6 +68,9 @@ public class StockController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Stock for named items only — itemCodes is a comma-separated list
+    /// </summary>
     [HttpGet("warehouse/{warehouseCode}/items")]
     public async Task<IActionResult> GetStockForItemsInWarehouse(
         string warehouseCode,
@@ -71,6 +86,9 @@ public class StockController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Sales out of a warehouse
+    /// </summary>
     [HttpGet("warehouse/{warehouseCode}/sales")]
     public async Task<IActionResult> GetSalesInWarehouse(
         string warehouseCode,
@@ -82,6 +100,9 @@ public class StockController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// A warehouse's sales, with the date range in the body rather than the query string
+    /// </summary>
     [HttpPost("warehouse/{warehouseCode}/sales")]
     public async Task<IActionResult> GetSalesInWarehousePost(
         string warehouseCode,

@@ -17,11 +17,17 @@ public sealed class ApprovalProcessController(
     IInventoryTransferApprovalService approvalService,
     IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// List the approval stage definitions
+    /// </summary>
     [HttpGet("stages")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> GetStages(CancellationToken cancellationToken)
         => Ok(await approvalService.GetStagesAsync(cancellationToken));
 
+    /// <summary>
+    /// Create an approval stage definition, or update an existing one
+    /// </summary>
     [HttpPost("stages")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> SaveStage([FromBody] ApprovalStageDefinitionDto stage, CancellationToken cancellationToken)
@@ -30,6 +36,9 @@ public sealed class ApprovalProcessController(
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Delete an approval stage definition
+    /// </summary>
     [HttpDelete("stages/{id:guid}")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> DeleteStage(Guid id, CancellationToken cancellationToken)
@@ -38,11 +47,17 @@ public sealed class ApprovalProcessController(
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// List the approval templates
+    /// </summary>
     [HttpGet("templates")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> GetTemplates(CancellationToken cancellationToken)
         => Ok(await approvalService.GetTemplatesAsync(cancellationToken));
 
+    /// <summary>
+    /// Create an approval template, or update an existing one
+    /// </summary>
     [HttpPost("templates")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> SaveTemplate([FromBody] ApprovalTemplateDefinitionDto template, CancellationToken cancellationToken)
@@ -51,6 +66,9 @@ public sealed class ApprovalProcessController(
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Delete an approval template
+    /// </summary>
     [HttpDelete("templates/{id:guid}")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> DeleteTemplate(Guid id, CancellationToken cancellationToken)
@@ -59,6 +77,9 @@ public sealed class ApprovalProcessController(
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Decide a transfer request
+    /// </summary>
     [HttpPost("transfer-requests/{docEntry:int}/decision")]
     public async Task<IActionResult> SubmitDecision(
         int docEntry,

@@ -20,6 +20,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class PriceController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// Get cached prices (synced every 5 minutes)
+    /// </summary>
     [HttpGet("cached")]
     public async Task<IActionResult> GetCachedPrices(CancellationToken cancellationToken)
     {
@@ -27,6 +30,9 @@ public class PriceController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get all prices directly from SAP
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetAllPrices(CancellationToken cancellationToken)
     {
@@ -34,6 +40,9 @@ public class PriceController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Prices grouped by item
+    /// </summary>
     [HttpGet("grouped")]
     public async Task<IActionResult> GetGroupedPrices(CancellationToken cancellationToken)
     {
@@ -41,6 +50,9 @@ public class PriceController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Prices for one item
+    /// </summary>
     [HttpGet("{itemCode}")]
     public async Task<IActionResult> GetPriceByItemCode(string itemCode, CancellationToken cancellationToken)
     {
@@ -48,6 +60,9 @@ public class PriceController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Prices in one currency
+    /// </summary>
     [HttpGet("currency/{currency}")]
     public async Task<IActionResult> GetPricesByCurrency(string currency, CancellationToken cancellationToken)
     {
@@ -55,6 +70,9 @@ public class PriceController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The price lists
+    /// </summary>
     [HttpGet("pricelists")]
     public async Task<IActionResult> GetPriceLists([FromQuery] bool? forceRefresh = null, CancellationToken cancellationToken = default)
     {
@@ -70,6 +88,9 @@ public class PriceController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Sync the price lists
+    /// </summary>
     [HttpPost("pricelists/sync")]
     public async Task<IActionResult> SyncPriceLists(CancellationToken cancellationToken)
     {
@@ -78,6 +99,9 @@ public class PriceController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Force a price sync from SAP
+    /// </summary>
     [HttpPost("sync")]
     public async Task<IActionResult> SyncPriceCatalog(CancellationToken cancellationToken)
     {
@@ -86,6 +110,9 @@ public class PriceController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Items on one price list
+    /// </summary>
     [HttpGet("pricelists/{priceListNum:int}/items")]
     public async Task<IActionResult> GetPricesByPriceList(
         int priceListNum,
@@ -104,6 +131,9 @@ public class PriceController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Sync one price list
+    /// </summary>
     [HttpPost("pricelists/{priceListNum:int}/sync")]
     public async Task<IActionResult> SyncItemPricesForPriceList(int priceListNum, CancellationToken cancellationToken)
     {
@@ -111,6 +141,9 @@ public class PriceController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One item's price on one list
+    /// </summary>
     [HttpGet("pricelists/{priceListNum:int}/items/{itemCode}")]
     public async Task<IActionResult> GetItemPriceFromList(int priceListNum, string itemCode, CancellationToken cancellationToken)
     {
@@ -118,6 +151,9 @@ public class PriceController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Customer-specific pricing
+    /// </summary>
     [HttpGet("businesspartner/{cardCode}")]
     public async Task<IActionResult> GetPricesByBusinessPartner(
         string cardCode,

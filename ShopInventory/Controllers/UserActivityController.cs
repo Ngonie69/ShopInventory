@@ -18,6 +18,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class UserActivityController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// System-wide activity dashboard
+    /// </summary>
     [HttpGet("dashboard")]
     [RequirePermission(Permission.ViewAuditLogs)]
     public async Task<IActionResult> GetDashboard(
@@ -29,6 +32,9 @@ public class UserActivityController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Specific user's activity summary
+    /// </summary>
     [HttpGet("user/{userId:guid}")]
     [RequirePermission(Permission.ViewAuditLogs)]
     public async Task<IActionResult> GetUserActivity(Guid userId, [FromQuery] int recentCount = 20, CancellationToken cancellationToken = default)
@@ -37,6 +43,9 @@ public class UserActivityController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Current user's own activity
+    /// </summary>
     [HttpGet("me")]
     public async Task<IActionResult> GetMyActivity([FromQuery] int recentCount = 20, CancellationToken cancellationToken = default)
     {
@@ -48,6 +57,9 @@ public class UserActivityController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get user activity logs
+    /// </summary>
     [HttpGet]
     [RequirePermission(Permission.ViewAuditLogs)]
     public async Task<IActionResult> GetActivities(
@@ -65,6 +77,9 @@ public class UserActivityController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get filter options
+    /// </summary>
     [HttpGet("filter-options")]
     [RequirePermission(Permission.ViewAuditLogs)]
     public async Task<IActionResult> GetFilterOptions(
@@ -76,6 +91,9 @@ public class UserActivityController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get activity for a document
+    /// </summary>
     [HttpGet("entity/{entityType}/{entityId}")]
     [RequirePermission(Permission.ViewAuditLogs)]
     public async Task<IActionResult> GetEntityActivities(string entityType, string entityId, CancellationToken cancellationToken = default)

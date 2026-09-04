@@ -21,6 +21,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class RouteCustomersController(ISender mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// The route customers
+    /// </summary>
     [HttpGet]
     [RequirePermission(Permission.ViewCustomers)]
     public async Task<IActionResult> GetRouteCustomers(
@@ -125,6 +128,9 @@ public class RouteCustomersController(ISender mediator) : ApiControllerBase
             Problem);
     }
 
+    /// <summary>
+    /// Update a route customer
+    /// </summary>
     [HttpPut("{id:int}")]
     [RequirePermission(Permission.EditCustomers)]
     public async Task<IActionResult> UpdateRouteCustomer(
@@ -139,6 +145,9 @@ public class RouteCustomersController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Delete a route customer
+    /// </summary>
     [HttpDelete("{id:int}")]
     [RequirePermission(Permission.DeleteCustomers)]
     public async Task<IActionResult> DeleteRouteCustomer(

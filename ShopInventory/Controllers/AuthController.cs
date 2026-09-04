@@ -23,6 +23,9 @@ namespace ShopInventory.Controllers;
 [Route("api/[controller]")]
 public class AuthController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// Login with username and password
+    /// </summary>
     [HttpPost("login")]
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
@@ -50,6 +53,9 @@ public class AuthController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The caller's registered passkeys
+    /// </summary>
     [HttpGet("passkeys")]
     [Authorize]
     public async Task<IActionResult> GetPasskeys(CancellationToken cancellationToken)
@@ -62,6 +68,9 @@ public class AuthController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Begin registering a passkey, returning the WebAuthn creation options and a session token
+    /// </summary>
     [HttpPost("passkeys/register/options")]
     [Authorize]
     public async Task<IActionResult> BeginPasskeyRegistration(
@@ -79,6 +88,9 @@ public class AuthController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Finish registering a passkey from the authenticator's response
+    /// </summary>
     [HttpPost("passkeys/register/complete")]
     [Authorize]
     public async Task<IActionResult> CompletePasskeyRegistration(
@@ -96,6 +108,9 @@ public class AuthController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Begin a passkey login
+    /// </summary>
     [HttpPost("passkeys/login/options")]
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
@@ -107,6 +122,9 @@ public class AuthController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Finish a passkey sign-in, answering the same token pair as /api/Auth/login
+    /// </summary>
     [HttpPost("passkeys/login/complete")]
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
@@ -121,6 +139,9 @@ public class AuthController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Refresh access token
+    /// </summary>
     [HttpPost("refresh")]
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
@@ -131,6 +152,9 @@ public class AuthController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Exchange a stored biometric credential for tokens
+    /// </summary>
     [HttpPost("mobile/biometric-login")]
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
@@ -151,6 +175,9 @@ public class AuthController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Record that this device may use biometrics
+    /// </summary>
     [HttpPost("mobile/biometric-preference")]
     [Authorize]
     public async Task<IActionResult> RecordMobileBiometricPreference(
@@ -168,6 +195,9 @@ public class AuthController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Logout and revoke tokens
+    /// </summary>
     [HttpPost("logout")]
     [Authorize]
     public async Task<IActionResult> Logout([FromBody] RefreshTokenRequest request, CancellationToken cancellationToken)
@@ -177,6 +207,9 @@ public class AuthController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get the current authenticated user
+    /// </summary>
     [HttpGet("me")]
     [Authorize]
     public async Task<IActionResult> GetCurrentUser(CancellationToken cancellationToken)
@@ -189,6 +222,9 @@ public class AuthController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Register a new user
+    /// </summary>
     [HttpPost("register")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Register([FromBody] RegisterUserRequest request, CancellationToken cancellationToken)

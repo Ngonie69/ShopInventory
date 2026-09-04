@@ -35,6 +35,9 @@ namespace ShopInventory.Controllers;
 [Produces("application/json")]
 public class MerchandiserController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// List the merchandisers
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetMerchandisers(CancellationToken cancellationToken)
     {
@@ -42,6 +45,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One merchandiser's products
+    /// </summary>
     [HttpGet("{userId:guid}/products")]
     public async Task<IActionResult> GetMerchandiserProducts(Guid userId, CancellationToken cancellationToken)
     {
@@ -49,6 +55,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The globally assigned products
+    /// </summary>
     [HttpGet("products")]
     public async Task<IActionResult> GetGlobalProducts(CancellationToken cancellationToken)
     {
@@ -56,6 +65,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// SAP items eligible to be assigned
+    /// </summary>
     [HttpGet("sap-sales-items")]
     public async Task<IActionResult> GetSapSalesItems(CancellationToken cancellationToken)
     {
@@ -63,6 +75,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Assign products globally
+    /// </summary>
     [HttpPost("products")]
     public async Task<IActionResult> AssignProductsGlobal([FromBody] AssignMerchandiserProductsRequest request, CancellationToken cancellationToken)
     {
@@ -71,6 +86,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Assign products to one merchandiser
+    /// </summary>
     [HttpPost("{userId:guid}/products")]
     public async Task<IActionResult> AssignProducts(Guid userId, [FromBody] AssignMerchandiserProductsRequest request, CancellationToken cancellationToken)
     {
@@ -79,6 +97,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Unassign products from every merchandiser
+    /// </summary>
     [HttpDelete("products")]
     public async Task<IActionResult> RemoveProductsGlobal([FromBody] AssignMerchandiserProductsRequest request, CancellationToken cancellationToken)
     {
@@ -86,6 +107,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Activate or retire globally
+    /// </summary>
     [HttpPut("products/status")]
     public async Task<IActionResult> UpdateProductStatusGlobal([FromBody] UpdateMerchandiserProductStatusRequest request, CancellationToken cancellationToken)
     {
@@ -94,6 +118,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Activate or retire for one merchandiser
+    /// </summary>
     [HttpPut("{userId:guid}/products/status")]
     public async Task<IActionResult> UpdateProductStatus(Guid userId, [FromBody] UpdateMerchandiserProductStatusRequest request, CancellationToken cancellationToken)
     {
@@ -102,6 +129,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Unassign from one merchandiser
+    /// </summary>
     [HttpDelete("{userId:guid}/products")]
     public async Task<IActionResult> RemoveProducts(Guid userId, [FromBody] AssignMerchandiserProductsRequest request, CancellationToken cancellationToken)
     {
@@ -109,6 +139,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Product categories
+    /// </summary>
     [HttpGet("mobile/categories")]
     public async Task<IActionResult> GetProductCategories(CancellationToken cancellationToken)
     {
@@ -120,6 +153,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// The mobile catalogue a merchandiser may sell from
+    /// </summary>
     [HttpGet("mobile/active-products")]
     public async Task<IActionResult> GetActiveProductsForMobile(
         [FromQuery] string? search = null,
@@ -136,6 +172,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One merchandiser's catalogue
+    /// </summary>
     [HttpGet("{userId:guid}/active-products")]
     public async Task<IActionResult> GetActiveProductsForMerchandiser(
         Guid userId,
@@ -147,6 +186,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// What may be sold to one customer
+    /// </summary>
     [HttpGet("mobile/customer/{cardCode}/products")]
     public async Task<IActionResult> GetActiveProductsForCustomer(
         string cardCode,
@@ -162,6 +204,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Capture an order
+    /// </summary>
     [HttpPost("mobile/order")]
     [MaxRequestBodySize(5 * 1024 * 1024)]
     [RequirePermission(Permission.CreateSalesOrders)]
@@ -180,6 +225,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => CreatedAtAction(nameof(GetMobileOrders), null, value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Captured orders
+    /// </summary>
     [HttpGet("mobile/orders")]
     public async Task<IActionResult> GetMobileOrders(
         [FromQuery] int page = 1,
@@ -217,6 +265,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One order
+    /// </summary>
     [HttpGet("mobile/orders/{id:int}")]
     public async Task<IActionResult> GetMobileOrderById(int id, CancellationToken cancellationToken = default)
     {
@@ -228,6 +279,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One-off repair of stored product details
+    /// </summary>
     [HttpPost("backfill-product-details")]
     [SapBackgroundWork]
     [Authorize(Roles = "Admin")]
@@ -237,6 +291,9 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(new { updated = value }), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One-off repair of stored order tax
+    /// </summary>
     [HttpPost("backfill-mobile-order-tax")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> BackfillMobileOrderTax(CancellationToken cancellationToken)
