@@ -79,6 +79,7 @@
   "GET /api/PurchaseRequest": "List purchase requests",
   "GET /api/PurchaseRequest/{docEntry}": "One purchase request",
 
+  "POST /api/RateLimit/unblock/{clientId}": "Alias for reset: clear a rate-limited client",
   "PUT /api/RateLimit/config": "Update the rate limit configuration",
 
   "DELETE /api/PurchaseOrder/{id}": "Delete a purchase order",
@@ -90,7 +91,6 @@
   "PUT /api/Quotation/{id}/reprice": "Reprice a quotation against current prices",
   "PATCH /api/Quotation/{id}/status": "Change a quotation's status",
 
-  "POST /api/RateLimit/unblock/{clientId}": "Unblock a rate-limited client",
 
   "PUT /api/route-customers/{id}": "Update a route customer",
   "DELETE /api/route-customers/{id}": "Delete a route customer",

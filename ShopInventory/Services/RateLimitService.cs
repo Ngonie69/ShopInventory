@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.RateLimit;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Services;
@@ -11,25 +12,24 @@ namespace ShopInventory.Services;
 public class RateLimitService : IRateLimitService
 {
     private readonly ApplicationDbContext _context;
-    private readonly IConfiguration _configuration;
+    private readonly IRateLimitConfigStore _configStore;
     private readonly ILogger<RateLimitService> _logger;
 
-    private int _defaultMaxRequests;
-    private int _defaultWindowSeconds;
-    private int _blockDurationMinutes;
+    // Read per use rather than captured in the constructor. This service is scoped, so a captured
+    // copy could only ever be as current as the request that built it - which is how
+    // PUT /api/RateLimit/config came to report success and change nothing.
+    private int _defaultMaxRequests => _configStore.Current.PermitLimit;
+    private int _defaultWindowSeconds => _configStore.Current.WindowSeconds;
+    private int _blockDurationMinutes => _configStore.Current.BlockDurationMinutes;
 
     public RateLimitService(
         ApplicationDbContext context,
-        IConfiguration configuration,
+        IRateLimitConfigStore configStore,
         ILogger<RateLimitService> logger)
     {
         _context = context;
-        _configuration = configuration;
+        _configStore = configStore;
         _logger = logger;
-
-        _defaultMaxRequests = configuration.GetValue<int>("RateLimit:MaxRequests", 100);
-        _defaultWindowSeconds = configuration.GetValue<int>("RateLimit:WindowSeconds", 60);
-        _blockDurationMinutes = configuration.GetValue<int>("RateLimit:BlockDurationMinutes", 15);
     }
 
     public async Task<RateLimitDashboardDto> GetDashboardAsync(CancellationToken cancellationToken = default)
@@ -159,7 +159,24 @@ public class RateLimitService : IRateLimitService
         }
     }
 
-    public async Task<bool> UnblockClientAsync(string clientId, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Give a client a clean slate: counter zeroed, window restarted, block lifted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// There used to be an <c>UnblockClientAsync</c> beside this doing the same thing, and two
+    /// near-identical methods is how they came to differ: reset zeroed the counter and left
+    /// <c>IsBlocked</c> set, so resetting a blocked client left it blocked - the one case anybody
+    /// reaches for reset in. One method now. The <c>unblock/{clientId}</c> route still answers, as a
+    /// second route on the same controller action rather than a second implementation.
+    /// </para>
+    /// <para>
+    /// <c>TotalBlockedCount</c> is deliberately untouched. It is the client's history - how often it
+    /// has had to be stopped - and clearing it on every reset would erase the pattern that says a
+    /// client needs a conversation rather than another reset.
+    /// </para>
+    /// </remarks>
+    public async Task<bool> ResetClientAsync(string clientId, CancellationToken cancellationToken = default)
     {
         var limit = await _context.ApiRateLimits
             .FirstOrDefaultAsync(r => r.ClientId == clientId, cancellationToken);
@@ -174,15 +191,17 @@ public class RateLimitService : IRateLimitService
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation("Unblocked client {ClientId}", clientId);
+        _logger.LogInformation("Reset client {ClientId}", clientId);
         return true;
     }
 
     public async Task UpdateSettingsAsync(UpdateRateLimitSettingsRequest settings, CancellationToken cancellationToken = default)
     {
-        _defaultMaxRequests = settings.DefaultMaxRequests;
-        _defaultWindowSeconds = settings.DefaultWindowSeconds;
-        _blockDurationMinutes = settings.BlockDurationMinutes;
+        var updated = _configStore.Current.Clone();
+        updated.PermitLimit = settings.DefaultMaxRequests;
+        updated.WindowSeconds = settings.DefaultWindowSeconds;
+        updated.BlockDurationMinutes = settings.BlockDurationMinutes;
+        await _configStore.UpdateAsync(updated, cancellationToken);
 
         // Update all existing records with new defaults
         var allLimits = await _context.ApiRateLimits.ToListAsync(cancellationToken);
@@ -313,20 +332,6 @@ public class RateLimitService : IRateLimitService
         _logger.LogInformation("Blocked client {ClientId} for {Duration} minutes. Reason: {Reason}", clientId, durationMinutes, reason ?? "Manual block");
     }
 
-    public async Task<bool> ResetClientAsync(string clientId, CancellationToken cancellationToken = default)
-    {
-        var limit = await _context.ApiRateLimits
-            .FirstOrDefaultAsync(r => r.ClientId == clientId, cancellationToken);
-
-        if (limit == null)
-            return false;
-
-        limit.RequestCount = 0;
-        limit.WindowStart = DateTime.UtcNow;
-        await _context.SaveChangesAsync(cancellationToken);
-        return true;
-    }
-
     public async Task<List<ApiRateLimitDto>> GetBlockedClientsAsync(CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
@@ -374,26 +379,33 @@ public class RateLimitService : IRateLimitService
 
     public RateLimitConfigDto GetConfiguration()
     {
+        var current = _configStore.Current;
         return new RateLimitConfigDto
         {
-            MaxRequests = _defaultMaxRequests,
-            WindowSizeSeconds = _defaultWindowSeconds,
-            BlockDurationMinutes = _blockDurationMinutes,
-            IsEnabled = true,
-            WhitelistedIPs = new List<string>(),
-            WhitelistedApiKeys = new List<string>()
+            MaxRequests = current.PermitLimit,
+            WindowSizeSeconds = current.WindowSeconds,
+            BlockDurationMinutes = current.BlockDurationMinutes,
+            IsEnabled = current.EnableIpRateLimiting,
+            WhitelistedIPs = [.. current.IpWhitelist],
+            WhitelistedApiKeys = [.. current.ApiKeyWhitelist]
         };
     }
 
     public async Task UpdateConfigurationAsync(RateLimitConfigDto config, CancellationToken cancellationToken = default)
     {
-        _defaultMaxRequests = config.MaxRequests;
-        _defaultWindowSeconds = config.WindowSizeSeconds;
-        _blockDurationMinutes = config.BlockDurationMinutes;
+        // Overlay onto what is in force rather than onto a fresh RateLimitSettings, so the fields
+        // this DTO does not carry - the queue limits, the stricter auth-endpoint limits - keep the
+        // values they have instead of being reset to type defaults by a write that never mentioned
+        // them.
+        var settings = _configStore.Current.Clone();
+        settings.PermitLimit = config.MaxRequests;
+        settings.WindowSeconds = config.WindowSizeSeconds;
+        settings.BlockDurationMinutes = config.BlockDurationMinutes;
+        settings.EnableIpRateLimiting = config.IsEnabled;
+        settings.IpWhitelist = [.. config.WhitelistedIPs];
+        settings.ApiKeyWhitelist = [.. config.WhitelistedApiKeys];
 
-        await Task.CompletedTask;
-        _logger.LogInformation("Rate limit configuration updated: MaxRequests={MaxRequests}, WindowSize={WindowSize}s, BlockDuration={BlockDuration}min",
-            config.MaxRequests, config.WindowSizeSeconds, config.BlockDurationMinutes);
+        await _configStore.UpdateAsync(settings, cancellationToken);
     }
 
     public async Task<int> CleanupExpiredAsync(CancellationToken cancellationToken = default)

@@ -1192,8 +1192,8 @@ new("GET", "/api/RateLimit/stats", "Get rate limit statistics"),
 new("POST", "/api/RateLimit/block/{clientId}", "Block client"),
 new("POST", "/api/RateLimit/cleanup", "Cleanup"),
 new("PUT", "/api/RateLimit/config", "Update config"),
-new("POST", "/api/RateLimit/reset/{clientId}", "Reset a client's counters"),
-new("POST", "/api/RateLimit/unblock/{clientId}", "Unblock client")
+new("POST", "/api/RateLimit/reset/{clientId}", "Clear a client: counter, window and block"),
+new("POST", "/api/RateLimit/unblock/{clientId}", "Alias for reset: clear a client's counter, window and block")
 }
 },
 new ApiModule
