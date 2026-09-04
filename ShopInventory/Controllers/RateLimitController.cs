@@ -85,7 +85,15 @@ public class RateLimitController(IMediator mediator) : ApiControllerBase
     /// <summary>
     /// Clear a rate-limited client: counter, window and block
     /// </summary>
+    /// <remarks>
+    /// <c>unblock/{clientId}</c> is the same action under its original name. The two used to be
+    /// separate endpoints that had drifted apart - reset zeroed the counter and left the block in
+    /// place - and collapsing them to one action is what stops that happening again. It is an alias
+    /// rather than a deletion because the versioning policy in API.md keeps version 1.0 endpoints
+    /// working for the clients that already call them.
+    /// </remarks>
     [HttpPost("reset/{clientId}")]
+    [HttpPost("unblock/{clientId}")]
     [RequirePermission(Permission.EditUsers)]
     public async Task<IActionResult> ResetClient(string clientId, CancellationToken cancellationToken)
     {

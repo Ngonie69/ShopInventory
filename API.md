@@ -19,7 +19,7 @@
 - If no API version is supplied, the server uses version `1.0`
 - Clients can request a specific API version with the `X-API-Version` header or the `api-version` query string
 - Breaking contract changes must be introduced in a new API version; existing version `1.0` endpoints remain supported for current clients
-- Changes a caller has to act on are recorded in [CHANGELOG.md](CHANGELOG.md), including any that departed from the rule above
+- Changes a caller has to act on are recorded in [CHANGELOG.md](CHANGELOG.md), including endpoints kept working under an older name
 
 Examples:
 
@@ -2347,6 +2347,7 @@ The `signature` is an HMAC-SHA256 of the payload body using the webhook secret.
 | GET | `/api/RateLimit/check` | ApiAccess | Check if request would be allowed (non-incrementing) |
 | POST | `/api/RateLimit/block/{clientId}` | `users.edit` | Block a client |
 | POST | `/api/RateLimit/reset/{clientId}` | `users.edit` | Clear a client: counter, window and block |
+| POST | `/api/RateLimit/unblock/{clientId}` | `users.edit` | The same action under its original name |
 | GET | `/api/RateLimit/blocked` | `users.edit` | Every client currently blocked |
 | GET | `/api/RateLimit/stats` | `users.edit` | Totals across all clients |
 | GET | `/api/RateLimit/config` | `users.edit` | The limits in force |
@@ -2356,17 +2357,19 @@ The `signature` is an HMAC-SHA256 of the payload body using the webhook secret.
 Rate limit administration is gated on `users.edit`, not on a rate-limit permission of its own —
 there isn't one.
 
-##### `reset/{clientId}` clears everything
+##### `reset/{clientId}` clears everything, and `unblock/{clientId}` is the same action
 
 `requestCount` zeroed, the window restarted, and `isBlocked` / `blockExpiresAt` cleared — the
 client can call again immediately.
 
-**The old `unblock/{clientId}` route is gone.** It did exactly this, and having two of them
-is how they came to disagree: `reset` used to zero the counter and leave the block in place, so
-**resetting a blocked client left it blocked** — the one state anybody reaches for reset in. An
-operator clearing a client and watching it stay shut out cannot tell a broken endpoint from a
-client that is still hammering the API. Callers of `unblock` should use `reset`; the answer is the
-same.
+The two paths are **one action with two routes**, not two implementations, so they cannot answer
+differently. They used to be separate and had drifted: `reset` zeroed the counter and left the
+block in place, so **resetting a blocked client left it blocked** — the one state anybody reaches
+for reset in. An operator clearing a client and watching it stay shut out cannot tell a broken
+endpoint from a client that is still hammering the API.
+
+`reset` is the name to use. `unblock` stays because it is a version `1.0` route with clients that
+may still call it, and this API keeps those working.
 
 `totalBlockedCount` survives. It is the client's history rather than its current state, and it is
 what says a client needs a conversation rather than another reset.

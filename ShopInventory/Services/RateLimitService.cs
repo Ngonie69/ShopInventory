@@ -164,10 +164,11 @@ public class RateLimitService : IRateLimitService
     /// </summary>
     /// <remarks>
     /// <para>
-    /// There used to be an <c>UnblockClientAsync</c> beside this doing the same thing, behind
-    /// <c>POST /api/RateLimit/unblock/{clientId}</c>. Two near-identical methods is how they came to
-    /// differ: reset zeroed the counter and left <c>IsBlocked</c> set, so resetting a blocked client
-    /// left it blocked - the one case anybody reaches for reset in. One method now, one route.
+    /// There used to be an <c>UnblockClientAsync</c> beside this doing the same thing, and two
+    /// near-identical methods is how they came to differ: reset zeroed the counter and left
+    /// <c>IsBlocked</c> set, so resetting a blocked client left it blocked - the one case anybody
+    /// reaches for reset in. One method now. The <c>unblock/{clientId}</c> route still answers, as a
+    /// second route on the same controller action rather than a second implementation.
     /// </para>
     /// <para>
     /// <c>TotalBlockedCount</c> is deliberately untouched. It is the client's history - how often it

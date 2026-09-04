@@ -79,6 +79,7 @@
   "GET /api/PurchaseRequest": "List purchase requests",
   "GET /api/PurchaseRequest/{docEntry}": "One purchase request",
 
+  "POST /api/RateLimit/unblock/{clientId}": "Alias for reset: clear a rate-limited client",
   "PUT /api/RateLimit/config": "Update the rate limit configuration",
 
   "DELETE /api/PurchaseOrder/{id}": "Delete a purchase order",

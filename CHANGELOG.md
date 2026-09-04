@@ -16,30 +16,27 @@ otherwise be surprised.
 
 ## Unreleased
 
-### Removed
+### Deprecated
 
-- **`POST /api/RateLimit/unblock/{clientId}` is gone. Use `POST /api/RateLimit/reset/{clientId}`.**
+- **`POST /api/RateLimit/unblock/{clientId}` still works; prefer
+  `POST /api/RateLimit/reset/{clientId}`.**
 
-  The two did the same thing. Same verb, same route shape, same `200 {"message": …}` answer and the
-  same `404` for a client id nothing has counted, so the migration is the URL and nothing else.
+  They are now one action with two routes rather than two implementations, so they cannot answer
+  differently: same `200 {"message": …}`, same `404` for a client id nothing has counted. Existing
+  callers need do nothing. New callers should use `reset`.
 
-  Nothing in this repository called it — no Web page, no service, only the catalogue entries
-  describing it. Anything outside this repository that calls it will get a `404` after this deploy.
-  The endpoint required the `users.edit` permission, so a caller would be an admin tool or a script
-  rather than a handset app.
-
-  > **This is a breaking change to a version `1.0` endpoint**, which the versioning policy in
-  > [API.md](API.md#api-versioning) says should instead go in a new API version with `1.0` kept
-  > working. It was removed outright. If any external caller turns out to depend on it, restoring it
-  > as a thin alias for reset is a small change.
+  Nothing in this repository calls `unblock` — no Web page, no service, only the catalogue entries
+  describing it — and it was briefly deleted during development on that basis. It was restored
+  because the versioning policy in [API.md](API.md#api-versioning) keeps version `1.0` endpoints
+  working for clients that already call them, and an admin tool or script outside this repository
+  could be one of those. No caller was ever affected: the deletion did not reach a deploy.
 
 ### Changed
 
 - **`POST /api/RateLimit/reset/{clientId}` now lifts the client's block**, not just its request
   counter. It previously left `isBlocked` and `blockExpiresAt` untouched, so resetting a blocked
-  client left it blocked — the one state anybody resets a client in. Anyone migrating from
-  `unblock/{clientId}` gets the behaviour they had; anyone who was calling `reset` and then
-  `unblock` can drop the second call.
+  client left it blocked — the one state anybody resets a client in. Anyone who was calling `reset`
+  and then `unblock` to work around it can drop the second call.
 
   `totalBlockedCount` is still left alone by design: it is the client's history, and it is what says
   a client needs a conversation rather than another reset.
