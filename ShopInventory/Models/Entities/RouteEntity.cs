@@ -17,6 +17,7 @@ namespace ShopInventory.Models.Entities;
 /// no report. A van points at a route; the route says these things once.
 /// </summary>
 [Index(nameof(Code), IsUnique = true)]
+[Index(nameof(SeedKey), IsUnique = true)]
 public class RouteEntity
 {
     [Key]
@@ -45,6 +46,18 @@ public class RouteEntity
     public string? TruckRegNo { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// Which route of the published schedule this is, or null on one somebody created themselves.
+    /// </summary>
+    /// <remarks>
+    /// Written once, at insert, and never by an edit — see <see cref="RouteStopEntity.SeedKey"/>,
+    /// which exists for the same reason and explains it at length. Matching on <see cref="Code"/>
+    /// instead would work until the day somebody corrects a code, at which point the next start
+    /// would decide the route was missing and create it a second time.
+    /// </remarks>
+    [MaxLength(60)]
+    public string? SeedKey { get; set; }
 
     public Guid? CreatedByUserId { get; set; }
 

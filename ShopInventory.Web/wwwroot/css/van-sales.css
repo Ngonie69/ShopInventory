@@ -544,6 +544,255 @@
 }
 
 /* ==========================================================================
+   The route schedule — /van-sales/routes only
+
+   `vs-sched-` rather than a prefix of its own, because it is built entirely out
+   of the shared vocabulary above — `vs-field`, `vs-btn`, `vs-chip`, `vs-notice`
+   and `vs-empty` all appear inside the panel — and a second prefix would suggest
+   a second palette that does not exist. Nothing else links it; a grep for
+   `vs-sched` finds one page.
+
+   The panel's job is to make one round's plan readable at a glance, which means
+   the heading a stop sits under has to carry all of its scheduling. A weekday and
+   a cycle week never both apply to the same route, so the heading reads either
+   "Monday" or "Week 1" and never both, and the alternative sets are marked rather
+   than merged: West 2's Wednesday is Dzivarasekwa and Whitehouse *or* Hatcliff
+   and Mungate, and running the four together would double the day's planned
+   coverage on every report that later counts it.
+   ========================================================================== */
+
+.vs .vs-sched {
+    margin-top: 22px;
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-divider);
+    border-radius: var(--vs-r-lg);
+    padding: 20px;
+}
+
+.vs .vs-sched-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+}
+
+/* Pinned to Nocturne's 500 because Bootstrap's global h1-h6 rule would otherwise
+   bolden it past the weight this system allows. */
+.vs .vs-sched-title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--vs-ink);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.vs .vs-sched-code {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    padding: 3px 8px;
+    border-radius: var(--vs-r-sm);
+    border: 1px solid var(--vs-divider);
+    background: var(--vs-wash);
+    color: var(--vs-mute-2);
+}
+
+.vs .vs-sched-sub {
+    margin: 6px 0 0;
+    font-size: 0.82rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vs-sched-form {
+    padding-bottom: 18px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--vs-divider);
+}
+
+/* The two buttons in the table's trailing cell, kept on one line until there is
+   no room for them. */
+.vs .vs-sched-cell {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.vs .vs-sched-groups {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 14px;
+}
+
+.vs .vs-sched-group {
+    border: 1px solid var(--vs-divider);
+    border-radius: var(--vs-r-md);
+    background: var(--vs-wash);
+    padding: 13px 14px 14px;
+}
+
+/* An alternative is the same day arrived at differently, so it is marked on the
+   edge rather than given its own colour — a second fill would read as a second
+   kind of day. */
+.vs .vs-sched-group-alt {
+    border-style: dashed;
+    border-color: var(--vs-field-edge-hi);
+}
+
+.vs .vs-sched-when {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 11px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+}
+
+/* A column rather than wrapped chips, because the order is the round: a driver
+   needs to know Waterfalls comes before Sunningdale, and a wrapping row says that
+   only by accident of where the line breaks. The number is printed rather than
+   left to a marker so it survives the row being read out or copied. */
+.vs .vs-sched-stops {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.vs .vs-sched-stop {
+    display: flex;
+    align-items: stretch;
+    border: 1px solid var(--vs-field-edge);
+    border-radius: var(--vs-r-sm);
+    background: var(--vs-surface);
+    overflow: hidden;
+}
+
+.vs .vs-sched-seq {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    padding: 0 6px;
+    border-right: 1px solid var(--vs-divider);
+    background: var(--vs-wash);
+    color: var(--vs-mute-3);
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+}
+
+/* The name takes the slack so every row's controls line up down the column. */
+.vs .vs-sched-stop-name {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.vs .vs-sched-move {
+    flex: 0 0 auto;
+    display: inline-flex;
+    border-left: 1px solid var(--vs-divider);
+}
+
+.vs .vs-sched-nudge {
+    border: 0;
+    background: transparent;
+    color: var(--vs-mute-3);
+    font-family: inherit;
+    font-size: 0.8rem;
+    line-height: 1;
+    padding: 0 7px;
+    cursor: pointer;
+}
+
+.vs .vs-sched-nudge + .vs-sched-nudge {
+    border-left: 1px solid var(--vs-divider);
+}
+
+.vs .vs-sched-nudge:hover:not(:disabled) {
+    background: var(--vs-hover);
+    color: var(--vs-accent);
+}
+
+/* The first and last rows keep their arrows, greyed. Removing them would shorten
+   those rows and misalign the whole column, and the disabled arrow is what says
+   "this one is already first". */
+.vs .vs-sched-nudge:disabled {
+    opacity: .35;
+    cursor: default;
+}
+
+.vs .vs-sched-stop:hover {
+    border-color: var(--vs-field-edge-hi);
+}
+
+/* Accent ink rather than an accent fill, so that the stop being edited is
+   findable without the chip changing shape and reflowing the group. */
+.vs .vs-sched-stop-editing {
+    border-color: var(--vs-accent);
+    box-shadow: 0 0 0 3px rgba(var(--vs-accent-rgb), .16);
+}
+
+.vs .vs-sched-stop-name,
+.vs .vs-sched-drop {
+    border: 0;
+    background: transparent;
+    color: var(--vs-ink);
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.vs .vs-sched-stop-name {
+    padding: 5px 9px;
+    font-size: 0.83rem;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vs .vs-sched-stop-name:hover:not(:disabled) {
+    background: var(--vs-hover);
+    color: var(--vs-accent);
+}
+
+.vs .vs-sched-drop {
+    padding: 0 9px;
+    font-size: 1rem;
+    line-height: 1;
+    color: var(--vs-mute-3);
+    border-left: 1px solid var(--vs-divider);
+}
+
+.vs .vs-sched-drop:hover:not(:disabled) {
+    background: rgba(var(--vs-bad-rgb), .12);
+    color: var(--vs-bad);
+}
+
+.vs .vs-sched-stop-name:disabled,
+.vs .vs-sched-drop:disabled {
+    opacity: .55;
+    cursor: default;
+}
+
+@media (max-width: 700px) {
+    .vs .vs-sched-groups {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* ==========================================================================
    The audit ledger — /van-sales/activity only
 
    Van Activity.dc.html, concept 1a. Everything below is prefixed `vsa-` and is

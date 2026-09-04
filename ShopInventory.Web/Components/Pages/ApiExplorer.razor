@@ -1035,18 +1035,23 @@ new ApiModule
 {
 Name = "Van Sales Reporting",
 BasePath = "/api/van-sales",
-Description = "Departure compliance, the call ledger and the selling routes, for the /van-sales pages. Needs vansales.attendance.view; the routes list also answers to users.view or users.create_merchandiser_accounts, and editing one needs users.edit.",
+Description = "Departure compliance, the call ledger, the selling routes and the areas each one works, for the /van-sales pages. Needs vansales.attendance.view; the routes and route-stops lists also answer to users.view or users.create_merchandiser_accounts, and editing either needs users.edit.",
 Icon = Icons.Material.Filled.Assessment,
 Color = Color.Primary,
-Methods = new[] { "GET", "POST", "PUT" },
+Methods = new[] { "DELETE", "GET", "POST", "PUT" },
 Endpoints = new List<ApiEndpoint>
 {
 new("GET", "/api/van-sales/compliance-report", "Departure compliance: a row per rep per trading day"),
 new("GET", "/api/van-sales/coverage-report", "Who the vans are reaching and who they are losing"),
 new("GET", "/api/van-sales/performance-report", "What sold, by territory and route, by rep, by item, over time"),
 new("GET", "/api/van-sales/replenishment-report", "How well the depots are keeping the vans stocked"),
+new("GET", "/api/van-sales/route-stops", "The areas each route works, and when"),
 new("GET", "/api/van-sales/routes", "The selling routes"),
 new("GET", "/api/van-sales/stock-report", "What each van carried, sold, and is still riding around with"),
+new("POST", "/api/van-sales/route-stops", "Add an area to a route's plan"),
+new("DELETE", "/api/van-sales/route-stops/{id}", "Drop an area from a route's plan"),
+new("PUT", "/api/van-sales/route-stops/{id}", "Edit an area on a route's plan"),
+new("POST", "/api/van-sales/route-stops/reorder", "Put one weekday or cycle week of stops in order"),
 new("POST", "/api/van-sales/routes", "Create a route"),
 new("PUT", "/api/van-sales/routes/{id}", "Update a route")
 }

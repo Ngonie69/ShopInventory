@@ -1,4 +1,4 @@
-namespace ShopInventory.Web.Models;
+﻿namespace ShopInventory.Web.Models;
 
 /// <summary>
 /// The departure compliance report, mirroring the API's <c>DepartureComplianceReportResult</c>.
@@ -149,4 +149,57 @@ public class RouteDto
     public string DisplayLabel => string.IsNullOrWhiteSpace(Territory)
         ? Name
         : $"{Name} — {Territory}";
+}
+
+/// <summary>
+/// One area a route is expected to work, and when.
+/// </summary>
+/// <remarks>
+/// Mirrors the API's <c>RouteStopDto</c> by hand, like everything else in this file. Both nullable
+/// properties must stay nullable: a town truck has no cycle week and an upcountry route has no
+/// weekday, and a non-nullable property here would make System.Text.Json throw on the null and the
+/// page would report an empty schedule rather than a failure.
+/// </remarks>
+public class RouteStopDto
+{
+    public int Id { get; set; }
+    public int RouteId { get; set; }
+    public string RouteCode { get; set; } = string.Empty;
+    public string RouteName { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>The weekday worked, or null on a route that keeps no weekday.</summary>
+    public DayOfWeek? DayOfWeek { get; set; }
+
+    /// <summary>The week of the route's cycle, 1-based, or null on a round that repeats weekly.</summary>
+    public int? WeekNumber { get; set; }
+
+    /// <summary>0 is the standard plan for its day; 1 and above are the published alternatives.</summary>
+    public int AlternateSet { get; set; }
+
+    public int Sequence { get; set; }
+    public bool IsActive { get; set; }
+
+    /// <summary>
+    /// The heading this stop groups under on the page: "Monday", "Week 1", "Unscheduled".
+    /// </summary>
+    /// <remarks>
+    /// Says nothing about the alternative set. The heading answers "when", and an alternative is the
+    /// same when arrived at differently — the page marks it with a chip beside this, so spelling it
+    /// out here as well would print the word twice on one line.
+    /// </remarks>
+    public string ScheduleHeading => (DayOfWeek, WeekNumber) switch
+    {
+        ({ } day, { } week) => $"{day}, week {week}",
+        ({ } day, null) => day.ToString(),
+        (null, { } week) => $"Week {week}",
+        _ => "Unscheduled"
+    };
+
+    /// <summary>
+    /// What the stops of one heading sort and group by. Ordered the way the schedule prints: the
+    /// cycle week first, since a route uses either a week or a weekday and never both.
+    /// </summary>
+    public (int Week, int Day, int Set) GroupKey =>
+        (WeekNumber ?? 0, DayOfWeek is null ? 0 : (int)DayOfWeek.Value, AlternateSet);
 }

@@ -1,4 +1,4 @@
-@page "/van-sales/routes"
+﻿@page "/van-sales/routes"
 @attribute [Authorize(Roles = "Admin,Manager")]
 @rendermode InteractiveServer
 @using ShopInventory.Web.Models
@@ -19,7 +19,16 @@
    There is no delete. A route names trading days that have already happened, and
    those days keep a snapshot of its code and name so a rename cannot rewrite
    history — but removing the row would still orphan the live assignments. Retire
-   it instead, which the server refuses while vans are still on it. *@
+   it instead, which the server refuses while vans are still on it.
+
+   Below the table is each route's published schedule — the areas it works, and
+   when. A town truck keeps a weekday and no cycle week; an upcountry route keeps
+   a cycle week and no weekday, because the trip is away for days at a time and
+   the schedule commits to the week rather than to which morning the van reaches
+   Chiredzi. Null in either column therefore means something, and the two controls
+   read "No fixed day" and "Every week" rather than defaulting to Monday and
+   week 1. A stop dropped here is deactivated rather than deleted, so the seeder
+   does not put it back on the next start. *@
 
 <div class="vs">
 
@@ -27,8 +36,8 @@
         <div>
             <h2 class="vs-title">Selling routes</h2>
             <p class="vs-subtitle">
-                The round each van runs, its territory and the truck normally assigned to it.
-                A van is put on a route from its user account.
+                The round each van runs, its territory and the truck normally assigned to it,
+                and the areas it is expected to work. A van is put on a route from its user account.
             </p>
         </div>
         <div class="vs-actions">
@@ -102,6 +111,7 @@
                         <th>Territory</th>
                         <th>Truck</th>
                         <th>Vans</th>
+                        <th>Stops</th>
                         <th>Status</th>
                         <th></th>
                     </tr>
@@ -115,13 +125,17 @@
                             <td>@(string.IsNullOrWhiteSpace(route.Territory) ? "—" : route.Territory)</td>
                             <td>@(string.IsNullOrWhiteSpace(route.TruckRegNo) ? "—" : route.TruckRegNo)</td>
                             <td class="vs-num">@route.AssignedUserCount</td>
+                            <td class="vs-num">@StopCount(route)</td>
                             <td>
                                 <span class="vs-chip @(route.IsActive ? "vs-chip-good" : "vs-chip-neutral")">
                                     @(route.IsActive ? "Active" : "Retired")
                                 </span>
                             </td>
-                            <td>
+                            <td class="vs-sched-cell">
                                 <button class="vs-btn" @onclick="() => StartEdit(route)" disabled="@isSaving">Edit</button>
+                                <button class="vs-btn" @onclick="() => OpenSchedule(route)" disabled="@isSaving">
+                                    @(scheduleRoute?.Id == route.Id ? "Hide schedule" : "Schedule")
+                                </button>
                             </td>
                         </tr>
                     }
@@ -129,15 +143,264 @@
             </table>
         </div>
     }
+
+    @if (scheduleRoute is not null)
+    {
+        <div class="vs-sched">
+
+            <div class="vs-sched-head">
+                <div>
+                    <h3 class="vs-sched-title">
+                        @scheduleRoute.Name
+                        <span class="vs-sched-code">@scheduleRoute.Code</span>
+                    </h3>
+                    <p class="vs-sched-sub">@ScheduleSubtitle</p>
+                </div>
+                <div class="vs-actions">
+                    <button class="vs-btn" @onclick="CloseSchedule" disabled="@isSavingStop">Close</button>
+                </div>
+            </div>
+
+            @if (stopError is not null)
+            {
+                <div class="vs-notice">@stopError</div>
+            }
+
+            <div class="vs-sched-form">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="vs-filter-label" for="vss-name">Area</label>
+                        <input id="vss-name" class="vs-field" @bind="stopDraft.Name" placeholder="Waterfalls" />
+                    </div>
+                    <div class="col-md-2">
+                        <span class="vs-filter-label">Day</span>
+                        <NocturneSelect Class="nsel-block" TValue="int"
+                                        Options="DayOptions" @bind-Value="stopDay"
+                                        Caption="Day of the week" AriaLabel="Day of the week" />
+                    </div>
+                    <div class="col-md-2">
+                        <span class="vs-filter-label">Cycle week</span>
+                        <NocturneSelect Class="nsel-block" TValue="int"
+                                        Options="WeekOptions" @bind-Value="stopWeek"
+                                        Caption="Week of the cycle" AriaLabel="Week of the cycle" />
+                    </div>
+                    <div class="col-md-2">
+                        <span class="vs-filter-label">Plan</span>
+                        <NocturneSelect Class="nsel-block" TValue="int"
+                                        Options="PlanOptions" @bind-Value="stopSet"
+                                        Caption="Standard or alternative" AriaLabel="Standard or alternative" />
+                    </div>
+                    <div class="col-md-3 vs-actions">
+                        <button class="vs-btn vs-btn-accent" @onclick="SaveStopAsync" disabled="@isSavingStop">
+                            @(isSavingStop ? "Saving…" : stopDraft.Id > 0 ? "Save stop" : "Add stop")
+                        </button>
+                        @if (stopDraft.Id > 0)
+                        {
+                            <button class="vs-btn" @onclick="ResetStopDraft" disabled="@isSavingStop">Cancel</button>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @if (scheduleGroups.Count == 0)
+            {
+                <div class="vs-empty">
+                    <div class="vs-empty-title">No schedule yet</div>
+                    <div>Add the first area this round works.</div>
+                </div>
+            }
+            else
+            {
+                <div class="vs-sched-groups">
+                    @foreach (var group in scheduleGroups)
+                    {
+                        <div class="vs-sched-group @(group.IsAlternative ? "vs-sched-group-alt" : null)">
+                            <div class="vs-sched-when">
+                                @group.Heading
+                                @if (group.IsAlternative)
+                                {
+                                    <span class="vs-chip vs-chip-warn">Alternative</span>
+                                }
+                            </div>
+                            @* An ordered list, not a bag of chips: the sequence is the round. A van
+                               works Waterfalls, then Sunningdale, then Hatfield, and a plan that
+                               shows the three without saying which comes first has left out the
+                               half of it that a driver needs. *@
+                            <ol class="vs-sched-stops">
+                                @for (var i = 0; i < group.Stops.Count; i++)
+                                {
+                                    @* Copied out of the loop variable. A lambda that closed over `i`
+                                       itself would run after the loop had finished and every button
+                                       would move the last stop. *@
+                                    var position = i;
+                                    var stop = group.Stops[position];
+
+                                    <li class="vs-sched-stop @(stopDraft.Id == stop.Id ? "vs-sched-stop-editing" : null)">
+                                        <span class="vs-sched-seq">@(position + 1)</span>
+                                        <button type="button" class="vs-sched-stop-name"
+                                                title="Edit @stop.Name"
+                                                @onclick="() => StartEditStop(stop)" disabled="@isSavingStop">
+                                            @stop.Name
+                                        </button>
+                                        <span class="vs-sched-move">
+                                            <button type="button" class="vs-sched-nudge"
+                                                    title="Work @stop.Name earlier"
+                                                    aria-label="Move @stop.Name earlier in the round"
+                                                    disabled="@(isSavingStop || position == 0)"
+                                                    @onclick="() => MoveStopAsync(group, position, -1)">
+                                                ↑
+                                            </button>
+                                            <button type="button" class="vs-sched-nudge"
+                                                    title="Work @stop.Name later"
+                                                    aria-label="Move @stop.Name later in the round"
+                                                    disabled="@(isSavingStop || position == group.Stops.Count - 1)"
+                                                    @onclick="() => MoveStopAsync(group, position, 1)">
+                                                ↓
+                                            </button>
+                                        </span>
+                                        <button type="button" class="vs-sched-drop"
+                                                title="Drop @stop.Name from this round"
+                                                aria-label="Drop @stop.Name from this round"
+                                                @onclick="() => DropStopAsync(stop)" disabled="@isSavingStop">
+                                            ×
+                                        </button>
+                                    </li>
+                                }
+                            </ol>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
 </div>
 
 @code {
+    /// <summary>"No fixed day" — an upcountry run that commits to a week, not a morning.</summary>
+    private const int NoFixedDay = -1;
+
+    /// <summary>"Every week" — a town truck's round, which keeps no cycle at all.</summary>
+    private const int EveryWeek = 0;
+
     private List<RouteDto> routes = [];
+    private List<RouteStopDto> stops = [];
     private RouteDto? editing;
 
     private bool isLoading;
     private bool isSaving;
     private string? error;
+
+    // --- The schedule panel ---
+
+    private RouteDto? scheduleRoute;
+    private RouteStopDto stopDraft = new();
+    private int stopDay = (int)DayOfWeek.Monday;
+    private int stopWeek = EveryWeek;
+    private int stopSet;
+    private bool isSavingStop;
+    private string? stopError;
+
+    /// <summary>
+    /// The unset row on each of the three pickers is the meaningful one, so it is marked
+    /// <c>IsUnset</c>: a stop with no weekday and no cycle week is a legitimate state, and a trigger
+    /// sitting in its accent "a value is set" colour would say the opposite.
+    /// </summary>
+    private static readonly NocturneSelectOption<int>[] DayOptions =
+    [
+        new(NoFixedDay, "No fixed day") { RuleAfter = true, IsUnset = true },
+        new((int)DayOfWeek.Monday, "Monday"),
+        new((int)DayOfWeek.Tuesday, "Tuesday"),
+        new((int)DayOfWeek.Wednesday, "Wednesday"),
+        new((int)DayOfWeek.Thursday, "Thursday"),
+        new((int)DayOfWeek.Friday, "Friday"),
+        new((int)DayOfWeek.Saturday, "Saturday"),
+        new((int)DayOfWeek.Sunday, "Sunday")
+    ];
+
+    private static readonly NocturneSelectOption<int>[] WeekOptions =
+    [
+        new(EveryWeek, "Every week") { RuleAfter = true, IsUnset = true },
+        new(1, "Week 1"),
+        new(2, "Week 2"),
+        new(3, "Week 3"),
+        new(4, "Week 4")
+    ];
+
+    private static readonly NocturneSelectOption<int>[] PlanOptions =
+    [
+        new(0, "Standard plan") { RuleAfter = true, IsUnset = true },
+        new(1, "Alternative", "warn"),
+        new(2, "Alternative 2", "warn")
+    ];
+
+    /// <summary>
+    /// One heading of the schedule — a weekday or a cycle week — and whether it is that day's
+    /// published alternative rather than its standard plan.
+    /// </summary>
+    /// <remarks>
+    /// Carries the heading's own coordinates — day, week and set — as well as its label, because a
+    /// reorder has to name the heading to the server and reading them back off the first stop would
+    /// break on the one heading that has no stops left.
+    /// </remarks>
+    private sealed record ScheduleGroup(
+        string Heading,
+        bool IsAlternative,
+        DayOfWeek? DayOfWeek,
+        int? WeekNumber,
+        int AlternateSet,
+        List<RouteStopDto> Stops);
+
+    /// <summary>
+    /// The open route's stops, grouped into the headings the schedule prints.
+    /// </summary>
+    /// <remarks>
+    /// Ordered on the stop's own group key rather than on the label, so that Friday sorts after
+    /// Monday instead of before it and week 10 after week 9 — the two mistakes an alphabetical sort
+    /// makes here, both of which read as a plausible schedule.
+    /// </remarks>
+    private List<ScheduleGroup> scheduleGroups =>
+        scheduleRoute is null
+            ? []
+            : stops
+                .Where(stop => stop.RouteId == scheduleRoute.Id)
+                .GroupBy(stop => stop.GroupKey)
+                .OrderBy(group => group.Key)
+                .Select(group => new ScheduleGroup(
+                    group.First().ScheduleHeading,
+                    group.Key.Set > 0,
+                    group.First().DayOfWeek,
+                    group.First().WeekNumber,
+                    group.Key.Set,
+                    group.OrderBy(stop => stop.Sequence).ThenBy(stop => stop.Id).ToList()))
+                .ToList();
+
+    private string ScheduleSubtitle
+    {
+        get
+        {
+            if (scheduleRoute is null)
+            {
+                return string.Empty;
+            }
+
+            var count = StopCount(scheduleRoute);
+
+            if (count == 0)
+            {
+                return "This round has no areas yet.";
+            }
+
+            var byWeek = stops.Any(stop => stop.RouteId == scheduleRoute.Id && stop.WeekNumber is not null);
+
+            var noun = count == 1 ? "area" : "areas";
+            var where = byWeek ? "over a repeating cycle" : "across the week";
+
+            return $"{count} {noun} {where}, in the order the van works them. " +
+                   "Click an area to rename or reschedule it; use the arrows to reorder the round.";
+        }
+    }
+
+    private int StopCount(RouteDto route) => stops.Count(stop => stop.RouteId == route.Id);
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
@@ -149,6 +412,15 @@
         try
         {
             routes = await VanSalesReportService.GetRoutesAsync(includeInactive: true);
+            stops = await VanSalesReportService.GetRouteStopsAsync();
+
+            // Re-point the open panel at the reloaded row rather than leaving it on the stale copy,
+            // so a route retired or renamed in the editor above shows through here too. A route that
+            // has gone entirely closes the panel instead of leaving it headed by a row nobody holds.
+            if (scheduleRoute is not null)
+            {
+                scheduleRoute = routes.FirstOrDefault(route => route.Id == scheduleRoute.Id);
+            }
         }
         finally
         {
@@ -218,6 +490,203 @@
         finally
         {
             isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    // --- The schedule ---
+
+    private void OpenSchedule(RouteDto route)
+    {
+        stopError = null;
+
+        // The button on an open route closes it, so one control both opens and dismisses the panel
+        // rather than leaving the reader to find a second one.
+        if (scheduleRoute?.Id == route.Id)
+        {
+            CloseSchedule();
+            return;
+        }
+
+        scheduleRoute = route;
+        ResetStopDraft();
+    }
+
+    private void CloseSchedule()
+    {
+        scheduleRoute = null;
+        stopError = null;
+        stopDraft = new RouteStopDto();
+    }
+
+    /// <summary>
+    /// Clears the form back to a new stop on the open route, defaulted to the way that round is
+    /// already scheduled.
+    /// </summary>
+    /// <remarks>
+    /// A route whose stops carry a cycle week gets "no fixed day, week 1" and one that does not gets
+    /// "Monday, every week". Both defaults are wrong for the other kind of route, and offering the
+    /// wrong one is how a Chiredzi stop ends up on a Monday — a value nobody chose, that reads as
+    /// though somebody had.
+    /// </remarks>
+    private void ResetStopDraft()
+    {
+        stopDraft = new RouteStopDto
+        {
+            RouteId = scheduleRoute?.Id ?? 0,
+            IsActive = true
+        };
+
+        var runsToACycle = scheduleRoute is not null &&
+            stops.Any(stop => stop.RouteId == scheduleRoute.Id && stop.WeekNumber is not null);
+
+        stopDay = runsToACycle ? NoFixedDay : (int)DayOfWeek.Monday;
+        stopWeek = runsToACycle ? 1 : EveryWeek;
+        stopSet = 0;
+        stopError = null;
+    }
+
+    /// <summary>Loads a stop into the form. Edited as a copy, so cancelling leaves the chip alone.</summary>
+    private void StartEditStop(RouteStopDto stop)
+    {
+        stopError = null;
+
+        stopDraft = new RouteStopDto
+        {
+            Id = stop.Id,
+            RouteId = stop.RouteId,
+            Name = stop.Name,
+            Sequence = stop.Sequence,
+            IsActive = true
+        };
+
+        stopDay = stop.DayOfWeek is null ? NoFixedDay : (int)stop.DayOfWeek.Value;
+        stopWeek = stop.WeekNumber ?? EveryWeek;
+        stopSet = stop.AlternateSet;
+    }
+
+    private async Task SaveStopAsync()
+    {
+        if (scheduleRoute is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(stopDraft.Name))
+        {
+            stopError = "A stop needs an area name.";
+            return;
+        }
+
+        isSavingStop = true;
+        stopError = null;
+        StateHasChanged();
+
+        try
+        {
+            stopDraft.RouteId = scheduleRoute.Id;
+            stopDraft.DayOfWeek = stopDay == NoFixedDay ? null : (DayOfWeek)stopDay;
+            stopDraft.WeekNumber = stopWeek == EveryWeek ? null : stopWeek;
+            stopDraft.AlternateSet = stopSet;
+            stopDraft.IsActive = true;
+
+            var (saved, failure) = await VanSalesReportService.SaveRouteStopAsync(stopDraft);
+
+            if (saved is null)
+            {
+                stopError = failure ?? "The stop could not be saved.";
+                return;
+            }
+
+            ResetStopDraft();
+            await LoadAsync();
+        }
+        finally
+        {
+            isSavingStop = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Moves one stop up or down within its heading, and saves the whole heading's new order.
+    /// </summary>
+    /// <remarks>
+    /// The entire order goes to the server, not just the stop that moved. Moving a stop up shifts
+    /// the one it passes as well, so "set this stop's position" is never the whole change; and
+    /// sending the list lets the server refuse it outright when the plan has moved on underneath —
+    /// which it can only notice if it is told what this page believed the heading to contain.
+    /// </remarks>
+    private async Task MoveStopAsync(ScheduleGroup group, int position, int direction)
+    {
+        var target = position + direction;
+
+        if (target < 0 || target >= group.Stops.Count)
+        {
+            return;
+        }
+
+        var order = group.Stops.Select(stop => stop.Id).ToList();
+        (order[position], order[target]) = (order[target], order[position]);
+
+        isSavingStop = true;
+        stopError = null;
+        StateHasChanged();
+
+        try
+        {
+            var failure = await VanSalesReportService.ReorderRouteStopsAsync(
+                group.Stops[0].RouteId,
+                group.DayOfWeek,
+                group.WeekNumber,
+                group.AlternateSet,
+                order);
+
+            if (failure is not null)
+            {
+                stopError = failure;
+            }
+
+            // Reloaded either way. On success it brings back the sequence the server actually
+            // assigned rather than the one assumed here; on a refusal it replaces the stale list
+            // that caused it, so the reader is looking at the plan the message is about.
+            await LoadAsync();
+        }
+        finally
+        {
+            isSavingStop = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DropStopAsync(RouteStopDto stop)
+    {
+        isSavingStop = true;
+        stopError = null;
+        StateHasChanged();
+
+        try
+        {
+            var failure = await VanSalesReportService.DeleteRouteStopAsync(stop.Id);
+
+            if (failure is not null)
+            {
+                stopError = failure;
+                return;
+            }
+
+            // The form is holding the stop that has just gone. Leaving it there would offer a Save
+            // that recreates what the reader has only now dropped.
+            if (stopDraft.Id == stop.Id)
+            {
+                ResetStopDraft();
+            }
+
+            await LoadAsync();
+        }
+        finally
+        {
+            isSavingStop = false;
             StateHasChanged();
         }
     }

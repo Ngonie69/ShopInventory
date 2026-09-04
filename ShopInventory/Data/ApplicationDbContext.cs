@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -121,6 +121,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
   // Selling routes — the round a van runs, its territory and its truck
   public DbSet<RouteEntity> Routes { get; set; }
+
+  // The published plan for each round: which areas, on which weekday or cycle week
+  public DbSet<RouteStopEntity> RouteStops { get; set; }
 
   // Retail shops — the business partner, warehouse and cost centre a till sells on
   public DbSet<ShopEntity> Shops { get; set; }
@@ -1726,16 +1729,43 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
       entity.HasIndex(e => e.Code).IsUnique();
       entity.HasIndex(e => e.IsActive);
+      entity.HasIndex(e => e.SeedKey).IsUnique();
 
       entity.Property(e => e.Code).IsRequired().HasMaxLength(30);
       entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
       entity.Property(e => e.Territory).HasMaxLength(100);
       entity.Property(e => e.TruckRegNo).HasMaxLength(30);
+      entity.Property(e => e.SeedKey).HasMaxLength(60);
 
       entity.HasOne(e => e.CreatedByUser)
             .WithMany()
             .HasForeignKey(e => e.CreatedByUserId)
             .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    // The areas each route works, and when — the published schedule as data
+    modelBuilder.Entity<RouteStopEntity>(entity =>
+    {
+      entity.ToTable("RouteStops");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => new { e.RouteId, e.DayOfWeek });
+      entity.HasIndex(e => new { e.RouteId, e.IsActive });
+
+      // Unique over a nullable column: hand-added stops are all NULL and PostgreSQL counts NULLs as
+      // distinct, so they never collide, while no seeded stop can be placed twice.
+      entity.HasIndex(e => e.SeedKey).IsUnique();
+
+      entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+      entity.Property(e => e.SeedKey).HasMaxLength(120);
+
+      // Cascade rather than restrict: a stop is part of its route's definition and means nothing
+      // without it. Retiring a route leaves the rows alone — that is IsActive on the route, not a
+      // delete — so this only fires if a route is genuinely removed.
+      entity.HasOne(e => e.Route)
+            .WithMany()
+            .HasForeignKey(e => e.RouteId)
+            .OnDelete(DeleteBehavior.Cascade);
     });
 
     // Retail shops — the selling identity a till inherits

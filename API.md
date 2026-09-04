@@ -2514,6 +2514,11 @@ should be added to `/api/vansales` that a new caller would want.
 | GET | `/api/van-sales/routes` | any of `vansales.attendance.view`, `users.view`, `users.create_merchandiser_accounts` | The selling routes |
 | POST | `/api/van-sales/routes` | `users.edit` | Create a route |
 | PUT | `/api/van-sales/routes/{id}` | `users.edit` | Update a route |
+| GET | `/api/van-sales/route-stops` | any of `vansales.attendance.view`, `users.view`, `users.create_merchandiser_accounts` | The areas each route works, and when |
+| POST | `/api/van-sales/route-stops` | `users.edit` | Add an area to a route's plan |
+| PUT | `/api/van-sales/route-stops/{id}` | `users.edit` | Edit an area on a route's plan |
+| DELETE | `/api/van-sales/route-stops/{id}` | `users.edit` | Drop an area from a route's plan |
+| POST | `/api/van-sales/route-stops/reorder` | `users.edit` | Put one weekday's or cycle week's stops in order |
 | GET | `/api/van-sales/visits` | `vansales.attendance.view` | A page of van sales calls, newest first |
 | GET | `/api/van-sales/visits/report` | `vansales.attendance.view` | Time on the round, summarised per rep |
 
@@ -2721,6 +2726,89 @@ bridged, so a gap reads as a gap instead of as a large one-day variance.
 
 **Response:** `RouteDto`. `409 Conflict` on a duplicate code; `PUT` also answers `404` for an
 unknown id.
+
+##### GET `/api/van-sales/route-stops`
+
+The published schedule: which areas a route works, and when.
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `routeId` | — | One route; every route when omitted |
+| `includeInactive` | `false` | Bring back stops dropped from the plan too |
+
+**Response:** `List<RouteStopDto>` — `id`, `routeId`, `routeCode`, `routeName`, `name`, `dayOfWeek`,
+`weekNumber`, `alternateSet`, `sequence`, `isActive`.
+
+`dayOfWeek` and `weekNumber` are **both nullable, and null means something different in each**. A
+town truck works a weekday every week, so it has a `dayOfWeek` and no `weekNumber`; an upcountry
+route runs a repeating cycle and is away for days at a time, so it has a `weekNumber` and no
+`dayOfWeek` — the schedule commits to the week, not to which morning the van reaches a given town.
+Null in `weekNumber` is therefore not week 1, and a client that defaults it to 1 makes every weekly
+round look like the first week of a fortnightly one. `dayOfWeek` uses .NET's own numbering,
+**Sunday = 0**.
+
+`alternateSet` is 0 for the standard plan and 1 or above for a published alternative to it — West 2's
+Wednesday is Dzivarasekwa and Whitehouse *or* Hatcliff and Mungate. Both sets are the plan, and a
+client that merges them doubles the day's planned coverage.
+
+##### POST `/api/van-sales/route-stops` · PUT `/api/van-sales/route-stops/{id}`
+
+**Body:** `SaveRouteStopRequest`.
+
+```json
+{
+  "routeId": 4,
+  "name": "Dzivarasekwa",
+  "dayOfWeek": 3,
+  "weekNumber": null,
+  "alternateSet": 0,
+  "sequence": null,
+  "isActive": true
+}
+```
+
+`sequence` null appends to the stop's own day or set rather than putting it first. `409 Conflict` for
+the same area twice in one route, day, week and set — the refusal names the stop as the schedule
+spells it. Posting the name of a stop that has been **dropped** revives that row instead of refusing
+or creating a second one. `PUT` answers `404` for an unknown id, and either verb answers `404` when
+no such route exists.
+
+##### DELETE `/api/van-sales/route-stops/{id}`
+
+Drops an area from the plan. A deactivation, not a delete: the row is kept so that "no longer called
+on" and "never called on" stay different histories. Answers `204`, and `204` again on a repeat — the
+caller asked for a state, not a transition.
+
+**Every edit here outlives a deploy.** The published schedule is loaded at start-up from
+`VanSalesRouteSeedData`, and each seeded row records what the seeder *placed* on it rather than what
+it currently says, so a stop that has been renamed, moved to another day or dropped — and a route
+whose code has been corrected — is still recognised as already-seeded and is left alone. Only a stop
+added to the seed list later, which nothing yet carries, arrives on the next start.
+
+##### POST `/api/van-sales/route-stops/reorder`
+
+Puts one heading's stops into the order the van works them, and renumbers `sequence` from 1.
+
+**Body:** `ReorderRouteStopsRequest`. The heading is named the way a stop names it — `dayOfWeek`,
+`weekNumber` and `alternateSet`, with the same meanings for null.
+
+```json
+{
+  "routeId": 4,
+  "dayOfWeek": 1,
+  "weekNumber": null,
+  "alternateSet": 0,
+  "stopIds": [17, 15, 16]
+}
+```
+
+`stopIds` must be **exactly** the active stops that heading holds. An order that omits one, or that
+names a stop from elsewhere, is `409 Conflict` rather than partially applied: both come from a page
+that has gone stale, and applying half of one leaves the omitted stop holding an old number in the
+middle of the new sequence — an order nobody chose. Dropped stops are not part of the heading and are
+not named. `404` for an unknown route, or a heading with no stops left.
+
+**Response:** `List<RouteStopDto>` in the new order.
 
 ##### GET `/api/van-sales/visits`
 
@@ -6084,6 +6172,11 @@ should be added to `/api/vansales` that a new caller would want.
 | GET | `/api/van-sales/routes` | any of `vansales.attendance.view`, `users.view`, `users.create_merchandiser_accounts` | The selling routes |
 | POST | `/api/van-sales/routes` | `users.edit` | Create a route |
 | PUT | `/api/van-sales/routes/{id}` | `users.edit` | Update a route |
+| GET | `/api/van-sales/route-stops` | any of `vansales.attendance.view`, `users.view`, `users.create_merchandiser_accounts` | The areas each route works, and when |
+| POST | `/api/van-sales/route-stops` | `users.edit` | Add an area to a route's plan |
+| PUT | `/api/van-sales/route-stops/{id}` | `users.edit` | Edit an area on a route's plan |
+| DELETE | `/api/van-sales/route-stops/{id}` | `users.edit` | Drop an area from a route's plan |
+| POST | `/api/van-sales/route-stops/reorder` | `users.edit` | Put one weekday's or cycle week's stops in order |
 | GET | `/api/van-sales/visits` | `vansales.attendance.view` | A page of van sales calls, newest first |
 | GET | `/api/van-sales/visits/report` | `vansales.attendance.view` | Time on the round, summarised per rep |
 
@@ -6291,6 +6384,89 @@ bridged, so a gap reads as a gap instead of as a large one-day variance.
 
 **Response:** `RouteDto`. `409 Conflict` on a duplicate code; `PUT` also answers `404` for an
 unknown id.
+
+##### GET `/api/van-sales/route-stops`
+
+The published schedule: which areas a route works, and when.
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `routeId` | — | One route; every route when omitted |
+| `includeInactive` | `false` | Bring back stops dropped from the plan too |
+
+**Response:** `List<RouteStopDto>` — `id`, `routeId`, `routeCode`, `routeName`, `name`, `dayOfWeek`,
+`weekNumber`, `alternateSet`, `sequence`, `isActive`.
+
+`dayOfWeek` and `weekNumber` are **both nullable, and null means something different in each**. A
+town truck works a weekday every week, so it has a `dayOfWeek` and no `weekNumber`; an upcountry
+route runs a repeating cycle and is away for days at a time, so it has a `weekNumber` and no
+`dayOfWeek` — the schedule commits to the week, not to which morning the van reaches a given town.
+Null in `weekNumber` is therefore not week 1, and a client that defaults it to 1 makes every weekly
+round look like the first week of a fortnightly one. `dayOfWeek` uses .NET's own numbering,
+**Sunday = 0**.
+
+`alternateSet` is 0 for the standard plan and 1 or above for a published alternative to it — West 2's
+Wednesday is Dzivarasekwa and Whitehouse *or* Hatcliff and Mungate. Both sets are the plan, and a
+client that merges them doubles the day's planned coverage.
+
+##### POST `/api/van-sales/route-stops` · PUT `/api/van-sales/route-stops/{id}`
+
+**Body:** `SaveRouteStopRequest`.
+
+```json
+{
+  "routeId": 4,
+  "name": "Dzivarasekwa",
+  "dayOfWeek": 3,
+  "weekNumber": null,
+  "alternateSet": 0,
+  "sequence": null,
+  "isActive": true
+}
+```
+
+`sequence` null appends to the stop's own day or set rather than putting it first. `409 Conflict` for
+the same area twice in one route, day, week and set — the refusal names the stop as the schedule
+spells it. Posting the name of a stop that has been **dropped** revives that row instead of refusing
+or creating a second one. `PUT` answers `404` for an unknown id, and either verb answers `404` when
+no such route exists.
+
+##### DELETE `/api/van-sales/route-stops/{id}`
+
+Drops an area from the plan. A deactivation, not a delete: the row is kept so that "no longer called
+on" and "never called on" stay different histories. Answers `204`, and `204` again on a repeat — the
+caller asked for a state, not a transition.
+
+**Every edit here outlives a deploy.** The published schedule is loaded at start-up from
+`VanSalesRouteSeedData`, and each seeded row records what the seeder *placed* on it rather than what
+it currently says, so a stop that has been renamed, moved to another day or dropped — and a route
+whose code has been corrected — is still recognised as already-seeded and is left alone. Only a stop
+added to the seed list later, which nothing yet carries, arrives on the next start.
+
+##### POST `/api/van-sales/route-stops/reorder`
+
+Puts one heading's stops into the order the van works them, and renumbers `sequence` from 1.
+
+**Body:** `ReorderRouteStopsRequest`. The heading is named the way a stop names it — `dayOfWeek`,
+`weekNumber` and `alternateSet`, with the same meanings for null.
+
+```json
+{
+  "routeId": 4,
+  "dayOfWeek": 1,
+  "weekNumber": null,
+  "alternateSet": 0,
+  "stopIds": [17, 15, 16]
+}
+```
+
+`stopIds` must be **exactly** the active stops that heading holds. An order that omits one, or that
+names a stop from elsewhere, is `409 Conflict` rather than partially applied: both come from a page
+that has gone stale, and applying half of one leaves the omitted stop holding an old number in the
+middle of the new sequence — an order nobody chose. Dropped stops are not part of the heading and are
+not named. `404` for an unknown route, or a heading with no stops left.
+
+**Response:** `List<RouteStopDto>` in the new order.
 
 ##### GET `/api/van-sales/visits`
 
