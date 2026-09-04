@@ -1,6 +1,8 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Common.Auth;
 using ShopInventory.Common.Errors;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Services;
 
@@ -8,6 +10,7 @@ namespace ShopInventory.Features.Auth.Queries.GetCurrentUser;
 
 public sealed class GetCurrentUserHandler(
     IAuthService authService,
+    ApplicationDbContext context,
     ILogger<GetCurrentUserHandler> logger
 ) : IRequestHandler<GetCurrentUserQuery, ErrorOr<UserInfo>>
 {
@@ -28,15 +31,6 @@ public sealed class GetCurrentUserHandler(
             return Errors.Auth.UserNotFound;
         }
 
-        return new UserInfo
-        {
-            Username = user.Username,
-            Role = user.Role,
-            Email = user.Email,
-            AssignedWarehouseCode = user.AssignedWarehouseCode,
-            AssignedWarehouseCodes = user.GetWarehouseCodes(),
-            AssignedSection = user.AssignedSection,
-            AssignedCustomerCodes = user.GetCustomerCodes()
-        };
+        return await UserInfoMapper.FromUserAsync(user, context, cancellationToken);
     }
 }

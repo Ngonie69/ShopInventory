@@ -75,6 +75,14 @@ public static class UserRoles
     public const string CartVendor = "CartVendor";
 
     /// <summary>
+    /// Shop till operator, working the desktop app at a counter. Has no web pages of its own — it
+    /// falls through <c>RoleLandingRoutes.For</c> to the fallback, as the other counter and handset
+    /// roles do — and is listed here so an administrator can create the account and address it by
+    /// role.
+    /// </summary>
+    public const string TillOperator = "TillOperator";
+
+    /// <summary>
     /// Legacy POD role. Not offered for new accounts, but still runtime-supported and
     /// still landing on the POD list — see <c>RoleLandingRoutes.For</c>.
     /// </summary>
@@ -171,6 +179,7 @@ public static class UserRoles
         Adr,
         Sales,
         CartVendor,
+        TillOperator,
         Manager,
         Cashier,
         StockController,
@@ -214,7 +223,8 @@ public static class UserRoles
         Lab,
         Adr,
         Sales,
-        CartVendor
+        CartVendor,
+        TillOperator
     ];
 
     /// <summary>

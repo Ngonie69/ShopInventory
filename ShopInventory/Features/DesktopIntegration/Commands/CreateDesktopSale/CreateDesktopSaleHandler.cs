@@ -41,8 +41,13 @@ public sealed class CreateDesktopSaleHandler(
         // say all three and nothing checked them, so any authenticated till could sell from any
         // warehouse as any customer. Resolved before the idempotency acquire so an account that
         // cannot sell is turned away without leaving a request record behind.
+        // The shop is included because a till operator's three values live on it rather than on the
+        // account, and SellingAccountResolver refuses to fall back to the account's own columns when
+        // a shop is named but absent — selling on the values the shop was meant to replace is exactly
+        // the confusion this whole path exists to remove.
         var user = await context.Users
             .AsNoTracking()
+            .Include(u => u.Shop)
             .FirstOrDefaultAsync(u => u.Id == command.UserId, cancellationToken);
 
         var assignments = SellingAccountResolver.Resolve(user);

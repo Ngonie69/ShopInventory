@@ -350,6 +350,9 @@ try
     // Van sales reporting — the departure compliance report and the route master
     builder.Services.AddScoped<IVanSalesReportService, VanSalesReportService>();
 
+    // Retail shops — the business partner, warehouse and cost centre a till operator sells on
+    builder.Services.AddScoped<IShopService, ShopService>();
+
     // Van sales check-in/check-out
     builder.Services.AddScoped<IVanSalesAttendanceService, VanSalesAttendanceService>();
 

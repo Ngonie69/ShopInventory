@@ -1,0 +1,358 @@
+/* ==========================================================================
+   Shops — Nocturne
+
+   /shops: the retail shop master. A shop names the business partner its sales
+   are invoiced to, the warehouse its stock leaves and the cost centre its
+   takings book against, and every till operator assigned to it inherits all
+   three. `shop-` is not shared with any other sheet.
+
+   Derived from van-sales.css, which already dresses this exact shape — a header,
+   an inline edit strip, a table and a chip per row — rather than written again by
+   eye, so the two stay visually identical without either importing the other.
+   GENERATED FILE. Do not hand-edit: regenerate with
+
+       python scripts/derive_shops_css.py
+
+   run from the repo root. A rule this page needs that van-sales.css does not have
+   goes in that script's footer, and a rule it should stop inheriting comes out of
+   its WANTED set — either way the change survives the next regeneration, which a
+   hand-edit here would not.
+
+   Palette and spacing come from nocturne-tokens.css. The block below aliases
+   them rather than restating them, so a colour is corrected in one place for the
+   whole system, and there is no `.dark-theme .shop` block at all: these tokens
+   flip at the root and every alias resolves against whichever scheme is in force.
+
+   The one rule that is not inherited from van-sales.css is the `<select>` option
+   block at the foot. A native select popup takes its background from the field's
+   own fill, and this sheet's fields are a translucent wash which the browser
+   composites onto white — so without an opaque colour there, the dark-theme
+   options render near-white on near-white and the list is invisible. `--surface`
+   rather than `--field-bg` because surface is the token that is opaque in both
+   schemes. See .claude/skills/nocturne-dropdowns-and-dates.
+   ========================================================================== */
+
+.shop {
+    --shop-bg: var(--noct-bg);
+    --shop-surface: var(--noct-surface);
+    --shop-wash: var(--noct-wash);
+    --shop-ink: var(--noct-ink);
+    --shop-ink-2: var(--noct-ink-2);
+    --shop-mute: var(--noct-mute);
+    --shop-mute-2: var(--noct-mute-2);
+    --shop-mute-3: var(--noct-mute-3);
+    --shop-faint: var(--noct-faint);
+    --shop-placeholder: var(--noct-placeholder);
+    --shop-divider: var(--noct-divider);
+    --shop-rule: var(--noct-rule);
+    --shop-hover: var(--noct-hover);
+    --shop-avatar-bg: var(--noct-avatar-bg);
+    --shop-field-bg: var(--noct-field-bg);
+    --shop-field-edge: var(--noct-field-edge);
+    --shop-field-edge-hi: var(--noct-field-edge-hi);
+    --shop-accent: var(--noct-accent);
+    --shop-accent-rgb: var(--noct-accent-rgb);
+    --shop-accent-text: var(--noct-accent-text);
+    --shop-on-accent: var(--noct-on-accent);
+    --shop-good: var(--noct-fam-good);
+    --shop-good-rgb: var(--noct-fam-good-rgb);
+    --shop-warn: var(--noct-fam-warn);
+    --shop-warn-rgb: var(--noct-fam-warn-rgb);
+    --shop-bad: var(--noct-fam-bad);
+    --shop-bad-rgb: var(--noct-fam-bad-rgb);
+    --shop-info: var(--noct-fam-info);
+    --shop-info-rgb: var(--noct-fam-info-rgb);
+    --shop-neutral: var(--noct-fam-neutral);
+    --shop-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --shop-flag: var(--noct-fam-accent);
+    --shop-flag-rgb: var(--noct-fam-accent-rgb);
+    --shop-block: var(--noct-box);
+    --shop-on-block: var(--noct-on-box);
+    --shop-map-line: var(--noct-box);
+    --shop-r-sm: var(--noct-r-sm);
+    --shop-r-md: var(--noct-r-md);
+    --shop-r-lg: var(--noct-r-lg);
+    --ndf-h: 38px;
+    --ndf-fs: 0.88rem;
+    --ndf-pad-x: 11px;
+    --ndf-radius: var(--noct-r-md);
+    --ndf-fill: var(--noct-field-bg);
+    --ndf-edge: var(--noct-field-edge);
+    --nsel-h: 38px;
+    --nsel-fs: 0.88rem;
+    --nsel-pad-x: 11px;
+    --nsel-radius: var(--noct-r-md);
+    --nsel-fill: var(--noct-field-bg);
+    --nsel-edge: var(--noct-field-edge);
+    --nsel-edge-hi: var(--noct-field-edge-hi);
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+    color: var(--shop-ink);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.shop .shop-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.shop .shop-title {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--shop-ink);
+}
+
+.shop .shop-subtitle {
+    margin: 6px 0 0;
+    font-size: 0.85rem;
+    color: var(--shop-mute-2);
+    max-width: 68ch;
+}
+
+.shop .shop-filters {
+    background: var(--shop-surface);
+    border: 1px solid var(--shop-divider);
+    border-radius: var(--shop-r-lg);
+    padding: 18px 20px;
+    margin-bottom: 22px;
+}
+
+.shop .shop-filter-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--shop-mute-3);
+}
+
+.shop .shop-field {
+    width: 100%;
+    height: 38px;
+    padding: 0 11px;
+    border: 1px solid var(--shop-field-edge);
+    border-radius: var(--shop-r-md);
+    background: var(--shop-field-bg);
+    color: var(--shop-ink);
+    font-size: 0.88rem;
+    font-family: inherit;
+}
+
+.shop .shop-field:hover {
+    border-color: var(--shop-field-edge-hi);
+}
+
+.shop .shop-field:focus {
+    outline: none;
+    border-color: var(--shop-accent);
+    box-shadow: 0 0 0 3px rgba(var(--shop-accent-rgb), .16);
+}
+
+.shop .shop-field::placeholder {
+    color: var(--shop-placeholder);
+}
+
+.shop select.shop-field {
+    appearance: none;
+    background-image: var(--noct-caret);
+    background-repeat: no-repeat;
+    background-position: right 11px center;
+    padding-right: 30px;
+}
+
+.shop .shop-actions {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.shop .shop-btn {
+    height: 38px;
+    padding: 0 16px;
+    border-radius: var(--shop-r-md);
+    border: 1px solid var(--shop-field-edge);
+    background: var(--shop-surface);
+    color: var(--shop-ink);
+    font-size: 0.85rem;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.shop .shop-btn:hover:not(:disabled) {
+    background: var(--shop-hover);
+    border-color: var(--shop-field-edge-hi);
+}
+
+.shop .shop-btn:disabled {
+    opacity: .55;
+    cursor: default;
+}
+
+.shop .shop-btn-accent {
+    background: var(--shop-accent);
+    border-color: var(--shop-accent);
+    color: var(--shop-on-accent);
+}
+
+.shop .shop-btn-accent:hover:not(:disabled) {
+    background: var(--shop-accent);
+    filter: brightness(1.08);
+    border-color: var(--shop-accent);
+}
+
+.shop .shop-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.71rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.shop .shop-chip-good {
+    background: rgba(var(--shop-good-rgb), .13);
+    color: var(--shop-good);
+}
+
+.shop .shop-chip-bad {
+    background: rgba(var(--shop-bad-rgb), .13);
+    color: var(--shop-bad);
+}
+
+.shop .shop-chip-neutral {
+    background: rgba(var(--shop-neutral-rgb), .12);
+    color: var(--shop-neutral);
+}
+
+.shop .shop-table-wrap {
+    border: 1px solid var(--shop-divider);
+    border-radius: var(--shop-r-lg);
+    overflow-x: auto;
+    background: var(--shop-surface);
+}
+
+.shop .shop-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0;
+}
+
+.shop .shop-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--shop-surface);
+    padding: 11px 16px;
+    text-align: left;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--shop-mute-3);
+    border-bottom: 1px solid var(--shop-divider);
+    white-space: nowrap;
+}
+
+.shop .shop-table tbody td {
+    padding: 11px 16px;
+    font-size: 0.85rem;
+    color: var(--shop-ink);
+    border-bottom: 1px solid var(--shop-rule);
+    vertical-align: middle;
+}
+
+.shop .shop-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.shop .shop-table tbody tr:hover td {
+    background: var(--shop-hover);
+}
+
+.shop .shop-num {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.shop .shop-primary {
+    font-weight: 500;
+}
+
+.shop .shop-meta {
+    font-size: 0.74rem;
+    color: var(--shop-mute-3);
+}
+
+.shop .shop-empty {
+    padding: 56px 20px;
+    text-align: center;
+    color: var(--shop-mute-2);
+    background: var(--shop-surface);
+    border: 1px solid var(--shop-divider);
+    border-radius: var(--shop-r-lg);
+}
+
+.shop .shop-empty-title {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--shop-ink-2);
+    margin-bottom: 6px;
+}
+
+.shop .shop-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 44px;
+    color: var(--shop-mute-2);
+}
+
+.shop .shop-notice {
+    padding: 13px 16px;
+    border-radius: var(--shop-r-md);
+    border: 1px solid rgba(var(--shop-bad-rgb), .3);
+    background: rgba(var(--shop-bad-rgb), .08);
+    color: var(--shop-bad);
+    font-size: 0.86rem;
+    margin-bottom: 18px;
+}
+
+/* The native <select>s in the shop form. Two lines, and the reason they are here
+   is in the header: without an opaque popup fill the dark-theme options are
+   present, focusable and invisible. This never reproduces in light theme, so a
+   light-mode screenshot proves nothing about it. */
+.shop .shop-select option,
+.shop .shop-select optgroup {
+    color: var(--shop-ink);
+    background-color: var(--shop-surface);
+}
+
+/* Narrow screens. Stated here rather than derived, because a rule lifted out of a
+   media query stops being conditional — see the generator's note. */
+@media (max-width: 768px) {
+    .shop {
+        padding: 16px;
+    }
+
+    .shop .shop-head {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+}

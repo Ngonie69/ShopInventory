@@ -121,6 +121,46 @@ public sealed class CreateUserHandler(
             return Errors.UserManagement.CreationFailed($"A supplying warehouse code is required for {request.Role} role");
         }
 
+        // A till operator's selling identity comes from its shop, so the shop is required — and the
+        // three loose codes are refused, because an account carrying both has two sources for one
+        // answer and SellingAccountResolver reads only the shop. Rejecting the combination is what
+        // stops an administrator believing the codes they typed are the ones the till will sell on.
+        if (ApplicationRoles.RequiresShopAssignment(request.Role))
+        {
+            if (request.ShopId is null or <= 0)
+            {
+                return Errors.UserManagement.CreationFailed($"An assigned shop is required for {request.Role} role");
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.AssignedBusinessPartnerCode) ||
+                !string.IsNullOrWhiteSpace(request.AssignedCostCentreCode) ||
+                !string.IsNullOrWhiteSpace(request.SupplyingWarehouseCode) ||
+                request.AssignedWarehouseCodes is { Count: > 0 })
+            {
+                return Errors.UserManagement.CreationFailed(
+                    $"A {request.Role} takes its business partner, warehouse and cost centre from its shop. Assign the shop only.");
+            }
+
+            var shop = await context.Shops
+                .AsNoTracking()
+                .FirstOrDefaultAsync(candidate => candidate.Id == request.ShopId, cancellationToken);
+
+            if (shop is null)
+            {
+                return Errors.UserManagement.CreationFailed($"Shop {request.ShopId} was not found");
+            }
+
+            if (!shop.IsActive)
+            {
+                return Errors.UserManagement.CreationFailed($"{shop.Name} is closed, so a till operator cannot be assigned to it");
+            }
+        }
+        else if (request.ShopId is not null)
+        {
+            return Errors.UserManagement.CreationFailed(
+                $"A shop can only be assigned to a {ApplicationRoles.TillOperator}, not to {request.Role}");
+        }
+
         // Optional, so an empty field posts null and a cleared one posts 0 — neither is a device.
         var fiscalDeviceId = ApplicationRoles.SupportsFiscalDevice(request.Role) && request.FiscalDeviceId is > 0
             ? request.FiscalDeviceId
@@ -207,6 +247,14 @@ public sealed class CreateUserHandler(
             // Optional, so only a positive id is taken — an unset picker posts 0, which would be a
             // foreign key to nothing.
             user.RouteId = request.RouteId is > 0 ? request.RouteId : null;
+        }
+
+        // The shop only. The three code columns are deliberately left null for this role: the shop is
+        // where they come from, and copying them onto the account would give the same value two homes
+        // that drift apart the moment the shop is edited.
+        if (ApplicationRoles.RequiresShopAssignment(request.Role))
+        {
+            user.ShopId = request.ShopId;
         }
 
         user.FiscalDeviceId = fiscalDeviceId;

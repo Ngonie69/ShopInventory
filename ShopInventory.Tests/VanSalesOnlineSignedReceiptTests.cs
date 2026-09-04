@@ -43,6 +43,13 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
 {
     private static readonly Guid VanUser = Guid.Parse("55555555-5555-5555-5555-555555555555");
 
+    /// <summary>
+    /// A console account for the sales-list cases below. The van account cannot read that list at all —
+    /// listing till takings is scoped to the shop consoles and to a till's own shop — and what those
+    /// cases are about is which source systems appear, not who may look.
+    /// </summary>
+    private static readonly Guid SalesReader = Guid.Parse("66666666-6666-6666-6666-666666666666");
+
     /// <summary>The trading day every case here is written around.</summary>
     private static readonly DateTime Day = new(2026, 8, 10);
 
@@ -88,6 +95,14 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
             AssignedCostCentreCode = "CC006",
             // Stored as a JSON array, not a CSV — MobileAssignedCustomerScope deserializes it.
             AssignedCustomerCodes = """["SIM001"]"""
+        });
+        _context.Users.Add(new User
+        {
+            Id = SalesReader,
+            Username = "console",
+            PasswordHash = "x",
+            Role = ApplicationRoles.Admin,
+            IsActive = true
         });
         _context.SaveChanges();
     }
@@ -648,13 +663,13 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
 
         var handler = new GetDesktopSalesHandler(_context);
 
-        var byDefault = await handler.Handle(new GetDesktopSalesQuery(), CancellationToken.None);
+        var byDefault = await handler.Handle(new GetDesktopSalesQuery(SalesReader), CancellationToken.None);
         Assert.False(byDefault.IsError);
         Assert.Equal(1, byDefault.Value.TotalCount);
         Assert.Equal("VAN006-INV-20260810-OFF001", Assert.Single(byDefault.Value.Sales).ExternalReferenceId);
 
         var named = await handler.Handle(
-            new GetDesktopSalesQuery(SourceSystem: SaleSourceSystems.VanSalesOnline), CancellationToken.None);
+            new GetDesktopSalesQuery(SalesReader, SourceSystem: SaleSourceSystems.VanSalesOnline), CancellationToken.None);
         Assert.False(named.IsError);
         Assert.Equal("VAN006-INV-20260810-AAA111", Assert.Single(named.Value.Sales).ExternalReferenceId);
     }

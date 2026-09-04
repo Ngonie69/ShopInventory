@@ -73,6 +73,24 @@ public class UserInfo
     public string? AssignedBusinessPartnerCode { get; set; }
     public string? AssignedCostCentreCode { get; set; }
     public List<string> AssignedCustomerCodes { get; set; } = new();
+
+    /// <summary>
+    /// The shop this account works the till at, when it has one.
+    /// </summary>
+    /// <remarks>
+    /// Sent so the till stops choosing its own shop. That choice used to be a device preference picked
+    /// at setup from a list compiled into the app, which decided what the till read stock and history
+    /// for while the account decided what it sold from — two answers nothing reconciled.
+    ///
+    /// The three code fields above are populated from the shop for an account that has one, so a
+    /// client reading them needs no knowledge of shops to get the right answer. <see cref="ShopCode"/>
+    /// and <see cref="ShopName"/> are what a till shows the operator and what lets it skip the setup
+    /// screen.
+    /// </remarks>
+    public string? ShopCode { get; set; }
+
+    /// <inheritdoc cref="ShopCode"/>
+    public string? ShopName { get; set; }
 }
 
 /// <summary>

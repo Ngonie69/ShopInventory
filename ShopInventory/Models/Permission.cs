@@ -343,6 +343,16 @@ public static class Permissions
                 ViewStock, ViewInventory,
                 ViewCustomers
             },
+            // Narrower than CartVendor, which is already narrower than Cashier. A till operator rings
+            // up walk-ins on its shop's single business partner and raises stock requests against the
+            // supplying warehouse — so it needs no rights over customers at all, unlike a cart vendor,
+            // which picks a vendor to invoice from a list.
+            ApplicationRoles.TillOperator => new List<string>
+            {
+                ViewDashboard, ViewProducts,
+                ViewInvoices, CreateInvoices,
+                ViewStock, ViewInventory, TransferStock, TransferInventory
+            },
             ApplicationRoles.StockController => new List<string>
             {
                 ViewDashboard, ViewProducts,

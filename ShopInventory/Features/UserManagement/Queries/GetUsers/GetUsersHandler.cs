@@ -21,7 +21,11 @@ public sealed class GetUsersHandler(
         var page = Math.Max(query.Page, 1);
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
 
-        var usersQuery = context.Users.AsNoTracking();
+        // The shop is included so the list can show which counter a till operator works, rather than
+        // an opaque id an administrator would have to look up.
+        // Typed as IQueryable rather than left to var: Include() returns IIncludableQueryable, which the
+        // filter reassignments below cannot be assigned back to.
+        IQueryable<User> usersQuery = context.Users.AsNoTracking().Include(user => user.Shop);
 
         if (httpContextAccessor.HttpContext?.User.IsInRole(ApplicationRoles.PodOperator) == true)
         {
@@ -122,6 +126,9 @@ public sealed class GetUsersHandler(
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
             AssignedCostCentreCode = user.AssignedCostCentreCode,
             SupplyingWarehouseCode = user.SupplyingWarehouseCode,
+            ShopId = user.ShopId,
+            ShopCode = user.Shop?.Code,
+            ShopName = user.Shop?.Name,
             RouteId = user.RouteId,
             FiscalDeviceId = user.FiscalDeviceId,
             CreatedAt = user.CreatedAt,

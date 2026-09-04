@@ -262,6 +262,15 @@ public class UserDetailDto
     /// <summary>The depot a van loads from — the source of its transfer requests.</summary>
     public string? SupplyingWarehouseCode { get; set; }
 
+    /// <summary>The shop a till operator works at, or null for everyone else.</summary>
+    public int? ShopId { get; set; }
+
+    /// <summary>The shop's code, carried so a list can show it without a second lookup.</summary>
+    public string? ShopCode { get; set; }
+
+    /// <summary>The shop's name, as an administrator would recognise it.</summary>
+    public string? ShopName { get; set; }
+
     /// <summary>The selling route a van runs — the source of its territory and truck registration.</summary>
     public int? RouteId { get; set; }
 
@@ -332,6 +341,17 @@ public class CreateUserDetailRequest
     /// The warehouse an ADR/Sales van is loaded from, and so the source of its transfer requests.
     /// </summary>
     public string? SupplyingWarehouseCode { get; set; }
+
+    /// <summary>
+    /// The shop a till operator works at, and where its business partner, warehouse and cost centre
+    /// come from.
+    /// </summary>
+    /// <remarks>
+    /// An alternative to the three assignment fields above rather than an addition to them:
+    /// SellingAccountResolver prefers the shop outright, so an account carrying both would sell on the
+    /// shop's values and silently ignore the others. Required for TillOperator, refused for the rest.
+    /// </remarks>
+    public int? ShopId { get; set; }
 
     /// <summary>
     /// The selling route this van runs, or null to clear it. Optional, unlike the assignments above:
@@ -407,6 +427,17 @@ public class UpdateUserDetailRequest
     /// The warehouse an ADR/Sales van is loaded from, and so the source of its transfer requests.
     /// </summary>
     public string? SupplyingWarehouseCode { get; set; }
+
+    /// <summary>
+    /// The shop a till operator works at, and where its business partner, warehouse and cost centre
+    /// come from.
+    /// </summary>
+    /// <remarks>
+    /// An alternative to the three assignment fields above rather than an addition to them:
+    /// SellingAccountResolver prefers the shop outright, so an account carrying both would sell on the
+    /// shop's values and silently ignore the others. Required for TillOperator, refused for the rest.
+    /// </remarks>
+    public int? ShopId { get; set; }
 
     /// <summary>
     /// The selling route this van runs, or null to clear it. Optional, unlike the assignments above:

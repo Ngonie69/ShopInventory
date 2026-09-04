@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using ShopInventory.Common.Auth;
 using ShopInventory.Common.Extensions;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
@@ -304,18 +305,7 @@ public class AuthService : IAuthService
             AccessToken = newAccessToken,
             RefreshToken = newRefreshTokenValue,
             ExpiresAt = expiresAt,
-            User = new UserInfo
-            {
-                Username = user.Username,
-                Role = user.Role,
-                Email = user.Email,
-                AssignedWarehouseCode = user.AssignedWarehouseCode,
-                AssignedWarehouseCodes = user.GetWarehouseCodes(),
-                AssignedSection = user.AssignedSection,
-                AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
-                AssignedCostCentreCode = user.AssignedCostCentreCode,
-                AssignedCustomerCodes = user.GetCustomerCodes()
-            }
+            User = await UserInfoMapper.FromUserAsync(user, _dbContext)
         };
     }
 
@@ -667,18 +657,7 @@ public class AuthService : IAuthService
             AccessToken = accessToken,
             RefreshToken = refreshTokenValue,
             ExpiresAt = expiresAt,
-            User = new UserInfo
-            {
-                Username = user.Username,
-                Role = user.Role,
-                Email = user.Email,
-                AssignedWarehouseCode = user.AssignedWarehouseCode,
-                AssignedWarehouseCodes = user.GetWarehouseCodes(),
-                AssignedSection = user.AssignedSection,
-                AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
-                AssignedCostCentreCode = user.AssignedCostCentreCode,
-                AssignedCustomerCodes = user.GetCustomerCodes()
-            }
+            User = await UserInfoMapper.FromUserAsync(user, _dbContext)
         };
     }
 

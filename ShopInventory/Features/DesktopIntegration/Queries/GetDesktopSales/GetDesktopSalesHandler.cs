@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Errors;
 using ShopInventory.Common.Sales;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
@@ -13,6 +14,43 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db)
     public async Task<ErrorOr<DesktopSalesListResult>> Handle(
         GetDesktopSalesQuery request, CancellationToken cancellationToken)
     {
+        // Resolved here rather than in the controller so that no caller can reach these rows without
+        // being scoped. The warehouse used to arrive from the query string unchecked.
+        var caller = await db.Users
+            .AsNoTracking()
+            .Include(user => user.Shop)
+            .FirstOrDefaultAsync(user => user.Id == request.CallerUserId, cancellationToken);
+
+        var scope = DesktopSalesReadScopeResolver.Resolve(caller);
+        if (scope.IsError)
+        {
+            return scope.Errors;
+        }
+
+        var requestedWarehouse = string.IsNullOrWhiteSpace(request.WarehouseCode)
+            ? null
+            : request.WarehouseCode.Trim();
+
+        var warehouseFilter = requestedWarehouse;
+
+        if (!scope.Value.IsUnrestricted)
+        {
+            var assigned = scope.Value.WarehouseCode!;
+
+            // Refused rather than narrowed. A till rendering a page headed with one warehouse and
+            // filled with another's takings is worse than an error, and silently rewriting the request
+            // would hide a client bug — or a probe — that somebody should see.
+            if (requestedWarehouse is not null &&
+                !string.Equals(requestedWarehouse, assigned, StringComparison.OrdinalIgnoreCase))
+            {
+                return Errors.DesktopSales.SalesReadOutsideScope(requestedWarehouse, assigned);
+            }
+
+            // Applied whether or not the caller asked for one, so omitting the parameter narrows to the
+            // caller's own shop rather than widening to every shop.
+            warehouseFilter = assigned;
+        }
+
         var query = db.DesktopSales
             .AsNoTracking()
             .Include(s => s.Lines)
@@ -37,8 +75,8 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db)
             query = query.Where(s => s.SourceSystem != SaleSourceSystems.VanSalesOnline);
         }
 
-        if (!string.IsNullOrEmpty(request.WarehouseCode))
-            query = query.Where(s => s.WarehouseCode == request.WarehouseCode);
+        if (warehouseFilter is not null)
+            query = query.Where(s => s.WarehouseCode == warehouseFilter);
 
         if (!string.IsNullOrEmpty(request.CardCode))
             query = query.Where(s => s.CardCode == request.CardCode);

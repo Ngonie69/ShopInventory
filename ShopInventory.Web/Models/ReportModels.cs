@@ -504,6 +504,16 @@ public class UserModel
 
     /// <summary>The ZIMRA fiscal device a van's handset signs as, or null if it stamps nothing itself.</summary>
     public int? FiscalDeviceId { get; set; }
+
+    /// <summary>The shop a till operator works at — where its selling identity comes from.</summary>
+    public int? ShopId { get; set; }
+
+    /// <summary>The shop's code, carried so a list can show it without a second lookup.</summary>
+    public string? ShopCode { get; set; }
+
+    /// <summary>The shop's name, as an administrator would recognise it.</summary>
+    public string? ShopName { get; set; }
+
     public DateTime? LastLoginAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
