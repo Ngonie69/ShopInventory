@@ -118,6 +118,18 @@ FOOTER = """
     background-color: var(--shop-surface);
 }
 
+/* A closed <select> clips its text mid-word rather than ellipsing it, because the
+   browser draws the control. The warehouse picker's options are "CODE - Name" and a
+   long one read as "BFM - Bulk Feed Mi" with no sign it had been cut. Widening the
+   column fixed the placeholder; this keeps a long *value* honest at any width, and
+   costs nothing when the text already fits. The caret's 30px gutter is preserved by
+   the padding-right the rule above sets. */
+.shop .shop-select {
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
 /* Narrow screens. Stated here rather than derived, because a rule lifted out of a
    media query stops being conditional — see the generator's note. */
 @media (max-width: 768px) {
