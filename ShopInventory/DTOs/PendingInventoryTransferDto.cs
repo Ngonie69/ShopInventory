@@ -50,6 +50,14 @@ public class PendingInventoryTransferDto
     public bool CanCurrentUserDecide { get; set; }
 
     public List<PendingInventoryTransferLineDto> Lines { get; set; } = [];
+
+    /// <summary>
+    /// The distinct item codes on the transfer, always populated. The list endpoint answers
+    /// without <see cref="Lines"/> to stay a single query, which left callers unable to tell
+    /// what a held draft actually moves; the codes come off the payload already in hand, so
+    /// they cost neither a query nor a SAP call.
+    /// </summary>
+    public List<string> ItemCodes { get; set; } = [];
 }
 
 public class PendingInventoryTransferLineDto

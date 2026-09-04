@@ -86,6 +86,13 @@ public class PendingInventoryTransferDto
 
     [JsonPropertyName("lines")]
     public List<PendingInventoryTransferLineDto> Lines { get; set; } = [];
+
+    /// <summary>
+    /// Item codes on the transfer. Unlike <see cref="Lines"/> these are on the list response
+    /// too, which is what lets the approval queue be filtered by product.
+    /// </summary>
+    [JsonPropertyName("itemCodes")]
+    public List<string> ItemCodes { get; set; } = [];
 }
 
 public class PendingInventoryTransferLineDto

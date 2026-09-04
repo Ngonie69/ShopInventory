@@ -65,28 +65,40 @@ public static class PendingInventoryTransferMapper
             ApprovalRequestId = pending.ApprovalRequestId
         };
 
-        if (!includeLines)
-            return dto;
-
+        CreateInventoryTransferRequest payload;
         try
         {
-            var payload = DeserializePayload(pending);
-            dto.Lines = payload.Lines!
-                .Select((line, index) => new PendingInventoryTransferLineDto
-                {
-                    LineNum = index,
-                    ItemCode = line.ItemCode,
-                    Quantity = line.Quantity,
-                    UoMCode = line.UoMCode,
-                    FromWarehouseCode = line.FromWarehouseCode ?? payload.FromWarehouse,
-                    ToWarehouseCode = line.ToWarehouseCode ?? payload.ToWarehouse
-                })
-                .ToList();
+            payload = DeserializePayload(pending);
         }
         catch (InvalidOperationException)
         {
             // A summary without lines is still useful; the post itself will surface the problem.
+            return dto;
         }
+
+        // Codes travel even when the lines do not: they are what a caller filters a list by,
+        // and the payload has already been read to get here.
+        dto.ItemCodes = payload.Lines!
+            .Select(line => line.ItemCode)
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (!includeLines)
+            return dto;
+
+        dto.Lines = payload.Lines!
+            .Select((line, index) => new PendingInventoryTransferLineDto
+            {
+                LineNum = index,
+                ItemCode = line.ItemCode,
+                Quantity = line.Quantity,
+                UoMCode = line.UoMCode,
+                FromWarehouseCode = line.FromWarehouseCode ?? payload.FromWarehouse,
+                ToWarehouseCode = line.ToWarehouseCode ?? payload.ToWarehouse
+            })
+            .ToList();
 
         return dto;
     }
