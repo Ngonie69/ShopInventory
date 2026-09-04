@@ -158,6 +158,12 @@ else if (pendingActionTitle is not null)
                     <NocturneDateField Id="itx-to" @bind-Date="toDate" />
                 </div>
 
+                <div class="itx-field">
+                    <label for="itx-product">Product</label>
+                    <input id="itx-product" class="itx-input" type="search" placeholder="Item code or name"
+                           @bind="_transferProductFilter" @bind:event="oninput" />
+                </div>
+
                 <div class="itx-grow itx-grow-sm itx-field">
                     <label for="itx-find">Find in results</label>
                     <div class="itx-search">
@@ -406,6 +412,11 @@ else if (pendingActionTitle is not null)
                                @bind="_requestRequesterFilter" @bind:event="oninput" />
                     </div>
                     <div class="itx-field">
+                        <label for="itx-req-product">Product</label>
+                        <input id="itx-req-product" class="itx-input" type="search" placeholder="Item code or name"
+                               @bind="_requestProductFilter" @bind:event="oninput" />
+                    </div>
+                    <div class="itx-field">
                         <label for="itx-req-from">From date</label>
                         <NocturneDateField Id="itx-req-from" @bind-Date="requestFromDate" />
                     </div>
@@ -624,6 +635,20 @@ else if (pendingActionTitle is not null)
             <!-- ══════ DIRECT TRANSFERS AWAITING APPROVAL ══════ -->
             <div class="itx-toolbar">
                 <div class="itx-grow itx-field">
+                    <label for="itx-pending-find">Find in results</label>
+                    <div class="itx-search">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                             stroke-linecap="round" aria-hidden="true">
+                            <circle cx="11" cy="11" r="6.5"></circle>
+                            <path d="M16 16l4.5 4.5"></path>
+                        </svg>
+                        <input id="itx-pending-find" class="itx-input" type="search"
+                               placeholder="Draft #, route, submitter" @bind="_pendingSearchString"
+                               @bind:event="oninput" />
+                    </div>
+                </div>
+                <div class="itx-field">
+                    @* Asks the API for this slice; every other control here sifts what came back. *@
                     <label for="itx-pending-status">Status</label>
                     <NocturneSelect TValue="string" Id="itx-pending-status" Class="nsel-block"
                                     Options="PendingStatusOptions" Value="@pendingStatusFilter"
@@ -631,12 +656,81 @@ else if (pendingActionTitle is not null)
                                     Disabled="isLoadingPending" Caption="Filter by status"
                                     AriaLabel="Filter by status" />
                 </div>
+                <div class="itx-field">
+                    <label for="itx-pending-queue">Queue</label>
+                    <NocturneSelect Id="itx-pending-queue" Class="nsel-block" Options="PendingQueueOptions"
+                                    @bind-Value="_pendingQueueFilter" OnChanged="ResetPaging"
+                                    Caption="Filter by whose decision is next"
+                                    AriaLabel="Filter by whose decision is next" Placeholder="Anyone's queue" />
+                </div>
+
                 <div class="itx-toolbar-actions">
-                    <button type="button" class="itx-btn" @onclick="LoadPendingTransfersAsync" disabled="@isLoadingPending">
-                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    <button type="button" class="itx-btn @(showPendingFilters || ExtraPendingFilterCount > 0 ? "is-on" : "")"
+                            @onclick="() => showPendingFilters = !showPendingFilters">
+                        <i class="bi bi-sliders"></i> Filters
+                        @if (ExtraPendingFilterCount > 0)
+                        {
+                            <span class="itx-btn-count">@ExtraPendingFilterCount</span>
+                        }
+                    </button>
+                    <button type="button" class="itx-btn itx-btn-icon" title="Reload transfers awaiting approval"
+                            aria-label="Reload transfers awaiting approval" @onclick="LoadPendingTransfersAsync"
+                            disabled="@isLoadingPending">
+                        <i class="bi bi-arrow-clockwise"></i>
                     </button>
                 </div>
             </div>
+
+            @if (showPendingFilters)
+            {
+                <div class="itx-filters">
+                    <div class="itx-field">
+                        <label for="itx-pending-from-wh">From warehouse</label>
+                        <NocturneSelect Id="itx-pending-from-wh" Class="nsel-block" Options="PendingFromWarehouseSelectOptions"
+                                        @bind-Value="_pendingFromWarehouseFilter" OnChanged="ResetPaging"
+                                        Caption="Filter by source" AriaLabel="Filter by source warehouse"
+                                        Placeholder="Any source" />
+                    </div>
+                    <div class="itx-field">
+                        <label for="itx-pending-to-wh">To warehouse</label>
+                        <NocturneSelect Id="itx-pending-to-wh" Class="nsel-block" Options="PendingToWarehouseSelectOptions"
+                                        @bind-Value="_pendingToWarehouseFilter" OnChanged="ResetPaging"
+                                        Caption="Filter by destination" AriaLabel="Filter by destination warehouse"
+                                        Placeholder="Any destination" />
+                    </div>
+                    <div class="itx-field">
+                        <label for="itx-pending-stage">Awaiting stage</label>
+                        <NocturneSelect Id="itx-pending-stage" Class="nsel-block" Options="PendingStageSelectOptions"
+                                        @bind-Value="_pendingStageFilter" OnChanged="ResetPaging"
+                                        Caption="Filter by approval stage" AriaLabel="Filter by approval stage"
+                                        Placeholder="Any stage" />
+                    </div>
+                    <div class="itx-field">
+                        <label for="itx-pending-submitter">Requested by</label>
+                        <input id="itx-pending-submitter" class="itx-input" type="search" placeholder="Name or role"
+                               @bind="_pendingSubmitterFilter" @bind:event="oninput" />
+                    </div>
+                    <div class="itx-field">
+                        <label for="itx-pending-product">Product</label>
+                        <input id="itx-pending-product" class="itx-input" type="search" placeholder="Item code or name"
+                               @bind="_pendingProductFilter" @bind:event="oninput" />
+                    </div>
+                    <div class="itx-field">
+                        <label for="itx-pending-from">Submitted from</label>
+                        <NocturneDateField Id="itx-pending-from" @bind-Date="pendingFromDate" />
+                    </div>
+                    <div class="itx-field">
+                        <label for="itx-pending-to">Submitted to</label>
+                        <NocturneDateField Id="itx-pending-to" @bind-Date="pendingToDate" />
+                    </div>
+                    <div class="itx-filters-foot">
+                        <button type="button" class="itx-btn itx-btn-sm" @onclick="ClearPendingFilters"
+                                disabled="@(!HasActivePendingFilters)">
+                            Clear all filters
+                        </button>
+                    </div>
+                </div>
+            }
 
             <div class="itx-panel">
             @if (isLoadingPending)
@@ -651,17 +745,26 @@ else if (pendingActionTitle is not null)
                 <div class="itx-summary">
                     <div class="itx-summary-item">
                         <div class="itx-summary-k">Drafts</div>
-                        <div class="itx-summary-v">@pendingTransfers.Count</div>
+                        <div class="itx-summary-v">@FilteredPendingCount</div>
                     </div>
                     <div class="itx-summary-item">
                         <div class="itx-summary-k">Lines</div>
-                        <div class="itx-summary-v">@pendingTransfers.Sum(x => x.LineCount)</div>
+                        <div class="itx-summary-v">@FilteredPending.Sum(x => x.LineCount)</div>
                     </div>
                     <div class="itx-summary-item accent">
                         <div class="itx-summary-k">Awaiting you</div>
-                        <div class="itx-summary-v">@pendingTransfers.Count(x => x.CanCurrentUserDecide)</div>
+                        <div class="itx-summary-v">@FilteredPending.Count(x => x.CanCurrentUserDecide)</div>
                     </div>
-                    <div class="itx-summary-range">@FormatPendingScope(pendingStatusFilter)</div>
+                    <div class="itx-summary-range">
+                        @if (HasActivePendingFilters)
+                        {
+                            <span>Filtered from @pendingTransfers.Count @FormatPendingScope(pendingStatusFilter).ToLowerInvariant()</span>
+                        }
+                        else
+                        {
+                            <span>@FormatPendingScope(pendingStatusFilter)</span>
+                        }
+                    </div>
                 </div>
                 <div class="itx-tablewrap">
                     <table class="itx-table">
@@ -752,8 +855,21 @@ else if (pendingActionTitle is not null)
                     </table>
                 </div>
 
+                @if (FilteredPendingCount == 0)
+                {
+                    <div class="itx-empty">
+                        <i class="bi bi-funnel itx-empty-icon"></i>
+                        <h6>Nothing matches those filters</h6>
+                        <p>No held transfers match the current filters.</p>
+                        <button type="button" class="itx-btn" @onclick="ClearPendingFilters"
+                                disabled="@(!HasActivePendingFilters)">
+                            Clear filters
+                        </button>
+                    </div>
+                }
+
                 <div class="itx-foot">
-                    <span>Showing @PendingPageRows.Count() of @pendingTransfers.Count draft(s)</span>
+                    <span>Showing @FilteredPendingCount of @pendingTransfers.Count draft(s)</span>
                     <span class="itx-foot-actions">
                         <span class="itx-pager">
                             <button type="button" class="itx-btn itx-btn-sm itx-btn-icon" title="Previous page"
@@ -1652,6 +1768,11 @@ else if (pendingActionTitle is not null)
     private DateTime? toDate;
 
     // ── Quick filter ────────────────────────────────────
+    // Each tab keeps its own product box: they filter different lists, and a single shared
+    // one would silently carry a term across a tab switch to a list it means nothing on.
+    private string? _transferProductFilter;
+    private string? _requestProductFilter;
+    private string? _pendingProductFilter;
     private string? _transferSearchString;
     private string? _requestSearchString;
     private string? _requestFromWarehouseFilter;
@@ -1664,6 +1785,21 @@ else if (pendingActionTitle is not null)
     // Search + status stay in the toolbar; the rest live behind the "Filters" toggle.
     private bool showRequestFilters = false;
 
+    // The approval queue is filtered the same way, over the drafts already loaded. Its status
+    // select is the exception: that one goes back to the API, so it is not counted as a filter.
+    private string? _pendingSearchString;
+    private string? _pendingFromWarehouseFilter;
+    private string? _pendingToWarehouseFilter;
+    private string? _pendingStageFilter;
+    private string? _pendingSubmitterFilter;
+    private string? _pendingQueueFilter;
+    private DateTime? pendingFromDate;
+    private DateTime? pendingToDate;
+    private bool showPendingFilters = false;
+
+    private const string MyQueueFilter = "mine";
+    private const string OthersQueueFilter = "others";
+
     private bool _hasLoadedData = false;
 
     // ── Filtered collections ────────────────────────────
@@ -1673,7 +1809,12 @@ else if (pendingActionTitle is not null)
     private IEnumerable<InventoryTransferRequestDto> FilteredRequests =>
     transferRequests?.Where(_requestQuickFilter) ?? Enumerable.Empty<InventoryTransferRequestDto>();
 
+    private IEnumerable<PendingInventoryTransferDto> FilteredPending =>
+    pendingTransfers?.Where(_pendingQuickFilter) ?? Enumerable.Empty<PendingInventoryTransferDto>();
+
     private int FilteredRequestCount => FilteredRequests.Count();
+
+    private int FilteredPendingCount => FilteredPending.Count();
 
     private int FilteredTransferCount => FilteredTransfers.Count();
 
@@ -1697,11 +1838,11 @@ else if (pendingActionTitle is not null)
     private IEnumerable<InventoryTransferRequestDto> RequestPageRows =>
         PageWindow(SortedRequests.Where(_requestQuickFilter), RequestListPage, _pageSize);
 
-    private int PendingListPageCount => PageCountFor(pendingTransfers?.Count ?? 0, _pageSize);
+    private int PendingListPageCount => PageCountFor(FilteredPendingCount, _pageSize);
     private int PendingListPage => Math.Clamp(pendingListPage, 1, PendingListPageCount);
 
     private IEnumerable<PendingInventoryTransferDto> PendingPageRows =>
-        PageWindow(pendingTransfers ?? Enumerable.Empty<PendingInventoryTransferDto>(), PendingListPage, _pageSize);
+        PageWindow(FilteredPending, PendingListPage, _pageSize);
 
     /// <summary>Sends every list back to its first page — used whenever a filter changes.</summary>
     private void ResetPaging()
@@ -1870,7 +2011,7 @@ else if (pendingActionTitle is not null)
             var (fileName, csv, rowCount) = activeTabIndex switch
             {
                 1 => ($"Transfer_Requests_{stamp}.csv", BuildRequestsCsv(), FilteredRequestCount),
-                2 => ($"Draft_Transfers_{stamp}.csv", BuildPendingCsv(), pendingTransfers?.Count ?? 0),
+                2 => ($"Draft_Transfers_{stamp}.csv", BuildPendingCsv(), FilteredPendingCount),
                 _ => ($"Inventory_Transfers_{stamp}.csv", BuildTransfersCsv(), FilteredTransferCount)
             };
 
@@ -1931,7 +2072,7 @@ else if (pendingActionTitle is not null)
     private string BuildPendingCsv()
     {
         var csv = new StringBuilder("Draft #,From,To,Destination,Status,Submitted,Awaiting,Requested by,Lines\n");
-        foreach (var row in pendingTransfers ?? [])
+        foreach (var row in FilteredPending)
         {
             csv.Append(Csv(DraftReference(row))).Append(',')
                .Append(Csv(row.FromWarehouse)).Append(',')
@@ -1960,6 +2101,7 @@ else if (pendingActionTitle is not null)
         !string.IsNullOrWhiteSpace(_requestToWarehouseFilter) ||
         !string.IsNullOrWhiteSpace(_requestStatusFilter) ||
         !string.IsNullOrWhiteSpace(_requestRequesterFilter) ||
+        !string.IsNullOrWhiteSpace(_requestProductFilter) ||
         requestFromDate.HasValue ||
         requestToDate.HasValue;
 
@@ -1969,8 +2111,29 @@ else if (pendingActionTitle is not null)
         (string.IsNullOrWhiteSpace(_requestFromWarehouseFilter) ? 0 : 1) +
         (string.IsNullOrWhiteSpace(_requestToWarehouseFilter) ? 0 : 1) +
         (string.IsNullOrWhiteSpace(_requestRequesterFilter) ? 0 : 1) +
+        (string.IsNullOrWhiteSpace(_requestProductFilter) ? 0 : 1) +
         (requestFromDate.HasValue ? 1 : 0) +
         (requestToDate.HasValue ? 1 : 0);
+
+    private bool HasActivePendingFilters =>
+        !string.IsNullOrWhiteSpace(_pendingSearchString) ||
+        !string.IsNullOrWhiteSpace(_pendingFromWarehouseFilter) ||
+        !string.IsNullOrWhiteSpace(_pendingToWarehouseFilter) ||
+        !string.IsNullOrWhiteSpace(_pendingStageFilter) ||
+        !string.IsNullOrWhiteSpace(_pendingSubmitterFilter) ||
+        !string.IsNullOrWhiteSpace(_pendingProductFilter) ||
+        !string.IsNullOrWhiteSpace(_pendingQueueFilter) ||
+        pendingFromDate.HasValue ||
+        pendingToDate.HasValue;
+
+    private int ExtraPendingFilterCount =>
+        (string.IsNullOrWhiteSpace(_pendingFromWarehouseFilter) ? 0 : 1) +
+        (string.IsNullOrWhiteSpace(_pendingToWarehouseFilter) ? 0 : 1) +
+        (string.IsNullOrWhiteSpace(_pendingStageFilter) ? 0 : 1) +
+        (string.IsNullOrWhiteSpace(_pendingSubmitterFilter) ? 0 : 1) +
+        (string.IsNullOrWhiteSpace(_pendingProductFilter) ? 0 : 1) +
+        (pendingFromDate.HasValue ? 1 : 0) +
+        (pendingToDate.HasValue ? 1 : 0);
 
     // ── Dropdown option lists ───────────────────────────
     // The controls are NocturneSelect, so each list is built here rather than
@@ -2042,9 +2205,73 @@ else if (pendingActionTitle is not null)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(x => x) ?? Enumerable.Empty<string>();
 
+    // "Awaiting someone else" is not the complement of "awaiting me": a decided draft is
+    // nobody's to action, and belongs to neither queue.
+    private static readonly NocturneSelectOption<string>[] PendingQueueOptions =
+    [
+        new(string.Empty, "Anyone's queue", "neutral") { RuleAfter = true, IsUnset = true },
+        new(MyQueueFilter, "Awaiting my decision", "warn"),
+        new(OthersQueueFilter, "Awaiting someone else", "neutral")
+    ];
+
+    private IEnumerable<NocturneSelectOption<string>> PendingFromWarehouseSelectOptions =>
+        DistinctPendingValues(x => x.FromWarehouse)
+            .Select(warehouse => new NocturneSelectOption<string>(warehouse, warehouse, "accent"))
+            .Prepend(NocturneSelectOption.All("Any source"));
+
+    private IEnumerable<NocturneSelectOption<string>> PendingToWarehouseSelectOptions =>
+        DistinctPendingValues(x => x.ToWarehouse)
+            .Select(warehouse => new NocturneSelectOption<string>(warehouse, warehouse, "accent"))
+            .Prepend(NocturneSelectOption.All("Any destination"));
+
+    private IEnumerable<NocturneSelectOption<string>> PendingStageSelectOptions =>
+        PendingStageFilterOptions
+            .Select(stage => new NocturneSelectOption<string>(stage, stage, "info"))
+            .Prepend(NocturneSelectOption.All("Any stage"));
+
+    /// <summary>The distinct values one field takes across the loaded drafts, for a filter list.</summary>
+    private IEnumerable<string> DistinctPendingValues(Func<PendingInventoryTransferDto, string?> field) =>
+        pendingTransfers?
+            .Select(field)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x) ?? Enumerable.Empty<string>();
+
+    // Only the stages still waiting: a stage that has already signed off is not a queue
+    // anyone needs to filter down to, and the column this mirrors lists the waiting ones.
+    private IEnumerable<string> PendingStageFilterOptions =>
+        pendingTransfers?
+            .SelectMany(x => x.ApprovalStages)
+            .Where(stage => stage.Status == PendingStageStatus && !string.IsNullOrWhiteSpace(stage.StageName))
+            .Select(stage => stage.StageName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x) ?? Enumerable.Empty<string>();
+
+    // ── What a document's product filter searches ───────
+    // Code and name both, so "CHE011" and "Cheddar" find the same row. The first two lists
+    // carry their lines from SAP; the approval queue carries codes only, and its names come
+    // from the web app's product cache the same way the drawer resolves them.
+    private static IEnumerable<string?> TransferItemText(InventoryTransferDto transfer)
+        => transfer.Lines?.SelectMany(line => new[] { line.ItemCode, line.ItemDescription })
+           ?? Enumerable.Empty<string?>();
+
+    private static IEnumerable<string?> RequestItemText(InventoryTransferRequestDto request)
+        => request.Lines?.SelectMany(line => new[] { line.ItemCode, line.ItemDescription })
+           ?? Enumerable.Empty<string?>();
+
+    private IEnumerable<string?> PendingItemText(PendingInventoryTransferDto pending)
+        => pending.ItemCodes.SelectMany(code => new[] { code, PendingItemName(code) });
+
+    /// <summary>The cached product name for an item code, or null when the cache has not seen it.</summary>
+    private string? PendingItemName(string? code)
+        => code is not null && pendingLineItemNames.TryGetValue(code, out var name) ? name : null;
+
     // ── Quick filters ───────────────────────────────────
     private Func<InventoryTransferDto, bool> _transferQuickFilter => x =>
     {
+        if (!MatchesProduct(TransferItemText(x), _transferProductFilter)) return false;
+
         if (string.IsNullOrWhiteSpace(_transferSearchString)) return true;
         if (x.DocNum.ToString().Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase)) return true;
         if (x.DocEntry.ToString().Contains(_transferSearchString, StringComparison.OrdinalIgnoreCase)) return true;
@@ -2073,6 +2300,7 @@ else if (pendingActionTitle is not null)
         }
 
         if (!MatchesDateRange(x.DocDate, requestFromDate, requestToDate)) return false;
+        if (!MatchesProduct(RequestItemText(x), _requestProductFilter)) return false;
 
         if (string.IsNullOrWhiteSpace(_requestSearchString)) return true;
         if (x.DocNum.ToString().Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase)) return true;
@@ -2085,6 +2313,50 @@ else if (pendingActionTitle is not null)
         if (x.ApprovalStatus?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
         if (GetApprovalDisplayStatus(x).Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase)) return true;
         if (x.Comments?.Contains(_requestSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        return false;
+    };
+
+    private Func<PendingInventoryTransferDto, bool> _pendingQuickFilter => x =>
+    {
+        if (!MatchesFilterValue(x.FromWarehouse, _pendingFromWarehouseFilter)) return false;
+        if (!MatchesFilterValue(x.ToWarehouse, _pendingToWarehouseFilter)) return false;
+
+        if (!string.IsNullOrWhiteSpace(_pendingStageFilter) &&
+            !x.ApprovalStages.Any(stage => stage.Status == PendingStageStatus &&
+                string.Equals(stage.StageName, _pendingStageFilter, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_pendingSubmitterFilter) &&
+            !(x.CreatedByName?.Contains(_pendingSubmitterFilter, StringComparison.OrdinalIgnoreCase) == true ||
+              x.CreatedByRole?.Contains(_pendingSubmitterFilter, StringComparison.OrdinalIgnoreCase) == true))
+        {
+            return false;
+        }
+
+        if (_pendingQueueFilter == MyQueueFilter && !x.CanCurrentUserDecide) return false;
+        if (_pendingQueueFilter == OthersQueueFilter &&
+            (x.CanCurrentUserDecide || x.Status != PendingTransferStatuses.AwaitingApproval))
+        {
+            return false;
+        }
+
+        // Submitted, not raised: the column these dates sit under is when the draft was held here.
+        if (!MatchesDateRange(x.CreatedAtUtc.ToLocalTime(), pendingFromDate, pendingToDate)) return false;
+        if (!MatchesProduct(PendingItemText(x), _pendingProductFilter)) return false;
+
+        if (string.IsNullOrWhiteSpace(_pendingSearchString)) return true;
+        if (DraftReference(x).Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (x.SapDocNum?.ToString().Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (x.FromWarehouse?.Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (x.ToWarehouse?.Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (WarehouseName(x.ToWarehouse).Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (x.CreatedByName?.Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (x.CreatedByRole?.Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (FormatPendingStatus(x).Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (PendingStageNames(x).Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (x.Comments?.Contains(_pendingSearchString, StringComparison.OrdinalIgnoreCase) == true) return true;
         return false;
     };
 
@@ -2119,7 +2391,7 @@ else if (pendingActionTitle is not null)
                 if (pending != null)
                 {
                     selectedPendingTransfer = pending;
-                    await LoadPendingLineItemNamesAsync(pending);
+                    await LoadPendingItemNamesAsync(pending.Lines.Select(line => line.ItemCode));
                 }
             }
             // Only load warehouses on first render (fast, cached).
@@ -2220,6 +2492,10 @@ else if (pendingActionTitle is not null)
             var response = await TransferService.GetPendingTransfersAsync(pendingStatusFilter, pageSize: 200);
             pendingTransfers = response?.Items ?? [];
 
+            // Before the rows are filterable, so typing a product name matches on the first keystroke
+            // rather than only after a draft has been opened.
+            await LoadPendingItemNamesAsync(pendingTransfers.SelectMany(item => item.ItemCodes));
+
             // The tab badge counts what is still awaiting approval. Only a result set that could
             // contain those rows can update it — filtering to, say, Posted says nothing about how
             // many are still waiting, so the last known count stands.
@@ -2267,7 +2543,7 @@ else if (pendingActionTitle is not null)
             if (detail != null && selectedPendingTransfer?.Id == id)
             {
                 selectedPendingTransfer = detail;
-                await LoadPendingLineItemNamesAsync(detail);
+                await LoadPendingItemNamesAsync(detail.Lines.Select(line => line.ItemCode));
             }
         }
         catch (Exception ex)
@@ -2282,14 +2558,15 @@ else if (pendingActionTitle is not null)
     }
 
     /// <summary>
-    /// Fills <see cref="pendingLineItemNames"/> for the draft being opened. The product cache is
-    /// held statically across circuits and is normally already warm, so this costs nothing beyond
-    /// a dictionary build; a cold cache reads the web app's own product table, never SAP.
+    /// Fills <see cref="pendingLineItemNames"/> for a set of item codes — the lines of a draft
+    /// being opened, or every code on the loaded queue so the product filter can match names as
+    /// well as codes. The product cache is held statically across circuits and is normally
+    /// already warm, so this costs nothing beyond a dictionary build; a cold cache reads the web
+    /// app's own product table, never SAP.
     /// </summary>
-    private async Task LoadPendingLineItemNamesAsync(PendingInventoryTransferDto pending)
+    private async Task LoadPendingItemNamesAsync(IEnumerable<string?> itemCodes)
     {
-        var wanted = pending.Lines
-            .Select(line => line.ItemCode)
+        var wanted = itemCodes
             .Where(code => !string.IsNullOrWhiteSpace(code) && !pendingLineItemNames.ContainsKey(code!))
             .Select(code => code!)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -2312,7 +2589,7 @@ else if (pendingActionTitle is not null)
         catch (Exception ex)
         {
             // The code on its own is what the drawer showed before; a name is not worth failing over.
-            Logger.LogWarning(ex, "Could not resolve item names for pending transfer {PendingId}", pending.Id);
+            Logger.LogWarning(ex, "Could not resolve item names for {CodeCount} held-transfer item code(s)", wanted.Count);
         }
     }
 
@@ -2325,9 +2602,7 @@ else if (pendingActionTitle is not null)
         if (!string.IsNullOrWhiteSpace(line.ItemDescription))
             return line.ItemDescription;
 
-        return line.ItemCode is not null && pendingLineItemNames.TryGetValue(line.ItemCode, out var itemName)
-            ? itemName
-            : null;
+        return PendingItemName(line.ItemCode);
     }
 
     private void ClosePendingTransfer()
@@ -3384,9 +3659,26 @@ else if (pendingActionTitle is not null)
         _requestToWarehouseFilter = null;
         _requestStatusFilter = null;
         _requestRequesterFilter = null;
+        _requestProductFilter = null;
         requestFromDate = null;
         requestToDate = null;
         requestListPage = 1;
+    }
+
+    // The status select is left alone on purpose: it names the slice the API returned,
+    // so clearing it would silently mean a reload rather than a narrowing.
+    private void ClearPendingFilters()
+    {
+        _pendingSearchString = null;
+        _pendingFromWarehouseFilter = null;
+        _pendingToWarehouseFilter = null;
+        _pendingStageFilter = null;
+        _pendingSubmitterFilter = null;
+        _pendingProductFilter = null;
+        _pendingQueueFilter = null;
+        pendingFromDate = null;
+        pendingToDate = null;
+        pendingListPage = 1;
     }
 
     private string GetStatusCssClass(string? status) => status?.ToLower() switch
@@ -3515,19 +3807,37 @@ else if (pendingActionTitle is not null)
         return string.IsNullOrWhiteSpace(filter) || string.Equals(value, filter, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// True when any of a document's item codes or names contains the typed text. The document
+    /// matches as a whole — one line carrying the item keeps the row, because the row is the
+    /// thing the user is looking for. A blank filter matches everything.
+    /// </summary>
+    private static bool MatchesProduct(IEnumerable<string?> itemText, string? filter)
+    {
+        return string.IsNullOrWhiteSpace(filter) ||
+               itemText.Any(value => value?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true);
+    }
+
     private static bool MatchesDateRange(string? value, DateTime? from, DateTime? to)
+        => MatchesDateRange(DateTime.TryParse(value, out var parsed) ? parsed : null, from, to);
+
+    /// <summary>
+    /// A row with no date is outside every range: the drafts list keeps a real timestamp, but
+    /// a document read back from SAP without one must not slip past a range the user set.
+    /// </summary>
+    private static bool MatchesDateRange(DateTime? value, DateTime? from, DateTime? to)
     {
         if (!from.HasValue && !to.HasValue)
         {
             return true;
         }
 
-        if (!DateTime.TryParse(value, out var parsedDate))
+        if (!value.HasValue)
         {
             return false;
         }
 
-        var date = parsedDate.Date;
+        var date = value.Value.Date;
 
         if (from.HasValue && date < from.Value.Date)
         {
