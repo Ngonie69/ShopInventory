@@ -112,8 +112,6 @@ public sealed class UpdateRateLimitConfigValidationTests
             throw new NotSupportedException();
         public Task IncrementRequestCountAsync(string clientId, string clientType, string? endpoint = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
-        public Task<bool> UnblockClientAsync(string clientId, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
         public Task UpdateSettingsAsync(UpdateRateLimitSettingsRequest settings, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task CleanupOldRecordsAsync(CancellationToken cancellationToken = default) =>

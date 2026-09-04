@@ -360,15 +360,6 @@ public class UpdateRateLimitSettingsRequest
 }
 
 /// <summary>
-/// Request to unblock a client
-/// </summary>
-public class UnblockClientRequest
-{
-    [Required]
-    public string ClientId { get; set; } = null!;
-}
-
-/// <summary>
 /// Rate limit list response DTO
 /// </summary>
 public class RateLimitListResponseDto

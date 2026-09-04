@@ -12,7 +12,6 @@ using ShopInventory.Features.RateLimit.Queries.GetBlockedClients;
 using ShopInventory.Features.RateLimit.Queries.GetRateLimitStats;
 using ShopInventory.Features.RateLimit.Queries.GetRateLimitConfig;
 using ShopInventory.Features.RateLimit.Commands.BlockClient;
-using ShopInventory.Features.RateLimit.Commands.UnblockClient;
 using ShopInventory.Features.RateLimit.Commands.ResetClient;
 using ShopInventory.Features.RateLimit.Commands.UpdateRateLimitConfig;
 using ShopInventory.Features.RateLimit.Commands.CleanupRateLimits;
@@ -82,19 +81,9 @@ public class RateLimitController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(new { message = value }), errors => Problem(errors));
     }
 
-    /// <summary>
-    /// Unblock a rate-limited client
-    /// </summary>
-    [HttpPost("unblock/{clientId}")]
-    [RequirePermission(Permission.EditUsers)]
-    public async Task<IActionResult> UnblockClient(string clientId, CancellationToken cancellationToken)
-    {
-        var result = await mediator.Send(new UnblockClientCommand(clientId), cancellationToken);
-        return result.Match(value => Ok(new { message = value }), errors => Problem(errors));
-    }
 
     /// <summary>
-    /// Reset a client's counters
+    /// Clear a rate-limited client: counter, window and block
     /// </summary>
     [HttpPost("reset/{clientId}")]
     [RequirePermission(Permission.EditUsers)]

@@ -130,7 +130,6 @@ public interface IRateLimitService
     Task<ApiRateLimitDto?> GetClientLimitAsync(string clientId, CancellationToken cancellationToken = default);
     Task<bool> CheckRateLimitAsync(string clientId, string clientType, string? endpoint = null, CancellationToken cancellationToken = default);
     Task IncrementRequestCountAsync(string clientId, string clientType, string? endpoint = null, CancellationToken cancellationToken = default);
-    Task<bool> UnblockClientAsync(string clientId, CancellationToken cancellationToken = default);
     Task UpdateSettingsAsync(UpdateRateLimitSettingsRequest settings, CancellationToken cancellationToken = default);
     Task CleanupOldRecordsAsync(CancellationToken cancellationToken = default);
 

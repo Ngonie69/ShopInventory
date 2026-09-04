@@ -2345,8 +2345,7 @@ The `signature` is an HMAC-SHA256 of the payload body using the webhook secret.
 | GET | `/api/RateLimit/current` | ApiAccess | Get current request's rate limit status |
 | GET | `/api/RateLimit/check` | ApiAccess | Check if request would be allowed (non-incrementing) |
 | POST | `/api/RateLimit/block/{clientId}` | `users.edit` | Block a client |
-| POST | `/api/RateLimit/unblock/{clientId}` | `users.edit` | Unblock one |
-| POST | `/api/RateLimit/reset/{clientId}` | `users.edit` | Clear a client — same as `unblock` |
+| POST | `/api/RateLimit/reset/{clientId}` | `users.edit` | Clear a client: counter, window and block |
 | GET | `/api/RateLimit/blocked` | `users.edit` | Every client currently blocked |
 | GET | `/api/RateLimit/stats` | `users.edit` | Totals across all clients |
 | GET | `/api/RateLimit/config` | `users.edit` | The limits in force |
@@ -2356,21 +2355,23 @@ The `signature` is an HMAC-SHA256 of the payload body using the webhook secret.
 Rate limit administration is gated on `users.edit`, not on a rate-limit permission of its own —
 there isn't one.
 
-##### `reset/{clientId}` and `unblock/{clientId}` do the same thing
+##### `reset/{clientId}` clears everything
 
-Both give the client a clean slate: `requestCount` zeroed, the window restarted, and `isBlocked` /
-`blockExpiresAt` cleared. They are one implementation, so they cannot drift apart.
+`requestCount` zeroed, the window restarted, and `isBlocked` / `blockExpiresAt` cleared — the
+client can call again immediately.
 
-`reset` used to zero the counter and leave the block in place, so **resetting a blocked client left
-it blocked** — the one state anybody reaches for reset in. An operator clearing a client and
-watching it stay shut out cannot tell a broken endpoint from a client that is still hammering the
-API.
+**The old `unblock/{clientId}` route is gone.** It did exactly this, and having two of them
+is how they came to disagree: `reset` used to zero the counter and leave the block in place, so
+**resetting a blocked client left it blocked** — the one state anybody reaches for reset in. An
+operator clearing a client and watching it stay shut out cannot tell a broken endpoint from a
+client that is still hammering the API. Callers of `unblock` should use `reset`; the answer is the
+same.
 
-`totalBlockedCount` survives both. It is the client's history rather than its current state, and it
-is what says a client needs a conversation rather than another reset.
+`totalBlockedCount` survives. It is the client's history rather than its current state, and it is
+what says a client needs a conversation rather than another reset.
 
-Both `404` on a client id that has no rate limit row, which is the answer for a client that has
-never been counted — neither creates one.
+`404` on a client id that has no rate limit row, which is the answer for a client that has never
+been counted — it does not create one.
 
 ##### `config` changes the limiter that actually returns 429
 
