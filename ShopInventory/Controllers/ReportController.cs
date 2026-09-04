@@ -31,6 +31,9 @@ namespace ShopInventory.Controllers;
 [SapBackgroundWork]
 public class ReportController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// Sales summary for a date range
+    /// </summary>
     [HttpGet("sales-summary")]
     public async Task<IActionResult> GetSalesSummary(
         [FromQuery] DateTime? fromDate,
@@ -41,6 +44,9 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Top selling products
+    /// </summary>
     [HttpGet("top-products")]
     public async Task<IActionResult> GetTopProducts(
         [FromQuery] DateTime? fromDate,
@@ -53,6 +59,9 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Products with no movement
+    /// </summary>
     [HttpGet("slow-moving-products")]
     public async Task<IActionResult> GetSlowMovingProducts(
         [FromQuery] DateTime? fromDate,
@@ -64,6 +73,9 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Stock on hand and its value, optionally for one warehouse
+    /// </summary>
     [HttpGet("stock-summary")]
     public async Task<IActionResult> GetStockSummary(
         [FromQuery] string? warehouseCode = null,
@@ -73,6 +85,9 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Stock movement over a date range
+    /// </summary>
     [HttpGet("stock-movement")]
     public async Task<IActionResult> GetStockMovement(
         [FromQuery] DateTime? fromDate,
@@ -84,6 +99,9 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Low stock alert items
+    /// </summary>
     [HttpGet("low-stock-alerts")]
     public async Task<IActionResult> GetLowStockAlerts(
         [FromQuery] string? warehouseCode = null,
@@ -94,6 +112,9 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Payments over a date range
+    /// </summary>
     [HttpGet("payment-summary")]
     public async Task<IActionResult> GetPaymentSummary(
         [FromQuery] DateTime? fromDate,
@@ -104,6 +125,9 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Sales and payments per account
+    /// </summary>
     [HttpGet("account-sales-payments")]
     public async Task<IActionResult> GetAccountSalesPayments(
         [FromQuery] DateTime? fromDate,
@@ -148,6 +172,9 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Top customers
+    /// </summary>
     [HttpGet("top-customers")]
     public async Task<IActionResult> GetTopCustomers(
         [FromQuery] DateTime? fromDate,
@@ -159,6 +186,9 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Order fulfilment
+    /// </summary>
     [HttpGet("order-fulfillment")]
     public async Task<IActionResult> GetOrderFulfillment(
         [FromQuery] DateTime? fromDate,
@@ -170,6 +200,9 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Credit notes over a date range
+    /// </summary>
     [HttpGet("credit-notes")]
     public async Task<IActionResult> GetCreditNoteSummary(
         [FromQuery] DateTime? fromDate,
@@ -180,6 +213,9 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Purchase orders over a date range
+    /// </summary>
     [HttpGet("purchase-orders")]
     public async Task<IActionResult> GetPurchaseOrderSummary(
         [FromQuery] DateTime? fromDate,
@@ -190,6 +226,9 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Merchandiser-raised purchase orders
+    /// </summary>
     [HttpGet("merchandiser-purchase-orders")]
     [Authorize(Roles = "Admin,Manager,MerchandiserPurchaseOrderViewer")]
     public async Task<IActionResult> GetMerchandiserPurchaseOrderReport(
@@ -212,6 +251,9 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Customer aging analysis
+    /// </summary>
     [HttpGet("receivables-aging")]
     public async Task<IActionResult> GetReceivablesAging(CancellationToken cancellationToken)
     {
@@ -219,6 +261,9 @@ public class ReportController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Profit overview
+    /// </summary>
     [HttpGet("profit-overview")]
     public async Task<IActionResult> GetProfitOverview(
         [FromQuery] DateTime? fromDate,

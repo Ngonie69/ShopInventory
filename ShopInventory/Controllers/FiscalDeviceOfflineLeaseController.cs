@@ -93,6 +93,9 @@ public class FiscalDeviceOfflineLeaseController(IMediator mediator) : ApiControl
         return result.Match<IActionResult>(Ok, errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One device's offline signing lease
+    /// </summary>
     [HttpGet("{deviceId:int}/offline-lease")]
     public async Task<IActionResult> Get(int deviceId, CancellationToken cancellationToken)
     {

@@ -35,6 +35,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccessWithOperator")]
 public class InvoiceController(ISender mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// Create a new invoice (posts to SAP)
+    /// </summary>
     [HttpPost]
     [Authorize(Roles = "Admin,Cashier")]
     [ProducesResponseType(typeof(InvoiceCreatedResponseDto), StatusCodes.Status201Created)]
@@ -60,6 +63,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
             Problem);
     }
 
+    /// <summary>
+    /// Batches available to allocate against a line (strategy, default FEFO)
+    /// </summary>
     [HttpGet("{itemCode}/batches/{warehouseCode}")]
     [Authorize(Roles = "Admin,Cashier,StockController,Manager")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
@@ -76,6 +82,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Validate an invoice before posting
+    /// </summary>
     [HttpPost("validate")]
     [Authorize(Roles = "Admin,Cashier")]
     [ProducesResponseType(typeof(BatchAllocationResult), StatusCodes.Status200OK)]
@@ -92,6 +101,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Get invoice by SAP DocEntry
+    /// </summary>
     [HttpGet("{docEntry:int}")]
     [Authorize(Roles = "Admin,Cashier,StockController,Manager")]
     [ProducesResponseType(typeof(InvoiceDto), StatusCodes.Status200OK)]
@@ -104,6 +116,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Get invoice by SAP DocNum
+    /// </summary>
     [HttpGet("by-docnum/{docNum:int}")]
     [Authorize(Roles = "Admin,Cashier,StockController,Manager,Driver,PodOperator,Operator,ApiUser")]
     [ProducesResponseType(typeof(InvoiceDto), StatusCodes.Status200OK)]
@@ -122,6 +137,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Fiscalise a posted invoice
+    /// </summary>
     [HttpPost("{docEntry:int}/fiscalize")]
     [Authorize(Roles = "Admin,Cashier")]
     [ProducesResponseType(typeof(FiscalizationResult), StatusCodes.Status200OK)]
@@ -137,6 +155,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Check a batch of invoices for existing PODs before uploading
+    /// </summary>
     [HttpPost("pods/validate-bulk")]
     // Validates a whole batch of documents against SAP in one call — bulk by definition.
     [SapBackgroundWork]
@@ -153,6 +174,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Download the invoice as a PDF
+    /// </summary>
     [HttpGet("{docEntry:int}/pdf")]
     [Authorize(Roles = "Admin,Cashier,StockController,Manager")]
     [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
@@ -168,6 +192,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
             Problem);
     }
 
+    /// <summary>
+    /// A customer's invoices
+    /// </summary>
     [HttpGet("customer/{cardCode}")]
     [Authorize(Roles = "Admin,Cashier,StockController,Manager,Driver,PodOperator")]
     [ProducesResponseType(typeof(InvoiceDateResponseDto), StatusCodes.Status200OK)]
@@ -220,6 +247,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// An invoice's attachments
+    /// </summary>
     [HttpGet("{docEntry:int}/attachments")]
     [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
     [ProducesResponseType(typeof(DocumentAttachmentListResponseDto), StatusCodes.Status200OK)]
@@ -231,6 +261,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Download one of an invoice's attachments
+    /// </summary>
     [HttpGet("{docEntry:int}/attachments/{attachmentId:int}/download")]
     [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
     [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status200OK)]
@@ -248,6 +281,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
             Problem);
     }
 
+    /// <summary>
+    /// Upload a POD against an invoice
+    /// </summary>
     [HttpPost("{docEntry:int}/pod")]
     [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
     [ProducesResponseType(typeof(DocumentAttachmentDto), StatusCodes.Status201Created)]
@@ -283,6 +319,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
             Problem);
     }
 
+    /// <summary>
+    /// Upload a crate POD
+    /// </summary>
     [HttpPost("{docEntry:int}/crate-pod")]
     [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver")]
     [ProducesResponseType(typeof(CratePodSubmissionDto), StatusCodes.Status200OK)]
@@ -327,6 +366,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// List PODs
+    /// </summary>
     [HttpGet("pods")]
     [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
     [ProducesResponseType(typeof(PodAttachmentListResponseDto), StatusCodes.Status200OK)]
@@ -357,6 +399,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Upload-status report
+    /// </summary>
     [HttpGet("pod-upload-status")]
     [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep,ApiUser")]
     [ProducesResponseType(typeof(PodUploadStatusReportDto), StatusCodes.Status200OK)]
@@ -377,6 +422,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// POD dashboard figures
+    /// </summary>
     [HttpGet("pod-dashboard")]
     [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
     [ProducesResponseType(typeof(PodDashboardDto), StatusCodes.Status200OK)]
@@ -391,6 +439,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Get invoices by date range
+    /// </summary>
     [HttpGet("date-range")]
     [Authorize(Roles = "Admin,Cashier,StockController,Manager")]
     [ProducesResponseType(typeof(InvoiceDateResponseDto), StatusCodes.Status200OK)]
@@ -408,6 +459,9 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// List invoices, paginated
+    /// </summary>
     [HttpGet("paged")]
     [Authorize(Roles = "Admin,Cashier,StockController,Manager")]
     [ProducesResponseType(typeof(InvoiceListResponseDto), StatusCodes.Status200OK)]

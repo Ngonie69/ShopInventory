@@ -30,6 +30,9 @@ public class CratesController(ISender mediator) : ApiControllerBase
         "application/pdf"
     };
 
+    /// <summary>
+    /// Crate movements
+    /// </summary>
     [HttpGet("transactions")]
     [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver,SalesRep")]
     [ProducesResponseType(typeof(List<CrateTransactionDto>), StatusCodes.Status200OK)]
@@ -52,6 +55,9 @@ public class CratesController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Crate PODs
+    /// </summary>
     [HttpGet("pods")]
     [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver,SalesRep")]
     [ProducesResponseType(typeof(List<CratePodSubmissionDto>), StatusCodes.Status200OK)]
@@ -73,6 +79,9 @@ public class CratesController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Check a batch for PODs already held
+    /// </summary>
     [HttpPost("pods/validate-bulk")]
     [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver")]
     [ProducesResponseType(typeof(BulkCratePodValidationResponseDto), StatusCodes.Status200OK)]
@@ -94,6 +103,9 @@ public class CratesController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Open the crate transaction for an invoice if it has none
+    /// </summary>
     [HttpPost("transactions/ensure-invoice")]
     [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
     [ProducesResponseType(typeof(EnsureInvoiceCrateTransactionResponseDto), StatusCodes.Status200OK)]
@@ -115,6 +127,9 @@ public class CratesController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Goods-returned notes
+    /// </summary>
     [HttpGet("grvs")]
     [Authorize(Roles = "Admin,Manager,Merchandiser,Driver,SalesRep")]
     [ProducesResponseType(typeof(List<CrateGrvDto>), StatusCodes.Status200OK)]
@@ -136,6 +151,9 @@ public class CratesController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Seed a shop's crate balance
+    /// </summary>
     [HttpPost("opening-balances")]
     [Authorize(Roles = "Admin")]
     [MaxRequestBodySize(20 * 1024 * 1024)]
@@ -169,6 +187,9 @@ public class CratesController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Correct a crate opening balance, optionally replacing its attachment
+    /// </summary>
     [HttpPut("opening-balances/{crateTransactionId:int}")]
     [Authorize(Roles = "Admin")]
     [MaxRequestBodySize(20 * 1024 * 1024)]
@@ -204,6 +225,9 @@ public class CratesController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Delete a crate opening balance
+    /// </summary>
     [HttpDelete("opening-balances/{crateTransactionId:int}")]
     [Authorize(Roles = "Admin")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -218,6 +242,9 @@ public class CratesController(ISender mediator) : ApiControllerBase
         return result.Match(_ => NoContent(), Problem);
     }
 
+    /// <summary>
+    /// Upload a crate POD
+    /// </summary>
     [HttpPost("transactions/{crateTransactionId:int}/pods")]
     [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver")]
     [MaxRequestBodySize(20 * 1024 * 1024)]
@@ -258,6 +285,9 @@ public class CratesController(ISender mediator) : ApiControllerBase
         return result.Match(Ok, Problem);
     }
 
+    /// <summary>
+    /// Remove a POD
+    /// </summary>
     [HttpDelete("pods/{cratePodSubmissionId:int}")]
     [Authorize(Roles = "Admin,Manager,Merchandiser,Operator,Driver")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -272,6 +302,9 @@ public class CratesController(ISender mediator) : ApiControllerBase
         return result.Match(_ => NoContent(), Problem);
     }
 
+    /// <summary>
+    /// Raise a GRV against a transaction
+    /// </summary>
     [HttpPost("transactions/{crateTransactionId:int}/grvs")]
     [Authorize(Roles = "Admin,Manager,Merchandiser")]
     [MaxRequestBodySize(20 * 1024 * 1024)]

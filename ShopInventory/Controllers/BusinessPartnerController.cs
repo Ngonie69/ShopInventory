@@ -23,6 +23,9 @@ public class BusinessPartnerController(IMediator mediator) : ApiControllerBase
     /// </summary>
     private const int MaxBatchCardCodes = 200;
 
+    /// <summary>
+    /// Get all business partners from SAP
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetBusinessPartners(CancellationToken cancellationToken)
     {
@@ -41,6 +44,9 @@ public class BusinessPartnerController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Filter by type
+    /// </summary>
     [HttpGet("type/{cardType}")]
     public async Task<IActionResult> GetBusinessPartnersByType(string cardType, CancellationToken cancellationToken)
     {
@@ -48,6 +54,9 @@ public class BusinessPartnerController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Search by code or name
+    /// </summary>
     [HttpGet("search")]
     public async Task<IActionResult> SearchBusinessPartners([FromQuery] string q, CancellationToken cancellationToken)
     {
@@ -92,6 +101,9 @@ public class BusinessPartnerController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get specific business partner
+    /// </summary>
     [HttpGet("{cardCode}")]
     public async Task<IActionResult> GetBusinessPartnerByCode(string cardCode, CancellationToken cancellationToken)
     {
@@ -99,6 +111,9 @@ public class BusinessPartnerController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get payment terms by group
+    /// </summary>
     [HttpGet("paymentterms/{groupNumber:int}")]
     public async Task<IActionResult> GetPaymentTerms(int groupNumber, CancellationToken cancellationToken)
     {

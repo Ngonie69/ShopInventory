@@ -27,6 +27,9 @@ namespace ShopInventory.Controllers;
 [Produces("application/json")]
 public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// List local purchase orders
+    /// </summary>
     [HttpGet]
     [RequirePermission(Permission.ViewPurchaseOrders)]
     public async Task<IActionResult> GetAll(
@@ -42,6 +45,9 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// List SAP purchase orders
+    /// </summary>
     [HttpGet("sap")]
     [RequirePermission(Permission.ViewPurchaseOrders)]
     public async Task<IActionResult> GetFromSAP(
@@ -56,6 +62,9 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One SAP purchase order
+    /// </summary>
     [HttpGet("sap/{docEntry}")]
     [RequirePermission(Permission.ViewPurchaseOrders)]
     public async Task<IActionResult> GetFromSAPByDocEntry(int docEntry, CancellationToken cancellationToken)
@@ -64,6 +73,9 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get by ID
+    /// </summary>
     [HttpGet("{id}")]
     [RequirePermission(Permission.ViewPurchaseOrders)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
@@ -72,6 +84,9 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get by order number
+    /// </summary>
     [HttpGet("number/{orderNumber}")]
     [RequirePermission(Permission.ViewPurchaseOrders)]
     public async Task<IActionResult> GetByOrderNumber(string orderNumber, CancellationToken cancellationToken)
@@ -80,6 +95,9 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Create purchase order
+    /// </summary>
     [HttpPost]
     [RequirePermission(Permission.CreatePurchaseOrders)]
     public async Task<IActionResult> Create([FromBody] CreatePurchaseOrderRequest request, CancellationToken cancellationToken)
@@ -91,6 +109,9 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
         return result.Match(value => CreatedAtAction(nameof(GetById), new { id = value.Id }, value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Update purchase order
+    /// </summary>
     [HttpPut("{id}")]
     [RequirePermission(Permission.EditPurchaseOrders)]
     public async Task<IActionResult> Update(int id, [FromBody] CreatePurchaseOrderRequest request, CancellationToken cancellationToken)
@@ -99,6 +120,9 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Change a purchase order's status
+    /// </summary>
     [HttpPatch("{id}/status")]
     [RequirePermission(Permission.EditPurchaseOrders)]
     public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdatePurchaseOrderStatusRequest request, CancellationToken cancellationToken)
@@ -110,6 +134,9 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Approve a purchase order
+    /// </summary>
     [HttpPost("{id}/approve")]
     [RequirePermission(Permission.ApprovePurchaseOrders)]
     public async Task<IActionResult> Approve(int id, CancellationToken cancellationToken)
@@ -121,6 +148,9 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Receive goods
+    /// </summary>
     [HttpPost("{id}/receive")]
     [RequirePermission(Permission.ReceivePurchaseOrders)]
     public async Task<IActionResult> ReceiveItems(int id, [FromBody] ReceivePurchaseOrderRequest request, CancellationToken cancellationToken)
@@ -132,6 +162,9 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Delete a purchase order
+    /// </summary>
     [HttpDelete("{id}")]
     [RequirePermission(Permission.DeletePurchaseOrders)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
@@ -140,6 +173,9 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Attach a document (multipart; poReferenceNumber, description)
+    /// </summary>
     [HttpPost("documents/upload")]
     [RequirePermission(Permission.UploadPurchaseOrderDocuments)]
     public async Task<IActionResult> UploadDocument(
@@ -163,6 +199,9 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Attached documents
+    /// </summary>
     [HttpGet("documents")]
     [RequirePermission(Permission.ViewPurchaseOrders)]
     public async Task<IActionResult> GetDocuments([FromQuery] string? poReferenceNumber, CancellationToken cancellationToken)

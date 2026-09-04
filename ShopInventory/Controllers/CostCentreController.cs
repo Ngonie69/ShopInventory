@@ -11,6 +11,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class CostCentreController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// Get all active cost centres from SAP
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetCostCentres(CancellationToken cancellationToken)
     {
@@ -18,6 +21,9 @@ public class CostCentreController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Filter by dimension (1-5)
+    /// </summary>
     [HttpGet("dimension/{dimension:int}")]
     public async Task<IActionResult> GetCostCentresByDimension(int dimension, CancellationToken cancellationToken)
     {
@@ -25,6 +31,9 @@ public class CostCentreController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get specific cost centre
+    /// </summary>
     [HttpGet("{centerCode}")]
     public async Task<IActionResult> GetCostCentreByCode(string centerCode, CancellationToken cancellationToken)
     {

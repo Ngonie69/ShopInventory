@@ -14,6 +14,9 @@ public class HealthController(
     HealthCheckService healthCheckService,
     RuntimeInstanceIdentity runtimeInstanceIdentity) : ControllerBase
 {
+    /// <summary>
+    /// Liveness, readiness and dependency detail
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken cancellationToken)
     {

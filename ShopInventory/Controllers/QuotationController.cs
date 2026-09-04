@@ -40,6 +40,9 @@ namespace ShopInventory.Controllers;
 [Produces("application/json")]
 public class QuotationController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// List local quotations
+    /// </summary>
     [HttpGet]
     [RequirePermission(Permission.ViewQuotations)]
     public async Task<IActionResult> GetAll(
@@ -55,6 +58,9 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// List SAP quotations
+    /// </summary>
     [HttpGet("sap")]
     [RequirePermission(Permission.ViewQuotations)]
     public async Task<IActionResult> GetFromSAP(
@@ -69,6 +75,9 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// One SAP quotation
+    /// </summary>
     [HttpGet("sap/{docEntry}")]
     [RequirePermission(Permission.ViewQuotations)]
     public async Task<IActionResult> GetFromSAPByDocEntry(int docEntry, CancellationToken cancellationToken)
@@ -77,6 +86,9 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// A SAP quotation as a PDF
+    /// </summary>
     [HttpGet("sap/{docEntry:int}/pdf")]
     [RequirePermission(Permission.ViewQuotations)]
     public async Task<IActionResult> DownloadSapQuotationPdf(int docEntry, CancellationToken cancellationToken)
@@ -87,6 +99,9 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get by ID
+    /// </summary>
     [HttpGet("{id}")]
     [RequirePermission(Permission.ViewQuotations)]
     public async Task<IActionResult> GetById(int id, CancellationToken cancellationToken)
@@ -95,6 +110,9 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get by quotation number
+    /// </summary>
     [HttpGet("number/{quotationNumber}")]
     [RequirePermission(Permission.ViewQuotations)]
     public async Task<IActionResult> GetByQuotationNumber(string quotationNumber, CancellationToken cancellationToken)
@@ -103,6 +121,9 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Download as a PDF
+    /// </summary>
     [HttpGet("{id:int}/pdf")]
     [RequirePermission(Permission.ViewQuotations)]
     public async Task<IActionResult> DownloadQuotationPdf(int id, CancellationToken cancellationToken)
@@ -113,6 +134,9 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
             errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Create quotation
+    /// </summary>
     [HttpPost]
     [RequirePermission(Permission.CreateQuotations)]
     public async Task<IActionResult> Create([FromBody] CreateQuotationRequest request, CancellationToken cancellationToken)
@@ -130,6 +154,9 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(value => CreatedAtAction(nameof(GetById), new { id = value.Id }, value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Update quotation
+    /// </summary>
     [HttpPut("{id}")]
     [RequirePermission(Permission.EditQuotations)]
     public async Task<IActionResult> Update(int id, [FromBody] CreateQuotationRequest request, CancellationToken cancellationToken)
@@ -138,6 +165,9 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Change a quotation's status
+    /// </summary>
     [HttpPatch("{id}/status")]
     [RequirePermission(Permission.EditQuotations)]
     public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateQuotationStatusRequest request, CancellationToken cancellationToken)
@@ -150,6 +180,9 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Approve a quotation
+    /// </summary>
     [HttpPost("{id}/approve")]
     [RequirePermission(Permission.EditQuotations)]
     public async Task<IActionResult> Approve(int id, CancellationToken cancellationToken)
@@ -162,6 +195,9 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Re-apply the standard VAT rate to every line
+    /// </summary>
     [HttpPost("{id}/apply-standard-vat")]
     [RequirePermission(Permission.EditQuotations)]
     public async Task<IActionResult> ApplyStandardVat(int id, CancellationToken cancellationToken)
@@ -170,6 +206,9 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Reprice a quotation against current prices
+    /// </summary>
     [HttpPut("{id}/reprice")]
     [RequirePermission(Permission.EditQuotations)]
     public async Task<IActionResult> Reprice(int id, [FromBody] CreateQuotationRequest request, CancellationToken cancellationToken)
@@ -178,6 +217,9 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Convert to a sales order
+    /// </summary>
     [HttpPost("{id}/convert-to-sales-order")]
     [RequirePermission(Permission.CreateQuotations)]
     public async Task<IActionResult> ConvertToSalesOrder(int id, CancellationToken cancellationToken)
@@ -190,6 +232,9 @@ public class QuotationController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Delete a quotation
+    /// </summary>
     [HttpDelete("{id}")]
     [RequirePermission(Permission.DeleteQuotations)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)

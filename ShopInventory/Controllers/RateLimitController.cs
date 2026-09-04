@@ -23,6 +23,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class RateLimitController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// List all rate limits
+    /// </summary>
     [HttpGet]
     [RequirePermission(Permission.EditUsers)]
     public async Task<IActionResult> GetAll(
@@ -35,6 +38,9 @@ public class RateLimitController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get client's rate limit info
+    /// </summary>
     [HttpGet("client/{clientId}")]
     [RequirePermission(Permission.EditUsers)]
     public async Task<IActionResult> GetByClientId(string clientId, CancellationToken cancellationToken)
@@ -43,6 +49,9 @@ public class RateLimitController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get current request's rate limit status
+    /// </summary>
     [HttpGet("current")]
     public async Task<IActionResult> GetCurrentStatus(CancellationToken cancellationToken)
     {
@@ -51,6 +60,9 @@ public class RateLimitController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Check if request would be allowed (non-incrementing)
+    /// </summary>
     [HttpGet("check")]
     public async Task<IActionResult> CheckLimit(CancellationToken cancellationToken)
     {
@@ -59,6 +71,9 @@ public class RateLimitController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Block a client
+    /// </summary>
     [HttpPost("block/{clientId}")]
     [RequirePermission(Permission.EditUsers)]
     public async Task<IActionResult> BlockClient(string clientId, [FromBody] BlockClientRequest request, CancellationToken cancellationToken)
@@ -67,6 +82,9 @@ public class RateLimitController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(new { message = value }), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Unblock a rate-limited client
+    /// </summary>
     [HttpPost("unblock/{clientId}")]
     [RequirePermission(Permission.EditUsers)]
     public async Task<IActionResult> UnblockClient(string clientId, CancellationToken cancellationToken)
@@ -75,6 +93,9 @@ public class RateLimitController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(new { message = value }), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Reset a client's counters
+    /// </summary>
     [HttpPost("reset/{clientId}")]
     [RequirePermission(Permission.EditUsers)]
     public async Task<IActionResult> ResetClient(string clientId, CancellationToken cancellationToken)
@@ -83,6 +104,9 @@ public class RateLimitController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(new { message = value }), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get blocked clients
+    /// </summary>
     [HttpGet("blocked")]
     [RequirePermission(Permission.EditUsers)]
     public async Task<IActionResult> GetBlockedClients(CancellationToken cancellationToken)
@@ -91,6 +115,9 @@ public class RateLimitController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get rate limit statistics
+    /// </summary>
     [HttpGet("stats")]
     [RequirePermission(Permission.EditUsers)]
     public async Task<IActionResult> GetStats(CancellationToken cancellationToken)
@@ -99,6 +126,9 @@ public class RateLimitController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Get rate limit configuration
+    /// </summary>
     [HttpGet("config")]
     [RequirePermission(Permission.EditUsers)]
     public async Task<IActionResult> GetConfig(CancellationToken cancellationToken)
@@ -107,6 +137,9 @@ public class RateLimitController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Update the rate limit configuration
+    /// </summary>
     [HttpPut("config")]
     [RequirePermission(Permission.EditUsers)]
     public async Task<IActionResult> UpdateConfig([FromBody] RateLimitConfigDto config, CancellationToken cancellationToken)
@@ -115,6 +148,9 @@ public class RateLimitController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(new { message = value }), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Clear expired counters
+    /// </summary>
     [HttpPost("cleanup")]
     [RequirePermission(Permission.EditUsers)]
     public async Task<IActionResult> Cleanup(CancellationToken cancellationToken)

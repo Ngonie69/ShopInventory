@@ -14,6 +14,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class ItemVolumeConversionController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// List factors. search matches code and name; includeInactive defaults to true
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetConversions(
         [FromQuery] string? search = null,
@@ -27,6 +30,9 @@ public class ItemVolumeConversionController(IMediator mediator) : ApiControllerB
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Create or replace a factor
+    /// </summary>
     [HttpPut("{itemCode}")]
     public async Task<IActionResult> SaveConversion(
         string itemCode,
@@ -46,6 +52,9 @@ public class ItemVolumeConversionController(IMediator mediator) : ApiControllerB
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Remove a factor
+    /// </summary>
     [HttpDelete("{itemCode}")]
     public async Task<IActionResult> DeleteConversion(string itemCode, CancellationToken cancellationToken)
     {

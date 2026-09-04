@@ -1,0 +1,121 @@
+{
+  "//": "Swagger summaries for routes whose API.md wording only works inside a table. A cell reads",
+  "//1": "under a section heading and after the row above it, so 'Delete one' or 'The same, paginated'",
+  "//2": "is clear there and useless in Swagger, where the operation is read alone. These restate the",
+  "//3": "same fact with its subject. update_swagger_descriptions.py prefers this file over both",
+  "//4": "catalogues; run it with --report to see which routes still fall through to one.",
+
+  "GET /api/AppVersion/mobile/settings": "The stored mobile app version policy",
+  "PUT /api/AppVersion/mobile/settings": "Update the mobile app version policy",
+
+  "GET /api/approval-process/stages": "List the approval stage definitions",
+  "POST /api/approval-process/stages": "Create an approval stage definition, or update an existing one",
+  "DELETE /api/approval-process/stages/{id}": "Delete an approval stage definition",
+  "GET /api/approval-process/templates": "List the approval templates",
+  "POST /api/approval-process/templates": "Create an approval template, or update an existing one",
+  "DELETE /api/approval-process/templates/{id}": "Delete an approval template",
+
+  "POST /api/Auth/passkeys/register/options": "Begin registering a passkey, returning the WebAuthn creation options and a session token",
+  "POST /api/Auth/passkeys/register/complete": "Finish registering a passkey from the authenticator's response",
+  "POST /api/Auth/passkeys/login/complete": "Finish a passkey sign-in, answering the same token pair as /api/Auth/login",
+
+  "DELETE /api/Backup/{id}": "Delete a backup",
+  "POST /api/Backup/{id}/restore": "Restore the database from a backup",
+
+  "PUT /api/crates/opening-balances/{crateTransactionId}": "Correct a crate opening balance, optionally replacing its attachment",
+  "DELETE /api/crates/opening-balances/{crateTransactionId}": "Delete a crate opening balance",
+
+  "GET /api/DesktopIntegration/queue": "List invoices waiting to post to SAP",
+  "POST /api/DesktopIntegration/sales-orders/convert-to-invoice": "Convert a sales order to an invoice",
+  "GET /api/DesktopIntegration/transfer-queue": "List transfers waiting to post to SAP",
+  "GET /api/DesktopIntegration/transfer-queue/review": "Queued transfers needing a human look",
+  "POST /api/DesktopIntegration/prices/pricelists/sync": "Sync the price lists from SAP",
+  "POST /api/DesktopIntegration/prices/sync": "Sync item prices from SAP",
+  "GET /api/DesktopIntegration/queue/stats": "Invoice queue counts",
+  "GET /api/DesktopIntegration/transfer-queue/stats": "Transfer queue counts",
+  "GET /api/DesktopIntegration/stock/{warehouseCode}/{itemCode}/batches": "List the batches available for one item in one warehouse",
+  "POST /api/DesktopIntegration/transfers/queued": "Queue a stock transfer for background posting to SAP",
+  "GET /api/DesktopIntegration/transfer-queue/{externalReference}": "Get a queued transfer's status by the caller's own reference",
+  "DELETE /api/DesktopIntegration/transfer-queue/{externalReference}": "Drop a queued transfer before it posts",
+  "POST /api/DesktopIntegration/transfer-queue/{externalReference}/retry": "Retry a queued transfer that failed to post",
+  "GET /api/DesktopIntegration/transfers/warehouse/{warehouseCode}/date-range": "List a warehouse's transfers between two dates",
+  "GET /api/DesktopIntegration/transfers/warehouse/{warehouseCode}/paged": "List a warehouse's transfers, paginated",
+  "POST /api/DesktopIntegration/prices/pricelists/{priceListNum}/sync": "Sync one price list's item prices from SAP",
+
+  "POST /api/Document/generate/download": "Render a document and return the file",
+  "POST /api/Document/email": "Render a document and email it",
+  "GET /api/Document/signatures": "List the signatures on one document",
+  "POST /api/Document/signatures/{id}/verify": "Verify a document signature",
+  "POST /api/Document/templates/{id}/set-default": "Make a template the default for its document type",
+  "GET /api/Document/email-templates": "List the email templates",
+  "POST /api/Document/email-templates": "Create an email template",
+  "PUT /api/Document/email-templates/{id}": "Update an email template by its id",
+  "GET /api/Document/email-templates/{templateCode}": "Get an email template by its code",
+
+  "GET /api/exception-center": "The exception centre dashboard",
+  "POST /api/exception-center/items/{source}/{itemKey}/retry": "Retry one exception centre item",
+  "POST /api/exception-center/items/{source}/{itemKey}/acknowledge": "Mark one exception centre item as seen",
+  "POST /api/exception-center/items/{source}/{itemKey}/assign-to-me": "Take ownership of an exception centre item",
+
+  "GET /api/fiscal-devices/{deviceId}/offline-lease": "One device's offline signing lease",
+
+  "GET /api/GoodsReceiptPurchaseOrder": "List goods receipt purchase orders",
+  "GET /api/GoodsReceiptPurchaseOrder/{docEntry}": "One goods receipt purchase order",
+
+  "GET /api/Merchandiser": "List the merchandisers",
+  "GET /api/Merchandiser/mobile/active-products": "The mobile catalogue a merchandiser may sell from",
+  "DELETE /api/Merchandiser/products": "Unassign products from every merchandiser",
+
+  "GET /api/Document/history": "The document generation history",
+
+  "GET /api/InventoryTransfer/{warehouseCode}/paged": "List a warehouse's inventory transfers, paginated",
+
+  "GET /api/Invoice/{docEntry}/attachments/{attachmentId}/download": "Download one of an invoice's attachments",
+
+  "GET /api/PurchaseInvoice": "List purchase invoices",
+  "GET /api/PurchaseInvoice/{docEntry}": "One purchase invoice",
+  "GET /api/PurchaseQuotation": "List purchase quotations",
+  "GET /api/PurchaseQuotation/{docEntry}": "One purchase quotation",
+  "GET /api/PurchaseRequest": "List purchase requests",
+  "GET /api/PurchaseRequest/{docEntry}": "One purchase request",
+
+  "PUT /api/RateLimit/config": "Update the rate limit configuration",
+
+  "DELETE /api/PurchaseOrder/{id}": "Delete a purchase order",
+  "POST /api/PurchaseOrder/{id}/approve": "Approve a purchase order",
+  "PATCH /api/PurchaseOrder/{id}/status": "Change a purchase order's status",
+
+  "DELETE /api/Quotation/{id}": "Delete a quotation",
+  "POST /api/Quotation/{id}/approve": "Approve a quotation",
+  "PUT /api/Quotation/{id}/reprice": "Reprice a quotation against current prices",
+  "PATCH /api/Quotation/{id}/status": "Change a quotation's status",
+
+  "POST /api/RateLimit/unblock/{clientId}": "Unblock a rate-limited client",
+
+  "PUT /api/route-customers/{id}": "Update a route customer",
+  "DELETE /api/route-customers/{id}": "Delete a route customer",
+
+  "PUT /api/Shops/{id}": "Change a shop's name, business partner, warehouse or cost centre",
+
+  "GET /api/Statement/generate/{cardCode}": "Generate a customer statement as a PDF",
+
+  "GET /api/Stock/warehouse/{warehouseCode}/paged": "List a warehouse's stock, paginated",
+  "POST /api/Stock/warehouse/{warehouseCode}/sales": "A warehouse's sales, with the date range in the body rather than the query string",
+
+  "POST /api/User/{id}/activate": "Reinstate a deactivated user account",
+
+  "GET /api/UserManagement/me": "Get the signed-in user's own profile",
+  "PUT /api/UserManagement/{id}/permissions": "Replace a user's permissions",
+
+  "POST /api/vansales/auth/login": "Sign a van sales handset in; rate-limited under the auth policy",
+  "POST /api/vansales/auth/refresh": "Refresh a van sales handset's tokens; rate-limited under the auth policy",
+  "GET /api/vansales/customer/{code}/history": "What one shop has bought and still has on order, the detail the office's route customer report reads",
+  "POST /api/vansales/order/convert-to-invoice": "Convert a van sales order to an invoice; always answers 202",
+
+  "GET /api/whatsapp/messages": "The WhatsApp inbox",
+  "GET /api/whatsapp/sessions": "List the WhatsApp bridge sessions",
+  "POST /api/whatsapp/sessions": "Create a WhatsApp bridge session",
+  "POST /api/whatsapp/sessions/{sessionId}/start": "Start a WhatsApp session",
+  "POST /api/whatsapp/sessions/{sessionId}/stop": "Stop a WhatsApp session",
+  "POST /api/whatsapp/sessions/{sessionId}/messages/reply": "Reply to a message in a WhatsApp session"
+}

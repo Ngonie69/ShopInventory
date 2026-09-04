@@ -14,6 +14,9 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class ExceptionCenterController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// The exception centre dashboard
+    /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(ExceptionCenterDashboardDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetDashboard(
@@ -25,6 +28,9 @@ public class ExceptionCenterController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Retry many at once
+    /// </summary>
     [HttpPost("items/retry-batch")]
     [ProducesResponseType(typeof(ExceptionCenterBatchRetryResultDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -39,6 +45,9 @@ public class ExceptionCenterController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Retry one exception centre item
+    /// </summary>
     /// <remarks>
     /// <paramref name="itemKey"/> identifies the item within its source: a decimal id for the
     /// int-keyed sources, a Guid for the approval-gated ones. The int-keyed sources are addressed
@@ -54,6 +63,9 @@ public class ExceptionCenterController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => Ok(new { Message = "Retry queued" }), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Mark one exception centre item as seen
+    /// </summary>
     [HttpPost("items/{source}/{itemKey}/acknowledge")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -63,6 +75,9 @@ public class ExceptionCenterController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => Ok(new { Message = "Item acknowledged" }), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Take ownership of an exception centre item
+    /// </summary>
     [HttpPost("items/{source}/{itemKey}/assign-to-me")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
