@@ -31,9 +31,15 @@ This skill is the decision rule and the two recipes.
 | What you're building | Use |
 |---|---|
 | Any date or month input | `<NocturneDateField>` — never `<input type="date">` |
+| A list too long to read by eye — business partners, items, customers | `<NocturnePicker>` |
 | A dropdown that is a visible page control (filter bar, toolbar, table header) | `<NocturneSelect>` |
 | A dropdown whose items carry meaning beyond their text — status, role, a colour, an icon, a count | `<NocturneSelect>` |
 | A plain dropdown buried in a modal form, few options, text only | Native `<select>` is fine — **but style its `option`s** |
+
+Length outranks the rows below it. A control over the partner cache is a
+`<NocturnePicker>` even in a modal form, because the thing that makes a
+`<select>` wrong there is not its popup's colour — it is that 2,072 rows can only
+be reached by scrolling. See "Long lists" below.
 
 The native `<select>` row is not a grudging exception. 58 of them are still in
 use in modal forms, and rewriting those would be churn for its own sake. The
@@ -177,6 +183,47 @@ of them.
 `prefers-reduced-motion` block all live in `nocturne-select.css`, so a page that
 adopts the component cannot forget one of them — which is what used to leave a
 new menu animating after everything else on the page had agreed not to.
+
+## Long lists
+
+`<NocturnePicker>` — `ShopInventory.Web/Components/NocturnePicker.razor`, styled
+in `wwwroot/css/nocturne-picker.css` under `npick-`. Same palette and trigger
+metrics as `NocturneSelect`; the difference is that it opens on a search box and
+draws at most `MaxVisible` rows (50 by default) with a footer saying how many it
+left out.
+
+```razor
+<NocturnePicker Class="npick-block" Options="businessPartnerOptions"
+                @bind-Value="BusinessPartnerCode" Loading="isLoadingMasterData"
+                Placeholder="Select business partner" AriaLabel="Business partner" />
+```
+
+For partners, build the rows with `BusinessPartnerOptions.From(...)` rather than
+projecting them at the call site — it drops codeless rows, marks inactive ones
+and suppresses SAP's `##` any-currency marker, and those three judgements drift
+the moment they are made twice.
+
+Four things worth knowing before you reach for it:
+
+- **A row is a name over its code**, because the code is what disambiguates. SAP
+  keeps one partner per currency, so "Abbiamo Trading Deli Spices" is three rows
+  and only `ABB001` / `ABB001 (FCA)` / `ABB001(FCA)` tells them apart.
+- **Search is AND across terms**, matched on code, name and hint, so
+  "abbiamo spices" and "spices abbiamo" find the same rows and "usd" reaches
+  partners whose code carries no suffix.
+- **It renders a text input, which submits the form it sits in.** The search box
+  carries a literal `onkeydown` guard for that; keys are read from the wrapper
+  because a `@onkeydown` on the input would collide with it in the render tree.
+  If you copy the markup elsewhere, copy the guard.
+- **The keyboard highlight is drawn, not focused** — the caret stays in the
+  search box — so nothing scrolls it into view. Typing seeds it on the top match,
+  which is what makes type-then-Enter the fast path; arrowing far down an
+  unsearched list will push it out of sight.
+
+Inside a scrolling modal the menu is clipped by the scrollport and the user
+scrolls to reach the rest of it. That is in-flow behaviour and is fine on
+`/user-management`; there is no `Fixed` escape hatch here as there is on
+`NocturneSelect`.
 
 ## Date fields
 

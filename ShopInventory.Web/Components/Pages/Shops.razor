@@ -66,22 +66,21 @@
                     <label class="shop-filter-label" for="shop-name">Name</label>
                     <input id="shop-name" class="shop-field" @bind="editing.Name" placeholder="Machipisa" />
                 </div>
+                @* A picker rather than a <select>: SAP holds several thousand
+                   business partners, one per currency per shop, and a list that
+                   long cannot be read by scrolling — which is what a native
+                   dropdown offers and all it offers. This one opens on a search
+                   box. See Components/NocturnePicker.razor. *@
                 <div class="col-md-3">
                     <label class="shop-filter-label" for="shop-bp">Business partner</label>
-                    @if (isLoadingMasterData)
-                    {
-                        <div class="shop-meta">Loading…</div>
-                    }
-                    else
-                    {
-                        <select id="shop-bp" class="shop-field shop-select" @bind="editing.BusinessPartnerCode">
-                            <option value="">-- Select business partner --</option>
-                            @foreach (var bp in businessPartners)
-                            {
-                                <option value="@bp.CardCode">@bp.CardCode - @DisplayName(bp)</option>
-                            }
-                        </select>
-                    }
+                    <NocturnePicker Class="npick-block" Id="shop-bp"
+                                    Options="businessPartnerOptions"
+                                    @bind-Value="BusinessPartnerCode"
+                                    Loading="isLoadingMasterData"
+                                    Placeholder="Select business partner"
+                                    SearchPlaceholder="Search by code or name…"
+                                    EmptyText="No business partners loaded"
+                                    AriaLabel="Business partner" />
                 </div>
                 <div class="col-md-3">
                     <label class="shop-filter-label" for="shop-wh">Warehouse</label>
@@ -193,7 +192,12 @@
     private List<ShopDto> shops = [];
     private ShopDto? editing;
 
-    private List<BusinessPartnerDto> businessPartners = [];
+    /// <summary>
+    /// The partner list already shaped for the picker, built once when the cache
+    /// lands rather than per render: it runs to several thousand rows and the
+    /// page re-renders on every keystroke in the form beside it.
+    /// </summary>
+    private List<NocturnePickerOption> businessPartnerOptions = [];
     private List<WarehouseDto> warehouses = [];
     private List<CostCentreDto> costCentres = [];
 
@@ -215,6 +219,25 @@
             if (editing is not null)
             {
                 editing.CostCentreCode = string.IsNullOrWhiteSpace(value) ? null : value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Binds the required business partner through a nullable string, for the
+    /// mirror of the reason below: the picker's Clear hands back null, and the
+    /// DTO's field is a non-null string. Coerced rather than left null so an
+    /// emptied field reaches SaveAsync's check as "" and is refused there, with
+    /// a message, instead of being posted.
+    /// </summary>
+    private string? BusinessPartnerCode
+    {
+        get => editing?.BusinessPartnerCode;
+        set
+        {
+            if (editing is not null)
+            {
+                editing.BusinessPartnerCode = value ?? string.Empty;
             }
         }
     }
@@ -251,7 +274,8 @@
         try
         {
             // The same three caches the user management page loads, rather than three fresh calls.
-            businessPartners = await MasterDataCache.GetBusinessPartnersAsync();
+            businessPartnerOptions = BusinessPartnerOptions.From(
+                await MasterDataCache.GetBusinessPartnersAsync());
             warehouses = (await MasterDataCache.GetWarehousesAsync())
                 .Where(warehouse => warehouse.IsActive)
                 .ToList();
@@ -370,8 +394,4 @@
         }
     }
 
-    private static string DisplayName(BusinessPartnerDto businessPartner) =>
-        string.IsNullOrWhiteSpace(businessPartner.CardName)
-            ? businessPartner.CardCode ?? string.Empty
-            : businessPartner.CardName;
 }

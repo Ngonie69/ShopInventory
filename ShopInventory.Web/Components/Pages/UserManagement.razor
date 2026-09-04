@@ -680,20 +680,18 @@
                                                 {
                                                     <div class="um-form-field">
                                                         <label>Assigned Business Partner <span class="required">*</span></label>
-                                                        @if (isLoadingCustomers)
-                                                        {
-                                                            <div class="um-spinner-sm"></div>
-                                                        }
-                                                        else
-                                                        {
-                                                            <InputSelect class="um-input" @bind-Value="userModel.AssignedBusinessPartnerCode">
-                                                                <option value="">-- Select Business Partner --</option>
-                                                                @foreach (var bp in availableCustomers.OrderBy(bp => bp.CardCode))
-                                                                {
-                                                                    <option value="@bp.CardCode">@bp.CardCode - @GetBusinessPartnerDisplayName(bp)</option>
-                                                                }
-                                                            </InputSelect>
-                                                        }
+                                                        @* A picker rather than a <select>: the customer
+                                                           list runs to several thousand rows, and the only
+                                                           thing a native dropdown offers over one is
+                                                           scrolling. Same control as /shops. *@
+                                                        <NocturnePicker Class="npick-block npick-bs"
+                                                                        Options="customerPickerOptions"
+                                                                        @bind-Value="userModel.AssignedBusinessPartnerCode"
+                                                                        Loading="isLoadingCustomers"
+                                                                        Placeholder="Select business partner"
+                                                                        SearchPlaceholder="Search by code or name…"
+                                                                        EmptyText="No customers loaded"
+                                                                        AriaLabel="Assigned business partner" />
                                                         <ValidationMessage For="@(() => userModel.AssignedBusinessPartnerCode)" />
                                                         <small class="um-form-hint">The business partner identity this van sales user operates
                                                             under</small>
@@ -978,6 +976,9 @@
     private List<WarehouseDto> availableWarehouses = new();
     private bool isLoadingWarehouses = false;
     private List<BusinessPartnerDto> availableCustomers = new();
+
+    /// <summary>The same customers, shaped for the van sales partner picker.</summary>
+    private List<NocturnePickerOption> customerPickerOptions = new();
     private bool isLoadingCustomers = false;
     private string customerSearchTerm = string.Empty;
     private List<CostCentreDto> availableCostCentres = new();
@@ -1359,6 +1360,11 @@ StringComparison.OrdinalIgnoreCase)))
         {
             var customers = await MasterDataCache.GetBusinessPartnersAsync(includeInactive: true);
             availableCustomers = customers?.Where(IsCustomerBusinessPartner).ToList() ?? new();
+
+            // Shaped for the picker once, here, rather than per render: this list
+            // runs to several thousand rows and the form beside it re-renders on
+            // every keystroke.
+            customerPickerOptions = BusinessPartnerOptions.From(availableCustomers);
         }
         catch (Exception ex)
         {

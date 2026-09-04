@@ -1,0 +1,447 @@
+@* A search-first dropdown for a list too long to scroll.
+
+   NocturneSelect's sibling, and the line between them is the length of the
+   list. A menu of six statuses is read by eye; a menu of several thousand
+   business partners cannot be, and a <select> over one is worse than useless —
+   the browser draws every row, the operator scrolls a platform window looking
+   for a code they already know, and on Blazor Server the whole list crosses the
+   wire on first paint. This one opens on a search box, matches as you type and
+   draws at most MaxVisible rows.
+
+   Rows carry the code as well as the name because in this app the code is what
+   disambiguates: SAP holds one business partner per currency, so the same name
+   appears two and three times over and only ABB001 (FCA) against ABB001 (ZiG)
+   separates them. See NocturnePickerOption.
+
+   Two page-scoped pickers already do a version of this — `ofx-pick-` on
+   /reports/order-fulfillment and `sla-pick-` on the sales analysis reports — and
+   each renders unstyled anywhere but its own page root, which is why the second
+   had to be written rather than reused. This one is prefixed `npick-` in
+   wwwroot/css/nocturne-picker.css and takes its palette from
+   nocturne-tokens.css, like NocturneSelect and NocturneDateField, so it renders
+   on any Nocturne page. Per-page fit is through the `--npick-*` fallbacks; see
+   that sheet.
+
+   Outside clicks are caught by a fixed veil behind the menu rather than a
+   document listener, which keeps the component free of JS interop — the same
+   trade the other two field controls make. *@
+
+<div class="npick @Class @(_open ? "npick-open" : "")" @onkeydown="OnKeyDown" @attributes="Extra">
+    <button type="button" id="@Id"
+            class="npick-btn @(HasValue ? "npick-set" : "") @(Invalid ? "npick-bad" : "")"
+            disabled="@(Disabled || Loading)" @onclick="Toggle"
+            aria-haspopup="listbox" aria-expanded="@_open" aria-label="@AriaLabel">
+        <span class="npick-value">
+            @if (Loading)
+            {
+                <span class="npick-placeholder">@LoadingText</span>
+            }
+            else if (_current is not null)
+            {
+                <span class="npick-code">@_current.Value</span>
+                <span class="npick-name">@_current.Label</span>
+            }
+            else if (HasValue)
+            {
+                @* A value the list does not hold. Left to fall through to the
+                   placeholder it would read as unset, and an operator who opened
+                   the row to change something else would save the blank over a
+                   code that was doing its job. Say the code and say it is
+                   missing — a partner gone inactive since the row was written is
+                   the ordinary way this happens. *@
+                <span class="npick-code">@Value</span>
+                <span class="npick-gone">not in the list</span>
+            }
+            else
+            {
+                <span class="npick-placeholder">@Placeholder</span>
+            }
+        </span>
+        <svg class="npick-caret" width="10" height="7" viewBox="0 0 10 7" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M1 1.5l4 4 4-4"></path>
+        </svg>
+    </button>
+
+    @if (AllowClear && HasValue && !Disabled && !Loading)
+    {
+        @* Outside the trigger button, not inside it: a button in a button is not
+           parseable HTML, and the browser's repair lifts it out to somewhere the
+           layout does not expect. *@
+        <button type="button" class="npick-clear" @onclick="ClearAsync"
+                title="Clear" aria-label="@($"Clear {AriaLabel ?? "selection"}")">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="3" stroke-linecap="round" aria-hidden="true">
+                <path d="M5 5l14 14M19 5L5 19"></path>
+            </svg>
+        </button>
+    }
+
+    @if (_open)
+    {
+        var shown = Visible();
+
+        <div class="npick-veil" @onclick="Close"></div>
+        <div class="npick-menu" role="listbox" aria-label="@(Caption ?? AriaLabel)">
+            <div class="npick-search">
+                <svg class="npick-search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7"></circle>
+                    <path d="M20 20l-4.2-4.2"></path>
+                </svg>
+                @* The literal handler stops the browser submitting the form this
+                   picker may be sitting in: a text input inside a <form> submits
+                   it on Enter, and Enter here means "take the highlighted row".
+                   Written as an HTML attribute rather than `@onkeydown:
+                   preventDefault` because that flag is fixed at render time and
+                   would suppress every key, typing included. It cannot be
+                   `@onkeydown` either — that renders to the same attribute name,
+                   and one of the two would be dropped — so the keys themselves
+                   are read from the wrapper, which sees them bubble. *@
+                <input class="npick-search-input" type="search" autocomplete="off" spellcheck="false"
+                       placeholder="@SearchPlaceholder" aria-label="@SearchPlaceholder"
+                       onkeydown="if(event.key==='Enter')event.preventDefault()"
+                       @ref="_searchRef" @bind="Query" @bind:event="oninput" />
+            </div>
+
+            <div class="npick-list">
+                @for (var i = 0; i < shown.Rows.Count; i++)
+                {
+                    @* Copied out of the loop: without it every lambda closes over
+                       the same variable and each row selects the last option. *@
+                    var index = i;
+                    var option = shown.Rows[index];
+                    var chosen = string.Equals(option.Value, Value, StringComparison.OrdinalIgnoreCase);
+
+                    <button type="button" @key="option.Value"
+                            class="npick-item @(chosen ? "npick-on" : "") @(index == _active ? "npick-active" : "")"
+                            role="option" aria-selected="@chosen"
+                            @onclick="@(() => PickAsync(option))">
+                        <span class="npick-item-text">
+                            <span class="npick-item-name">@option.Label</span>
+                            <span class="npick-item-code">@option.Value</span>
+                        </span>
+                        @if (!string.IsNullOrWhiteSpace(option.Hint))
+                        {
+                            <span class="npick-item-hint">@option.Hint</span>
+                        }
+                        <svg class="npick-tick" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
+                             stroke-linejoin="round" aria-hidden="true">
+                            <path d="M4.5 12.5l5 5 10-11"></path>
+                        </svg>
+                    </button>
+                }
+
+                @if (shown.Rows.Count == 0)
+                {
+                    @* Two different emptinesses, and telling them apart is the
+                       whole point: nothing loaded at all, and a search that
+                       missed. The first is the page's problem, the second the
+                       operator's. *@
+                    <div class="npick-empty">
+                        @(Options.Count == 0 ? EmptyText : $"Nothing matches “{_query.Trim()}”")
+                    </div>
+                }
+            </div>
+
+            <div class="npick-foot">
+                @if (shown.Total > shown.Rows.Count)
+                {
+                    <span>Showing @shown.Rows.Count.ToString("N0") of @shown.Total.ToString("N0") — type to narrow</span>
+                }
+                else if (shown.Rows.Count > 0)
+                {
+                    <span>@shown.Total.ToString("N0") @(shown.Total == 1 ? "match" : "matches")</span>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Everything selectable. Order is the caller's; the picker does not sort it.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<NocturnePickerOption> Options { get; set; } = [];
+
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Runs after the value has been committed — the hook for reloads and dependent lookups.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    /// <summary>What the trigger reads with nothing chosen.</summary>
+    [Parameter] public string Placeholder { get; set; } = "Select…";
+
+    [Parameter] public string SearchPlaceholder { get; set; } = "Search by code or name…";
+
+    /// <summary>What the menu reads when there is nothing to choose from at all.</summary>
+    [Parameter] public string EmptyText { get; set; } = "Nothing to choose";
+
+    /// <summary>Set while the caller is still fetching, so the trigger says so rather than reading empty.</summary>
+    [Parameter] public bool Loading { get; set; }
+
+    [Parameter] public string LoadingText { get; set; } = "Loading…";
+
+    /// <summary>The menu's heading, used as its accessible name where one is wanted over the trigger's.</summary>
+    [Parameter] public string? Caption { get; set; }
+
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Draws the failed-validation edge. The message itself stays the page's.</summary>
+    [Parameter] public bool Invalid { get; set; }
+
+    [Parameter] public bool AllowClear { get; set; } = true;
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>
+    /// Rows drawn at once. The search is how you reach the rest — a cap is what
+    /// keeps a three-thousand-row list off the wire on every keystroke, and
+    /// scrolling past fifty rows is the thing this control exists to end.
+    /// </summary>
+    [Parameter] public int MaxVisible { get; set; } = 50;
+
+    /// <summary>
+    /// Extra classes on the wrapper. The sheet defines <c>npick-block</c> to fill
+    /// its cell, <c>npick-sm</c> for a toolbar, <c>npick-end</c> to right-anchor
+    /// the menu, and <c>npick-bs</c> to fit a Bootstrap <c>.form-select</c> row.
+    /// </summary>
+    [Parameter] public string? Class { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? Extra { get; set; }
+
+    private bool _open;
+    private string _query = string.Empty;
+
+    /// <summary>
+    /// The search text, and the one place the highlight is seeded. Typing puts
+    /// it on the top match so the common path is type-then-Enter rather than
+    /// type-then-arrow-then-Enter; clearing the box takes it off, because with
+    /// no search the first row is not an answer to anything.
+    /// </summary>
+    private string Query
+    {
+        get => _query;
+        set
+        {
+            _query = value;
+            _active = value.Trim().Length > 0 ? 0 : -1;
+        }
+    }
+
+    /// <summary>
+    /// Which row the arrows and Enter are on. Purely visual — the caret stays in
+    /// the search box, so this cannot be browser focus, and a highlight the page
+    /// draws is a highlight the page cannot scroll to without interop. Fine for
+    /// what this is: the search narrows to a handful and the arrows walk those.
+    /// Someone arrowing far down an unsearched list will push it out of sight.
+    /// </summary>
+    private int _active = -1;
+    private bool _focusPending;
+    private ElementReference _searchRef;
+
+    private NocturnePickerOption? _current;
+
+    /// <summary>
+    /// The rows the last render drew. Key handling reads this rather than
+    /// rebuilding: an event runs after the render that answered the keystroke
+    /// before it, so this is exactly the list on screen — which is the list the
+    /// arrow keys have to walk for the highlight to land where the eye is.
+    /// </summary>
+    private List<NocturnePickerOption> _shown = [];
+
+    private bool HasValue => !string.IsNullOrEmpty(Value);
+
+    protected override void OnParametersSet() =>
+        _current = Options.FirstOrDefault(o => string.Equals(o.Value, Value, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The rows the search leaves, capped, and how many there were before the
+    /// cap — the menu needs the list and its true length, and the list runs to
+    /// thousands, so it is built once per render rather than read as a property.
+    /// </summary>
+    private (List<NocturnePickerOption> Rows, int Total) Visible()
+    {
+        var terms = _query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        List<NocturnePickerOption> matches;
+        if (terms.Length == 0)
+        {
+            // Nothing typed: the chosen row goes first so it is never hidden
+            // behind fifty others, and the operator can see what they are
+            // changing away from.
+            matches = _current is null
+                ? Options.ToList()
+                : Options.OrderByDescending(o => ReferenceEquals(o, _current)).ToList();
+        }
+        else
+        {
+            matches = Options.Where(o => Hit(o, terms)).ToList();
+        }
+
+        var rows = matches.Take(MaxVisible).ToList();
+
+        // A filter can strip the highlighted row out from under the cursor.
+        if (_active >= rows.Count)
+        {
+            _active = rows.Count - 1;
+        }
+
+        _shown = rows;
+        return (rows, matches.Count);
+    }
+
+    /// <summary>
+    /// Every term has to land somewhere on the row, so "abb zig" finds the ZiG
+    /// variant without the operator having to know which field carries the
+    /// currency. Compared field by field rather than against one joined string:
+    /// this runs over every option on every keystroke.
+    /// </summary>
+    private static bool Hit(NocturnePickerOption option, string[] terms)
+    {
+        foreach (var term in terms)
+        {
+            var found =
+                option.Value.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                option.Label.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                (option.Hint?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false);
+
+            if (!found)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void Toggle()
+    {
+        _open = !_open;
+        Query = string.Empty;
+
+        if (_open)
+        {
+            // The search box is the control, so opening puts the caret in it —
+            // otherwise every selection costs a click the keyboard should have
+            // saved.
+            _focusPending = true;
+        }
+    }
+
+    private void Close()
+    {
+        _open = false;
+        Query = string.Empty;
+    }
+
+    /// <summary>
+    /// Every key for the control, read where they bubble to. The search box
+    /// cannot carry its own Blazor handler — see the note on that input.
+    /// </summary>
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "Escape":
+                Close();
+                break;
+
+            case "Enter" when _open:
+                await CommitActiveAsync();
+                break;
+
+            case "ArrowDown" when !_open:
+            case "ArrowUp" when !_open:
+                Toggle();
+                break;
+
+            case "ArrowDown":
+                Step(1);
+                break;
+
+            case "ArrowUp":
+                Step(-1);
+                break;
+
+            case "Home" when _open:
+                _active = _shown.Count > 0 ? 0 : -1;
+                break;
+
+            case "End" when _open:
+                _active = _shown.Count - 1;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Enter takes the highlighted row, or the only row a search has left. The
+    /// second is what makes a known code a keystroke rather than a reach for the
+    /// mouse: type it, press Enter.
+    /// </summary>
+    private async Task CommitActiveAsync()
+    {
+        var target = _active >= 0 && _active < _shown.Count
+            ? _shown[_active]
+            : _shown.Count == 1 ? _shown[0] : null;
+
+        if (target is not null)
+        {
+            await PickAsync(target);
+        }
+    }
+
+    private void Step(int direction)
+    {
+        if (_shown.Count == 0)
+        {
+            return;
+        }
+
+        // From nothing highlighted, down starts at the top and up at the bottom.
+        var next = _active < 0
+            ? (direction > 0 ? 0 : _shown.Count - 1)
+            : _active + direction;
+
+        _active = Math.Clamp(next, 0, _shown.Count - 1);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusPending)
+        {
+            return;
+        }
+
+        _focusPending = false;
+
+        if (_open)
+        {
+            await _searchRef.FocusAsync();
+        }
+    }
+
+    private async Task PickAsync(NocturnePickerOption option)
+    {
+        Close();
+
+        if (string.Equals(option.Value, Value, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        Value = option.Value;
+        _current = option;
+        await ValueChanged.InvokeAsync(option.Value);
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task ClearAsync()
+    {
+        Value = null;
+        _current = null;
+        await ValueChanged.InvokeAsync(null);
+        await OnChanged.InvokeAsync();
+    }
+}
