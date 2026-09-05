@@ -28,7 +28,7 @@ public class CreditNoteService : ICreditNoteService
 
     /// <summary>
     /// The credit-note list. <paramref name="includeLines"/> asks for the document lines too, which
-    /// the API can only answer from SAP — only ask when the caller aggregates by item.
+    /// the API can only answer from SAP â€” only ask when the caller aggregates by item.
     /// </summary>
     public async Task<CreditNoteListResponse?> GetCreditNotesAsync(int page = 1, int pageSize = 20,
         CreditNoteStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,

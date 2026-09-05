@@ -7377,7 +7377,7 @@ ORDER BY T0.""ItemCode""";
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                throw; // Client canceled â€” don't retry
+                throw; // Client canceled — don't retry
             }
             catch (Exception ex) when (attempt < maxRetries && IsTransientError(ex))
             {
@@ -11794,7 +11794,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         }
         catch (Exception ex)
         {
-            // Log but don't fail the conversion â€” the transfer was already created successfully
+            // Log but don't fail the conversion — the transfer was already created successfully
             _logger.LogWarning(ex, "Failed to close transfer request {RequestDocEntry} after conversion. " +
                 "The transfer was created successfully but the request remains open.", requestDocEntry);
         }
@@ -16990,7 +16990,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
     /// <summary>
     /// Detects SAP errors related to corrupted or invalid Business Partner data.
     /// Error -2028: Referenced record not found (e.g., deleted Discount Group in ODIS table).
-    /// Error -1025: Corrupted BP record â€” object found but cannot be loaded due to broken linked data
+    /// Error -1025: Corrupted BP record — object found but cannot be loaded due to broken linked data
     /// in related tables (CRD1 addresses, OCRB bank accounts, OCPR contacts, ODIS discount groups, OCTG payment terms).
     /// </summary>
     private static bool IsBusinessPartnerDataError(string errorContent)
