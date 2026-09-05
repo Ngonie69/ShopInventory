@@ -33,6 +33,21 @@ otherwise be surprised.
 
 ### Changed
 
+- **The daily stock snapshot now runs.** `DailyStock:EnableAutoStockFetch` was `false`, so the
+  Quartz job that builds each morning's snapshot was never registered and no snapshot was ever
+  written. `GET /api/DesktopIntegration/stock/{warehouseCode}/local` answered
+  `404 DesktopSales.SnapshotNotFound` for every monitored warehouse, all day, every day.
+
+  It answers with the warehouse's stock once the fetch has run, and still answers `404` before
+  that — the snapshot is built at 07:00 CAT, so an early-morning caller sees the same 404 as
+  before and should keep whatever fallback it has. A client that read that 404 as “this
+  warehouse is empty” rather than “today's figures are not ready yet” will start seeing stock
+  where it saw none.
+
+  A till validating a sale against the snapshot was validating against nothing, so quantities that
+  were refused or waved through on an empty snapshot will now be checked against real stock. SAP
+  is read once per monitored warehouse each morning, which is load that was not there yesterday.
+
 - **`POST /api/RateLimit/reset/{clientId}` now lifts the client's block**, not just its request
   counter. It previously left `isBlocked` and `blockExpiresAt` untouched, so resetting a blocked
   client left it blocked — the one state anybody resets a client in. Anyone who was calling `reset`
