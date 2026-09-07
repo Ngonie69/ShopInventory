@@ -616,6 +616,39 @@ html body .staff-container.kf-container:has(> .wac) {
     white-space: nowrap;
 }
 
+/* A fact whose value is the problem rather than the reading: a delivery path
+   OpenWA is not holding. Colour only - the label beside it already says which
+   row this is.
+
+   Written against the dd rather than as a lone class because `.wac-fact dd`
+   below is (0,1,1) and sets the colour for every value in the list; a bare
+   `.wac-fact-warn` at (0,1,0) loses to it and does nothing at all. */
+.wac-fact dd.wac-fact-warn {
+    color: var(--wac-warn);
+}
+
+/* Why the gateway is unreachable. This used to be written into the "Host"
+   fact, which put an error sentence under a label that promised a hostname.
+   It carries the warn tone rather than danger: an unconfigured gateway is a
+   setup step outstanding, not a fault in the running system.
+
+   Carried by a <div>, like .wac-note, and not a <p>: app.css has a global
+   `.dark-theme p { color: var(--text-secondary) }` which at (0,1,1) beats a
+   lone class, and it repainted this slate in dark mode while leaving the warn
+   background and border in place - legible, and the wrong colour entirely. */
+.wac-health-note {
+    margin: 0 0 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--wac-warn-edge);
+    border-radius: 8px;
+    background: var(--wac-warn-bg);
+    color: var(--wac-warn);
+    font-size: 11.5px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+
 .wac-facts {
     display: flex;
     flex-direction: column;

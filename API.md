@@ -3569,16 +3569,25 @@ it is started, scanned from a QR code, and then sends.
 | GET | `/api/whatsapp/health` | Bridge health |
 | GET | `/api/whatsapp/messages` | Inbox (`page` 1, `pageSize` 50, `search`) |
 | GET | `/api/whatsapp/sessions` | The sessions |
-| POST | `/api/whatsapp/sessions` | Create one. Answers `201` |
+| POST | `/api/whatsapp/sessions` | Create one. Answers `201`, and registers the inbound webhook |
 | POST | `/api/whatsapp/sessions/{sessionId}/start` | Start it |
 | POST | `/api/whatsapp/sessions/{sessionId}/stop` | Stop it |
 | GET | `/api/whatsapp/sessions/{sessionId}/qr` | The QR code to scan |
+| GET | `/api/whatsapp/sessions/{sessionId}/webhook` | Whether OpenWA delivers this session's messages here |
+| POST | `/api/whatsapp/sessions/{sessionId}/webhook` | Register or repair that delivery |
 | POST | `/api/whatsapp/sessions/{sessionId}/messages/send-text` | Send a message |
 | POST | `/api/whatsapp/sessions/{sessionId}/messages/reply` | Reply to one |
 | POST | `/api/whatsapp/webhook/openwa` | **Anonymous.** Inbound from the bridge. `application/json` only, answers `202` |
 
 The webhook is the one route on this controller outside `AdminOnly`, because the bridge is not a
 user. Everything else refuses anyone who is not an admin.
+
+A paired session delivers nothing on its own: OpenWA posts events only to webhooks registered
+against that session. Creating or starting a session registers one aimed at `OpenWA:WebhookPublicUrl`
+and signed with `OpenWA:WebhookSecret`, and `GET .../webhook` reports whether OpenWA is actually
+holding it. When it is not, the inbox stays empty and nothing anywhere reports an error — which is
+what the `Delivery` row on the operator console and `scripts/Test-WhatsAppDeliveryPath.ps1` exist to
+catch.
 
 ---
 

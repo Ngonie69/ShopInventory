@@ -451,6 +451,17 @@ internal static partial class ApiErrorResponse
                 }
                 break;
             case JsonValueKind.Object:
+                // An error OBJECT names its own human-readable part, and taking every string in it
+                // instead produces the code and the type as well: an ErrorOr validation problem
+                // carries {code, description, type} entries and came out as
+                // "WhatsApp.Disabled; WhatsApp integration is disabled; Validation." on screen.
+                // A dictionary of field -> messages names no such property and still walks whole.
+                if (TryGetString(element, out var described, "description", "Description", "message", "Message", "detail", "Detail"))
+                {
+                    messages.Add(described);
+                    break;
+                }
+
                 foreach (var property in element.EnumerateObject())
                 {
                     CollectMessages(property.Value, messages);

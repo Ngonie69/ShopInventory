@@ -930,6 +930,10 @@ try
         client.DefaultRequestHeaders.Add("Accept", "application/json");
     });
 
+    // Registers this API's inbound webhook against each OpenWA session. Without it a paired
+    // session delivers nothing and the inbox stays empty with no error raised anywhere.
+    builder.Services.AddScoped<IOpenWAWebhookRegistrar, OpenWAWebhookRegistrar>();
+
     var app = builder.Build();
     var startupReadiness = app.Services.GetRequiredService<StartupReadinessSignal>();
 

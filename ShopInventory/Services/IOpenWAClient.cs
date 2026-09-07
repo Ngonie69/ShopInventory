@@ -15,4 +15,8 @@ public interface IOpenWAClient
     Task<WhatsAppQrCodeDto> GetSessionQrCodeAsync(string sessionId, CancellationToken cancellationToken = default);
     Task<WhatsAppMessageDispatchDto> SendTextAsync(string sessionId, WhatsAppSendTextRequestDto request, CancellationToken cancellationToken = default);
     Task<WhatsAppMessageDispatchDto> ReplyAsync(string sessionId, WhatsAppReplyRequestDto request, CancellationToken cancellationToken = default);
+
+    Task<List<WhatsAppWebhookRegistrationDto>> GetSessionWebhooksAsync(string sessionId, CancellationToken cancellationToken = default);
+    Task<WhatsAppWebhookRegistrationDto> CreateSessionWebhookAsync(string sessionId, WhatsAppWebhookRegistrationRequestDto request, CancellationToken cancellationToken = default);
+    Task<WhatsAppWebhookRegistrationDto> UpdateSessionWebhookAsync(string sessionId, string webhookId, WhatsAppWebhookRegistrationRequestDto request, CancellationToken cancellationToken = default);
 }

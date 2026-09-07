@@ -82,6 +82,11 @@
                         </button>
                     </div>
 
+                    @if (!string.IsNullOrWhiteSpace(health?.Message))
+                    {
+                        <div class="wac-health-note" role="status">@health!.Message</div>
+                    }
+
                     <dl class="wac-facts">
                         <div class="wac-fact">
                             <dt>Host</dt>
@@ -304,7 +309,36 @@
                                                 <dt>Updated</dt>
                                                 <dd>@FormatCatTimestamp(session.UpdatedAt)</dd>
                                             </div>
+                                            @* A paired session with no webhook looks perfectly
+                                               healthy and captures nothing, so the delivery path
+                                               is reported beside the session rather than left to
+                                               be inferred from an empty inbox. *@
+                                            <div class="wac-fact">
+                                                <dt>Delivery</dt>
+                                                <dd class="@(selectedSessionWebhook?.Registered == true ? null : "wac-fact-warn")">
+                                                    @WebhookLabel
+                                                </dd>
+                                            </div>
                                         </dl>
+
+                                        @if (selectedSessionWebhook?.Registered != true)
+                                        {
+                                            <div class="wac-note">
+                                                @(selectedSessionWebhook?.Message
+                                                    ?? "The delivery path could not be read. Messages sent to this number may not reach the inbox.")
+                                                <div class="wac-session-actions" style="margin-top:6px">
+                                                    <button class="wac-btn wac-btn-xs" type="button"
+                                                            @onclick="() => RepairSelectedSessionWebhookAsync(session)"
+                                                            disabled="@isWebhookActionRunning">
+                                                        @if (isWebhookActionRunning)
+                                                        {
+                                                            <span class="wac-spin" aria-hidden="true"></span>
+                                                        }
+                                                        Repair delivery
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        }
                                     }
                                 </div>
                             }
@@ -613,6 +647,8 @@
 
     private WhatsAppHealthModel? health;
     private WhatsAppQrCodeModel? selectedSessionQr;
+    private WhatsAppWebhookStatusModel? selectedSessionWebhook;
+    private bool isWebhookActionRunning;
     private WhatsAppInboxResponseModel inbox = new() { Page = 1, PageSize = PageSize };
     private List<WhatsAppSessionModel> sessions = [];
     private Dictionary<string, List<WhatsAppInboxItemModel>> threadMap = new(StringComparer.Ordinal);
@@ -647,9 +683,31 @@
 
     private string? GatewayUptimeLabel => FormatUptime(health?.UptimeSeconds);
 
-    private string ConnectedSessionsLabel => health?.TotalSessions is { } total
-        ? $"{health.ConnectedSessions ?? 0} of {total}"
-        : (health?.ConnectedSessions?.ToString() ?? "Unknown");
+    /// <remarks>
+    /// OpenWA's own health endpoint reports status and a timestamp and nothing else, so the
+    /// counts it is asked for come back null and this row read "Unknown" permanently. The session
+    /// list beside it already holds the answer, and counting it costs no extra call.
+    /// </remarks>
+    private string ConnectedSessionsLabel
+    {
+        get
+        {
+            if (health?.TotalSessions is { } total)
+            {
+                return $"{health.ConnectedSessions ?? 0} of {total}";
+            }
+
+            if (sessions.Count == 0)
+            {
+                return health?.ConnectedSessions?.ToString() ?? "None";
+            }
+
+            var connected = sessions.Count(session =>
+                string.Equals(session.Status, "ready", StringComparison.OrdinalIgnoreCase));
+
+            return $"{connected} of {sessions.Count}";
+        }
+    }
 
     private string SelectedSessionStatusLabel => FormatStatusLabel(SelectedSession?.Status);
 
@@ -902,6 +960,7 @@
         createSessionValidationMessage = null;
         ClearReplyContext();
         await TryLoadSelectedSessionQrAsync();
+        await TryLoadSelectedSessionWebhookAsync();
     }
 
     private async Task CreateSessionFromConsoleAsync()
@@ -1298,6 +1357,10 @@
             UpdateUnreadTracking(resetTracker || currentPage != 1);
             RebuildThreads();
             await TryLoadSelectedSessionQrAsync();
+            // Here rather than only in SelectSessionAsync: the page picks a session for itself on
+            // load, and that path is not a click. Left out, Delivery reads "Unknown" for exactly
+            // the session an operator opens the console to look at.
+            await TryLoadSelectedSessionWebhookAsync();
         }
         catch (Exception ex)
         {
@@ -1368,6 +1431,70 @@
         finally
         {
             isQrLoading = false;
+        }
+    }
+
+    private string WebhookLabel
+    {
+        get
+        {
+            if (selectedSessionWebhook is null)
+            {
+                return "Unknown";
+            }
+
+            return selectedSessionWebhook.Registered ? "Registered" : "Not registered";
+        }
+    }
+
+    private async Task TryLoadSelectedSessionWebhookAsync()
+    {
+        var selectedSession = SelectedSession;
+        selectedSessionWebhook = null;
+
+        if (selectedSession is null)
+        {
+            return;
+        }
+
+        selectedSessionWebhook = await WhatsAppService.TryGetSessionWebhookAsync(selectedSession.Id);
+    }
+
+    private async Task RepairSelectedSessionWebhookAsync(WhatsAppSessionModel session)
+    {
+        if (isWebhookActionRunning)
+        {
+            return;
+        }
+
+        isWebhookActionRunning = true;
+        DismissActionMessages();
+
+        try
+        {
+            var status = await WhatsAppService.EnsureSessionWebhookAsync(session.Id);
+            selectedSessionWebhook = status;
+
+            if (status.Registered)
+            {
+                actionInfoMessage = status.Action == "created"
+                    ? $"Delivery to {status.ExpectedUrl} was registered for {session.Name}."
+                    : $"Delivery to {status.ExpectedUrl} was refreshed for {session.Name}.";
+            }
+            else
+            {
+                actionErrorMessage = status.Message
+                    ?? $"OpenWA did not register delivery for {session.Name}.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to repair the webhook for WhatsApp session {SessionId}", session.Id);
+            actionErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isWebhookActionRunning = false;
         }
     }
 

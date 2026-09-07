@@ -30,6 +30,13 @@ public sealed class OpenWAGatewayException : Exception
         return $"OpenWA request failed with {(int)statusCode} {reasonPhrase}.";
     }
 
+    /// <remarks>
+    /// OpenWA is a NestJS app, so a rejected request answers
+    /// <c>{"message":["property active should not exist"],"error":"Bad Request","statusCode":400}</c>
+    /// - the useful part is an ARRAY under "message", and "error" holds only the status label.
+    /// Reading "message" as a string alone therefore skipped it and fell through to "Bad Request",
+    /// which is what a caller saw for every validation fault OpenWA raised.
+    /// </remarks>
     private static string? TryExtractMessage(string? responseBody)
     {
         if (string.IsNullOrWhiteSpace(responseBody))
@@ -42,36 +49,19 @@ public sealed class OpenWAGatewayException : Exception
             using var jsonDocument = JsonDocument.Parse(responseBody);
             var root = jsonDocument.RootElement;
 
-            if (TryReadString(root, "title", out var title))
+            // Ordered most specific first. "error" is last because Nest fills it with the status
+            // label, which tells a reader nothing they did not already have from the status code.
+            foreach (var propertyName in new[] { "message", "title", "detail", "errors", "error" })
             {
-                return title;
-            }
-
-            if (TryReadString(root, "message", out var message))
-            {
-                return message;
-            }
-
-            if (TryReadString(root, "error", out var error))
-            {
-                return error;
-            }
-
-            if (root.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
-            {
-                foreach (var property in errors.EnumerateObject())
+                var collected = new List<string>();
+                if (root.TryGetProperty(propertyName, out var property))
                 {
-                    if (property.Value.ValueKind == JsonValueKind.Array)
-                    {
-                        var firstError = property.Value.EnumerateArray()
-                            .FirstOrDefault(item => item.ValueKind == JsonValueKind.String)
-                            .GetString();
+                    Collect(property, collected);
+                }
 
-                        if (!string.IsNullOrWhiteSpace(firstError))
-                        {
-                            return firstError;
-                        }
-                    }
+                if (collected.Count > 0)
+                {
+                    return string.Join("; ", collected.Distinct(StringComparer.OrdinalIgnoreCase));
                 }
             }
         }
@@ -82,16 +72,32 @@ public sealed class OpenWAGatewayException : Exception
         return responseBody.Trim();
     }
 
-    private static bool TryReadString(JsonElement element, string propertyName, out string? value)
+    private static void Collect(JsonElement element, List<string> messages)
     {
-        value = null;
-
-        if (!element.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.String)
+        switch (element.ValueKind)
         {
-            return false;
-        }
+            case JsonValueKind.String:
+                var value = element.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    messages.Add(value.Trim());
+                }
 
-        value = property.GetString();
-        return !string.IsNullOrWhiteSpace(value);
+                break;
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                {
+                    Collect(item, messages);
+                }
+
+                break;
+            case JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                {
+                    Collect(property.Value, messages);
+                }
+
+                break;
+        }
     }
 }

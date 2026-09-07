@@ -19,11 +19,13 @@ namespace ShopInventory.Controllers;
 public class WhatsAppController(
     IMediator mediator,
     IOpenWAClient openWaClient,
+    IOpenWAWebhookRegistrar webhookRegistrar,
     IOptions<OpenWASettings> settings,
     ILogger<WhatsAppController> logger) : ApiControllerBase
 {
     private readonly IMediator _mediator = mediator;
     private readonly IOpenWAClient _openWaClient = openWaClient;
+    private readonly IOpenWAWebhookRegistrar _webhookRegistrar = webhookRegistrar;
     private readonly OpenWASettings _settings = settings.Value;
     private readonly ILogger<WhatsAppController> _logger = logger;
 
@@ -93,6 +95,11 @@ public class WhatsAppController(
         try
         {
             var session = await _openWaClient.CreateSessionAsync(request, cancellationToken);
+
+            // A session with no webhook receives nothing. Register it here rather than leaving it
+            // to a separate operator step that has no prompt and no reminder.
+            await EnsureWebhookAsync(session.Id, cancellationToken);
+
             return StatusCode(StatusCodes.Status201Created, session);
         }
         catch (Exception ex)
@@ -117,6 +124,11 @@ public class WhatsAppController(
         try
         {
             var session = await _openWaClient.StartSessionAsync(sessionId, cancellationToken);
+
+            // Re-assert on every start. This is what repairs a session whose webhook was lost to
+            // an OpenWA data reset, or whose secret no longer matches OpenWA:WebhookSecret.
+            await EnsureWebhookAsync(sessionId, cancellationToken);
+
             return Ok(session);
         }
         catch (Exception ex)
@@ -171,6 +183,38 @@ public class WhatsAppController(
         {
             return BuildGatewayFailure(ex, $"retrieve the QR code for session {sessionId}");
         }
+    }
+
+    /// <summary>
+    /// Whether OpenWA is holding a webhook that delivers this session's messages to this API
+    /// </summary>
+    [HttpGet("sessions/{sessionId}/webhook")]
+    [ProducesResponseType(typeof(WhatsAppWebhookStatusDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetSessionWebhook(string sessionId, CancellationToken cancellationToken)
+    {
+        var configurationErrors = ValidateOperatorAccess();
+        if (configurationErrors is not null)
+        {
+            return Problem(configurationErrors);
+        }
+
+        return Ok(await _webhookRegistrar.GetStatusAsync(sessionId, cancellationToken));
+    }
+
+    /// <summary>
+    /// Register or repair the inbound webhook for a session
+    /// </summary>
+    [HttpPost("sessions/{sessionId}/webhook")]
+    [ProducesResponseType(typeof(WhatsAppWebhookStatusDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> EnsureSessionWebhook(string sessionId, CancellationToken cancellationToken)
+    {
+        var configurationErrors = ValidateOperatorAccess();
+        if (configurationErrors is not null)
+        {
+            return Problem(configurationErrors);
+        }
+
+        return Ok(await _webhookRegistrar.EnsureAsync(sessionId, cancellationToken));
     }
 
     /// <summary>
@@ -248,6 +292,25 @@ public class WhatsAppController(
             cancellationToken);
 
         return result.Match(value => Accepted(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Registers the inbound webhook without letting a registration fault fail the caller's own
+    /// operation. The session was still created or started, and saying otherwise would send an
+    /// operator to undo work that succeeded. The registrar reports the fault in its status and
+    /// logs it; the console reads it back from the webhook endpoint.
+    /// </summary>
+    private async Task EnsureWebhookAsync(string sessionId, CancellationToken cancellationToken)
+    {
+        var status = await _webhookRegistrar.EnsureAsync(sessionId, cancellationToken);
+
+        if (!status.Registered)
+        {
+            _logger.LogWarning(
+                "WhatsApp session {SessionId} has no working inbound webhook: {Message}",
+                sessionId,
+                status.Message);
+        }
     }
 
     private List<Error>? ValidateOperatorAccess()
