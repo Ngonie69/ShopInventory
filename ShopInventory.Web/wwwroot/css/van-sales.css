@@ -8,18 +8,20 @@
    section and share their card, chip and meter vocabulary; the `vs-` prefix is
    not shared with any other sheet.
 
-   Two of the four carry a page-only vocabulary at the foot of this file: `vsa-`
-   for the ledger, then `vsc-` for the compliance sheet. Everything above them is
-   shared — `vs-table`, `vs-field`, `vs-primary` and `vs-num` all read as
-   activity-page leftovers after that rebuild and are nothing of the kind, so
-   check with a grep across all four pages before removing anything here.
+   Three of the four carry a page-only vocabulary at the foot of this file:
+   `vsa-` for the ledger, `vsc-` for the compliance sheet, then `vsr-` for the
+   route master. Everything above them is shared — `vs-table`, `vs-field`,
+   `vs-primary` and `vs-num` all read as activity-page leftovers after that
+   rebuild and are nothing of the kind, so check with a grep across all four
+   pages before removing anything here.
 
    That grep is also what licensed the last removals. When the compliance page
    was rebuilt from a card per rep-day into the row-and-drawer sheet at the foot
    of this file, `vs-grid`, `vs-cell*`, `vs-money*`, `vs-variance-*` and the
    meter's `vs-is-warn` / `vs-is-bad` tones lost their only caller and went with
    it. `vs-meter`, `vs-metric-none` and every `vs-day*` rule read like they went
-   the same way and did not: the attendance report holds all of them.
+   the same way and did not: the attendance report holds all of them. The route
+   master's rebuild took `vs-sched-*` the same way — see the `vsr-` header.
 
    Palette and spacing come from nocturne-tokens.css — the block below aliases
    them rather than restating them, so a colour is corrected in one place for the
@@ -541,255 +543,6 @@
     color: var(--noct-warn-ink);
     font-size: 0.82rem;
     margin-bottom: 16px;
-}
-
-/* ==========================================================================
-   The route schedule — /van-sales/routes only
-
-   `vs-sched-` rather than a prefix of its own, because it is built entirely out
-   of the shared vocabulary above — `vs-field`, `vs-btn`, `vs-chip`, `vs-notice`
-   and `vs-empty` all appear inside the panel — and a second prefix would suggest
-   a second palette that does not exist. Nothing else links it; a grep for
-   `vs-sched` finds one page.
-
-   The panel's job is to make one round's plan readable at a glance, which means
-   the heading a stop sits under has to carry all of its scheduling. A weekday and
-   a cycle week never both apply to the same route, so the heading reads either
-   "Monday" or "Week 1" and never both, and the alternative sets are marked rather
-   than merged: West 2's Wednesday is Dzivarasekwa and Whitehouse *or* Hatcliff
-   and Mungate, and running the four together would double the day's planned
-   coverage on every report that later counts it.
-   ========================================================================== */
-
-.vs .vs-sched {
-    margin-top: 22px;
-    background: var(--vs-surface);
-    border: 1px solid var(--vs-divider);
-    border-radius: var(--vs-r-lg);
-    padding: 20px;
-}
-
-.vs .vs-sched-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-    margin-bottom: 18px;
-}
-
-/* Pinned to Nocturne's 500 because Bootstrap's global h1-h6 rule would otherwise
-   bolden it past the weight this system allows. */
-.vs .vs-sched-title {
-    margin: 0;
-    font-size: 1.05rem;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-    color: var(--vs-ink);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-
-.vs .vs-sched-code {
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.07em;
-    padding: 3px 8px;
-    border-radius: var(--vs-r-sm);
-    border: 1px solid var(--vs-divider);
-    background: var(--vs-wash);
-    color: var(--vs-mute-2);
-}
-
-.vs .vs-sched-sub {
-    margin: 6px 0 0;
-    font-size: 0.82rem;
-    color: var(--vs-mute-2);
-}
-
-.vs .vs-sched-form {
-    padding-bottom: 18px;
-    margin-bottom: 18px;
-    border-bottom: 1px solid var(--vs-divider);
-}
-
-/* The two buttons in the table's trailing cell, kept on one line until there is
-   no room for them. */
-.vs .vs-sched-cell {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.vs .vs-sched-groups {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-    gap: 14px;
-}
-
-.vs .vs-sched-group {
-    border: 1px solid var(--vs-divider);
-    border-radius: var(--vs-r-md);
-    background: var(--vs-wash);
-    padding: 13px 14px 14px;
-}
-
-/* An alternative is the same day arrived at differently, so it is marked on the
-   edge rather than given its own colour — a second fill would read as a second
-   kind of day. */
-.vs .vs-sched-group-alt {
-    border-style: dashed;
-    border-color: var(--vs-field-edge-hi);
-}
-
-.vs .vs-sched-when {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-bottom: 11px;
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--vs-mute-3);
-}
-
-/* A column rather than wrapped chips, because the order is the round: a driver
-   needs to know Waterfalls comes before Sunningdale, and a wrapping row says that
-   only by accident of where the line breaks. The number is printed rather than
-   left to a marker so it survives the row being read out or copied. */
-.vs .vs-sched-stops {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.vs .vs-sched-stop {
-    display: flex;
-    align-items: stretch;
-    border: 1px solid var(--vs-field-edge);
-    border-radius: var(--vs-r-sm);
-    background: var(--vs-surface);
-    overflow: hidden;
-}
-
-.vs .vs-sched-seq {
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 24px;
-    padding: 0 6px;
-    border-right: 1px solid var(--vs-divider);
-    background: var(--vs-wash);
-    color: var(--vs-mute-3);
-    font-size: 0.72rem;
-    font-variant-numeric: tabular-nums;
-}
-
-/* The name takes the slack so every row's controls line up down the column. */
-.vs .vs-sched-stop-name {
-    flex: 1 1 auto;
-    min-width: 0;
-}
-
-.vs .vs-sched-move {
-    flex: 0 0 auto;
-    display: inline-flex;
-    border-left: 1px solid var(--vs-divider);
-}
-
-.vs .vs-sched-nudge {
-    border: 0;
-    background: transparent;
-    color: var(--vs-mute-3);
-    font-family: inherit;
-    font-size: 0.8rem;
-    line-height: 1;
-    padding: 0 7px;
-    cursor: pointer;
-}
-
-.vs .vs-sched-nudge + .vs-sched-nudge {
-    border-left: 1px solid var(--vs-divider);
-}
-
-.vs .vs-sched-nudge:hover:not(:disabled) {
-    background: var(--vs-hover);
-    color: var(--vs-accent);
-}
-
-/* The first and last rows keep their arrows, greyed. Removing them would shorten
-   those rows and misalign the whole column, and the disabled arrow is what says
-   "this one is already first". */
-.vs .vs-sched-nudge:disabled {
-    opacity: .35;
-    cursor: default;
-}
-
-.vs .vs-sched-stop:hover {
-    border-color: var(--vs-field-edge-hi);
-}
-
-/* Accent ink rather than an accent fill, so that the stop being edited is
-   findable without the chip changing shape and reflowing the group. */
-.vs .vs-sched-stop-editing {
-    border-color: var(--vs-accent);
-    box-shadow: 0 0 0 3px rgba(var(--vs-accent-rgb), .16);
-}
-
-.vs .vs-sched-stop-name,
-.vs .vs-sched-drop {
-    border: 0;
-    background: transparent;
-    color: var(--vs-ink);
-    font-family: inherit;
-    cursor: pointer;
-}
-
-.vs .vs-sched-stop-name {
-    padding: 5px 9px;
-    font-size: 0.83rem;
-    text-align: left;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.vs .vs-sched-stop-name:hover:not(:disabled) {
-    background: var(--vs-hover);
-    color: var(--vs-accent);
-}
-
-.vs .vs-sched-drop {
-    padding: 0 9px;
-    font-size: 1rem;
-    line-height: 1;
-    color: var(--vs-mute-3);
-    border-left: 1px solid var(--vs-divider);
-}
-
-.vs .vs-sched-drop:hover:not(:disabled) {
-    background: rgba(var(--vs-bad-rgb), .12);
-    color: var(--vs-bad);
-}
-
-.vs .vs-sched-stop-name:disabled,
-.vs .vs-sched-drop:disabled {
-    opacity: .55;
-    cursor: default;
-}
-
-@media (max-width: 700px) {
-    .vs .vs-sched-groups {
-        grid-template-columns: minmax(0, 1fr);
-    }
 }
 
 /* ==========================================================================
@@ -2830,5 +2583,682 @@
     .vs .vrp-kpis,
     .vs .vst-kpis {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* ==========================================================================
+   The route master — /van-sales/routes only
+
+   Selling Routes.dc.html. Everything below is prefixed `vsr-` and a grep for it
+   finds one page; the other van pages share only the vocabulary at the top of
+   this file, which this one still leans on for `vs-head`, `vs-title`,
+   `vs-subtitle`, `vs-field`, `vs-btn`, `vs-chip`, `vs-notice` and `vs-empty`.
+
+   It replaces the `vs-sched-*` block that used to sit where the audit ledger
+   now begins. That block drew the schedule as a separate panel below the table
+   — a card per heading, in a wrapping grid — and lost its only caller when the
+   design folded the schedule into the row it belongs to. Nothing else linked
+   it; the grep that licensed the removals recorded in this file's header is the
+   same one that licensed this.
+
+   Three things the design decides that are worth naming, because each is a rule
+   a later edit could quietly break:
+
+   - **The list is grouped, not sorted.** Harare's town trucks and the upcountry
+     rounds are different jobs — one keeps a weekday, the other keeps a cycle
+     week — and a single alphabetised list interleaves them. The territory
+     heading is what lets a reader take the town trucks as a set.
+
+   - **The strip is a per-route census, not a fixed week.** A town truck's cells
+     are MON…FRI; an upcountry round's are W1, W2. Printing Monday–Friday on a
+     round that keeps no weekday would draw five empty cells beside a stop count
+     of twelve, and a row that does not add up is worse than no strip at all.
+     `.vsr-strip-cell` is a fixed 36px whatever it holds, so the column still
+     scans down the page when the labels differ row to row.
+
+   - **The drawer lives inside the scroll box.** `.vsr-inner` sets the 900px the
+     row grid needs and the drawer is a child of it, so the schedule scrolls
+     with its own row rather than sitting at a width the row above never had.
+   ========================================================================== */
+
+/* — The census strip above the list —
+   Rules rather than a card: three numbers that qualify the list are not three
+   findings, and boxing them would give them the weight of the table itself. */
+
+.vs .vsr-stats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 28px;
+    padding: 14px 0;
+    margin-bottom: 22px;
+    box-shadow: inset 0 1px 0 var(--vs-rule), inset 0 -1px 0 var(--vs-rule);
+}
+
+.vs .vsr-stat {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.vs .vsr-stat-n {
+    font-size: 1.3rem;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--vs-ink);
+}
+
+.vs .vsr-stat-l {
+    font-size: 0.82rem;
+    color: var(--vs-mute-2);
+}
+
+/* Shown only while it is true — see the page's own note on why an
+   unconditional "assign them from the user account" line reads as a fault
+   report on a system where every van is already linked. */
+.vs .vsr-note {
+    margin: 0 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsr-note i {
+    color: var(--vs-accent);
+    font-size: 0.95rem;
+}
+
+/* — Forms: the new route above the list, the details and the stop inside the
+     drawer. One card, two grids. — */
+
+.vs .vsr-panel {
+    background: var(--vs-surface);
+    border: 1px solid var(--vs-divider);
+    border-radius: var(--vs-r-lg);
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+/* Pinned to Nocturne's 500: Bootstrap's global h1-h6 rule would otherwise
+   bolden these past the weight this system allows. */
+.vs .vsr-panel-title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--vs-ink);
+}
+
+.vs .vsr-panel-sub {
+    margin: 5px 0 16px;
+    font-size: 0.84rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsr-form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 14px;
+    align-items: end;
+}
+
+/* The stop form is not auto-fit: the area name needs the slack, and the three
+   pickers beside it are all the same question's width. */
+.vs .vsr-form-stop {
+    display: grid;
+    grid-template-columns: minmax(190px, 1.6fr) repeat(3, minmax(140px, 1fr)) auto;
+    gap: 14px;
+    align-items: end;
+}
+
+.vs .vsr-field {
+    min-width: 0;
+}
+
+/* The retire switch. A row, not a hint: it is the only control on this page that
+   changes whether a route can take new work, and setting it in the type of a
+   footnote is how it gets missed. */
+.vs .vsr-check {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 14px 0 0;
+    font-size: 0.82rem;
+    color: var(--vs-mute-2);
+    cursor: pointer;
+}
+
+/* The native checkbox keeps the keyboard and screen-reader behaviour the control
+   has for free; only the fill is ours. `appearance` and `background-color` are
+   restated, not just `accent-color`, because app.css's dark-theme block sets
+   `appearance: none` on bare `input` — which strips the tick glyph and paints
+   the box flat slate, so a ticked box and an unticked one look identical. */
+.vs .vsr-check input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    margin: 0;
+    appearance: auto;
+    -webkit-appearance: checkbox;
+    background-color: initial;
+    accent-color: var(--vs-block);
+    cursor: pointer;
+}
+
+/* — Search, territory filter, count — */
+
+.vs .vsr-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.vs .vsr-search {
+    position: relative;
+    flex: 0 1 320px;
+    min-width: 200px;
+}
+
+.vs .vsr-search .vs-field {
+    padding-left: 34px;
+}
+
+.vs .vsr-search-icon {
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.95rem;
+    color: var(--vs-mute-3);
+    pointer-events: none;
+}
+
+/* Nocturne's segmented choice, on native buttons — the same control the
+   customer app access page carries, because it is the same question shape. */
+.vs .vsr-seg {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    padding: 3px;
+    gap: 3px;
+    border-radius: var(--vs-r-md);
+    box-shadow: inset 0 0 0 1px var(--vs-divider);
+}
+
+.vs .vsr-seg-opt {
+    height: 30px;
+    padding: 0 12px;
+    display: grid;
+    place-items: center;
+    font: inherit;
+    font-size: 0.8rem;
+    color: var(--vs-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vs-r-sm);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, color .15s, box-shadow .15s;
+}
+
+.vs .vsr-seg-opt:hover:not(.is-on) {
+    background: var(--vs-hover);
+    color: var(--vs-ink);
+}
+
+.vs .vsr-seg-opt.is-on {
+    color: var(--vs-accent-text);
+    background: rgba(var(--vs-accent-rgb), .14);
+    box-shadow: inset 0 0 0 1px rgba(var(--vs-accent-rgb), .38);
+}
+
+.vs .vsr-shown {
+    margin-left: auto;
+    font-size: 0.8rem;
+    color: var(--vs-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+/* — The list — */
+
+.vs .vsr-list {
+    border: 1px solid var(--vs-divider);
+    border-radius: var(--vs-r-lg);
+    background: var(--vs-surface);
+    /* Wide content scrolls inside its own box; the page body never does. */
+    overflow-x: auto;
+}
+
+.vs .vsr-inner {
+    min-width: 1000px;
+}
+
+/* The trailing column is 250px because that is what the two buttons in it
+   measure with "Hide schedule" on the first — the design's 178px is drawn on a
+   narrower button than this system's, and at that width the actions overhang
+   the strip and clip Friday off the end of it. The strip's 210px is the five
+   36px cells plus their gaps plus slack, so a weekend cell has somewhere to
+   go. Both feed `.vsr-inner` above: change either and change that too. */
+.vs .vsr-cols {
+    display: grid;
+    grid-template-columns: minmax(220px, 2.2fr) 130px 80px 210px 250px;
+    gap: 16px;
+    align-items: center;
+    padding: 14px 20px;
+}
+
+.vs .vsr-colhead {
+    box-shadow: inset 0 -1px 0 var(--vs-divider);
+}
+
+.vs .vsr-th {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--vs-mute-3);
+}
+
+/* Not `vs-empty`: that one is a card, and inside the list box it would draw a
+   second bordered panel within the one it is already sitting in. */
+.vs .vsr-nomatch {
+    margin: 0;
+    padding: 44px 20px;
+    text-align: center;
+    font-size: 0.88rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsr-grouphead {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 16px 20px 6px;
+}
+
+.vs .vsr-group-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--vs-accent-text);
+}
+
+.vs .vsr-group-meta {
+    font-size: 0.8rem;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsr-row {
+    box-shadow: inset 0 -1px 0 var(--vs-rule);
+}
+
+.vs .vsr-row:hover {
+    background: var(--vs-hover);
+}
+
+/* The open row keeps a wash rather than a border, so the row and the drawer
+   below it read as one block without a rule cutting between them. */
+.vs .vsr-row.is-open,
+.vs .vsr-row.is-open:hover {
+    background: rgba(var(--vs-accent-rgb), .10);
+}
+
+.vs .vsr-route {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.vs .vsr-route-top {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+}
+
+.vs .vsr-route-name {
+    font-size: 0.98rem;
+    font-weight: 500;
+    color: var(--vs-ink);
+}
+
+.vs .vsr-code {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    padding: 2px 7px;
+    border-radius: var(--vs-r-sm);
+    border: 1px solid var(--vs-divider);
+    background: var(--vs-wash);
+    color: var(--vs-mute-2);
+}
+
+.vs .vsr-sub {
+    font-size: 0.8rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsr-truck {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.84rem;
+    color: var(--vs-mute);
+    min-width: 0;
+}
+
+.vs .vsr-truck i {
+    color: var(--vs-faint);
+    font-size: 0.95rem;
+    flex: none;
+}
+
+.vs .vsr-truck span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vs .vsr-stopcount {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+}
+
+.vs .vsr-stopcount b {
+    font-size: 1.1rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--vs-ink);
+}
+
+.vs .vsr-stopcount span {
+    font-size: 0.74rem;
+    color: var(--vs-mute-3);
+}
+
+/* — The strip —
+   A drawn mark, so it takes `--vs-block` / `--vs-on-block` like the ledger's
+   timeline: the accent one step darker, which is what lets the ink on it stay
+   near-white in both schemes. */
+
+.vs .vsr-strip {
+    display: flex;
+    gap: 5px;
+}
+
+.vs .vsr-strip-cell {
+    width: 36px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+}
+
+.vs .vsr-strip-n,
+.vs .vsr-strip-nil {
+    width: 100%;
+    padding: 3px 0;
+    text-align: center;
+    border-radius: var(--vs-r-sm);
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.35;
+}
+
+.vs .vsr-strip-n {
+    background: var(--vs-block);
+    color: var(--vs-on-block);
+    font-weight: 500;
+}
+
+/* A middot rather than a 0: the day is not scheduled, which is not the same
+   claim as "scheduled, and nothing on it". */
+.vs .vsr-strip-nil {
+    background: var(--vs-field-bg);
+    color: var(--vs-faint);
+}
+
+.vs .vsr-strip-l {
+    font-size: 0.66rem;
+    letter-spacing: 0.04em;
+    color: var(--vs-faint);
+}
+
+.vs .vsr-rowacts {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+/* — The drawer — */
+
+.vs .vsr-drawer {
+    padding: 20px;
+    background: var(--vs-bg);
+    box-shadow: inset 0 -1px 0 var(--vs-rule);
+}
+
+.vs .vsr-drawer-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 6px;
+}
+
+.vs .vsr-drawer-title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--vs-ink);
+}
+
+.vs .vsr-drawer-meta {
+    font-size: 0.84rem;
+    color: var(--vs-mute-2);
+}
+
+.vs .vsr-drawer-close {
+    margin-left: auto;
+}
+
+.vs .vsr-drawer-sub {
+    margin: 0 0 18px;
+    max-width: 74ch;
+    font-size: 0.83rem;
+    color: var(--vs-mute-2);
+}
+
+/* — The lanes —
+   A row per heading rather than a grid of cards: the headings are a sequence
+   (Monday before Friday, week 1 before week 2) and a wrapping grid says that
+   only by accident of where the line breaks. */
+
+.vs .vsr-lane {
+    display: grid;
+    grid-template-columns: 138px minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+    padding: 14px 0;
+    box-shadow: inset 0 -1px 0 var(--vs-rule);
+}
+
+.vs .vsr-lane:last-child {
+    box-shadow: none;
+    padding-bottom: 0;
+}
+
+.vs .vsr-lane-when {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding-top: 5px;
+}
+
+.vs .vsr-lane-label {
+    font-size: 0.9rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--vs-ink);
+}
+
+.vs .vsr-lane-count {
+    font-size: 0.74rem;
+    color: var(--vs-mute-3);
+}
+
+.vs .vsr-lane-stops {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 8px;
+}
+
+.vs .vsr-stop {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    gap: 6px;
+    align-items: center;
+    padding: 4px 5px 4px 7px;
+    border-radius: var(--vs-r-md);
+    background: var(--vs-field-bg);
+}
+
+.vs .vsr-stop-n {
+    font-size: 0.74rem;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    color: var(--vs-mute-3);
+}
+
+/* The name is the field, not a button that opens one: a rename is the edit this
+   list gets most often and every other control in the row is already direct.
+   Two classes deep so app.css's global `.dark-theme input` rule cannot repaint
+   the fill — which for this control is no fill at all. */
+.vs .vsr-stop-name {
+    width: 100%;
+    min-width: 0;
+    padding: 6px 8px;
+    font: inherit;
+    font-size: 0.86rem;
+    color: var(--vs-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--vs-r-sm);
+}
+
+.vs .vsr-stop-name:hover:not(:disabled) {
+    border-color: var(--vs-field-edge-hi);
+}
+
+.vs .vsr-stop-name:focus {
+    outline: none;
+    border-color: var(--vs-accent);
+    box-shadow: 0 0 0 3px rgba(var(--vs-accent-rgb), .16);
+}
+
+.vs .vsr-stop-name:disabled {
+    opacity: .55;
+}
+
+.vs .vsr-stop-acts {
+    display: flex;
+    gap: 1px;
+}
+
+.vs .vsr-icon {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: var(--vs-r-sm);
+    background: transparent;
+    color: var(--vs-mute-3);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.vs .vsr-icon:hover:not(:disabled) {
+    background: var(--vs-hover);
+    color: var(--vs-ink);
+}
+
+/* The first and last stop keep their arrows, greyed. Removing them would
+   shorten those rows and misalign the column, and the disabled arrow is what
+   says "this one is already first". */
+.vs .vsr-icon:disabled {
+    opacity: .35;
+    cursor: default;
+}
+
+.vs .vsr-icon-on {
+    color: var(--vs-accent);
+}
+
+.vs .vsr-icon-drop:hover:not(:disabled) {
+    background: rgba(var(--vs-bad-rgb), .12);
+    color: var(--vs-bad);
+}
+
+/* A dashed outline rather than a filled button: an unworked day is an absence,
+   and a solid control would give it the weight of the stops beside it. */
+.vs .vsr-lane-empty {
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 0 13px;
+    border: 1px dashed var(--vs-field-edge);
+    border-radius: var(--vs-r-md);
+    background: transparent;
+    color: var(--vs-mute-3);
+    font: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+}
+
+.vs .vsr-lane-empty:hover:not(:disabled) {
+    border-color: var(--vs-accent);
+    color: var(--vs-accent-text);
+}
+
+.vs .vsr-lane-empty:disabled {
+    opacity: .55;
+    cursor: default;
+}
+
+@media (max-width: 860px) {
+    .vs .vsr-form-stop {
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    }
+
+    .vs .vsr-lane {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 10px;
+    }
+
+    .vs .vsr-lane-when {
+        flex-direction: row;
+        align-items: baseline;
+        gap: 10px;
+        padding-top: 0;
+    }
+
+    .vs .vsr-shown {
+        margin-left: 0;
     }
 }
