@@ -123,6 +123,42 @@ public sealed class OpenWAClient(
             cancellationToken);
     }
 
+    public Task<List<WhatsAppWebhookRegistrationDto>> GetSessionWebhooksAsync(
+        string sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        return SendForJsonAsync<List<WhatsAppWebhookRegistrationDto>>(
+            HttpMethod.Get,
+            $"/api/sessions/{Uri.EscapeDataString(sessionId)}/webhooks",
+            payload: null,
+            cancellationToken);
+    }
+
+    public Task<WhatsAppWebhookRegistrationDto> CreateSessionWebhookAsync(
+        string sessionId,
+        WhatsAppWebhookRegistrationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        return SendForJsonAsync<WhatsAppWebhookRegistrationDto>(
+            HttpMethod.Post,
+            $"/api/sessions/{Uri.EscapeDataString(sessionId)}/webhooks",
+            request,
+            cancellationToken);
+    }
+
+    public Task<WhatsAppWebhookRegistrationDto> UpdateSessionWebhookAsync(
+        string sessionId,
+        string webhookId,
+        WhatsAppWebhookRegistrationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        return SendForJsonAsync<WhatsAppWebhookRegistrationDto>(
+            HttpMethod.Put,
+            $"/api/sessions/{Uri.EscapeDataString(sessionId)}/webhooks/{Uri.EscapeDataString(webhookId)}",
+            request,
+            cancellationToken);
+    }
+
     private WhatsAppHealthDto ParseHealthResponse(string sourcePath, string? responseBody)
     {
         var health = new WhatsAppHealthDto

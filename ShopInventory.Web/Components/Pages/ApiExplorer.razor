@@ -1522,11 +1522,13 @@ new("GET", "/api/whatsapp/health", "Get health"),
 new("GET", "/api/whatsapp/messages", "Get messages"),
 new("GET", "/api/whatsapp/sessions", "Get sessions"),
 new("GET", "/api/whatsapp/sessions/{sessionId}/qr", "Get session QR code"),
+new("GET", "/api/whatsapp/sessions/{sessionId}/webhook", "Get session webhook"),
 new("POST", "/api/whatsapp/sessions", "Create session"),
 new("POST", "/api/whatsapp/sessions/{sessionId}/messages/reply", "Reply"),
 new("POST", "/api/whatsapp/sessions/{sessionId}/messages/send-text", "Send text"),
 new("POST", "/api/whatsapp/sessions/{sessionId}/start", "Start session"),
 new("POST", "/api/whatsapp/sessions/{sessionId}/stop", "Stop session"),
+new("POST", "/api/whatsapp/sessions/{sessionId}/webhook", "Ensure session webhook"),
 new("POST", "/api/whatsapp/webhook/openwa", "Receive open WA webhook")
 }
 }

@@ -2,6 +2,11 @@
 
 This runbook starts OpenWA outside IIS on the same Windows host as ShopInventory and makes it restart automatically after reboot by using a built-in Scheduled Task.
 
+For the live estate use [whatsapp-production.md](whatsapp-production.md) instead. It covers the
+things this page does not: which host may run the gateway (one, not both), the `OpenWA__*` settings
+the API needs, and the webhook registration that decides whether a paired session actually delivers
+anything.
+
 ## Prerequisites
 
 - OpenWA repository is present at `OpenWA/` under the workspace root.

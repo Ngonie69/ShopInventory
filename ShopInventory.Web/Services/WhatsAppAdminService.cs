@@ -1,5 +1,4 @@
 using System.Net.Http.Json;
-using System.Text.Json;
 using ShopInventory.Web.Models;
 
 namespace ShopInventory.Web.Services;
@@ -13,6 +12,8 @@ public interface IWhatsAppAdminService
     Task<WhatsAppSessionModel> StartSessionAsync(string sessionId, CancellationToken cancellationToken = default);
     Task<WhatsAppSessionModel> StopSessionAsync(string sessionId, CancellationToken cancellationToken = default);
     Task<WhatsAppQrCodeModel?> TryGetSessionQrCodeAsync(string sessionId, CancellationToken cancellationToken = default);
+    Task<WhatsAppWebhookStatusModel?> TryGetSessionWebhookAsync(string sessionId, CancellationToken cancellationToken = default);
+    Task<WhatsAppWebhookStatusModel> EnsureSessionWebhookAsync(string sessionId, CancellationToken cancellationToken = default);
     Task<WhatsAppMessageDispatchModel> SendTextAsync(string sessionId, string chatId, string text, CancellationToken cancellationToken = default);
     Task<WhatsAppMessageDispatchModel> ReplyAsync(string sessionId, string chatId, string quotedMessageId, string text, CancellationToken cancellationToken = default);
 }
@@ -115,6 +116,41 @@ public sealed class WhatsAppAdminService(
         return await response.Content.ReadFromJsonAsync<WhatsAppQrCodeModel>(cancellationToken);
     }
 
+    public async Task<WhatsAppWebhookStatusModel?> TryGetSessionWebhookAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        // Read-only, and deliberately non-throwing: the delivery panel is a diagnostic beside the
+        // session, and a gateway that will not answer must not take the session list down with it.
+        try
+        {
+            var response = await httpClient.GetAsync($"api/whatsapp/sessions/{Uri.EscapeDataString(sessionId)}/webhook", cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                logger.LogInformation(
+                    "Webhook status is unavailable for WhatsApp session {SessionId}: {StatusCode} {Body}",
+                    sessionId,
+                    response.StatusCode,
+                    body);
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<WhatsAppWebhookStatusModel>(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to read the webhook status for WhatsApp session {SessionId}", sessionId);
+            return null;
+        }
+    }
+
+    public Task<WhatsAppWebhookStatusModel> EnsureSessionWebhookAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        return SendForJsonAsync<WhatsAppWebhookStatusModel>(
+            $"api/whatsapp/sessions/{Uri.EscapeDataString(sessionId)}/webhook",
+            payload: null,
+            cancellationToken);
+    }
+
     public Task<WhatsAppMessageDispatchModel> SendTextAsync(
         string sessionId,
         string chatId,
@@ -154,7 +190,8 @@ public sealed class WhatsAppAdminService(
         return new WhatsAppHealthModel
         {
             Status = "unreachable",
-            BaseUrl = message,
+            BaseUrl = "Not reported",
+            Message = message,
             CheckedAtUtc = DateTime.UtcNow,
             SourcePath = "n/a"
         };
@@ -177,84 +214,22 @@ public sealed class WhatsAppAdminService(
             ?? throw new HttpRequestException("The API returned an empty WhatsApp response payload.");
     }
 
+    /// <summary>
+    /// Turns an API problem-details body into something an operator can act on.
+    /// </summary>
+    /// <remarks>
+    /// This defers to <see cref="ApiErrorResponse"/> rather than reading the body itself. The
+    /// reason it matters here: the API answers a WhatsApp configuration fault with
+    /// ValidationProblemDetails, whose title is always the framework's "One or more validation
+    /// errors occurred." and whose real cause ("WhatsApp integration is disabled") sits in
+    /// "errors". Reading "title" first, as this service used to, threw the cause away and left the
+    /// console reporting a validation failure for a request that had nothing wrong with it.
+    /// </remarks>
     private static string BuildApiFailureMessage(System.Net.HttpStatusCode statusCode, string? reasonPhrase, string? responseBody)
     {
-        var parsedMessage = TryExtractMessage(responseBody);
-        if (!string.IsNullOrWhiteSpace(parsedMessage))
-        {
-            return parsedMessage;
-        }
-
-        return $"WhatsApp request failed. API returned {(int)statusCode} {reasonPhrase}.";
-    }
-
-    private static string? TryExtractMessage(string? responseBody)
-    {
-        if (string.IsNullOrWhiteSpace(responseBody))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var jsonDocument = JsonDocument.Parse(responseBody);
-            var root = jsonDocument.RootElement;
-
-            if (TryReadString(root, "title", out var title))
-            {
-                return title;
-            }
-
-            if (TryReadString(root, "detail", out var detail))
-            {
-                return detail;
-            }
-
-            if (TryReadString(root, "message", out var message))
-            {
-                return message;
-            }
-
-            if (TryReadString(root, "error", out var error))
-            {
-                return error;
-            }
-
-            if (root.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
-            {
-                foreach (var property in errors.EnumerateObject())
-                {
-                    if (property.Value.ValueKind == JsonValueKind.Array)
-                    {
-                        var firstError = property.Value.EnumerateArray()
-                            .FirstOrDefault(item => item.ValueKind == JsonValueKind.String)
-                            .GetString();
-
-                        if (!string.IsNullOrWhiteSpace(firstError))
-                        {
-                            return firstError;
-                        }
-                    }
-                }
-            }
-        }
-        catch (JsonException)
-        {
-        }
-
-        return responseBody.Trim();
-    }
-
-    private static bool TryReadString(JsonElement element, string propertyName, out string? value)
-    {
-        value = null;
-
-        if (!element.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.String)
-        {
-            return false;
-        }
-
-        value = property.GetString();
-        return !string.IsNullOrWhiteSpace(value);
+        return ApiErrorResponse.GetFriendlyMessage(
+            statusCode,
+            responseBody,
+            $"WhatsApp request failed. API returned {(int)statusCode} {reasonPhrase}.");
     }
 }

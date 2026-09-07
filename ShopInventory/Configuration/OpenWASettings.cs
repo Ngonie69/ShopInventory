@@ -33,6 +33,28 @@ public class OpenWASettings
     public string WebhookSecret { get; set; } = string.Empty;
 
     /// <summary>
+    /// The absolute URL OpenWA posts inbound events to. OpenWA validates this with an @IsUrl
+    /// check that rejects "localhost", so a same-host deployment must name 127.0.0.1 or the
+    /// machine's LAN address rather than localhost.
+    /// </summary>
+    public string WebhookPublicUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Event types the gateway webhook subscribes to. These are OpenWA's own event names.
+    /// </summary>
+    public string[] WebhookEvents { get; set; } =
+    [
+        "message.received",
+        "message.sent",
+        "message.ack",
+        "message.revoked",
+        "session.status",
+        "session.qr",
+        "session.authenticated",
+        "session.disconnected"
+    ];
+
+    /// <summary>
     /// Ordered health endpoint candidates used to tolerate doc/runtime differences.
     /// </summary>
     public string[] HealthEndpointPaths { get; set; } = ["/health/detailed", "/api/health", "/health"];
