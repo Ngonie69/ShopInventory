@@ -283,11 +283,36 @@ quantity, no variance, missing merchandiser POD) stays retryable once the cause 
 {
   "type": "https://tools.ietf.org/html/rfc9110#section-15.5.1",
   "title": "One or more validation errors occurred.",
+  "status": 400,
+  "detail": "The request contains validation errors.",
+  "instance": "/api/whatsapp/sessions",
   "errors": {
     "FieldName": ["Error message"]
-  }
+  },
+  "code": "FieldName",
+  "errorDetails": [
+    { "code": "FieldName", "description": "Error message", "type": "Validation" }
+  ],
+  "traceId": "00-..."
 }
 ```
+
+`errors` is the contract — the RFC 9457 / ASP.NET dictionary of field name to messages, and the
+only member a client should read messages out of. Everything alongside it is a convenience:
+
+| Member | What it is |
+|--------|------------|
+| `code` | The first error's code, for a client that branches on one |
+| `errorDetails` | Every error with its code and `ErrorType`, for logging and diagnostics |
+| `traceId` | Correlates the response with the server log |
+
+`errorDetails` is deliberately not called `errors`: it used to be, and because
+`ProblemDetails.Extensions` is `[JsonExtensionData]` the response carried the key twice — once as
+the dictionary and once as this array. A strict parser may reject such a document outright, and
+`JsonDocument`, which does not, resolved the name to the array rather than the dictionary.
+
+Refusals that are not validation failures (`404`, `409`, and the rest) carry no `errors` dictionary
+at all. Read `detail` for the sentence to show, `code` to branch on, `errorDetails` for the list.
 
 ---
 
