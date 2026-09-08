@@ -24,6 +24,7 @@ public sealed class CreateInvoiceHandler(
     ILocalPriceCatalogService localPriceCatalogService,
     IBatchInventoryValidationService batchValidation,
     IInventoryLockService lockService,
+    IStockLedger stockLedger,
     IInvoiceFiscalizationQueue fiscalizationQueue,
     IAuditService auditService,
     IIdempotencyRequestStore idempotencyRequestStore,
@@ -73,6 +74,11 @@ public sealed class CreateInvoiceHandler(
         List<string>? acquiredLockTokens = null;
         long? idempotencyRequestId = null;
         var releaseIdempotencyRequest = false;
+
+        // The claim taken off the shared stock ledger, and whether the post that justifies it went
+        // through. Held here so the failure paths can decide whether to give the units back.
+        List<StockLedgerLine>? ledgerClaim = null;
+        var ledgerCommitted = false;
 
         try
         {
@@ -229,8 +235,36 @@ public sealed class CreateInvoiceHandler(
                     : new List<string> { prePostResult.LockToken };
             }
 
+            // Step 6b: Take the units off the shared ledger, before the post rather than after.
+            //
+            // The SAP read above cannot see a till sale that has been captured and has not yet
+            // posted — up to a minute, longer if SAP is refusing it — so on its own it will happily
+            // sell the same units the shop floor has already handed over. The ledger is what knows
+            // about them. Taking the claim first means a sale that loses the race is refused rather
+            // than posted and then discovered.
+            //
+            // Warehouses with no snapshot are passed over, not refused: most warehouses have no till
+            // selling from them, so there is no second consumer to collide with and SAP is authority
+            // enough.
+            ledgerClaim = request.Lines?
+                .Select(line => new StockLedgerLine(line.ItemCode ?? string.Empty, line.WarehouseCode ?? string.Empty, line.Quantity))
+                .ToList() ?? [];
+
+            var ledgerReference = request.U_Van_saleorder ?? request.NumAtCard ?? "invoice";
+            var ledgerOutcome = await stockLedger.TryCommitAsync(ledgerClaim, ledgerReference, cancellationToken);
+
+            if (!ledgerOutcome.Committed)
+            {
+                ledgerClaim = null;
+                logger.LogWarning(
+                    "Invoice refused by the shared stock ledger: {Shortfalls}",
+                    string.Join("; ", ledgerOutcome.Shortfalls));
+                return Errors.Invoice.LedgerShortfall(string.Join("; ", ledgerOutcome.Shortfalls));
+            }
+
             // Step 7: POST to SAP
             var invoice = await sapClient.CreateInvoiceAsync(request, cancellationToken);
+            ledgerCommitted = true;
 
             logger.LogInformation(
                 "Invoice created successfully in SAP. DocEntry: {DocEntry}, DocNum: {DocNum}, Customer: {CardCode}, BatchesAllocated: {BatchCount}, Strategy: {Strategy}",
@@ -297,12 +331,16 @@ public sealed class CreateInvoiceHandler(
         }
         catch (ArgumentException ex)
         {
+            // Thrown by the client's own checks before anything is sent, so SAP has not seen it.
+            await ReturnLedgerClaimAsync(ledgerClaim, ledgerCommitted, "validation error");
             logger.LogWarning(ex, "Validation error creating invoice");
             try { await auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", null, $"Validation error: {ex.Message}", false, ex.Message); } catch { }
             return Errors.Invoice.ValidationFailed(ex.Message);
         }
         catch (SapPostingPeriodException ex)
         {
+            // SAP answered, and its answer was no. The document does not exist.
+            await ReturnLedgerClaimAsync(ledgerClaim, ledgerCommitted, "posting period rejected");
             logger.LogWarning(
                 "SAP rejected invoice document dates starting from DocDate {DocDate}: {Message}",
                 ex.DocDate,
@@ -587,6 +625,44 @@ public sealed class CreateInvoiceHandler(
         }
 
         return missingPriceItems.OrderBy(itemCode => itemCode).ToList();
+    }
+
+    /// <summary>
+    /// Gives a ledger claim back, when — and only when — SAP definitely did not create the document.
+    /// </summary>
+    /// <remarks>
+    /// The claim is taken immediately before the post, so every failure after it is a question about
+    /// what SAP did with the request. Two answers are unambiguous: the client refused it before
+    /// sending, and SAP answered with a rejection. Everything else — a dropped connection, a
+    /// timeout — may have committed, and giving the units back there would let them be sold twice.
+    ///
+    /// <para>
+    /// So the bias is deliberate and one-directional: a claim held over a document that does not
+    /// exist makes the ledger short, which refuses sales that could have happened, and the morning
+    /// fetch restates it. A claim released over a document that does exist oversells, which is the
+    /// failure this whole ledger was built to stop.
+    /// </para>
+    /// </remarks>
+    private async Task ReturnLedgerClaimAsync(
+        List<StockLedgerLine>? claim,
+        bool alreadyPosted,
+        string reason)
+    {
+        if (claim is null || claim.Count == 0 || alreadyPosted)
+        {
+            return;
+        }
+
+        try
+        {
+            await stockLedger.ReleaseAsync(claim, $"invoice not posted ({reason})", CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            // Worth a warning and nothing more. The ledger being short is the safe direction, and
+            // the morning fetch clears it.
+            logger.LogWarning(ex, "Could not return the stock ledger claim after {Reason}", reason);
+        }
     }
 
     private static List<string> ValidateWarehouseCodes(CreateInvoiceRequest request)

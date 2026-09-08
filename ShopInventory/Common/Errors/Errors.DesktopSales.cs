@@ -21,6 +21,18 @@ public static partial class Errors
             Error.Validation("DesktopSales.InsufficientStock",
                 $"Insufficient stock for {itemCode} in {warehouseCode}: requested {requested}, available {available}");
 
+        /// <summary>
+        /// The shared stock ledger would not cover this sale.
+        /// </summary>
+        /// <remarks>
+        /// Distinct from <see cref="InsufficientStock"/> because the ledger counts what the whole
+        /// system has promised today, not only what this till has sold. A cashier looking at a full
+        /// shelf can now be refused because a web invoice took the same units a minute ago, and the
+        /// message has to be able to say so.
+        /// </remarks>
+        public static Error StockLedgerRefused(string detail) =>
+            Error.Conflict("DesktopSales.StockLedgerRefused", detail);
+
         public static Error FiscalizationFailed(string message) =>
             Error.Failure("DesktopSales.FiscalizationFailed", message);
 

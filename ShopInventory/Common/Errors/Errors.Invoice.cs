@@ -54,6 +54,20 @@ public static partial class Errors
                 "Invoice.StockUnknown",
                 $"The invoice was not posted because SAP could not be asked what is in stock. {message}");
 
+        /// <summary>
+        /// The shared stock ledger would not cover this invoice.
+        /// </summary>
+        /// <remarks>
+        /// Not the same as SAP being short. The ledger also counts sales this system has captured
+        /// and not yet posted — a till sale sits Pending for up to a minute — so an invoice can be
+        /// refused here while SAP still shows the stock. That is the point: SAP would have shown it
+        /// until the till sale posted, and by then both documents would exist.
+        /// </remarks>
+        public static Error LedgerShortfall(string message) =>
+            Error.Conflict(
+                "Invoice.LedgerShortfall",
+                $"The invoice was not posted because the stock is already promised today. {message}");
+
         public static Error SapTimeout =>
             Error.Failure("Invoice.SapTimeout", "Connection to SAP Service Layer timed out.");
 

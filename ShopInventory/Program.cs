@@ -559,6 +559,7 @@ try
 
     // Register batch inventory validation service - CRITICAL for batch-managed items
     // Implements FIFO/FEFO auto-allocation and prevents negative batch quantities
+    builder.Services.AddScoped<IStockLedger, StockLedger>();
     builder.Services.AddScoped<IBatchInventoryValidationService, BatchInventoryValidationService>();
 
     // Register inventory lock service - Prevents race conditions during concurrent invoice posting
