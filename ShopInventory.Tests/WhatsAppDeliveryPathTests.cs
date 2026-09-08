@@ -29,10 +29,27 @@ public class WhatsAppDeliveryPathTests
     /// Captured verbatim from POST /api/whatsapp/sessions with OpenWA:Enabled false.
     /// </summary>
     /// <remarks>
-    /// Note the two "errors" keys. ApiControllerBase builds a ValidationProblemDetails, which
-    /// serializes its own Errors dictionary, and then writes an Extensions["errors"] array beside
-    /// it. Both reach the wire. JsonDocument keeps the first, so the dictionary is what a reader
-    /// sees - but the duplicate is real and this constant is the evidence for it.
+    /// <para>
+    /// Note the two "errors" keys, and note that this is a HISTORICAL capture: ApiControllerBase no
+    /// longer emits it. It built a ValidationProblemDetails, which serializes its own Errors
+    /// dictionary, and then wrote an Extensions["errors"] array beside it, so both reached the wire.
+    /// The array is now Extensions["errorDetails"] and the key appears once - see
+    /// ProblemDetailsErrorKeyTests.
+    /// </para>
+    /// <para>
+    /// The constant is kept in the duplicated form on purpose, because it is what pins the
+    /// CollectMessages fix below: it is the only payload in the suite that puts an array of
+    /// {code, description, type} objects under "errors", which is the shape that rendered
+    /// "WhatsApp.Disabled; WhatsApp integration is disabled; Validation." on the console.
+    /// </para>
+    /// <para>
+    /// An earlier version of this remark said JsonDocument keeps the FIRST of the two, so a reader
+    /// saw the dictionary. That is backwards, and it is why the duplicate mattered:
+    /// TryGetProperty("errors") resolves to the SECOND occurrence, so every reader got the array.
+    /// This test passes because CollectMessages now takes "description" out of an error object; the
+    /// readers that instead guard on ValueKind == JsonValueKind.Object skipped the array entirely
+    /// and fell back to the generic title until the duplicate itself was removed.
+    /// </para>
     /// </remarks>
     private const string DisabledGatewayProblem = """
         {"type":"https://tools.ietf.org/html/rfc9110#section-15.5.1","title":"One or more validation errors occurred.","status":400,"detail":"The request contains validation errors.","instance":"/api/whatsapp/sessions","errors":{"WhatsApp.Disabled":["WhatsApp integration is disabled"]},"code":"WhatsApp.Disabled","errors":[{"code":"WhatsApp.Disabled","description":"WhatsApp integration is disabled","type":"Validation"}],"traceId":"00-227e211d9ce25df23bbb5d32b07146cb-0110cc4c762a2dde-00"}
