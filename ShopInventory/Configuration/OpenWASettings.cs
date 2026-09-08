@@ -1,4 +1,4 @@
-namespace ShopInventory.Configuration;
+﻿namespace ShopInventory.Configuration;
 
 /// <summary>
 /// Configuration settings for the OpenWA WhatsApp gateway.
@@ -42,20 +42,17 @@ public class OpenWASettings
     /// <summary>
     /// Event types the gateway webhook subscribes to. These are OpenWA's own event names.
     /// </summary>
-    public string[] WebhookEvents { get; set; } =
-    [
-        "message.received",
-        "message.sent",
-        "message.ack",
-        "message.revoked",
-        "session.status",
-        "session.qr",
-        "session.authenticated",
-        "session.disconnected"
-    ];
+    /// <remarks>
+    /// Empty rather than defaulted, and both collections below are the same: the configuration binder
+    /// appends to a collection that already holds items, so a default here plus the same list in
+    /// appsettings.json bound to both copies. Neither ever showed a symptom — the registrar and the
+    /// client both deduplicate before use — but a value that silently doubles cannot be trusted to be
+    /// removable, because the code's copy puts it back. The lists live in appsettings.json alone.
+    /// </remarks>
+    public string[] WebhookEvents { get; set; } = [];
 
     /// <summary>
     /// Ordered health endpoint candidates used to tolerate doc/runtime differences.
     /// </summary>
-    public string[] HealthEndpointPaths { get; set; } = ["/health/detailed", "/api/health", "/health"];
+    public string[] HealthEndpointPaths { get; set; } = [];
 }

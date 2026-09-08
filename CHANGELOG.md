@@ -48,6 +48,29 @@ otherwise be surprised.
   (added in the TransferEventListener repository at the same time). Against an older listener the
   probe gets a `404` and reports `Unhealthy`, so deploy the listener first.
 
+### Fixed
+
+- **`DailyStock:MonitoredWarehouses` was binding to every warehouse twice**, so the 07:00 stock
+  snapshot job walked each monitored warehouse twice and made double the SAP reads it needed —
+  against a pool of six concurrent SAP requests where stock reads already hang for minutes.
+
+  The cause is a shape, not a typo: the ASP.NET Core configuration binder **appends** to a collection
+  that already holds items rather than replacing it, for `List<T>` and `T[]` alike. A settings
+  property declared with a collection initializer *and* supplied in appsettings.json therefore holds
+  both copies. The same shape was in `OpenWA:WebhookEvents` and `OpenWA:HealthEndpointPaths` (no
+  symptom — their readers already deduplicate) and in TransferEventListener's
+  `SapSettings.FallbackScanItemGroups`. All four now declare `= []` and take their values from
+  configuration alone.
+
+  **Operators:** these lists no longer have a code-level default, so configuration is the only source.
+  `DailyStock:MonitoredWarehouses` is now validated at startup — the API **refuses to start** if it is
+  missing or empty, rather than silently snapshotting no warehouses and leaving every till refusing
+  every sale. A duplicated entry fails startup too. Nothing changes for a correctly configured
+  environment; `appsettings.json` already carries all four lists.
+
+  `scripts/find_double_bound_options.py` finds this shape in any repo, and
+  `OptionsCollectionBindingTests` fails the build if a new settings class introduces it.
+
 ### Changed
 
 - **The morning stock snapshot falls back to TransferEventListener** when this API's own non-batch
