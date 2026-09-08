@@ -112,8 +112,11 @@ public sealed class TransferListenerHealthCheckTests
     /// <summary>
     /// The two warehouse lists are maintained independently — one in this API's configuration, the
     /// other compiled into the listener — so they drift, and the drift is invisible from either side.
-    /// KEFBYS is the live example: this API snapshots the Bulawayo shop and the listener does not
-    /// watch it, so that shop is snapshotted at 07:00 and never adjusted again.
+    /// KEFBYS is the case that prompted this check: the Bulawayo shop was snapshotted here and not
+    /// watched by the listener, so it was read at 07:00 and never adjusted again while stock moved
+    /// through it all day. That particular gap is closed — the listener watches KEFBYS as of
+    /// 2026-09-08 — and the check remains because the two lists are still maintained separately and
+    /// nothing else would catch the next one.
     /// </summary>
     [Fact]
     public async Task A_warehouse_the_listener_does_not_watch_is_reported()

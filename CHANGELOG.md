@@ -37,10 +37,12 @@ otherwise be surprised.
   the same window next cycle; `Unhealthy` covers a listener that is unreachable or not polling,
   and webhook deliveries that failed and are never retried.
 
-  It reports one condition that has been true all along: warehouses in `DailyStock:MonitoredWarehouses`
-  that the listener does not watch. `KEFBYS` is one today — the Bulawayo shop is snapshotted at
-  07:00 and never adjusted again, because the two warehouse lists are maintained independently.
-  Expect `/health/dependencies` to report `Degraded` on that basis until one of the lists changes.
+  It reports one condition that had been true all along: warehouses in `DailyStock:MonitoredWarehouses`
+  that the listener does not watch. `KEFBYS` was one — the Bulawayo shop was snapshotted at 07:00
+  and never adjusted again while stock moved through it all day, because the two warehouse lists are
+  maintained independently. **That is fixed in the listener** (it now watches KEFBYS), so the two
+  lists match and the check reports healthy; the comparison stays because nothing else would catch
+  the next omission.
 
   This check requires the listener to be running a build that has `GET /api/Transfer/health`
   (added in the TransferEventListener repository at the same time). Against an older listener the
