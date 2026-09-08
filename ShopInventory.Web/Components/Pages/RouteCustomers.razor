@@ -163,7 +163,7 @@
                                                tab, and so the edit and delete buttons in the last column
                                                stay unambiguous. *@
                                             <a class="ops-link ops-name" href="@($"/route-customers/{customer.Id}/sales")">
-                                                @customer.Name
+                                                @DisplayName(customer)
                                             </a>
                                             @if (!customer.IsActive)
                                             {
@@ -310,10 +310,17 @@
                             <input id="rc-edit-code" class="ops-input" type="text" maxlength="50" required
                                    @bind="editModel.Code" @bind:event="oninput" />
                         </div>
-                        <div class="ops-field ops-form-full">
+                        <div class="ops-field">
                             <label class="ops-label" for="rc-edit-name">Name</label>
                             <input id="rc-edit-name" class="ops-input" type="text" maxlength="200" required
                                    @bind="editModel.Name" @bind:event="oninput" />
+                        </div>
+                        @* Blank for a shop, which has only the one name. Filled for a cart vendor,
+                           who is a person. *@
+                        <div class="ops-field">
+                            <label class="ops-label" for="rc-edit-surname">Surname</label>
+                            <input id="rc-edit-surname" class="ops-input" type="text" maxlength="100"
+                                   @bind="editModel.Surname" @bind:event="oninput" />
                         </div>
                         <div class="ops-field">
                             <label class="ops-label" for="rc-edit-phone">Phone</label>
@@ -635,6 +642,15 @@
     private string GetRouteDisplayName(string routeCode)
         => routeDisplayNames.TryGetValue(routeCode, out var displayName) ? displayName : routeCode;
 
+    /// <summary>
+    /// What a route customer is called on screen: "Name Surname" for a cart vendor, and the shop's
+    /// own name for everyone else, which is every row that existed before vendors did.
+    /// </summary>
+    private static string DisplayName(RouteCustomerModel customer)
+        => string.IsNullOrWhiteSpace(customer.Surname)
+            ? customer.Name
+            : $"{customer.Name} {customer.Surname}";
+
     private void BeginEdit(RouteCustomerModel customer)
     {
         ClearFeedback();
@@ -645,6 +661,7 @@
             AssignedBusinessPartnerCode = customer.AssignedBusinessPartnerCode,
             Code = customer.Code,
             Name = customer.Name,
+            Surname = customer.Surname,
             Phone = customer.Phone,
             Email = customer.Email,
             Address = customer.Address,

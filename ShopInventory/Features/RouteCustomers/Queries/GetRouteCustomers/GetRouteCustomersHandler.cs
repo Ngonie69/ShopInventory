@@ -41,6 +41,7 @@ public sealed class GetRouteCustomersHandler(
                 AssignedBusinessPartnerCode = customer.AssignedBusinessPartnerCode,
                 Code = customer.Code,
                 Name = customer.Name,
+                Surname = customer.Surname,
                 Phone = customer.Phone,
                 Email = customer.Email,
                 Address = customer.Address,

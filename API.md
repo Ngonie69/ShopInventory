@@ -2716,6 +2716,13 @@ transfers is `transfer-queue`, separate from the invoice `queue`.
 | POST | `/api/DesktopIntegration/end-of-day/consolidate` | Consolidate the day's sales |
 | GET | `/api/DesktopIntegration/end-of-day/report` | The day's report (`reportDate`) |
 | POST | `/api/DesktopIntegration/end-of-day/email-report` | Email it (`reportDate`) |
+| GET | `/api/DesktopIntegration/vendors` | The vendors this account may invoice, for a cart-vendor till |
+
+The vendor route takes **no business partner and accepts none**. It reads the code off the
+signed-in account through `SellingAccountResolver` — the same value `POST .../sales` resolves
+`vendorCode` against — so the list an operator picks from and the set the server will accept are one
+filter over one value, and a till cannot reach another shop's vendors because it never names one.
+Use `/api/route-customers` for the administrative view, which filters on a code the caller supplies.
 
 #### Prices
 

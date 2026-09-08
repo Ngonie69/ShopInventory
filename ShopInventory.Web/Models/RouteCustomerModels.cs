@@ -10,6 +10,9 @@ public class RouteCustomerModel
 
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>The family name, for a cart vendor. Null for a route customer that is a shop.</summary>
+    public string? Surname { get; set; }
+
     public string? Phone { get; set; }
 
     public string? Email { get; set; }

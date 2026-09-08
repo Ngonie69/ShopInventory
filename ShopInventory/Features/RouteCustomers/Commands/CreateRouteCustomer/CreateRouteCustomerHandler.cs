@@ -102,6 +102,7 @@ public sealed class CreateRouteCustomerHandler(
             AssignedBusinessPartnerCode = assignedBusinessPartnerCode,
             Code = code,
             Name = name,
+            Surname = NullIfWhiteSpace(command.Request.Surname),
             Phone = NullIfWhiteSpace(command.Request.Phone),
             Email = NullIfWhiteSpace(command.Request.Email),
             Address = NullIfWhiteSpace(command.Request.Address),
@@ -133,6 +134,7 @@ public sealed class CreateRouteCustomerHandler(
         CancellationToken cancellationToken)
     {
         removed.Name = name;
+        removed.Surname = NullIfWhiteSpace(command.Request.Surname);
         removed.Phone = NullIfWhiteSpace(command.Request.Phone);
         removed.Email = NullIfWhiteSpace(command.Request.Email);
         removed.Address = NullIfWhiteSpace(command.Request.Address);
@@ -202,6 +204,7 @@ public sealed class CreateRouteCustomerHandler(
             AssignedBusinessPartnerCode = entity.AssignedBusinessPartnerCode,
             Code = entity.Code,
             Name = entity.Name,
+            Surname = entity.Surname,
             Phone = entity.Phone,
             Email = entity.Email,
             Address = entity.Address,
