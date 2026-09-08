@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Quartz;
 using ShopInventory.Configuration;
+using ShopInventory.Common.Stock;
 using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
 
 namespace ShopInventory.Services;
@@ -41,7 +42,10 @@ public sealed class DailyStockSnapshotJob : IJob
         using var scope = _serviceProvider.CreateScope();
         var handler = scope.ServiceProvider.GetRequiredService<FetchDailyStockHandler>();
 
-        var today = DateTime.UtcNow.Date;
+        // The day the fetch is producing figures for, resolved the same way every reader of them
+        // resolves it. Computed here rather than taken as "today" so a run that starts a minute
+        // either side of 07:00 still stamps the day it is fetching for.
+        var today = StockLedgerDay.Today(_settings.StockFetchTimeCAT);
         var failedWarehouses = new List<string>();
 
         foreach (var warehouse in _settings.MonitoredWarehouses)

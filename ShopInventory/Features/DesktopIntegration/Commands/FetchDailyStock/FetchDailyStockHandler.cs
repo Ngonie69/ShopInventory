@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Hubs;
@@ -24,7 +25,7 @@ public sealed class FetchDailyStockHandler(
         FetchDailyStockCommand command,
         CancellationToken cancellationToken)
     {
-        var snapshotDate = command.SnapshotDate?.Date ?? DateTime.UtcNow.Date;
+        var snapshotDate = command.SnapshotDate?.Date ?? StockLedgerDay.Today(settings.Value.StockFetchTimeCAT);
         var warehouses = command.Warehouses ?? settings.Value.MonitoredWarehouses;
         var results = new List<WarehouseSnapshotResult>();
         var totalItemCount = 0;
@@ -125,20 +126,35 @@ public sealed class FetchDailyStockHandler(
 
         try
         {
-            logger.LogInformation("Fetching batch stock from SAP for warehouse {Warehouse}", warehouseCode);
+            logger.LogInformation("Fetching stock from SAP for warehouse {Warehouse}", warehouseCode);
 
+            // Two reads, because either one alone leaves a hole. Batches carry the expiry dates FEFO
+            // needs and are the only place a batch-managed item's position is broken down; the
+            // warehouse read is the only place an item SAP does not manage by batch appears at all,
+            // and the only place commitments are visible. See SnapshotComposer.
             var batches = await sapClient.GetAllBatchNumbersInWarehouseAsync(warehouseCode, cancellationToken);
+            var warehouseStock = await sapClient.GetStockQuantitiesInWarehouseAsync(warehouseCode, cancellationToken);
 
-            var snapshotItems = batches.Select(b => new DailyStockSnapshotItemEntity
+            var composed = SnapshotComposer.Compose(batches, warehouseStock);
+
+            foreach (var note in composed.Notes)
+            {
+                // Warning rather than information: each of these is an item a till will not be able
+                // to sell today, or a figure that does not add up. Silence is how the missing
+                // non-batch items went unnoticed for as long as they did.
+                logger.LogWarning("Stock snapshot for {Warehouse}: {Note}", warehouseCode, note);
+            }
+
+            var snapshotItems = composed.Rows.Select(row => new DailyStockSnapshotItemEntity
             {
                 SnapshotId = snapshot.Id,
-                ItemCode = b.ItemCode ?? string.Empty,
-                ItemDescription = b.ItemName,
+                ItemCode = row.ItemCode,
+                ItemDescription = row.ItemDescription,
                 WarehouseCode = warehouseCode,
-                BatchNumber = b.BatchNum,
-                OriginalQuantity = b.Quantity,
-                AvailableQuantity = b.Quantity,
-                ExpiryDate = DateTime.TryParse(b.ExpiryDate, out var expiry) ? expiry : null
+                BatchNumber = row.BatchNumber,
+                OriginalQuantity = row.OriginalQuantity,
+                AvailableQuantity = row.AvailableQuantity,
+                ExpiryDate = row.ExpiryDate
             }).ToList();
 
             context.DailyStockSnapshotItems.AddRange(snapshotItems);

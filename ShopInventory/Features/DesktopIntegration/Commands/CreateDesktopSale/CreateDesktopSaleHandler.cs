@@ -135,6 +135,10 @@ public sealed class CreateDesktopSaleHandler(
                 return existingResponse;
             }
 
+            // The document's accounting date, not a snapshot lookup — the stock ledger resolves its
+            // own day, and does not resolve it this way. Left on UtcNow.Date deliberately: this
+            // value reaches SAP as the invoice DocDate and the fiscal receipt's date, so moving it
+            // is a fiscal change rather than a stock one and does not belong in this pass.
             var today = DateTime.UtcNow.Date;
             var docDate = !string.IsNullOrEmpty(req.DocDate)
                 ? DateTime.Parse(req.DocDate).Date

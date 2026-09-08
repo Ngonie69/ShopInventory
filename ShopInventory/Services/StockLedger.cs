@@ -1,4 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ShopInventory.Common.Stock;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
 
@@ -127,22 +130,16 @@ public interface IStockLedger
 
 public sealed class StockLedger(
     ApplicationDbContext context,
+    IOptions<DailyStockSettings> dailyStock,
     ILogger<StockLedger> logger) : IStockLedger
 {
     private const int MaxConcurrencyRetries = 3;
 
     /// <summary>
-    /// Deliberately identical to what every caller computed for itself before this existed:
-    /// <c>DateTime.UtcNow.Date</c>.
+    /// The day whose snapshot is in force now. See <see cref="StockLedgerDay"/> for why this is
+    /// neither the UTC date nor the CAT date.
     /// </summary>
-    /// <remarks>
-    /// It is wrong — the business runs in CAT, so a sale between midnight and 02:00 resolves to
-    /// yesterday's snapshot — and it is left wrong here on purpose, so that introducing the ledger
-    /// changes no dates. Correcting it is its own change, and this is the one place it now has to be
-    /// corrected: the till handler, the snapshot job and the fetch handler all used to compute it
-    /// separately.
-    /// </remarks>
-    public DateTime CurrentLedgerDay => DateTime.UtcNow.Date;
+    public DateTime CurrentLedgerDay => StockLedgerDay.Today(dailyStock.Value.StockFetchTimeCAT);
 
     public async Task<StockLedgerReading> ReadAsync(
         string itemCode,

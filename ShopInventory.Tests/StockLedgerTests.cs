@@ -1,6 +1,9 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using ShopInventory.Common.Stock;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -365,7 +368,7 @@ public sealed class StockLedgerTests
     private static StockLedgerLine Line(decimal quantity) => new(Item, Warehouse, quantity);
 
     private static StockLedger Ledger(ApplicationDbContext context) =>
-        new(context, NullLogger<StockLedger>.Instance);
+        new(context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance);
 
     private static async Task<ApplicationDbContext> LedgerWith(
         decimal units,
@@ -383,9 +386,9 @@ public sealed class StockLedgerTests
     {
         var snapshot = new DailyStockSnapshotEntity
         {
-            // The ledger reads today's snapshot, resolved the same way every caller used to resolve
-            // it for itself.
-            SnapshotDate = DateTime.UtcNow.Date,
+            // Stamped the way the morning job stamps it. If the job and the ledger ever disagree
+            // about which day is in force, every test in this file stops finding its rows.
+            SnapshotDate = StockLedgerDay.Today(new DailyStockSettings().StockFetchTimeCAT),
             WarehouseCode = Warehouse,
             Status = status
         };
