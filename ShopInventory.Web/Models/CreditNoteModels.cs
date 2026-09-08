@@ -1,14 +1,30 @@
-namespace ShopInventory.Web.Models;
+﻿namespace ShopInventory.Web.Models;
 
 /// <summary>
 /// Credit note type enum
 /// </summary>
+/// <remarks>
+/// These numbers are the API's <c>CreditNoteType</c> and are sent to it as numbers, so the two
+/// lists must agree name for name and value for value. They did not: this side read 1 as
+/// <c>Refund</c>, 2 as <c>Adjustment</c> and 3 as <c>Cancellation</c>, against the API's
+/// <c>PriceAdjustment</c>, <c>Discount</c> and <c>Damaged</c> — so a credit note raised here as an
+/// adjustment was stored as a discount, one raised as a cancellation was stored as damaged goods,
+/// and every credit note the API answered with was relabelled on the way back. Nothing failed;
+/// the wrong word was simply shown and stored.
+/// </remarks>
 public enum CreditNoteType
 {
     Return = 0,
-    Refund = 1,
-    Adjustment = 2,
-    Cancellation = 3
+    PriceAdjustment = 1,
+    Discount = 2,
+    Damaged = 3,
+    Other = 4,
+
+    /// <summary>
+    /// Set by cancelling an invoice, never chosen by hand — a cancellation reverses a whole invoice
+    /// and is raised from the invoice, not from the credit note form.
+    /// </summary>
+    Cancellation = 5
 }
 
 /// <summary>
@@ -170,5 +186,58 @@ public class CreateCreditNoteResult
 {
     public bool Success { get; set; }
     public CreditNoteDto? CreditNote { get; set; }
+    public string? ErrorMessage { get; set; }
+}
+
+/// <summary>
+/// One reason SAP allows on a credit note line.
+/// </summary>
+/// <remarks>
+/// Read from <c>GET /api/CreditNote/reasons</c> rather than listed here. SAP administers the list
+/// and rejects a value it does not define, and the list is not the same in every company database,
+/// so a copy on this side would be wrong the first time somebody edited it in SAP.
+/// </remarks>
+public class CreditNoteReasonOption
+{
+    /// <summary>What is stored on the line. This is what goes back to the API.</summary>
+    public string Value { get; set; } = string.Empty;
+
+    /// <summary>The wording a person picking a reason reads.</summary>
+    public string Description { get; set; } = string.Empty;
+}
+
+public class CreditNoteReasonsResponse
+{
+    public List<CreditNoteReasonOption> Reasons { get; set; } = new();
+}
+
+/// <summary>
+/// What the API answers when an invoice has been cancelled.
+/// </summary>
+/// <remarks>
+/// Nullability mirrors the API's <c>CancelInvoiceResult</c> exactly. The two SAP document numbers
+/// are nullable there because a credit note exists locally before SAP numbers it.
+/// </remarks>
+public class CancelInvoiceResult
+{
+    public int InvoiceDocEntry { get; set; }
+    public int InvoiceDocNum { get; set; }
+    public int CreditNoteId { get; set; }
+    public string CreditNoteNumber { get; set; } = string.Empty;
+    public int? CreditNoteDocEntry { get; set; }
+    public int? CreditNoteDocNum { get; set; }
+    public decimal CreditedAmount { get; set; }
+    public string? Currency { get; set; }
+    public string Reason { get; set; } = string.Empty;
+
+    /// <summary>The tills that were pushed the cancellation. Empty means none were reachable.</summary>
+    public List<string> NotifiedWarehouses { get; set; } = new();
+}
+
+/// <summary>The outcome of asking the API to cancel an invoice.</summary>
+public class CancelInvoiceOutcome
+{
+    public bool Success { get; set; }
+    public CancelInvoiceResult? Result { get; set; }
     public string? ErrorMessage { get; set; }
 }

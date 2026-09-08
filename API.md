@@ -951,12 +951,35 @@ this controller reads them — granting one to a user changes nothing here.
 | GET | `/api/Invoice/{docEntry}/pdf` | Admin, Cashier, StockController, Manager | Download the invoice as a PDF |
 | GET | `/api/Invoice/{itemCode}/batches/{warehouseCode}` | Admin, Cashier, StockController, Manager | Batches available to allocate against a line (`strategy`, default `FEFO`) |
 | POST | `/api/Invoice/{docEntry}/fiscalize` | Admin, Cashier | Fiscalise a posted invoice |
+| POST | `/api/Invoice/{docEntry}/cancel` | `invoices.void` | Cancel the invoice, reversing it in full with a credit note |
 
 **Query parameters for `/paged`:** `page` (1), `pageSize` (20), `docNum`, `cardCode`, `fromDate`,
 `toDate`, `vanSalesOnly`
 
 There is **no update and no delete route**: an invoice is created by posting it to SAP, and
 correcting one is a credit note.
+
+**Cancelling an invoice**
+
+`POST /api/Invoice/{docEntry}/cancel` withdraws a posted invoice in full. It does not delete or
+void anything in SAP — the document has been fiscalised and ZIMRA has seen it — it raises the
+credit note that reverses every line at its full quantity, with the reason written to each line's
+`U_Reasons` field, and fiscalises that credit note in turn.
+
+```json
+{ "reason": "Cancellation", "comments": "Customer collected nothing", "clientRequestId": "..." }
+```
+
+`reason` must be one of the values from `GET /api/CreditNote/reasons`; anything else is refused
+before the credit note is built, with the allowed values named in the message. `clientRequestId`
+(or an `Idempotency-Key` header) makes a retry replay instead of posting a second credit note.
+
+The response carries the credit note it raised and `notifiedWarehouses`. Cancelling also pushes an
+`InvoiceCancelled` event over `/hubs/notifications` to `warehouse:{CODE}` — the till that issued
+the receipt — and raises the stored notification everyone who works invoices sees. An empty
+`notifiedWarehouses` means the invoice could not be traced to a till and nobody was pushed.
+
+A partial credit is not a cancellation: use `POST /api/CreditNote/from-invoice/{invoiceId}`.
 
 **Proof of delivery and attachments** — also on this controller:
 
@@ -1049,6 +1072,7 @@ correcting one is a credit note.
 | Method | Endpoint | Permission | Description |
 |--------|----------|-----------|-------------|
 | GET | `/api/CreditNote` | `invoices.view` | List credit notes (paginated) |
+| GET | `/api/CreditNote/reasons` | `invoices.view` | The reasons SAP allows on a credit note line |
 | GET | `/api/CreditNote/{id}` | `invoices.view` | Get by ID |
 | GET | `/api/CreditNote/number/{creditNoteNumber}` | `invoices.view` | Get by credit note number |
 | GET | `/api/CreditNote/by-invoice/{invoiceId}` | `invoices.view` | Credit notes for an invoice |
@@ -1066,8 +1090,25 @@ correcting one is a credit note.
 The list answers **headers only** unless `includeLines=true` is passed, so anything that aggregates
 by item — and not just the ones that read `lines` directly — totals zero against the default.
 
-**Credit Note Types:** `Return`, `Adjustment`, `Damage`  
+**Credit Note Types:** `Return`, `PriceAdjustment`, `Discount`, `Damaged`, `Other`, `Cancellation`  
 **Credit Note Statuses:** `Draft`, `Pending`, `Approved`, `Cancelled`, `Applied`
+
+`Cancellation` is set by `POST /api/Invoice/{docEntry}/cancel` and marks a credit note that
+withdrew an invoice in full rather than took stock back off a sale that stands.
+
+**Reasons**
+
+`/api/CreditNote/reasons` answers SAP's own list, read live from the running company database:
+
+```json
+{ "reasons": [ { "value": "Cancellation", "description": "Customer order not collected" } ] }
+```
+
+These are the valid values of `U_Reasons`, a **line-level** user field on `RIN1`. SAP rejects any
+value it does not define, and the list is not the same in every company database — production
+carries the `Re-Invoice …` and `Cancellation …` entries that the test database has never had — so
+neither the picker nor the payload may hard-code it. `value` is what goes on the line;
+`description` is what a person reads. The API caches the list for six hours.
 
 **Create Credit Note Request:**
 

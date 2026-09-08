@@ -9,6 +9,15 @@ public interface ICreditNoteService
     Task<CreditNoteDto?> GetCreditNoteByIdAsync(int id);
     Task<CreditNoteDto?> GetCreditNoteByNumberAsync(string creditNoteNumber);
     Task<CreditNotesByInvoiceResponse?> GetCreditNotesForInvoiceAsync(int invoiceId);
+
+    /// <summary>
+    /// The reasons SAP allows on a credit note line, in SAP's own order.
+    /// </summary>
+    /// <remarks>
+    /// Answers an empty list rather than null on failure: a picker with nothing in it is a state the
+    /// caller can render, and there is no partial answer worth distinguishing from none.
+    /// </remarks>
+    Task<IReadOnlyList<CreditNoteReasonOption>> GetReasonsAsync(CancellationToken cancellationToken = default);
     Task<CreditNoteDto?> CreateCreditNoteAsync(CreateCreditNoteRequest request);
     Task<CreateCreditNoteResult> CreateFromInvoiceAsync(int invoiceId, List<CreateCreditNoteLineRequest> lines, string reason, string? clientRequestId = null);
     Task<CreditNoteDto?> ApproveAsync(int id);
@@ -28,7 +37,7 @@ public class CreditNoteService : ICreditNoteService
 
     /// <summary>
     /// The credit-note list. <paramref name="includeLines"/> asks for the document lines too, which
-    /// the API can only answer from SAP — only ask when the caller aggregates by item.
+    /// the API can only answer from SAP â€” only ask when the caller aggregates by item.
     /// </summary>
     public async Task<CreditNoteListResponse?> GetCreditNotesAsync(int page = 1, int pageSize = 20,
         CreditNoteStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null,
@@ -56,6 +65,21 @@ public class CreditNoteService : ICreditNoteService
         {
             _logger.LogError(ex, "Error fetching credit notes");
             return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<CreditNoteReasonOption>> GetReasonsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _httpClient.GetFromJsonAsync<CreditNoteReasonsResponse>(
+                "api/creditnote/reasons", cancellationToken);
+            return response?.Reasons ?? [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching the credit note reasons");
+            return [];
         }
     }
 

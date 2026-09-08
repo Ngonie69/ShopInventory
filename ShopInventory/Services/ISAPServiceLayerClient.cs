@@ -1,4 +1,4 @@
-using ShopInventory.DTOs;
+﻿using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 
@@ -584,6 +584,17 @@ public interface ISAPServiceLayerClient
     /// Cancels a credit note (A/R Credit Memo) in SAP Business One.
     /// </summary>
     Task CancelCreditNoteAsync(int docEntry, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The reasons a credit note line may carry, as SAP itself defines them.
+    /// </summary>
+    /// <remarks>
+    /// These are the valid values of <c>U_Reasons</c>, a line-level user field on <c>RIN1</c>.
+    /// They are read rather than held in the app because the list is maintained in SAP and differs
+    /// between company databases — production carries the cancellation reasons, the test database
+    /// an older list — and because the field rejects any value that is not one of them.
+    /// </remarks>
+    Task<IReadOnlyList<SapDocumentLineReason>> GetCreditNoteLineReasonsAsync(CancellationToken cancellationToken = default);
 
     // Exchange Rate Operations
     /// <summary>

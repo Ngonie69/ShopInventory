@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
@@ -15652,6 +15652,10 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                         BaseEntry = request.OriginalInvoiceDocEntry, // Link to original invoice
                         BaseLine = line.OriginalInvoiceLineId ?? index, // Line from original invoice
                         BaseType = 13, // 13 = A/R Invoice
+                        // SAP holds the reason on the line, not the header: U_Reasons is a
+                        // valid-values UDF on RIN1 and it is what SAP's own return reporting reads.
+                        // Omitted when unset so SAP applies the field's own default.
+                        U_Reasons = NormalizeReturnReason(line.ReturnReason),
                         BatchNumbers = hasBatches ? batches!.Select(b => new
                         {
                             BatchNumber = b.BatchNumber,
@@ -15686,6 +15690,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                     UnitPrice = line.UnitPrice,
                     WarehouseCode = line.WarehouseCode ?? request.RestockWarehouseCode,
                     DiscountPercent = line.DiscountPercent,
+                    U_Reasons = NormalizeReturnReason(line.ReturnReason),
                     BatchNumbers = line.BatchNumbers?.Select(b => new
                     {
                         BatchNumber = b.BatchNumber,
@@ -15785,6 +15790,127 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         }
 
         _logger.LogInformation("SAP credit note {DocEntry} cancelled successfully", docEntry);
+    }
+
+    /// <summary>
+    /// The line table whose <c>U_Reasons</c> field defines the reasons a credit note may carry.
+    /// </summary>
+    private const string ReturnReasonLineTable = "RIN1";
+
+    /// <summary>The user field, without the <c>U_</c> prefix SAP adds to the column.</summary>
+    private const string ReturnReasonFieldName = "Reasons";
+
+    /// <summary>
+    /// Trims a reason to what <c>U_Reasons</c> can hold, and turns an unset one into an omitted
+    /// field rather than an empty string, so SAP applies the field's own default value.
+    /// </summary>
+    private static string? NormalizeReturnReason(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return null;
+        }
+
+        var trimmed = reason.Trim();
+        return trimmed.Length <= 250 ? trimmed : trimmed[..250];
+    }
+
+    public async Task<IReadOnlyList<SapDocumentLineReason>> GetCreditNoteLineReasonsAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        // The field is found by name rather than by FieldID: the same user field is FieldID 5 in the
+        // production company database and 6 in the test one, so an id read from either is wrong
+        // against the other. Paging matters here too — UserFieldsMD answers 20 rows without a
+        // maxpagesize preference, and this company database defines over 700 user fields, so a
+        // filtered read that does not page finds nothing and looks like "the field does not exist".
+        var filter = Uri.EscapeDataString($"TableName eq '{ReturnReasonLineTable}' and Name eq '{ReturnReasonFieldName}'");
+        var url = $"UserFieldsMD?$select=FieldID,Name,TableName&$filter={filter}";
+
+        var listJson = await GetSapJsonAsync(url, "credit note reason field", cancellationToken);
+        using var listDocument = JsonDocument.Parse(listJson);
+
+        if (!listDocument.RootElement.TryGetProperty("value", out var rows) || rows.GetArrayLength() == 0)
+        {
+            _logger.LogWarning(
+                "SAP company database defines no {Field} user field on {Table}; credit notes will carry no reason",
+                ReturnReasonFieldName, ReturnReasonLineTable);
+            return Array.Empty<SapDocumentLineReason>();
+        }
+
+        var fieldId = rows[0].GetProperty("FieldID").GetInt32();
+
+        var fieldJson = await GetSapJsonAsync(
+            $"UserFieldsMD(TableName='{ReturnReasonLineTable}',FieldID={fieldId})",
+            "credit note reasons",
+            cancellationToken);
+
+        using var fieldDocument = JsonDocument.Parse(fieldJson);
+
+        if (!fieldDocument.RootElement.TryGetProperty("ValidValuesMD", out var validValues)
+            || validValues.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<SapDocumentLineReason>();
+        }
+
+        var reasons = new List<SapDocumentLineReason>(validValues.GetArrayLength());
+        foreach (var validValue in validValues.EnumerateArray())
+        {
+            var value = validValue.TryGetProperty("Value", out var valueElement) ? valueElement.GetString() : null;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            var description = validValue.TryGetProperty("Description", out var descriptionElement)
+                ? descriptionElement.GetString()
+                : null;
+
+            reasons.Add(new SapDocumentLineReason(
+                value,
+                string.IsNullOrWhiteSpace(description) ? value : description));
+        }
+
+        _logger.LogInformation(
+            "Read {Count} credit note reasons from SAP ({Table}.U_{Field}, FieldID {FieldId})",
+            reasons.Count, ReturnReasonLineTable, ReturnReasonFieldName, fieldId);
+
+        return reasons;
+    }
+
+    /// <summary>
+    /// A plain authenticated GET against the Service Layer, retried once on an expired session.
+    /// </summary>
+    private async Task<string> GetSapJsonAsync(string url, string what, CancellationToken cancellationToken)
+    {
+        var currentSession = _sessionId;
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", "odata.maxpagesize=500");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", "odata.maxpagesize=500");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to read {What} from SAP: {StatusCode} - {Error}", what, response.StatusCode, errorContent);
+            throw new Exception(ExtractSAPErrorMessage(errorContent) ?? $"Failed to read {what} from SAP: {response.StatusCode}");
+        }
+
+        return await response.Content.ReadAsStringAsync(cancellationToken);
     }
 
     #endregion
