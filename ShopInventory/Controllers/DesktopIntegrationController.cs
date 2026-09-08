@@ -60,6 +60,7 @@ using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 using ShopInventory.Middleware;
 using ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
 using ShopInventory.Features.DesktopIntegration.Queries.GetMonitoredWarehouses;
+using ShopInventory.Features.DesktopIntegration.Queries.GetVendorsForAccount;
 using ShopInventory.Features.Prices.Queries.GetPricesByPriceList;
 using ShopInventory.Features.Prices.Queries.GetPriceLists;
 using ShopInventory.Features.Prices.Queries.GetItemPriceFromList;
@@ -832,6 +833,33 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     {
         var result = await mediator.Send(new GetLocalStockQuery(warehouseCode, snapshotDate), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The vendors this account may invoice, for a cart-vendor till.
+    /// </summary>
+    /// <remarks>
+    /// Takes no business partner and accepts none. <c>GET /api/route-customers</c> filters on a code
+    /// the caller supplies and answers with every route's customers when none is given — right for an
+    /// administrator, wrong for a till, which would then be trusted to scope itself correctly against
+    /// a list it could just as easily ask for in full.
+    ///
+    /// This reads the code off the account through the same resolver the sale uses, so the list an
+    /// operator picks from and the set <c>CreateDesktopSale</c> will accept are one filter over one
+    /// value. Like the sale, it needs a real user rather than the loose claim read: an API key carries
+    /// no selling account.
+    /// </remarks>
+    [HttpGet("vendors")]
+    public async Task<IActionResult> GetVendors(CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new GetVendorsForAccountQuery(userId.Value), cancellationToken);
+
+        return result.Match(Ok, Problem);
     }
 
     /// <summary>
