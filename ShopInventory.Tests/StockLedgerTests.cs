@@ -188,6 +188,91 @@ public sealed class StockLedgerTests
     }
 
     // ---------------------------------------------------------------
+    // Reservations hold, without any bookkeeping to lose
+    // ---------------------------------------------------------------
+
+    [Fact]
+    public async Task A_live_reservation_holds_stock_against_the_till()
+    {
+        await using var context = await LedgerWith(units: 10);
+        await AddReservation(context, quantity: 8, status: ReservationStatus.Pending);
+        var ledger = Ledger(context);
+
+        // This is the one-way hold closed. The SAP-side path already netted reservations off; the
+        // till read the raw snapshot and would sell stock a rep had reserved minutes earlier for a
+        // customer standing in the shop.
+        Assert.Equal(2m, (await ledger.ReadAsync(Item, Warehouse)).Available);
+
+        var outcome = await ledger.TryCommitAsync([Line(5)], "till sale");
+        Assert.False(outcome.Committed);
+        Assert.Contains(outcome.Shortfalls, s => s.Contains("8 of it reserved"));
+    }
+
+    [Fact]
+    public async Task A_cancelled_or_expired_reservation_stops_holding_anything()
+    {
+        await using var context = await LedgerWith(units: 10);
+        await AddReservation(context, quantity: 8, status: ReservationStatus.Cancelled);
+        await AddReservation(context, quantity: 5, status: ReservationStatus.Pending, expiresAt: DateTime.UtcNow.AddMinutes(-1));
+
+        // No bookkeeping to get wrong: the reservation's own status is the lifecycle, so nothing has
+        // to remember to give units back and nothing can lose them.
+        Assert.Equal(10m, (await Ledger(context).ReadAsync(Item, Warehouse)).Available);
+    }
+
+    [Fact]
+    public async Task A_confirmed_reservation_stops_holding_and_its_units_are_taken_instead()
+    {
+        await using var context = await LedgerWith(units: 10);
+        var reservation = await AddReservation(context, quantity: 8, status: ReservationStatus.Pending);
+        var ledger = Ledger(context);
+
+        Assert.Equal(2m, (await ledger.ReadAsync(Item, Warehouse)).Available);
+
+        // What ConfirmReservationAsync does: the status change drops the hold, and the invoice it
+        // posted is recorded as settled. Counted once across the two steps, not twice and not zero.
+        reservation.Status = ReservationStatus.Confirmed;
+        await context.SaveChangesAsync();
+        await ledger.TakeSettledAsync([Line(8)], "reservation confirmed as invoice 5001");
+
+        Assert.Equal(2m, (await ledger.ReadAsync(Item, Warehouse)).Available);
+    }
+
+    // ---------------------------------------------------------------
+    // Settled documents, which cannot be refused
+    // ---------------------------------------------------------------
+
+    [Fact]
+    public async Task A_settled_document_is_recorded_even_when_the_ledger_is_short()
+    {
+        await using var context = await LedgerWith(units: 2);
+        var ledger = Ledger(context);
+
+        // The invoice exists in SAP. Refusing to record it would leave the ledger claiming stock
+        // that has physically gone, which is the direction that oversells.
+        await ledger.TakeSettledAsync([Line(5)], "already in SAP");
+
+        Assert.Equal(0m, (await ledger.ReadAsync(Item, Warehouse)).Available);
+    }
+
+    [Fact]
+    public async Task A_returned_unit_can_be_sold_again()
+    {
+        await using var context = await LedgerWith(units: 5);
+        var ledger = Ledger(context);
+
+        Assert.True((await ledger.TryCommitAsync([Line(5)], "invoice")).Committed);
+        Assert.False((await ledger.TryCommitAsync([Line(2)], "next sale")).Committed);
+
+        // What a credit note does once SAP has taken it. Without this the ledger only ever falls,
+        // and by evening a shop that took a delivery back is refused sales for stock standing in
+        // front of the cashier.
+        await ledger.ReleaseAsync([Line(2)], "credit note 8801");
+
+        Assert.True((await ledger.TryCommitAsync([Line(2)], "next sale")).Committed);
+    }
+
+    // ---------------------------------------------------------------
     // Who commits, and who must not
     // ---------------------------------------------------------------
 
@@ -202,6 +287,19 @@ public sealed class StockLedgerTests
 
         Assert.Contains("stockLedger.TryCommitAsync", Source(
             "Features", "Invoices", "Commands", "CreateInvoice", "CreateInvoiceHandler.cs"));
+
+        // A credit note returns units; a confirmed reservation records the ones its invoice took.
+        //
+        // Asserted on the call, not just on the method that makes it. A helper that nobody invokes
+        // still contains the words — the first version of this test passed happily with both call
+        // sites deleted, which is exactly the regression it is here to catch.
+        var creditNotes = Source("Services", "CreditNoteService.cs");
+        Assert.Contains("_stockLedger.ReleaseAsync", creditNotes);
+        Assert.Contains("await ReturnRestockedUnitsToLedgerAsync(request,", creditNotes);
+
+        var reservations = Source("Services", "StockReservationService.cs");
+        Assert.Contains("_stockLedger.TakeSettledAsync", reservations);
+        Assert.Contains("await CommitConfirmedReservationToLedgerAsync(reservation,", reservations);
     }
 
     [Fact]
@@ -233,6 +331,35 @@ public sealed class StockLedgerTests
         }
 
         return directory?.FullName ?? throw new InvalidOperationException("Could not locate the repository root.");
+    }
+
+    private static async Task<StockReservationEntity> AddReservation(
+        ApplicationDbContext context,
+        decimal quantity,
+        string status,
+        DateTime? expiresAt = null)
+    {
+        var reservation = new StockReservationEntity
+        {
+            ExternalReferenceId = Guid.NewGuid().ToString("N"),
+            SourceSystem = "TEST",
+            CardCode = "C-1",
+            Status = status,
+            ExpiresAt = expiresAt ?? DateTime.UtcNow.AddHours(1),
+            Lines =
+            [
+                new StockReservationLineEntity
+                {
+                    ItemCode = Item,
+                    WarehouseCode = Warehouse,
+                    ReservedQuantity = quantity
+                }
+            ]
+        };
+
+        context.StockReservations.Add(reservation);
+        await context.SaveChangesAsync();
+        return reservation;
     }
 
     private static StockLedgerLine Line(decimal quantity) => new(Item, Warehouse, quantity);

@@ -105,6 +105,15 @@ public static class QuartzConfiguration
             if (dailyStock.EnableAutoStockFetch)
             {
                 AddCronJob<DailyStockSnapshotJob>(q, "daily-stock-snapshot", BuildDailyCron(dailyStock.StockFetchTimeCAT, "07:00"));
+
+                // Gated on the same setting: without a morning snapshot there is no ledger to
+                // compare, so the comparison would find nothing to say. Hourly rather than
+                // continuous because it reads SAP, and it asks only about items the day has moved.
+                AddIntervalJob<StockLedgerDivergenceJob>(
+                    q,
+                    "stock-ledger-divergence",
+                    TimeSpan.FromHours(1),
+                    startDelay: TimeSpan.FromMinutes(10));
             }
 
             if (dailyStock.EnableAutoConsolidation)

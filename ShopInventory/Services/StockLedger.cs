@@ -97,6 +97,19 @@ public interface IStockLedger
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Records units that have already gone, on a document that exists. Cannot refuse.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="TryCommitAsync"/>, which asks. By the time this is called the answer
+    /// is not in doubt — SAP has the document — so refusing would only leave the ledger claiming
+    /// stock that is physically gone, which is the direction that oversells.
+    /// </remarks>
+    Task TakeSettledAsync(
+        IReadOnlyList<StockLedgerLine> lines,
+        string reference,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Puts units back — a document that was refused after its claim was taken, or one that was
     /// reversed. Never fails on an untracked warehouse.
     /// </summary>
@@ -141,10 +154,12 @@ public sealed class StockLedger(
             return new StockLedgerReading(StockLedgerCoverage.NotTracked, 0m);
         }
 
-        var available = await RowsFor(itemCode, warehouseCode)
+        var onSnapshot = await RowsFor(itemCode, warehouseCode)
             .SumAsync(row => row.AvailableQuantity, cancellationToken);
 
-        return new StockLedgerReading(StockLedgerCoverage.Tracked, available);
+        var held = await HeldByReservationsAsync(itemCode, warehouseCode, cancellationToken);
+
+        return new StockLedgerReading(StockLedgerCoverage.Tracked, onSnapshot - held);
     }
 
     public async Task<StockLedgerOutcome> TryCommitAsync(
@@ -182,11 +197,15 @@ public sealed class StockLedger(
                     .OrderBy(row => row.ExpiryDate)
                     .ToListAsync(cancellationToken);
 
-                var available = rows.Sum(row => row.AvailableQuantity);
+                var held = await HeldByReservationsAsync(claim.ItemCode, claim.WarehouseCode, cancellationToken);
+                var available = rows.Sum(row => row.AvailableQuantity) - held;
+
                 if (available < claim.Quantity)
                 {
+                    var heldNote = held > 0 ? $" ({Quantity(held)} of it reserved)" : string.Empty;
                     shortfalls.Add(
-                        $"{claim.ItemCode} in {claim.WarehouseCode}: {claim.Quantity} requested, {available} left to promise today");
+                        $"{claim.ItemCode} in {claim.WarehouseCode}: {Quantity(claim.Quantity)} requested, "
+                        + $"{Quantity(available)} left to promise today{heldNote}");
                     continue;
                 }
 
@@ -236,6 +255,40 @@ public sealed class StockLedger(
             []);
     }
 
+    public async Task TakeSettledAsync(
+        IReadOnlyList<StockLedgerLine> lines,
+        string reference,
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var claim in Aggregate(lines))
+        {
+            if (!await IsTrackedAsync(claim.WarehouseCode, cancellationToken))
+            {
+                continue;
+            }
+
+            var rows = await RowsFor(claim.ItemCode, claim.WarehouseCode)
+                .OrderBy(row => row.ExpiryDate)
+                .ToListAsync(cancellationToken);
+
+            var availableBefore = rows.Sum(row => row.AvailableQuantity);
+            Take(rows, claim.Quantity);
+
+            // Take stops when the rows run out, so the shortfall goes unrecorded rather than driving
+            // a row negative. Worth saying: a settled document for more than the ledger held means
+            // the ledger and the shelf had already drifted apart before this document existed.
+            if (availableBefore < claim.Quantity)
+            {
+                logger.LogWarning(
+                    "Stock ledger recorded {Quantity} of {ItemCode} leaving {WarehouseCode} for {Reference}, "
+                    + "but held only {Available}. The ledger had already drifted from the shelf.",
+                    claim.Quantity, claim.ItemCode, claim.WarehouseCode, reference, availableBefore);
+            }
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task ReleaseAsync(
         IReadOnlyList<StockLedgerLine> lines,
         string reference,
@@ -272,6 +325,18 @@ public sealed class StockLedger(
 
         await context.SaveChangesAsync(cancellationToken);
     }
+
+    /// <summary>
+    /// Renders a quantity the way a person would write it, so a shortfall reads "2" rather than
+    /// "2.000000".
+    /// </summary>
+    /// <remarks>
+    /// Arithmetic on decimals keeps the widest scale of its operands, so subtracting two snapshot
+    /// quantities gives six decimal places whatever the numbers are. These strings are read by
+    /// cashiers.
+    /// </remarks>
+    private static string Quantity(decimal value) =>
+        value.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Takes <paramref name="quantity"/> across the rows, soonest to expire first — the same order
@@ -317,6 +382,42 @@ public sealed class StockLedger(
                 group.Key.WarehouseCode,
                 group.Sum(line => line.Quantity)))
             .ToList();
+
+    /// <summary>
+    /// Units a live reservation is holding, which are on the shelf but already spoken for.
+    /// </summary>
+    /// <remarks>
+    /// A reservation is a hold rather than a commitment, so it is read here rather than written into
+    /// the snapshot. Its own status is the lifecycle: cancelling or expiring one drops it out of
+    /// this sum with no bookkeeping to get wrong, where a reservation that decremented the snapshot
+    /// would have to remember to put the units back and would lose them whenever it did not.
+    ///
+    /// <para>
+    /// This is what closes the one-way hold. The SAP-side path already netted reservations off, via
+    /// <c>GetReservedQuantityAsync</c>; the till read the raw snapshot and so would happily sell
+    /// stock a rep had reserved minutes earlier for a customer standing in the shop.
+    /// </para>
+    ///
+    /// <para>
+    /// When a reservation is confirmed it stops being counted here, and the confirm posts an invoice
+    /// that commits the units properly — so the hold becomes a decrement in one step rather than
+    /// being counted twice or dropped between the two.
+    /// </para>
+    /// </remarks>
+    private async Task<decimal> HeldByReservationsAsync(
+        string itemCode,
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+
+        return await context.StockReservationLines
+            .Where(line => line.ItemCode == itemCode
+                        && line.WarehouseCode == warehouseCode
+                        && line.Reservation.Status == ReservationStatus.Pending
+                        && line.Reservation.ExpiresAt > now)
+            .SumAsync(line => line.ReservedQuantity, cancellationToken);
+    }
 
     private IQueryable<DailyStockSnapshotItemEntity> RowsFor(string itemCode, string warehouseCode)
     {

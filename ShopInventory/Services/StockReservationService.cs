@@ -126,6 +126,7 @@ public class StockReservationService : IStockReservationService
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly IBatchInventoryValidationService _batchValidation;
     private readonly IInventoryLockService _lockService;
+    private readonly IStockLedger _stockLedger;
     private readonly IInvoiceFiscalizationQueue _fiscalizationQueue;
     private readonly INotificationService _notificationService;
     private readonly ILogger<StockReservationService> _logger;
@@ -138,6 +139,7 @@ public class StockReservationService : IStockReservationService
         ISAPServiceLayerClient sapClient,
         IBatchInventoryValidationService batchValidation,
         IInventoryLockService lockService,
+        IStockLedger stockLedger,
         IInvoiceFiscalizationQueue fiscalizationQueue,
         INotificationService notificationService,
         ILogger<StockReservationService> logger)
@@ -146,6 +148,7 @@ public class StockReservationService : IStockReservationService
         _sapClient = sapClient;
         _batchValidation = batchValidation;
         _lockService = lockService;
+        _stockLedger = stockLedger;
         _fiscalizationQueue = fiscalizationQueue;
         _notificationService = notificationService;
         _logger = logger;
@@ -624,6 +627,18 @@ public class StockReservationService : IStockReservationService
 
             await _dbContext.SaveChangesAsync(cancellationToken);
 
+            // Turn the hold into a commitment, in that order and after the status change.
+            //
+            // While the reservation was Pending the ledger counted its lines as held, so a till
+            // could not sell them. Confirming drops it out of that sum, and the invoice it just
+            // posted is what those units actually went on — so the ledger has to be told, or the
+            // stock would reappear as available the moment the reservation stopped being pending.
+            //
+            // Not TryCommitAsync: this is not a request for stock, it is the record of stock that
+            // has already left on a document SAP has accepted. Refusing it would change nothing
+            // about the invoice and would leave the ledger overstating what is on the shelf.
+            await CommitConfirmedReservationToLedgerAsync(reservation, invoice.DocNum, cancellationToken);
+
             _logger.LogInformation(
                 "Reservation {ReservationId} confirmed. SAP DocEntry: {DocEntry}, DocNum: {DocNum}",
                 reservation.ReservationId, invoice.DocEntry, invoice.DocNum);
@@ -703,6 +718,45 @@ public class StockReservationService : IStockReservationService
                 ReservationId = reservation.ReservationId,
                 Errors = new List<string> { ex.Message }
             };
+        }
+    }
+
+    /// <summary>
+    /// Records the units a confirmed reservation took off the shelf.
+    /// </summary>
+    /// <remarks>
+    /// Settled rather than committed because the answer is not in doubt: the invoice exists in SAP.
+    /// A commit that could be refused would leave the ledger claiming stock that has physically gone.
+    /// </remarks>
+    private async Task CommitConfirmedReservationToLedgerAsync(
+        StockReservationEntity reservation,
+        int docNum,
+        CancellationToken cancellationToken)
+    {
+        var taken = reservation.Lines
+            .Select(line => new StockLedgerLine(line.ItemCode, line.WarehouseCode, line.ReservedQuantity))
+            .Where(line => !string.IsNullOrWhiteSpace(line.ItemCode)
+                        && !string.IsNullOrWhiteSpace(line.WarehouseCode))
+            .ToList();
+
+        if (taken.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _stockLedger.TakeSettledAsync(taken, $"reservation confirmed as invoice {docNum}", cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // The invoice is in SAP; that is the part that had to be right. A ledger that missed
+            // this overstates the shelf until the morning fetch, which is the direction that
+            // oversells — so it is worth a warning rather than a debug line.
+            _logger.LogWarning(ex,
+                "Reservation {ReservationId} was confirmed as invoice {DocNum}, but the stock ledger "
+                + "was not told, so it may overstate what is available until tomorrow's fetch",
+                reservation.ReservationId, docNum);
         }
     }
 
