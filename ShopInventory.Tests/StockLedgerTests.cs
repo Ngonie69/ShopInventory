@@ -303,6 +303,13 @@ public sealed class StockLedgerTests
         var reservations = Source("Services", "StockReservationService.cs");
         Assert.Contains("_stockLedger.TakeSettledAsync", reservations);
         Assert.Contains("await CommitConfirmedReservationToLedgerAsync(reservation,", reservations);
+
+        // A van sale takes stock off the van. It cannot be refused — the goods left hours ago and
+        // the receipt is with ZIMRA — so it settles rather than commits, and a shortfall is recorded
+        // rather than thrown.
+        var vanSales = Source("Services", "VanSalesEndOfDayPostingService.cs");
+        Assert.Contains("stockLedger.TakeSettledAsync", vanSales);
+        Assert.Contains("await RecordStockLeavingTheVanAsync(sale,", vanSales);
     }
 
     [Fact]

@@ -30,6 +30,20 @@ public enum StockLedgerCoverage
     NotTracked
 }
 
+/// <param name="ItemCode">The item the document took more of than the ledger held.</param>
+/// <param name="WarehouseCode">Where it took it from.</param>
+/// <param name="Taken">What the document says left.</param>
+/// <param name="Held">What the ledger had to give.</param>
+public sealed record StockLedgerShortfall(
+    string ItemCode,
+    string WarehouseCode,
+    decimal Taken,
+    decimal Held)
+{
+    /// <summary>How much more left than the ledger knew about.</summary>
+    public decimal Excess => Taken - Held;
+}
+
 /// <param name="Coverage">Whether the ledger tracks this warehouse at all.</param>
 /// <param name="Available">Units left to promise. Meaningless when <see cref="Coverage"/> is NotTracked.</param>
 public sealed record StockLedgerReading(StockLedgerCoverage Coverage, decimal Available);
@@ -102,12 +116,17 @@ public interface IStockLedger
     /// <summary>
     /// Records units that have already gone, on a document that exists. Cannot refuse.
     /// </summary>
+    /// <returns>
+    /// Lines the ledger did not hold enough of. Never a reason to stop the document — it is already
+    /// posted — but each one says the ledger and the shelf had drifted apart before it arrived, and
+    /// for a van that is the shape an over-sale takes.
+    /// </returns>
     /// <remarks>
     /// Distinct from <see cref="TryCommitAsync"/>, which asks. By the time this is called the answer
     /// is not in doubt — SAP has the document — so refusing would only leave the ledger claiming
     /// stock that is physically gone, which is the direction that oversells.
     /// </remarks>
-    Task TakeSettledAsync(
+    Task<IReadOnlyList<StockLedgerShortfall>> TakeSettledAsync(
         IReadOnlyList<StockLedgerLine> lines,
         string reference,
         CancellationToken cancellationToken = default);
@@ -252,11 +271,13 @@ public sealed class StockLedger(
             []);
     }
 
-    public async Task TakeSettledAsync(
+    public async Task<IReadOnlyList<StockLedgerShortfall>> TakeSettledAsync(
         IReadOnlyList<StockLedgerLine> lines,
         string reference,
         CancellationToken cancellationToken = default)
     {
+        var shortfalls = new List<StockLedgerShortfall>();
+
         foreach (var claim in Aggregate(lines))
         {
             if (!await IsTrackedAsync(claim.WarehouseCode, cancellationToken))
@@ -276,6 +297,9 @@ public sealed class StockLedger(
             // the ledger and the shelf had already drifted apart before this document existed.
             if (availableBefore < claim.Quantity)
             {
+                shortfalls.Add(new StockLedgerShortfall(
+                    claim.ItemCode, claim.WarehouseCode, claim.Quantity, availableBefore));
+
                 logger.LogWarning(
                     "Stock ledger recorded {Quantity} of {ItemCode} leaving {WarehouseCode} for {Reference}, "
                     + "but held only {Available}. The ledger had already drifted from the shelf.",
@@ -284,6 +308,7 @@ public sealed class StockLedger(
         }
 
         await context.SaveChangesAsync(cancellationToken);
+        return shortfalls;
     }
 
     public async Task ReleaseAsync(
