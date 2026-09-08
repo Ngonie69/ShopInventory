@@ -265,15 +265,19 @@ def test_classify_invoice_names_the_posting_path() -> None:
 
 
 def test_attribution_degrades_when_oinm_is_refused() -> None:
-    """OINM is the one table here not confirmed against working application code.
+    """OINM is not reachable through SQLQueries, so this path is the normal one.
 
-    If SAP refuses the statement the census must still stand, and the operator must
-    be told which columns to look at rather than shown a stack trace.
+    Confirmed against KEFALOS_USD_NEW2 on 2026-09-08: creating the query answers
+    702 "Table 'OINM' not accessible". The census must still stand on its own, and
+    the operator must be told it is a company restriction rather than sent looking
+    for a typo in the statement.
     """
-    client = RecordingClient({"SQLQueries('NEGSTK_MOVES": (404, ""), "SQLQueries": (400, "Invalid column name 'BASE_REF'")})
+    refusal = '{"error":{"code":702,"message":{"value":"Table \'OINM\' not accessible"}}}'
+    client = RecordingClient({"SQLQueries('NEGSTK_MOVES": (404, ""), "SQLQueries": (400, refusal)})
     result = r.attribute(client, [{"itemCode": "CHE011", "warehouseCode": "KEFSHOP", "onHand": -5.0}], 30, 50)
     check("a refused OINM query does not throw", result["available"], False)
-    check("the failure names what to check", "OINM column names" in result["hint"], True)
+    check("the refusal is quoted back", "not accessible" in result["error"], True)
+    check("the hint says it is a restriction, not a typo", "restriction" in result["hint"], True)
 
 
 # ---------------------------------------------------------------------------

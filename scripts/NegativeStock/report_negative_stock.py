@@ -15,10 +15,16 @@ work:
      reconcile. Guessing which one is leaking wastes the fix.
 
 The census (stages 1 and 2) is the part to trust: every table and column it
-touches is lifted from SQL this application already runs in production. The
-attribution stage walks OINM, which the application never queries, so its column
-names are the one thing here not confirmed against working code -- it is opt-in
-for that reason, and it reports rather than throws when SAP refuses it.
+touches is lifted from SQL this application already runs in production, and it was
+run against KEFALOS_USD_NEW2 on 2026-09-08.
+
+Stage 3, attribution, DOES NOT WORK on that company and probably not on any of
+them. SQLQueries answers `Table 'OINM' not accessible` (SAP error 702) -- the
+inventory journal is simply not exposed to it, whatever the statement says. It is
+left in because it costs nothing when it fails and the restriction is a company
+setting somebody may lift; do not spend time on the column names, which are not
+the problem. If attribution is ever needed for real, it has to come from
+somewhere other than a SQLQueries read of OINM.
 
 Re-run it. That is the point: this is the instrument every later phase is measured
 with, not a one-time query. Keep the JSON output as a baseline and diff it.
@@ -46,6 +52,7 @@ import collections
 import hashlib
 import json
 import os
+import re
 import ssl
 import sys
 import urllib.error
@@ -144,6 +151,33 @@ def normalize_sql_text(sql_text: str) -> str:
     return normalize_sap_sql_text(sql_text).replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
+# The Service Layer rewrites the statement it stores: post `FROM OITW T1` and a
+# later GET returns `FROM "OITW" T1`. Nothing else moves. Confirmed against
+# KEFALOS_USD_NEW2 on 2026-09-08, on the first read after this script created the
+# census query.
+#
+# Case-insensitive on the keyword only. Applied to the identifier too it would
+# collapse "MyTable" onto MyTable, which are two different tables in HANA.
+_QUOTED_TABLE_NAME = re.compile(r'\b((?i:FROM|JOIN))(\s+)"([A-Z][A-Z0-9_]*)"')
+
+
+def canonicalise_for_comparison(sql_text: str) -> str:
+    """Whether SAP's stored statement and the one about to be sent are the same one.
+
+    Deliberately separate from normalize_sql_text, which feeds the fingerprint and
+    must not change: loosening that would move every content-addressed code and
+    mint a fresh SQLQueries row for each, orphaning the existing ones in an OUQR
+    that is already oversized and effectively undeletable.
+
+    Without it every run PATCHes a query nobody edited, because what SAP hands
+    back never equals what was posted. A PATCH on SQLQueries is a slow write, and
+    this mirrors what SAPServiceLayerClient already does for the same reason.
+    """
+    normalized = normalize_sql_text(sql_text)
+    trimmed = "\n".join(line.rstrip() for line in normalized.split("\n"))
+    return _QUOTED_TABLE_NAME.sub(r"\1\2\3", trimmed)
+
+
 def sql_fingerprint(sql_text: str) -> str:
     digest = hashlib.sha256(normalize_sql_text(sql_text).encode("utf-8")).hexdigest()
     return digest[:12].upper()
@@ -232,7 +266,7 @@ class ServiceLayer:
 
         if status == 200:
             stored = json.loads(body).get("SqlText") or ""
-            if normalize_sql_text(stored) == normalize_sql_text(sql_text):
+            if canonicalise_for_comparison(stored) == canonicalise_for_comparison(sql_text):
                 return
             status, body = self.patch(
                 f"SQLQueries('{urllib.parse.quote(code)}')",
@@ -467,7 +501,7 @@ def attribute(client: ServiceLayer, negatives: list[dict], lookback_days: int, l
         return {
             "available": False,
             "error": f"{error} -- {error.body[:400]}",
-            "hint": "Check the OINM column names in SQL_ITEM_MOVEMENTS against this company's schema.",
+            "hint": "SQLQueries answers 702 'Table OINM not accessible' on KEFALOS_USD_NEW2 (2026-09-08). The journal is not exposed to it, so this is a company restriction rather than a bad statement -- the column names are not the problem.",
             "results": [],
         }
 
@@ -486,7 +520,7 @@ def attribute(client: ServiceLayer, negatives: list[dict], lookback_days: int, l
             return {
                 "available": False,
                 "error": f"{error} -- {error.body[:400]}",
-                "hint": "Check the OINM column names in SQL_ITEM_MOVEMENTS against this company's schema.",
+                "hint": "SQLQueries answers 702 'Table OINM not accessible' on KEFALOS_USD_NEW2 (2026-09-08). The journal is not exposed to it, so this is a company restriction rather than a bad statement -- the column names are not the problem.",
                 "results": results,
             }
 
