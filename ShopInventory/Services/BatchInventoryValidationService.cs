@@ -71,6 +71,13 @@ public interface IBatchInventoryValidationService
     /// Performs final pre-post validation with locking.
     /// This should be called immediately before posting to SAP.
     /// </summary>
+    /// <param name="request">The invoice about to be posted.</param>
+    /// <param name="previouslyAllocatedBatches">
+    /// What an earlier pass allocated, for reporting what moved since. It is not a way to skip the
+    /// check: passing an allocation used to return success without reading any stock at all, which
+    /// left the locks guarding a decision taken before they were held.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     Task<BatchStockValidationResponseDto> PrePostValidationAsync(
         CreateInvoiceRequest request,
         List<AllocatedBatchLine>? previouslyAllocatedBatches = null,
@@ -195,6 +202,11 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             StrategyUsed = strategy,
             BatchesAutoAllocated = autoAllocate
         };
+
+        // Each call is one pass, and each pass reads stock afresh. PrePostValidationAsync runs a
+        // second pass under the inventory locks for exactly that reason, so nothing may be carried
+        // over from the first.
+        BeginStockReadPass();
 
         if (request.Lines == null || request.Lines.Count == 0)
         {
@@ -654,14 +666,9 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             {
                 // Groups are already one per (item, warehouse), so this asks for the single item it
                 // is about. It used to scan OITM/OITW for the whole warehouse and page 500 rows at
-                // a time to pick one row out of the result — once per group.
-                var stockQuantities = await _sapClient.GetStockQuantitiesForItemsInWarehouseAsync(
-                    warehouseCode,
-                    [itemCode],
-                    cancellationToken);
-
-                var stock = stockQuantities.FirstOrDefault(stockItem =>
-                    string.Equals(stockItem.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
+                // a time to pick one row out of the result — once per group. Served from the pass
+                // memo, because the per-line check above has already asked.
+                var stock = await ReadWarehouseStockAsync(itemCode, warehouseCode, cancellationToken);
 
                 if (stock == null)
                 {
@@ -1157,18 +1164,18 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
         try
         {
-            if (previouslyAllocatedBatches is { Count: > 0 })
-            {
-                response.IsValid = true;
-                response.Message = "Stock validation successful";
-                response.AllocatedBatches = previouslyAllocatedBatches;
-                response.LockToken = lockResult.CombinedLockToken;
-                response.LockTokens = lockResult.LockTokens;
-                response.LockExpiresAt = lockResult.EarliestExpiry;
-                return response;
-            }
-
-            // Re-validate stock with locks held
+            // Re-validate stock with locks held.
+            //
+            // This used to be skipped whenever the caller passed an allocation, which is every
+            // well-formed invoice: the method acquired the locks, returned "Stock validation
+            // successful" without reading anything, and the only stock read that ever informed a web
+            // invoice was the one taken before the locks existed. The window between that read and
+            // the POST was exactly where a concurrent consumer could take the stock, and this is the
+            // check that was meant to close it.
+            //
+            // The re-read is not free, but it is not an extra read either: within a pass the
+            // per-line and aggregate checks now share one answer, so an invoice makes the same
+            // number of SAP stock calls it made before this changed. See BeginStockReadPass.
             var validationResult = await ValidateAndAllocateBatchesAsync(
                 request,
                 autoAllocate: true,
@@ -1190,7 +1197,16 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 return response;
             }
 
-            // Compare with previously allocated batches if provided
+            // What moved between the two passes. Reachable for the first time now that the pass
+            // above always runs — the early return made this dead code for every invoice that had
+            // been allocated.
+            //
+            // Still a warning, not a refusal, and deliberately. By this point the second pass has
+            // already validated the exact batches the request carries against current stock, so a
+            // shortage has been refused above; what is left here is stock that moved and is still
+            // sufficient. Refusing on that would reject a correct invoice every time any concurrent
+            // movement touched the same batch, which is most of a trading day. The value of the
+            // comparison is that it says how close the document came.
             if (previouslyAllocatedBatches != null)
             {
                 var discrepancies = CompareAllocations(previouslyAllocatedBatches, validationResult.AllocatedLines);
@@ -1624,12 +1640,9 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         try
         {
             // One item, asked for by name — this is called per line, and used to scan the whole
-            // warehouse each time.
-            var stockQuantities = await _sapClient.GetStockQuantitiesForItemsInWarehouseAsync(
-                warehouseCode, [itemCode], cancellationToken);
-
-            var stock = stockQuantities?.FirstOrDefault(s =>
-                string.Equals(s.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
+            // warehouse each time. Read through the pass memo: the aggregate check below asks the
+            // same question again, and the two must in any case agree on one answer.
+            var stock = await ReadWarehouseStockAsync(itemCode, warehouseCode, cancellationToken);
 
             if (stock == null)
             {
@@ -1694,6 +1707,72 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     }
 
     private bool FailClosed => _settings.Value.StockGuardFailClosed;
+
+    /// <summary>
+    /// The warehouse stock read once per validation pass, so the per-line check and the aggregate
+    /// check that follows it do not ask SAP the same question twice.
+    /// </summary>
+    /// <remarks>
+    /// Scoped to a single <see cref="ValidateAndAllocateBatchesAsync"/> call and cleared at its
+    /// start — never across calls. That distinction is the whole point: the pass that runs under the
+    /// inventory locks in <see cref="PrePostValidationAsync"/> exists precisely to see stock the
+    /// earlier pass could not, so caching between passes would put back the hole it was opened to
+    /// close.
+    ///
+    /// <para>
+    /// A plain field rather than anything thread-safe, matching the rest of this service: lines are
+    /// processed sequentially because the DbContext is not thread-safe, and the service is scoped to
+    /// one request.
+    /// </para>
+    ///
+    /// <para>
+    /// Failures are memoised alongside successes. During a Service Layer outage a twenty-line
+    /// document would otherwise spend twenty hung reads — each holding one of six process-wide
+    /// slots — to reach the same verdict the first one already gave.
+    /// </para>
+    /// </remarks>
+    private Dictionary<string, (StockQuantityDto? Stock, Exception? Failure)> _passStockReads = new(StringComparer.OrdinalIgnoreCase);
+
+    private void BeginStockReadPass() =>
+        _passStockReads = new Dictionary<string, (StockQuantityDto?, Exception?)>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Reads one item's stock in one warehouse, at most once per pass. Rethrows the original
+    /// failure, so every caller's own handling of an unreadable warehouse is unchanged.
+    /// </summary>
+    private async Task<StockQuantityDto?> ReadWarehouseStockAsync(
+        string itemCode,
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        var key = BuildStockKey(itemCode, warehouseCode);
+        if (_passStockReads.TryGetValue(key, out var memoised))
+        {
+            if (memoised.Failure is not null)
+            {
+                throw memoised.Failure;
+            }
+
+            return memoised.Stock;
+        }
+
+        try
+        {
+            var stockQuantities = await _sapClient.GetStockQuantitiesForItemsInWarehouseAsync(
+                warehouseCode, [itemCode], cancellationToken);
+
+            var stock = stockQuantities?.FirstOrDefault(candidate =>
+                string.Equals(candidate.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
+
+            _passStockReads[key] = (stock, null);
+            return stock;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _passStockReads[key] = (null, ex);
+            throw;
+        }
+    }
 
     private const string StockUnknownSuggestion =
         "Retry in a moment. If SAP stays unreachable, a manager can set SAP:StockGuardFailClosed "
