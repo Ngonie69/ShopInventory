@@ -1,4 +1,4 @@
-using ErrorOr;
+﻿using ErrorOr;
 
 namespace ShopInventory.Common.Errors;
 
@@ -63,5 +63,24 @@ public static partial class Errors
 
         public static Error TransferRequestNotFound(int docEntry) =>
             Error.NotFound("DesktopIntegration.TransferRequestNotFound", $"Transfer request with DocEntry {docEntry} not found");
+
+        /// <summary>
+        /// This API is configured not to call TransferEventListener.
+        /// </summary>
+        /// <remarks>
+        /// Says what is still working on purpose. The switch only governs calls out to the listener;
+        /// the listener's inbound webhook is untouched and keeps applying transfers to the snapshot,
+        /// so this must not read as "transfers have stopped".
+        /// </remarks>
+        public static Error TransferListenerDisabled() =>
+            Error.Failure(
+                "DesktopIntegration.TransferListenerDisabled",
+                "This API is configured not to call TransferEventListener "
+                + "(TransferEventListener:Enabled is false). Its inbound webhook is unaffected.");
+
+        public static Error TransferListenerUnreachable(string baseUrl, string message) =>
+            Error.Failure(
+                "DesktopIntegration.TransferListenerUnreachable",
+                $"TransferEventListener at {baseUrl} could not be reached: {message}");
     }
 }

@@ -1,4 +1,4 @@
-using ErrorOr;
+﻿using ErrorOr;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +17,8 @@ public sealed class FetchDailyStockHandler(
     ISAPServiceLayerClient sapClient,
     IHubContext<NotificationHub> hubContext,
     IOptions<DailyStockSettings> settings,
+    ITransferEventListenerClient listenerClient,
+    IOptions<TransferEventListenerSettings> listenerSettings,
     ILogger<FetchDailyStockHandler> logger
 ) : IRequestHandler<FetchDailyStockCommand, ErrorOr<FetchDailyStockResult>>
 {
@@ -207,6 +209,8 @@ public sealed class FetchDailyStockHandler(
         CancellationToken cancellationToken)
     {
         List<DTOs.StockQuantityDto> stock;
+        string? sourceNote = null;
+
         try
         {
             stock = await sapClient.GetNonBatchStockQuantitiesInWarehouseAsync(warehouseCode, cancellationToken);
@@ -217,9 +221,19 @@ public sealed class FetchDailyStockHandler(
             // and the caller records the gap on the snapshot so it is visible rather than inferred
             // from an item nobody can find.
             logger.LogError(ex,
-                "Could not read unbatched stock for warehouse {Warehouse}; the snapshot will hold only batch-managed items",
+                "Could not read unbatched stock for warehouse {Warehouse}; trying TransferEventListener before giving up",
                 warehouseCode);
-            return ([], $"Unbatched stock could not be read from SAP: {ex.Message}");
+
+            var (fallbackRows, fallbackNote) =
+                await FetchUnbatchedStockFromListenerAsync(warehouseCode, ex, cancellationToken);
+
+            if (fallbackRows is null)
+            {
+                return ([], fallbackNote);
+            }
+
+            stock = fallbackRows;
+            sourceNote = fallbackNote;
         }
 
         var alreadyRead = batchRows
@@ -249,6 +263,103 @@ public sealed class FetchDailyStockHandler(
             })
             .ToList();
 
-        return (rows, null);
+        return (rows, sourceNote);
+    }
+
+    /// <summary>
+    /// Second attempt at the same warehouse's non-batch stock, through TransferEventListener.
+    /// </summary>
+    /// <remarks>
+    /// Worth having because the listener is a separate process holding its own Service Layer session:
+    /// it does not queue behind this API's six SAP slots, so it can still answer while every one of
+    /// them is held by a read that has hung. That is the failure this path exists for, and the one the
+    /// morning fetch is most exposed to — it runs as background work, capped at four of those slots.
+    ///
+    /// It is only ever reached after the primary read has thrown, so it costs nothing on a normal day.
+    /// </remarks>
+    /// <returns>
+    /// The rows to use and a note for the snapshot, or a null row list and the sentence explaining why
+    /// there are none. A note is returned even on success: the primary read failing is worth recording
+    /// whether or not the fallback covered for it.
+    /// </returns>
+    private async Task<(List<DTOs.StockQuantityDto>? Rows, string? Note)> FetchUnbatchedStockFromListenerAsync(
+        string warehouseCode,
+        Exception primaryFailure,
+        CancellationToken cancellationToken)
+    {
+        var options = listenerSettings.Value;
+
+        if (!options.UseForUnbatchedStockFallback || !listenerClient.IsEnabled)
+        {
+            return (null, $"Unbatched stock could not be read from SAP: {primaryFailure.Message}");
+        }
+
+        DTOs.TransferListenerWarehouseStockDto? reading;
+        try
+        {
+            reading = await listenerClient.GetWarehouseNonBatchStockAsync(warehouseCode, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            logger.LogError(ex,
+                "TransferEventListener could not supply unbatched stock for {Warehouse} either; the snapshot will hold only batch-managed items",
+                warehouseCode);
+
+            return (null,
+                $"Unbatched stock could not be read from SAP: {primaryFailure.Message}. "
+                + $"TransferEventListener could not supply it either: {ex.Message}");
+        }
+
+        // Null is the listener saying it could not establish anything, which is not an empty warehouse.
+        if (reading is null)
+        {
+            return (null,
+                $"Unbatched stock could not be read from SAP: {primaryFailure.Message}. "
+                + "TransferEventListener could not reach SAP either.");
+        }
+
+        var degraded = string.Equals(reading.Source, "item-scan-fallback", StringComparison.OrdinalIgnoreCase);
+
+        if (degraded && !options.AcceptDegradedStockFallback)
+        {
+            return (null,
+                $"Unbatched stock could not be read from SAP: {primaryFailure.Message}. "
+                + "TransferEventListener answered from its degraded item scan, which is configured "
+                + "as not good enough to build a till catalogue from.");
+        }
+
+        // InStock, never the listener's Available: that one is InStock - Committed + Ordered, so it
+        // counts stock still on order. A till needs what is on the shelf.
+        var rows = reading.Items
+            .Where(item => !string.IsNullOrWhiteSpace(item.ItemCode))
+            .Select(item => new DTOs.StockQuantityDto
+            {
+                ItemCode = item.ItemCode,
+                ItemName = item.ItemName,
+                WarehouseCode = item.WarehouseCode ?? warehouseCode,
+                InStock = item.InStock,
+                Committed = item.Committed,
+                Ordered = item.Ordered,
+                Available = item.Available
+            })
+            .ToList();
+
+        logger.LogWarning(
+            "Unbatched stock for {Warehouse} came from TransferEventListener ({Count} item(s), source {Source}) after this API's own read failed",
+            warehouseCode, rows.Count, reading.Source);
+
+        var note =
+            $"Unbatched stock could not be read from SAP directly ({primaryFailure.Message}); "
+            + $"it was read through TransferEventListener instead ({rows.Count} item(s)).";
+
+        if (degraded)
+        {
+            // Said plainly because the shortfall is invisible in the data: the scan covers only the
+            // listener's configured item groups, and an item in any other group is simply absent.
+            note += " That reading came from its degraded item scan, which covers only the item groups "
+                + "the listener is configured for, so stock in any other group is missing from it.";
+        }
+
+        return (rows, note);
     }
 }
