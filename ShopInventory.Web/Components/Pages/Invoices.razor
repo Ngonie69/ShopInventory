@@ -1,4 +1,4 @@
-@page "/invoices"
+﻿@page "/invoices"
 @page "/van-sales-invoices"
 @using System.Text.Encodings.Web
 @using System.Text
@@ -503,6 +503,16 @@
                         disabled="@IsSelectedInvoiceFullyCredited()">
                     @(IsSelectedInvoiceFullyCredited() ? "Fully credited" : "Create credit note")
                 </button>
+                @* Cancelling withdraws the whole invoice, so it is an admin action and sits apart
+                   from the partial credit beside it. The permission is invoices.void, which only
+                   Admin and Manager carry; the page itself is Admin and Cashier, so the role gate
+                   here is what keeps a cashier from meeting a button the API will refuse. *@
+                <AuthorizeView Roles="Admin" Context="cancelAuth">
+                    <button type="button" class="ivx-btn ivx-btn-bad" @onclick="OpenCancelInvoiceModal"
+                            disabled="@IsSelectedInvoiceFullyCredited()">
+                        <i class="ph ph-prohibit" aria-hidden="true"></i>Cancel invoice
+                    </button>
+                </AuthorizeView>
                 <button type="button" class="ivx-btn ivx-btn-secondary" @onclick="CloseModal">Close</button>
             </div>
         </aside>
@@ -696,6 +706,122 @@
                         else
                         {
                             <span>Create credit note</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showCancelInvoiceModal && selectedInvoice != null)
+{
+    <div class="ivx-overlay">
+        <div class="ivx-dialog-wrap">
+            <div class="ivx-dialog" role="dialog" aria-modal="true" aria-labelledby="ivx-cancel-title"
+                 @onclick:stopPropagation="true">
+
+                @if (isCancellingInvoice)
+                {
+                    @* The same paced ring as the credit note dialog: SAP reports no progress on a
+                       post, and this one is two deep — the credit note, then its fiscalisation. *@
+                    <div class="ivx-posting" aria-live="polite">
+                        <div class="ivx-ring">
+                            <svg viewBox="0 0 100 100" aria-hidden="true">
+                                <circle class="ivx-ring-track" cx="50" cy="50" r="42" />
+                                <circle class="ivx-ring-fill" cx="50" cy="50" r="42"
+                                        stroke-dasharray="@($"{264 * creditNoteProgress / 100} 264")" />
+                            </svg>
+                            <span class="ivx-ring-label">@creditNoteProgress%</span>
+                        </div>
+                        <h3>Cancelling invoice</h3>
+                        <p>@creditNoteProgressMessage</p>
+                        <small>Please keep this window open until the credit note is posted.</small>
+                    </div>
+                }
+
+                <div class="ivx-dialog-head">
+                    <h2 class="ivx-dialog-title" id="ivx-cancel-title">
+                        <i class="ph ph-prohibit" aria-hidden="true"></i>
+                        Cancel invoice #@selectedInvoice.DocNum
+                    </h2>
+                    <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon" title="Close" aria-label="Close"
+                            disabled="@isCancellingInvoice" @onclick="CloseCancelInvoiceModal">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                    </button>
+                </div>
+                <div class="ivx-dialog-body">
+                    <div class="ivx-note is-warn">
+                        This reverses the whole invoice. A credit note for
+                        <strong>@selectedInvoice.DocCurrency @selectedInvoice.DocTotal.ToString("N2")</strong>
+                        is posted to SAP against
+                        <strong>@(selectedInvoice.CardName ?? selectedInvoice.CardCode)</strong>, fiscalised,
+                        and the till that issued the receipt is told. Nothing is deleted: the invoice
+                        stays, answered by the credit note. To credit only part of it, use
+                        <strong>Create credit note</strong> instead.
+                    </div>
+
+                    @if (existingCreditNotes?.HasExistingCreditNotes == true)
+                    {
+                        <div class="ivx-note is-warn">
+                            This invoice already has @GetActiveCreditNoteCount() active credit note(s) totalling
+                            @GetActiveCreditedAmount().ToString("N2") @selectedInvoice.DocCurrency, so cancelling
+                            it in full will be refused as over-crediting. Credit the remaining
+                            @GetRemainingCreditableAmount().ToString("N2") @selectedInvoice.DocCurrency with
+                            <strong>Create credit note</strong> instead.
+                        </div>
+                    }
+
+                    <div class="ivx-field">
+                        <label id="ivx-cancel-reason-label">Reason *</label>
+                        @if (isLoadingCancelReasons)
+                        {
+                            <div class="ivx-note">Reading the reasons from SAP&hellip;</div>
+                        }
+                        else if (CancelReasonOptions.Length == 0)
+                        {
+                            <div class="ivx-note is-warn">
+                                SAP answered with no cancellation reasons, so an invoice cannot be cancelled
+                                from here. The list is the valid values of <code>U_Reasons</code> on the credit
+                                note line: check the company database is reachable and that the field is defined.
+                            </div>
+                        }
+                        else
+                        {
+                            @* Fixed, because the dialog body scrolls: that computes its overflow-y
+                               to auto, which would clip a menu of 24 reasons to the few rows below
+                               the field. The comment sits outside the start tag on purpose — a
+                               Razor comment among attributes compiles, then throws
+                               InvalidCharacterError at render and blanks the control. *@
+                            <NocturneSelect Class="nsel-block" TValue="string"
+                                            Options="CancelReasonOptions" @bind-Value="cancelReason"
+                                            Disabled="@isCancellingInvoice"
+                                            Fixed="true"
+                                            Placeholder="Choose why this invoice is being cancelled"
+                                            AriaLabel="Cancellation reason" />
+                        }
+                    </div>
+
+                    <div class="ivx-field">
+                        <label for="ivx-cancel-comments">Notes</label>
+                        <textarea id="ivx-cancel-comments" class="ivx-input ivx-textarea" @bind="cancelComments"
+                                  placeholder="Anything else worth recording on the credit note"
+                                  disabled="@isCancellingInvoice"></textarea>
+                    </div>
+                </div>
+                <div class="ivx-dialog-actions">
+                    <button type="button" class="ivx-btn ivx-btn-secondary" disabled="@isCancellingInvoice"
+                            @onclick="CloseCancelInvoiceModal">Keep invoice</button>
+                    <button type="button" class="ivx-btn ivx-btn-bad" @onclick="CancelInvoice"
+                            disabled="@(isCancellingInvoice || string.IsNullOrWhiteSpace(cancelReason) || CancelReasonOptions.Length == 0)">
+                        @if (isCancellingInvoice)
+                        {
+                            <span class="ivx-spin" aria-hidden="true"></span>
+                            <span>Cancelling</span>
+                        }
+                        else
+                        {
+                            <span>Cancel invoice #@selectedInvoice.DocNum</span>
                         }
                     </button>
                 </div>
@@ -1253,6 +1379,140 @@
     private void ShowExistingCreditNotes()
     {
         showExistingCreditNotesModal = true;
+    }
+
+    // Invoice cancellation state. Cancelling reverses a whole invoice with a credit note that names
+    // the reason, so it reuses the credit note dialog's progress ring rather than growing a second one.
+    private bool showCancelInvoiceModal;
+    private bool isCancellingInvoice;
+    private bool isLoadingCancelReasons;
+    private string? cancelReason;
+    private string? cancelComments;
+    private string? cancelClientRequestId;
+
+    /// <summary>
+    /// SAP's reason list, as menu rows. Held for the lifetime of the circuit because it is the same
+    /// answer for every invoice on the page and the API already caches it for six hours.
+    /// </summary>
+    private NocturneSelectOption<string>[] CancelReasonOptions { get; set; } = [];
+
+    private async Task OpenCancelInvoiceModal()
+    {
+        if (selectedInvoice == null)
+        {
+            return;
+        }
+
+        cancelReason = null;
+        cancelComments = null;
+        // Minted once per opened dialog and reused across retries, so a lost response is replayed
+        // rather than answered with a second credit note posted to SAP.
+        cancelClientRequestId = Guid.NewGuid().ToString("N");
+        showCancelInvoiceModal = true;
+
+        if (CancelReasonOptions.Length > 0)
+        {
+            return;
+        }
+
+        isLoadingCancelReasons = true;
+        try
+        {
+            var reasons = await CreditNoteService.GetReasonsAsync();
+
+            // The description is what a person picks by; the stored value is the hint beside it.
+            // Both are shown because they are not interchangeable and the descriptions are not
+            // unique — SAP defines "Heat shock" and "Product affected by Heat shock" with the same
+            // wording, and only the value tells them apart.
+            CancelReasonOptions = reasons
+                .Select(reason => new NocturneSelectOption<string>(reason.Value, reason.Description, "bad")
+                {
+                    Hint = reason.Value
+                })
+                .ToArray();
+        }
+        finally
+        {
+            isLoadingCancelReasons = false;
+        }
+    }
+
+    private void CloseCancelInvoiceModal()
+    {
+        showCancelInvoiceModal = false;
+        cancelReason = null;
+        cancelComments = null;
+    }
+
+    private async Task CancelInvoice()
+    {
+        if (selectedInvoice == null || string.IsNullOrWhiteSpace(cancelReason))
+        {
+            return;
+        }
+
+        isCancellingInvoice = true;
+        creditNoteMessage = null;
+        creditNoteProgress = 0;
+        creditNoteProgressMessage = "Initializing...";
+
+        _progressCancellationTokenSource = new CancellationTokenSource();
+        _ = SimulateSapProgressAsync(_progressCancellationTokenSource.Token);
+
+        try
+        {
+            var outcome = await InvoiceService.CancelInvoiceAsync(
+                selectedInvoice.DocEntry,
+                cancelReason,
+                cancelComments,
+                cancelClientRequestId);
+
+            _progressCancellationTokenSource?.Cancel();
+
+            if (outcome.Success && outcome.Result != null)
+            {
+                creditNoteProgress = 100;
+                creditNoteProgressMessage = "Invoice cancelled.";
+                StateHasChanged();
+                await Task.Delay(500);
+
+                var result = outcome.Result;
+
+                // Whether a till was actually told is part of the outcome, not a detail: a
+                // cancellation nobody was pushed still needs someone to go and say so.
+                var reach = result.NotifiedWarehouses.Count > 0
+                    ? $"Notified {string.Join(", ", result.NotifiedWarehouses)}."
+                    : "No till could be traced to this invoice, so none was notified.";
+
+                creditNoteSuccess = true;
+                creditNoteMessage =
+                    $"Invoice #{result.InvoiceDocNum} cancelled. Credit note {result.CreditNoteNumber} " +
+                    $"for {result.Currency} {result.CreditedAmount:N2} was posted to SAP. {reach}";
+
+                showCancelInvoiceModal = false;
+
+                await AuditService.LogAsync(
+                    AuditActions.CancelInvoice, "Invoice", selectedInvoice.DocEntry.ToString());
+
+                existingCreditNotes = await CreditNoteService.GetCreditNotesForInvoiceAsync(selectedInvoice.DocEntry);
+            }
+            else
+            {
+                creditNoteSuccess = false;
+                creditNoteMessage = outcome.ErrorMessage ?? "The invoice could not be cancelled.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _progressCancellationTokenSource?.Cancel();
+            creditNoteSuccess = false;
+            creditNoteMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isCancellingInvoice = false;
+            creditNoteProgress = 0;
+        }
     }
 
     private void OpenCreateCreditNoteModal()

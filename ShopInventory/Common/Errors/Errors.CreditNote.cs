@@ -1,4 +1,4 @@
-using ErrorOr;
+﻿using ErrorOr;
 
 namespace ShopInventory.Common.Errors;
 
@@ -26,5 +26,8 @@ public static partial class Errors
 
         public static Error DuplicationFailed(string message) =>
             Error.Failure("CreditNote.DuplicationFailed", message);
+
+        public static Error ReasonsUnavailable(string message) =>
+            Error.Failure("CreditNote.ReasonsUnavailable", $"Unable to read the credit note reasons from SAP. {message}");
     }
 }

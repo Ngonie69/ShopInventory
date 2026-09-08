@@ -1,4 +1,4 @@
-namespace ShopInventory.Web.Data;
+﻿namespace ShopInventory.Web.Data;
 
 /// <summary>
 /// Represents an audit log entry for tracking user-initiated events
@@ -96,6 +96,9 @@ public static class AuditActions
     public const string FiscalizeInvoice = "FiscalizeInvoice";
     public const string UpdateInvoice = "UpdateInvoice";
     public const string DeleteInvoice = "DeleteInvoice";
+
+    /// <summary>An admin withdrew a posted invoice. Matches the API constant of the same name.</summary>
+    public const string CancelInvoice = "CancelInvoice";
 
     // Payment actions
     public const string ViewPayments = "ViewPayments";
