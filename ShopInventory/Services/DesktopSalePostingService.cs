@@ -155,12 +155,31 @@ public sealed class DesktopSalePostingService(
             {
                 AdoptInvoice(sale, existing, result);
             }
+            else if (sale.PostIssuedAtUtc is { } issuedAt
+                     && DateTime.UtcNow - issuedAt < TimeSpan.FromMinutes(Math.Max(0, settings.Value.UnresolvedPostGraceMinutes)))
+            {
+                // A post went out very recently and SAP does not show an invoice for it. That is
+                // exactly what a committed-but-not-yet-visible invoice looks like, so the lookup's
+                // "no" cannot be trusted yet and the sale is not sent again — this is the window the
+                // observed duplicates all fell inside.
+                //
+                // No attempt is spent: it is not the sale's fault and the wait is short. Once the
+                // window passes, the lookup is trustworthy and the sale posts normally, so a post
+                // that genuinely never landed still recovers on its own.
+                RecordUnresolvedPost(sale, result, settings.Value);
+            }
             else
             {
                 // The last point at which abandoning the sale costs nothing.
                 cancellationToken.ThrowIfCancellationRequested();
 
                 postIssued = true;
+
+                // Durable before the request goes out, and committed on its own. This is the record
+                // that survives losing the reply — SapDocEntry is written from a reply that may
+                // never arrive.
+                sale.PostIssuedAtUtc = DateTime.UtcNow;
+                await context.SaveChangesAsync(CancellationToken.None);
 
                 // CancellationToken.None, deliberately and literally: once the request is in flight, a
                 // shutdown must not stop us from learning the DocEntry SAP just issued.
@@ -184,10 +203,21 @@ public sealed class DesktopSalePostingService(
         }
         catch (Exception ex) when (postIssued)
         {
+            // SAP answered, and the answer was no. Nothing was created, so the marker must come off
+            // or the sale would never be posted again — it would sit asking SAP about an invoice
+            // that will never appear until its attempts ran out.
+            if (SapFailureClassifier.DefinitelyNotCommitted(ex))
+            {
+                sale.PostIssuedAtUtc = null;
+                await context.SaveChangesAsync(CancellationToken.None);
+                throw;
+            }
+
             // The post was issued and we do not know whether SAP took it. Ask on the same business key.
             var recovered = await TryFindAfterFailedPostAsync(sale, ex);
             if (recovered is null)
             {
+                // The marker stays. The next pass will ask SAP again rather than post again.
                 throw;
             }
 
@@ -204,6 +234,36 @@ public sealed class DesktopSalePostingService(
     /// An unanswerable lookup throws rather than returning null. Treating "I could not ask" as "it is
     /// not there" is how a sale gets invoiced twice.
     /// </remarks>
+    /// <summary>
+    /// Records a sale whose post was issued and whose outcome is still unknown, without posting it
+    /// again.
+    /// </summary>
+    /// <remarks>
+    /// An attempt is spent on purpose. Each pass re-asks SAP, so an invoice that was merely slow to
+    /// become visible is adopted within a minute or two and this is never seen again; a sale still
+    /// unresolved after the whole budget is one where the post genuinely vanished, and that is worth
+    /// a person's attention rather than an indefinite quiet loop.
+    /// </remarks>
+    private void RecordUnresolvedPost(
+        DesktopSaleEntity sale,
+        DesktopSalePostingRunResult result,
+        DesktopSalePostingSettings options)
+    {
+        sale.LastPostingError =
+            $"A post was issued for this sale at {sale.PostIssuedAtUtc:yyyy-MM-dd HH:mm:ss}Z and SAP has not "
+            + "shown an invoice for it since. It has not been posted again, because SAP may hold the invoice "
+            + "already and a second one cannot be withdrawn from ZIMRA. Check SAP for "
+            + $"U_Van_saleorder '{sale.ExternalReferenceId}'.";
+
+        result.Failed++;
+        result.Errors.Add($"{sale.ExternalReferenceId}: post issued, outcome unknown");
+
+        logger.LogWarning(
+            "Till sale {ExternalReference} had a post issued at {PostIssuedAt} that SAP does not yet show. "
+            + "Waiting {Grace} minutes before it may be sent again, in case SAP holds it already.",
+            sale.ExternalReferenceId, sale.PostIssuedAtUtc, options.UnresolvedPostGraceMinutes);
+    }
+
     private async Task<Invoice?> FindAlreadyPostedAsync(
         DesktopSaleEntity sale, CancellationToken cancellationToken)
     {

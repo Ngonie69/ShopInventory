@@ -14,6 +14,27 @@ public sealed class VanSalesPostingSettings
     /// </summary>
     public bool Enabled { get; set; }
 
+    /// <summary>
+    /// How long after a post was issued the system waits before it will send that sale again,
+    /// when SAP shows no invoice for it.
+    /// </summary>
+    /// <remarks>
+    /// The duplicate guard is a read, and a read can miss a write SAP has committed but not yet made
+    /// visible to a filter on a UDF. Five sales were invoiced twice on KEFALOS_USD_NEW2 between 25
+    /// August and 8 September 2026 that way, each pair between nought and three minutes apart.
+    ///
+    /// <para>
+    /// So the lookup's "no invoice" is only trustworthy once enough time has passed for that lag to
+    /// have cleared. Fifteen minutes is several times the largest gap observed, and the cost of
+    /// waiting is a sale posting a quarter of an hour later than it might have — against a duplicate
+    /// fiscal receipt, which cannot be withdrawn from ZIMRA and needs a manual credit note.
+    /// </para>
+    ///
+    /// <para>Set to zero to restore the old behaviour of reposting immediately.</para>
+    /// </remarks>
+    public int UnresolvedPostGraceMinutes { get; set; } = 15;
+
+
     /// <summary>The main run, once the vans are back and their backlogs uploaded.</summary>
     public string PostingTimeCAT { get; set; } = "18:00";
 

@@ -1220,12 +1220,23 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             _logger.LogError("Failed to create invoice: {StatusCode} - {Error}", response.StatusCode, sanitizedSapError);
 
+            // SapRequestRejectedException rather than a bare Exception, and the type is the point:
+            // SAP answered, and the answer was no, so the invoice definitively does not exist. The
+            // posting services need that distinction to decide whether a sale may be posted again —
+            // see SapFailureClassifier.DefinitelyNotCommitted. A bare Exception here is
+            // indistinguishable from the deserialize failure below, which happens *after* SAP has
+            // committed the document.
             if (IsBusinessPartnerDataError(errorContent))
             {
-                throw new Exception($"Failed to create invoice: Customer '{request.CardCode}' has corrupted or invalid data in SAP (e.g., broken Discount Group, Payment Terms, addresses, or contacts). " +
-                        $"Please check and repair this Business Partner's master data in SAP B1. SAP error: {sanitizedSapError}");
+                throw new SapRequestRejectedException(
+                    "create the invoice",
+                    response.StatusCode,
+                    $"Customer '{request.CardCode}' has corrupted or invalid data in SAP (e.g., broken Discount Group, "
+                    + $"Payment Terms, addresses, or contacts). Please check and repair this Business Partner's master "
+                    + $"data in SAP B1. SAP error: {sanitizedSapError}");
             }
-            throw new Exception($"Failed to create invoice in SAP. Status: {response.StatusCode}");
+
+            throw new SapRequestRejectedException("create the invoice", response.StatusCode, sanitizedSapError);
         }
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);

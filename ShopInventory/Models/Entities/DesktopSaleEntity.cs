@@ -334,6 +334,32 @@ public class DesktopSaleEntity
     [MaxLength(100)]
     public string? SapComexReference { get; set; }
 
+    /// <summary>
+    /// When a post was last issued to SAP for this sale, whatever came back.
+    /// </summary>
+    /// <remarks>
+    /// Written and committed <i>before</i> the request goes out, which is the whole point: it is the
+    /// only record that survives losing the reply. <see cref="SapDocEntry"/> is set from the reply,
+    /// so a post that commits in SAP and then times out leaves no local trace at all — and the next
+    /// pass, finding nothing, posts the sale again.
+    ///
+    /// <para>
+    /// That is not hypothetical. Five sales were invoiced twice on KEFALOS_USD_NEW2 between 25
+    /// August and 8 September 2026, across tills and vans alike, each pair minutes apart, none
+    /// cancelled, and one pair paid twice. The duplicate guard before this was a read —
+    /// <c>GetInvoiceByVanSaleOrderAsync</c> — and a read can miss a write SAP has committed but not
+    /// yet made visible to a filter on a UDF. No amount of retrying the read fixes that; the fix is
+    /// to remember locally that a post went out.
+    /// </para>
+    ///
+    /// <para>
+    /// Cleared only when SAP certainly did not create anything — see
+    /// <c>SapFailureClassifier.DefinitelyNotCommitted</c>. Left standing otherwise, because
+    /// "unknown" has to be treated as "it may exist".
+    /// </para>
+    /// </remarks>
+    public DateTime? PostIssuedAtUtc { get; set; }
+
     public DateTime? PostedAt { get; set; }
 
     /// <summary>
