@@ -198,6 +198,7 @@ public sealed class InvoiceSerialAndBatchFlagTests
                 _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
             }),
             StubProxy.Unused<IInventoryLockService>(),
+            Options.Create(new SAPSettings()),
             NullLogger<BatchInventoryValidationService>.Instance);
 
     private static SAPServiceLayerClient CreateClient(DocumentServiceLayer sap)

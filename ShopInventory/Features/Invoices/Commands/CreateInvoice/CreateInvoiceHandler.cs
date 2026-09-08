@@ -167,6 +167,18 @@ public sealed class CreateInvoiceHandler(
             {
                 logger.LogWarning("Batch validation failed for invoice creation. {ErrorCount} errors. Strategy: {Strategy}",
                     batchValidationResult.ValidationErrors.Count, command.AllocationStrategy);
+
+                // An unread stock position is not a failed validation, and saying so matters: the
+                // caller's document is fine and retrying is the correct response, where "would cause
+                // negative quantities" tells them to go and cut lines out of it.
+                var unreadable = batchValidationResult.ValidationErrors
+                    .Where(e => e.ErrorCode == BatchValidationErrorCode.StockUnknown)
+                    .ToList();
+                if (unreadable.Count > 0)
+                {
+                    return Errors.Invoice.StockUnknown(string.Join("; ", unreadable.Select(e => e.Message)));
+                }
+
                 return Errors.Invoice.BatchValidationFailed(
                     $"Batch validation failed - would cause negative quantities: {string.Join("; ", batchValidationResult.ValidationErrors.Select(e => e.Message))}");
             }
@@ -196,6 +208,15 @@ public sealed class CreateInvoiceHandler(
                 }
 
                 logger.LogWarning("Pre-post validation failed - stock may have changed. {ErrorCount} errors", prePostResult.Errors.Count);
+
+                var unreadableAtPrePost = prePostResult.Errors
+                    .Where(e => e.ErrorCode == BatchValidationErrorCode.StockUnknown)
+                    .ToList();
+                if (unreadableAtPrePost.Count > 0)
+                {
+                    return Errors.Invoice.StockUnknown(string.Join("; ", unreadableAtPrePost.Select(e => e.Message)));
+                }
+
                 return Errors.Invoice.StockValidationFailed(
                     $"Pre-post validation failed - stock levels changed during processing: {string.Join("; ", prePostResult.Errors.Select(e => e.Message))}");
             }

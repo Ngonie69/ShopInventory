@@ -175,11 +175,29 @@ public class StockValidationError
     public string? BatchNumber { get; set; }
 
     /// <summary>
+    /// Set when SAP could not answer the stock read at all, so availability is unknown rather than
+    /// short. <see cref="AvailableQuantity"/> carries no meaning on such a row.
+    /// </summary>
+    /// <remarks>
+    /// The distinction has to survive into <see cref="Message"/> because that string is what the
+    /// caller shows and what <c>SapFailureClassifier</c> reads. Left as a plain shortage it would
+    /// say "Insufficient stock ... Available: 0" about a warehouse nobody managed to look in.
+    /// </remarks>
+    public bool StockReadFailed { get; set; }
+
+    /// <summary>Why the read failed, when <see cref="StockReadFailed"/> is set.</summary>
+    public string? ReadFailureReason { get; set; }
+
+    /// <summary>
     /// Human-readable error message
     /// </summary>
-    public string Message => BatchNumber != null
-        ? $"Insufficient stock for item '{ItemCode}' batch '{BatchNumber}' in warehouse '{WarehouseCode}'. Requested: {RequestedQuantity}, Available: {AvailableQuantity}, Shortage: {Shortage}"
-        : $"Insufficient stock for item '{ItemCode}' in warehouse '{WarehouseCode}'. Requested: {RequestedQuantity}, Available: {AvailableQuantity}, Shortage: {Shortage}";
+    public string Message => StockReadFailed
+        ? $"Stock for item '{ItemCode}' in warehouse '{WarehouseCode}' could not be read from SAP, so this "
+          + $"document cannot be checked against it. The reading is temporarily unavailable, not zero. "
+          + $"({ReadFailureReason})"
+        : BatchNumber != null
+            ? $"Insufficient stock for item '{ItemCode}' batch '{BatchNumber}' in warehouse '{WarehouseCode}'. Requested: {RequestedQuantity}, Available: {AvailableQuantity}, Shortage: {Shortage}"
+            : $"Insufficient stock for item '{ItemCode}' in warehouse '{WarehouseCode}'. Requested: {RequestedQuantity}, Available: {AvailableQuantity}, Shortage: {Shortage}";
 }
 
 /// <summary>

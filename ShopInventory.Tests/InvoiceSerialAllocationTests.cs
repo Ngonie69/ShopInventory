@@ -1,6 +1,8 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -186,5 +188,6 @@ public sealed class InvoiceSerialAllocationTests : IDisposable
                 _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
             }),
             StubProxy.Unused<IInventoryLockService>(),
+            Options.Create(new SAPSettings()),
             NullLogger<BatchInventoryValidationService>.Instance);
 }

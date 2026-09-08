@@ -33,6 +33,27 @@ public static partial class Errors
         public static Error StockValidationFailed(string message) =>
             Error.Validation("Invoice.StockValidationFailed", message);
 
+        /// <summary>
+        /// SAP could not answer the stock read, so the invoice was refused rather than posted blind.
+        /// </summary>
+        /// <remarks>
+        /// A <c>Failure</c> rather than a <c>Validation</c>, matching <see cref="SapTimeout"/> and
+        /// <see cref="SapConnectionError"/>: nothing is wrong with the request, and a caller told to
+        /// fix its own document would edit it forever. (Failure still maps to 400 here — see
+        /// ApiControllerBase — but the error key is what clients switch on, and Unexpected would
+        /// replace the description with a generic 500 message the caller cannot act on.)
+        ///
+        /// <para>
+        /// Retryable, and the wording says so on purpose: it must not match
+        /// <c>SapFailureClassifier.IsPermanentStockRejection</c>, which would file an outage as a
+        /// shortage for a human to go and count.
+        /// </para>
+        /// </remarks>
+        public static Error StockUnknown(string message) =>
+            Error.Failure(
+                "Invoice.StockUnknown",
+                $"The invoice was not posted because SAP could not be asked what is in stock. {message}");
+
         public static Error SapTimeout =>
             Error.Failure("Invoice.SapTimeout", "Connection to SAP Service Layer timed out.");
 

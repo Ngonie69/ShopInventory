@@ -1,8 +1,10 @@
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace ShopInventory.Services;
 
@@ -107,6 +109,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     private readonly ApplicationDbContext _dbContext;
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly IInventoryLockService _lockService;
+    private readonly IOptions<SAPSettings> _settings;
     private readonly ILogger<BatchInventoryValidationService> _logger;
     private IReservedQuantityProvider? _reservedQuantityProvider;
     private const decimal QuantityTolerance = 0.0001m;
@@ -119,11 +122,13 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         ApplicationDbContext dbContext,
         ISAPServiceLayerClient sapClient,
         IInventoryLockService lockService,
+        IOptions<SAPSettings> settings,
         ILogger<BatchInventoryValidationService> logger)
     {
         _dbContext = dbContext;
         _sapClient = sapClient;
         _lockService = lockService;
+        _settings = settings;
         _logger = logger;
     }
 
@@ -699,15 +704,31 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                         $"Reduce the combined quantity to {Math.Max(0, effectiveAvailable):N4} or transfer more stock"));
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(
                     ex,
                     "Failed aggregate stock validation for item {ItemCode} in warehouse {WarehouseCode}",
                     itemCode,
                     warehouseCode);
-                result.Warnings.Add(
-                    $"Could not perform aggregate stock validation for {itemCode} in {warehouseCode}; SAP will reject if stock is insufficient.");
+
+                if (!FailClosed)
+                {
+                    LogInvoicingBlind(itemCode, warehouseCode, ex);
+                    result.Warnings.Add(BuildStockUnknownMessage(itemCode, warehouseCode, ex));
+                    continue;
+                }
+
+                result.Errors.Add(CreateError(
+                    BatchValidationErrorCode.StockUnknown,
+                    groupLines[^1].LineNumber,
+                    itemCode,
+                    null,
+                    warehouseCode,
+                    requestedQuantity,
+                    0,
+                    BuildStockUnknownMessage(itemCode, warehouseCode, ex),
+                    StockUnknownSuggestion));
             }
         }
     }
@@ -1649,12 +1670,59 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
             return (null, inventoryQuantityNeeded, conversionFactor);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Failed to validate stock for non-batch item {ItemCode}", itemCode);
-            return (null, inventoryQuantityNeeded, conversionFactor); // Allow to proceed, SAP will validate
+
+            if (!FailClosed)
+            {
+                LogInvoicingBlind(itemCode, warehouseCode, ex);
+                return (null, inventoryQuantityNeeded, conversionFactor);
+            }
+
+            return (CreateError(
+                BatchValidationErrorCode.StockUnknown,
+                lineNumber,
+                itemCode,
+                null,
+                warehouseCode,
+                inventoryQuantityNeeded,
+                0,
+                BuildStockUnknownMessage(itemCode, warehouseCode, ex),
+                StockUnknownSuggestion), 0, conversionFactor);
         }
     }
+
+    private bool FailClosed => _settings.Value.StockGuardFailClosed;
+
+    private const string StockUnknownSuggestion =
+        "Retry in a moment. If SAP stays unreachable, a manager can set SAP:StockGuardFailClosed "
+        + "to false to invoice without a stock check — every document that goes through is logged.";
+
+    /// <summary>
+    /// Says the stock position is unknown, and says it in words that classify correctly downstream.
+    /// </summary>
+    /// <remarks>
+    /// The wording is load-bearing in both directions, and both are pinned by tests.
+    /// <c>SapFailureClassifier.IsPermanentStockRejection</c> matches on "insufficient", "not enough",
+    /// "negative inventory" and "quantity falls", and a message hitting any of those would park an
+    /// outage in front of a human as though the warehouse were empty. It must match
+    /// <c>IsTransient</c> instead — a read that failed will succeed later — so the work goes back on
+    /// the queue where it belongs.
+    /// </remarks>
+    private static string BuildStockUnknownMessage(string itemCode, string warehouseCode, Exception ex) =>
+        $"Stock for item {itemCode} in warehouse {warehouseCode} could not be read from SAP, so this "
+        + $"document cannot be checked against it. The reading is temporarily unavailable, not zero. "
+        + $"({ex.GetType().Name}: {ex.Message})";
+
+    private void LogInvoicingBlind(string itemCode, string warehouseCode, Exception ex) =>
+        _logger.LogWarning(
+            ex,
+            "SAP:StockGuardFailClosed is off, so item {ItemCode} in warehouse {WarehouseCode} is being "
+            + "invoiced without a stock check. If SAP is not blocking negative inventory this document "
+            + "can take the warehouse below zero.",
+            itemCode,
+            warehouseCode);
 
     private List<AvailableBatchDto> ApplySortingStrategy(
         List<AvailableBatchDto> batches,
@@ -1749,6 +1817,14 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
                 case BatchValidationErrorCode.BatchQuantityMismatch:
                     suggestions.Add("Ensure batch quantities sum to the line quantity (in inventory UoM)");
+                    break;
+
+                // Deliberately says nothing about counting stock or cutting the document. Nobody
+                // knows yet whether there is a shortage, and sending someone to the warehouse over
+                // an outage wastes their afternoon.
+                case BatchValidationErrorCode.StockUnknown:
+                    suggestions.Add("Retry in a moment - SAP could not answer the stock read");
+                    suggestions.Add("Check SAP Service Layer health if this repeats");
                     break;
             }
         }

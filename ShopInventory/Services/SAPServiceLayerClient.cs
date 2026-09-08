@@ -10306,10 +10306,34 @@ ORDER BY T1."ItemCode"
                     requestedItemCodes,
                     cancellationToken);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "Failed to get stock quantities for warehouse {WarehouseCode}", warehouseCode);
-                // If we can't get stock, continue without validation (SAP will reject if insufficient)
+
+                // This used to `continue`, on the stated grounds that SAP would reject the document
+                // if stock were insufficient. SAP only does that when Block Negative Inventory is
+                // enabled, which nothing here reads — so the whole warehouse went unvalidated and
+                // the invoice posted. Report the unread warehouse instead, once, and let the caller
+                // decide; SAPSettings.StockGuardFailClosed is what decides.
+                if (!_settings.StockGuardFailClosed)
+                {
+                    _logger.LogWarning(
+                        "SAP:StockGuardFailClosed is off, so warehouse {WarehouseCode} is being invoiced "
+                        + "without a stock check.",
+                        warehouseCode);
+                    continue;
+                }
+
+                errors.Add(new StockValidationError
+                {
+                    LineNumber = warehouseGroup.Min(item => item.Index) + 1,
+                    ItemCode = string.Join(", ", requestedItemCodes.Take(5)),
+                    WarehouseCode = warehouseCode,
+                    RequestedQuantity = warehouseGroup.Sum(item => item.Line.Quantity),
+                    AvailableQuantity = 0,
+                    StockReadFailed = true,
+                    ReadFailureReason = $"{ex.GetType().Name}: {ex.Message}"
+                });
                 continue;
             }
 
