@@ -1,4 +1,6 @@
 using System.Collections;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using System.Reflection;
 using Microsoft.Extensions.Configuration;
 using ShopInventory.Configuration;
@@ -6,176 +8,229 @@ using ShopInventory.Configuration;
 namespace ShopInventory.Tests;
 
 /// <summary>
-/// Guards every options class against binding to its default *plus* its configured value.
+/// Pins how <see cref="ConfigurationBinder"/> treats a collection property that already holds
+/// items, and checks every options class in this project that has that shape.
 /// </summary>
 /// <remarks>
-/// The configuration binder appends to a collection that already holds items rather than replacing
-/// it — for <c>List&lt;T&gt;</c> and <c>T[]</c> alike. So an options property declared with a
-/// non-empty collection initializer that is also supplied in appsettings.json silently holds both.
+/// The binder APPENDS to a collection that is non-empty when binding starts — it does not replace
+/// it. A property declared with a collection initializer and also supplied in appsettings.json is
+/// therefore bound to default + config, not to config. Nothing throws and the values all look
+/// plausible, because they are the right values; there are simply twice as many of them.
 ///
-/// <c>DailyStockSettings.MonitoredWarehouses</c> was one, and it was expensive: 21 in the
-/// initializer and the same 21 in appsettings.json bound to 42, so the 07:00 snapshot job walked
-/// every warehouse twice and made double the SAP reads it needed, against a pool of six.
+/// <c>DailyStockSettings.MonitoredWarehouses</c> was the live case: 21 warehouses in the
+/// initializer and the same 21 in appsettings.json bound to a 42-entry list, so the 07:00 snapshot
+/// job read SAP twice for every warehouse. It surfaced only because a status page rendered its
+/// warehouse list and showed KEFBYS twice.
 ///
-/// This is written as a sweep rather than one test per settings class because the mistake is a shape,
-/// not a place — it is invisible at the declaration, and the next person to add a defaulted list will
-/// not have read any of this. It reflects over every <c>*Settings</c> type in the API assembly and
-/// binds each against the deployed appsettings.json, so a new one is covered without being listed.
+/// The fix is to leave the initializer empty so configuration is the only source. These tests fail
+/// if anyone reintroduces the shape.
 /// </remarks>
-public sealed class OptionsCollectionBindingTests
+public class OptionsCollectionBindingTests
 {
-    [Fact]
-    public void No_settings_collection_binds_to_more_than_the_file_lists()
+    private sealed class ListProbe
     {
-        var configuration = LoadDeployedConfiguration();
-        var problems = new List<string>();
+        public List<string> Items { get; set; } = ["a", "b"];
+    }
 
-        foreach (var settingsType in SettingsTypes())
+    private sealed class ArrayProbe
+    {
+        public string[] Items { get; set; } = ["a", "b"];
+    }
+
+    private static IConfiguration ConfigWith(params string[] items)
+    {
+        var pairs = items
+            .Select((value, index) => new KeyValuePair<string, string?>($"Section:Items:{index}", value));
+
+        return new ConfigurationBuilder().AddInMemoryCollection(pairs).Build();
+    }
+
+    [Fact]
+    public void Binding_a_List_that_already_has_items_appends_rather_than_replaces()
+    {
+        // The behaviour the whole file is about. Documented here so the fixes below have a reason
+        // that outlives the person who made them.
+        var probe = ConfigWith("a", "b").GetSection("Section").Get<ListProbe>()!;
+
+        Assert.Equal(["a", "b", "a", "b"], probe.Items);
+    }
+
+    [Fact]
+    public void Binding_an_array_that_already_has_items_appends_too()
+    {
+        // Arrays bind through a different code path to lists, so it is worth pinning separately.
+        var probe = ConfigWith("a", "b").GetSection("Section").Get<ArrayProbe>()!;
+
+        Assert.Equal(["a", "b", "a", "b"], probe.Items);
+    }
+
+    [Fact]
+    public void An_empty_initializer_binds_to_exactly_what_configuration_supplies()
+    {
+        // The shape every options class below is fixed to.
+        var config = ConfigWith("a", "b");
+
+        Assert.Equal(["a", "b"], config.GetSection("Section").Get<EmptyListProbe>()!.Items);
+        Assert.Equal(["a", "b"], config.GetSection("Section").Get<EmptyArrayProbe>()!.Items);
+    }
+
+    // ---- the deployed file, bound for real -----------------------------------------------------
+
+    private static IConfigurationRoot DeployedConfiguration() =>
+        new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: false)
+            .Build();
+
+    private static int ConfiguredCount(IConfiguration section, string key) =>
+        section.GetSection(key).GetChildren().Count();
+
+    [Fact]
+    public void The_snapshot_job_gets_each_monitored_warehouse_exactly_once()
+    {
+        // The live bug: 21 in the initializer plus the same 21 in appsettings.json bound to 42, so
+        // FetchDailyStockHandler read SAP twice per warehouse every morning.
+        var config = DeployedConfiguration();
+        var section = config.GetSection(DailyStockSettings.SectionName);
+
+        var bound = section.Get<DailyStockSettings>()!.MonitoredWarehouses;
+
+        Assert.Equal(ConfiguredCount(section, nameof(DailyStockSettings.MonitoredWarehouses)), bound.Count);
+        Assert.Equal(bound.Count, bound.Distinct().Count());
+    }
+
+    [Fact]
+    public void The_OpenWA_arrays_bind_to_exactly_what_is_configured()
+    {
+        var config = DeployedConfiguration();
+        var section = config.GetSection(OpenWASettings.SectionName);
+        var bound = section.Get<OpenWASettings>()!;
+
+        Assert.Equal(
+            ConfiguredCount(section, nameof(OpenWASettings.WebhookEvents)),
+            bound.WebhookEvents.Length);
+        Assert.Equal(
+            ConfiguredCount(section, nameof(OpenWASettings.HealthEndpointPaths)),
+            bound.HealthEndpointPaths.Length);
+    }
+
+    [Fact]
+    public void No_settings_class_binds_a_collection_to_more_than_configuration_supplies()
+    {
+        // The general form of the same check, so the next options class to grow a collection
+        // initializer fails here rather than in a morning job nobody watches. Every *Settings type
+        // in the API assembly is bound against the deployed file and its collection properties are
+        // compared, element for element, with what that file actually lists.
+        var config = DeployedConfiguration();
+        var doubled = new List<string>();
+
+        foreach (var type in typeof(DailyStockSettings).Assembly.GetTypes())
         {
-            var section = SectionFor(settingsType, configuration);
-            if (section is null)
+            if (!type.IsClass || type.IsAbstract || !type.Name.EndsWith("Settings", StringComparison.Ordinal))
             {
                 continue;
             }
 
-            var instance = Activator.CreateInstance(settingsType);
-            if (instance is null)
+            if (type.GetConstructor(Type.EmptyTypes) is null)
             {
                 continue;
             }
 
-            section.Bind(instance);
-
-            foreach (var property in settingsType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            var section = config.GetSection(SectionNameOf(type));
+            if (!section.Exists())
             {
-                if (!IsBindableCollection(property.PropertyType))
+                continue;
+            }
+
+            object? bound;
+            try
+            {
+                bound = section.Get(type);
+            }
+            catch (Exception)
+            {
+                // A type that cannot be bound at all is not what this test is about.
+                continue;
+            }
+
+            if (bound is null)
+            {
+                continue;
+            }
+
+            foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (property.PropertyType == typeof(string)
+                    || !typeof(IEnumerable).IsAssignableFrom(property.PropertyType))
                 {
                     continue;
                 }
 
-                var configured = section.GetSection(property.Name).GetChildren().Count();
+                var configured = ConfiguredCount(section, property.Name);
                 if (configured == 0)
                 {
-                    continue;  // Not supplied, so nothing was appended to.
+                    continue;
                 }
 
-                var bound = property.GetValue(instance) is IEnumerable values
-                    ? values.Cast<object?>().Count()
-                    : 0;
-
-                if (bound > configured)
+                if (property.GetValue(bound) is not IEnumerable value)
                 {
-                    problems.Add(
-                        $"{settingsType.Name}.{property.Name}: appsettings.json lists {configured}, "
-                        + $"bound to {bound}. Its declaration has a collection initializer, which the "
-                        + "binder appends to rather than replacing. Declare it as `= []`.");
+                    continue;
+                }
+
+                var actual = value.Cast<object?>().Count();
+                if (actual != configured)
+                {
+                    doubled.Add(
+                        $"{type.Name}.{property.Name}: appsettings.json lists {configured}, "
+                        + $"binding produced {actual}");
                 }
             }
         }
 
-        Assert.Empty(problems);
+        Assert.True(
+            doubled.Count == 0,
+            "these properties have a collection initializer that configuration is appended to rather "
+            + "than replacing — leave the initializer empty and let appsettings.json be the only "
+            + $"source:{Environment.NewLine}  {string.Join(Environment.NewLine + "  ", doubled)}");
     }
 
-    /// <summary>
-    /// The negative control. Without it, this suite would pass just as happily if the reflection
-    /// found nothing at all, the section lookup always missed, or the comparison never fired.
-    /// </summary>
+    private static string SectionNameOf(Type type)
+    {
+        var field = type.GetField("SectionName", BindingFlags.Public | BindingFlags.Static);
+
+        return field?.GetValue(null) as string
+            ?? type.Name[..^"Settings".Length];
+    }
+
     [Fact]
-    public void The_sweep_detects_the_shape_it_is_looking_for()
+    public void The_job_resolves_one_entry_per_warehouse_through_the_real_DI_path()
     {
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Probe:Values:0"] = "x",
-                ["Probe:Values:1"] = "y"
-            })
-            .Build();
+        // The tests above bind with IConfiguration.Get<T>(); DailyStockSnapshotJob resolves
+        // IOptions<DailyStockSettings> from services.Configure<T>(section), which is a different
+        // call into the same binder. Pinned separately so a fix that only holds for one of them
+        // cannot pass. The job's foreach is over exactly this list, one SAP read per element, so
+        // its length is the job's SAP read count.
+        var services = new ServiceCollection();
+        services.AddOptions();
+        services.Configure<DailyStockSettings>(
+            DeployedConfiguration().GetSection(DailyStockSettings.SectionName));
 
-        var probe = new DefaultedProbe();
-        configuration.GetSection("Probe").Bind(probe);
+        var warehouses = services.BuildServiceProvider()
+            .GetRequiredService<IOptions<DailyStockSettings>>()
+            .Value
+            .MonitoredWarehouses;
 
-        var configured = configuration.GetSection("Probe:Values").GetChildren().Count();
-
-        Assert.Equal(2, configured);
-        Assert.True(probe.Values.Count > configured,
-            "The binder no longer appends. That is a welcome change — read every settings class "
-            + "before deleting these tests, because their `= []` declarations were written for it.");
+        Assert.Equal(21, warehouses.Count);
+        Assert.Equal(warehouses.Count, warehouses.Distinct().Count());
     }
 
-    private sealed class DefaultedProbe
+    private sealed class EmptyListProbe
     {
-        public List<string> Values { get; set; } = ["a", "b", "c"];
+        public List<string> Items { get; set; } = [];
     }
 
-    // ── Helpers ─────────────────────────────────────────
-
-    /// <summary>
-    /// The API's own appsettings.json, which is what production binds. Located by walking up from the
-    /// test binaries rather than copied into this project, so it cannot drift from the real file.
-    /// </summary>
-    private static IConfigurationRoot LoadDeployedConfiguration()
+    private sealed class EmptyArrayProbe
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-
-        while (directory is not null)
-        {
-            var candidate = Path.Combine(directory.FullName, "ShopInventory", "appsettings.json");
-            if (File.Exists(candidate))
-            {
-                return new ConfigurationBuilder().AddJsonFile(candidate, optional: false).Build();
-            }
-
-            directory = directory.Parent;
-        }
-
-        throw new FileNotFoundException(
-            "Could not find ShopInventory/appsettings.json above " + AppContext.BaseDirectory);
+        public string[] Items { get; set; } = [];
     }
-
-    private static IEnumerable<Type> SettingsTypes() =>
-        typeof(DailyStockSettings).Assembly
-            .GetTypes()
-            .Where(type => type is { IsClass: true, IsAbstract: false, IsGenericTypeDefinition: false })
-            .Where(type => type.Name.EndsWith("Settings", StringComparison.Ordinal))
-            .Where(type => type.GetConstructor(Type.EmptyTypes) is not null);
-
-    /// <summary>
-    /// The configuration section a settings class binds to: its <c>SectionName</c> constant where it
-    /// has one, otherwise its name without the "Settings" suffix. Returns null when the file carries
-    /// no such section, which is the common case and not a failure.
-    /// </summary>
-    private static IConfigurationSection? SectionFor(Type settingsType, IConfigurationRoot configuration)
-    {
-        var declared = settingsType
-            .GetField("SectionName", BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy)
-            ?.GetValue(null) as string;
-
-        var names = new[]
-        {
-            declared,
-            settingsType.Name.Replace("Settings", string.Empty, StringComparison.Ordinal)
-        };
-
-        foreach (var name in names)
-        {
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                continue;
-            }
-
-            var section = configuration.GetSection(name);
-            if (section.Exists())
-            {
-                return section;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Collections the binder populates. Strings are enumerable and must not be counted as one.
-    /// </summary>
-    private static bool IsBindableCollection(Type type) =>
-        type != typeof(string) && typeof(IEnumerable).IsAssignableFrom(type);
 }

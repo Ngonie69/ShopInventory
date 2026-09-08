@@ -1,4 +1,4 @@
-﻿namespace ShopInventory.Configuration;
+namespace ShopInventory.Configuration;
 
 /// <summary>
 /// Configuration settings for the OpenWA WhatsApp gateway.
@@ -40,19 +40,28 @@ public class OpenWASettings
     public string WebhookPublicUrl { get; set; } = string.Empty;
 
     /// <summary>
-    /// Event types the gateway webhook subscribes to. These are OpenWA's own event names.
+    /// Event types the gateway webhook subscribes to. These are OpenWA's own event names, supplied
+    /// entirely by <c>OpenWA:WebhookEvents</c> in appsettings.json — deliberately left empty here.
     /// </summary>
     /// <remarks>
-    /// Empty rather than defaulted, and both collections below are the same: the configuration binder
-    /// appends to a collection that already holds items, so a default here plus the same list in
-    /// appsettings.json bound to both copies. Neither ever showed a symptom — the registrar and the
-    /// client both deduplicate before use — but a value that silently doubles cannot be trusted to be
-    /// removable, because the code's copy puts it back. The lists live in appsettings.json alone.
+    /// Do not give this property a collection initializer. The configuration binder APPENDS to a
+    /// collection that already holds items rather than replacing it, so a default here plus the same
+    /// list in appsettings.json binds to every event twice. <c>NormalizedEvents</c> in
+    /// <c>OpenWAWebhookRegistrar</c> deduplicates before subscribing, so that was never visible —
+    /// but <c>DailyStockSettings.MonitoredWarehouses</c> had the identical shape without a
+    /// deduplicating reader and doubled a job's SAP reads. <c>OptionsCollectionBindingTests</c> pins
+    /// the binder behaviour and fails if the shape returns.
+    ///
+    /// The registrar falls back to <c>message.received</c> when this ends up empty, because OpenWA's
+    /// CreateWebhookDto enforces ArrayMinSize(1) once events are supplied at all.
     /// </remarks>
     public string[] WebhookEvents { get; set; } = [];
 
     /// <summary>
-    /// Ordered health endpoint candidates used to tolerate doc/runtime differences.
+    /// Ordered health endpoint candidates used to tolerate doc/runtime differences. Supplied
+    /// entirely by <c>OpenWA:HealthEndpointPaths</c> in appsettings.json — empty here for the same
+    /// binder reason as <see cref="WebhookEvents"/>. An empty list is reported as a configuration
+    /// error rather than probed blindly.
     /// </summary>
     public string[] HealthEndpointPaths { get; set; } = [];
 }

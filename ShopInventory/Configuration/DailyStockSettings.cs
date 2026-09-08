@@ -18,26 +18,30 @@ public class DailyStockSettings
     public string EndOfDayTimeCAT { get; set; } = "18:00";
 
     /// <summary>
-    /// Warehouses to include in daily snapshot.
+    /// Warehouses to include in daily snapshot. Supplied entirely by <c>DailyStock:MonitoredWarehouses</c>
+    /// in appsettings.json — deliberately left empty here.
     /// </summary>
     /// <remarks>
-    /// Every warehouse a till sells from has to be here. A sale validates against the day's snapshot,
-    /// so a missing warehouse reads as zero stock and refuses every line — silently, until someone
-    /// tries to sell. <c>KEFBYS</c> (Bulawayo shop) is not <c>KEFBYC</c> (the Bulawayo depot the vans
-    /// load from); the two are one character apart and share a site, which is how the shop stayed off
-    /// this list.
+    /// Every warehouse a till sells from has to be listed in configuration. A sale validates against
+    /// the day's snapshot, so a missing warehouse reads as zero stock and refuses every line —
+    /// silently, until someone tries to sell. <c>KEFBYS</c> (Bulawayo shop) is not <c>KEFBYC</c> (the
+    /// Bulawayo depot the vans load from); the two are one character apart and share a site, which is
+    /// how the shop stayed off the list.
     ///
-    /// Empty on purpose, and it must stay empty. This property used to carry the whole list as a
-    /// collection initializer, on the stated understanding that "appsettings.json overrides the whole
-    /// list rather than merging into it". That is backwards: the configuration binder <em>appends</em>
-    /// to a collection that already holds items, so the initializer's 21 warehouses and
-    /// appsettings.json's 21 bound to 42 — every warehouse twice — and the 07:00 snapshot job walked
-    /// each one twice, making double the SAP reads it needed against a six-slot pool.
+    /// Do not give this property a collection initializer. The configuration binder APPENDS to a
+    /// collection that already holds items rather than replacing it, so a default here plus the same
+    /// list in appsettings.json binds to both — which is exactly what happened: 21 warehouses in each
+    /// bound to 42 entries, and the 07:00 snapshot job read SAP twice for every warehouse. Nothing
+    /// threw and every value was correct; there were simply twice as many. It surfaced only because a
+    /// status page rendered the list and showed KEFBYS twice.
     ///
-    /// The list therefore lives in appsettings.json alone, which is also the only place it can be
-    /// changed per environment. An empty list here means configuration supplied nothing, which
-    /// <c>DailyStockSettingsValidation</c> refuses at startup rather than letting the snapshot job
-    /// quietly process no warehouses at all.
+    /// <c>OptionsCollectionBindingTests</c> pins that binder behaviour and fails if the shape returns.
+    ///
+    /// Leaving it empty costs the safety net a default provided: configuration is now the only source,
+    /// so a missing or misspelled key binds to nothing, and every consumer would read that as a
+    /// legitimate answer — snapshotting no warehouses, reporting success, and leaving every till
+    /// refusing every sale. <c>DailyStockSettingsValidation</c> refuses an empty list at startup for
+    /// that reason.
     /// </remarks>
     public List<string> MonitoredWarehouses { get; set; } = [];
 
