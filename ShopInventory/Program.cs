@@ -262,7 +262,14 @@ try
     builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection("Security"));
     builder.Services.Configure<VanSalesCustomerAuthSettings>(builder.Configuration.GetSection("VanSalesCustomerAuth"));
     builder.Services.Configure<TaxSettings>(builder.Configuration.GetSection(TaxSettings.SectionName));
-    builder.Services.Configure<DailyStockSettings>(builder.Configuration.GetSection("DailyStock"));
+    // Bound through AddOptions rather than Configure so the list can be validated at startup.
+    // MonitoredWarehouses carries no code-level default — a default would be appended to the
+    // configured list rather than replacing it — so an empty one has to be refused loudly here
+    // instead of silently snapshotting no warehouses. See DailyStockSettingsValidation.
+    builder.Services.AddOptions<DailyStockSettings>()
+        .Bind(builder.Configuration.GetSection("DailyStock"))
+        .ValidateOnStart();
+    builder.Services.AddSingleton<IValidateOptions<DailyStockSettings>, DailyStockSettingsValidation>();
     builder.Services.Configure<DesktopSalePostingSettings>(
         builder.Configuration.GetSection(DesktopSalePostingSettings.SectionName));
     builder.Services.Configure<VanSalesPostingSettings>(
