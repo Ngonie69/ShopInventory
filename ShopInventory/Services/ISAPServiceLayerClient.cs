@@ -301,6 +301,22 @@ public interface ISAPServiceLayerClient
 
     // Stock Quantity Operations
     Task<List<StockQuantityDto>> GetStockQuantitiesInWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One warehouse's stock in the items that carry no batches, item by item.
+    /// </summary>
+    /// <remarks>
+    /// The complement of <see cref="GetAllBatchNumbersInWarehouseAsync"/>, and the two together are
+    /// the whole warehouse. That read joins <c>OBTN</c> to <c>OBTQ</c>, so an item SAP does not batch-
+    /// manage has nothing to join to and is absent from it however much of it the warehouse holds —
+    /// which is why bought-in lines such as the Complimentary Products group never reached a till.
+    ///
+    /// Batch-managed items are excluded here rather than left to the caller to de-duplicate: an item
+    /// SAP manages by batch whose <c>OITW</c> row disagrees with its batches is stock that cannot be
+    /// allocated at invoicing, and offering it to a cashier only moves the failure to the end of the
+    /// day.
+    /// </remarks>
+    Task<List<StockQuantityDto>> GetNonBatchStockQuantitiesInWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
     Task<List<StockQuantityDto>> GetStockQuantitiesForItemsInWarehouseAsync(string warehouseCode, IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
     Task<List<StockQuantityDto>> GetPagedStockQuantitiesInWarehouseAsync(string warehouseCode, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<Dictionary<string, PackagingMaterialStockDto>> GetPackagingMaterialStockAsync(IEnumerable<string> itemCodes, string warehouseCode, CancellationToken cancellationToken = default);

@@ -141,16 +141,27 @@ public sealed class FetchDailyStockHandler(
                 ExpiryDate = DateTime.TryParse(b.ExpiryDate, out var expiry) ? expiry : null
             }).ToList();
 
+            var (unbatched, unbatchedProblem) =
+                await FetchUnbatchedStockAsync(snapshot.Id, warehouseCode, snapshotItems, cancellationToken);
+            snapshotItems.AddRange(unbatched);
+
             context.DailyStockSnapshotItems.AddRange(snapshotItems);
 
             snapshot.Status = StockSnapshotStatus.Complete;
             snapshot.ItemCount = snapshotItems.Count;
             snapshot.CompletedAt = DateTime.UtcNow;
 
+            // Complete, because the batch half of the warehouse is on the till and a snapshot marked
+            // Failed puts nothing there at all. The gap is recorded rather than swallowed: without it
+            // a shop short of exactly its unbatched lines is indistinguishable from one that holds
+            // none, which is the shape this whole read exists to fix.
+            snapshot.LastError = unbatchedProblem;
+
             await context.SaveChangesAsync(cancellationToken);
 
-            logger.LogInformation("Snapshot complete for {Warehouse}: {Count} batch items",
-                warehouseCode, snapshotItems.Count);
+            logger.LogInformation(
+                "Snapshot complete for {Warehouse}: {Count} rows ({BatchCount} batch, {UnbatchedCount} unbatched)",
+                warehouseCode, snapshotItems.Count, batches.Count, unbatched.Count);
 
             return new WarehouseSnapshotResult(warehouseCode, snapshotItems.Count, "Complete");
         }
@@ -161,5 +172,83 @@ public sealed class FetchDailyStockHandler(
             await context.SaveChangesAsync(cancellationToken);
             throw;
         }
+    }
+
+    /// <summary>
+    /// The warehouse's stock in items SAP does not batch-manage, as snapshot rows carrying no batch.
+    /// </summary>
+    /// <remarks>
+    /// The snapshot used to be the <c>OBTN ⋈ OBTQ</c> read alone, which is only the batch-managed
+    /// half of a warehouse. Everything else — the bought-in lines a shop resells, the Complimentary
+    /// Products group among them — has no batch row to join to and so was absent from every till's
+    /// catalogue no matter how much of it the shop held. A cashier could see the item on the shelf
+    /// and not on the screen.
+    ///
+    /// A row with a null <see cref="DailyStockSnapshotItemEntity.BatchNumber"/> is not a new shape
+    /// for this table: <c>ProcessTransferEventHandler</c> already writes one when stock arrives for
+    /// an item the morning read did not cover, and both the sale's stock check and its FEFO deduction
+    /// sum over item and warehouse without looking at the batch. Invoicing at the end of the day asks
+    /// SAP whether each item is batch-managed and skips allocation for the ones that are not, so an
+    /// unbatched line posts on its own terms.
+    ///
+    /// <paramref name="batchRows"/> is what the batch read already produced, and any code appearing
+    /// there is skipped: the SQL excludes batch-managed items, but an item whose management flag
+    /// changed between the two reads would otherwise be counted twice and offer a cashier stock the
+    /// warehouse does not hold.
+    /// </remarks>
+    /// <returns>
+    /// The rows to add, and — when the read failed — the sentence recorded against the snapshot. The
+    /// two are never both meaningful: a failure yields no rows.
+    /// </returns>
+    private async Task<(List<DailyStockSnapshotItemEntity> Rows, string? Problem)> FetchUnbatchedStockAsync(
+        int snapshotId,
+        string warehouseCode,
+        IReadOnlyCollection<DailyStockSnapshotItemEntity> batchRows,
+        CancellationToken cancellationToken)
+    {
+        List<DTOs.StockQuantityDto> stock;
+        try
+        {
+            stock = await sapClient.GetNonBatchStockQuantitiesInWarehouseAsync(warehouseCode, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Deliberately not rethrown. The batch rows already read are worth having on the till,
+            // and the caller records the gap on the snapshot so it is visible rather than inferred
+            // from an item nobody can find.
+            logger.LogError(ex,
+                "Could not read unbatched stock for warehouse {Warehouse}; the snapshot will hold only batch-managed items",
+                warehouseCode);
+            return ([], $"Unbatched stock could not be read from SAP: {ex.Message}");
+        }
+
+        var alreadyRead = batchRows
+            .Select(row => row.ItemCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var rows = stock
+            .Where(item => !string.IsNullOrWhiteSpace(item.ItemCode))
+            .Where(item => item.InStock > 0)
+            .Where(item => !alreadyRead.Contains(item.ItemCode!.Trim()))
+            .GroupBy(item => item.ItemCode!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(group => new DailyStockSnapshotItemEntity
+            {
+                SnapshotId = snapshotId,
+                ItemCode = group.Key,
+                ItemDescription = group.Select(item => item.ItemName)
+                    .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)),
+                WarehouseCode = warehouseCode,
+
+                // No batch, and so no expiry to order by. The sale's FEFO pass orders on a null
+                // ExpiryDate like any other and there is only ever one row per item here, so nothing
+                // downstream has to choose between them.
+                BatchNumber = null,
+                OriginalQuantity = group.Sum(item => item.InStock),
+                AvailableQuantity = group.Sum(item => item.InStock),
+                ExpiryDate = null
+            })
+            .ToList();
+
+        return (rows, null);
     }
 }

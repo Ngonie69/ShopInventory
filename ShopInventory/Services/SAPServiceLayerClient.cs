@@ -7701,6 +7701,13 @@ ORDER BY T0.""ItemCode""";
 
     private const string StockQueryPrefix = "STOCK_QTY_";
 
+    /// <summary>
+    /// One recurring query object per warehouse, matching <c>WHS_BATCHES_</c>. Never built per
+    /// request: a SQLQueries object cannot practically be deleted, so a code that varies per call
+    /// leaves a permanent OUQR row behind on every call.
+    /// </summary>
+    private const string NonBatchStockQueryPrefix = "NOBATCH_QTY_";
+
     public async Task<List<StockQuantityDto>> GetStockQuantitiesInWarehouseAsync(
         string warehouseCode,
         CancellationToken cancellationToken = default)
@@ -7739,6 +7746,56 @@ ORDER BY T0.""ItemCode""";
         await EnsureSqlQueryAsync(queryCode, $"Stock Quantities in {warehouseCode}", sqlText, cancellationToken);
 
         // Execute the query and retrieve results
+        return await ExecuteStockQueryAsync(queryCode, warehouseCode, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<List<StockQuantityDto>> GetNonBatchStockQuantitiesInWarehouseAsync(
+        string warehouseCode,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var queryCode = $"{NonBatchStockQueryPrefix}{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
+
+        // "ManBtchNum" = 'N' is the whole point: a batch-managed item's stock is read from OBTQ by
+        // GetAllBatchNumbersInWarehouseAsync and would be counted twice here. "InvntItem" = 'Y'
+        // keeps the two flags together, as the one hand-written SAP query that already asks this
+        // question does ("Warehouse non-batch item quantities", 2026-08-12), which is where both
+        // spellings are confirmed from.
+        //
+        // Serial-managed items are deliberately NOT filtered. No item in the company is serial-
+        // managed (checked 2026-09-08, ManageSerialNumbers eq 'tYES' returns none), so the clause
+        // would exclude nothing — and a column name SAP rejects fails the whole statement, which
+        // would silently take every unbatched item off every till again.
+        //
+        // "OnHand" > 0 rather than the derived availability, to match what the batch read answers,
+        // and because stock a warehouse does not have is not sellable however it nets out. OITW
+        // carries a row per item per warehouse whether or not the warehouse holds any, so without it
+        // this returns the whole item master for every shop.
+        //
+        // No trailing whitespace on any line — SAP strips it before storing, so a line ending in a
+        // space makes the stored text never compare equal and every probe re-PATCHes.
+        var sqlText = $@"SELECT
+            T0.""ItemCode"",
+            T0.""ItemName"",
+            T0.""CodeBars"" as ""BarCode"",
+            T1.""WhsCode"" as ""WarehouseCode"",
+            T1.""OnHand"" as ""InStock"",
+            T1.""IsCommited"" as ""Committed"",
+            T1.""OnOrder"" as ""Ordered"",
+            T0.""InvntryUom"" as ""UoM""
+        FROM OITM T0
+        INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
+        WHERE T1.""WhsCode"" = '{SanitizeSqlValue(warehouseCode)}'
+            AND T1.""OnHand"" > 0
+            AND T0.""ManBtchNum"" = 'N'
+            AND T0.""InvntItem"" = 'Y'
+        ORDER BY T0.""ItemCode""";
+
+        await EnsureSqlQueryAsync(
+            queryCode, $"Non-batch stock in {warehouseCode}", sqlText, cancellationToken);
+
         return await ExecuteStockQueryAsync(queryCode, warehouseCode, cancellationToken);
     }
 
