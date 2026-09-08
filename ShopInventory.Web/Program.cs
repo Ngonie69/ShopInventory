@@ -1,4 +1,4 @@
-using Blazored.LocalStorage;
+﻿using Blazored.LocalStorage;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
@@ -303,6 +303,7 @@ try
     builder.Services.AddScoped<ISyncStatusClientService, SyncStatusClientService>();
     builder.Services.AddScoped<IExceptionCenterService, ExceptionCenterService>();
     builder.Services.AddScoped<ISystemHealthService, SystemHealthService>();
+    builder.Services.AddScoped<ITransferListenerService, TransferListenerService>();
 
     // Add Sales Order, Purchase Order, Credit Note, and Quotation services
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();

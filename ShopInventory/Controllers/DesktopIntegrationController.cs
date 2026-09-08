@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.DTOs;
@@ -55,6 +55,8 @@ using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
 using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
 using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
+using ShopInventory.Features.DesktopIntegration.Commands.TriggerTransferListenerCheck;
+using ShopInventory.Features.DesktopIntegration.Queries.GetTransferListenerStatus;
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 using ShopInventory.Middleware;
@@ -964,6 +966,47 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         CancellationToken cancellationToken)
     {
         var result = await mediator.Send(command, cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// How TransferEventListener is doing: whether it is still reading SAP, what it has seen since it
+    /// started, and which warehouses it watches.
+    /// </summary>
+    /// <remarks>
+    /// The counterpart to the webhook above. Until this route existed the relationship ran one way
+    /// only, so a listener that had stopped reading SAP was indistinguishable from an afternoon with
+    /// no transfers in it — while every transfer made in the meantime was missing from the day's
+    /// snapshot.
+    ///
+    /// Answers 200 with <c>reachable: false</c> when the listener is down, rather than failing: that
+    /// is the answer, and it is the one worth showing.
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager")]
+    [HttpGet("transfer-listener/status")]
+    public async Task<IActionResult> GetTransferListenerStatus(
+        [FromQuery] int recentDocumentCount = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetTransferListenerStatusQuery(recentDocumentCount), cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Makes TransferEventListener poll SAP now instead of waiting for its next cycle.
+    /// </summary>
+    /// <remarks>
+    /// A write on the listener: it advances the poll window, marks documents processed and delivers
+    /// webhooks for anything new. Safe to repeat — a second pass finds those documents already
+    /// processed — but it stays with the people who would be reconciling a stalled poll.
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager")]
+    [HttpPost("transfer-listener/check-now")]
+    public async Task<IActionResult> TriggerTransferListenerCheck(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new TriggerTransferListenerCheckCommand(), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

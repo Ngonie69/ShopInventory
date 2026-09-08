@@ -1,4 +1,4 @@
-@using Microsoft.AspNetCore.Components.Web
+﻿@using Microsoft.AspNetCore.Components.Web
 @using Microsoft.AspNetCore.Http
 
 <!DOCTYPE html>
@@ -84,6 +84,11 @@
         <link rel="stylesheet" href="@Assets["css/pod-report.css"]" />
         <link rel="stylesheet" href="@Assets["css/route-assignments.css"]" />
         <link rel="stylesheet" href="@Assets["css/sync-status.css"]" />
+        @* /transfer-listener — whether TransferEventListener is still reading
+           SAP. Shaped after sync-status.css, its sibling monitoring page, but
+           aliasing nocturne-tokens.css rather than restating the palette, so it
+           needs no .dark-theme block of its own. *@
+        <link rel="stylesheet" href="@Assets["css/transfer-listener.css"]" />
         @* The van sales pages — the round as it happened, the departure compliance
            sheet and the routes. Aliases nocturne-tokens.css rather than restating it. *@
         <link rel="stylesheet" href="@Assets["css/van-sales.css"]" />

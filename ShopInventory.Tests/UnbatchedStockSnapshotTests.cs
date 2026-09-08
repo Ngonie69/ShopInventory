@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.SignalR;
+﻿using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -149,15 +149,173 @@ public sealed class UnbatchedStockSnapshotTests : IDisposable
         Assert.Null((await SnapshotAsync()).LastError);
     }
 
+    /// <summary>
+    /// The point of the fallback: this API's own SAP read queues behind six process-wide slots, and
+    /// TransferEventListener holds a Service Layer session of its own, so it can still answer when
+    /// ours cannot. Without it the shop loses exactly its unbatched lines for the day.
+    /// </summary>
+    [Fact]
+    public async Task The_listener_supplies_unbatched_stock_when_our_own_read_fails()
+    {
+        var listener = FakeListener.Returning(ListenerStock("BON001", "Bonaqua water 500ml", 24m));
+
+        var result = await Handler(Sap(unbatchedThrows: true), listener)
+            .FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.Equal("Complete", result.Status);
+
+        var row = await RowAsync("BON001");
+        Assert.Equal(24m, row.AvailableQuantity);
+        Assert.Null(row.BatchNumber);
+    }
+
+    /// <summary>
+    /// A row that arrived by the back door still has to be recorded as such: the primary read failing
+    /// is worth knowing about even on a day the fallback covered for it completely.
+    /// </summary>
+    [Fact]
+    public async Task A_fallback_reading_is_recorded_on_the_snapshot()
+    {
+        var listener = FakeListener.Returning(ListenerStock("BON001", "Bonaqua water 500ml", 24m));
+
+        await Handler(Sap(unbatchedThrows: true), listener)
+            .FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        var snapshot = await SnapshotAsync();
+        Assert.Contains("TransferEventListener", snapshot.LastError);
+        Assert.Contains("SAP said no", snapshot.LastError);
+    }
+
+    /// <summary>
+    /// The listener computes Available as InStock - Committed + Ordered, so it counts stock still on
+    /// order. A till needs what is on the shelf; taking the wrong figure would offer a cashier twenty
+    /// cases sitting on a supplier's truck.
+    /// </summary>
+    [Fact]
+    public async Task Stock_on_order_is_not_offered_to_the_till()
+    {
+        var listener = FakeListener.Returning(new TransferListenerItemQuantityDto
+        {
+            ItemCode = "BON001",
+            ItemName = "Bonaqua water 500ml",
+            WarehouseCode = Warehouse,
+            InStock = 4m,
+            Committed = 0m,
+            Ordered = 20m,
+            Available = 24m
+        });
+
+        await Handler(Sap(unbatchedThrows: true), listener)
+            .FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.Equal(4m, (await RowAsync("BON001")).AvailableQuantity);
+    }
+
+    /// <summary>
+    /// The listener answers 503 rather than an empty list when it cannot reach SAP, precisely so a
+    /// failed read is never mistaken for an empty warehouse. That distinction has to survive here too.
+    /// </summary>
+    [Fact]
+    public async Task A_listener_that_cannot_reach_sap_adds_no_rows()
+    {
+        var result = await Handler(Sap(unbatchedThrows: true), FakeListener.Unavailable())
+            .FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.Equal("Complete", result.Status);
+        Assert.Empty(await RowsAsync("BON001"));
+        Assert.Contains("could not reach SAP", (await SnapshotAsync()).LastError);
+    }
+
+    [Fact]
+    public async Task A_listener_that_throws_leaves_the_batch_half_on_the_till()
+    {
+        var result = await Handler(Sap(unbatchedThrows: true), FakeListener.Throwing("connection refused"))
+            .FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.Equal("Complete", result.Status);
+        Assert.Equal(2, result.ItemCount);
+        Assert.Contains("connection refused", (await SnapshotAsync()).LastError);
+    }
+
+    /// <summary>
+    /// The degraded scan covers only the listener's configured item groups, so it can be short without
+    /// saying which lines are missing. It is accepted by default because some of the shelf beats none
+    /// of it, and the shortfall is spelled out on the snapshot because it is invisible in the data.
+    /// </summary>
+    [Fact]
+    public async Task A_degraded_listener_reading_is_accepted_and_says_so()
+    {
+        var listener = FakeListener.Returning(
+            ListenerStock("BON001", "Bonaqua water 500ml", 24m),
+            source: "item-scan-fallback");
+
+        await Handler(Sap(unbatchedThrows: true), listener)
+            .FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.Equal(24m, (await RowAsync("BON001")).AvailableQuantity);
+        Assert.Contains("degraded item scan", (await SnapshotAsync()).LastError);
+    }
+
+    [Fact]
+    public async Task A_degraded_reading_can_be_refused_by_configuration()
+    {
+        var listener = FakeListener.Returning(
+            ListenerStock("BON001", "Bonaqua water 500ml", 24m),
+            source: "item-scan-fallback");
+
+        await Handler(
+                Sap(unbatchedThrows: true),
+                listener,
+                new TransferEventListenerSettings { AcceptDegradedStockFallback = false })
+            .FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.Empty(await RowsAsync("BON001"));
+    }
+
+    [Fact]
+    public async Task The_fallback_is_not_consulted_when_it_is_switched_off()
+    {
+        var listener = FakeListener.Throwing("must not be called");
+
+        await Handler(
+                Sap(unbatchedThrows: true),
+                listener,
+                new TransferEventListenerSettings { UseForUnbatchedStockFallback = false })
+            .FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.False(listener.WasCalled);
+        Assert.Contains("SAP said no", (await SnapshotAsync()).LastError);
+    }
+
+    /// <summary>
+    /// The listener costs nothing on a normal day: it is only ever reached after the primary read has
+    /// thrown, and a stub that fails when touched is how that stays true.
+    /// </summary>
+    [Fact]
+    public async Task The_listener_is_not_called_when_our_own_read_works()
+    {
+        var listener = FakeListener.Throwing("must not be called");
+
+        await Handler(Sap(), listener).FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.False(listener.WasCalled);
+        Assert.Null((await SnapshotAsync()).LastError);
+    }
+
     // ── Helpers ─────────────────────────────────────────
 
     private static DateTime Today => DateTime.UtcNow.Date;
 
-    private FetchDailyStockHandler Handler(ISAPServiceLayerClient sap) => new(
+    private FetchDailyStockHandler Handler(
+        ISAPServiceLayerClient sap,
+        ITransferEventListenerClient? listener = null,
+        TransferEventListenerSettings? listenerSettings = null) => new(
         _context,
         sap,
         StubProxy.Unused<IHubContext<NotificationHub>>(),
         Options.Create(new DailyStockSettings { MonitoredWarehouses = [Warehouse] }),
+        listener ?? FakeListener.Disabled(),
+        Options.Create(listenerSettings ?? new TransferEventListenerSettings()),
         NullLogger<FetchDailyStockHandler>.Instance);
 
     /// <summary>
@@ -181,6 +339,76 @@ public sealed class UnbatchedStockSnapshotTests : IDisposable
                     : Task.FromResult(unbatched ?? [Stock("BON001", "Bonaqua water 500ml", 24m)]),
             _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
         });
+
+    private static TransferListenerItemQuantityDto ListenerStock(
+        string itemCode, string itemName, decimal inStock) => new()
+    {
+        ItemCode = itemCode,
+        ItemName = itemName,
+        WarehouseCode = Warehouse,
+        InStock = inStock,
+        Available = inStock
+    };
+
+    /// <summary>
+    /// Hand-written rather than a <see cref="StubProxy"/>: the interface is small, and two of its
+    /// members are properties, which read badly through a dispatch proxy.
+    /// </summary>
+    private sealed class FakeListener : ITransferEventListenerClient
+    {
+        private TransferListenerWarehouseStockDto? _reading;
+        private Exception? _failure;
+        private bool _enabled = true;
+
+        public bool WasCalled { get; private set; }
+
+        public bool IsEnabled => _enabled;
+
+        public string BaseUrl => "http://listener.test";
+
+        public static FakeListener Returning(
+            TransferListenerItemQuantityDto item,
+            string source = "sql-query") => new()
+            {
+                _reading = new TransferListenerWarehouseStockDto
+                {
+                    WarehouseCode = Warehouse,
+                    ItemCount = 1,
+                    Source = source,
+                    Items = [item]
+                }
+            };
+
+        /// <summary>Answered, and could not establish anything. Not an empty warehouse.</summary>
+        public static FakeListener Unavailable() => new();
+
+        public static FakeListener Throwing(string message) =>
+            new() { _failure = new HttpRequestException(message) };
+
+        public static FakeListener Disabled() => new() { _enabled = false };
+
+        public Task<TransferListenerWarehouseStockDto?> GetWarehouseNonBatchStockAsync(
+            string warehouseCode, CancellationToken cancellationToken = default)
+        {
+            WasCalled = true;
+
+            return _failure is not null
+                ? Task.FromException<TransferListenerWarehouseStockDto?>(_failure)
+                : Task.FromResult(_reading);
+        }
+
+        public Task<TransferListenerHealthDto> GetHealthAsync(CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Not expected on the snapshot path.");
+
+        public Task<TransferListenerStatsDto> GetStatsAsync(CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Not expected on the snapshot path.");
+
+        public Task<IReadOnlyList<string>> GetMonitoredWarehousesAsync(CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Not expected on the snapshot path.");
+
+        public Task<TransferListenerCheckResultDto> TriggerCheckAsync(CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Not expected on the snapshot path.");
+    }
 
     private static StockQuantityDto Stock(string itemCode, string itemName, decimal inStock) => new()
     {

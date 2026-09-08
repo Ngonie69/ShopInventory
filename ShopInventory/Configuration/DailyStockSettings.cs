@@ -36,6 +36,12 @@ public class DailyStockSettings
     /// status page rendered the list and showed KEFBYS twice.
     ///
     /// <c>OptionsCollectionBindingTests</c> pins that binder behaviour and fails if the shape returns.
+    ///
+    /// Leaving it empty costs the safety net a default provided: configuration is now the only source,
+    /// so a missing or misspelled key binds to nothing, and every consumer would read that as a
+    /// legitimate answer — snapshotting no warehouses, reporting success, and leaving every till
+    /// refusing every sale. <c>DailyStockSettingsValidation</c> refuses an empty list at startup for
+    /// that reason.
     /// </remarks>
     public List<string> MonitoredWarehouses { get; set; } = [];
 
