@@ -5,6 +5,7 @@ using ShopInventory.Common.Crates;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Idempotency;
 using ShopInventory.Common.Sales;
+using ShopInventory.Common.Validation;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -146,7 +147,7 @@ public sealed class CreateInvoiceHandler(
             }
 
             // Step 2: Validate basic quantities
-            var quantityErrors = ValidateQuantities(request);
+            var quantityErrors = await ValidateLinesAsync(request, cancellationToken);
             if (quantityErrors.Count > 0)
                 return Errors.Invoice.ValidationFailed($"Quantity validation failed: {string.Join("; ", quantityErrors)}");
 
@@ -470,29 +471,63 @@ public sealed class CreateInvoiceHandler(
         return fallback ?? DateTime.UtcNow.Date;
     }
 
-    private static List<string> ValidateQuantities(CreateInvoiceRequest request)
+    /// <summary>
+    /// The line-level checks that run before anything is allocated or posted.
+    /// </summary>
+    /// <remarks>
+    /// This used to be a hand-rolled loop, and the invoice was the only sales document that had
+    /// one. Every other — quotations, sales orders, transfers, purchase orders — goes through
+    /// <see cref="UomQuantityValidation.ValidateAndNormalizeLineQuantitiesAsync"/>, so the rule that
+    /// only KG items may carry a fractional quantity was enforced everywhere except on the document
+    /// that actually moves the stock. A weighed quantity on a whole-unit item reached SAP and was
+    /// rounded there, and the invoice and the shelf disagreed by the remainder.
+    ///
+    /// <para>
+    /// The batch and serial selection checks come from the same shared helper the SAP client uses,
+    /// so a caller now learns about a selection that does not add up here — naming the line — rather
+    /// than as an <c>ArgumentException</c> thrown from inside the posting client.
+    /// </para>
+    ///
+    /// <para>
+    /// The price check stays local. It is not a quantity rule, and its message is about
+    /// configuration rather than about what the caller sent.
+    /// </para>
+    /// </remarks>
+    private async Task<List<string>> ValidateLinesAsync(
+        CreateInvoiceRequest request,
+        CancellationToken cancellationToken)
     {
-        var errors = new List<string>();
-        if (request.Lines == null || request.Lines.Count == 0)
+        var errors = await UomQuantityValidation.ValidateAndNormalizeLineQuantitiesAsync(
+            context,
+            request.Lines,
+            line => line.ItemCode,
+            line => line.Quantity,
+            line => line.UoMCode,
+            (line, uomCode) => line.UoMCode = uomCode,
+            cancellationToken);
+
+        if (request.Lines is null || request.Lines.Count == 0)
         {
-            errors.Add("At least one line item is required");
             return errors;
         }
 
-        for (int i = 0; i < request.Lines.Count; i++)
+        for (var i = 0; i < request.Lines.Count; i++)
         {
             var line = request.Lines[i];
-            if (line.Quantity <= 0)
-                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Quantity must be greater than zero. Current value: {line.Quantity}");
-            if (line.UnitPrice.HasValue && line.UnitPrice.Value <= 0)
+
+            if (!line.UnitPrice.HasValue || line.UnitPrice.Value <= 0)
+            {
                 errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): No SAP price is set for this item. Please contact the admin.");
-            else if (!line.UnitPrice.HasValue)
-                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): No SAP price is set for this item. Please contact the admin.");
-            if (line.BatchNumbers != null)
-                for (int j = 0; j < line.BatchNumbers.Count; j++)
-                    if (line.BatchNumbers[j].Quantity <= 0)
-                        errors.Add($"Line {i + 1}, Batch {j + 1} (Batch: {line.BatchNumbers[j].BatchNumber ?? "unknown"}): Quantity must be greater than zero.");
+            }
+
+            errors.AddRange(UomQuantityValidation.DescribeLineSelectionProblems(
+                i,
+                line.ItemCode,
+                line.Quantity,
+                line.BatchNumbers?.Select(batch => (batch.BatchNumber, batch.Quantity)),
+                line.SerialNumbers?.Select(serial => serial.InternalSerialNumber)));
         }
+
         return errors;
     }
 

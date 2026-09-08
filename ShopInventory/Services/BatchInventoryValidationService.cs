@@ -689,7 +689,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                     itemCode,
                     warehouseCode,
                     cancellationToken);
-                var issuableQuantity = GetIssuableQuantity(stock);
+                var issuableQuantity = stock.Issuable;
                 var effectiveAvailable = issuableQuantity - reservedQuantity;
 
                 if (requestedQuantity > effectiveAvailable + QuantityTolerance)
@@ -936,9 +936,6 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         int lineNumber) =>
         requestLinesByNumber.TryGetValue(lineNumber, out var requestLine) &&
         requestLine.BatchNumbers is { Count: > 0 };
-
-    private static decimal GetIssuableQuantity(StockQuantityDto stock) =>
-        stock.InStock - stock.Committed;
 
     private static string BuildStockKey(string itemCode, string warehouseCode) =>
         $"{itemCode.Trim().ToUpperInvariant()}|{warehouseCode.Trim().ToUpperInvariant()}";
@@ -1660,7 +1657,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
             // Account for reserved quantities from pending reservations
             var reservedQty = await GetReservedQuantityInternalAsync(itemCode, warehouseCode, cancellationToken);
-            var issuableQuantity = GetIssuableQuantity(stock);
+            var issuableQuantity = stock.Issuable;
             var effectiveAvailable = issuableQuantity - reservedQty;
 
             if (inventoryQuantityNeeded > effectiveAvailable)

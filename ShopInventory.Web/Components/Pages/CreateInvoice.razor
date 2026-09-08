@@ -987,6 +987,11 @@
         var line = invoice.Lines[index];
         line.ItemCode = value ?? string.Empty;
 
+        // The unit belongs to the item that was picked. Typing over the code leaves the line
+        // carrying the previous item's unit, which would let a weighed quantity through on a
+        // whole-unit item — or refuse a valid one. SelectProduct sets it again.
+        line.UoMCode = null;
+
         var state = GetLineState(index);
         state.SearchTerm = value ?? string.Empty;
         state.SuggestedProduct = null;
@@ -1174,6 +1179,13 @@
         var line = invoice.Lines[index];
         line.ItemCode = product.ItemCode ?? string.Empty;
         line.ItemDescription = product.ItemName ?? string.Empty;
+
+        // The API decides whether a fractional quantity is allowed on this line, and it can only
+        // decide it from the unit: decimals are for KG items and nobody else. It cannot look the
+        // unit up for itself — the API's own Products table is never populated — so a line sent
+        // without one and carrying a weighed quantity is refused. The transfer page already sends
+        // it from the same cached master data.
+        line.UoMCode = string.IsNullOrWhiteSpace(product.UoM) ? null : product.UoM.Trim();
 
         ApplyPricing(line, GetPricingForItem(product.ItemCode, product.Price));
 

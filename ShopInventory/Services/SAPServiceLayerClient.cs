@@ -1306,70 +1306,21 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     /// <summary>
     /// Reports a batch or serial selection that does not account for the whole line quantity.
-    /// SAP answers such a line with -4014, which names neither the line nor the item, so the
-    /// documents that carry their own selection are checked before they are sent.
     /// </summary>
+    /// <remarks>
+    /// The rule itself lives in <see cref="UomQuantityValidation.DescribeLineSelectionProblems"/>,
+    /// with every other line-quantity rule, so a document validated by a handler and the same
+    /// document validated here cannot disagree. This stays as the last gate before SAP: a caller
+    /// that reaches the client directly still gets checked.
+    /// </remarks>
     private static IEnumerable<string> DescribeIncompleteLineSelection(
         int lineIndex,
         string? itemCode,
         decimal quantity,
         IEnumerable<(string? BatchNumber, decimal Quantity)>? batches,
         IEnumerable<string?>? serialNumbers)
-    {
-        var batchList = batches?.ToList();
-        if (batchList is { Count: > 0 })
-        {
-            if (batchList.Any(batch => string.IsNullOrWhiteSpace(batch.BatchNumber)))
-            {
-                yield return $"Line {lineIndex + 1}: Batch number is required for item {itemCode}";
-            }
-
-            if (batchList.Any(batch => batch.Quantity <= 0))
-            {
-                yield return $"Line {lineIndex + 1}: Batch quantities must be greater than zero";
-            }
-
-            var selected = batchList.Sum(batch => batch.Quantity);
-            if (Math.Abs(selected - quantity) > AllocationQuantityTolerance)
-            {
-                yield return
-                    $"Line {lineIndex + 1}: the batch selection for item {itemCode} covers {selected} of {quantity}. " +
-                    $"SAP requires the batch quantities on a line to add up to the line quantity.";
-            }
-        }
-
-        var serialList = serialNumbers?.ToList();
-        if (serialList is { Count: > 0 })
-        {
-            if (serialList.Any(string.IsNullOrWhiteSpace))
-            {
-                yield return $"Line {lineIndex + 1}: Serial number is required for item {itemCode}";
-            }
-
-            var duplicate = serialList
-                .Where(serial => !string.IsNullOrWhiteSpace(serial))
-                .GroupBy(serial => serial, StringComparer.OrdinalIgnoreCase)
-                .FirstOrDefault(group => group.Count() > 1);
-            if (duplicate is not null)
-            {
-                yield return
-                    $"Line {lineIndex + 1}: serial number '{duplicate.Key}' is listed more than once for item {itemCode}";
-            }
-
-            if (quantity != Math.Truncate(quantity))
-            {
-                yield return
-                    $"Line {lineIndex + 1}: item {itemCode} is serial-managed, so its quantity must be a whole " +
-                    $"number of units. Current value: {quantity}";
-            }
-            else if (serialList.Count != (int)quantity)
-            {
-                yield return
-                    $"Line {lineIndex + 1}: the serial selection for item {itemCode} covers {serialList.Count} of " +
-                    $"{quantity} units. SAP requires one serial number per unit.";
-            }
-        }
-    }
+        => UomQuantityValidation.DescribeLineSelectionProblems(
+            lineIndex, itemCode, quantity, batches, serialNumbers);
 
     private static string? NormalizeSapDocumentCurrency(string? currency)
     {
@@ -10374,7 +10325,7 @@ ORDER BY T1."ItemCode"
 
                 if (stockLookup.TryGetValue(itemCode, out var stock))
                 {
-                    var issuableQuantity = GetInvoiceIssuableQuantity(stock);
+                    var issuableQuantity = stock.Issuable;
                     if (requestedQuantity > issuableQuantity)
                     {
                         errors.Add(new StockValidationError
@@ -10485,7 +10436,7 @@ ORDER BY T1."ItemCode"
                     // No batches specified, check overall stock availability
                     if (stockLookup.TryGetValue(itemCode, out var stock))
                     {
-                        var issuableQuantity = GetInvoiceIssuableQuantity(stock);
+                        var issuableQuantity = stock.Issuable;
                         if (line.Quantity > issuableQuantity)
                         {
                             errors.Add(new StockValidationError
@@ -10521,8 +10472,6 @@ ORDER BY T1."ItemCode"
     private static string BuildStockValidationKey(string firstPart, string secondPart) =>
         $"{firstPart.Trim().ToUpperInvariant()}|{secondPart.Trim().ToUpperInvariant()}";
 
-    private static decimal GetInvoiceIssuableQuantity(StockQuantityDto stock) =>
-        stock.InStock - stock.Committed;
 
     /// <summary>
     /// Reads only the item-management flags needed while building an inventory transfer.
@@ -10981,7 +10930,23 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             if (line.BatchNumbers != null && line.BatchNumbers.Count > 0)
             {
                 var batchNumbers = new List<object>(line.BatchNumbers.Count);
-                var selectedQuantity = 0m;
+
+                // Blank batch numbers, non-positive quantities, and a selection that does not add
+                // up to the line — the last being the most common source of SAP's "Cannot add row
+                // without complete selection of batch/serial numbers" (-4014). One rule, shared with
+                // the invoice and credit note paths, so a transfer and an invoice cannot come to
+                // different conclusions about the same selection.
+                var selectionProblems = UomQuantityValidation.DescribeLineSelectionProblems(
+                    i,
+                    line.ItemCode,
+                    line.Quantity,
+                    line.BatchNumbers.Select(batchRequest => (batchRequest.BatchNumber, batchRequest.Quantity)),
+                    serialNumbers: null).ToList();
+
+                if (selectionProblems.Count > 0)
+                {
+                    throw new ArgumentException(string.Join("; ", selectionProblems));
+                }
 
                 // Totalled per batch, because one line may name the same batch on more than one
                 // row and SAP counts the rows together.
@@ -10989,35 +10954,14 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
                 foreach (var batchRequest in line.BatchNumbers)
                 {
-                    if (string.IsNullOrWhiteSpace(batchRequest.BatchNumber))
-                    {
-                        throw new ArgumentException($"Line {i + 1}: Batch number is required for item {line.ItemCode}");
-                    }
-
-                    // CRITICAL: Validate batch quantity
-                    if (batchRequest.Quantity <= 0)
-                    {
-                        throw new ArgumentException($"Line {i + 1}: Batch '{batchRequest.BatchNumber}' quantity must be greater than zero");
-                    }
-
                     batchNumbers.Add(new
                     {
                         BatchNumber = batchRequest.BatchNumber,
                         Quantity = batchRequest.Quantity
                     });
-                    selectedQuantity += batchRequest.Quantity;
                     selectedByBatch[batchRequest.BatchNumber!] =
                         (selectedByBatch.TryGetValue(batchRequest.BatchNumber!, out var running) ? running : 0m)
                         + batchRequest.Quantity;
-                }
-
-                // A selection that does not add up is the most common source of SAP's
-                // "Cannot add row without complete selection of batch/serial numbers" (-4014).
-                if (Math.Abs(selectedQuantity - line.Quantity) > AllocationQuantityTolerance)
-                {
-                    throw new ArgumentException(
-                        $"Line {i + 1}: the batch selection for item {line.ItemCode} covers {selectedQuantity} of {line.Quantity}. " +
-                        $"SAP requires the batch quantities on a line to add up to the line quantity.");
                 }
 
                 // A selection the caller made is measured against the warehouse, not only against
@@ -11344,7 +11288,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
     /// Rounding slack for comparing an allocated quantity against a line quantity. SAP keeps
     /// inventory quantities to six decimals.
     /// </summary>
-    private const decimal AllocationQuantityTolerance = 0.000001m;
+    private const decimal AllocationQuantityTolerance = UomQuantityValidation.AllocationQuantityTolerance;
 
     private static decimal ClaimedBatchQuantity(
         Dictionary<string, decimal> claimed,

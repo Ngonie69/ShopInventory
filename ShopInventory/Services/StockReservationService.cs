@@ -1222,7 +1222,7 @@ public class StockReservationService : IStockReservationService
                     && (excludeReservationId == null || l.Reservation.ReservationId != excludeReservationId))
                 .SumAsync(l => l.ReservedQuantity, cancellationToken);
 
-            var issuableQty = stockItem.InStock - stockItem.Committed;
+            var issuableQty = stockItem.Issuable;
             var availableQty = issuableQty - reservedQty;
 
             if (inventoryQuantity > availableQty)
@@ -1312,7 +1312,7 @@ public class StockReservationService : IStockReservationService
                     && (excludeReservationId == null || reservationLine.Reservation.ReservationId != excludeReservationId))
                 .SumAsync(reservationLine => reservationLine.ReservedQuantity, cancellationToken);
 
-            var issuableQty = stockItem.InStock - stockItem.Committed;
+            var issuableQty = stockItem.Issuable;
             var availableQty = issuableQty - reservedQty;
 
             if (requestedQuantity > availableQty + 0.0001m)
