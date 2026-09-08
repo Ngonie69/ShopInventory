@@ -128,6 +128,24 @@ public sealed class TransferListenerHealthCheckTests
     }
 
     /// <summary>
+    /// The configured list is not guaranteed to be one: the binder appends to a property whose
+    /// initializer already holds items, so MonitoredWarehouses arrives holding every warehouse twice
+    /// (see DailyStockWarehouseBindingTests). Reporting KEFBYS twice, as this page first did, makes a
+    /// reader doubt the page rather than the list.
+    /// </summary>
+    [Fact]
+    public async Task A_warehouse_configured_twice_is_reported_once()
+    {
+        var result = await CheckAsync(
+            FakeListener.Healthy(Poll(), watched: ["KEFSHOP"]),
+            snapshotted: ["KEFSHOP", "KEFBYS", "KEFSHOP", "KEFBYS"]);
+
+        Assert.Equal(HealthStatus.Degraded, result.Status);
+        Assert.Equal("KEFBYS", (string)result.Data["warehousesNotWatchedByListener"]);
+        Assert.Contains("1 warehouse(s)", result.Description);
+    }
+
+    /// <summary>
     /// A failure listing warehouses must not mask the poll status, which is what the caller came for
     /// and which answered successfully to get this far.
     /// </summary>

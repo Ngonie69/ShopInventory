@@ -1,0 +1,705 @@
+/* ==========================================================================
+   Transfer Listener — Nocturne
+
+   /transfer-listener: whether TransferEventListener is still reading SAP.
+
+   The page exists because the failure it reports is silent from every other
+   direction. The listener's poll loop swallows its own exceptions and leaves
+   the poll window unadvanced, so it keeps answering HTTP from an in-memory
+   store while nothing new is read; and the webhook it feeds this API is
+   fire-and-forget, so its absence looks exactly like an afternoon with no
+   transfers in it. The damage lands on a till — a transfer made while the
+   listener is down is missing from the day's snapshot, so a cashier is refused
+   stock the warehouse holds.
+
+   So the page is ordered as the questions are actually asked: is it up, is it
+   still reading, is anything stuck — then what it has seen, then which
+   warehouses it watches, then the documents themselves.
+
+   Two things on this page are counted since the listener process started and
+   are lost on a restart: the document and line totals. A zero there means
+   "nothing since the last restart", never "no transfers happened", so the
+   process start is printed beside them rather than left for the reader to
+   remember. `.tel-since` is that caption and is not decoration.
+
+   Palette and spacing come from nocturne-tokens.css. The block below aliases
+   them rather than restating them, so there is no `.dark-theme .tel` block at
+   all: those tokens flip at the root and every alias resolves against whichever
+   scheme is in force. Shape follows sync-status.css — the sibling monitoring
+   page — so Administration stays one design.
+
+   Rules live here rather than an inline Razor <style> block because app.css
+   carries global `.dark-theme input/select` rules that have to be out-specified;
+   every control selector is two classes deep so it wins regardless of load
+   order. Headings are pinned to Nocturne's 500 because Bootstrap's global
+   `h1-h6 { font-weight: 600 }` would otherwise bolden them past this system.
+
+   Status is a coloured dot plus the word, never colour alone — a monitoring
+   page is read at a glance, and the word has to survive both schemes and a
+   colour-blind reader.
+   ========================================================================== */
+
+.tel {
+    --tel-bg: var(--noct-bg);
+    --tel-surface: var(--noct-surface);
+    --tel-wash: var(--noct-wash);
+    --tel-ink: var(--noct-ink);
+    --tel-ink-2: var(--noct-ink-2);
+    --tel-mute: var(--noct-mute);
+    --tel-mute-2: var(--noct-mute-2);
+    --tel-mute-3: var(--noct-mute-3);
+    --tel-faint: var(--noct-faint);
+    --tel-divider: var(--noct-divider);
+    --tel-rule: var(--noct-rule);
+    --tel-hover: var(--noct-hover);
+    --tel-press: var(--noct-press);
+    --tel-field-bg: var(--noct-field-bg);
+    --tel-field-edge: var(--noct-field-edge);
+    --tel-accent: var(--noct-accent);
+    --tel-accent-rgb: var(--noct-accent-rgb);
+    --tel-accent-text: var(--noct-accent-text);
+    --tel-on-accent: var(--noct-on-accent);
+
+    /* Three verdict hues, each of which always arrives with a word. */
+    --tel-good: var(--noct-fam-good);
+    --tel-good-rgb: var(--noct-fam-good-rgb);
+    --tel-warn: var(--noct-fam-warn);
+    --tel-warn-rgb: var(--noct-fam-warn-rgb);
+    --tel-danger: var(--noct-fam-bad);
+    --tel-danger-rgb: var(--noct-fam-bad-rgb);
+
+    --tel-s1: var(--noct-s1);
+    --tel-s2: var(--noct-s2);
+    --tel-s3: var(--noct-s3);
+    --tel-s4: var(--noct-s4);
+    --tel-s6: var(--noct-s6);
+    --tel-s8: var(--noct-s8);
+    --tel-r-sm: var(--noct-r-sm);
+    --tel-r-md: var(--noct-r-md);
+    --tel-r-lg: var(--noct-r-lg);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.tel {
+    min-height: 100vh;
+    background: var(--tel-bg);
+    color: var(--tel-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+
+    /* `clip`, never `hidden`: `hidden` would make this element a scrollport and
+       the sticky header below would stop sticking. */
+    overflow-x: clip;
+}
+
+.tel * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` on every element in dark
+   theme for an iOS input fix; here that would flatten the accent and the three
+   verdict hues on WebKit, so hand the fill back to `color`. */
+.dark-theme .tel,
+.dark-theme .tel * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.tel :focus-visible {
+    outline: 2px solid var(--tel-accent);
+    outline-offset: 2px;
+}
+
+.tel ::selection {
+    background: rgba(var(--tel-accent-rgb), .3);
+}
+
+.tel h1,
+.tel h2,
+.tel h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+.tel p {
+    margin: 0;
+}
+
+/* Every figure here is compared against the one above it, so they all need the
+   same width per digit. */
+.tel-num {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.tel-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+
+    /* Opaque first. The frosted rule below only applies where backdrop-filter is
+       supported; without this fallback the header borrows the page behind it and
+       reads its own title through itself. */
+    background: var(--tel-bg);
+    border-bottom: 1px solid var(--tel-divider);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .tel-head {
+        background: color-mix(in srgb, var(--tel-bg) 88%, transparent);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+}
+
+.tel-head-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--tel-s6);
+}
+
+.tel-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--tel-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--tel-mute-3);
+}
+
+.tel-crumb-sep {
+    color: var(--tel-faint);
+}
+
+.tel-crumb-now {
+    color: var(--tel-ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tel-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--tel-s3);
+}
+
+/* Load-bearing: everything on the page is a snapshot, and a stale snapshot of a
+   staleness monitor is the one thing that would actively mislead. */
+.tel-asof {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--tel-mute-3);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.tel-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: var(--tel-r-sm);
+    border: 1px solid var(--tel-field-edge);
+    background: var(--tel-surface);
+    color: var(--tel-ink-2);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: background .15s ease, border-color .15s ease;
+}
+
+.tel-btn:hover:not(:disabled) {
+    background: var(--tel-hover);
+}
+
+.tel-btn:active:not(:disabled) {
+    background: var(--tel-press);
+}
+
+.tel-btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.tel-btn-primary {
+    background: var(--tel-accent);
+    border-color: var(--tel-accent);
+    color: var(--tel-on-accent);
+}
+
+.tel-btn-primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--tel-accent) 88%, #000);
+}
+
+.tel-spin {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    animation: tel-spin .7s linear infinite;
+}
+
+@keyframes tel-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tel-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.tel-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--tel-s8) 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--tel-s8);
+}
+
+.tel-section-title {
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--tel-mute-3);
+    margin-bottom: var(--tel-s3);
+}
+
+.tel-card {
+    background: var(--tel-surface);
+    border: 1px solid var(--tel-divider);
+    border-radius: var(--tel-r-lg);
+    padding: var(--tel-s6);
+}
+
+/* ── Verdict strip ─────────────────────────────────────────────────────── */
+/* The first thing read and often the only thing read, so it carries the whole
+   answer in a sentence rather than a status word alone. */
+
+.tel-verdict {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--tel-s4);
+    padding: var(--tel-s6);
+    border-radius: var(--tel-r-lg);
+    border: 1px solid var(--tel-divider);
+    background: var(--tel-surface);
+    border-left: 3px solid var(--tel-mute-3);
+}
+
+.tel-verdict-good {
+    border-left-color: var(--tel-good);
+    background: color-mix(in srgb, var(--tel-good) 5%, var(--tel-surface));
+}
+
+.tel-verdict-warn {
+    border-left-color: var(--tel-warn);
+    background: color-mix(in srgb, var(--tel-warn) 6%, var(--tel-surface));
+}
+
+.tel-verdict-bad {
+    border-left-color: var(--tel-danger);
+    background: color-mix(in srgb, var(--tel-danger) 6%, var(--tel-surface));
+}
+
+.tel-verdict-icon {
+    flex: none;
+    font-size: 20px;
+    line-height: 1;
+    margin-top: 2px;
+}
+
+.tel-verdict-good .tel-verdict-icon {
+    color: var(--tel-good);
+}
+
+.tel-verdict-warn .tel-verdict-icon {
+    color: var(--tel-warn);
+}
+
+.tel-verdict-bad .tel-verdict-icon {
+    color: var(--tel-danger);
+}
+
+.tel-verdict-body {
+    min-width: 0;
+}
+
+.tel-verdict-head {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--tel-ink);
+    margin-bottom: 3px;
+}
+
+.tel-verdict-detail {
+    font-size: 13px;
+    color: var(--tel-mute);
+}
+
+.tel-verdict-host {
+    margin-top: var(--tel-s2);
+    font-size: 12px;
+    color: var(--tel-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Status dot ────────────────────────────────────────────────────────── */
+/* Always beside a word. Colour never carries the meaning on its own. */
+
+.tel-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--tel-mute-3);
+    flex: none;
+}
+
+.tel-dot-good {
+    background: var(--tel-good);
+}
+
+.tel-dot-warn {
+    background: var(--tel-warn);
+}
+
+.tel-dot-bad {
+    background: var(--tel-danger);
+}
+
+.tel-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--tel-ink-2);
+    white-space: nowrap;
+}
+
+/* ── Figures ───────────────────────────────────────────────────────────── */
+
+.tel-figures {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--tel-s4);
+}
+
+.tel-figure {
+    background: var(--tel-surface);
+    border: 1px solid var(--tel-divider);
+    border-radius: var(--tel-r-md);
+    padding: var(--tel-s4) var(--tel-s6);
+}
+
+.tel-figure-label {
+    font-size: 11.5px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--tel-mute-3);
+    margin-bottom: 3px;
+}
+
+.tel-figure-value {
+    font-size: 24px;
+    font-weight: 500;
+    color: var(--tel-ink);
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+}
+
+.tel-figure-value-bad {
+    color: var(--tel-danger);
+}
+
+.tel-figure-note {
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: var(--tel-mute-3);
+}
+
+/* The caption that keeps an in-memory counter honest. A zero above it means
+   "nothing since the restart", and without this line it reads as "nothing
+   happened", which is a different and much more comforting claim. */
+.tel-since {
+    margin-top: var(--tel-s3);
+    font-size: 12px;
+    color: var(--tel-mute-3);
+}
+
+/* ── Detail rows ───────────────────────────────────────────────────────── */
+
+.tel-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.tel-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--tel-s4);
+    padding: var(--tel-s3) 0;
+    border-bottom: 1px solid var(--tel-rule);
+    font-size: 13px;
+}
+
+.tel-row:last-child {
+    border-bottom: 0;
+}
+
+.tel-row-label {
+    flex: none;
+    width: 210px;
+    color: var(--tel-mute-2);
+}
+
+.tel-row-value {
+    color: var(--tel-ink-2);
+    font-variant-numeric: tabular-nums;
+    min-width: 0;
+    word-break: break-word;
+}
+
+.tel-row-value-bad {
+    color: var(--tel-danger);
+}
+
+@media (max-width: 720px) {
+    .tel-row {
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .tel-row-label {
+        width: auto;
+    }
+}
+
+/* ── Chips ─────────────────────────────────────────────────────────────── */
+
+.tel-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--tel-s2);
+}
+
+.tel-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--tel-divider);
+    background: var(--tel-field-bg);
+    color: var(--tel-ink-2);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.tel-chip-count {
+    color: var(--tel-mute-3);
+}
+
+/* A warehouse this API snapshots and the listener does not watch. It is not an
+   error state on either side, which is exactly why it needs to look like
+   something. */
+.tel-chip-unwatched {
+    border-color: color-mix(in srgb, var(--tel-warn) 45%, transparent);
+    background: color-mix(in srgb, var(--tel-warn) 10%, var(--tel-surface));
+    color: var(--tel-ink-2);
+}
+
+/* ── Table ─────────────────────────────────────────────────────────────── */
+
+.tel-table-wrap {
+    /* The table is wider than a phone and must scroll inside its own box; the
+       page body must never scroll sideways. */
+    overflow-x: auto;
+    border: 1px solid var(--tel-divider);
+    border-radius: var(--tel-r-lg);
+    background: var(--tel-surface);
+}
+
+.tel-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.tel-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--tel-surface);
+    text-align: left;
+    font-weight: 500;
+    font-size: 11.5px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--tel-mute-3);
+    padding: var(--tel-s3) var(--tel-s4);
+    border-bottom: 1px solid var(--tel-divider);
+    white-space: nowrap;
+}
+
+.tel-table tbody td {
+    padding: var(--tel-s3) var(--tel-s4);
+    border-bottom: 1px solid var(--tel-rule);
+    color: var(--tel-ink-2);
+    vertical-align: top;
+}
+
+.tel-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.tel-table tbody tr:hover td {
+    background: var(--tel-hover);
+}
+
+.tel-cell-num {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.tel-cell-muted {
+    color: var(--tel-mute-2);
+}
+
+/* Direction reads as a word, with the arrow only as reinforcement. */
+.tel-dir {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.tel-dir-in {
+    color: var(--tel-good);
+}
+
+.tel-dir-out {
+    color: var(--tel-accent-text);
+}
+
+.tel-lines {
+    margin: var(--tel-s1) 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--tel-mute-2);
+    font-size: 12.5px;
+}
+
+.tel-lines li {
+    display: flex;
+    gap: var(--tel-s3);
+    padding: 1px 0;
+}
+
+.tel-line-qty {
+    flex: none;
+    min-width: 48px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--tel-ink-2);
+}
+
+/* ── Empty and loading ─────────────────────────────────────────────────── */
+
+.tel-empty {
+    padding: var(--tel-s8);
+    text-align: center;
+    color: var(--tel-mute-3);
+    font-size: 13px;
+}
+
+/* The skeleton carries a class of its own rather than reusing the row class:
+   waiting on `.tel-row` would report "rows found" while the page is still a
+   spinner. Anything asserting on this page should wait on a cell, not a row. */
+.tel-skeleton {
+    height: 12px;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+        var(--tel-field-bg) 25%,
+        var(--tel-hover) 37%,
+        var(--tel-field-bg) 63%);
+    background-size: 400% 100%;
+    animation: tel-shimmer 1.4s ease infinite;
+}
+
+@keyframes tel-shimmer {
+    0% {
+        background-position: 100% 50%;
+    }
+
+    100% {
+        background-position: 0 50%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tel-skeleton {
+        animation: none;
+    }
+}
+
+/* ── Alert ─────────────────────────────────────────────────────────────── */
+
+.tel-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--tel-s3);
+    padding: var(--tel-s4) var(--tel-s6);
+    border-radius: var(--tel-r-md);
+    border: 1px solid var(--tel-divider);
+    background: var(--tel-surface);
+    font-size: 13px;
+    color: var(--tel-ink-2);
+}
+
+.tel-alert-good {
+    border-color: color-mix(in srgb, var(--tel-good) 40%, transparent);
+    background: color-mix(in srgb, var(--tel-good) 7%, var(--tel-surface));
+}
+
+.tel-alert-bad {
+    border-color: color-mix(in srgb, var(--tel-danger) 40%, transparent);
+    background: color-mix(in srgb, var(--tel-danger) 7%, var(--tel-surface));
+}
+
+@media (max-width: 640px) {
+    .tel-head-inner,
+    .tel-body {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+
+    .tel-head-inner {
+        flex-wrap: wrap;
+        gap: var(--tel-s3);
+    }
+}

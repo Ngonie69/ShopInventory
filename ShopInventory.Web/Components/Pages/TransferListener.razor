@@ -1,0 +1,353 @@
+@page "/transfer-listener"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Models
+@attribute [Authorize(Roles = "Admin,Manager")]
+@rendermode InteractiveServer
+
+<PageTitle>Transfer listener - Shop Inventory</PageTitle>
+
+@* Styles live in wwwroot/css/transfer-listener.css (linked from App.razor), on
+   the Nocturne tokens, following the app's theme toggle like /sync-status does.
+
+   The page is ordered the way the questions are asked: is it up, is it still
+   reading SAP, is anything stuck — then what it has seen since it started, then
+   which warehouses it watches, then the documents themselves.
+
+   Two figures here are counted in the listener's memory and lost on restart, so
+   the process start is printed beside them. A zero there means "nothing since
+   the restart", and left uncaptioned it reads as "nothing happened".
+
+   Icons are Phosphor and purely decorative: every status is a coloured dot plus
+   the word, so a font that failed to load costs nothing but the picture. *@
+
+<div class="tel">
+
+    <header class="tel-head">
+        <div class="tel-head-inner">
+            <nav class="tel-crumbs" aria-label="Breadcrumb">
+                <span>System</span>
+                <span class="tel-crumb-sep" aria-hidden="true">/</span>
+                <span class="tel-crumb-now" aria-current="page">Transfer listener</span>
+            </nav>
+            <div class="tel-head-actions">
+                @if (loadedAtUtc.HasValue)
+                {
+                    <span class="tel-asof">
+                        @if (isRefreshing)
+                        {
+                            <span class="tel-spin" aria-hidden="true"></span>
+                        }
+                        else
+                        {
+                            <i class="ph ph-clock-countdown" aria-hidden="true"></i>
+                        }
+                        as of @FormatClock(loadedAtUtc)
+                    </span>
+                }
+                <button type="button" class="tel-btn" @onclick="RefreshAsync" disabled="@isRefreshing">
+                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    <span>Refresh</span>
+                </button>
+                <button type="button" class="tel-btn tel-btn-primary" @onclick="CheckNowAsync"
+                        disabled="@(isChecking || status is null || !status.Reachable)"
+                        title="Make the listener poll SAP now instead of waiting for its next cycle">
+                    @if (isChecking)
+                    {
+                        <span class="tel-spin" aria-hidden="true"></span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                    }
+                    <span>Check now</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="tel-body">
+
+        @if (alertMessage is not null)
+        {
+            <div class="tel-alert @(alertSuccess ? "tel-alert-good" : "tel-alert-bad")" role="status">
+                <i class="ph @(alertSuccess ? "ph-check-circle" : "ph-warning-circle")" aria-hidden="true"></i>
+                <span>@alertMessage</span>
+            </div>
+        }
+
+        @if (isLoading)
+        {
+            <div class="tel-card">
+                <div class="tel-skeleton" style="width: 40%; margin-bottom: 12px;"></div>
+                <div class="tel-skeleton" style="width: 75%;"></div>
+            </div>
+        }
+        else if (status is null)
+        {
+            @* The API did not answer. Deliberately not phrased as a listener
+               fault: the failure is one hop closer to home, and blaming the
+               listener would send someone to the wrong machine. *@
+            <div class="tel-verdict tel-verdict-bad">
+                <i class="ph ph-plugs tel-verdict-icon" aria-hidden="true"></i>
+                <div class="tel-verdict-body">
+                    <div class="tel-verdict-head">The API did not answer</div>
+                    <p class="tel-verdict-detail">
+                        @(loadError ?? "The status could not be read.") This says nothing about the
+                        listener itself — the call that failed was to the API.
+                    </p>
+                </div>
+            </div>
+        }
+        else
+        {
+            <section aria-label="Verdict">
+                <div class="tel-verdict @VerdictClass">
+                    <i class="ph @VerdictIcon tel-verdict-icon" aria-hidden="true"></i>
+                    <div class="tel-verdict-body">
+                        <div class="tel-verdict-head">@VerdictHeadline</div>
+                        <p class="tel-verdict-detail">@VerdictDetail</p>
+                        <p class="tel-verdict-host">@status.BaseUrl</p>
+                    </div>
+                </div>
+            </section>
+
+            @if (status.Reachable && status.Poll is { } poll)
+            {
+                <section aria-label="SAP polling">
+                    <h2 class="tel-section-title">SAP polling</h2>
+                    <div class="tel-card">
+                        <div class="tel-rows">
+                            <div class="tel-row">
+                                <span class="tel-row-label">Poll loop</span>
+                                <span class="tel-status">
+                                    <span class="tel-dot @(poll.PollingStarted ? "tel-dot-good" : "tel-dot-bad")"
+                                          aria-hidden="true"></span>
+                                    @(poll.PollingStarted ? "Running" : "Not started")
+                                </span>
+                            </div>
+                            <div class="tel-row">
+                                <span class="tel-row-label">Last successful read</span>
+                                <span class="tel-row-value @(IsPollStale ? "tel-row-value-bad" : null)">
+                                    @FormatAge(poll.MinutesSinceSuccessfulPoll)
+                                    @if (poll.LastSuccessUtc.HasValue)
+                                    {
+                                        <text> (@FormatClock(poll.LastSuccessUtc))</text>
+                                    }
+                                    else
+                                    {
+                                        <text> — no cycle has ever succeeded</text>
+                                    }
+                                </span>
+                            </div>
+                            <div class="tel-row">
+                                <span class="tel-row-label">Last attempt</span>
+                                <span class="tel-row-value">@FormatClock(poll.LastAttemptUtc)</span>
+                            </div>
+                            <div class="tel-row">
+                                <span class="tel-row-label">Reading from</span>
+                                <span class="tel-row-value">
+                                    @FormatClock(poll.PollingSinceUtc)
+                                    @* Explained rather than shown bare: a left edge that has not
+                                       moved is how a failing cycle looks, and it is reassuring
+                                       rather than alarming until you know that. *@
+                                    <span class="tel-cell-muted">
+                                        — the window does not advance on a failed cycle, so a
+                                        backlog is retried rather than lost
+                                    </span>
+                                </span>
+                            </div>
+                            <div class="tel-row">
+                                <span class="tel-row-label">Consecutive failures</span>
+                                <span class="tel-row-value @(poll.ConsecutiveFailures > 0 ? "tel-row-value-bad" : null)">
+                                    @poll.ConsecutiveFailures
+                                </span>
+                            </div>
+                            <div class="tel-row">
+                                <span class="tel-row-label">Poll interval</span>
+                                <span class="tel-row-value">every @poll.PollIntervalSeconds s</span>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(poll.LastError))
+                            {
+                                <div class="tel-row">
+                                    <span class="tel-row-label">Last error</span>
+                                    <span class="tel-row-value tel-row-value-bad">
+                                        @poll.LastError
+                                        @if (poll.LastErrorUtc.HasValue)
+                                        {
+                                            <text> (@FormatClock(poll.LastErrorUtc))</text>
+                                        }
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </section>
+
+                <section aria-label="Seen since the listener started">
+                    <h2 class="tel-section-title">Seen since the listener started</h2>
+                    <div class="tel-figures">
+                        <div class="tel-figure">
+                            <div class="tel-figure-label">Documents</div>
+                            <div class="tel-figure-value tel-num">@status.DocumentsSeen</div>
+                            <div class="tel-figure-note">@status.LinesSeen line(s)</div>
+                        </div>
+                        <div class="tel-figure">
+                            <div class="tel-figure-label">Inbound</div>
+                            <div class="tel-figure-value tel-num">@status.InboundDocuments</div>
+                        </div>
+                        <div class="tel-figure">
+                            <div class="tel-figure-label">Outbound</div>
+                            <div class="tel-figure-value tel-num">@status.OutboundDocuments</div>
+                        </div>
+                        <div class="tel-figure">
+                            <div class="tel-figure-label">Webhooks delivered</div>
+                            <div class="tel-figure-value tel-num">@status.WebhookSuccessCount</div>
+                        </div>
+                        <div class="tel-figure">
+                            <div class="tel-figure-label">Webhooks failed</div>
+                            <div class="tel-figure-value tel-num @(status.WebhookFailureCount > 0 ? "tel-figure-value-bad" : null)">
+                                @status.WebhookFailureCount
+                            </div>
+                            @if (status.WebhookFailureCount > 0)
+                            {
+                                <div class="tel-figure-note">Not retried</div>
+                            }
+                        </div>
+                    </div>
+                    @* Without this line a zero above reads as "no transfers
+                       happened", which is a different and much more comforting
+                       claim than "the listener restarted". *@
+                    <p class="tel-since">
+                        Counted in the listener's memory since it started
+                        @FormatClock(poll.ProcessStartedUtc), and lost on restart. A zero here means
+                        nothing since that moment, not that nothing happened.
+                    </p>
+                </section>
+            }
+
+            @if (status.Reachable)
+            {
+                <section aria-label="Warehouses">
+                    <h2 class="tel-section-title">Warehouses</h2>
+                    <div class="tel-card">
+                        @if (status.UnwatchedWarehouses.Count > 0)
+                        {
+                            <div class="tel-rows">
+                                <div class="tel-row">
+                                    <span class="tel-row-label">Snapshotted but not watched</span>
+                                    <span class="tel-row-value">
+                                        <span class="tel-chips">
+                                            @foreach (var warehouse in status.UnwatchedWarehouses)
+                                            {
+                                                <span class="tel-chip tel-chip-unwatched">@warehouse</span>
+                                            }
+                                        </span>
+                                        <span class="tel-cell-muted">
+                                            These are read into the daily snapshot at 07:00 and never
+                                            adjusted again, so their stock drifts from SAP over the
+                                            day. The two lists are maintained separately — one in this
+                                            API's configuration, one in the listener's own code.
+                                        </span>
+                                    </span>
+                                </div>
+                            </div>
+                        }
+
+                        <div class="tel-rows">
+                            <div class="tel-row">
+                                <span class="tel-row-label">Watched by the listener</span>
+                                <span class="tel-row-value">
+                                    <span class="tel-chips">
+                                        @foreach (var warehouse in status.WatchedWarehouses)
+                                        {
+                                            <span class="tel-chip">
+                                                @warehouse
+                                                @if (status.DocumentsByWarehouse.TryGetValue(warehouse, out var count))
+                                                {
+                                                    <span class="tel-chip-count tel-num">@count</span>
+                                                }
+                                            </span>
+                                        }
+                                    </span>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section aria-label="Recent documents">
+                    <h2 class="tel-section-title">Recent transfer documents</h2>
+                    @if (status.RecentDocuments.Count == 0)
+                    {
+                        <div class="tel-card tel-empty">
+                            No transfer document has been seen since the listener started.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="tel-table-wrap">
+                            <table class="tel-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Doc</th>
+                                        <th scope="col">Detected</th>
+                                        <th scope="col">Direction</th>
+                                        <th scope="col">Movement</th>
+                                        <th scope="col">Webhook</th>
+                                        <th scope="col">Lines</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var document in status.RecentDocuments)
+                                    {
+                                        <tr>
+                                            <td class="tel-cell-num">
+                                                @(document.SapDocNum?.ToString() ?? "—")
+                                            </td>
+                                            <td class="tel-cell-num tel-cell-muted">
+                                                @FormatClock(document.DetectedAt)
+                                            </td>
+                                            <td>
+                                                <span class="tel-dir @(IsInbound(document) ? "tel-dir-in" : "tel-dir-out")">
+                                                    <i class="ph @(IsInbound(document) ? "ph-arrow-down" : "ph-arrow-up")"
+                                                       aria-hidden="true"></i>
+                                                    @(document.Direction ?? "—")
+                                                </span>
+                                            </td>
+                                            <td class="tel-cell-muted">
+                                                @document.SourceWarehouse → @document.DestinationWarehouse
+                                            </td>
+                                            <td>
+                                                <span class="tel-status">
+                                                    <span class="tel-dot @(document.WebhookSuccess ? "tel-dot-good" : "tel-dot-bad")"
+                                                          aria-hidden="true"></span>
+                                                    @(document.WebhookSuccess ? "Delivered" : "Failed")
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span class="tel-cell-num">@document.LineCount</span>
+                                                @if (document.Lines.Count > 0)
+                                                {
+                                                    <ul class="tel-lines">
+                                                        @foreach (var line in document.Lines)
+                                                        {
+                                                            <li>
+                                                                <span class="tel-line-qty">@line.Quantity.ToString("0.##")</span>
+                                                                <span>@line.ItemCode — @line.ItemDescription</span>
+                                                            </li>
+                                                        }
+                                                    </ul>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </section>
+            }
+        }
+    </div>
+</div>

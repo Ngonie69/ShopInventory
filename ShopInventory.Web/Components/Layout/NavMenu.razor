@@ -1,4 +1,4 @@
-@using ShopInventory.Web.Common
+﻿@using ShopInventory.Web.Common
 @inject NavSectionState SectionState
 
 @* Navigation for the staff shell. Presentation lives in
@@ -738,6 +738,20 @@
                             </span>
                             <span class="snav-text">Sync Status</span>
                         </NavLink>
+                        @* Sits beside Sync Status because it answers the same
+                           question about a different link: whether stock movements
+                           are still arriving from SAP. Admin and Manager only, as
+                           the API routes behind it are. *@
+                        <AuthorizeView Roles="Admin,Manager" Context="listenerCtx">
+                            <Authorized>
+                                <NavLink class="snav-link" href="/transfer-listener" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-broadcast" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Transfer Listener</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
                         <NavLink class="snav-link" href="/notifications" Match="NavLinkMatch.Prefix">
                             <span class="snav-icon">
                                 <i class="ph ph-bell" aria-hidden="true"></i>

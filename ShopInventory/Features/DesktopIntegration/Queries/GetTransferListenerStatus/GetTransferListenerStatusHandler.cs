@@ -1,4 +1,4 @@
-using ErrorOr;
+﻿using ErrorOr;
 using MediatR;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
@@ -73,9 +73,15 @@ public sealed class GetTransferListenerStatusHandler(
 
         // The two warehouse lists are maintained independently — one in this API's configuration, the
         // other compiled into the listener — so they drift, and nothing else compares them.
+        //
+        // Distinct because the configured list is not guaranteed to be one: binding a section over a
+        // property whose initializer already holds items appends rather than replaces, so
+        // MonitoredWarehouses arrives holding every warehouse twice. Reporting a warehouse twice
+        // would make the reader doubt the page rather than the list.
         var unwatched = dailyStockSettings.Value.MonitoredWarehouses
             .Where(warehouse => !string.IsNullOrWhiteSpace(warehouse))
             .Select(warehouse => warehouse.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .Where(warehouse => watchedSet.Count > 0 && !watchedSet.Contains(warehouse))
             .OrderBy(warehouse => warehouse, StringComparer.OrdinalIgnoreCase)
             .ToList();

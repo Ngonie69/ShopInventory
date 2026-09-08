@@ -174,9 +174,13 @@ public sealed class TransferListenerHealthCheck(
 
         var watchedSet = watched.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // Distinct because the configured list is not guaranteed to be one — see the note in
+        // GetTransferListenerStatusHandler. A doubled entry would double the count in the message.
         return snapshotted
             .Where(warehouse => !string.IsNullOrWhiteSpace(warehouse))
-            .Where(warehouse => !watchedSet.Contains(warehouse.Trim()))
+            .Select(warehouse => warehouse.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(warehouse => !watchedSet.Contains(warehouse))
             .OrderBy(warehouse => warehouse, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
