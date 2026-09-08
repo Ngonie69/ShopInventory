@@ -7693,6 +7693,45 @@ ORDER BY T0.""ItemCode""";
         return await ExecuteStockQueryAsync(queryCode, warehouseCode, cancellationToken);
     }
 
+    /// <summary>
+    /// Every item and warehouse SAP is currently holding below zero.
+    /// </summary>
+    /// <remarks>
+    /// <para>The outcome measure for the whole negative-stock effort. Everything else in this area
+    /// is a guard against a document that <i>would</i> take stock under; this counts the ones that
+    /// already did, which is the only number that says whether any of it worked.</para>
+    ///
+    /// <para><b>One statement, one object, one question.</b> The SQL below is character-for-character
+    /// what <c>scripts/NegativeStock/report_negative_stock.py</c> sends, and both derive the query
+    /// code the same way — so they resolve to the same SAP object and cannot drift into measuring
+    /// slightly different things. The baseline a person takes by hand and the daily figure the job
+    /// records are the same measurement, which is the point of having both.</para>
+    ///
+    /// <para>Company-wide and cheap: one indexed comparison over OITW rather than a per-warehouse
+    /// scan. Callers filter to the warehouses they care about.</para>
+    /// </remarks>
+    public async Task<List<StockQuantityDto>> GetNegativeStockAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var queryCode = BuildContentAddressedQueryCode("NEGSTK_WHS", NegativeStockSql);
+        await EnsureSqlQueryAsync(queryCode, "Negative warehouse stock", NegativeStockSql, cancellationToken);
+
+        return await ExecuteStockQueryAsync(queryCode, "<all warehouses>", cancellationToken);
+    }
+
+    /// <summary>
+    /// Kept as a constant so it is one permanent SQLQueries object rather than one per call. See
+    /// <see cref="GetNegativeStockAsync"/> for why it is worded exactly as it is.
+    /// </summary>
+    internal const string NegativeStockSql = """
+SELECT T1."ItemCode", T0."ItemName", T1."WhsCode" as "WarehouseCode", T1."OnHand" as "InStock", T1."IsCommited" as "Committed", T1."OnOrder" as "Ordered"
+FROM OITW T1
+INNER JOIN OITM T0 ON T0."ItemCode" = T1."ItemCode"
+WHERE T1."OnHand" < 0
+ORDER BY T1."WhsCode", T1."ItemCode"
+""";
+
     public async Task<List<StockQuantityDto>> GetStockQuantitiesForItemsInWarehouseAsync(
         string warehouseCode,
         IEnumerable<string> itemCodes,

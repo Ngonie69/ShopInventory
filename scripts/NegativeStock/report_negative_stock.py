@@ -69,7 +69,11 @@ PAGE_SIZE = 500
 # arithmetic, or an ORDER BY over an aggregate, all of which SQLQueries rejects.
 # ---------------------------------------------------------------------------
 
-SQL_WAREHOUSE_NEGATIVES = """SELECT T1."ItemCode", T0."ItemName", T1."WhsCode", T1."OnHand", T1."IsCommited", T1."OnOrder"
+# Character-for-character what SAPServiceLayerClient.NegativeStockSql sends, and both derive the
+# query code the same way -- so the baseline taken by hand here and the figure the daily job records
+# resolve to one SAP object and cannot drift into measuring slightly different things. Change one and
+# NegativeStockQueryParityTests fails.
+SQL_WAREHOUSE_NEGATIVES = """SELECT T1."ItemCode", T0."ItemName", T1."WhsCode" as "WarehouseCode", T1."OnHand" as "InStock", T1."IsCommited" as "Committed", T1."OnOrder" as "Ordered"
 FROM OITW T1
 INNER JOIN OITM T0 ON T0."ItemCode" = T1."ItemCode"
 WHERE T1."OnHand" < 0
@@ -351,10 +355,10 @@ def census(client: ServiceLayer) -> dict:
         {
             "itemCode": (row.get("ItemCode") or "").strip(),
             "itemName": (row.get("ItemName") or "").strip(),
-            "warehouseCode": (row.get("WhsCode") or "").strip(),
-            "onHand": to_decimal(row.get("OnHand")),
-            "committed": to_decimal(row.get("IsCommited")),
-            "ordered": to_decimal(row.get("OnOrder")),
+            "warehouseCode": (row.get("WarehouseCode") or "").strip(),
+            "onHand": to_decimal(row.get("InStock")),
+            "committed": to_decimal(row.get("Committed")),
+            "ordered": to_decimal(row.get("Ordered")),
         }
         for row in warehouse_rows
     ]
@@ -636,12 +640,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.print_sql:
-        for label, sql in (
-            ("Negative warehouse stock", SQL_WAREHOUSE_NEGATIVES),
-            ("Negative batch quantities", SQL_BATCH_NEGATIVES),
-            ("Item movements since date", SQL_ITEM_MOVEMENTS),
+        # The real prefixes, not display-derived ones: printing a code the script does not use is
+        # worse than printing none, because the whole point of showing it is to look it up in SAP.
+        for label, prefix, sql in (
+            ("Negative warehouse stock", "NEGSTK_WHS", SQL_WAREHOUSE_NEGATIVES),
+            ("Negative batch quantities", "NEGSTK_BATCH", SQL_BATCH_NEGATIVES),
+            ("Item movements since date", "NEGSTK_MOVES", SQL_ITEM_MOVEMENTS),
         ):
-            code = content_addressed_code("NEGSTK_" + label.split()[1][:5].upper(), sql)
+            code = content_addressed_code(prefix, sql)
             print(f"-- {label}   SqlCode {code}")
             print(sql)
             print()

@@ -225,6 +225,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
   /// <summary>Where the stock ledger and SAP disagreed, and by how much.</summary>
   public DbSet<StockLedgerDivergenceEntity> StockLedgerDivergences { get; set; }
+
+  /// <summary>How much stock SAP was holding below zero, by day. The outcome measure.</summary>
+  public DbSet<NegativeStockObservationEntity> NegativeStockObservations { get; set; }
   public DbSet<DesktopFiscalTransactionEntity> DesktopFiscalTransactions { get; set; }
   public DbSet<SapItemUomMappingEntity> SapItemUomMappings { get; set; }
   public DbSet<PodReportCacheEntryEntity> PodReportCacheEntries { get; set; }

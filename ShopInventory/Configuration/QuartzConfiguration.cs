@@ -114,6 +114,12 @@ public static class QuartzConfiguration
                     "stock-ledger-divergence",
                     TimeSpan.FromHours(1),
                     startDelay: TimeSpan.FromMinutes(10));
+
+                // Straight after the morning fetch, so the day's figure is taken against a fresh
+                // position rather than in the middle of trading. It is a trend, not an alarm: what
+                // matters is the number a week from now compared with the number today.
+                AddCronJob<NegativeStockCensusJob>(
+                    q, "negative-stock-census", BuildDailyCron(dailyStock.StockFetchTimeCAT, "07:00"));
             }
 
             if (dailyStock.EnableAutoConsolidation)

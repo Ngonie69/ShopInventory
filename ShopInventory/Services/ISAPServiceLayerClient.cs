@@ -301,6 +301,12 @@ public interface ISAPServiceLayerClient
 
     // Stock Quantity Operations
     Task<List<StockQuantityDto>> GetStockQuantitiesInWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every item and warehouse SAP is currently holding below zero — the outcome measure for the
+    /// negative-stock work, asked by the same SAP object the standalone report script uses.
+    /// </summary>
+    Task<List<StockQuantityDto>> GetNegativeStockAsync(CancellationToken cancellationToken = default);
     Task<List<StockQuantityDto>> GetStockQuantitiesForItemsInWarehouseAsync(string warehouseCode, IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
     Task<List<StockQuantityDto>> GetPagedStockQuantitiesInWarehouseAsync(string warehouseCode, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<Dictionary<string, PackagingMaterialStockDto>> GetPackagingMaterialStockAsync(IEnumerable<string> itemCodes, string warehouseCode, CancellationToken cancellationToken = default);

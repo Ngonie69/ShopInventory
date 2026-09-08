@@ -284,8 +284,8 @@ def test_attribution_degrades_when_oinm_is_refused() -> None:
 def test_full_run_against_a_fake_service_layer() -> None:
     warehouse_rows = {
         "value": [
-            {"ItemCode": "CHE011", "ItemName": "Cheddar 1kg", "WhsCode": "KEFSHOP", "OnHand": -12.5, "IsCommited": 3, "OnOrder": 0},
-            {"ItemCode": "BON001", "ItemName": "Bonnita 500g", "WhsCode": "VAN004", "OnHand": -2, "IsCommited": 0, "OnOrder": 0},
+            {"ItemCode": "CHE011", "ItemName": "Cheddar 1kg", "WarehouseCode": "KEFSHOP", "InStock": -12.5, "Committed": 3, "Ordered": 0},
+            {"ItemCode": "BON001", "ItemName": "Bonnita 500g", "WarehouseCode": "VAN004", "InStock": -2, "Committed": 0, "Ordered": 0},
         ]
     }
     batch_rows = {"value": [{"ItemCode": "CHE011", "ItemName": "Cheddar 1kg", "DistNumber": "B2609", "WhsCode": "KEFSHOP", "Quantity": -12.5}]}
