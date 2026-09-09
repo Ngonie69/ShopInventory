@@ -11,11 +11,15 @@ namespace ShopInventory.Tests;
 /// monitored has no snapshot, reads as zero stock, and refuses every sale made from it. Nothing
 /// throws and nothing is logged as wrong — the first sign is a cashier who cannot sell.
 ///
-/// The list exists twice: a default in <see cref="DailyStockSettings"/> and the deployed value in
-/// appsettings.json. Configuration binding REPLACES a list rather than merging into it, so the
-/// deployed file is the one that decides and the code default is only a fallback. Adding a
-/// warehouse to one and not the other looks done and changes nothing — which is how KEFBYS, the
-/// Bulawayo shop, came to be missing while KEFBYC, the depot one character away, was present.
+/// appsettings.json is the only source. <see cref="DailyStockSettings.MonitoredWarehouses"/> is
+/// deliberately declared empty, because the configuration binder APPENDS to a collection that
+/// already holds items rather than replacing it: while the class carried a 21-warehouse default and
+/// appsettings.json listed the same 21, the bound list held 42 and the snapshot job read SAP twice
+/// for every warehouse. <c>OptionsCollectionBindingTests</c> pins that.
+///
+/// So the expected list is written out below rather than compared against a code default. Both the
+/// double-bind and the earlier miss of KEFBYS, the Bulawayo shop one character from KEFBYC, the
+/// depot, came of the list living in two places at once.
 /// </remarks>
 public class MonitoredWarehouseConfigTests
 {
@@ -34,20 +38,38 @@ public class MonitoredWarehouseConfigTests
             .ToList();
     }
 
+    /// <summary>
+    /// Every warehouse the daily snapshot is expected to cover. This is the list the class default
+    /// used to hold; it lives here now, where dropping an entry fails a test instead of silently
+    /// halving nothing and doubling the job.
+    /// </summary>
+    private static readonly string[] Expected =
+    [
+        "KEFSHOP", "CORMACH", "CORMACH2", "KEFGRS", "KEFGRC",
+        "KEFBYC", "KEFBYS",
+        "VAN001", "VAN004", "VAN005", "VAN006", "VAN008", "VAN009",
+        "VAN010", "VAN011", "VAN012", "VAN013", "VAN014", "VAN015",
+        "VAN016", "VAN018"
+    ];
+
     [Fact]
-    public void The_deployed_list_covers_everything_the_code_default_does()
+    public void The_deployed_list_is_exactly_the_warehouses_the_snapshot_has_to_cover()
     {
-        // The check that would have caught KEFBYS. Because configuration replaces the list, a
-        // warehouse present only in the code default is not monitored anywhere it matters.
+        // Set comparison, not sequence: order carries no meaning, presence does. A warehouse
+        // dropped from appsettings.json has no snapshot and refuses every sale made from it; one
+        // added without being expected here is a change nobody wrote down.
         var deployed = DeployedWarehouses();
-        var missing = new DailyStockSettings().MonitoredWarehouses
-            .Where(warehouse => !deployed.Contains(warehouse))
-            .ToList();
+
+        var missing = Expected.Except(deployed).Order().ToList();
+        var unexpected = deployed.Except(Expected).Order().ToList();
 
         Assert.True(
             missing.Count == 0,
-            "appsettings.json replaces the code default rather than merging with it, so these are "
-            + $"unmonitored in every deployed environment: {string.Join(", ", missing)}");
+            $"unmonitored in every deployed environment: {string.Join(", ", missing)}");
+        Assert.True(
+            unexpected.Count == 0,
+            "monitored but not listed here — add it above if it is meant to be snapshotted: "
+            + string.Join(", ", unexpected));
     }
 
     [Theory]

@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ShopInventory.Models.Entities;
@@ -24,7 +24,19 @@ public enum CreditNoteType
     PriceAdjustment = 1,  // Price correction
     Discount = 2,         // Post-sale discount
     Damaged = 3,          // Damaged goods
-    Other = 4             // Other reasons
+    Other = 4,            // Other reasons
+
+    /// <summary>
+    /// The credit note that undoes an invoice in full, raised when a receipt is cancelled.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="Return"/>, which is stock coming back off a sale that stands. Here
+    /// the sale itself is withdrawn — the customer changed the order, it was invoiced twice, or it
+    /// was never collected — and the reason on the lines says which. Kept apart so a cancellation
+    /// is not read as a return in reporting, and so the till can be told the receipt is void rather
+    /// than that some goods came back.
+    /// </remarks>
+    Cancellation = 5
 }
 
 /// <summary>

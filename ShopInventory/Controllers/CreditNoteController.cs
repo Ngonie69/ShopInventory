@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Authentication;
@@ -13,6 +13,7 @@ using ShopInventory.Features.CreditNotes.Commands.DuplicateCancelledCreditNotes;
 using ShopInventory.Features.CreditNotes.Commands.UpdateCreditNoteStatus;
 using ShopInventory.Features.CreditNotes.Queries.GetAllCreditNotes;
 using ShopInventory.Features.CreditNotes.Queries.GetCreditNoteById;
+using ShopInventory.Features.CreditNotes.Queries.GetCreditNoteReasons;
 using ShopInventory.Features.CreditNotes.Queries.GetCreditNoteByNumber;
 using ShopInventory.Features.CreditNotes.Queries.GetCreditNotesByInvoice;
 using ShopInventory.Models.Entities;
@@ -47,6 +48,22 @@ public class CreditNoteController(IMediator mediator) : ApiControllerBase
         var result = await mediator.Send(
             new GetAllCreditNotesQuery(page, pageSize, status, cardCode, fromDate, toDate, includeLines),
             cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Get the reasons a credit note may be raised for, as SAP defines them
+    /// </summary>
+    /// <remarks>
+    /// Read from the running company database rather than held in the app: the list is administered
+    /// in SAP, differs between company databases, and SAP rejects a value it does not define.
+    /// </remarks>
+    [HttpGet("reasons")]
+    [RequirePermission(Permission.ViewInvoices)]
+    [ProducesResponseType(typeof(GetCreditNoteReasonsResult), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetReasons(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetCreditNoteReasonsQuery(), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

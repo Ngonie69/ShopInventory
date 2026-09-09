@@ -1,4 +1,4 @@
-using Asp.Versioning;
+﻿using Asp.Versioning;
 using Asp.Versioning.ApiExplorer;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
@@ -248,7 +248,8 @@ try
         .AddCheck<ThreadPoolPressureHealthCheck>("thread-pool", tags: ["ready", "deploy-ready", "dependencies"])
         .AddCheck<ApiKeyExpiryHealthCheck>("api-keys", tags: ["dependencies"])
         .AddCheck<VanSalesReceiptIngestHealthCheck>("van-receipt-ingest", tags: ["dependencies"])
-        .AddCheck<SapDependencyHealthCheck>("sap", tags: ["dependencies"]);
+        .AddCheck<SapDependencyHealthCheck>("sap", tags: ["dependencies"])
+        .AddCheck<TransferListenerHealthCheck>("transfer-listener", tags: ["dependencies"]);
 
     // Configure Swagger with version-aware API metadata.
     builder.Services.AddSwaggerGen();
@@ -262,7 +263,14 @@ try
     builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection("Security"));
     builder.Services.Configure<VanSalesCustomerAuthSettings>(builder.Configuration.GetSection("VanSalesCustomerAuth"));
     builder.Services.Configure<TaxSettings>(builder.Configuration.GetSection(TaxSettings.SectionName));
-    builder.Services.Configure<DailyStockSettings>(builder.Configuration.GetSection("DailyStock"));
+    // Bound through AddOptions rather than Configure so the list can be validated at startup.
+    // MonitoredWarehouses carries no code-level default — a default would be appended to the
+    // configured list rather than replacing it — so an empty one has to be refused loudly here
+    // instead of silently snapshotting no warehouses. See DailyStockSettingsValidation.
+    builder.Services.AddOptions<DailyStockSettings>()
+        .Bind(builder.Configuration.GetSection("DailyStock"))
+        .ValidateOnStart();
+    builder.Services.AddSingleton<IValidateOptions<DailyStockSettings>, DailyStockSettingsValidation>();
     builder.Services.Configure<DesktopSalePostingSettings>(
         builder.Configuration.GetSection(DesktopSalePostingSettings.SectionName));
     builder.Services.Configure<VanSalesPostingSettings>(
@@ -930,6 +938,40 @@ try
         client.Timeout = TimeSpan.FromSeconds(Math.Max(openWaSettings.TimeoutSeconds, 1));
         client.DefaultRequestHeaders.Add("Accept", "application/json");
     });
+
+    // TransferEventListener watches SAP for stock transfers and posts them to this API's
+    // webhook/transfer-event route. This client is the other direction — the one that lets this
+    // process notice the listener has stopped reading SAP, and borrow its Service Layer session when
+    // our own six slots cannot answer.
+    builder.Services.Configure<TransferEventListenerSettings>(
+        builder.Configuration.GetSection(TransferEventListenerSettings.SectionName));
+    builder.Services.AddHttpClient<ITransferEventListenerClient, TransferEventListenerClient>(
+        (serviceProvider, client) =>
+        {
+            var listenerSettings = serviceProvider
+                .GetRequiredService<IOptions<TransferEventListenerSettings>>().Value;
+            var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+
+            if (!Uri.TryCreate(listenerSettings.BaseUrl, UriKind.Absolute, out var baseUri))
+            {
+                logger.LogWarning(
+                    "Invalid TransferEventListener base URL '{BaseUrl}'. Falling back to "
+                    + "http://10.10.10.9:5050 for client registration.",
+                    listenerSettings.BaseUrl);
+                baseUri = new Uri("http://10.10.10.9:5050");
+            }
+
+            // Trailing slash so relative paths resolve under the base rather than replacing its
+            // last segment, should the base ever gain a path.
+            if (!baseUri.AbsoluteUri.EndsWith('/'))
+            {
+                baseUri = new Uri(baseUri.AbsoluteUri + "/");
+            }
+
+            client.BaseAddress = baseUri;
+            client.Timeout = TimeSpan.FromSeconds(Math.Max(listenerSettings.TimeoutSeconds, 1));
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
+        });
 
     // Registers this API's inbound webhook against each OpenWA session. Without it a paired
     // session delivers nothing and the inbox stays empty with no error raised anywhere.

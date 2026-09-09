@@ -1,4 +1,4 @@
-using ShopInventory.DTOs;
+﻿using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 
@@ -307,6 +307,22 @@ public interface ISAPServiceLayerClient
     /// negative-stock work, asked by the same SAP object the standalone report script uses.
     /// </summary>
     Task<List<StockQuantityDto>> GetNegativeStockAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One warehouse's stock in the items that carry no batches, item by item.
+    /// </summary>
+    /// <remarks>
+    /// The complement of <see cref="GetAllBatchNumbersInWarehouseAsync"/>, and the two together are
+    /// the whole warehouse. That read joins <c>OBTN</c> to <c>OBTQ</c>, so an item SAP does not batch-
+    /// manage has nothing to join to and is absent from it however much of it the warehouse holds —
+    /// which is why bought-in lines such as the Complimentary Products group never reached a till.
+    ///
+    /// Batch-managed items are excluded here rather than left to the caller to de-duplicate: an item
+    /// SAP manages by batch whose <c>OITW</c> row disagrees with its batches is stock that cannot be
+    /// allocated at invoicing, and offering it to a cashier only moves the failure to the end of the
+    /// day.
+    /// </remarks>
+    Task<List<StockQuantityDto>> GetNonBatchStockQuantitiesInWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
     Task<List<StockQuantityDto>> GetStockQuantitiesForItemsInWarehouseAsync(string warehouseCode, IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
     Task<List<StockQuantityDto>> GetPagedStockQuantitiesInWarehouseAsync(string warehouseCode, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<Dictionary<string, PackagingMaterialStockDto>> GetPackagingMaterialStockAsync(IEnumerable<string> itemCodes, string warehouseCode, CancellationToken cancellationToken = default);
@@ -574,6 +590,17 @@ public interface ISAPServiceLayerClient
     /// Cancels a credit note (A/R Credit Memo) in SAP Business One.
     /// </summary>
     Task CancelCreditNoteAsync(int docEntry, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The reasons a credit note line may carry, as SAP itself defines them.
+    /// </summary>
+    /// <remarks>
+    /// These are the valid values of <c>U_Reasons</c>, a line-level user field on <c>RIN1</c>.
+    /// They are read rather than held in the app because the list is maintained in SAP and differs
+    /// between company databases — production carries the cancellation reasons, the test database
+    /// an older list — and because the field rejects any value that is not one of them.
+    /// </remarks>
+    Task<IReadOnlyList<SapDocumentLineReason>> GetCreditNoteLineReasonsAsync(CancellationToken cancellationToken = default);
 
     // Exchange Rate Operations
     /// <summary>

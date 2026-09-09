@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
@@ -7663,6 +7663,13 @@ ORDER BY T0.""ItemCode""";
 
     private const string StockQueryPrefix = "STOCK_QTY_";
 
+    /// <summary>
+    /// One recurring query object per warehouse, matching <c>WHS_BATCHES_</c>. Never built per
+    /// request: a SQLQueries object cannot practically be deleted, so a code that varies per call
+    /// leaves a permanent OUQR row behind on every call.
+    /// </summary>
+    private const string NonBatchStockQueryPrefix = "NOBATCH_QTY_";
+
     public async Task<List<StockQuantityDto>> GetStockQuantitiesInWarehouseAsync(
         string warehouseCode,
         CancellationToken cancellationToken = default)
@@ -7742,6 +7749,56 @@ INNER JOIN OITM T0 ON T0."ItemCode" = T1."ItemCode"
 WHERE T1."OnHand" < 0
 ORDER BY T1."WhsCode", T1."ItemCode"
 """;
+
+    /// <inheritdoc />
+    public async Task<List<StockQuantityDto>> GetNonBatchStockQuantitiesInWarehouseAsync(
+        string warehouseCode,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var queryCode = $"{NonBatchStockQueryPrefix}{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
+
+        // "ManBtchNum" = 'N' is the whole point: a batch-managed item's stock is read from OBTQ by
+        // GetAllBatchNumbersInWarehouseAsync and would be counted twice here. "InvntItem" = 'Y'
+        // keeps the two flags together, as the one hand-written SAP query that already asks this
+        // question does ("Warehouse non-batch item quantities", 2026-08-12), which is where both
+        // spellings are confirmed from.
+        //
+        // Serial-managed items are deliberately NOT filtered. No item in the company is serial-
+        // managed (checked 2026-09-08, ManageSerialNumbers eq 'tYES' returns none), so the clause
+        // would exclude nothing — and a column name SAP rejects fails the whole statement, which
+        // would silently take every unbatched item off every till again.
+        //
+        // "OnHand" > 0 rather than the derived availability, to match what the batch read answers,
+        // and because stock a warehouse does not have is not sellable however it nets out. OITW
+        // carries a row per item per warehouse whether or not the warehouse holds any, so without it
+        // this returns the whole item master for every shop.
+        //
+        // No trailing whitespace on any line — SAP strips it before storing, so a line ending in a
+        // space makes the stored text never compare equal and every probe re-PATCHes.
+        var sqlText = $@"SELECT
+            T0.""ItemCode"",
+            T0.""ItemName"",
+            T0.""CodeBars"" as ""BarCode"",
+            T1.""WhsCode"" as ""WarehouseCode"",
+            T1.""OnHand"" as ""InStock"",
+            T1.""IsCommited"" as ""Committed"",
+            T1.""OnOrder"" as ""Ordered"",
+            T0.""InvntryUom"" as ""UoM""
+        FROM OITM T0
+        INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
+        WHERE T1.""WhsCode"" = '{SanitizeSqlValue(warehouseCode)}'
+            AND T1.""OnHand"" > 0
+            AND T0.""ManBtchNum"" = 'N'
+            AND T0.""InvntItem"" = 'Y'
+        ORDER BY T0.""ItemCode""";
+
+        await EnsureSqlQueryAsync(
+            queryCode, $"Non-batch stock in {warehouseCode}", sqlText, cancellationToken);
+
+        return await ExecuteStockQueryAsync(queryCode, warehouseCode, cancellationToken);
+    }
 
     public async Task<List<StockQuantityDto>> GetStockQuantitiesForItemsInWarehouseAsync(
         string warehouseCode,
@@ -15613,6 +15670,10 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                         BaseEntry = request.OriginalInvoiceDocEntry, // Link to original invoice
                         BaseLine = line.OriginalInvoiceLineId ?? index, // Line from original invoice
                         BaseType = 13, // 13 = A/R Invoice
+                        // SAP holds the reason on the line, not the header: U_Reasons is a
+                        // valid-values UDF on RIN1 and it is what SAP's own return reporting reads.
+                        // Omitted when unset so SAP applies the field's own default.
+                        U_Reasons = NormalizeReturnReason(line.ReturnReason),
                         BatchNumbers = hasBatches ? batches!.Select(b => new
                         {
                             BatchNumber = b.BatchNumber,
@@ -15647,6 +15708,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                     UnitPrice = line.UnitPrice,
                     WarehouseCode = line.WarehouseCode ?? request.RestockWarehouseCode,
                     DiscountPercent = line.DiscountPercent,
+                    U_Reasons = NormalizeReturnReason(line.ReturnReason),
                     BatchNumbers = line.BatchNumbers?.Select(b => new
                     {
                         BatchNumber = b.BatchNumber,
@@ -15746,6 +15808,127 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         }
 
         _logger.LogInformation("SAP credit note {DocEntry} cancelled successfully", docEntry);
+    }
+
+    /// <summary>
+    /// The line table whose <c>U_Reasons</c> field defines the reasons a credit note may carry.
+    /// </summary>
+    private const string ReturnReasonLineTable = "RIN1";
+
+    /// <summary>The user field, without the <c>U_</c> prefix SAP adds to the column.</summary>
+    private const string ReturnReasonFieldName = "Reasons";
+
+    /// <summary>
+    /// Trims a reason to what <c>U_Reasons</c> can hold, and turns an unset one into an omitted
+    /// field rather than an empty string, so SAP applies the field's own default value.
+    /// </summary>
+    private static string? NormalizeReturnReason(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return null;
+        }
+
+        var trimmed = reason.Trim();
+        return trimmed.Length <= 250 ? trimmed : trimmed[..250];
+    }
+
+    public async Task<IReadOnlyList<SapDocumentLineReason>> GetCreditNoteLineReasonsAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        // The field is found by name rather than by FieldID: the same user field is FieldID 5 in the
+        // production company database and 6 in the test one, so an id read from either is wrong
+        // against the other. Paging matters here too — UserFieldsMD answers 20 rows without a
+        // maxpagesize preference, and this company database defines over 700 user fields, so a
+        // filtered read that does not page finds nothing and looks like "the field does not exist".
+        var filter = Uri.EscapeDataString($"TableName eq '{ReturnReasonLineTable}' and Name eq '{ReturnReasonFieldName}'");
+        var url = $"UserFieldsMD?$select=FieldID,Name,TableName&$filter={filter}";
+
+        var listJson = await GetSapJsonAsync(url, "credit note reason field", cancellationToken);
+        using var listDocument = JsonDocument.Parse(listJson);
+
+        if (!listDocument.RootElement.TryGetProperty("value", out var rows) || rows.GetArrayLength() == 0)
+        {
+            _logger.LogWarning(
+                "SAP company database defines no {Field} user field on {Table}; credit notes will carry no reason",
+                ReturnReasonFieldName, ReturnReasonLineTable);
+            return Array.Empty<SapDocumentLineReason>();
+        }
+
+        var fieldId = rows[0].GetProperty("FieldID").GetInt32();
+
+        var fieldJson = await GetSapJsonAsync(
+            $"UserFieldsMD(TableName='{ReturnReasonLineTable}',FieldID={fieldId})",
+            "credit note reasons",
+            cancellationToken);
+
+        using var fieldDocument = JsonDocument.Parse(fieldJson);
+
+        if (!fieldDocument.RootElement.TryGetProperty("ValidValuesMD", out var validValues)
+            || validValues.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<SapDocumentLineReason>();
+        }
+
+        var reasons = new List<SapDocumentLineReason>(validValues.GetArrayLength());
+        foreach (var validValue in validValues.EnumerateArray())
+        {
+            var value = validValue.TryGetProperty("Value", out var valueElement) ? valueElement.GetString() : null;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            var description = validValue.TryGetProperty("Description", out var descriptionElement)
+                ? descriptionElement.GetString()
+                : null;
+
+            reasons.Add(new SapDocumentLineReason(
+                value,
+                string.IsNullOrWhiteSpace(description) ? value : description));
+        }
+
+        _logger.LogInformation(
+            "Read {Count} credit note reasons from SAP ({Table}.U_{Field}, FieldID {FieldId})",
+            reasons.Count, ReturnReasonLineTable, ReturnReasonFieldName, fieldId);
+
+        return reasons;
+    }
+
+    /// <summary>
+    /// A plain authenticated GET against the Service Layer, retried once on an expired session.
+    /// </summary>
+    private async Task<string> GetSapJsonAsync(string url, string what, CancellationToken cancellationToken)
+    {
+        var currentSession = _sessionId;
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", "odata.maxpagesize=500");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", "odata.maxpagesize=500");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to read {What} from SAP: {StatusCode} - {Error}", what, response.StatusCode, errorContent);
+            throw new Exception(ExtractSAPErrorMessage(errorContent) ?? $"Failed to read {what} from SAP: {response.StatusCode}");
+        }
+
+        return await response.Content.ReadAsStringAsync(cancellationToken);
     }
 
     #endregion

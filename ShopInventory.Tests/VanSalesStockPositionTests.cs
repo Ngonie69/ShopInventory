@@ -6,6 +6,7 @@ using ShopInventory.DTOs;
 using ShopInventory.Features.VanSalesCompatibility.Commands.ReportVanSalesStockPosition;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Tests;
 
@@ -109,10 +110,26 @@ public sealed class VanSalesStockPositionTests : IDisposable
         return result.Value;
     }
 
+    /// <summary>
+    /// The day the handset counted, derived rather than written down.
+    /// </summary>
+    /// <remarks>
+    /// This was a date literal, and it passed every day until it didn't.
+    /// <see cref="ShopInventory.Common.Mobile.CaptureClock"/> refuses a claim older than thirty days
+    /// and quietly falls back to the server's own clock, so a hard-coded capture date is a test with
+    /// an expiry on it: this one turned over mid-session, exactly thirty days on, during a merge it
+    /// had nothing to do with. Three days back is inside every bound CaptureClock applies and stays
+    /// there.
+    /// </remarks>
+    private static DateTime CapturedDay => AuditService.ToCAT(DateTime.UtcNow).Date.AddDays(-3);
+
+    /// <summary>A CAT wall-clock time on <see cref="CapturedDay"/>, in the shape a handset sends.</summary>
+    private static string CapturedAtCat(string timeOfDay) => $"{CapturedDay:yyyy-MM-dd}T{timeOfDay}";
+
     private static VanSalesStockPositionRequest BuildPosition(decimal quantity = 24m) => new()
     {
-        CapturedAt = "2026-08-10T05:42:11",
-        ClientReference = "VAN006-STK-20260810-AAA111",
+        CapturedAt = CapturedAtCat("05:42:11"),
+        ClientReference = $"VAN006-STK-{CapturedDay:yyyyMMdd}-AAA111",
         Lines =
         [
             new VanSalesStockPositionLineRequest
@@ -139,11 +156,11 @@ public sealed class VanSalesStockPositionTests : IDisposable
         Assert.True(response.Accepted);
         Assert.False(response.Duplicate);
         Assert.Equal("VAN006", response.WarehouseCode);
-        Assert.Equal("2026-08-10", response.TradingDate);
+        Assert.Equal(CapturedDay.ToString("yyyy-MM-dd"), response.TradingDate);
 
         var snapshot = await _context.DailyStockSnapshots.Include(s => s.Items).SingleAsync();
         Assert.Equal("VAN006", snapshot.WarehouseCode);
-        Assert.Equal(new DateTime(2026, 8, 10), snapshot.SnapshotDate);
+        Assert.Equal(CapturedDay, snapshot.SnapshotDate);
 
         // Complete, or the report will not read it: it filters snapshots on this status.
         Assert.Equal(StockSnapshotStatus.Complete, snapshot.Status);
@@ -168,12 +185,12 @@ public sealed class VanSalesStockPositionTests : IDisposable
     public async Task The_trading_day_comes_from_the_handset()
     {
         var position = BuildPosition();
-        position.CapturedAt = "2026-08-10T23:40:00";
+        position.CapturedAt = CapturedAtCat("23:40:00");
 
         await ReportAsync(position);
 
         var snapshot = await _context.DailyStockSnapshots.SingleAsync();
-        Assert.Equal(new DateTime(2026, 8, 10), snapshot.SnapshotDate);
+        Assert.Equal(CapturedDay, snapshot.SnapshotDate);
     }
 
     /// <summary>

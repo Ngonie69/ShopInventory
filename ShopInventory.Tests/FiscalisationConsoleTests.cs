@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -872,6 +872,11 @@ public sealed class FiscalisationConsoleTests : IDisposable
             throw new NotSupportedException();
 
         public Task<InvoiceDto?> GetInvoiceByDocEntryAsync(int docEntry) => throw new NotSupportedException();
+
+        public Task<CancelInvoiceOutcome> CancelInvoiceAsync(
+            int docEntry, string reason, string? comments, string? clientRequestId = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
 
         public Task<InvoiceDateResponse?> GetInvoicesByCustomerAsync(
             string cardCode, DateTime? fromDate = null, DateTime? toDate = null,

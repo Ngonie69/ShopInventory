@@ -53,6 +53,7 @@ public sealed class UpdateRouteCustomerHandler(
         routeCustomer.AssignedBusinessPartnerCode = assignedBusinessPartnerCode;
         routeCustomer.Code = code;
         routeCustomer.Name = name;
+        routeCustomer.Surname = NullIfWhiteSpace(command.Request.Surname);
         routeCustomer.Phone = NullIfWhiteSpace(command.Request.Phone);
         routeCustomer.Email = NullIfWhiteSpace(command.Request.Email);
         routeCustomer.Address = NullIfWhiteSpace(command.Request.Address);
@@ -68,6 +69,7 @@ public sealed class UpdateRouteCustomerHandler(
             AssignedBusinessPartnerCode = routeCustomer.AssignedBusinessPartnerCode,
             Code = routeCustomer.Code,
             Name = routeCustomer.Name,
+            Surname = routeCustomer.Surname,
             Phone = routeCustomer.Phone,
             Email = routeCustomer.Email,
             Address = routeCustomer.Address,

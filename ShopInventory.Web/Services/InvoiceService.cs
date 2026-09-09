@@ -1,4 +1,5 @@
-using ShopInventory.Web.Models;
+﻿using ShopInventory.Web.Models;
+using ShopInventory.Web.Common.Http;
 using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
 
@@ -20,6 +21,24 @@ public interface IInvoiceService
     Task<InvoiceDateResponse?> GetInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate, int? page = null, int? pageSize = null);
     Task<(bool Success, string Message, InvoiceDto? Invoice, FiscalizationResult? Fiscalization)> CreateInvoiceAsync(CreateInvoiceRequest request);
     Task<byte[]?> GetInvoicePdfAsync(int docEntry, string? fiscalQrCode = null);
+
+    /// <summary>
+    /// Cancels a posted invoice, reversing it in full with a credit note that states the reason.
+    /// </summary>
+    /// <param name="docEntry">The SAP document entry of the invoice.</param>
+    /// <param name="reason">One of the values <see cref="ICreditNoteService.GetReasonsAsync"/> returns.</param>
+    /// <param name="comments">Free text added to the SAP header beside the reason.</param>
+    /// <param name="clientRequestId">
+    /// Idempotency key. Minted by the caller when the dialog opens and reused across retries, so a
+    /// second attempt replays the first credit note rather than posting another one to SAP.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the wait, not the cancellation itself.</param>
+    Task<CancelInvoiceOutcome> CancelInvoiceAsync(
+        int docEntry,
+        string reason,
+        string? comments,
+        string? clientRequestId = null,
+        CancellationToken cancellationToken = default);
 }
 
 public class InvoiceService : IInvoiceService
@@ -56,6 +75,57 @@ public class InvoiceService : IInvoiceService
         {
             _logger.LogWarning(ex, "Error fetching invoices for customer {CardCode}", cardCode);
             return null;
+        }
+    }
+
+    public async Task<CancelInvoiceOutcome> CancelInvoiceAsync(
+        int docEntry,
+        string reason,
+        string? comments,
+        string? clientRequestId = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var key = string.IsNullOrWhiteSpace(clientRequestId)
+                ? Guid.NewGuid().ToString("N")
+                : clientRequestId.Trim();
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/invoice/{docEntry}/cancel")
+            {
+                Content = JsonContent.Create(new { Reason = reason, Comments = comments, ClientRequestId = key })
+            };
+
+            // Sent as a header as well as in the body: the API accepts either, and a proxy or a
+            // retry that loses the body still carries the key that stops a second credit note.
+            request.Headers.Add("Idempotency-Key", key);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<CancelInvoiceResult>(cancellationToken);
+                return new CancelInvoiceOutcome { Success = true, Result = result };
+            }
+
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogWarning(
+                "Failed to cancel invoice {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, body);
+
+            return new CancelInvoiceOutcome
+            {
+                Success = false,
+                // The reason is in the ProblemDetails body, not the status code: an unknown
+                // cancellation reason and an already-cancelled invoice both arrive as a 4xx, and
+                // only the body says which — and, for the first, what SAP would have accepted.
+                ErrorMessage = ProblemDetailReader.ReadMessage(body)
+                    ?? $"The invoice could not be cancelled ({(int)response.StatusCode})."
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cancelling invoice {DocEntry}", docEntry);
+            return new CancelInvoiceOutcome { Success = false, ErrorMessage = ex.Message };
         }
     }
 

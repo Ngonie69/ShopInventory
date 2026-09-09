@@ -1,4 +1,4 @@
-using ErrorOr;
+﻿using ErrorOr;
 
 namespace ShopInventory.Common.Errors;
 
@@ -88,6 +88,25 @@ public static partial class Errors
 
         public static Error CustomerCodeRequired =>
             Error.Validation("Invoice.CustomerCodeRequired", "Customer code is required.");
+
+        public static Error AlreadyCancelled(int docNum) =>
+            Error.Conflict("Invoice.AlreadyCancelled", $"Invoice #{docNum} has already been cancelled in SAP.");
+
+        public static Error NoLinesToCancel(int docNum) =>
+            Error.Validation("Invoice.NoLinesToCancel", $"Invoice #{docNum} has no lines, so there is nothing to cancel.");
+
+        /// <summary>
+        /// The submitted reason is not one the running SAP company database defines.
+        /// </summary>
+        /// <remarks>
+        /// The allowed values are named in the message. SAP would refuse the value anyway, but only
+        /// after the credit note had been built and with a message that says neither which field
+        /// was wrong nor what it would have accepted.
+        /// </remarks>
+        public static Error UnknownCancellationReason(string reason, IEnumerable<string> allowed) =>
+            Error.Validation(
+                "Invoice.UnknownCancellationReason",
+                $"'{reason}' is not a cancellation reason SAP recognises. Allowed reasons: {string.Join(", ", allowed)}.");
 
         public static Error InvalidPageSize(int max) =>
             Error.Validation("Invoice.InvalidPageSize", $"Page size must be between 1 and {max}.");

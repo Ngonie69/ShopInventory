@@ -1,9 +1,11 @@
-using MediatR;
+﻿using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.DTOs;
+using ShopInventory.Authentication;
 using ShopInventory.Models;
 using ShopInventory.Features.Crates.Commands.UploadInvoiceCratePod;
+using ShopInventory.Features.Invoices.Commands.CancelInvoice;
 using ShopInventory.Features.Invoices.Commands.CreateInvoice;
 using ShopInventory.Features.Invoices.Commands.FiscalizeInvoice;
 using ShopInventory.Features.Invoices.Commands.UploadPod;
@@ -153,6 +155,45 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
             cancellationToken);
 
         return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// Cancel a posted invoice, reversing it in full with a credit note that states the reason
+    /// </summary>
+    /// <remarks>
+    /// The reason must be one of the values <c>GET /api/CreditNote/reasons</c> returns; SAP defines
+    /// them and rejects anything else. The till that issued the receipt is pushed the cancellation
+    /// over the notification hub.
+    /// </remarks>
+    [HttpPost("{docEntry:int}/cancel")]
+    [RequirePermission(Permission.VoidInvoices)]
+    [ProducesResponseType(typeof(CancelInvoiceResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CancelInvoice(
+        int docEntry,
+        [FromBody] CancelInvoiceApiRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var clientRequestId = request.ClientRequestId;
+        if (string.IsNullOrWhiteSpace(clientRequestId)
+            && Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyValues))
+        {
+            clientRequestId = idempotencyValues.FirstOrDefault();
+        }
+
+        var result = await mediator.Send(
+            new CancelInvoiceCommand(docEntry, request.Reason ?? string.Empty, request.Comments, userId.Value, clientRequestId),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
@@ -521,4 +562,24 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
 
     private string? GetUsername()
         => User.Identity?.Name ?? User.FindFirst(ClaimTypes.Name)?.Value;
+}
+
+/// <summary>
+/// What an admin sends to cancel a receipt.
+/// </summary>
+public class CancelInvoiceApiRequest
+{
+    /// <summary>
+    /// One of the values from <c>GET /api/CreditNote/reasons</c>. Written to every credit note line.
+    /// </summary>
+    public string? Reason { get; set; }
+
+    /// <summary>Free text added to the SAP header alongside the reason.</summary>
+    public string? Comments { get; set; }
+
+    /// <summary>
+    /// Client-supplied idempotency key (also accepted via the Idempotency-Key header). A retried
+    /// cancellation must replay rather than post a second credit note.
+    /// </summary>
+    public string? ClientRequestId { get; set; }
 }

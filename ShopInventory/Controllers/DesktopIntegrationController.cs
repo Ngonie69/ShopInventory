@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.DTOs;
@@ -55,11 +55,14 @@ using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
 using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
 using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
+using ShopInventory.Features.DesktopIntegration.Commands.TriggerTransferListenerCheck;
+using ShopInventory.Features.DesktopIntegration.Queries.GetTransferListenerStatus;
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 using ShopInventory.Middleware;
 using ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
 using ShopInventory.Features.DesktopIntegration.Queries.GetMonitoredWarehouses;
+using ShopInventory.Features.DesktopIntegration.Queries.GetVendorsForAccount;
 using ShopInventory.Features.Prices.Queries.GetPricesByPriceList;
 using ShopInventory.Features.Prices.Queries.GetPriceLists;
 using ShopInventory.Features.Prices.Queries.GetItemPriceFromList;
@@ -835,6 +838,33 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     }
 
     /// <summary>
+    /// The vendors this account may invoice, for a cart-vendor till.
+    /// </summary>
+    /// <remarks>
+    /// Takes no business partner and accepts none. <c>GET /api/route-customers</c> filters on a code
+    /// the caller supplies and answers with every route's customers when none is given — right for an
+    /// administrator, wrong for a till, which would then be trusted to scope itself correctly against
+    /// a list it could just as easily ask for in full.
+    ///
+    /// This reads the code off the account through the same resolver the sale uses, so the list an
+    /// operator picks from and the set <c>CreateDesktopSale</c> will accept are one filter over one
+    /// value. Like the sale, it needs a real user rather than the loose claim read: an API key carries
+    /// no selling account.
+    /// </remarks>
+    [HttpGet("vendors")]
+    public async Task<IActionResult> GetVendors(CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new GetVendorsForAccountQuery(userId.Value), cancellationToken);
+
+        return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
     /// Create a desktop sale — validates against local stock, deducts quantities, and fiscalizes immediately.
     /// </summary>
     /// <remarks>
@@ -964,6 +994,47 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         CancellationToken cancellationToken)
     {
         var result = await mediator.Send(command, cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// How TransferEventListener is doing: whether it is still reading SAP, what it has seen since it
+    /// started, and which warehouses it watches.
+    /// </summary>
+    /// <remarks>
+    /// The counterpart to the webhook above. Until this route existed the relationship ran one way
+    /// only, so a listener that had stopped reading SAP was indistinguishable from an afternoon with
+    /// no transfers in it — while every transfer made in the meantime was missing from the day's
+    /// snapshot.
+    ///
+    /// Answers 200 with <c>reachable: false</c> when the listener is down, rather than failing: that
+    /// is the answer, and it is the one worth showing.
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager")]
+    [HttpGet("transfer-listener/status")]
+    public async Task<IActionResult> GetTransferListenerStatus(
+        [FromQuery] int recentDocumentCount = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetTransferListenerStatusQuery(recentDocumentCount), cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Makes TransferEventListener poll SAP now instead of waiting for its next cycle.
+    /// </summary>
+    /// <remarks>
+    /// A write on the listener: it advances the poll window, marks documents processed and delivers
+    /// webhooks for anything new. Safe to repeat — a second pass finds those documents already
+    /// processed — but it stays with the people who would be reconciling a stalled poll.
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager")]
+    [HttpPost("transfer-listener/check-now")]
+    public async Task<IActionResult> TriggerTransferListenerCheck(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new TriggerTransferListenerCheckCommand(), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

@@ -1,4 +1,4 @@
-namespace ShopInventory.Models;
+﻿namespace ShopInventory.Models;
 
 /// <summary>
 /// Common audit action types for API-side operations
@@ -23,6 +23,9 @@ public static class AuditActions
     public const string CreateInvoice = "CreateInvoice";
     public const string FiscalizeInvoice = "FiscalizeInvoice";
     public const string ViewInvoices = "ViewInvoices";
+
+    /// <summary>An admin withdrew a posted invoice by raising the credit note that reverses it.</summary>
+    public const string CancelInvoice = "CancelInvoice";
 
     // Payment actions
     public const string CreatePayment = "CreatePayment";
