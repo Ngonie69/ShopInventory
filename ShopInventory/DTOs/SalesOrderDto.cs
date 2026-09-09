@@ -287,6 +287,19 @@ public class CreateCreditNoteRequest
     /// </summary>
     public string? ClientRequestId { get; set; }
 
+    /// <summary>
+    /// The reference this system writes into SAP's <c>NumAtCard</c>, derived from
+    /// <see cref="ClientRequestId"/> so a retry can find the credit note a lost reply left behind.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="JsonIgnoreAttribute"/>, and that is the guard rather than a convention: a caller
+    /// that could name this could name the reference another request derives, and the two would
+    /// adopt each other's credit notes. It is set by the service, on the way to SAP, and never bound
+    /// from a request body.
+    /// </remarks>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? SapReference { get; set; }
+
     [Required(ErrorMessage = "At least one line item is required")]
     [MinLength(1, ErrorMessage = "At least one line item is required")]
     public List<CreateCreditNoteLineRequest> Lines { get; set; } = new();

@@ -233,18 +233,102 @@ Returns the caller's own mobile order created under that key, or **404** when no
 which is the server confirming the request is still safe to send. A client must not read a transport
 failure on this call as a 404.
 
+`POST /api/SalesOrder` requires a key on every create, whatever the order's source. The middleware
+lets merchandiser, sales rep, ADR and sales roles through without an `Idempotency-Key` header,
+because their older clients send `clientRequestId` in the body instead — and the controller folds
+the header into that field before validation, so either one satisfies the rule. A request carrying
+neither is refused with **400**, naming both ways to supply it.
+
 ### Endpoints that replay the real document
 
-Crate POD upload and crate GRV creation do their own durable idempotency in the handler, which
-persists the response and replays the actual document on a repeated key:
+These do their own durable idempotency in the handler, which persists the response and replays the
+actual document on a repeated key:
 
 | Endpoint | Key carrier |
 | --- | --- |
+| `POST /api/Invoice` | `clientRequestId` body field (or `Idempotency-Key` header) |
+| `POST /api/CreditNote` | `clientRequestId` body field (or `Idempotency-Key` header) |
+| `POST /api/CreditNote/from-invoice/{invoiceId}` | `clientRequestId` body field (or `Idempotency-Key` header) |
+| `POST /api/IncomingPayment` | `clientRequestId` body field (or `Idempotency-Key` header) |
+| `POST /api/InventoryTransfer` | `clientRequestId` body field (or `Idempotency-Key` header) |
+| `POST /api/Quotation` | `clientRequestId` body field (or `Idempotency-Key` header) |
 | `POST /api/crates/transactions/{id}/pods` | `clientRequestId` form field (or `Idempotency-Key` header) |
 | `POST /api/crates/transactions/{id}/grvs` | `clientRequestId` form field (or `Idempotency-Key` header) |
 
-`IdempotencyMiddleware` deliberately stands aside for these two routes, because its own in-memory
-replay would short-circuit the request and answer with a bare message instead of the document.
+`IdempotencyMiddleware` deliberately stands aside for these routes, because its own in-memory replay
+would short-circuit the request and answer with a bare message instead of the document. Ownership is
+per exact route, not per controller: every other route under the same controllers still relies on
+the middleware.
+
+Incoming payments are the route that needs this most, and the only one on the list with no key of
+its own in SAP: `clientRequestId` is not forwarded to the Service Layer and there is no lookup by
+reference, so the stored response is the only way a caller that lost its reply can learn the payment
+exists rather than sending it a second time. Inventory transfers and quotations also look their key
+up among their own records, so a resubmission is answered from those even after the key expires.
+
+### Invoice creation: the key is written into SAP
+
+`POST /api/Invoice` is the strictest case in the system, because a duplicate is a second fiscal
+receipt that cannot be withdrawn from ZIMRA. An invoice that names no `U_Van_saleorder` of its own
+is posted carrying one derived from the caller's key — `WEB-<key>`, or `WEB-<fingerprint>` when the
+key is too long or carries characters SAP will not take — so the document can be found in SAP
+afterwards by anyone holding the key, this server included. `clientRequestId` itself is never sent
+to SAP, which is why the derived reference exists at all.
+
+A caller may still supply its own `U_Van_saleorder`, and it is used as-is. It may not be one the
+system generates for itself (`DS-`, `CONSOL-`, `WEB-`, or a reference belonging to a till sale):
+those return **400 `Invoice.ReservedSaleReference`**.
+
+Three answers to a retry, and they mean different things:
+
+| Response | Meaning |
+| --- | --- |
+| **201** with the original body | The first attempt finished; this is its stored response, same `DocEntry`. |
+| **200/201** "Invoice already exists" | SAP holds an invoice under this key. Nothing was posted again. |
+| **409 `Idempotency.PostOutcomeUnknown`** | An earlier attempt sent a post whose outcome is not known, and SAP does not show the document yet. Nothing was sent. Retry shortly. |
+
+A client that hangs up does not stop the post. Once the request has left for SAP it runs to
+completion regardless of the caller — a closed tab, a proxy timeout, a navigation away — because an
+invoice SAP has taken must not be one this side never learned the number of. If the reply is lost
+anyway, the handler asks SAP on the key and returns the invoice it finds, so the caller is answered
+with the document rather than sent to go and look for it. A request abandoned *before* the post is
+simply dropped, and nothing is sent.
+
+The last one is a wait, not a failure. A post whose reply was lost — a timeout, a dropped
+connection — leaves its claim standing deliberately, because SAP may hold the invoice and simply not
+be showing it yet; the retry asks SAP rather than posting again. Once SAP shows it, the retry is
+handed that invoice. If SAP still shows nothing after
+`Security:IdempotencyUnresolvedPostGraceMinutes` (default 15), the post never landed and the retry
+posts normally. A refusal from SAP releases the claim immediately, so a document that only needs
+fixing stays retryable under the same key.
+
+### Credit notes: the same key, in NumAtCard
+
+A credit note is the strictest case of all — a duplicate is a second ZIMRA credit receipt against
+one return — and until recently it reached SAP carrying nothing that identified it. Both create
+routes now write `CN-{key}` (or `CN-{fingerprint}` for a long or awkward key) into the credit note's
+**`NumAtCard`**, derived from the caller's idempotency key, and ask SAP about that reference before
+posting anything. `NumAtCard` rather than a UDF because it is a standard field on every marketing
+document; this system writes nothing else into it, and a caller cannot set it.
+
+The retry answers match the invoice route, with one difference: **409 `Idempotency.PostOutcomeUnknown`**
+here means an earlier attempt's outcome is unresolved and nothing was sent again. Once
+`Security:IdempotencyUnresolvedPostGraceMinutes` has passed the retry proceeds, and SAP is asked
+about the reference before anything is posted — so it adopts the credit note if one exists and
+raises one only if none does.
+
+Two related guards, both of which used to fail open:
+
+- A credit note SAP refuses returns **400 `CreditNote.SapRejected`** and releases the key, so the
+  document can be corrected and sent again under it. A failure that is *not* SAP's own answer — a
+  gateway error, a timeout — keeps the key instead, because the credit note may exist behind it.
+- `POST /api/CreditNote/from-invoice/{invoiceId}` refuses when SAP cannot be asked what the invoice
+  has already been credited. It used to fall back to the local database, which does not hold a
+  credit note whose reply was lost, and so cleared a second full credit note against the invoice.
+
+The local record is written before fiscalisation is attempted, and neither the post nor the save
+runs on the caller's connection: a client that hangs up mid-request no longer leaves a credit note
+in SAP that this side has no record of.
 
 The key must stay stable across retries of one submission and be retired once it succeeds or once
 the submission's content changes — reusing a key with a different payload returns **409

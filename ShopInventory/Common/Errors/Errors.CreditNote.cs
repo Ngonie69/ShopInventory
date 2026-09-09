@@ -21,6 +21,17 @@ public static partial class Errors
         public static Error CreationFailed(string message) =>
             Error.Failure("CreditNote.CreationFailed", message);
 
+        /// <summary>
+        /// SAP answered the post and refused it, so no credit note exists.
+        /// </summary>
+        /// <remarks>
+        /// Kept apart from <see cref="CreationFailed"/>, which now also covers failures that leave
+        /// the document's existence unknown. This one says plainly that nothing was created and the
+        /// same request may be corrected and sent again.
+        /// </remarks>
+        public static Error SapRejected(string message) =>
+            Error.Validation("CreditNote.SapRejected", $"SAP refused the credit note: {message}");
+
         public static Error BulkCancellationFailed(string message) =>
             Error.Failure("CreditNote.BulkCancellationFailed", message);
 

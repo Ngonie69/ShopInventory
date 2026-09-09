@@ -82,6 +82,27 @@ public class IdempotencyMiddleware
             // the document it asked for. The handler always has a key to work with, because the
             // keyless branch below refuses this endpoint outright.
             "POST /api/invoice",
+            // CreateCreditNoteHandler acquires under "creditnotes.create" on ClientRequestId —
+            // the header, copied across by the controller — and completes with the CreditNoteDto
+            // it raised. Replaying here instead answered a retry with a bare "duplicate request"
+            // message, and unlike mobile sales orders there is no by-client-request route to
+            // recover from afterwards: the credit note exists in SAP and with ZIMRA, and the
+            // operator is told only that their request was a duplicate.
+            "POST /api/creditnote",
+            // CreateIncomingPaymentHandler completes with the IncomingPaymentCreatedResponseDto,
+            // and this route needs the replay more than any other here: a payment carries no key
+            // into SAP at all — ClientRequestId is not forwarded and there is no lookup by
+            // reference — so the stored response is the only way a caller that lost its reply can
+            // learn the payment exists rather than sending it again.
+            "POST /api/incomingpayment",
+            // CreateInventoryTransferHandler completes with the InventoryTransferCreatedResponseDto,
+            // and separately returns the held pending record when one already carries this key, so a
+            // resubmission never opens a second approval for the same stock movement.
+            "POST /api/inventorytransfer",
+            // CreateQuotationHandler completes with the QuotationDto, and looks the key up among the
+            // quotations before posting and among SAP DocEntries after, so a retry is answered with
+            // the quotation rather than raising another.
+            "POST /api/quotation",
     };
 
     // The same, for routes whose path carries a variable segment. Matched on both ends because that
@@ -110,6 +131,17 @@ public class IdempotencyMiddleware
             // note it became). The middleware's bare message would lose both.
             ("POST /api/credit-note-approvals/", "/decision"),
             ("POST /api/credit-note-approvals/", "/add"),
+    };
+
+    // And for routes whose variable segment is the last one, where there is no suffix to match
+    // on. Kept apart from the enforced prefixes above: owning the replay and being made to
+    // carry a key are different questions, and a route can need one without the other.
+    private static readonly string[] HandlerOwnedIdempotencyPrefixes =
+    {
+            // CreateCreditNoteFromInvoiceHandler owns its key under
+            // "creditnotes.create-from-invoice" and replays the credit note it raised. No sibling
+            // route under /api/creditnote/ starts with this path, so nothing else is swallowed.
+            "POST /api/creditnote/from-invoice/",
     };
 
     private static readonly string[] MobileSalesOrderCompatibilityRoles =
@@ -268,6 +300,11 @@ public class IdempotencyMiddleware
     private static bool IsHandlerOwnedIdempotency(string endpointKey)
     {
         if (HandlerOwnedIdempotencyEndpoints.Contains(endpointKey))
+            return true;
+
+        if (HandlerOwnedIdempotencyPrefixes.Any(
+                prefix => endpointKey.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                    && endpointKey.Length > prefix.Length))
             return true;
 
         foreach (var (prefix, suffix) in HandlerOwnedIdempotencyRoutes)

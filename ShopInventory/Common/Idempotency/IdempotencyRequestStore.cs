@@ -136,6 +136,32 @@ public sealed class IdempotencyRequestStore(
             .ExecuteDeleteAsync(cancellationToken);
     }
 
+    public async Task<bool> TryTakeOverAsync(
+        long requestId,
+        DateTime issuedBeforeUtc,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        using var serviceScope = scopeFactory.CreateScope();
+        var context = serviceScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        // CreatedAtUtc is moved to now, not left where it was. It is what the grace window is
+        // measured from, so this attempt has to start its own window — otherwise its post is
+        // already outside the window the moment it is issued, and a third attempt arriving a second
+        // later would be cleared to post alongside it.
+        var taken = await context.IdempotencyRequests
+            .Where(item => item.Id == requestId
+                && item.Status == IdempotencyRequestStatus.InProgress
+                && item.CreatedAtUtc <= issuedBeforeUtc)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(item => item.CreatedAtUtc, now)
+                    .SetProperty(item => item.ExpiresAtUtc, now.AddMinutes(_expirationMinutes)),
+                cancellationToken);
+
+        return taken == 1;
+    }
+
     private static IdempotencyAcquireResult<TResponse> BuildResult<TResponse>(
         IdempotencyRequestEntity entity,
         string requestHash)

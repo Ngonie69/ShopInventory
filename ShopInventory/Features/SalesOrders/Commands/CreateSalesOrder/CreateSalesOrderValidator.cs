@@ -1,5 +1,4 @@
 using FluentValidation;
-using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.SalesOrders.Commands.CreateSalesOrder;
 
@@ -28,9 +27,23 @@ public sealed class CreateSalesOrderValidator : AbstractValidator<CreateSalesOrd
                 .MaximumLength(100).WithMessage("Client request ID must not exceed 100 characters")
                 .When(x => !string.IsNullOrWhiteSpace(x.Request?.ClientRequestId));
 
+            // Required for every source, not just Mobile, and the difference matters because of how
+            // this endpoint is reached. IdempotencyMiddleware refuses a keyless POST /api/salesorder
+            // with 428 — except for merchandiser, sales rep, ADR and sales roles, whose older mobile
+            // clients send the key in the body rather than the header. That exemption is granted by
+            // *role*, while the rule that made it safe was written by *source*: one of those users
+            // posting an order that is not Source=Mobile passed the gate carrying no key at all, and
+            // CreateAsync then had nothing to deduplicate on. A resubmission became a second order,
+            // and a second SAP document once it was approved.
+            //
+            // The controller folds an Idempotency-Key header into ClientRequestId before this runs,
+            // so a caller supplying either one passes. Only a caller supplying neither is refused —
+            // and that caller has no duplicate protection at all today.
             RuleFor(x => x.Request.ClientRequestId)
-                .NotEmpty().WithMessage("Client request ID is required for mobile sales orders")
-                .When(x => x.Request?.Source == SalesOrderSource.Mobile);
+                .NotEmpty()
+                .WithMessage(
+                    "Client request ID is required. Send it as clientRequestId in the body or as an "
+                    + "Idempotency-Key header, so a retried submission cannot become a second order.");
 
             RuleForEach(x => x.Request.Lines).ChildRules(line =>
             {

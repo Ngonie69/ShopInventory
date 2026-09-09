@@ -89,9 +89,9 @@ public class IdempotencyMiddlewareTests
             NullLogger<IdempotencyMiddleware>.Instance);
 
         var key = $"client-error-{Guid.NewGuid():N}";
-        var first = CreateContext(key, "/api/creditnote");
+        var first = CreateContext(key);
         await middleware.InvokeAsync(first);
-        var retry = CreateContext(key, "/api/creditnote");
+        var retry = CreateContext(key);
         await middleware.InvokeAsync(retry);
 
         Assert.Equal(failureStatusCode, first.Response.StatusCode);
@@ -114,8 +114,8 @@ public class IdempotencyMiddlewareTests
             NullLogger<IdempotencyMiddleware>.Instance);
 
         var key = $"success-{Guid.NewGuid():N}";
-        await middleware.InvokeAsync(CreateContext(key, "/api/creditnote"));
-        var retry = CreateContext(key, "/api/creditnote");
+        await middleware.InvokeAsync(CreateContext(key));
+        var retry = CreateContext(key);
         await middleware.InvokeAsync(retry);
 
         Assert.Equal(StatusCodes.Status201Created, retry.Response.StatusCode);
@@ -184,6 +184,18 @@ public class IdempotencyMiddlewareTests
     // CreateInvoiceHandler completes its store entry with the InvoiceCreatedResponseDto, so the
     // retry gets the DocEntry and DocNum rather than the remembered status code and a bare message.
     [InlineData("/api/invoice")]
+    // Both credit note create routes complete their store entry with the CreditNoteDto they raised.
+    // The document is with ZIMRA as well as SAP by then, and no by-client-request route exists to
+    // find it afterwards, so a bare message here is the end of the caller's chances of learning it.
+    [InlineData("/api/creditnote")]
+    [InlineData("/api/creditnote/from-invoice/2148037")]
+    // CreateIncomingPaymentHandler, CreateInventoryTransferHandler and CreateQuotationHandler all
+    // complete their store entry with the document they raised. The payment is the one that needs it
+    // most: it carries no key into SAP, so the stored response is the only way a caller that lost its
+    // reply learns the payment exists.
+    [InlineData("/api/incomingpayment")]
+    [InlineData("/api/inventorytransfer")]
+    [InlineData("/api/quotation")]
     public async Task Handler_owned_endpoints_are_not_replayed_by_this_middleware(string path)
     {
         // These handlers persist their own key and replay the real document. This middleware only
@@ -236,6 +248,14 @@ public class IdempotencyMiddlewareTests
 
     [Theory]
     [InlineData("/api/invoice/2148037/fiscalize")]
+    // The same for credit notes: /from-invoice/ is a prefix rule, and every other sub-route under
+    // /api/creditnote/ still leans on this middleware.
+    [InlineData("/api/creditnote/412/approve")]
+    [InlineData("/api/creditnote/bulk-cancel")]
+    // Ownership is per exact route, not per controller: everything else under these three still
+    // relies on this middleware, including the transfer sub-routes that are not /pending/{id}/post.
+    [InlineData("/api/inventorytransfer/pending/88/cancel")]
+    [InlineData("/api/quotation/412/approve")]
     public async Task Sibling_invoice_routes_keep_the_middleware_guard(string path)
     {
         // "POST /api/invoice/" + "/pod" must not widen into a prefix rule over the whole invoice
@@ -262,9 +282,14 @@ public class IdempotencyMiddlewareTests
     }
 
     // Defaults to an endpoint this middleware still guards, so the tests above describe its own
-    // behaviour rather than some endpoint's ownership. /api/salesorder and /api/invoice are not
-    // ones: both handlers persist their own key and replay the real document.
-    private static DefaultHttpContext CreateContext(string? key, string path = "/api/creditnote")
+    // behaviour rather than some endpoint's ownership. /api/salesorder, /api/invoice and both credit
+    // note create routes are not ones: those handlers persist their own key and replay the real
+    // document, so this middleware stands aside for them.
+    //
+    // Choosing a handler-owned path here does not fail the tests, it hangs them: the concurrent test
+    // holds the first request open until the duplicate has been refused, and a pass-through duplicate
+    // waits on a release that never comes.
+    private static DefaultHttpContext CreateContext(string? key, string path = "/api/purchaseorder")
     {
         var context = new DefaultHttpContext();
         context.Request.Method = HttpMethods.Post;

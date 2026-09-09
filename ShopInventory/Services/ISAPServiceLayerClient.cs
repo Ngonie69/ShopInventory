@@ -584,6 +584,18 @@ public interface ISAPServiceLayerClient
     /// <summary>
     /// Creates a credit note (A/R Credit Memo) in SAP Business One
     /// </summary>
+    /// <summary>
+    /// The credit note SAP already holds under this request reference, if any.
+    /// </summary>
+    /// <remarks>
+    /// The counterpart of <see cref="GetInvoiceByVanSaleOrderAsync"/> for credit notes, and the
+    /// reason <c>NumAtCard</c> is written on the way out: a credit note posted without one leaves
+    /// nothing in SAP that a retry can ask about, so a post whose reply was lost can only be found
+    /// by a person. Throws rather than answering null when SAP cannot be asked — treating "I could
+    /// not ask" as "it is not there" is how a return gets credited twice.
+    /// </remarks>
+    Task<SAPCreditNote?> GetCreditNoteByReferenceAsync(string reference, CancellationToken cancellationToken = default);
+
     Task<SAPCreditNote> CreateCreditNoteAsync(CreateCreditNoteRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>

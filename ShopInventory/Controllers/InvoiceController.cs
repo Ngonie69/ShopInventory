@@ -40,6 +40,16 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     /// <summary>
     /// Create a new invoice (posts to SAP)
     /// </summary>
+    /// <remarks>
+    /// Requires an <c>Idempotency-Key</c> header (or a <c>clientRequestId</c> body field); a keyless
+    /// request is refused with 428. The key is durable, so a retry is answered with the invoice the
+    /// first attempt created rather than a bare message, and it is written into SAP's
+    /// <c>U_Van_saleorder</c> as <c>WEB-{key}</c> when the caller names no business key of its own.
+    ///
+    /// A retry can also come back 409 <c>Idempotency.PostOutcomeUnknown</c>: an earlier post is
+    /// unaccounted for and SAP does not show the document yet, so nothing was sent again. That is an
+    /// ask-again, not a failure. See the Idempotency section of API.md.
+    /// </remarks>
     [HttpPost]
     [Authorize(Roles = "Admin,Cashier")]
     [ProducesResponseType(typeof(InvoiceCreatedResponseDto), StatusCodes.Status201Created)]
