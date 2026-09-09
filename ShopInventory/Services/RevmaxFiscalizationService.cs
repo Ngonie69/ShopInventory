@@ -122,7 +122,8 @@ public class RevmaxFiscalizationService : IFiscalizationService
         try
         {
             var response = await _client.TransactMAsync(request, cancellationToken);
-            return MapResponse(response, invoiceNumber, rawRequestJson);
+            var mapped = MapResponse(response, invoiceNumber, rawRequestJson);
+            return await VerifyDeclaredTaxAsync(mapped, request, cancellationToken);
         }
         catch (Exception ex) when (
             ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
@@ -192,7 +193,8 @@ public class RevmaxFiscalizationService : IFiscalizationService
         try
         {
             var response = await _client.TransactMExtAsync(request, cancellationToken);
-            return MapResponse(response, invoiceNumber, rawRequestJson);
+            var mapped = MapResponse(response, invoiceNumber, rawRequestJson);
+            return await VerifyDeclaredTaxAsync(mapped, request, cancellationToken);
         }
         catch (Exception ex) when (
             ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
@@ -377,6 +379,119 @@ public class RevmaxFiscalizationService : IFiscalizationService
             ErrorDetails = ex.ToString(),
             RawRequestJson = rawRequestJson
         };
+    }
+
+    /// <summary>
+    /// Reads the filed receipt back and checks the device taxed each line the way we declared it.
+    /// </summary>
+    /// <remarks>
+    /// The one failure this integration cannot otherwise see. REVMax answers a submission with
+    /// "Upload Success" and no tax breakdown at all, so a wrong <c>TAX</c> id is invisible at the
+    /// point of sending: the receipt is filed, the customer is handed it, and the VAT declared to
+    /// ZIMRA is simply wrong. That is not hypothetical on this device — the feed already writing to
+    /// it declared SAP invoice 771225 (VatSum 0.00, wholly zero-rated) with 0.27 of VAT, and 771191
+    /// with 2.15 against SAP's 1.47, because it filed one of two zero-rated lines at 15.5%. Neither
+    /// raised anything anywhere.
+    ///
+    /// Never changes <see cref="FiscalizationResult.Success"/> and never asks for a retry. The
+    /// receipt exists; resubmitting would add a second one. It raises
+    /// <see cref="FiscalizationResult.TaxDeclarationMismatch"/> so a person can decide, which for a
+    /// filed receipt usually means a credit note.
+    ///
+    /// Best-effort: a read-back that cannot be made says nothing about the receipt, so it is logged
+    /// and passed over rather than reported as a mismatch.
+    /// </remarks>
+    private async Task<FiscalizationResult> VerifyDeclaredTaxAsync(
+        FiscalizationResult result,
+        TransactMRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!result.Success || result.Skipped || result.InvoiceNumber is null)
+        {
+            return result;
+        }
+
+        if (request.ItemsXml is not List<RevmaxRequestItem> declared || declared.Count == 0)
+        {
+            return result;
+        }
+
+        InvoiceResponse? filed;
+
+        try
+        {
+            filed = await _client.GetInvoiceAsync(result.InvoiceNumber, cancellationToken);
+        }
+        catch (Exception ex) when (
+            ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex,
+                "Filed {InvoiceNumber} but could not read it back to check the tax it was recorded "
+                + "under.",
+                result.InvoiceNumber);
+            return result;
+        }
+
+        var recorded = filed?.Data?.ReceiptLines;
+
+        if (filed?.Success != true || recorded is null || recorded.Count == 0)
+        {
+            _logger.LogWarning(
+                "Filed {InvoiceNumber} but the read-back carried no lines to check the tax against.",
+                result.InvoiceNumber);
+            return result;
+        }
+
+        var mismatches = new List<string>();
+
+        foreach (var item in declared)
+        {
+            // HH is the line number we sent and receiptLineNo is what came back on it.
+            if (!int.TryParse(item.HH, NumberStyles.Integer, CultureInfo.InvariantCulture, out var lineNo))
+            {
+                continue;
+            }
+
+            var line = recorded.FirstOrDefault(r => r.ReceiptLineNo == lineNo);
+
+            if (line is null
+                || !decimal.TryParse(
+                    item.TaxR, NumberStyles.Number, CultureInfo.InvariantCulture, out var declaredRate))
+            {
+                continue;
+            }
+
+            if (declaredRate == line.TaxPercent)
+            {
+                continue;
+            }
+
+            mismatches.Add(
+                $"line {lineNo} ({item.ItemCode}) declared at {declaredRate}% but recorded at "
+                + $"{line.TaxPercent}% (taxID {line.TaxID})");
+        }
+
+        if (mismatches.Count == 0)
+        {
+            return result;
+        }
+
+        var detail = string.Join("; ", mismatches);
+
+        _logger.LogError(
+            "Receipt {ReceiptGlobalNo} for {InvoiceNumber} is filed with ZIMRA declaring tax this "
+            + "application did not intend, so the VAT reported is wrong and cannot be corrected on "
+            + "the receipt: {Detail}. Check Revmax:TaxIdMappings against the device.",
+            filed.Data?.ReceiptGlobalNo,
+            result.InvoiceNumber,
+            detail);
+
+        result.TaxDeclarationMismatch = true;
+        result.TaxDeclarationDetail = detail;
+        result.Message = $"{result.Message} The tax declared does not match the receipt: {detail}.";
+
+        return result;
     }
 
     private FiscalizationResult MapResponse(

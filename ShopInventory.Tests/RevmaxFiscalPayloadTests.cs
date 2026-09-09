@@ -142,6 +142,94 @@ public class RevmaxFiscalPayloadTests
     }
 
     [Fact]
+    public async Task A_zero_rated_line_the_device_taxed_anyway_is_reported_not_buried()
+    {
+        // The one failure this integration cannot otherwise see. REVMax answers "Upload Success" with
+        // no tax breakdown, so a wrong TAX id is invisible at the point of sending: the receipt is
+        // filed, the customer holds it, and the VAT declared to ZIMRA is simply wrong. The feed
+        // already writing to this device does exactly that -- SAP 771225 was wholly zero-rated
+        // (VatSum 0.00) and its receipt declared 0.27 of VAT, with nothing reported anywhere.
+        var client = new RecordingRevmaxClient
+        {
+            FiledReceipt = new InvoiceResponse
+            {
+                Code = "1",
+                FiscalDay = "524",
+                Data = new InvoiceData
+                {
+                    ReceiptGlobalNo = 216204,
+                    ReceiptLines =
+                    [
+                        new ReceiptLine { ReceiptLineNo = 0, TaxID = 515, TaxPercent = 15.5m },
+                        // Declared zero-rated; the device recorded it standard-rated.
+                        new ReceiptLine { ReceiptLineNo = 1, TaxID = 515, TaxPercent = 15.5m }
+                    ]
+                }
+            }
+        };
+
+        var invoice = Invoice();
+        invoice.Lines![1].VatGroup = "O0";
+        invoice.Lines[1].TaxCode = null;
+
+        var result = await Service(client).FiscalizeInvoiceAsync(invoice);
+
+        // Filed is filed. Never a failure and never a retry -- that would add a second receipt.
+        Assert.True(result.Success);
+        Assert.False(result.RequiresReconciliation);
+
+        Assert.True(result.TaxDeclarationMismatch);
+        Assert.Contains("declared at 0% but recorded at 15.5%", result.TaxDeclarationDetail);
+        Assert.Contains("taxID 515", result.TaxDeclarationDetail);
+    }
+
+    [Fact]
+    public async Task A_receipt_taxed_the_way_it_was_declared_raises_nothing()
+    {
+        // taxID 2 / code "B" / 0% is this device's zero-rated tax, read off real receipt 216204 for
+        // SAP invoice 771191; 515 / "A" / 15.5% is its standard rate, read off 216192.
+        var client = new RecordingRevmaxClient
+        {
+            FiledReceipt = new InvoiceResponse
+            {
+                Code = "1",
+                FiscalDay = "524",
+                Data = new InvoiceData
+                {
+                    ReceiptGlobalNo = 216204,
+                    ReceiptLines =
+                    [
+                        new ReceiptLine { ReceiptLineNo = 0, TaxID = 515, TaxPercent = 15.5m },
+                        new ReceiptLine { ReceiptLineNo = 1, TaxID = 2, TaxPercent = 0m }
+                    ]
+                }
+            }
+        };
+
+        var invoice = Invoice();
+        invoice.Lines![1].VatGroup = "O0";
+        invoice.Lines[1].TaxCode = null;
+
+        var result = await Service(client).FiscalizeInvoiceAsync(invoice);
+
+        Assert.True(result.Success);
+        Assert.False(result.TaxDeclarationMismatch);
+        Assert.Null(result.TaxDeclarationDetail);
+    }
+
+    [Fact]
+    public async Task A_read_back_that_cannot_be_made_is_not_reported_as_a_mismatch()
+    {
+        // Not being able to look says nothing about the receipt, and a filed receipt must not be
+        // flagged on the strength of a failed lookup.
+        var result = await Service(new UnreadableAfterFilingClient())
+            .FiscalizeInvoiceAsync(Invoice());
+
+        Assert.True(result.Success);
+        Assert.False(result.TaxDeclarationMismatch);
+    }
+
+    [Fact]
     public async Task A_document_with_no_comment_still_carries_one()
     {
         // REVMax refuses a blank InvoiceComment -- "InvoiceComment is null or empty", returned as
@@ -347,6 +435,54 @@ public class RevmaxFiscalPayloadTests
         return creditNote;
     }
 
+    /// <summary>Files successfully, then refuses every read.</summary>
+    private sealed class UnreadableAfterFilingClient : IRevmaxClient
+    {
+        private bool _filed;
+
+        public Task<TransactMResponse?> TransactMAsync(
+            TransactMRequest request, CancellationToken cancellationToken = default)
+        {
+            _filed = true;
+            return Task.FromResult<TransactMResponse?>(new TransactMResponse
+            {
+                Code = "1", Message = "Success", FiscalDay = "524"
+            });
+        }
+
+        public Task<InvoiceResponse?> GetInvoiceAsync(
+            string invoiceNumber, CancellationToken cancellationToken = default)
+            => _filed
+                ? throw new HttpRequestException("unreachable")
+                : Task.FromResult<InvoiceResponse?>(new InvoiceResponse { Code = "0" });
+
+        public Task<TransactMExtResponse?> TransactMExtAsync(
+            TransactMExtRequest request, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<CardDetailsResponse?> GetCardDetailsAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<DayStatusResponse?> GetDayStatusAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<LicenseResponse?> GetLicenseAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<LicenseResponse?> SetLicenseAsync(
+            string license, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ZReportResponse?> GetZReportAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<UnprocessedInvoicesSummaryResponse?> GetUnprocessedInvoicesSummaryAsync(
+            string? fiscalDayNumber = null,
+            string? fiscalDate = null,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
     /// <summary>Records what the service tried to send, and never sends anything.</summary>
     private sealed class RecordingRevmaxClient : IRevmaxClient
     {
@@ -369,6 +505,7 @@ public class RevmaxFiscalPayloadTests
             }
 
             LastInvoice = request;
+            _hasFiled = true;
             return Task.FromResult<TransactMResponse?>(new TransactMResponse
             {
                 Code = "1", Message = "Success", FiscalDay = "524", ReceiptGlobalNo = "216090"
@@ -385,11 +522,17 @@ public class RevmaxFiscalPayloadTests
 
             LastCreditNote = request;
             LastInvoice = request;
+            _hasFiled = true;
             return Task.FromResult<TransactMExtResponse?>(new TransactMExtResponse
             {
                 Code = "1", Message = "Success", FiscalDay = "524", ReceiptGlobalNo = "216091"
             });
         }
+
+        /// <summary>What the device answers once something has been filed under this number.</summary>
+        public InvoiceResponse? FiledReceipt { get; init; }
+
+        private bool _hasFiled;
 
         public Task<InvoiceResponse?> GetInvoiceAsync(
             string invoiceNumber, CancellationToken cancellationToken = default)
@@ -397,6 +540,11 @@ public class RevmaxFiscalPayloadTests
             if (ThrowOnGet is not null)
             {
                 throw ThrowOnGet;
+            }
+
+            if (_hasFiled && FiledReceipt is not null)
+            {
+                return Task.FromResult<InvoiceResponse?>(FiledReceipt);
             }
 
             // The device's own answer for a number it does not hold.

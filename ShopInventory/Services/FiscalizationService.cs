@@ -142,6 +142,26 @@ public class FiscalizationResult
     /// </remarks>
     public bool RequiresReconciliation { get; set; }
 
+    /// <summary>
+    /// The receipt was filed, but the tax the device recorded is not the tax that was declared.
+    /// </summary>
+    /// <remarks>
+    /// A filed receipt cannot be corrected, so this is never a failure and must never trigger a retry
+    /// — the sale is with ZIMRA either way, and resubmitting would only add a second receipt. It says
+    /// the amount of VAT declared to ZIMRA is wrong, which is a matter for a person and usually a
+    /// credit note.
+    ///
+    /// It exists because the failure is otherwise completely silent. The device feeding this same
+    /// REVMax already declares zero-rated goods at 15.5%: on 2026-09-09, SAP invoice 771225 was
+    /// wholly zero-rated (VatSum 0.00) and its receipt declared 0.27 of VAT, and 771191 declared 2.15
+    /// against SAP's 1.47 because one of its two zero-rated lines was filed standard-rated. Nothing
+    /// anywhere reported either. <see cref="TaxDeclarationDetail"/> carries what differed.
+    /// </remarks>
+    public bool TaxDeclarationMismatch { get; set; }
+
+    /// <summary>Which lines were declared at a rate the device did not record.</summary>
+    public string? TaxDeclarationDetail { get; set; }
+
     public string? RawRequestJson { get; set; }
 
     public string? RawResponseJson { get; set; }
