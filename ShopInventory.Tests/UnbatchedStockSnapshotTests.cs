@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -73,7 +73,9 @@ public sealed class UnbatchedStockSnapshotTests : IDisposable
         await Handler(Sap()).FetchWarehouseStockAsync(Today, Warehouse, default);
         _context.ChangeTracker.Clear();
 
-        var read = await new GetLocalStockHandler(_context)
+        var read = await new GetLocalStockHandler(
+                _context,
+                Options.Create(new DailyStockSettings { MonitoredWarehouses = [Warehouse] }))
             .Handle(new GetLocalStockQuery(Warehouse, Today), default);
 
         Assert.False(read.IsError);
@@ -348,6 +350,109 @@ public sealed class UnbatchedStockSnapshotTests : IDisposable
         // And the batch half is recorded gross -- worse than composed, which is the trade, but there.
         Assert.Equal(9m, rows.Where(row => row.ItemCode == "CHE011").Sum(row => row.AvailableQuantity));
         Assert.Equal(StockSnapshotStatus.Complete, (await SnapshotAsync()).Status);
+    }
+
+    // ── Repairing a snapshot that lost its unbatched half ───────────────
+
+    [Fact]
+    public async Task A_snapshot_that_lost_its_unbatched_half_says_so()
+    {
+        await Handler(Sap(unbatchedThrows: true)).FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        var snapshot = await SnapshotAsync();
+
+        Assert.Equal(StockSnapshotStatus.Complete, snapshot.Status);
+        Assert.True(snapshot.UnbatchedStockMissing);
+    }
+
+    [Fact]
+    public async Task A_whole_snapshot_does_not_claim_to_be_missing_anything()
+    {
+        await Handler(Sap()).FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.False((await SnapshotAsync()).UnbatchedStockMissing);
+    }
+
+    [Fact]
+    public async Task An_unbatched_half_the_listener_supplied_is_not_treated_as_missing()
+    {
+        // The note is written on the fallback's success too, so LastError alone cannot answer this.
+        var listener = FakeListener.Returning(ListenerStock("BON001", "Bonaqua water 500ml", 24m));
+
+        await Handler(Sap(unbatchedThrows: true), listener)
+            .FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        var snapshot = await SnapshotAsync();
+
+        Assert.NotNull(snapshot.LastError);
+        Assert.False(snapshot.UnbatchedStockMissing);
+    }
+
+    [Fact]
+    public async Task A_second_fetch_fills_in_the_half_the_first_could_not_read()
+    {
+        await Handler(Sap(unbatchedThrows: true)).FetchWarehouseStockAsync(Today, Warehouse, default);
+        Assert.Empty(await RowsAsync("BON001"));
+        _context.ChangeTracker.Clear();
+
+        var result = await Handler(Sap()).FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.Equal("ToppedUp", result.Status);
+        Assert.Equal(24m, (await RowAsync("BON001")).AvailableQuantity);
+
+        var snapshot = await SnapshotAsync();
+        Assert.False(snapshot.UnbatchedStockMissing);
+        Assert.Null(snapshot.LastError);
+    }
+
+    [Fact]
+    public async Task A_top_up_leaves_what_the_day_has_already_sold_alone()
+    {
+        await Handler(Sap(unbatchedThrows: true)).FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        // The morning's 9 units of CHE011, sold down to 2 by the time anyone notices the gap. SAP
+        // still holds 9 — desktop sales only reach it at end-of-day consolidation — so re-reading
+        // the batch half here would hand 7 units back to the till.
+        var sold = await _context.DailyStockSnapshotItems
+            .Where(row => row.ItemCode == "CHE011")
+            .ToListAsync();
+        sold[0].AvailableQuantity = 2m;
+        sold[1].AvailableQuantity = 0m;
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        await Handler(Sap()).FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.Equal(2m, (await RowsAsync("CHE011")).Sum(row => row.AvailableQuantity));
+        Assert.Equal(24m, (await RowAsync("BON001")).AvailableQuantity);
+    }
+
+    [Fact]
+    public async Task A_top_up_that_fails_again_leaves_the_snapshot_repairable()
+    {
+        await Handler(Sap(unbatchedThrows: true)).FetchWarehouseStockAsync(Today, Warehouse, default);
+        _context.ChangeTracker.Clear();
+
+        var result = await Handler(Sap(unbatchedThrows: true))
+            .FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.Equal("UnbatchedStillMissing", result.Status);
+        Assert.True((await SnapshotAsync()).UnbatchedStockMissing);
+    }
+
+    [Fact]
+    public async Task A_snapshot_with_nothing_missing_is_still_skipped()
+    {
+        await Handler(Sap()).FetchWarehouseStockAsync(Today, Warehouse, default);
+        _context.ChangeTracker.Clear();
+
+        // A SAP that refuses every call: reaching it at all would mean the skip was not taken.
+        var result = await Handler(StubProxy.For<ISAPServiceLayerClient>((method, _) =>
+                throw new InvalidOperationException($"SAP must not be called: {method.Name}")))
+            .FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.Equal("AlreadyExists", result.Status);
+        Assert.Single(await RowsAsync("BON001"));
     }
 
     // ── Helpers ─────────────────────────────────────────
