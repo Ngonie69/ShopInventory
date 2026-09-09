@@ -1,4 +1,4 @@
-﻿using ErrorOr;
+using ErrorOr;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -97,6 +97,16 @@ public sealed class FetchDailyStockHandler(
 
         if (existing is { Status: StockSnapshotStatus.Complete })
         {
+            // A snapshot that recorded its unbatched half as missing is not finished, it is partial,
+            // and skipping it leaves a shop unable to sell anything SAP does not batch-manage for the
+            // rest of the day. Only that half is re-read: the batch rows are what tills have been
+            // selling against since the morning, and rebuilding them from SAP would hand back stock
+            // already sold, since desktop sales do not reach SAP until end-of-day consolidation.
+            if (existing.UnbatchedStockMissing)
+            {
+                return await TopUpUnbatchedStockAsync(existing, warehouseCode, cancellationToken);
+            }
+
             logger.LogInformation("Snapshot already exists for {Warehouse} on {Date}, skipping",
                 warehouseCode, snapshotDate);
             return new WarehouseSnapshotResult(warehouseCode, existing.ItemCount, "AlreadyExists");
@@ -205,7 +215,7 @@ public sealed class FetchDailyStockHandler(
                     }).ToList();
             }
 
-            var (unbatched, unbatchedProblem) =
+            var (unbatched, unbatchedProblem, unbatchedReadFailed) =
                 await FetchUnbatchedStockAsync(snapshot.Id, warehouseCode, snapshotItems, cancellationToken);
             snapshotItems.AddRange(unbatched);
 
@@ -220,6 +230,7 @@ public sealed class FetchDailyStockHandler(
             // a shop short of exactly its unbatched lines is indistinguishable from one that holds
             // none, which is the shape this whole read exists to fix.
             snapshot.LastError = unbatchedProblem;
+            snapshot.UnbatchedStockMissing = unbatchedReadFailed;
 
             await context.SaveChangesAsync(cancellationToken);
 
@@ -236,6 +247,64 @@ public sealed class FetchDailyStockHandler(
             await context.SaveChangesAsync(cancellationToken);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Fills in the unbatched half of a snapshot that was finished without it.
+    /// </summary>
+    /// <remarks>
+    /// Adds only what is missing. The rows already in the snapshot are passed through as the
+    /// exclusion set, so a batch-managed item is not offered twice and neither is an unbatched row a
+    /// transfer wrote during the day. Nothing already there is touched or re-read: those quantities
+    /// have been sold down since the morning and SAP still holds the pre-sale figures.
+    ///
+    /// <para>
+    /// Safe to add fresh rows for the items it does cover, because the flag this runs under means
+    /// there were none — no till can have sold an unbatched line it was never shown.
+    /// </para>
+    /// </remarks>
+    private async Task<WarehouseSnapshotResult> TopUpUnbatchedStockAsync(
+        DailyStockSnapshotEntity snapshot,
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        logger.LogInformation(
+            "Snapshot for {Warehouse} on {Date} is missing its unbatched stock; re-reading that half only",
+            warehouseCode, snapshot.SnapshotDate);
+
+        var alreadyHeld = await context.DailyStockSnapshotItems
+            .Where(item => item.SnapshotId == snapshot.Id)
+            .ToListAsync(cancellationToken);
+
+        var (rows, problem, readFailed) =
+            await FetchUnbatchedStockAsync(snapshot.Id, warehouseCode, alreadyHeld, cancellationToken);
+
+        if (rows.Count > 0)
+        {
+            context.DailyStockSnapshotItems.AddRange(rows);
+        }
+
+        snapshot.ItemCount = alreadyHeld.Count + rows.Count;
+        snapshot.LastError = problem;
+        snapshot.UnbatchedStockMissing = readFailed;
+        snapshot.CompletedAt = DateTime.UtcNow;
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        if (readFailed)
+        {
+            logger.LogWarning(
+                "Unbatched stock for {Warehouse} still could not be read; the snapshot stays short of it",
+                warehouseCode);
+
+            return new WarehouseSnapshotResult(warehouseCode, snapshot.ItemCount, "UnbatchedStillMissing");
+        }
+
+        logger.LogInformation(
+            "Topped up {Warehouse} with {Count} unbatched row(s); the snapshot now holds {Total}",
+            warehouseCode, rows.Count, snapshot.ItemCount);
+
+        return new WarehouseSnapshotResult(warehouseCode, snapshot.ItemCount, "ToppedUp");
     }
 
     /// <summary>
@@ -261,10 +330,11 @@ public sealed class FetchDailyStockHandler(
     /// warehouse does not hold.
     /// </remarks>
     /// <returns>
-    /// The rows to add, and — when the read failed — the sentence recorded against the snapshot. The
-    /// two are never both meaningful: a failure yields no rows.
+    /// The rows to add, the sentence recorded against the snapshot, and whether the read failed
+    /// outright. A failure yields no rows; a note on its own does not mean one, because the
+    /// TransferEventListener fallback returns a note when it succeeds as well.
     /// </returns>
-    private async Task<(List<DailyStockSnapshotItemEntity> Rows, string? Problem)> FetchUnbatchedStockAsync(
+    private async Task<(List<DailyStockSnapshotItemEntity> Rows, string? Problem, bool ReadFailed)> FetchUnbatchedStockAsync(
         int snapshotId,
         string warehouseCode,
         IReadOnlyCollection<DailyStockSnapshotItemEntity> batchRows,
@@ -291,7 +361,7 @@ public sealed class FetchDailyStockHandler(
 
             if (fallbackRows is null)
             {
-                return ([], fallbackNote);
+                return ([], fallbackNote, true);
             }
 
             stock = fallbackRows;
@@ -325,7 +395,7 @@ public sealed class FetchDailyStockHandler(
             })
             .ToList();
 
-        return (rows, sourceNote);
+        return (rows, sourceNote, false);
     }
 
     /// <summary>

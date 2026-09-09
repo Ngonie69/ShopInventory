@@ -1,20 +1,31 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Stock;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 
 namespace ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
 
 public sealed class GetLocalStockHandler(
-    ApplicationDbContext context
+    ApplicationDbContext context,
+    IOptions<DailyStockSettings> dailyStock
 ) : IRequestHandler<GetLocalStockQuery, ErrorOr<LocalStockResult>>
 {
     public async Task<ErrorOr<LocalStockResult>> Handle(
         GetLocalStockQuery query,
         CancellationToken cancellationToken)
     {
-        var snapshotDate = query.SnapshotDate?.Date ?? DateTime.UtcNow.Date;
+        // The day the snapshot in force belongs to, resolved the way the fetch that writes it and the
+        // ledger that sells from it both resolve it. This read was the one caller left on
+        // DateTime.UtcNow.Date, which rolls at 02:00 CAT — five hours before the 07:00 fetch produces
+        // the day it was then asking for. Every till therefore lost its catalogue between 02:00 and
+        // 07:00 every morning and was told today's figures were not available yet, while the snapshot
+        // it should have been selling from sat in storage under yesterday's date.
+        var snapshotDate = query.SnapshotDate?.Date
+            ?? StockLedgerDay.Today(dailyStock.Value.StockFetchTimeCAT);
 
         var snapshot = await context.DailyStockSnapshots
             .AsNoTracking()
