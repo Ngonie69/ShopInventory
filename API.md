@@ -233,6 +233,12 @@ Returns the caller's own mobile order created under that key, or **404** when no
 which is the server confirming the request is still safe to send. A client must not read a transport
 failure on this call as a 404.
 
+`POST /api/SalesOrder` requires a key on every create, whatever the order's source. The middleware
+lets merchandiser, sales rep, ADR and sales roles through without an `Idempotency-Key` header,
+because their older clients send `clientRequestId` in the body instead — and the controller folds
+the header into that field before validation, so either one satisfies the rule. A request carrying
+neither is refused with **400**, naming both ways to supply it.
+
 ### Endpoints that replay the real document
 
 These do their own durable idempotency in the handler, which persists the response and replays the
