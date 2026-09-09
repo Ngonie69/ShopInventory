@@ -14,8 +14,9 @@ namespace ShopInventory.Services;
 /// Fiscalises against the REVMax device at <c>Revmax:BaseUrl</c>.
 /// </summary>
 /// <remarks>
-/// This is the ZIMRA-approved path and the one that runs. <see cref="FiscalizationService"/> talks to
-/// the in-house Fiscalisation platform, which is still awaiting ZIMRA approval and is dormant — see
+/// The path that runs, on the device ZIMRA has actually issued. <see cref="FiscalizationService"/>
+/// talks to the in-house Fiscalisation platform — a separate system, and REVMax's intended
+/// replacement — which is dormant only because no production device has been issued for it yet. See
 /// <c>Fiscalisation:Provider</c>.
 ///
 /// REVMax takes a complete receipt: it reads nothing from SAP, so the post-SAP and pre-SAP paths build

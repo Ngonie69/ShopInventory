@@ -14,8 +14,10 @@ public enum FiscalisationProvider
     /// The in-house Fiscalisation platform at <c>Fiscalisation:BaseUrl</c>.
     /// </summary>
     /// <remarks>
-    /// Awaiting ZIMRA approval. Do not select this in production until that approval is granted:
-    /// receipts it files are filed for real, against a device ZIMRA has not signed off.
+    /// The intended replacement for REVMax, and a wholly separate system from it. It is not selected
+    /// yet only because ZIMRA has not issued a production device for it — not because of anything
+    /// wrong with the platform. Select this once that device exists; until then it has nothing to
+    /// file against.
     /// </remarks>
     Platform = 1
 }
