@@ -442,7 +442,7 @@ public class RevmaxFiscalizationService : IFiscalizationService
         var request = new TransactMRequest();
         PopulateCommon(request, invoice, invoiceNumber, customerDetails);
         request.Istatus = InvoiceStatus;
-        request.InvoiceComment = invoice.Comments;
+        request.InvoiceComment = ResolveComment(invoice, $"Invoice {invoiceNumber}");
         return request;
     }
 
@@ -458,7 +458,8 @@ public class RevmaxFiscalizationService : IFiscalizationService
 
         request.Istatus = CreditNoteStatus;
         request.OriginalInvoiceNumber = originalInvoiceNumber;
-        request.InvoiceComment = creditNote.Comments ?? creditNote.Remarks;
+        request.InvoiceComment = ResolveComment(
+            creditNote, $"Credit note {invoiceNumber} against invoice {originalInvoiceNumber}");
 
         request.refDeviceId = ParseInt(original.DeviceID) ?? _settings.DefaultRefDeviceId;
         request.refReceiptGlobalNo = original.Data?.ReceiptGlobalNo;
@@ -480,18 +481,22 @@ public class RevmaxFiscalizationService : IFiscalizationService
         request.InvoiceNumber = invoiceNumber;
         request.Currency = document.DocCurrency ?? _settings.DefaultCurrency;
         request.BranchName = _settings.DefaultBranchName;
-        request.CustomerName = customerDetails?.CustomerName ?? document.CardName;
-        request.CustomerVatNumber = customerDetails?.VatNumber ?? document.CustomerVatNo;
-        request.CustomerAddress = customerDetails?.Address ?? document.BillToAddress;
-        request.CustomerTelephone = customerDetails?.Telephone ?? document.CustomerPhone;
-        request.CustomerEmail = customerDetails?.Email ?? document.CustomerEmail;
-        request.CustomerBPN = customerDetails?.BPN ?? document.CustomerTinNumber;
+        // Empty string, never null. The serialiser omits a null property altogether and the device
+        // dereferences these without checking: an absent CustomerVatNumber comes back as HTTP 200
+        // carrying Code "0" and "Object reference not set to an instance of an object", which reads
+        // like a fault on their side and is a missing field on ours. Its whole contract is strings.
+        request.CustomerName = Text(customerDetails?.CustomerName ?? document.CardName);
+        request.CustomerVatNumber = Text(customerDetails?.VatNumber ?? document.CustomerVatNo);
+        request.CustomerAddress = Text(customerDetails?.Address ?? document.BillToAddress);
+        request.CustomerTelephone = Text(customerDetails?.Telephone ?? document.CustomerPhone);
+        request.CustomerEmail = Text(customerDetails?.Email ?? document.CustomerEmail);
+        request.CustomerBPN = Text(customerDetails?.BPN ?? document.CustomerTinNumber);
 
         // Credit notes come off SAP negative; REVMax is told the magnitude and Istatus "02" carries the
         // sign.
         request.InvoiceAmount = RoundCurrency(Math.Abs(document.DocTotal));
         request.InvoiceTaxAmount = RoundCurrency(Math.Abs(document.VatSum));
-        request.Cashier = document.CardCode;
+        request.Cashier = Text(document.CardCode);
         request.ItemsXml = BuildItems(document);
         request.CurrenciesXml = BuildCurrencies(document);
     }
@@ -645,32 +650,18 @@ public class RevmaxFiscalizationService : IFiscalizationService
 
     /// <summary>The line total declared on the receipt, on the same tax basis as PRICE.</summary>
     /// <remarks>
-    /// PRICE is the tax-inclusive unit price, so AMT has to be the tax-inclusive line total or the two
-    /// contradict each other on the same receipt line. SAP's <c>LineTotal</c> is NET, so it can only
-    /// stand in where the line carries no separate gross price for it to disagree with.
+    /// Always QTY x PRICE, because that is what the device itself records: REVMax recomputes every
+    /// line total from quantity and price and discards the AMT it was sent. Verified on invoice
+    /// 769617, whose last line was submitted as 1.91 and stored as 1.89. Sending anything else only
+    /// makes our own record disagree with the receipt the customer is holding.
     ///
-    /// The pre-2026-08 code took <c>LineTotal</c> whenever it was positive while taking GrossPrice for
-    /// PRICE, so on every standard-rated line it declared a net amount beside a gross unit price and
-    /// the lines summed short of InvoiceAmount by the VAT.
+    /// The same goes for the document total. REVMax derived 422.87 for 769617 from its own lines and
+    /// ignored the InvoiceAmount of 422.89 it was sent - two cents of rounding accumulated across
+    /// nine lines. It cannot be closed without misstating a unit price, and the device's existing
+    /// feed drifts by a cent in both directions on ordinary till invoices anyway.
     /// </remarks>
     private static decimal GetLineAmount(InvoiceLineDto line, decimal quantity, decimal price)
-    {
-        // SAP's own gross line total, where it has one: it is already net-of-discount and carries
-        // SAP's rounding, so it agrees with the document total rather than re-deriving it.
-        var grossTotal = Math.Abs(line.GrossTotal);
-        if (grossTotal > 0m)
-        {
-            return RoundCurrency(grossTotal);
-        }
-
-        if (Math.Abs(line.PriceAfterVat) > 0m || Math.Abs(line.GrossPrice) > 0m)
-        {
-            return RoundCurrency(quantity * price);
-        }
-
-        var lineTotal = Math.Abs(line.LineTotal);
-        return lineTotal > 0m ? lineTotal : RoundCurrency(quantity * price);
-    }
+        => RoundCurrency(quantity * price);
 
     /// <summary>The SAP tax code for a line, from wherever SAP actually put it.</summary>
     /// <remarks>
@@ -683,6 +674,27 @@ public class RevmaxFiscalizationService : IFiscalizationService
         var code = string.IsNullOrWhiteSpace(line.TaxCode) ? line.VatGroup : line.TaxCode;
         return string.IsNullOrWhiteSpace(code) ? null : code.Trim().ToUpperInvariant();
     }
+
+    /// <summary>The receipt's free-text comment, which the device will not accept empty.</summary>
+    /// <remarks>
+    /// REVMax refuses a submission whose InvoiceComment is blank - "InvoiceComment is null or empty",
+    /// returned as HTTP 200 carrying Code "0". It is not marked required anywhere in the device's
+    /// Swagger, and plenty of SAP documents carry no Comments at all: invoice 769617 has an empty
+    /// string, so passing Comments straight through refused it. The fallback names the document
+    /// rather than inventing narrative, because this prints on the customer's fiscal receipt.
+    /// </remarks>
+    private static string ResolveComment(InvoiceDto document, string fallback)
+    {
+        if (!string.IsNullOrWhiteSpace(document.Comments))
+        {
+            return document.Comments.Trim();
+        }
+
+        return string.IsNullOrWhiteSpace(document.Remarks) ? fallback : document.Remarks.Trim();
+    }
+
+    /// <summary>A string the device can dereference: never null, always trimmed.</summary>
+    private static string Text(string? value) => value?.Trim() ?? string.Empty;
 
     private static int? ParseInt(string? value)
         => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)

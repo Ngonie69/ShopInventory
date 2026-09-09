@@ -53,6 +53,12 @@ public class RevmaxFiscalPayloadTests
         // 2 x 50.00 gross = 100.00, not SAP's net LineTotal of 86.58.
         Assert.Equal("50.00", line![0].Price);
         Assert.Equal("100.00", line[0].Amt);
+        Assert.Equal("Test Customer", client.LastInvoice.CustomerName);
+
+        // Present and empty rather than omitted: the device dereferences these and an absent one
+        // comes back as a null reference error that reads like a fault on their side.
+        Assert.Equal(string.Empty, client.LastInvoice.CustomerVatNumber);
+        Assert.Equal(string.Empty, client.LastInvoice.CustomerBPN);
     }
 
     [Fact]
@@ -109,39 +115,58 @@ public class RevmaxFiscalPayloadTests
     }
 
     [Fact]
-    public async Task Sub_cent_rounding_is_absorbed_so_the_lines_sum_to_the_invoice_total()
+    public async Task Every_line_declares_an_amount_equal_to_quantity_times_price()
     {
+        // Not a style rule. REVMax recomputes each line total from QTY and PRICE and discards the AMT
+        // it was sent -- invoice 769617's last line went out as 1.91 and was stored as 1.89. Any AMT
+        // that disagrees only makes our own record differ from the receipt in the customer's hand.
         var client = new RecordingRevmaxClient();
         var invoice = Invoice();
-        invoice.DocTotal = 422.89m;
         invoice.Lines =
         [
-            new InvoiceLineDto { LineNum = 0, ItemCode = "A", Quantity = 1m, PriceAfterVat = 1m, GrossTotal = 422.87m, VatGroup = "O01" }
+            new InvoiceLineDto
+            {
+                LineNum = 0, ItemCode = "A", Quantity = 3m,
+                PriceAfterVat = 1.89m,
+                GrossTotal = 99.99m,   // deliberately inconsistent; must be ignored
+                LineTotal = 4.91m,
+                VatGroup = "O01"
+            }
         ];
 
         await Service(client).FiscalizeInvoiceAsync(invoice);
 
-        var lines = (List<RevmaxRequestItem>)client.LastInvoice!.ItemsXml!;
-        Assert.Equal("422.89", lines[0].Amt);
+        var line = ((List<RevmaxRequestItem>)client.LastInvoice!.ItemsXml!)[0];
+        Assert.Equal("1.89", line.Price);
+        Assert.Equal("5.67", line.Amt);
     }
 
     [Fact]
-    public async Task A_gap_too_large_to_be_rounding_is_left_visible_rather_than_papered_over()
+    public async Task A_document_with_no_comment_still_carries_one()
     {
-        // Ten cents is the line between rounding and a wrong price. Beyond it, silently balancing the
-        // document would file a wrong receipt that looks right.
+        // REVMax refuses a blank InvoiceComment -- "InvoiceComment is null or empty", returned as
+        // HTTP 200 with Code "0". It is not marked required in the device's Swagger, and real invoice
+        // 769617 carries an empty Comments, so passing SAP's value straight through refused it.
         var client = new RecordingRevmaxClient();
         var invoice = Invoice();
-        invoice.DocTotal = 500m;
-        invoice.Lines =
-        [
-            new InvoiceLineDto { LineNum = 0, ItemCode = "A", Quantity = 1m, PriceAfterVat = 1m, GrossTotal = 100m, VatGroup = "O01" }
-        ];
+        invoice.Comments = string.Empty;
+        invoice.Remarks = null;
 
         await Service(client).FiscalizeInvoiceAsync(invoice);
 
-        var lines = (List<RevmaxRequestItem>)client.LastInvoice!.ItemsXml!;
-        Assert.Equal("100.00", lines[0].Amt);
+        Assert.Equal("Invoice 123456", client.LastInvoice!.InvoiceComment);
+    }
+
+    [Fact]
+    public async Task A_documents_own_comment_is_preferred_to_the_fallback()
+    {
+        var client = new RecordingRevmaxClient();
+        var invoice = Invoice();
+        invoice.Comments = "  Counter sale  ";
+
+        await Service(client).FiscalizeInvoiceAsync(invoice);
+
+        Assert.Equal("Counter sale", client.LastInvoice!.InvoiceComment);
     }
 
     [Fact]

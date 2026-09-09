@@ -73,6 +73,11 @@ public class DayStatusResponse
     public string? DeviceID { get; set; }
     public string? DeviceSerialNumber { get; set; }
     public string? FiscalDay { get; set; }
+
+    // Data is "" whenever the device is reporting rather than answering — "Init error -1" is a
+    // routine transient state. Without this the client throws JsonException instead of
+    // surfacing Code "0".
+    [JsonConverter(typeof(EmptyStringToNullConverter<DayStatusData>))]
     public DayStatusData? Data { get; set; }
 }
 
@@ -273,7 +278,29 @@ public class UnprocessedInvoicesSummaryResponse
     public string? DeviceID { get; set; }
     public string? DeviceSerialNumber { get; set; }
     public string? FiscalDay { get; set; }
-    public List<UnprocessedInvoiceSummary>? Data { get; set; }
+
+    [JsonConverter(typeof(EmptyStringToNullConverter<UnprocessedInvoicesSummaryData>))]
+    public UnprocessedInvoicesSummaryData? Data { get; set; }
+}
+
+/// <summary>
+/// The paging envelope the device actually returns — a count and page sizes, not a list of
+/// invoices. The list comes from GetUnProcessedInvoices/{fiscalDayNumber}.
+/// </summary>
+public class UnprocessedInvoicesSummaryData
+{
+    public int TotalRecords { get; set; }
+
+    public int TotalPages { get; set; }
+
+    public int DefaultPageSize { get; set; }
+
+    public int MaxPageSize { get; set; }
+
+    /// <summary>Which parameter the device filtered on — "FiscalDay" or "FiscalDate".</summary>
+    public string? FilterBy { get; set; }
+
+    public string? FilterValue { get; set; }
 }
 
 public class UnprocessedInvoiceSummary
