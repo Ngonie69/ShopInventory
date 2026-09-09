@@ -189,6 +189,13 @@ public class IdempotencyMiddlewareTests
     // find it afterwards, so a bare message here is the end of the caller's chances of learning it.
     [InlineData("/api/creditnote")]
     [InlineData("/api/creditnote/from-invoice/2148037")]
+    // CreateIncomingPaymentHandler, CreateInventoryTransferHandler and CreateQuotationHandler all
+    // complete their store entry with the document they raised. The payment is the one that needs it
+    // most: it carries no key into SAP, so the stored response is the only way a caller that lost its
+    // reply learns the payment exists.
+    [InlineData("/api/incomingpayment")]
+    [InlineData("/api/inventorytransfer")]
+    [InlineData("/api/quotation")]
     public async Task Handler_owned_endpoints_are_not_replayed_by_this_middleware(string path)
     {
         // These handlers persist their own key and replay the real document. This middleware only
@@ -245,6 +252,10 @@ public class IdempotencyMiddlewareTests
     // /api/creditnote/ still leans on this middleware.
     [InlineData("/api/creditnote/412/approve")]
     [InlineData("/api/creditnote/bulk-cancel")]
+    // Ownership is per exact route, not per controller: everything else under these three still
+    // relies on this middleware, including the transfer sub-routes that are not /pending/{id}/post.
+    [InlineData("/api/inventorytransfer/pending/88/cancel")]
+    [InlineData("/api/quotation/412/approve")]
     public async Task Sibling_invoice_routes_keep_the_middleware_guard(string path)
     {
         // "POST /api/invoice/" + "/pod" must not widen into a prefix rule over the whole invoice

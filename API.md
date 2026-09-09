@@ -243,11 +243,22 @@ actual document on a repeated key:
 | `POST /api/Invoice` | `clientRequestId` body field (or `Idempotency-Key` header) |
 | `POST /api/CreditNote` | `clientRequestId` body field (or `Idempotency-Key` header) |
 | `POST /api/CreditNote/from-invoice/{invoiceId}` | `clientRequestId` body field (or `Idempotency-Key` header) |
+| `POST /api/IncomingPayment` | `clientRequestId` body field (or `Idempotency-Key` header) |
+| `POST /api/InventoryTransfer` | `clientRequestId` body field (or `Idempotency-Key` header) |
+| `POST /api/Quotation` | `clientRequestId` body field (or `Idempotency-Key` header) |
 | `POST /api/crates/transactions/{id}/pods` | `clientRequestId` form field (or `Idempotency-Key` header) |
 | `POST /api/crates/transactions/{id}/grvs` | `clientRequestId` form field (or `Idempotency-Key` header) |
 
 `IdempotencyMiddleware` deliberately stands aside for these routes, because its own in-memory replay
-would short-circuit the request and answer with a bare message instead of the document.
+would short-circuit the request and answer with a bare message instead of the document. Ownership is
+per exact route, not per controller: every other route under the same controllers still relies on
+the middleware.
+
+Incoming payments are the route that needs this most, and the only one on the list with no key of
+its own in SAP: `clientRequestId` is not forwarded to the Service Layer and there is no lookup by
+reference, so the stored response is the only way a caller that lost its reply can learn the payment
+exists rather than sending it a second time. Inventory transfers and quotations also look their key
+up among their own records, so a resubmission is answered from those even after the key expires.
 
 ### Invoice creation: the key is written into SAP
 

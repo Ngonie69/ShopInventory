@@ -89,6 +89,20 @@ public class IdempotencyMiddleware
             // recover from afterwards: the credit note exists in SAP and with ZIMRA, and the
             // operator is told only that their request was a duplicate.
             "POST /api/creditnote",
+            // CreateIncomingPaymentHandler completes with the IncomingPaymentCreatedResponseDto,
+            // and this route needs the replay more than any other here: a payment carries no key
+            // into SAP at all — ClientRequestId is not forwarded and there is no lookup by
+            // reference — so the stored response is the only way a caller that lost its reply can
+            // learn the payment exists rather than sending it again.
+            "POST /api/incomingpayment",
+            // CreateInventoryTransferHandler completes with the InventoryTransferCreatedResponseDto,
+            // and separately returns the held pending record when one already carries this key, so a
+            // resubmission never opens a second approval for the same stock movement.
+            "POST /api/inventorytransfer",
+            // CreateQuotationHandler completes with the QuotationDto, and looks the key up among the
+            // quotations before posting and among SAP DocEntries after, so a retry is answered with
+            // the quotation rather than raising another.
+            "POST /api/quotation",
     };
 
     // The same, for routes whose path carries a variable segment. Matched on both ends because that
