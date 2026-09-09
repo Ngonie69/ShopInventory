@@ -56,6 +56,95 @@ public class RevmaxFiscalPayloadTests
     }
 
     [Fact]
+    public async Task A_discounted_line_declares_what_was_charged_not_the_list_price()
+    {
+        // SAP's GrossPrice is the PRE-discount gross price off the price list. On real invoice 769617
+        // it is 2.76 against a PriceAfterVAT of 1.38 — reading it declared 845.26 to ZIMRA for an
+        // invoice whose total is 422.89, near enough double. PriceAfterVat is the only field that is
+        // both gross and net-of-discount.
+        var client = new RecordingRevmaxClient();
+        var invoice = Invoice();
+        invoice.Lines![0] = new InvoiceLineDto
+        {
+            LineNum = 0, ItemCode = "YOG051", ItemDescription = "500g Aloe Vera Orange Yoghurt",
+            Quantity = 71m,
+            UnitPrice = 2.39m,        // pre-discount net
+            GrossPrice = 2.76045m,    // pre-discount gross — the trap
+            PriceAfterVat = 1.38m,    // post-discount gross — the truth
+            GrossTotal = 97.98m,
+            LineTotal = 84.83m,
+            DiscountPercent = 50.008159m,
+            VatGroup = "O01"
+        };
+
+        await Service(client).FiscalizeInvoiceAsync(invoice);
+
+        var line = ((List<RevmaxRequestItem>)client.LastInvoice!.ItemsXml!)[0];
+        Assert.Equal("1.38", line.Price);
+        Assert.Equal("97.98", line.Amt);
+    }
+
+    [Fact]
+    public async Task The_tax_code_is_read_from_the_vat_group_where_sap_actually_puts_it()
+    {
+        // SAP returns TaxCode null on a marketing document line and puts the code in VatGroup. Reading
+        // TaxCode alone matched nothing, so every line fell to the standard-rated default — declaring
+        // a zero-rated line to ZIMRA at 15.5%.
+        var client = new RecordingRevmaxClient();
+        var invoice = Invoice();
+        invoice.Lines![1] = new InvoiceLineDto
+        {
+            LineNum = 1, ItemCode = "NRI049", ItemDescription = "Zero rated",
+            Quantity = 1m, UnitPrice = 15.50m, PriceAfterVat = 15.50m, GrossTotal = 15.50m,
+            LineTotal = 15.50m,
+            TaxCode = null,
+            VatGroup = "O0"
+        };
+
+        await Service(client).FiscalizeInvoiceAsync(invoice);
+
+        var line = ((List<RevmaxRequestItem>)client.LastInvoice!.ItemsXml!)[1];
+        Assert.Equal("2", line.Tax);
+        Assert.Equal("0", line.TaxR);
+    }
+
+    [Fact]
+    public async Task Sub_cent_rounding_is_absorbed_so_the_lines_sum_to_the_invoice_total()
+    {
+        var client = new RecordingRevmaxClient();
+        var invoice = Invoice();
+        invoice.DocTotal = 422.89m;
+        invoice.Lines =
+        [
+            new InvoiceLineDto { LineNum = 0, ItemCode = "A", Quantity = 1m, PriceAfterVat = 1m, GrossTotal = 422.87m, VatGroup = "O01" }
+        ];
+
+        await Service(client).FiscalizeInvoiceAsync(invoice);
+
+        var lines = (List<RevmaxRequestItem>)client.LastInvoice!.ItemsXml!;
+        Assert.Equal("422.89", lines[0].Amt);
+    }
+
+    [Fact]
+    public async Task A_gap_too_large_to_be_rounding_is_left_visible_rather_than_papered_over()
+    {
+        // Ten cents is the line between rounding and a wrong price. Beyond it, silently balancing the
+        // document would file a wrong receipt that looks right.
+        var client = new RecordingRevmaxClient();
+        var invoice = Invoice();
+        invoice.DocTotal = 500m;
+        invoice.Lines =
+        [
+            new InvoiceLineDto { LineNum = 0, ItemCode = "A", Quantity = 1m, PriceAfterVat = 1m, GrossTotal = 100m, VatGroup = "O01" }
+        ];
+
+        await Service(client).FiscalizeInvoiceAsync(invoice);
+
+        var lines = (List<RevmaxRequestItem>)client.LastInvoice!.ItemsXml!;
+        Assert.Equal("100.00", lines[0].Amt);
+    }
+
+    [Fact]
     public async Task A_zero_rated_line_declares_its_own_tax_id_and_rate()
     {
         var client = new RecordingRevmaxClient();

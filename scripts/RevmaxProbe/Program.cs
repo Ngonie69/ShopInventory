@@ -12,6 +12,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Fiscalization;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
+using ShopInventory.Mappings;
 using ShopInventory.Services;
 using ShopInventory.Services.Fiscalisation;
 
@@ -160,6 +161,54 @@ var preSap = await unreachable.FiscalizePreSapInvoiceAsync(invoice, "4021");
 Check("A bare numeric pre-SAP reference is lifted out of the SAP DocNum namespace",
     preSap.InvoiceNumber == "SI-4021",
     $"4021 -> {preSap.InvoiceNumber}");
+
+// ---------------------------------------------------------------- a real SAP invoice, end to end
+// The mapping chain is where the money goes wrong, so this runs a real SAP document through the real
+// Invoice -> InvoiceLine.ToDto() -> RevmaxFiscalizationService path and checks the declared total
+// against SAP's own DocTotal. Still nothing is sent.
+var fixture = Path.Combine(AppContext.BaseDirectory, "sample-invoice-769617.json");
+
+if (File.Exists(fixture))
+{
+    Console.WriteLine("\nA real SAP invoice through the real mapping (769617)");
+
+    var sap = JsonSerializer.Deserialize<ShopInventory.Models.Invoice>(
+        File.ReadAllText(fixture),
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+
+    var mapped = new InvoiceDto
+    {
+        DocEntry = sap.DocEntry,
+        DocNum = sap.DocNum,
+        CardCode = sap.CardCode,
+        CardName = sap.CardName,
+        DocCurrency = sap.DocCurrency,
+        DocTotal = sap.DocTotal,
+        VatSum = sap.VatSum,
+        Lines = sap.DocumentLines?.Select(l => l.ToDto()).ToList()
+    };
+
+    var realBody = BuildBodyWithoutSending(service, mapped);
+    var realParsed = JsonDocument.Parse(realBody).RootElement;
+
+    var declared = realParsed.GetProperty("ItemsXml").EnumerateArray()
+        .Sum(item => decimal.Parse(
+            item.GetProperty("AMT").GetString()!,
+            System.Globalization.CultureInfo.InvariantCulture));
+
+    Check("Declared line amounts reconcile with SAP's document total",
+        Math.Abs(declared - sap.DocTotal) <= 0.05m,
+        $"lines sum to {declared:0.00} against SAP DocTotal {sap.DocTotal:0.00} "
+        + $"(difference {declared - sap.DocTotal:0.00})");
+
+    Check("The VAT group is read, so no line falls silently to the standard-rated default",
+        realParsed.GetProperty("ItemsXml").EnumerateArray()
+            .All(item => item.GetProperty("TAXR").GetString() == "15.5"),
+        "every line on this invoice is VatGroup O01, so all should declare 15.5");
+
+    Console.WriteLine("\n  the 71-unit line as it would be declared:");
+    Console.WriteLine("  " + realParsed.GetProperty("ItemsXml")[3].GetRawText());
+}
 
 Console.WriteLine($"\n{passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;

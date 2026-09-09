@@ -50,7 +50,17 @@ public class InvoiceLineDto
     public string? ItemDescription { get; set; }
     public decimal Quantity { get; set; }
     public decimal UnitPrice { get; set; }
+    /// <summary>Gross unit price BEFORE the line discount — see <see cref="PriceAfterVat"/>.</summary>
     public decimal GrossPrice { get; set; }
+
+    /// <summary>Gross unit price after the line discount. What the customer paid.</summary>
+    public decimal PriceAfterVat { get; set; }
+
+    /// <summary>Gross line total after the line discount.</summary>
+    public decimal GrossTotal { get; set; }
+
+    /// <summary>SAP VAT group code (OVTG.Code). Where the tax code actually lives; TaxCode is null.</summary>
+    public string? VatGroup { get; set; }
     public decimal LineTotal { get; set; }
     public string? TaxCode { get; set; }
     public string? WarehouseCode { get; set; }

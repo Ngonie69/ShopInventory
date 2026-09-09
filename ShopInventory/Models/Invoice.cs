@@ -104,8 +104,37 @@ public class InvoiceLine
     [JsonPropertyName("Price")]
     public decimal Price { get; set; }
 
+    /// <summary>
+    /// The gross unit price BEFORE any line discount. Rarely what you want.
+    /// </summary>
+    /// <remarks>
+    /// SAP fills this from the price list, so on a discounted line it is not what the customer paid:
+    /// on invoice 769617 it is 2.76 against a <see cref="PriceAfterVAT"/> of 1.38. Anything declaring
+    /// money — a fiscal receipt above all — wants <see cref="PriceAfterVAT"/> and
+    /// <see cref="GrossTotal"/>.
+    /// </remarks>
     [JsonPropertyName("GrossPrice")]
     public decimal GrossPrice { get; set; }
+
+    /// <summary>The gross unit price after the line discount — what the customer actually paid.</summary>
+    [JsonPropertyName("PriceAfterVAT")]
+    public decimal PriceAfterVAT { get; set; }
+
+    /// <summary>The gross line total after the line discount, i.e. <see cref="LineTotal"/> plus its VAT.</summary>
+    [JsonPropertyName("GrossTotal")]
+    public decimal GrossTotal { get; set; }
+
+    /// <summary>
+    /// The SAP VAT group code (OVTG.Code) — <c>O01</c>, <c>O8</c>, <c>O0</c>.
+    /// </summary>
+    /// <remarks>
+    /// This, not <see cref="TaxCode"/>, is where the code lives on a marketing document line: SAP
+    /// returns TaxCode null and puts the code here. A tax mapping keyed on TaxCode therefore matches
+    /// nothing and every line silently falls to the standard-rated default, which charges a zero-rated
+    /// line VAT it does not owe and declares it that way to ZIMRA.
+    /// </remarks>
+    [JsonPropertyName("VatGroup")]
+    public string? VatGroup { get; set; }
 
     [JsonPropertyName("LineTotal")]
     public decimal LineTotal { get; set; }

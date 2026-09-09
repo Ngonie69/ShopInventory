@@ -503,13 +503,13 @@ public class RevmaxFiscalizationService : IFiscalizationService
             return new List<RevmaxRequestItem>();
         }
 
-        return document.Lines.Select(line =>
+        var items = document.Lines.Select(line =>
         {
             var quantity = Math.Abs(line.Quantity);
             var price = GetPriceAfterVat(line);
             var amount = GetLineAmount(line, quantity, price);
             var description = line.ItemDescription ?? string.Empty;
-            var taxCode = NormalizeTaxCode(line.TaxCode);
+            var taxCode = NormalizeTaxCode(line);
 
             return new RevmaxRequestItem
             {
@@ -518,13 +518,56 @@ public class RevmaxFiscalizationService : IFiscalizationService
                 ItemName1 = description,
                 ItemName2 = description,
                 Qty = quantity.ToString(CultureInfo.InvariantCulture),
-                Price = RoundCurrency(price).ToString(CultureInfo.InvariantCulture),
-                Amt = RoundCurrency(amount).ToString(CultureInfo.InvariantCulture),
+                Price = FormatMoney(price),
+                Amt = FormatMoney(amount),
                 Tax = ResolveTaxId(taxCode).ToString(CultureInfo.InvariantCulture),
                 TaxR = FormatTaxRate(ResolveTaxRate(taxCode))
             };
         }).ToList();
+
+        ReconcileToDocumentTotal(items, RoundCurrency(Math.Abs(document.DocTotal)));
+
+        return items;
     }
+
+    /// <summary>
+    /// Absorbs sub-cent rounding so the declared lines add up to the declared invoice total.
+    /// </summary>
+    /// <remarks>
+    /// Each line is rounded to the cent independently, so across a document of any size the lines can
+    /// miss the total by a cent or two — invoice 769617 lands 0.02 short over nine lines. A tax
+    /// document whose lines do not sum to its own total invites a query nobody can answer afterwards,
+    /// and the receipt cannot be amended.
+    ///
+    /// Bounded deliberately at ten cents. Anything larger is not rounding — it is a wrong price, a
+    /// missed discount or a line the mapping dropped — and quietly papering over it would file the
+    /// wrong receipt while making it look right. Those are left visibly unbalanced instead.
+    /// </remarks>
+    private static void ReconcileToDocumentTotal(List<RevmaxRequestItem> items, decimal documentTotal)
+    {
+        if (items.Count == 0 || documentTotal <= 0m)
+        {
+            return;
+        }
+
+        var declared = items.Sum(item => ParseAmount(item.Amt));
+        var difference = RoundCurrency(documentTotal - declared);
+
+        if (difference == 0m || Math.Abs(difference) > 0.10m)
+        {
+            return;
+        }
+
+        // The last line carries it, and only AMT moves: PRICE is a published unit price and nudging it
+        // would misstate what the customer was charged per unit.
+        var last = items[^1];
+        last.Amt = FormatMoney(ParseAmount(last.Amt) + difference);
+    }
+
+    private static decimal ParseAmount(string? value)
+        => decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : 0m;
 
     private List<RevmaxRequestCurrency> BuildCurrencies(InvoiceDto document)
         => new()
@@ -532,8 +575,7 @@ public class RevmaxFiscalizationService : IFiscalizationService
             new RevmaxRequestCurrency
             {
                 Name = document.DocCurrency ?? _settings.DefaultCurrency,
-                Amount = RoundCurrency(Math.Abs(document.DocTotal))
-                    .ToString(CultureInfo.InvariantCulture),
+                Amount = FormatMoney(Math.Abs(document.DocTotal)),
                 Rate = "1"
             }
         };
@@ -580,8 +622,23 @@ public class RevmaxFiscalizationService : IFiscalizationService
         InvoiceNumber = invoiceNumber
     };
 
+    /// <summary>The gross unit price to declare: what the customer actually paid, per unit.</summary>
+    /// <remarks>
+    /// <c>PriceAfterVat</c> first, because it is the only one of these that is both gross AND after the
+    /// line discount. SAP's <c>GrossPrice</c> comes off the price list and ignores the discount
+    /// entirely — on invoice 769617, half of it, which would have declared 845.26 to ZIMRA against a
+    /// real invoice total of 422.89. <c>GrossPrice</c> is kept only as the fallback for the pre-SAP
+    /// path, where <c>DesktopSaleFiscaliser</c> computes it from the effective price and no
+    /// PriceAfterVat exists.
+    /// </remarks>
     private static decimal GetPriceAfterVat(InvoiceLineDto line)
     {
+        var priceAfterVat = Math.Abs(line.PriceAfterVat);
+        if (priceAfterVat > 0m)
+        {
+            return priceAfterVat;
+        }
+
         var grossPrice = Math.Abs(line.GrossPrice);
         return grossPrice > 0m ? grossPrice : Math.Abs(line.UnitPrice);
     }
@@ -598,7 +655,15 @@ public class RevmaxFiscalizationService : IFiscalizationService
     /// </remarks>
     private static decimal GetLineAmount(InvoiceLineDto line, decimal quantity, decimal price)
     {
-        if (Math.Abs(line.GrossPrice) > 0m)
+        // SAP's own gross line total, where it has one: it is already net-of-discount and carries
+        // SAP's rounding, so it agrees with the document total rather than re-deriving it.
+        var grossTotal = Math.Abs(line.GrossTotal);
+        if (grossTotal > 0m)
+        {
+            return RoundCurrency(grossTotal);
+        }
+
+        if (Math.Abs(line.PriceAfterVat) > 0m || Math.Abs(line.GrossPrice) > 0m)
         {
             return RoundCurrency(quantity * price);
         }
@@ -607,8 +672,17 @@ public class RevmaxFiscalizationService : IFiscalizationService
         return lineTotal > 0m ? lineTotal : RoundCurrency(quantity * price);
     }
 
-    private static string? NormalizeTaxCode(string? taxCode)
-        => string.IsNullOrWhiteSpace(taxCode) ? null : taxCode.Trim().ToUpperInvariant();
+    /// <summary>The SAP tax code for a line, from wherever SAP actually put it.</summary>
+    /// <remarks>
+    /// On a marketing document line SAP returns <c>TaxCode</c> null and puts the code in
+    /// <c>VatGroup</c>. Reading TaxCode alone matches nothing in the mappings, so every line falls to
+    /// the standard-rated default — which declares a zero-rated line to ZIMRA at 15.5%.
+    /// </remarks>
+    private static string? NormalizeTaxCode(InvoiceLineDto line)
+    {
+        var code = string.IsNullOrWhiteSpace(line.TaxCode) ? line.VatGroup : line.TaxCode;
+        return string.IsNullOrWhiteSpace(code) ? null : code.Trim().ToUpperInvariant();
+    }
 
     private static int? ParseInt(string? value)
         => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
@@ -617,6 +691,14 @@ public class RevmaxFiscalizationService : IFiscalizationService
 
     private static string? NullIfBlank(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    /// <summary>Money as the device expects it: always two decimals.</summary>
+    /// <remarks>
+    /// Explicit, because <see cref="Math.Round(decimal, int)"/> preserves the operand's scale rather
+    /// than imposing one — a line total of 100 serialised as "100" beside a neighbour's "97.98".
+    /// </remarks>
+    private static string FormatMoney(decimal value)
+        => RoundCurrency(value).ToString("0.00", CultureInfo.InvariantCulture);
 
     private static decimal RoundCurrency(decimal value)
         => Math.Round(value, 2, MidpointRounding.AwayFromZero);
