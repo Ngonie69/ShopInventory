@@ -27,4 +27,25 @@ public interface IIdempotencyRequestStore
     Task ReleaseAsync(
         long requestId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Takes over a claim an earlier attempt left in progress and abandoned, so this attempt owns it.
+    /// </summary>
+    /// <remarks>
+    /// The counterpart to keeping a claim whose outcome was unknown. A claim is held open precisely
+    /// when we could not tell whether the work committed, and holding it forever would be its own
+    /// failure: the caller could never retry, and a post that genuinely never landed would never be
+    /// made good. So once the caller has established that the work did not happen — by asking the
+    /// system of record, not by waiting — the stale claim is taken over rather than deleted and
+    /// re-acquired, which would open a window for a third attempt to slip in between the two.
+    ///
+    /// <para>Atomic and conditional: it succeeds for exactly one caller, and only while the claim is
+    /// still in progress and older than <paramref name="issuedBeforeUtc"/>. A claim another attempt
+    /// has since taken over, or completed, is left alone and false is returned.</para>
+    /// </remarks>
+    /// <returns>True when this caller now owns the claim.</returns>
+    Task<bool> TryTakeOverAsync(
+        long requestId,
+        DateTime issuedBeforeUtc,
+        CancellationToken cancellationToken);
 }

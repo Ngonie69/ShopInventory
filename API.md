@@ -235,16 +235,46 @@ failure on this call as a 404.
 
 ### Endpoints that replay the real document
 
-Crate POD upload and crate GRV creation do their own durable idempotency in the handler, which
-persists the response and replays the actual document on a repeated key:
+These do their own durable idempotency in the handler, which persists the response and replays the
+actual document on a repeated key:
 
 | Endpoint | Key carrier |
 | --- | --- |
+| `POST /api/Invoice` | `clientRequestId` body field (or `Idempotency-Key` header) |
 | `POST /api/crates/transactions/{id}/pods` | `clientRequestId` form field (or `Idempotency-Key` header) |
 | `POST /api/crates/transactions/{id}/grvs` | `clientRequestId` form field (or `Idempotency-Key` header) |
 
-`IdempotencyMiddleware` deliberately stands aside for these two routes, because its own in-memory
-replay would short-circuit the request and answer with a bare message instead of the document.
+`IdempotencyMiddleware` deliberately stands aside for these routes, because its own in-memory replay
+would short-circuit the request and answer with a bare message instead of the document.
+
+### Invoice creation: the key is written into SAP
+
+`POST /api/Invoice` is the strictest case in the system, because a duplicate is a second fiscal
+receipt that cannot be withdrawn from ZIMRA. An invoice that names no `U_Van_saleorder` of its own
+is posted carrying one derived from the caller's key — `WEB-<key>`, or `WEB-<fingerprint>` when the
+key is too long or carries characters SAP will not take — so the document can be found in SAP
+afterwards by anyone holding the key, this server included. `clientRequestId` itself is never sent
+to SAP, which is why the derived reference exists at all.
+
+A caller may still supply its own `U_Van_saleorder`, and it is used as-is. It may not be one the
+system generates for itself (`DS-`, `CONSOL-`, `WEB-`, or a reference belonging to a till sale):
+those return **400 `Invoice.ReservedSaleReference`**.
+
+Three answers to a retry, and they mean different things:
+
+| Response | Meaning |
+| --- | --- |
+| **201** with the original body | The first attempt finished; this is its stored response, same `DocEntry`. |
+| **200/201** "Invoice already exists" | SAP holds an invoice under this key. Nothing was posted again. |
+| **409 `Idempotency.PostOutcomeUnknown`** | An earlier attempt sent a post whose outcome is not known, and SAP does not show the document yet. Nothing was sent. Retry shortly. |
+
+The last one is a wait, not a failure. A post whose reply was lost — a timeout, a dropped
+connection — leaves its claim standing deliberately, because SAP may hold the invoice and simply not
+be showing it yet; the retry asks SAP rather than posting again. Once SAP shows it, the retry is
+handed that invoice. If SAP still shows nothing after
+`Security:IdempotencyUnresolvedPostGraceMinutes` (default 15), the post never landed and the retry
+posts normally. A refusal from SAP releases the claim immediately, so a document that only needs
+fixing stays retryable under the same key.
 
 The key must stay stable across retries of one submission and be retired once it succeeds or once
 the submission's content changes — reusing a key with a different payload returns **409

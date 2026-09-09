@@ -54,6 +54,22 @@ public class SecuritySettings
     /// Idempotency key expiration in minutes (how long duplicate requests are blocked)
     /// </summary>
     public int IdempotencyKeyExpirationMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// How long a claim whose post was issued and never completed is left alone before a retry may
+    /// post again.
+    /// </summary>
+    /// <remarks>
+    /// A claim is left open when the outcome of the post is genuinely unknown — a timeout, a dropped
+    /// connection, a reply that could not be read. SAP may hold the document already, and a second
+    /// invoice is a second fiscal receipt that cannot be withdrawn from ZIMRA, so within this window a
+    /// retry that SAP cannot show the invoice for waits rather than posts.
+    ///
+    /// It only ever costs a wait when the post genuinely vanished: whenever SAP does hold the
+    /// invoice, the probe finds it and the caller is handed the document immediately. Matches the
+    /// window the background posting services use for the same decision. Set to 0 to switch it off.
+    /// </remarks>
+    public int IdempotencyUnresolvedPostGraceMinutes { get; set; } = 15;
 }
 
 /// <summary>

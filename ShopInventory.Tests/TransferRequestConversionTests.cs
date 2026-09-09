@@ -409,6 +409,10 @@ public sealed class TransferRequestConversionTests : IDisposable
             => Task.CompletedTask;
 
         public Task ReleaseAsync(long requestId, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        // Nothing here ever leaves a claim standing, so nothing has one to take over.
+        public Task<bool> TryTakeOverAsync(long requestId, DateTime issuedBeforeUtc, CancellationToken cancellationToken)
+            => Task.FromResult(false);
     }
 
     private sealed class NoOpAuditService : IAuditService
