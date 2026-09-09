@@ -33,7 +33,7 @@ public sealed class DailyStockAdjustmentTests : IDisposable
         _connection = new SqliteConnection("DataSource=:memory:");
         _connection.Open();
 
-        _context = new SqliteApplicationDbContext(
+        _context = new SnapshotSqliteContext(
             new DbContextOptionsBuilder<ApplicationDbContext>()
                 .UseSqlite(_connection)
                 .Options);
@@ -145,23 +145,4 @@ public sealed class DailyStockAdjustmentTests : IDisposable
         _context.ChangeTracker.Clear();
     }
 
-    /// <summary>
-    /// <see cref="DailyStockSnapshotItemEntity.Version"/> is <c>[Timestamp]</c>, which Npgsql maps
-    /// to the store-generated <c>xmin</c> system column. SQLite has no equivalent, so EF leaves the
-    /// column out of the INSERT and the NOT NULL constraint fails. Making it an ordinary property
-    /// lets the fixture supply one; nothing under test reads it.
-    /// </summary>
-    private sealed class SqliteApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
-        : ApplicationDbContext(options)
-    {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-
-            modelBuilder.Entity<DailyStockSnapshotItemEntity>()
-                .Property(item => item.Version)
-                .ValueGeneratedNever()
-                .IsConcurrencyToken(false);
-        }
-    }
 }

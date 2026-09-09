@@ -5,6 +5,98 @@ namespace ShopInventory.Common.Validation;
 
 public static class UomQuantityValidation
 {
+    /// <summary>
+    /// How far a batch or serial selection may be from the line quantity before it is wrong.
+    /// </summary>
+    public const decimal AllocationQuantityTolerance = 0.000001m;
+
+    /// <summary>
+    /// Reports a batch or serial selection that does not account for the whole line quantity.
+    /// </summary>
+    /// <remarks>
+    /// SAP answers such a line with -4014 — "Cannot add row without complete selection of
+    /// batch/serial numbers" — which names neither the line nor the item, so the documents that
+    /// carry their own selection are checked before they are sent.
+    ///
+    /// <para>
+    /// Lives here rather than beside the SAP client so a handler can apply it while it still has
+    /// somewhere useful to put the answer. Reaching SAP was the only thing that used to enforce it,
+    /// which meant a caller learned about a mis-selected batch as an <c>ArgumentException</c> thrown
+    /// from inside the posting client rather than as a validation failure naming the line.
+    /// </para>
+    ///
+    /// <para>
+    /// Pure and synchronous on purpose: it reads nothing, so every caller can run it, including the
+    /// SAP client, which has no database.
+    /// </para>
+    /// </remarks>
+    /// <param name="lineIndex">Zero-based; messages report it one-based.</param>
+    /// <param name="itemCode">The line's item, for the message.</param>
+    /// <param name="quantity">The line quantity the selection has to add up to.</param>
+    /// <param name="batches">The batch selection, if the line carries one.</param>
+    /// <param name="serialNumbers">The serial selection, if the line carries one.</param>
+    public static IEnumerable<string> DescribeLineSelectionProblems(
+        int lineIndex,
+        string? itemCode,
+        decimal quantity,
+        IEnumerable<(string? BatchNumber, decimal Quantity)>? batches,
+        IEnumerable<string?>? serialNumbers)
+    {
+        var batchList = batches?.ToList();
+        if (batchList is { Count: > 0 })
+        {
+            if (batchList.Any(batch => string.IsNullOrWhiteSpace(batch.BatchNumber)))
+            {
+                yield return $"Line {lineIndex + 1}: Batch number is required for item {itemCode}";
+            }
+
+            if (batchList.Any(batch => batch.Quantity <= 0))
+            {
+                yield return $"Line {lineIndex + 1}: Batch quantities must be greater than zero";
+            }
+
+            var selected = batchList.Sum(batch => batch.Quantity);
+            if (Math.Abs(selected - quantity) > AllocationQuantityTolerance)
+            {
+                yield return
+                    $"Line {lineIndex + 1}: the batch selection for item {itemCode} covers {selected} of {quantity}. " +
+                    $"SAP requires the batch quantities on a line to add up to the line quantity.";
+            }
+        }
+
+        var serialList = serialNumbers?.ToList();
+        if (serialList is { Count: > 0 })
+        {
+            if (serialList.Any(string.IsNullOrWhiteSpace))
+            {
+                yield return $"Line {lineIndex + 1}: Serial number is required for item {itemCode}";
+            }
+
+            var duplicate = serialList
+                .Where(serial => !string.IsNullOrWhiteSpace(serial))
+                .GroupBy(serial => serial, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(group => group.Count() > 1);
+            if (duplicate is not null)
+            {
+                yield return
+                    $"Line {lineIndex + 1}: serial number '{duplicate.Key}' is listed more than once for item {itemCode}";
+            }
+
+            if (quantity != Math.Truncate(quantity))
+            {
+                yield return
+                    $"Line {lineIndex + 1}: item {itemCode} is serial-managed, so its quantity must be a whole " +
+                    $"number of units. Current value: {quantity}";
+            }
+            else if (serialList.Count != (int)quantity)
+            {
+                yield return
+                    $"Line {lineIndex + 1}: the serial selection for item {itemCode} covers {serialList.Count} of " +
+                    $"{quantity} units. SAP requires one serial number per unit.";
+            }
+        }
+    }
+
     public static string? NormalizeItemCode(string? itemCode)
         => string.IsNullOrWhiteSpace(itemCode)
             ? null

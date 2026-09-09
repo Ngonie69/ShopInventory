@@ -1220,12 +1220,23 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             _logger.LogError("Failed to create invoice: {StatusCode} - {Error}", response.StatusCode, sanitizedSapError);
 
+            // SapRequestRejectedException rather than a bare Exception, and the type is the point:
+            // SAP answered, and the answer was no, so the invoice definitively does not exist. The
+            // posting services need that distinction to decide whether a sale may be posted again —
+            // see SapFailureClassifier.DefinitelyNotCommitted. A bare Exception here is
+            // indistinguishable from the deserialize failure below, which happens *after* SAP has
+            // committed the document.
             if (IsBusinessPartnerDataError(errorContent))
             {
-                throw new Exception($"Failed to create invoice: Customer '{request.CardCode}' has corrupted or invalid data in SAP (e.g., broken Discount Group, Payment Terms, addresses, or contacts). " +
-                        $"Please check and repair this Business Partner's master data in SAP B1. SAP error: {sanitizedSapError}");
+                throw new SapRequestRejectedException(
+                    "create the invoice",
+                    response.StatusCode,
+                    $"Customer '{request.CardCode}' has corrupted or invalid data in SAP (e.g., broken Discount Group, "
+                    + $"Payment Terms, addresses, or contacts). Please check and repair this Business Partner's master "
+                    + $"data in SAP B1. SAP error: {sanitizedSapError}");
             }
-            throw new Exception($"Failed to create invoice in SAP. Status: {response.StatusCode}");
+
+            throw new SapRequestRejectedException("create the invoice", response.StatusCode, sanitizedSapError);
         }
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -1306,70 +1317,21 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     /// <summary>
     /// Reports a batch or serial selection that does not account for the whole line quantity.
-    /// SAP answers such a line with -4014, which names neither the line nor the item, so the
-    /// documents that carry their own selection are checked before they are sent.
     /// </summary>
+    /// <remarks>
+    /// The rule itself lives in <see cref="UomQuantityValidation.DescribeLineSelectionProblems"/>,
+    /// with every other line-quantity rule, so a document validated by a handler and the same
+    /// document validated here cannot disagree. This stays as the last gate before SAP: a caller
+    /// that reaches the client directly still gets checked.
+    /// </remarks>
     private static IEnumerable<string> DescribeIncompleteLineSelection(
         int lineIndex,
         string? itemCode,
         decimal quantity,
         IEnumerable<(string? BatchNumber, decimal Quantity)>? batches,
         IEnumerable<string?>? serialNumbers)
-    {
-        var batchList = batches?.ToList();
-        if (batchList is { Count: > 0 })
-        {
-            if (batchList.Any(batch => string.IsNullOrWhiteSpace(batch.BatchNumber)))
-            {
-                yield return $"Line {lineIndex + 1}: Batch number is required for item {itemCode}";
-            }
-
-            if (batchList.Any(batch => batch.Quantity <= 0))
-            {
-                yield return $"Line {lineIndex + 1}: Batch quantities must be greater than zero";
-            }
-
-            var selected = batchList.Sum(batch => batch.Quantity);
-            if (Math.Abs(selected - quantity) > AllocationQuantityTolerance)
-            {
-                yield return
-                    $"Line {lineIndex + 1}: the batch selection for item {itemCode} covers {selected} of {quantity}. " +
-                    $"SAP requires the batch quantities on a line to add up to the line quantity.";
-            }
-        }
-
-        var serialList = serialNumbers?.ToList();
-        if (serialList is { Count: > 0 })
-        {
-            if (serialList.Any(string.IsNullOrWhiteSpace))
-            {
-                yield return $"Line {lineIndex + 1}: Serial number is required for item {itemCode}";
-            }
-
-            var duplicate = serialList
-                .Where(serial => !string.IsNullOrWhiteSpace(serial))
-                .GroupBy(serial => serial, StringComparer.OrdinalIgnoreCase)
-                .FirstOrDefault(group => group.Count() > 1);
-            if (duplicate is not null)
-            {
-                yield return
-                    $"Line {lineIndex + 1}: serial number '{duplicate.Key}' is listed more than once for item {itemCode}";
-            }
-
-            if (quantity != Math.Truncate(quantity))
-            {
-                yield return
-                    $"Line {lineIndex + 1}: item {itemCode} is serial-managed, so its quantity must be a whole " +
-                    $"number of units. Current value: {quantity}";
-            }
-            else if (serialList.Count != (int)quantity)
-            {
-                yield return
-                    $"Line {lineIndex + 1}: the serial selection for item {itemCode} covers {serialList.Count} of " +
-                    $"{quantity} units. SAP requires one serial number per unit.";
-            }
-        }
-    }
+        => UomQuantityValidation.DescribeLineSelectionProblems(
+            lineIndex, itemCode, quantity, batches, serialNumbers);
 
     private static string? NormalizeSapDocumentCurrency(string? currency)
     {
@@ -7749,6 +7711,45 @@ ORDER BY T0.""ItemCode""";
         return await ExecuteStockQueryAsync(queryCode, warehouseCode, cancellationToken);
     }
 
+    /// <summary>
+    /// Every item and warehouse SAP is currently holding below zero.
+    /// </summary>
+    /// <remarks>
+    /// <para>The outcome measure for the whole negative-stock effort. Everything else in this area
+    /// is a guard against a document that <i>would</i> take stock under; this counts the ones that
+    /// already did, which is the only number that says whether any of it worked.</para>
+    ///
+    /// <para><b>One statement, one object, one question.</b> The SQL below is character-for-character
+    /// what <c>scripts/NegativeStock/report_negative_stock.py</c> sends, and both derive the query
+    /// code the same way — so they resolve to the same SAP object and cannot drift into measuring
+    /// slightly different things. The baseline a person takes by hand and the daily figure the job
+    /// records are the same measurement, which is the point of having both.</para>
+    ///
+    /// <para>Company-wide and cheap: one indexed comparison over OITW rather than a per-warehouse
+    /// scan. Callers filter to the warehouses they care about.</para>
+    /// </remarks>
+    public async Task<List<StockQuantityDto>> GetNegativeStockAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var queryCode = BuildContentAddressedQueryCode("NEGSTK_WHS", NegativeStockSql);
+        await EnsureSqlQueryAsync(queryCode, "Negative warehouse stock", NegativeStockSql, cancellationToken);
+
+        return await ExecuteStockQueryAsync(queryCode, "<all warehouses>", cancellationToken);
+    }
+
+    /// <summary>
+    /// Kept as a constant so it is one permanent SQLQueries object rather than one per call. See
+    /// <see cref="GetNegativeStockAsync"/> for why it is worded exactly as it is.
+    /// </summary>
+    internal const string NegativeStockSql = """
+SELECT T1."ItemCode", T0."ItemName", T1."WhsCode" as "WarehouseCode", T1."OnHand" as "InStock", T1."IsCommited" as "Committed", T1."OnOrder" as "Ordered"
+FROM OITW T1
+INNER JOIN OITM T0 ON T0."ItemCode" = T1."ItemCode"
+WHERE T1."OnHand" < 0
+ORDER BY T1."WhsCode", T1."ItemCode"
+""";
+
     /// <inheritdoc />
     public async Task<List<StockQuantityDto>> GetNonBatchStockQuantitiesInWarehouseAsync(
         string warehouseCode,
@@ -10363,10 +10364,34 @@ ORDER BY T1."ItemCode"
                     requestedItemCodes,
                     cancellationToken);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "Failed to get stock quantities for warehouse {WarehouseCode}", warehouseCode);
-                // If we can't get stock, continue without validation (SAP will reject if insufficient)
+
+                // This used to `continue`, on the stated grounds that SAP would reject the document
+                // if stock were insufficient. SAP only does that when Block Negative Inventory is
+                // enabled, which nothing here reads — so the whole warehouse went unvalidated and
+                // the invoice posted. Report the unread warehouse instead, once, and let the caller
+                // decide; SAPSettings.StockGuardFailClosed is what decides.
+                if (!_settings.StockGuardFailClosed)
+                {
+                    _logger.LogWarning(
+                        "SAP:StockGuardFailClosed is off, so warehouse {WarehouseCode} is being invoiced "
+                        + "without a stock check.",
+                        warehouseCode);
+                    continue;
+                }
+
+                errors.Add(new StockValidationError
+                {
+                    LineNumber = warehouseGroup.Min(item => item.Index) + 1,
+                    ItemCode = string.Join(", ", requestedItemCodes.Take(5)),
+                    WarehouseCode = warehouseCode,
+                    RequestedQuantity = warehouseGroup.Sum(item => item.Line.Quantity),
+                    AvailableQuantity = 0,
+                    StockReadFailed = true,
+                    ReadFailureReason = $"{ex.GetType().Name}: {ex.Message}"
+                });
                 continue;
             }
 
@@ -10407,7 +10432,7 @@ ORDER BY T1."ItemCode"
 
                 if (stockLookup.TryGetValue(itemCode, out var stock))
                 {
-                    var issuableQuantity = GetInvoiceIssuableQuantity(stock);
+                    var issuableQuantity = stock.Issuable;
                     if (requestedQuantity > issuableQuantity)
                     {
                         errors.Add(new StockValidationError
@@ -10518,7 +10543,7 @@ ORDER BY T1."ItemCode"
                     // No batches specified, check overall stock availability
                     if (stockLookup.TryGetValue(itemCode, out var stock))
                     {
-                        var issuableQuantity = GetInvoiceIssuableQuantity(stock);
+                        var issuableQuantity = stock.Issuable;
                         if (line.Quantity > issuableQuantity)
                         {
                             errors.Add(new StockValidationError
@@ -10554,8 +10579,6 @@ ORDER BY T1."ItemCode"
     private static string BuildStockValidationKey(string firstPart, string secondPart) =>
         $"{firstPart.Trim().ToUpperInvariant()}|{secondPart.Trim().ToUpperInvariant()}";
 
-    private static decimal GetInvoiceIssuableQuantity(StockQuantityDto stock) =>
-        stock.InStock - stock.Committed;
 
     /// <summary>
     /// Reads only the item-management flags needed while building an inventory transfer.
@@ -11014,7 +11037,23 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             if (line.BatchNumbers != null && line.BatchNumbers.Count > 0)
             {
                 var batchNumbers = new List<object>(line.BatchNumbers.Count);
-                var selectedQuantity = 0m;
+
+                // Blank batch numbers, non-positive quantities, and a selection that does not add
+                // up to the line — the last being the most common source of SAP's "Cannot add row
+                // without complete selection of batch/serial numbers" (-4014). One rule, shared with
+                // the invoice and credit note paths, so a transfer and an invoice cannot come to
+                // different conclusions about the same selection.
+                var selectionProblems = UomQuantityValidation.DescribeLineSelectionProblems(
+                    i,
+                    line.ItemCode,
+                    line.Quantity,
+                    line.BatchNumbers.Select(batchRequest => (batchRequest.BatchNumber, batchRequest.Quantity)),
+                    serialNumbers: null).ToList();
+
+                if (selectionProblems.Count > 0)
+                {
+                    throw new ArgumentException(string.Join("; ", selectionProblems));
+                }
 
                 // Totalled per batch, because one line may name the same batch on more than one
                 // row and SAP counts the rows together.
@@ -11022,35 +11061,14 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
                 foreach (var batchRequest in line.BatchNumbers)
                 {
-                    if (string.IsNullOrWhiteSpace(batchRequest.BatchNumber))
-                    {
-                        throw new ArgumentException($"Line {i + 1}: Batch number is required for item {line.ItemCode}");
-                    }
-
-                    // CRITICAL: Validate batch quantity
-                    if (batchRequest.Quantity <= 0)
-                    {
-                        throw new ArgumentException($"Line {i + 1}: Batch '{batchRequest.BatchNumber}' quantity must be greater than zero");
-                    }
-
                     batchNumbers.Add(new
                     {
                         BatchNumber = batchRequest.BatchNumber,
                         Quantity = batchRequest.Quantity
                     });
-                    selectedQuantity += batchRequest.Quantity;
                     selectedByBatch[batchRequest.BatchNumber!] =
                         (selectedByBatch.TryGetValue(batchRequest.BatchNumber!, out var running) ? running : 0m)
                         + batchRequest.Quantity;
-                }
-
-                // A selection that does not add up is the most common source of SAP's
-                // "Cannot add row without complete selection of batch/serial numbers" (-4014).
-                if (Math.Abs(selectedQuantity - line.Quantity) > AllocationQuantityTolerance)
-                {
-                    throw new ArgumentException(
-                        $"Line {i + 1}: the batch selection for item {line.ItemCode} covers {selectedQuantity} of {line.Quantity}. " +
-                        $"SAP requires the batch quantities on a line to add up to the line quantity.");
                 }
 
                 // A selection the caller made is measured against the warehouse, not only against
@@ -11377,7 +11395,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
     /// Rounding slack for comparing an allocated quantity against a line quantity. SAP keeps
     /// inventory quantities to six decimals.
     /// </summary>
-    private const decimal AllocationQuantityTolerance = 0.000001m;
+    private const decimal AllocationQuantityTolerance = UomQuantityValidation.AllocationQuantityTolerance;
 
     private static decimal ClaimedBatchQuantity(
         Dictionary<string, decimal> claimed,

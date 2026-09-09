@@ -485,7 +485,19 @@ public enum BatchValidationErrorCode
     /// <summary>
     /// Lock could not be acquired - try again
     /// </summary>
-    LockAcquisitionFailed = 13
+    LockAcquisitionFailed = 13,
+
+    /// <summary>
+    /// The stock position could not be read from SAP, so availability is unknown.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not <see cref="InsufficientTotalStock"/>. "There is not enough" and "nobody
+    /// could find out" call for opposite responses: the first is the operator's to fix by cutting
+    /// the document, the second is an outage that will clear on its own and must be retried rather
+    /// than worked around. Reporting an outage as a shortage sends someone to count a shelf that is
+    /// perfectly well stocked.
+    /// </remarks>
+    StockUnknown = 14
 }
 
 /// <summary>

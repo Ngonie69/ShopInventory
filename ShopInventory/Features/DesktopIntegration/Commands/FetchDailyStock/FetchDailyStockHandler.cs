@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Hubs;
@@ -26,7 +27,7 @@ public sealed class FetchDailyStockHandler(
         FetchDailyStockCommand command,
         CancellationToken cancellationToken)
     {
-        var snapshotDate = command.SnapshotDate?.Date ?? DateTime.UtcNow.Date;
+        var snapshotDate = command.SnapshotDate?.Date ?? StockLedgerDay.Today(settings.Value.StockFetchTimeCAT);
         var warehouses = command.Warehouses ?? settings.Value.MonitoredWarehouses;
         var results = new List<WarehouseSnapshotResult>();
         var totalItemCount = 0;
@@ -127,21 +128,82 @@ public sealed class FetchDailyStockHandler(
 
         try
         {
-            logger.LogInformation("Fetching batch stock from SAP for warehouse {Warehouse}", warehouseCode);
+            logger.LogInformation("Fetching stock from SAP for warehouse {Warehouse}", warehouseCode);
 
+            // Three reads, each answering something the others cannot.
+            //
+            // Batches carry the expiry dates FEFO needs and are the only place a batch-managed
+            // item's position is broken down. The warehouse read is the only place commitments are
+            // visible, so it is what turns a gross batch quantity into a sellable one. And
+            // FetchUnbatchedStockAsync below owns the items SAP does not batch-manage.
+            //
+            // That last division matters and is easy to undo by accident. SnapshotComposer can also
+            // emit a row for an item with no batches, and this method used to keep those — which
+            // quietly made the unbatched read redundant and its TransferEventListener fallback
+            // unreachable. The dedicated read wins: it filters on ManBtchNum rather than inferring
+            // from the absence of batch rows, and it degrades instead of failing. So the composer's
+            // batch rows are kept and its unbatched ones dropped.
             var batches = await sapClient.GetAllBatchNumbersInWarehouseAsync(warehouseCode, cancellationToken);
 
-            var snapshotItems = batches.Select(b => new DailyStockSnapshotItemEntity
+            // Deliberately not inside the outer try's fatal path. A commitment read that fails is a
+            // worse snapshot, not an absent one: the batch half falls back to the gross quantities
+            // this snapshot held before commitments were subtracted at all, and — the point — the
+            // unbatched read still runs. Letting this throw would kill the snapshot before the
+            // fallback that exists for exactly the SAP-slot starvation most likely to cause it.
+            List<DTOs.StockQuantityDto>? warehouseStock = null;
+            try
             {
-                SnapshotId = snapshot.Id,
-                ItemCode = b.ItemCode ?? string.Empty,
-                ItemDescription = b.ItemName,
-                WarehouseCode = warehouseCode,
-                BatchNumber = b.BatchNum,
-                OriginalQuantity = b.Quantity,
-                AvailableQuantity = b.Quantity,
-                ExpiryDate = DateTime.TryParse(b.ExpiryDate, out var expiry) ? expiry : null
-            }).ToList();
+                warehouseStock = await sapClient.GetStockQuantitiesInWarehouseAsync(warehouseCode, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Could not read warehouse stock for {Warehouse}; the batch half will be recorded gross, "
+                    + "without commitments taken off", warehouseCode);
+            }
+
+            List<DailyStockSnapshotItemEntity> snapshotItems;
+
+            if (warehouseStock is null)
+            {
+                snapshotItems = batches.Select(b => new DailyStockSnapshotItemEntity
+                {
+                    SnapshotId = snapshot.Id,
+                    ItemCode = b.ItemCode ?? string.Empty,
+                    ItemDescription = b.ItemName,
+                    WarehouseCode = warehouseCode,
+                    BatchNumber = b.BatchNum,
+                    OriginalQuantity = b.Quantity,
+                    AvailableQuantity = b.Quantity,
+                    ExpiryDate = DateTime.TryParse(b.ExpiryDate, out var expiry) ? expiry : null
+                }).ToList();
+            }
+            else
+            {
+                var composed = SnapshotComposer.Compose(batches, warehouseStock);
+
+                foreach (var note in composed.Notes)
+                {
+                    // Warning rather than information: each of these is an item a till will not be able
+                    // to sell today, or a figure that does not add up. Silence is how the missing
+                    // non-batch items went unnoticed for as long as they did.
+                    logger.LogWarning("Stock snapshot for {Warehouse}: {Note}", warehouseCode, note);
+                }
+
+                snapshotItems = composed.Rows
+                    .Where(row => row.BatchNumber is not null)
+                    .Select(row => new DailyStockSnapshotItemEntity
+                    {
+                        SnapshotId = snapshot.Id,
+                        ItemCode = row.ItemCode,
+                        ItemDescription = row.ItemDescription,
+                        WarehouseCode = warehouseCode,
+                        BatchNumber = row.BatchNumber,
+                        OriginalQuantity = row.OriginalQuantity,
+                        AvailableQuantity = row.AvailableQuantity,
+                        ExpiryDate = row.ExpiryDate
+                    }).ToList();
+            }
 
             var (unbatched, unbatchedProblem) =
                 await FetchUnbatchedStockAsync(snapshot.Id, warehouseCode, snapshotItems, cancellationToken);

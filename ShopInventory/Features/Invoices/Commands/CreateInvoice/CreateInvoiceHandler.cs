@@ -5,6 +5,7 @@ using ShopInventory.Common.Crates;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Idempotency;
 using ShopInventory.Common.Sales;
+using ShopInventory.Common.Validation;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -23,6 +24,7 @@ public sealed class CreateInvoiceHandler(
     ILocalPriceCatalogService localPriceCatalogService,
     IBatchInventoryValidationService batchValidation,
     IInventoryLockService lockService,
+    IStockLedger stockLedger,
     IInvoiceFiscalizationQueue fiscalizationQueue,
     IAuditService auditService,
     IIdempotencyRequestStore idempotencyRequestStore,
@@ -72,6 +74,11 @@ public sealed class CreateInvoiceHandler(
         List<string>? acquiredLockTokens = null;
         long? idempotencyRequestId = null;
         var releaseIdempotencyRequest = false;
+
+        // The claim taken off the shared stock ledger, and whether the post that justifies it went
+        // through. Held here so the failure paths can decide whether to give the units back.
+        List<StockLedgerLine>? ledgerClaim = null;
+        var ledgerCommitted = false;
 
         try
         {
@@ -146,7 +153,7 @@ public sealed class CreateInvoiceHandler(
             }
 
             // Step 2: Validate basic quantities
-            var quantityErrors = ValidateQuantities(request);
+            var quantityErrors = await ValidateLinesAsync(request, cancellationToken);
             if (quantityErrors.Count > 0)
                 return Errors.Invoice.ValidationFailed($"Quantity validation failed: {string.Join("; ", quantityErrors)}");
 
@@ -167,6 +174,18 @@ public sealed class CreateInvoiceHandler(
             {
                 logger.LogWarning("Batch validation failed for invoice creation. {ErrorCount} errors. Strategy: {Strategy}",
                     batchValidationResult.ValidationErrors.Count, command.AllocationStrategy);
+
+                // An unread stock position is not a failed validation, and saying so matters: the
+                // caller's document is fine and retrying is the correct response, where "would cause
+                // negative quantities" tells them to go and cut lines out of it.
+                var unreadable = batchValidationResult.ValidationErrors
+                    .Where(e => e.ErrorCode == BatchValidationErrorCode.StockUnknown)
+                    .ToList();
+                if (unreadable.Count > 0)
+                {
+                    return Errors.Invoice.StockUnknown(string.Join("; ", unreadable.Select(e => e.Message)));
+                }
+
                 return Errors.Invoice.BatchValidationFailed(
                     $"Batch validation failed - would cause negative quantities: {string.Join("; ", batchValidationResult.ValidationErrors.Select(e => e.Message))}");
             }
@@ -196,6 +215,15 @@ public sealed class CreateInvoiceHandler(
                 }
 
                 logger.LogWarning("Pre-post validation failed - stock may have changed. {ErrorCount} errors", prePostResult.Errors.Count);
+
+                var unreadableAtPrePost = prePostResult.Errors
+                    .Where(e => e.ErrorCode == BatchValidationErrorCode.StockUnknown)
+                    .ToList();
+                if (unreadableAtPrePost.Count > 0)
+                {
+                    return Errors.Invoice.StockUnknown(string.Join("; ", unreadableAtPrePost.Select(e => e.Message)));
+                }
+
                 return Errors.Invoice.StockValidationFailed(
                     $"Pre-post validation failed - stock levels changed during processing: {string.Join("; ", prePostResult.Errors.Select(e => e.Message))}");
             }
@@ -207,8 +235,36 @@ public sealed class CreateInvoiceHandler(
                     : new List<string> { prePostResult.LockToken };
             }
 
+            // Step 6b: Take the units off the shared ledger, before the post rather than after.
+            //
+            // The SAP read above cannot see a till sale that has been captured and has not yet
+            // posted — up to a minute, longer if SAP is refusing it — so on its own it will happily
+            // sell the same units the shop floor has already handed over. The ledger is what knows
+            // about them. Taking the claim first means a sale that loses the race is refused rather
+            // than posted and then discovered.
+            //
+            // Warehouses with no snapshot are passed over, not refused: most warehouses have no till
+            // selling from them, so there is no second consumer to collide with and SAP is authority
+            // enough.
+            ledgerClaim = request.Lines?
+                .Select(line => new StockLedgerLine(line.ItemCode ?? string.Empty, line.WarehouseCode ?? string.Empty, line.Quantity))
+                .ToList() ?? [];
+
+            var ledgerReference = request.U_Van_saleorder ?? request.NumAtCard ?? "invoice";
+            var ledgerOutcome = await stockLedger.TryCommitAsync(ledgerClaim, ledgerReference, cancellationToken);
+
+            if (!ledgerOutcome.Committed)
+            {
+                ledgerClaim = null;
+                logger.LogWarning(
+                    "Invoice refused by the shared stock ledger: {Shortfalls}",
+                    string.Join("; ", ledgerOutcome.Shortfalls));
+                return Errors.Invoice.LedgerShortfall(string.Join("; ", ledgerOutcome.Shortfalls));
+            }
+
             // Step 7: POST to SAP
             var invoice = await sapClient.CreateInvoiceAsync(request, cancellationToken);
+            ledgerCommitted = true;
 
             logger.LogInformation(
                 "Invoice created successfully in SAP. DocEntry: {DocEntry}, DocNum: {DocNum}, Customer: {CardCode}, BatchesAllocated: {BatchCount}, Strategy: {Strategy}",
@@ -275,12 +331,16 @@ public sealed class CreateInvoiceHandler(
         }
         catch (ArgumentException ex)
         {
+            // Thrown by the client's own checks before anything is sent, so SAP has not seen it.
+            await ReturnLedgerClaimAsync(ledgerClaim, ledgerCommitted, "validation error");
             logger.LogWarning(ex, "Validation error creating invoice");
             try { await auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", null, $"Validation error: {ex.Message}", false, ex.Message); } catch { }
             return Errors.Invoice.ValidationFailed(ex.Message);
         }
         catch (SapPostingPeriodException ex)
         {
+            // SAP answered, and its answer was no. The document does not exist.
+            await ReturnLedgerClaimAsync(ledgerClaim, ledgerCommitted, "posting period rejected");
             logger.LogWarning(
                 "SAP rejected invoice document dates starting from DocDate {DocDate}: {Message}",
                 ex.DocDate,
@@ -449,29 +509,63 @@ public sealed class CreateInvoiceHandler(
         return fallback ?? DateTime.UtcNow.Date;
     }
 
-    private static List<string> ValidateQuantities(CreateInvoiceRequest request)
+    /// <summary>
+    /// The line-level checks that run before anything is allocated or posted.
+    /// </summary>
+    /// <remarks>
+    /// This used to be a hand-rolled loop, and the invoice was the only sales document that had
+    /// one. Every other — quotations, sales orders, transfers, purchase orders — goes through
+    /// <see cref="UomQuantityValidation.ValidateAndNormalizeLineQuantitiesAsync"/>, so the rule that
+    /// only KG items may carry a fractional quantity was enforced everywhere except on the document
+    /// that actually moves the stock. A weighed quantity on a whole-unit item reached SAP and was
+    /// rounded there, and the invoice and the shelf disagreed by the remainder.
+    ///
+    /// <para>
+    /// The batch and serial selection checks come from the same shared helper the SAP client uses,
+    /// so a caller now learns about a selection that does not add up here — naming the line — rather
+    /// than as an <c>ArgumentException</c> thrown from inside the posting client.
+    /// </para>
+    ///
+    /// <para>
+    /// The price check stays local. It is not a quantity rule, and its message is about
+    /// configuration rather than about what the caller sent.
+    /// </para>
+    /// </remarks>
+    private async Task<List<string>> ValidateLinesAsync(
+        CreateInvoiceRequest request,
+        CancellationToken cancellationToken)
     {
-        var errors = new List<string>();
-        if (request.Lines == null || request.Lines.Count == 0)
+        var errors = await UomQuantityValidation.ValidateAndNormalizeLineQuantitiesAsync(
+            context,
+            request.Lines,
+            line => line.ItemCode,
+            line => line.Quantity,
+            line => line.UoMCode,
+            (line, uomCode) => line.UoMCode = uomCode,
+            cancellationToken);
+
+        if (request.Lines is null || request.Lines.Count == 0)
         {
-            errors.Add("At least one line item is required");
             return errors;
         }
 
-        for (int i = 0; i < request.Lines.Count; i++)
+        for (var i = 0; i < request.Lines.Count; i++)
         {
             var line = request.Lines[i];
-            if (line.Quantity <= 0)
-                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Quantity must be greater than zero. Current value: {line.Quantity}");
-            if (line.UnitPrice.HasValue && line.UnitPrice.Value <= 0)
+
+            if (!line.UnitPrice.HasValue || line.UnitPrice.Value <= 0)
+            {
                 errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): No SAP price is set for this item. Please contact the admin.");
-            else if (!line.UnitPrice.HasValue)
-                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): No SAP price is set for this item. Please contact the admin.");
-            if (line.BatchNumbers != null)
-                for (int j = 0; j < line.BatchNumbers.Count; j++)
-                    if (line.BatchNumbers[j].Quantity <= 0)
-                        errors.Add($"Line {i + 1}, Batch {j + 1} (Batch: {line.BatchNumbers[j].BatchNumber ?? "unknown"}): Quantity must be greater than zero.");
+            }
+
+            errors.AddRange(UomQuantityValidation.DescribeLineSelectionProblems(
+                i,
+                line.ItemCode,
+                line.Quantity,
+                line.BatchNumbers?.Select(batch => (batch.BatchNumber, batch.Quantity)),
+                line.SerialNumbers?.Select(serial => serial.InternalSerialNumber)));
         }
+
         return errors;
     }
 
@@ -531,6 +625,44 @@ public sealed class CreateInvoiceHandler(
         }
 
         return missingPriceItems.OrderBy(itemCode => itemCode).ToList();
+    }
+
+    /// <summary>
+    /// Gives a ledger claim back, when — and only when — SAP definitely did not create the document.
+    /// </summary>
+    /// <remarks>
+    /// The claim is taken immediately before the post, so every failure after it is a question about
+    /// what SAP did with the request. Two answers are unambiguous: the client refused it before
+    /// sending, and SAP answered with a rejection. Everything else — a dropped connection, a
+    /// timeout — may have committed, and giving the units back there would let them be sold twice.
+    ///
+    /// <para>
+    /// So the bias is deliberate and one-directional: a claim held over a document that does not
+    /// exist makes the ledger short, which refuses sales that could have happened, and the morning
+    /// fetch restates it. A claim released over a document that does exist oversells, which is the
+    /// failure this whole ledger was built to stop.
+    /// </para>
+    /// </remarks>
+    private async Task ReturnLedgerClaimAsync(
+        List<StockLedgerLine>? claim,
+        bool alreadyPosted,
+        string reason)
+    {
+        if (claim is null || claim.Count == 0 || alreadyPosted)
+        {
+            return;
+        }
+
+        try
+        {
+            await stockLedger.ReleaseAsync(claim, $"invoice not posted ({reason})", CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            // Worth a warning and nothing more. The ledger being short is the safe direction, and
+            // the morning fetch clears it.
+            logger.LogWarning(ex, "Could not return the stock ledger claim after {Reason}", reason);
+        }
     }
 
     private static List<string> ValidateWarehouseCodes(CreateInvoiceRequest request)

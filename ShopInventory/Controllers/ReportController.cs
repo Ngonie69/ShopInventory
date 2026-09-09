@@ -13,6 +13,7 @@ using ShopInventory.Features.Reports.Queries.GetPaymentSummary;
 using ShopInventory.Features.Reports.Queries.GetProfitOverview;
 using ShopInventory.Features.Reports.Queries.GetPurchaseOrderSummary;
 using ShopInventory.Features.Reports.Queries.GetReceivablesAging;
+using ShopInventory.Features.Reports.Queries.GetNegativeStockTrend;
 using ShopInventory.Features.Reports.Queries.GetSalesSummary;
 using ShopInventory.Features.Reports.Queries.GetSlowMovingProducts;
 using ShopInventory.Features.Reports.Queries.GetStockMovement;
@@ -31,6 +32,23 @@ namespace ShopInventory.Controllers;
 [SapBackgroundWork]
 public class ReportController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// How much stock SAP has been holding below zero, day by day.
+    /// </summary>
+    /// <remarks>
+    /// The outcome measure for the negative-stock work: every guard elsewhere stops a document that
+    /// would take stock under, and none of them can say whether they worked. Read it repeatedly —
+    /// one day's figure says nothing, a fortnight of them says everything.
+    /// </remarks>
+    [HttpGet("negative-stock-trend")]
+    public async Task<IActionResult> GetNegativeStockTrend(
+        [FromQuery] int days = 30,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(new GetNegativeStockTrendQuery(days), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
     /// <summary>
     /// Sales summary for a date range
     /// </summary>

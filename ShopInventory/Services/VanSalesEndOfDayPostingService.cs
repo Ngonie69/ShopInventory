@@ -30,6 +30,7 @@ public sealed class VanSalesEndOfDayPostingService(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
     SapCircuitBreakerState circuitState,
+    IStockLedger stockLedger,
     IOptions<VanSalesPostingSettings> settings,
     ILogger<VanSalesEndOfDayPostingService> logger)
 {
@@ -254,17 +255,143 @@ public sealed class VanSalesEndOfDayPostingService(
             return;
         }
 
+        var grace = TimeSpan.FromMinutes(Math.Max(0, settings.Value.UnresolvedPostGraceMinutes));
+
+        if (sale.PostIssuedAtUtc is { } issuedAt && DateTime.UtcNow - issuedAt < grace)
+        {
+            // A post went out for this sale very recently and SAP does not show an invoice for it.
+            // That is exactly what a committed-but-not-yet-visible invoice looks like, so the
+            // lookup's "no" cannot be trusted yet and the sale is not sent again.
+            //
+            // No attempt is spent: this is not the sale's fault and the wait is short. Once the
+            // window passes, the lookup is trustworthy and the sale posts normally — so a post that
+            // genuinely never landed still recovers on its own, just later.
+            //
+            // Van sales are the strictest case in the system. Each is already stamped with its own
+            // ZIMRA receipt, so a second invoice is a second fiscal document for one sale.
+            sale.LastPostingError =
+                $"A post was issued for this sale at {sale.PostIssuedAtUtc:yyyy-MM-dd HH:mm:ss}Z and SAP has not "
+                + "shown an invoice for it since. It has not been posted again, because SAP may hold the invoice "
+                + $"already. Check SAP for U_Van_saleorder '{sale.ExternalReferenceId}'.";
+            result.Failed++;
+            result.Errors.Add($"{sale.ExternalReferenceId}: post issued, outcome unknown");
+
+            logger.LogWarning(
+                "Van sale {ExternalReference} had a post issued at {PostIssuedAt} that SAP does not yet show. "
+                + "Waiting {Grace} before it may be sent again, in case SAP holds it already.",
+                sale.ExternalReferenceId, sale.PostIssuedAtUtc, grace);
+            return;
+        }
+
         var request = BuildInvoiceRequest(sale);
-        var invoice = await sapClient.CreateInvoiceAsync(request, cancellationToken);
+
+        // Durable before the request goes out. SapDocEntry is written from a reply that may never
+        // arrive, so without this a post that commits and then times out leaves no local trace and
+        // the next pass posts the sale a second time.
+        sale.PostIssuedAtUtc = DateTime.UtcNow;
+        await context.SaveChangesAsync(CancellationToken.None);
+
+        Invoice invoice;
+        try
+        {
+            invoice = await sapClient.CreateInvoiceAsync(request, cancellationToken);
+        }
+        catch (Exception ex) when (SapFailureClassifier.DefinitelyNotCommitted(ex))
+        {
+            // SAP answered, and the answer was no. Nothing exists, so the marker comes off and the
+            // sale stays retryable; leaving it would park a sale that only needs its data fixed.
+            sale.PostIssuedAtUtc = null;
+            await context.SaveChangesAsync(CancellationToken.None);
+            throw;
+        }
 
         MarkPosted(sale, invoice.DocEntry, invoice.DocNum);
         result.Posted++;
+
+        await RecordStockLeavingTheVanAsync(sale, invoice.DocNum, cancellationToken);
 
         logger.LogInformation(
             "Posted van sale {ExternalReference} (ZIMRA receipt {ReceiptGlobalNo}) to SAP as invoice {DocNum}.",
             sale.ExternalReferenceId,
             sale.ReceiptGlobalNo,
             invoice.DocNum);
+    }
+
+    /// <summary>
+    /// Tells the stock ledger what this sale took off the van, and records it when the van did not
+    /// have it.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Settled, not asked.</b> The goods left the van when the customer was served, hours
+    /// before this ran, and the receipt was signed to ZIMRA at that moment. There is no version of
+    /// this that can refuse: the sale happened. Everything here can do is make the record match.</para>
+    ///
+    /// <para><b>What this changes.</b> Nothing decremented a van's stock at all — the snapshot a
+    /// handset files each morning stayed at the morning count all day, so the shopkeeper-facing
+    /// catalogue offered a van's full load after it had sold out, and an over-sale left no trace
+    /// anywhere. The van stock report is unaffected: it reads OriginalQuantity, deliberately,
+    /// because AvailableQuantity meant nothing for a van until now.</para>
+    ///
+    /// <para><b>Where an over-sale actually gets prevented.</b> Not here. The handset is the only
+    /// place that knows before the goods move, and it is a separate application. This is the half
+    /// that can be built on this side: make it visible, attributed, and countable on the day it
+    /// happens rather than at a month-end reconciliation.</para>
+    /// </remarks>
+    private async Task RecordStockLeavingTheVanAsync(
+        DesktopSaleEntity sale,
+        int docNum,
+        CancellationToken cancellationToken)
+    {
+        var taken = sale.Lines
+            .Select(line => new StockLedgerLine(
+                line.ItemCode,
+                string.IsNullOrWhiteSpace(line.WarehouseCode) ? sale.WarehouseCode : line.WarehouseCode,
+                line.Quantity))
+            .Where(line => !string.IsNullOrWhiteSpace(line.ItemCode)
+                        && !string.IsNullOrWhiteSpace(line.WarehouseCode)
+                        && line.Quantity > 0)
+            .ToList();
+
+        if (taken.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var shortfalls = await stockLedger.TakeSettledAsync(
+                taken, $"van sale {sale.ExternalReferenceId} (invoice {docNum})", cancellationToken);
+
+            foreach (var shortfall in shortfalls)
+            {
+                context.StockLedgerDivergences.Add(new StockLedgerDivergenceEntity
+                {
+                    LedgerDay = stockLedger.CurrentLedgerDay,
+                    Source = StockLedgerDivergenceSources.SettledDocument,
+                    Reference = $"{sale.ExternalReferenceId} / invoice {docNum}",
+                    WarehouseCode = shortfall.WarehouseCode,
+                    ItemCode = shortfall.ItemCode,
+                    LedgerQuantity = shortfall.Held,
+                    SapIssuableQuantity = shortfall.Taken,
+                    Difference = -shortfall.Excess
+                });
+
+                logger.LogWarning(
+                    "Van sale {ExternalReference} sold {Taken} of {ItemCode} from {WarehouseCode}, which "
+                    + "held {Held}. The van sold {Excess} more than its record says it was carrying.",
+                    sale.ExternalReferenceId, shortfall.Taken, shortfall.ItemCode,
+                    shortfall.WarehouseCode, shortfall.Held, shortfall.Excess);
+            }
+        }
+        catch (Exception ex)
+        {
+            // The invoice is in SAP and the receipt is with ZIMRA; neither depends on this. A ledger
+            // that missed the movement overstates the van until tomorrow's count, which is worth a
+            // warning and is not worth failing a posted sale over.
+            logger.LogWarning(ex,
+                "Van sale {ExternalReference} posted as invoice {DocNum}, but the stock ledger was not told",
+                sale.ExternalReferenceId, docNum);
+        }
     }
 
     private static CreateInvoiceRequest BuildInvoiceRequest(DesktopSaleEntity sale) =>

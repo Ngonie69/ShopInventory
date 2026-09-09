@@ -18,6 +18,7 @@ public class CreditNoteService : ICreditNoteService
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly IFiscalizationService _fiscalizationService;
     private readonly ICreditNoteProjectionSyncService _projectionSyncService;
+    private readonly IStockLedger _stockLedger;
     private readonly ILogger<CreditNoteService> _logger;
 
     public CreditNoteService(
@@ -25,13 +26,75 @@ public class CreditNoteService : ICreditNoteService
         ISAPServiceLayerClient sapClient,
         IFiscalizationService fiscalizationService,
         ICreditNoteProjectionSyncService projectionSyncService,
+        IStockLedger stockLedger,
         ILogger<CreditNoteService> logger)
     {
         _context = context;
         _sapClient = sapClient;
         _fiscalizationService = fiscalizationService;
         _projectionSyncService = projectionSyncService;
+        _stockLedger = stockLedger;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Puts the returned units back on the shared stock ledger.
+    /// </summary>
+    /// <remarks>
+    /// The ledger is the snapshot at 07:00 less everything the system has promised since, and a
+    /// return is the one thing that moves it the other way. Without this it only ever falls: by
+    /// evening a shop that took a morning delivery back would be refused sales for stock standing in
+    /// front of the cashier, until the next morning's fetch restated the position.
+    ///
+    /// <para>
+    /// Only when the goods actually come back. <c>RestockItems</c> is what says so — a price
+    /// adjustment or a post-sale discount credits money and moves nothing on a shelf, and returning
+    /// units for one would invent stock that does not exist.
+    /// </para>
+    ///
+    /// <para>
+    /// After the SAP post, never before. A credit note that SAP refuses returns nothing, and the
+    /// ledger reading low is the safe direction to be wrong in.
+    /// </para>
+    /// </remarks>
+    private async Task ReturnRestockedUnitsToLedgerAsync(
+        CreateCreditNoteRequest request,
+        int docNum,
+        CancellationToken cancellationToken)
+    {
+        if (!request.RestockItems || request.Lines is null)
+        {
+            return;
+        }
+
+        var returned = request.Lines
+            .Select(line => new StockLedgerLine(
+                line.ItemCode ?? string.Empty,
+                line.WarehouseCode ?? request.RestockWarehouseCode ?? string.Empty,
+                line.Quantity))
+            .Where(line => !string.IsNullOrWhiteSpace(line.ItemCode)
+                        && !string.IsNullOrWhiteSpace(line.WarehouseCode)
+                        && line.Quantity > 0)
+            .ToList();
+
+        if (returned.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _stockLedger.ReleaseAsync(returned, $"credit note {docNum}", cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // The credit note is in SAP and that is what matters. A ledger that did not take the
+            // units back is short until the morning fetch, which refuses sales rather than
+            // allowing them.
+            _logger.LogWarning(ex,
+                "Credit note {DocNum} posted, but its units could not be returned to the stock ledger",
+                docNum);
+        }
     }
 
     public async Task<CreditNoteDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
@@ -484,6 +547,8 @@ public class CreditNoteService : ICreditNoteService
 
             _logger.LogInformation("Credit note posted to SAP successfully. DocEntry: {DocEntry}, DocNum: {DocNum}",
                 sapCreditNote.DocEntry, sapCreditNote.DocNum);
+
+            await ReturnRestockedUnitsToLedgerAsync(request, sapCreditNote.DocNum, cancellationToken);
         }
         catch (Exception ex)
         {

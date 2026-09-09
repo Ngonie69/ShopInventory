@@ -153,6 +153,7 @@ public sealed class StockReservationValidationTests : IDisposable
                 _ => throw new InvalidOperationException($"Unexpected call: {method.Name}")
             }),
             StubProxy.Unused<IInventoryLockService>(),
+            StubProxy.Unused<IStockLedger>(),
             StubProxy.Unused<IInvoiceFiscalizationQueue>(),
             StubProxy.Unused<INotificationService>(),
             NullLogger<StockReservationService>.Instance);

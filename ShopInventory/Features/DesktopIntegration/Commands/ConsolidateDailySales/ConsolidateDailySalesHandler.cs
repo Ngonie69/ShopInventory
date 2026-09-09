@@ -222,8 +222,13 @@ public sealed class ConsolidateDailySalesHandler(
 
             if (!batchValidationResult.IsValid)
             {
+                // Worded apart from the shortage case on purpose. This message is what
+                // SapFailureClassifier reads to decide whether the consolidation goes back on the
+                // queue or in front of a person, and an unread warehouse is the former: the sales
+                // are still Pending and the next run will post them.
                 throw new InvalidOperationException(
-                    $"Consolidated invoice stock validation failed: {string.Join("; ", batchValidationResult.ValidationErrors.Select(error => error.Message))}");
+                    $"Consolidated invoice stock validation {(batchValidationResult.ValidationErrors.Any(e => e.ErrorCode == BatchValidationErrorCode.StockUnknown) ? "could not be completed" : "failed")}: "
+                    + string.Join("; ", batchValidationResult.ValidationErrors.Select(error => error.Message)));
             }
 
             ApplyAllocatedBatchesToRequest(invoiceRequest, batchValidationResult.AllocatedLines);

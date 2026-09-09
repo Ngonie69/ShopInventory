@@ -103,6 +103,34 @@ public class SAPSettings
     public int StockSqlRequestTimeoutSeconds { get; set; } = 60;
 
     /// <summary>
+    /// Whether an invoice is refused when the stock read behind it could not be answered, rather
+    /// than posted on the assumption that SAP will refuse it instead.
+    /// </summary>
+    /// <remarks>
+    /// Three guards used to swallow a failed stock read and continue, each saying in a comment that
+    /// SAP would validate. SAP only refuses an issue that takes stock below zero when <b>Block
+    /// Negative Inventory</b> is enabled in company General Settings, and subject to the
+    /// per-warehouse and per-item-group settings under it. Nothing here has ever read that flag, so
+    /// the whole defence rested on a company configuration value no code and no test had looked at.
+    /// <c>scripts/NegativeStock/report_negative_stock.py</c> reads it and counts what got through.
+    ///
+    /// <para>
+    /// Closed by default, because a document posted against stock nobody could measure is the
+    /// failure this exists to prevent. The cost is real and is the reason this is a setting: while
+    /// the Service Layer cannot answer a stock read, invoicing stops. That is survivable because the
+    /// read has a budget of its own — see <see cref="StockSqlRequestTimeoutSeconds"/> — so a hung
+    /// Service Layer gives up in a minute rather than holding a slot for five.
+    /// </para>
+    ///
+    /// <para>
+    /// Set false to restore the old behaviour during an incident, without a deploy. It is a
+    /// deliberate decision to invoice blind, so it is logged as a warning every time it lets a
+    /// document through.
+    /// </para>
+    /// </remarks>
+    public bool StockGuardFailClosed { get; set; } = true;
+
+    /// <summary>
     /// How long an inventory transfer submission waits for SAP to measure its stock before the
     /// transfer is held for approval anyway.
     /// </summary>

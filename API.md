@@ -2021,6 +2021,7 @@ The list filter is `documentType`, not `type`.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| GET | `/api/Report/negative-stock-trend` | Stock SAP is holding below zero, day by day (`days`, default 30) |
 | GET | `/api/Report/sales-summary` | Sales summary for a date range |
 | GET | `/api/Report/top-products` | Top selling products |
 | GET | `/api/Report/top-customers` | Top customers |

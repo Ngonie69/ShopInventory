@@ -21,13 +21,13 @@ public sealed class CreateDesktopSaleHandler(
     ApplicationDbContext context,
     DesktopSaleFiscaliser fiscaliser,
     IInventoryLockService lockService,
+    IStockLedger stockLedger,
     IHubContext<NotificationHub> hubContext,
     IIdempotencyRequestStore idempotencyRequestStore,
     IOptions<TaxSettings> taxSettings,
     ILogger<CreateDesktopSaleHandler> logger
 ) : IRequestHandler<CreateDesktopSaleCommand, ErrorOr<DesktopSaleResponseDto>>
 {
-    private const int MaxRetries = 3;
     private static readonly TimeSpan LockDuration = TimeSpan.FromSeconds(30);
 
     public async Task<ErrorOr<DesktopSaleResponseDto>> Handle(
@@ -135,6 +135,10 @@ public sealed class CreateDesktopSaleHandler(
                 return existingResponse;
             }
 
+            // The document's accounting date, not a snapshot lookup — the stock ledger resolves its
+            // own day, and does not resolve it this way. Left on UtcNow.Date deliberately: this
+            // value reaches SAP as the invoice DocDate and the fiscal receipt's date, so moving it
+            // is a fiscal change rather than a stock one and does not belong in this pass.
             var today = DateTime.UtcNow.Date;
             var docDate = !string.IsNullOrEmpty(req.DocDate)
                 ? DateTime.Parse(req.DocDate).Date
@@ -167,7 +171,7 @@ public sealed class CreateDesktopSaleHandler(
             {
                 // Validate + deduct inside the lock with retry on concurrency conflict
                 var result = await ValidateDeductAndCreateSaleAsync(
-                    req, externalRef, today, docDate, account, vendor, cancellationToken);
+                    req, externalRef, docDate, account, vendor, cancellationToken);
 
                 if (!result.IsError && idempotencyRequestId.HasValue)
                 {
@@ -304,39 +308,35 @@ public sealed class CreateDesktopSaleHandler(
     private async Task<ErrorOr<DesktopSaleResponseDto>> ValidateDeductAndCreateSaleAsync(
         CreateDesktopSaleRequest req,
         string externalRef,
-        DateTime snapshotDate,
         DateTime docDate,
         SellingAccountAssignments account,
         RouteCustomerEntity? vendor,
         CancellationToken ct)
     {
-        for (int attempt = 1; attempt <= MaxRetries; attempt++)
+        // Check and take in one step, against the ledger the web invoice path now shares. This used
+        // to be a local validate-then-deduct against the snapshot that only till sales ever wrote
+        // to, which is why the same units could be sold here and on the web within the same minute.
+        var claim = req.Lines
+            .Select(line => new StockLedgerLine(line.ItemCode, line.WarehouseCode, line.Quantity))
+            .ToList();
+
+        var ledgerOutcome = await stockLedger.TryCommitAsync(claim, externalRef, ct);
+
+        // A till sells only from warehouses the morning job covers, so no snapshot means the figures
+        // it would sell against do not exist. Refusing is the old behaviour and the right one — an
+        // absent snapshot read as zero gave the same answer, by accident.
+        if (ledgerOutcome.UntrackedWarehouses.Count > 0)
         {
-            // Validate stock from local snapshot
-            var stockErrors = await ValidateLocalStockAsync(snapshotDate, req, ct);
-            if (stockErrors.Count > 0)
-                return stockErrors.First();
+            return Errors.DesktopSales.InsufficientStock(
+                req.Lines[0].ItemCode,
+                ledgerOutcome.UntrackedWarehouses[0],
+                req.Lines[0].Quantity,
+                0);
+        }
 
-            // Deduct stock from snapshot (with optimistic concurrency)
-            try
-            {
-                await DeductStockFromSnapshotAsync(snapshotDate, req, ct);
-                break; // Success — proceed to create sale
-            }
-            catch (DbUpdateConcurrencyException) when (attempt < MaxRetries)
-            {
-                logger.LogWarning(
-                    "Concurrency conflict on stock deduction for {Ref}, attempt {Attempt}/{Max}. Retrying...",
-                    externalRef, attempt, MaxRetries);
-
-                // Detach stale tracked entities so the retry re-reads fresh rows
-                foreach (var entry in context.ChangeTracker.Entries<DailyStockSnapshotItemEntity>())
-                    entry.State = EntityState.Detached;
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                return Errors.DesktopSales.ConcurrencyConflict;
-            }
+        if (!ledgerOutcome.Committed)
+        {
+            return Errors.DesktopSales.StockLedgerRefused(string.Join("; ", ledgerOutcome.Shortfalls));
         }
 
         var tax = taxSettings.Value;
@@ -493,58 +493,5 @@ public sealed class CreateDesktopSaleHandler(
         };
     }
 
-    private async Task<List<Error>> ValidateLocalStockAsync(
-        DateTime snapshotDate, CreateDesktopSaleRequest req, CancellationToken ct)
-    {
-        var errors = new List<Error>();
 
-        // Group lines by item+warehouse to aggregate quantities
-        var grouped = req.Lines
-            .GroupBy(l => new { l.ItemCode, l.WarehouseCode })
-            .Select(g => new { g.Key.ItemCode, g.Key.WarehouseCode, TotalQty = g.Sum(l => l.Quantity) });
-
-        foreach (var item in grouped)
-        {
-            var available = await context.DailyStockSnapshotItems
-                .Where(i => i.Snapshot.SnapshotDate == snapshotDate &&
-                            i.ItemCode == item.ItemCode &&
-                            i.WarehouseCode == item.WarehouseCode)
-                .SumAsync(i => i.AvailableQuantity, ct);
-
-            if (available < item.TotalQty)
-            {
-                errors.Add(Errors.DesktopSales.InsufficientStock(
-                    item.ItemCode, item.WarehouseCode, item.TotalQty, available));
-            }
-        }
-
-        return errors;
-    }
-
-    private async Task DeductStockFromSnapshotAsync(
-        DateTime snapshotDate, CreateDesktopSaleRequest req, CancellationToken ct)
-    {
-        foreach (var line in req.Lines)
-        {
-            var remaining = line.Quantity;
-
-            var snapshotItems = await context.DailyStockSnapshotItems
-                .Where(i => i.Snapshot.SnapshotDate == snapshotDate &&
-                            i.ItemCode == line.ItemCode &&
-                            i.WarehouseCode == line.WarehouseCode &&
-                            i.AvailableQuantity > 0)
-                .OrderBy(i => i.ExpiryDate) // FEFO
-                .ToListAsync(ct);
-
-            foreach (var item in snapshotItems)
-            {
-                if (remaining <= 0) break;
-                var deduct = Math.Min(item.AvailableQuantity, remaining);
-                item.AvailableQuantity -= deduct;
-                remaining -= deduct;
-            }
-        }
-
-        await context.SaveChangesAsync(ct);
-    }
 }

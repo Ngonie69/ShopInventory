@@ -51,7 +51,7 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
     /// Defaults to the configured lookback rather than a value chosen here, so the tests that do not
     /// care about the window exercise what production actually runs with.
     /// </summary>
-    private VanSalesEndOfDayPostingService BuildService(int? lookbackDays = null)
+    private VanSalesEndOfDayPostingService BuildService(int? lookbackDays = null, int? graceMinutes = null)
     {
         var settings = new VanSalesPostingSettings();
         if (lookbackDays.HasValue)
@@ -59,10 +59,16 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
             settings.LookbackDays = lookbackDays.Value;
         }
 
+        if (graceMinutes.HasValue)
+        {
+            settings.UnresolvedPostGraceMinutes = graceMinutes.Value;
+        }
+
         return new VanSalesEndOfDayPostingService(
             _context,
             _sap.Client,
             _circuit,
+            new StockLedger(_context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance),
             Options.Create(settings),
             NullLogger<VanSalesEndOfDayPostingService>.Instance);
     }
@@ -270,7 +276,13 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
 
         _sap.UnreachableFor.Add("VAN006-INV-20260810-AAA111");
 
-        var service = BuildService();
+        // The grace window is switched off here, and only here. It exists to stop a sale being sent
+        // again within minutes of a post whose outcome is unknown, and this test compresses four
+        // hours of half-hourly passes into a few milliseconds -- so left at its default every pass
+        // would fall inside the window and the recovery at the end could never happen. What the test
+        // is about is the attempt budget surviving an outage, which the window does not touch.
+        // UnresolvedPostGraceTests covers the window itself.
+        var service = BuildService(graceMinutes: 0);
 
         // Four hours of half-hourly passes against a SAP that is down.
         for (var pass = 0; pass < 8; pass++)
@@ -506,7 +518,13 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
 
             if (FailFor.Contains(request.U_Van_saleorder ?? string.Empty))
             {
-                throw new InvalidOperationException("SAP rejected the invoice: item is blocked for sale.");
+                // The type the real client raises when SAP answers a post with a refusal. It matters
+                // to more than the message now: the posting services read it as proof that no
+                // invoice was created, which is what lets the sale be sent again.
+                throw new SapRequestRejectedException(
+                    "create the invoice",
+                    System.Net.HttpStatusCode.BadRequest,
+                    "item is blocked for sale");
             }
 
             Created.Add(request);

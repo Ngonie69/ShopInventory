@@ -302,6 +302,54 @@ public sealed class UnbatchedStockSnapshotTests : IDisposable
         Assert.Null((await SnapshotAsync()).LastError);
     }
 
+    // ── Which read owns the unbatched half ──────────────
+
+    [Fact]
+    public async Task The_dedicated_read_owns_the_unbatched_half_not_the_composer()
+    {
+        // SnapshotComposer can also produce a row for an item with no batches, from the warehouse
+        // read it already has. Keeping those made this dedicated read redundant for every item the
+        // warehouse read listed -- which is all of them, it being the same table unfiltered -- and
+        // with nothing left to do, its TransferEventListener fallback could never run.
+        //
+        // So: the warehouse read here lists BON001, and the composer would happily emit a row for
+        // it. The row that lands must be the dedicated read's, at its quantity, not the composer's.
+        var sap = StubProxy.For<ISAPServiceLayerClient>((method, _) => method.Name switch
+        {
+            nameof(ISAPServiceLayerClient.GetAllBatchNumbersInWarehouseAsync) =>
+                (object)Task.FromResult(new List<BatchNumber>()),
+            nameof(ISAPServiceLayerClient.GetStockQuantitiesInWarehouseAsync) =>
+                Task.FromResult(new List<StockQuantityDto> { Stock("BON001", "Bonaqua water 500ml", 99m) }),
+            nameof(ISAPServiceLayerClient.GetNonBatchStockQuantitiesInWarehouseAsync) =>
+                Task.FromResult(new List<StockQuantityDto> { Stock("BON001", "Bonaqua water 500ml", 24m) }),
+            _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
+        });
+
+        await Handler(sap).FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        var row = Assert.Single(await _context.DailyStockSnapshotItems.AsNoTracking().ToListAsync());
+        Assert.Equal("BON001", row.ItemCode);
+        Assert.Equal(24m, row.AvailableQuantity);
+    }
+
+    [Fact]
+    public async Task A_failed_warehouse_read_still_reaches_the_unbatched_read()
+    {
+        // The commitment read sits in front of the unbatched one. If a failure there were fatal, the
+        // snapshot would die before the fallback written for exactly the SAP-slot starvation most
+        // likely to cause it -- and the till would lose the whole warehouse rather than one figure.
+        await Handler(Sap(warehouseReadThrows: true)).FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        var rows = await _context.DailyStockSnapshotItems.AsNoTracking().ToListAsync();
+
+        // The unbatched half arrived.
+        Assert.Contains(rows, row => row.ItemCode == "BON001" && row.AvailableQuantity == 24m);
+
+        // And the batch half is recorded gross -- worse than composed, which is the trade, but there.
+        Assert.Equal(9m, rows.Where(row => row.ItemCode == "CHE011").Sum(row => row.AvailableQuantity));
+        Assert.Equal(StockSnapshotStatus.Complete, (await SnapshotAsync()).Status);
+    }
+
     // ── Helpers ─────────────────────────────────────────
 
     private static DateTime Today => DateTime.UtcNow.Date;
@@ -324,7 +372,8 @@ public sealed class UnbatchedStockSnapshotTests : IDisposable
     /// </summary>
     private static ISAPServiceLayerClient Sap(
         List<StockQuantityDto>? unbatched = null,
-        bool unbatchedThrows = false) =>
+        bool unbatchedThrows = false,
+        bool warehouseReadThrows = false) =>
         StubProxy.For<ISAPServiceLayerClient>((method, _) => method.Name switch
         {
             nameof(ISAPServiceLayerClient.GetAllBatchNumbersInWarehouseAsync) =>
@@ -333,6 +382,16 @@ public sealed class UnbatchedStockSnapshotTests : IDisposable
                     new() { ItemCode = "CHE011", ItemName = "Feta 1kg", BatchNum = "B-1", Quantity = 4m, ExpiryDate = "2026-10-01" },
                     new() { ItemCode = "CHE011", ItemName = "Feta 1kg", BatchNum = "B-2", Quantity = 5m, ExpiryDate = "2026-11-01" }
                 }),
+
+            // The commitment read. It answers the batch-managed line only, and nothing is committed,
+            // so composition leaves the batch quantities as they are and these tests keep asserting
+            // what they always did. It has to answer at all, though: the handler treats a failure
+            // here as "record the batch half gross", so a stub that refused the call would put every
+            // test in this class on the degraded path without any of them saying so.
+            nameof(ISAPServiceLayerClient.GetStockQuantitiesInWarehouseAsync) =>
+                warehouseReadThrows
+                    ? throw new InvalidOperationException("SAP said no to the warehouse read")
+                    : Task.FromResult(new List<StockQuantityDto> { Stock("CHE011", "Feta 1kg", 9m) }),
             nameof(ISAPServiceLayerClient.GetNonBatchStockQuantitiesInWarehouseAsync) =>
                 unbatchedThrows
                     ? throw new InvalidOperationException("SAP said no")

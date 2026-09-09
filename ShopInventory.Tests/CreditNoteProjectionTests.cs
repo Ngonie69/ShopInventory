@@ -317,6 +317,7 @@ public sealed class CreditNoteProjectionTests : IDisposable
             StubProxy.Unused<ISAPServiceLayerClient>(),
             StubProxy.Unused<IFiscalizationService>(),
             CreateReadyService(),
+            StubProxy.Unused<IStockLedger>(),
             NullLogger<CreditNoteService>.Instance);
 
     private CreditNoteProjectionSyncService CreateReadyService() =>

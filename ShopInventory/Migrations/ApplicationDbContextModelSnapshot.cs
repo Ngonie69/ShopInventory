@@ -1492,6 +1492,9 @@ namespace ShopInventory.Migrations
                     b.Property<long?>("PlatformReceiptId")
                         .HasColumnType("bigint");
 
+                    b.Property<DateTime?>("PostIssuedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime?>("PostedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -3543,6 +3546,49 @@ namespace ShopInventory.Migrations
                     b.ToTable("MobileOrderPostProcessingQueue");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.NegativeStockObservationEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Committed")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<string>("ItemCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ItemName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("ObservedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ObservedOn")
+                        .HasColumnType("date");
+
+                    b.Property<decimal>("OnHand")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<string>("WarehouseCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ObservedOn");
+
+                    b.HasIndex("WarehouseCode", "ItemCode");
+
+                    b.ToTable("NegativeStockObservations");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.PendingInventoryTransferEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5221,6 +5267,59 @@ namespace ShopInventory.Migrations
                     b.HasIndex("WarehouseCode");
 
                     b.ToTable("Shops", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.StockLedgerDivergenceEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CheckedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("Difference")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<string>("ItemCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("LedgerDay")
+                        .HasColumnType("date");
+
+                    b.Property<decimal>("LedgerQuantity")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("SapIssuableQuantity")
+                        .HasColumnType("decimal(18,6)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("WarehouseCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CheckedAt");
+
+                    b.HasIndex("Source");
+
+                    b.HasIndex("WarehouseCode", "ItemCode");
+
+                    b.ToTable("StockLedgerDivergences");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.StockReservationBatchEntity", b =>
