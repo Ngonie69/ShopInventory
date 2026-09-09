@@ -150,8 +150,16 @@ public sealed class CreateInvoiceHandler(
                                 "An unfinished invoice claim for '{SaleReference}' is held in SAP as DocEntry {DocEntry}; returning it.",
                                 request.U_Van_saleorder, abandonedPost.DocEntry);
 
+                            // Offered for fiscalisation here, unlike the duplicate guard further
+                            // down. That one adopts an invoice some earlier *completed* request
+                            // raised, which queued its own. This one adopts an invoice whose attempt
+                            // never got as far as queueing anything — and nothing sweeps for web
+                            // invoices, so if this does not offer it, it is never fiscalised at all.
                             var abandonedResponse = ExistingInvoiceResponse(abandonedPost);
-                            await TryCompleteClaimAsync(acquireResult.RequestId, abandonedResponse, cancellationToken);
+                            abandonedResponse.Fiscalization = QueueFiscalization(
+                                abandonedResponse.Invoice!, command.UserId, command.Username);
+
+                            await TryCompleteClaimAsync(acquireResult.RequestId, abandonedResponse, CancellationToken.None);
                             return abandonedResponse;
                         }
 
@@ -205,7 +213,7 @@ public sealed class CreateInvoiceHandler(
 
                     var existingResponse = ExistingInvoiceResponse(existingInvoice);
 
-                    if (await TryCompleteClaimAsync(idempotencyRequestId, existingResponse, cancellationToken))
+                    if (await TryCompleteClaimAsync(idempotencyRequestId, existingResponse, CancellationToken.None))
                     {
                         releaseIdempotencyRequest = false;
                         claimCompleted = true;
@@ -305,6 +313,15 @@ public sealed class CreateInvoiceHandler(
                     : new List<string> { prePostResult.LockToken };
             }
 
+            // The last point at which walking away costs nothing.
+            //
+            // Everything above is preparation the caller may freely abandon. Below it the ledger has
+            // been drawn on and a document may exist in SAP, so nothing below runs on the caller's
+            // token: ASP.NET binds it to HttpContext.RequestAborted, and a closed tab or a proxy
+            // timeout would otherwise abort the post mid-flight — leaving an invoice in SAP that
+            // this side never learned the number of.
+            cancellationToken.ThrowIfCancellationRequested();
+
             // Step 6b: Take the units off the shared ledger, before the post rather than after.
             //
             // The SAP read above cannot see a till sale that has been captured and has not yet
@@ -321,7 +338,7 @@ public sealed class CreateInvoiceHandler(
                 .ToList() ?? [];
 
             var ledgerReference = request.U_Van_saleorder ?? request.NumAtCard ?? "invoice";
-            var ledgerOutcome = await stockLedger.TryCommitAsync(ledgerClaim, ledgerReference, cancellationToken);
+            var ledgerOutcome = await stockLedger.TryCommitAsync(ledgerClaim, ledgerReference, CancellationToken.None);
 
             if (!ledgerOutcome.Committed)
             {
@@ -333,8 +350,35 @@ public sealed class CreateInvoiceHandler(
             }
 
             // Step 7: POST to SAP
+            //
+            // CancellationToken.None, deliberately and literally: once the request is in flight, a
+            // client that hangs up must not stop us learning the DocEntry SAP has just issued. The
+            // SAP client's own timeout still bounds the call.
             postIssued = true;
-            var invoice = await sapClient.CreateInvoiceAsync(request, cancellationToken);
+
+            Invoice invoice;
+            try
+            {
+                invoice = await sapClient.CreateInvoiceAsync(request, CancellationToken.None);
+            }
+            catch (Exception postFailure) when (!SapFailureClassifier.DefinitelyNotCommitted(postFailure))
+            {
+                // The post went out and we do not know whether SAP took it. It went out under a
+                // deterministic key, so this is answerable rather than merely reportable — and the
+                // caller cannot be told to go and check SAP for something the code can find itself.
+                //
+                // A lookup that comes back empty is not a no: SAP may hold an invoice it has not yet
+                // made visible. So this only ever upgrades the answer, and failing to recover falls
+                // through to the catches below, which keep the claim so the retry asks again.
+                var recovered = await TryRecoverAfterFailedPostAsync(request.U_Van_saleorder, postFailure);
+                if (recovered is null)
+                {
+                    throw;
+                }
+
+                invoice = recovered;
+            }
+
             ledgerCommitted = true;
 
             logger.LogInformation(
@@ -342,7 +386,7 @@ public sealed class CreateInvoiceHandler(
                 invoice.DocEntry, invoice.DocNum, invoice.CardCode,
                 batchValidationResult.AllocatedLines.Sum(l => l.Batches.Count), command.AllocationStrategy);
 
-            await RegisterCrateTransactionAsync(invoice, request, command.UserId, cancellationToken);
+            await RegisterCrateTransactionAsync(invoice, request, command.UserId, CancellationToken.None);
 
             try { await auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", invoice.DocEntry.ToString(), $"Invoice #{invoice.DocNum} created for {invoice.CardCode}", true); } catch { }
 
@@ -365,7 +409,7 @@ public sealed class CreateInvoiceHandler(
                             reservationId: null,
                             "/invoices",
                             fiscalizationResult),
-                        cancellationToken);
+                        CancellationToken.None);
                 }
                 catch (Exception notificationException)
                 {
@@ -385,7 +429,9 @@ public sealed class CreateInvoiceHandler(
                 Fiscalization = fiscalizationResult
             };
 
-            if (await TryCompleteClaimAsync(idempotencyRequestId, response, cancellationToken))
+            // On None as well, and this one matters most: it is the record that lets a retry be
+            // answered with this invoice instead of posting a second one.
+            if (await TryCompleteClaimAsync(idempotencyRequestId, response, CancellationToken.None))
             {
                 releaseIdempotencyRequest = false;
                 claimCompleted = true;
@@ -469,6 +515,50 @@ public sealed class CreateInvoiceHandler(
                     "Keeping the invoice claim for '{SaleReference}': a post was issued and its outcome is unknown, so a retry must ask SAP rather than post again.",
                     request.U_Van_saleorder);
             }
+        }
+    }
+
+    /// <summary>
+    /// Looks for a document a failed post may still have created.
+    /// </summary>
+    /// <remarks>
+    /// Runs on <see cref="CancellationToken.None"/>, and that is the whole point: the commonest
+    /// reason to need this is the caller's token being cancelled, so passing it here would abort the
+    /// very question being asked.
+    ///
+    /// <para>Swallows its own failure. The original error is the one the caller should see, and an
+    /// unanswerable lookup changes nothing about what happens next — the claim stands either way, so
+    /// the retry asks SAP again.</para>
+    /// </remarks>
+    private async Task<Invoice?> TryRecoverAfterFailedPostAsync(string? saleReference, Exception cause)
+    {
+        if (string.IsNullOrWhiteSpace(saleReference))
+        {
+            return null;
+        }
+
+        try
+        {
+            var recovered = await sapClient.GetInvoiceByVanSaleOrderAsync(saleReference, CancellationToken.None);
+
+            if (recovered is not null)
+            {
+                logger.LogWarning(
+                    cause,
+                    "Posting invoice '{SaleReference}' reported a failure but SAP holds DocEntry {DocEntry}; adopting it.",
+                    saleReference,
+                    recovered.DocEntry);
+            }
+
+            return recovered;
+        }
+        catch (Exception lookupFailure)
+        {
+            logger.LogError(
+                lookupFailure,
+                "Could not check whether invoice '{SaleReference}' reached SAP after a failed post.",
+                saleReference);
+            return null;
         }
     }
 

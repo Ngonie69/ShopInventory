@@ -268,6 +268,13 @@ Three answers to a retry, and they mean different things:
 | **200/201** "Invoice already exists" | SAP holds an invoice under this key. Nothing was posted again. |
 | **409 `Idempotency.PostOutcomeUnknown`** | An earlier attempt sent a post whose outcome is not known, and SAP does not show the document yet. Nothing was sent. Retry shortly. |
 
+A client that hangs up does not stop the post. Once the request has left for SAP it runs to
+completion regardless of the caller — a closed tab, a proxy timeout, a navigation away — because an
+invoice SAP has taken must not be one this side never learned the number of. If the reply is lost
+anyway, the handler asks SAP on the key and returns the invoice it finds, so the caller is answered
+with the document rather than sent to go and look for it. A request abandoned *before* the post is
+simply dropped, and nothing is sent.
+
 The last one is a wait, not a failure. A post whose reply was lost — a timeout, a dropped
 connection — leaves its claim standing deliberately, because SAP may hold the invoice and simply not
 be showing it yet; the retry asks SAP rather than posting again. Once SAP shows it, the retry is

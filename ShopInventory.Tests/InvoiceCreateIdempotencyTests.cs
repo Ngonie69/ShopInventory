@@ -57,6 +57,18 @@ public sealed class InvoiceCreateIdempotencyTests : IDisposable
     /// <summary>Set when the post commits in SAP and its reply never reaches us.</summary>
     private bool _replyIsLost;
 
+    /// <summary>
+    /// Whether a committed post is visible to the key lookup straight away. False is the case that
+    /// produced the duplicates: SAP has the invoice and its own filter on the UDF cannot see it yet.
+    /// </summary>
+    private bool _postIsVisibleImmediately = true;
+
+    /// <summary>Cancels the caller's token as the ledger claim is taken — a hung-up client.</summary>
+    private bool _callerHangsUpBeforeThePost;
+
+    private readonly CancellationTokenSource _caller = new();
+    private int _fiscalisationsQueued;
+
     /// <summary>Set to make the key lookup fail, as an unreachable Service Layer would.</summary>
     private Exception? _lookupFailsWith;
 
@@ -118,11 +130,14 @@ public sealed class InvoiceCreateIdempotencyTests : IDisposable
     public async Task A_retry_after_a_lost_reply_is_given_the_invoice_SAP_holds()
     {
         _replyIsLost = true;
+        _postIsVisibleImmediately = false;
         var first = await CreateInvoiceAsync();
 
         Assert.True(first.IsError);
         Assert.Equal("Invoice.SapTimeout", first.FirstError.Code);
 
+        // SAP catches up, which is all the retry was ever waiting for.
+        _sapHolds = Posted;
         _replyIsLost = false;
         var retry = await CreateInvoiceAsync();
 
@@ -139,10 +154,9 @@ public sealed class InvoiceCreateIdempotencyTests : IDisposable
     public async Task A_retry_inside_the_grace_window_is_refused_while_SAP_cannot_answer()
     {
         _replyIsLost = true;
+        _postIsVisibleImmediately = false;
         await CreateInvoiceAsync();
 
-        // SAP committed it and has not made it visible yet.
-        _sapHolds = null;
         _replyIsLost = false;
 
         var retry = await CreateInvoiceAsync();
@@ -161,9 +175,9 @@ public sealed class InvoiceCreateIdempotencyTests : IDisposable
     public async Task Past_the_grace_window_a_post_SAP_never_took_is_made_good()
     {
         _replyIsLost = true;
+        _postIsVisibleImmediately = false;
         await CreateInvoiceAsync();
 
-        _sapHolds = null;
         _replyIsLost = false;
         await AgeTheClaimAsync(TimeSpan.FromMinutes(20));
 
@@ -221,6 +235,7 @@ public sealed class InvoiceCreateIdempotencyTests : IDisposable
     public async Task An_unanswerable_lookup_never_clears_a_retry_to_post()
     {
         _replyIsLost = true;
+        _postIsVisibleImmediately = false;
         await CreateInvoiceAsync();
 
         _replyIsLost = false;
@@ -233,6 +248,89 @@ public sealed class InvoiceCreateIdempotencyTests : IDisposable
 
         // And the claim still stands, so the attempt after it asks SAP too.
         Assert.Single(await ClaimsAsync());
+    }
+
+    /// <summary>
+    /// Where a post carries a deterministic key, a lost reply is answerable rather than merely
+    /// reportable. The caller cannot be sent to check SAP for something the code can find itself.
+    /// </summary>
+    [Fact]
+    public async Task A_lost_reply_is_recovered_inside_the_same_request()
+    {
+        _replyIsLost = true;
+
+        var result = await CreateInvoiceAsync();
+
+        Assert.False(result.IsError);
+        Assert.Equal(Posted.DocEntry, result.Value.Invoice?.DocEntry);
+        Assert.Equal(1, _postCount);
+    }
+
+    /// <summary>
+    /// Nothing sweeps for web invoices, so an invoice this handler learns about the hard way still
+    /// has to be offered — on both recovery paths, or it is never fiscalised at all.
+    /// </summary>
+    [Fact]
+    public async Task An_invoice_learned_about_after_a_lost_reply_is_still_offered_for_fiscalisation()
+    {
+        _replyIsLost = true;
+
+        await CreateInvoiceAsync();
+
+        Assert.Equal(1, _fiscalisationsQueued);
+    }
+
+    [Fact]
+    public async Task An_invoice_adopted_from_an_unfinished_claim_is_offered_for_fiscalisation()
+    {
+        _replyIsLost = true;
+        _postIsVisibleImmediately = false;
+        await CreateInvoiceAsync();
+
+        Assert.Equal(0, _fiscalisationsQueued);
+
+        _sapHolds = Posted;
+        _replyIsLost = false;
+        await CreateInvoiceAsync();
+
+        Assert.Equal(1, _fiscalisationsQueued);
+    }
+
+    /// <summary>
+    /// The disconnect that used to strand an invoice. ASP.NET binds the handler token to
+    /// <c>HttpContext.RequestAborted</c>, so a closed tab aborted the post mid-flight — and SAP may
+    /// well have taken it.
+    /// </summary>
+    [Fact]
+    public async Task A_caller_who_hangs_up_does_not_abort_the_post()
+    {
+        _callerHangsUpBeforeThePost = true;
+
+        var result = await CreateInvoiceAsync();
+
+        Assert.False(result.IsError);
+        Assert.Equal(Posted.DocEntry, result.Value.Invoice?.DocEntry);
+        Assert.Equal(1, _postCount);
+
+        // And the claim holds the document, so a retry is answered with it rather than posting.
+        var claim = Assert.Single(await ClaimsAsync());
+        Assert.Equal(IdempotencyRequestStatus.Completed, claim.Status);
+    }
+
+    /// <summary>
+    /// The other half of the same rule: before the ledger and the post there is nothing to protect,
+    /// so a caller who has already gone is not worth sending a document to SAP for.
+    /// </summary>
+    [Fact]
+    public async Task A_caller_who_has_already_gone_is_never_posted_for()
+    {
+        await _caller.CancelAsync();
+
+        var result = await CreateInvoiceAsync();
+
+        Assert.True(result.IsError);
+        Assert.Equal(0, _postCount);
+        Assert.Empty(await ClaimsAsync());
     }
 
     [Fact]
@@ -267,7 +365,7 @@ public sealed class InvoiceCreateIdempotencyTests : IDisposable
 
         return await CreateHandler().Handle(
             new CreateInvoiceCommand(request, true, BatchAllocationStrategy.FEFO, null, null),
-            CancellationToken.None);
+            _caller.Token);
     }
 
     /// <summary>
@@ -298,7 +396,11 @@ public sealed class InvoiceCreateIdempotencyTests : IDisposable
             BuildBatchValidation(),
             StubProxy.For<IInventoryLockService>((_, _) => Task.CompletedTask),
             BuildStockLedger(),
-            StubProxy.For<IInvoiceFiscalizationQueue>((_, _) => true),
+            StubProxy.For<IInvoiceFiscalizationQueue>((_, _) =>
+            {
+                _fiscalisationsQueued++;
+                return true;
+            }),
             StubProxy.For<IAuditService>((_, _) => Task.CompletedTask),
             _store,
             StubProxy.Unused<INotificationService>(),
@@ -332,14 +434,22 @@ public sealed class InvoiceCreateIdempotencyTests : IDisposable
 
     private Task<Invoice> Post(object?[]? args)
     {
-        _lastPosted = (CreateInvoiceRequest)args![0]!;
+        // Deliberate, and the whole point of the hang-up tests: a stub that ignores its token makes
+        // the file pass against the bug it was written for.
+        ((CancellationToken)args![1]!).ThrowIfCancellationRequested();
+
+        _lastPosted = (CreateInvoiceRequest)args[0]!;
         _postCount++;
 
         if (_replyIsLost)
         {
             // What a committed post whose reply is lost looks like from here: SAP holds the invoice,
             // and this side is told only that the request timed out.
-            _sapHolds = Posted;
+            if (_postIsVisibleImmediately)
+            {
+                _sapHolds = Posted;
+            }
+
             throw new TaskCanceledException("The request was canceled", new TimeoutException());
         }
 
@@ -380,11 +490,26 @@ public sealed class InvoiceCreateIdempotencyTests : IDisposable
     private IStockLedger BuildStockLedger() =>
         StubProxy.For<IStockLedger>((method, _) => method.Name switch
         {
-            nameof(IStockLedger.TryCommitAsync) => Task.FromResult(StockLedgerOutcome.Success),
+            nameof(IStockLedger.TryCommitAsync) => LedgerCommit(),
             nameof(IStockLedger.ReleaseAsync) => Task.CompletedTask,
             _ => throw new InvalidOperationException(
                 $"IStockLedger.{method.Name} was not expected on this path.")
         });
+
+    /// <summary>
+    /// The ledger claim is the last thing before the post, so cancelling here puts the disconnect
+    /// exactly where it hurts: after the caller may still be walked away from, and before SAP has
+    /// been asked for a document.
+    /// </summary>
+    private Task<StockLedgerOutcome> LedgerCommit()
+    {
+        if (_callerHangsUpBeforeThePost)
+        {
+            _caller.Cancel();
+        }
+
+        return Task.FromResult(StockLedgerOutcome.Success);
+    }
 
     private sealed class SingleContextScopeFactory(DbContextOptions<ApplicationDbContext> options)
         : IServiceScopeFactory, IServiceScope, IServiceProvider
