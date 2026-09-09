@@ -66,7 +66,8 @@ public sealed class SaleReferenceNamespaceTests
         Assert.Equal("DS-", SaleReferenceNamespace.DesktopSalePrefix);
         Assert.Equal("CONSOL-", SaleReferenceNamespace.ConsolidationPrefix);
         Assert.Equal("WEB-", SaleReferenceNamespace.WebInvoicePrefix);
-        Assert.Equal(3, SaleReferenceNamespace.ReservedPrefixes.Length);
+        Assert.Equal("CN-", SaleReferenceNamespace.CreditNotePrefix);
+        Assert.Equal(4, SaleReferenceNamespace.ReservedPrefixes.Length);
     }
 
     /// <summary>
@@ -84,6 +85,17 @@ public sealed class SaleReferenceNamespaceTests
         Assert.NotEqual(
             SaleReferenceNamespace.ForClientRequest("8d1f4c2ba9034e6f9b7a5c3e1d0f8a26"),
             SaleReferenceNamespace.ForClientRequest("8d1f4c2ba9034e6f9b7a5c3e1d0f8a27"));
+    }
+
+    [Fact]
+    public void A_credit_note_reference_is_derived_the_same_way_and_kept_apart()
+    {
+        // A different field from the invoice references — NumAtCard, not U_Van_saleorder — so a
+        // collision is not the risk. The distinct prefix is for the person reading SAP's own list.
+        Assert.StartsWith("CN-", SaleReferenceNamespace.ForCreditNoteRequest("abc123"), StringComparison.Ordinal);
+        Assert.NotEqual(
+            SaleReferenceNamespace.ForClientRequest("abc123"),
+            SaleReferenceNamespace.ForCreditNoteRequest("abc123"));
     }
 
     [Fact]

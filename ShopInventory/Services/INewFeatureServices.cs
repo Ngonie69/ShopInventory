@@ -70,8 +70,16 @@ public interface ICreditNoteService
         string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool includeLines = false,
         CancellationToken cancellationToken = default);
     Task<CreditNoteDto> CreateAsync(CreateCreditNoteRequest request, Guid userId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Raises a credit note against an invoice SAP holds.
+    /// </summary>
+    /// <remarks>
+    /// <c>clientRequestId</c> is the caller's idempotency key, carried through to SAP as the credit
+    /// note's <c>NumAtCard</c> reference so a post whose reply is lost can be found rather than
+    /// posted again.
+    /// </remarks>
     Task<CreditNoteDto> CreateFromInvoiceAsync(int invoiceId, List<CreateCreditNoteLineRequest> lines, string reason,
-        Guid userId, CancellationToken cancellationToken = default);
+        Guid userId, string? clientRequestId = null, CancellationToken cancellationToken = default);
     Task<CreditNoteDto> UpdateStatusAsync(int id, CreditNoteStatus status, Guid userId, CancellationToken cancellationToken = default);
     Task<CreditNoteDto> ApproveAsync(int id, Guid userId, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default);

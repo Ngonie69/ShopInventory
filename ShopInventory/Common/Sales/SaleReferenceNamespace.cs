@@ -33,7 +33,20 @@ public static class SaleReferenceNamespace
     /// </summary>
     public const string WebInvoicePrefix = "WEB-";
 
-    public static readonly string[] ReservedPrefixes = [DesktopSalePrefix, ConsolidationPrefix, WebInvoicePrefix];
+    /// <summary>
+    /// A credit note raised through the API, derived from the caller's idempotency key and written
+    /// into SAP's <c>NumAtCard</c>.
+    /// </summary>
+    /// <remarks>
+    /// A different field from the invoice references above, so a different prefix is not strictly
+    /// needed to avoid collisions. It carries one anyway: the value is legible in SAP's own credit
+    /// note list, and "CN-…" says at a glance that this system raised the document rather than a
+    /// customer having quoted a reference of their own.
+    /// </remarks>
+    public const string CreditNotePrefix = "CN-";
+
+    public static readonly string[] ReservedPrefixes =
+        [DesktopSalePrefix, ConsolidationPrefix, WebInvoicePrefix, CreditNotePrefix];
 
     /// <summary>
     /// The longest reference this class will build, chosen to sit well inside any plausible size for
@@ -82,13 +95,28 @@ public static class SaleReferenceNamespace
     /// neither can collide with a till or consolidation reference — and <see cref="IsReserved"/>
     /// refuses a caller who tries to hand-write one.</para>
     /// </remarks>
-    public static string ForClientRequest(string clientRequestId)
+    public static string ForClientRequest(string clientRequestId) =>
+        Derive(WebInvoicePrefix, clientRequestId);
+
+    /// <summary>
+    /// The SAP reference for a credit note, derived from the caller's idempotency key.
+    /// </summary>
+    /// <remarks>
+    /// Same reasoning as <see cref="ForClientRequest"/>, for the document where getting it wrong
+    /// costs most: a duplicate credit note is a second ZIMRA credit receipt against one return, and
+    /// a credit note carries no other key at all — no sale reference, no van order, nothing a person
+    /// could search SAP for afterwards.
+    /// </remarks>
+    public static string ForCreditNoteRequest(string clientRequestId) =>
+        Derive(CreditNotePrefix, clientRequestId);
+
+    private static string Derive(string prefix, string clientRequestId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(clientRequestId);
 
         var trimmed = clientRequestId.Trim();
 
-        return WebInvoicePrefix + (IsSafeVerbatim(trimmed) ? trimmed : Fingerprint(trimmed));
+        return prefix + (IsSafeVerbatim(trimmed, prefix) ? trimmed : Fingerprint(trimmed));
     }
 
     /// <summary>
@@ -96,8 +124,8 @@ public static class SaleReferenceNamespace
     /// quote, semicolon, <c>--</c> and <c>/*</c> that <c>SanitizeODataValue</c> rejects outright are
     /// only the ones we know about, and a key is not worth a round of escaping rules.
     /// </summary>
-    private static bool IsSafeVerbatim(string key) =>
-        key.Length <= MaxDerivedKeyLength - WebInvoicePrefix.Length
+    private static bool IsSafeVerbatim(string key, string prefix) =>
+        key.Length <= MaxDerivedKeyLength - prefix.Length
         && !key.Contains("--", StringComparison.Ordinal)
         && key.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_');
 

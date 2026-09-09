@@ -4,6 +4,7 @@ using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using System.Text.Json;
+using ShopInventory.Common.Sales;
 
 namespace ShopInventory.Services;
 
@@ -533,28 +534,84 @@ public class CreditNoteService : ICreditNoteService
         creditNote.DocTotal = subTotal + taxAmount;
         creditNote.Balance = creditNote.DocTotal;
 
-        // Post to SAP Business One first
+        // The reference SAP will hold this credit note under, derived from the caller's idempotency
+        // key. Without it a credit note reaches SAP carrying nothing anyone can search for, and a
+        // post whose reply is lost cannot be found by the retry that follows it — the shape that put
+        // duplicate invoices, and duplicate ZIMRA receipts, against single sales.
+        request.SapReference = string.IsNullOrWhiteSpace(request.ClientRequestId)
+            ? null
+            : SaleReferenceNamespace.ForCreditNoteRequest(request.ClientRequestId);
+
         SAPCreditNote sapCreditNote;
-        try
+
+        // Does SAP already hold this request's credit note? An earlier attempt may have committed
+        // one and lost its reply. A lookup that cannot be answered throws rather than returning
+        // null, and that is deliberate: "I could not ask" read as "it is not there" credits a return
+        // twice.
+        var alreadyPosted = request.SapReference is null
+            ? null
+            : await _sapClient.GetCreditNoteByReferenceAsync(request.SapReference, cancellationToken);
+
+        if (alreadyPosted is not null)
         {
+            _logger.LogWarning(
+                "SAP already holds credit note DocEntry {DocEntry} under reference {Reference}; adopting it rather than posting again.",
+                alreadyPosted.DocEntry, request.SapReference);
+
+            var recorded = await FindLocalCreditNoteAsync(alreadyPosted.DocEntry, cancellationToken);
+            if (recorded is not null)
+            {
+                // An earlier attempt got all the way through. Nothing left to do but hand it back.
+                return MapToDto(recorded);
+            }
+
+            sapCreditNote = alreadyPosted;
+        }
+        else
+        {
+            // The last point at which walking away costs nothing. Past it a credit note may exist in
+            // SAP, and with ZIMRA, so nothing below runs on the caller's token: ASP.NET binds it to
+            // HttpContext.RequestAborted, and a closed tab would otherwise abort the post — or, just
+            // as bad, the save that is this side's only record of it.
+            cancellationToken.ThrowIfCancellationRequested();
+
             _logger.LogInformation("Posting credit note to SAP for customer {CardCode}", request.CardCode);
-            sapCreditNote = await _sapClient.CreateCreditNoteAsync(request, cancellationToken);
 
-            // Update local entity with SAP reference
-            creditNote.SAPDocEntry = sapCreditNote.DocEntry;
-            creditNote.SAPDocNum = sapCreditNote.DocNum;
-            creditNote.Status = CreditNoteStatus.Approved; // Set to approved since it's now in SAP
+            try
+            {
+                sapCreditNote = await _sapClient.CreateCreditNoteAsync(request, CancellationToken.None);
+            }
+            catch (Exception postFailure) when (
+                request.SapReference is not null && !SapFailureClassifier.DefinitelyNotCommitted(postFailure))
+            {
+                // The post went out and we do not know whether SAP took it. It went out under a
+                // reference, so ask — on CancellationToken.None, because the commonest reason to
+                // need this lookup is the caller's token being cancelled.
+                var recovered = await TryRecoverAfterFailedPostAsync(request.SapReference, postFailure);
+                if (recovered is null)
+                {
+                    throw;
+                }
 
-            _logger.LogInformation("Credit note posted to SAP successfully. DocEntry: {DocEntry}, DocNum: {DocNum}",
-                sapCreditNote.DocEntry, sapCreditNote.DocNum);
-
-            await ReturnRestockedUnitsToLedgerAsync(request, sapCreditNote.DocNum, cancellationToken);
+                sapCreditNote = recovered;
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to post credit note to SAP. Credit note will NOT be saved locally.");
-            throw new InvalidOperationException($"Failed to post credit note to SAP: {ex.Message}", ex);
-        }
+
+        creditNote.SAPDocEntry = sapCreditNote.DocEntry;
+        creditNote.SAPDocNum = sapCreditNote.DocNum;
+        creditNote.Status = CreditNoteStatus.Approved; // Set to approved since it's now in SAP
+
+        _logger.LogInformation("Credit note is in SAP. DocEntry: {DocEntry}, DocNum: {DocNum}",
+            sapCreditNote.DocEntry, sapCreditNote.DocNum);
+
+        // Saved before anything else is attempted with it, and this ordering is the point: the local
+        // row is the only record on this side that the credit note exists. Fiscalising first meant a
+        // failure — or a caller who hung up — between the post and the save left a credit note in
+        // SAP, possibly already lodged with ZIMRA, and nothing here at all.
+        _context.CreditNotes.Add(creditNote);
+        await _context.SaveChangesAsync(CancellationToken.None);
+
+        await ReturnRestockedUnitsToLedgerAsync(request, sapCreditNote.DocNum, CancellationToken.None);
 
         // FISCALISE after successful SAP posting
         FiscalizationResult? fiscalizationResult = null;
@@ -592,7 +649,7 @@ public class CreditNoteService : ICreditNoteService
                     creditNoteDto,
                     originalInvoiceNumber,
                     new CustomerFiscalDetails { CustomerName = sapCreditNote.CardName },
-                    cancellationToken);
+                    CancellationToken.None);
 
                 if (fiscalizationResult.Success)
                 {
@@ -613,7 +670,7 @@ public class CreditNoteService : ICreditNoteService
                         sapCreditNote.DocNum,
                         request.CardCode,
                         fiscalizationResult.Message ?? "Fiscalisation failed for the credit note.",
-                        cancellationToken);
+                        CancellationToken.None);
                 }
             }
             else
@@ -627,7 +684,7 @@ public class CreditNoteService : ICreditNoteService
                     sapCreditNote.DocNum,
                     request.CardCode,
                     "Fiscalisation skipped because the original invoice reference was missing.",
-                    cancellationToken);
+                    CancellationToken.None);
             }
         }
         catch (Exception fiscalEx)
@@ -641,16 +698,12 @@ public class CreditNoteService : ICreditNoteService
                 sapCreditNote.DocNum,
                 request.CardCode,
                 fiscalEx.Message,
-                cancellationToken);
+                CancellationToken.None);
         }
-
-        // Save to local database only after successful SAP posting
-        _context.CreditNotes.Add(creditNote);
-        await _context.SaveChangesAsync(cancellationToken);
 
         try
         {
-            await _projectionSyncService.UpsertAsync([sapCreditNote], cancellationToken);
+            await _projectionSyncService.UpsertAsync([sapCreditNote], CancellationToken.None);
         }
         catch (Exception projectionException)
         {
@@ -668,8 +721,92 @@ public class CreditNoteService : ICreditNoteService
         return MapToDto(creditNote);
     }
 
+    /// <summary>
+    /// What this invoice has already been credited, for the guard that decides whether more may be.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not <see cref="GetByInvoiceIdAsync"/>, which falls back to the local database
+    /// when SAP cannot be reached. That fallback is right for a read — a list is better stale than
+    /// missing — and wrong here, because the local row is written after the SAP post: a credit note
+    /// whose reply was lost is in neither place the fallback can see, so the guard would conclude
+    /// nothing had been credited and allow a second full credit note against the invoice.
+    ///
+    /// <para>So this one fails closed. An invoice whose credit history cannot be read is one nobody
+    /// can safely credit further until it can.</para>
+    /// </remarks>
+    private async Task<decimal> ReadCreditedAmountAsync(int invoiceId, CancellationToken cancellationToken)
+    {
+        List<SAPCreditNote> existing;
+
+        try
+        {
+            existing = await _sapClient.GetCreditNotesByInvoiceAsync(invoiceId, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not read the credit notes already raised against invoice {InvoiceId}", invoiceId);
+            throw new InvalidOperationException(
+                $"SAP could not be asked what invoice {invoiceId} has already been credited, so no further credit note "
+                + $"was raised against it. Try again shortly. ({ex.Message})", ex);
+        }
+
+        return CalculateActiveCreditedAmount(existing.Select(MapFromSAP).ToList());
+    }
+
+    /// <summary>
+    /// The local row for a credit note SAP already holds, if an earlier attempt got that far.
+    /// </summary>
+    /// <remarks>
+    /// Adopting without this would insert a second local row for one SAP document, which is a
+    /// quieter fault than the duplicate it exists to prevent: two credit note numbers, one document,
+    /// and every local total counting it twice.
+    /// </remarks>
+    private async Task<CreditNoteEntity?> FindLocalCreditNoteAsync(int sapDocEntry, CancellationToken cancellationToken)
+        => await _context.CreditNotes
+            .Include(c => c.Lines)
+            .Include(c => c.CreatedByUser)
+            .Include(c => c.ApprovedByUser)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.SAPDocEntry == sapDocEntry, cancellationToken);
+
+    /// <summary>
+    /// Looks for a credit note a failed post may still have created.
+    /// </summary>
+    /// <remarks>
+    /// On <see cref="CancellationToken.None"/>: the commonest reason to need this is the caller's
+    /// token being cancelled, so passing it would abort the very question being asked. Swallows its
+    /// own failure — the original error is the one worth surfacing, and an unanswerable lookup
+    /// changes nothing about what happens next.
+    /// </remarks>
+    private async Task<SAPCreditNote?> TryRecoverAfterFailedPostAsync(string reference, Exception cause)
+    {
+        try
+        {
+            var recovered = await _sapClient.GetCreditNoteByReferenceAsync(reference, CancellationToken.None);
+
+            if (recovered is not null)
+            {
+                _logger.LogWarning(
+                    cause,
+                    "Posting credit note '{Reference}' reported a failure but SAP holds DocEntry {DocEntry}; adopting it.",
+                    reference,
+                    recovered.DocEntry);
+            }
+
+            return recovered;
+        }
+        catch (Exception lookupFailure)
+        {
+            _logger.LogError(
+                lookupFailure,
+                "Could not check whether credit note '{Reference}' reached SAP after a failed post.",
+                reference);
+            return null;
+        }
+    }
+
     public async Task<CreditNoteDto> CreateFromInvoiceAsync(int invoiceId, List<CreateCreditNoteLineRequest> lines,
-        string reason, Guid userId, CancellationToken cancellationToken = default)
+        string reason, Guid userId, string? clientRequestId = null, CancellationToken cancellationToken = default)
     {
         // Always fetch from SAP to get batch numbers for batch-managed items
         _logger.LogInformation("Fetching invoice {InvoiceId} from SAP for credit note creation", invoiceId);
@@ -694,8 +831,7 @@ public class CreditNoteService : ICreditNoteService
         _logger.LogInformation("Found invoice {InvoiceId} in SAP with CardCode {CardCode}, Lines: {LineCount}",
             invoiceId, sapInvoice.CardCode, sapInvoice.DocumentLines?.Count ?? 0);
 
-        var existingCreditNotes = await GetByInvoiceIdAsync(invoiceId, cancellationToken);
-        var activeCreditedAmount = CalculateActiveCreditedAmount(existingCreditNotes);
+        var activeCreditedAmount = await ReadCreditedAmountAsync(invoiceId, cancellationToken);
         var requestedCreditAmount = CalculateCreditNoteRequestTotal(lines);
         var remainingCreditableAmount = Math.Max(0m, sapInvoice.DocTotal - activeCreditedAmount);
         var currency = string.IsNullOrWhiteSpace(sapInvoice.DocCurrency) ? "USD" : sapInvoice.DocCurrency;
@@ -831,6 +967,9 @@ public class CreditNoteService : ICreditNoteService
             Reason = reason,
             Currency = sapInvoice.DocCurrency,
             RestockItems = true,
+            // Carried through so this route's credit notes get the same SAP reference, and the same
+            // recovery from a lost reply, as one raised directly.
+            ClientRequestId = clientRequestId,
             Lines = enrichedLines
         };
 

@@ -2,7 +2,10 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Errors;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Idempotency;
+using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -19,6 +22,7 @@ public sealed class CreateCreditNoteHandler(
     IFiscalDeviceConfigCache fiscalConfigCache,
     IIdempotencyRequestStore idempotencyRequestStore,
     INotificationService notificationService,
+    IOptions<SecuritySettings> securitySettings,
     ILogger<CreateCreditNoteHandler> logger
 ) : IRequestHandler<CreateCreditNoteCommand, ErrorOr<CreditNoteDto>>
 {
@@ -32,6 +36,11 @@ public sealed class CreateCreditNoteHandler(
 
         long? idempotencyRequestId = null;
         var releaseIdempotencyRequest = false;
+
+        // Whether the work that can reach SAP has started. Past that point a credit note may exist
+        // whatever the failure looks like from here, so the catches below must not treat an error as
+        // proof that nothing was created.
+        var postIssued = false;
 
         try
         {
@@ -49,7 +58,37 @@ public sealed class CreateCreditNoteHandler(
                         logger.LogWarning("Replaying credit note creation for idempotency key {Key}", clientRequestId);
                         return acquireResult.Response;
                     case IdempotencyAcquireOutcome.InProgress:
-                        return Errors.Idempotency.RequestInProgress("credit note creation");
+                    {
+                        // A claim nobody completed. Since a claim is now kept when a post's outcome
+                        // is unknown, this can mean an attempt that reached SAP and never learned
+                        // what became of it — so refusing forever would strand the credit note.
+                        //
+                        // Past the grace window the claim is taken over and the request runs again.
+                        // That is safe because CreateAsync asks SAP about the reference before it
+                        // posts anything: if SAP holds the credit note it is adopted, and if it does
+                        // not, the earlier post never landed. Inside the window that question has no
+                        // trustworthy answer — a committed credit note may simply not be visible yet
+                        // — so the caller waits rather than risking a second ZIMRA credit receipt.
+                        var issuedBefore = DateTime.UtcNow.AddMinutes(
+                            -Math.Max(0, securitySettings.Value.IdempotencyUnresolvedPostGraceMinutes));
+
+                        if (acquireResult.RequestId is not { } unfinishedRequestId
+                            || !await idempotencyRequestStore.TryTakeOverAsync(
+                                unfinishedRequestId, issuedBefore, cancellationToken))
+                        {
+                            return Errors.Idempotency.PostOutcomeUnknown(
+                                "credit note creation",
+                                SaleReferenceNamespace.ForCreditNoteRequest(clientRequestId));
+                        }
+
+                        logger.LogWarning(
+                            "Took over an unfinished credit note claim for key {Key}; SAP is asked about it before anything is posted.",
+                            clientRequestId);
+
+                        idempotencyRequestId = unfinishedRequestId;
+                        releaseIdempotencyRequest = true;
+                        break;
+                    }
                     case IdempotencyAcquireOutcome.RequestMismatch:
                         return Errors.Idempotency.RequestMismatch("credit note creation");
                     case IdempotencyAcquireOutcome.Acquired:
@@ -59,6 +98,7 @@ public sealed class CreateCreditNoteHandler(
                 }
             }
 
+            postIssued = true;
             var creditNote = await creditNoteService.CreateAsync(command.Request, command.UserId, cancellationToken);
 
             // The SAP credit note now exists. Complete idempotency immediately so any retry replays
@@ -67,7 +107,7 @@ public sealed class CreateCreditNoteHandler(
             {
                 try
                 {
-                    await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, creditNote, cancellationToken);
+                    await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, creditNote, CancellationToken.None);
                     releaseIdempotencyRequest = false;
                 }
                 catch (Exception completeException)
@@ -103,13 +143,25 @@ public sealed class CreateCreditNoteHandler(
 
             return creditNote;
         }
+        catch (SapRequestRejectedException rejected)
+        {
+            // SAP answered, and the answer was no. Nothing exists, so the claim goes back below and
+            // the caller can fix the document and re-send under the same key.
+            logger.LogWarning(rejected, "SAP refused the credit note");
+            return Errors.CreditNote.SapRejected(rejected.SapMessage);
+        }
         catch (Exception ex)
         {
+            releaseIdempotencyRequest &= NothingWasCreated(postIssued, ex);
             logger.LogError(ex, "Error creating credit note");
             return Errors.CreditNote.CreationFailed(ex.Message);
         }
         finally
         {
+            // Released only when nothing can have been created. A claim left standing is doing its
+            // job: it is the only record that a post went out under this key, so the retry asks SAP
+            // instead of posting again. Releasing it unconditionally — which this did — turned a
+            // lost reply into a second credit note, and a second ZIMRA credit receipt.
             if (releaseIdempotencyRequest && idempotencyRequestId.HasValue)
             {
                 try
@@ -123,4 +175,15 @@ public sealed class CreateCreditNoteHandler(
             }
         }
     }
+
+    /// <summary>
+    /// Whether a failure proves SAP created nothing, and so whether the claim may be given back.
+    /// </summary>
+    /// <remarks>
+    /// The closed list lives in <see cref="SapFailureClassifier.DefinitelyNotCommitted"/>. Everything
+    /// else — a timeout, a dropped connection, a reply that could not be read — leaves the credit
+    /// note's existence unknown, and unknown has to be treated as "it may exist".
+    /// </remarks>
+    private static bool NothingWasCreated(bool postIssued, Exception failure) =>
+        !postIssued || SapFailureClassifier.DefinitelyNotCommitted(failure);
 }

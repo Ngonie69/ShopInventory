@@ -15608,6 +15608,52 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         return 0;
     }
 
+    public async Task<SAPCreditNote?> GetCreditNoteByReferenceAsync(
+        string reference,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        // NumAtCard rather than a UDF, deliberately. U_Van_saleorder is declared on the shared
+        // Document type in $metadata, which cannot tell us whether ORIN actually carries the column
+        // — and finding out the hard way would break every credit note this system raises.
+        // NumAtCard is a standard marketing-document field, present on every one of them, and this
+        // system writes nothing else into it.
+        var safeValue = SanitizeODataValue(reference);
+        var url = $"CreditNotes?$filter=NumAtCard eq '{safeValue}' and Cancelled eq 'tNO'&$orderby=DocEntry desc&$top=1"
+            + "&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,VatSum,DocCurrency,Cancelled";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError(
+                "Failed to check credit note by NumAtCard '{Reference}': {StatusCode} - {Error}",
+                reference, response.StatusCode, errorContent);
+            throw new Exception($"Failed to check credit note by reference: {response.StatusCode} - {errorContent}");
+        }
+
+        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        var result = JsonSerializer.Deserialize<SAPResponse<SAPCreditNote>>(responseContent);
+        return result?.Value?.FirstOrDefault();
+    }
+
     public async Task<SAPCreditNote> CreateCreditNoteAsync(CreateCreditNoteRequest request, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
@@ -15642,6 +15688,8 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                 DocDate = DateTime.Now.ToString("yyyy-MM-dd"),
                 DocDueDate = DateTime.Now.ToString("yyyy-MM-dd"),
                 Comments = request.Reason ?? request.Comments,
+                // The only thing in SAP that identifies this credit note as one particular request's.
+                NumAtCard = request.SapReference,
                 DocCurrency = !string.IsNullOrWhiteSpace(request.Currency) && request.Currency != "USD" ? request.Currency : (string?)null,
                 DocumentLines = request.Lines?.Select((line, index) =>
                 {
@@ -15698,6 +15746,8 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                 DocDate = DateTime.Now.ToString("yyyy-MM-dd"),
                 DocDueDate = DateTime.Now.ToString("yyyy-MM-dd"),
                 Comments = request.Reason ?? request.Comments,
+                // The only thing in SAP that identifies this credit note as one particular request's.
+                NumAtCard = request.SapReference,
                 DocCurrency = !string.IsNullOrWhiteSpace(request.Currency) && request.Currency != "USD" ? request.Currency : (string?)null,
                 DocumentLines = request.Lines?.Select((line, index) => new
                 {
@@ -15758,12 +15808,38 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
             // Try to extract human-readable error from SAP JSON response
             var sapError = ExtractSAPErrorMessage(errorContent);
+
+            // Whether SAP itself answered, or something in front of it did.
+            //
+            // The type is the whole point, and it decides more than the wording: a caller that keeps
+            // its idempotency claim on an unknown outcome reads this to tell a refusal — nothing was
+            // created, hand the claim back so the document can be fixed and re-sent — from a failure
+            // that leaves the credit note's existence in doubt. Getting it wrong puts a second credit
+            // note, and a second ZIMRA credit receipt, against one return.
+            //
+            // A SAP error envelope is the evidence SAP answered. A gateway that never reached it
+            // returns HTML or nothing, and a request may well have committed behind a 502 from the
+            // balancer in front of the six nodes — so those stay a bare Exception, meaning unknown.
+            var sapAnswered = sapError is not null;
+
             if (IsBusinessPartnerDataError(errorContent))
             {
-                throw new Exception($"Failed to create credit note: The customer has corrupted or invalid data in SAP (e.g., broken Discount Group, Payment Terms, addresses, or contacts). " +
-                    $"Please check and repair this Business Partner's master data in SAP B1. SAP error: {sapError ?? errorContent}");
+                var businessPartnerMessage =
+                    "The customer has corrupted or invalid data in SAP (e.g., broken Discount Group, Payment Terms, "
+                    + "addresses, or contacts). Please check and repair this Business Partner's master data in SAP B1. "
+                    + $"SAP error: {sapError ?? errorContent}";
+
+                throw sapAnswered
+                    ? new SapRequestRejectedException("create the credit note", response.StatusCode, businessPartnerMessage)
+                    : new Exception($"Failed to create credit note: {businessPartnerMessage}");
             }
-            throw new Exception(sapError ?? $"Failed to create credit note in SAP: {response.StatusCode} - {errorContent}");
+
+            if (sapAnswered)
+            {
+                throw new SapRequestRejectedException("create the credit note", response.StatusCode, sapError!);
+            }
+
+            throw new Exception($"Failed to create credit note in SAP: {response.StatusCode} - {errorContent}");
         }
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);

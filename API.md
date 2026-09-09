@@ -241,6 +241,8 @@ actual document on a repeated key:
 | Endpoint | Key carrier |
 | --- | --- |
 | `POST /api/Invoice` | `clientRequestId` body field (or `Idempotency-Key` header) |
+| `POST /api/CreditNote` | `clientRequestId` body field (or `Idempotency-Key` header) |
+| `POST /api/CreditNote/from-invoice/{invoiceId}` | `clientRequestId` body field (or `Idempotency-Key` header) |
 | `POST /api/crates/transactions/{id}/pods` | `clientRequestId` form field (or `Idempotency-Key` header) |
 | `POST /api/crates/transactions/{id}/grvs` | `clientRequestId` form field (or `Idempotency-Key` header) |
 
@@ -282,6 +284,34 @@ handed that invoice. If SAP still shows nothing after
 `Security:IdempotencyUnresolvedPostGraceMinutes` (default 15), the post never landed and the retry
 posts normally. A refusal from SAP releases the claim immediately, so a document that only needs
 fixing stays retryable under the same key.
+
+### Credit notes: the same key, in NumAtCard
+
+A credit note is the strictest case of all — a duplicate is a second ZIMRA credit receipt against
+one return — and until recently it reached SAP carrying nothing that identified it. Both create
+routes now write `CN-{key}` (or `CN-{fingerprint}` for a long or awkward key) into the credit note's
+**`NumAtCard`**, derived from the caller's idempotency key, and ask SAP about that reference before
+posting anything. `NumAtCard` rather than a UDF because it is a standard field on every marketing
+document; this system writes nothing else into it, and a caller cannot set it.
+
+The retry answers match the invoice route, with one difference: **409 `Idempotency.PostOutcomeUnknown`**
+here means an earlier attempt's outcome is unresolved and nothing was sent again. Once
+`Security:IdempotencyUnresolvedPostGraceMinutes` has passed the retry proceeds, and SAP is asked
+about the reference before anything is posted — so it adopts the credit note if one exists and
+raises one only if none does.
+
+Two related guards, both of which used to fail open:
+
+- A credit note SAP refuses returns **400 `CreditNote.SapRejected`** and releases the key, so the
+  document can be corrected and sent again under it. A failure that is *not* SAP's own answer — a
+  gateway error, a timeout — keeps the key instead, because the credit note may exist behind it.
+- `POST /api/CreditNote/from-invoice/{invoiceId}` refuses when SAP cannot be asked what the invoice
+  has already been credited. It used to fall back to the local database, which does not hold a
+  credit note whose reply was lost, and so cleared a second full credit note against the invoice.
+
+The local record is written before fiscalisation is attempted, and neither the post nor the save
+runs on the caller's connection: a client that hangs up mid-request no longer leaves a credit note
+in SAP that this side has no record of.
 
 The key must stay stable across retries of one submission and be retired once it succeeds or once
 the submission's content changes — reusing a key with a different payload returns **409
