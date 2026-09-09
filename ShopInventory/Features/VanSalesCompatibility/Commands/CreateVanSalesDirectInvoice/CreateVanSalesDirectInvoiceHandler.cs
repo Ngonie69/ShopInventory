@@ -60,7 +60,7 @@ public sealed class CreateVanSalesDirectInvoiceHandler(
         // The switch says an unstamped van sale may not be accepted. Checking it after the post would
         // "refuse" a sale that already exists in SAP as a real A/R invoice — the handset would be told no,
         // would keep the sale, and the invoice would sit there with nothing pointing at it.
-        if (fiscalisationOptions.Value.RequireStampedVanSales && !command.Request.ClaimsReceiptSequence())
+        if (fiscalisationOptions.Value.RefusesUnstampedVanSales && !command.Request.ClaimsReceiptSequence())
         {
             logger.LogError(
                 "Van sale {Reference} was refused before posting: it carries no fiscal receipt and " +

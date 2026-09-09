@@ -1,11 +1,48 @@
 namespace ShopInventory.Configuration;
 
 /// <summary>
-/// Configuration for the ZIMRA FDMS Fiscalisation platform that replaced REVMax.
+/// Which fiscal device invoices and credit notes are actually filed with.
 /// </summary>
+public enum FiscalisationProvider
+{
+    /// <summary>
+    /// The REVMax device at <c>Revmax:BaseUrl</c>. The ZIMRA-approved path, and the default.
+    /// </summary>
+    Revmax = 0,
+
+    /// <summary>
+    /// The in-house Fiscalisation platform at <c>Fiscalisation:BaseUrl</c>.
+    /// </summary>
+    /// <remarks>
+    /// Awaiting ZIMRA approval. Do not select this in production until that approval is granted:
+    /// receipts it files are filed for real, against a device ZIMRA has not signed off.
+    /// </remarks>
+    Platform = 1
+}
+
+/// <summary>
+/// Configuration for the ZIMRA FDMS Fiscalisation platform.
+/// </summary>
+/// <remarks>
+/// The platform is present but dormant while it awaits ZIMRA approval — <see cref="Provider"/> decides
+/// which implementation <see cref="Services.IFiscalizationService"/> resolves to, and it defaults to
+/// REVMax. Everything below this line configures the platform and has no effect while that is so.
+/// </remarks>
 public class FiscalisationSettings
 {
     public const string SectionName = "Fiscalisation";
+
+    /// <summary>
+    /// Which device fiscalisation actually goes to.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see cref="FiscalisationProvider.Revmax"/>, deliberately: an unset or unparseable
+    /// value must land on the approved device, never on the one waiting for approval.
+    /// </remarks>
+    public FiscalisationProvider Provider { get; set; } = FiscalisationProvider.Revmax;
+
+    /// <summary>Whether the in-house platform is the selected provider.</summary>
+    public bool UsesPlatform => Provider == FiscalisationProvider.Platform;
 
     /// <summary>
     /// Whether fiscalisation is enabled. When false, fiscalisation is skipped and reported as such
@@ -129,6 +166,18 @@ public class FiscalisationSettings
     /// Turn it on once that count reaches zero. After that an unstamped sale is a bug, not a straggler.
     /// </remarks>
     public bool RequireStampedVanSales { get; set; }
+
+    /// <summary>
+    /// Whether an unstamped van sale is actually refused.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="RequireStampedVanSales"/> and the provider together, and every caller must ask this
+    /// one rather than the raw setting. A handset stamps with a device key the in-house platform holds;
+    /// under <see cref="FiscalisationProvider.Revmax"/> no handset can stamp at all, and the server
+    /// fiscalises the sale itself once it arrives. Enforcing the requirement there would refuse every
+    /// van sale in the fleet for want of a signature that cannot exist.
+    /// </remarks>
+    public bool RefusesUnstampedVanSales => UsesPlatform && RequireStampedVanSales;
 
     public FiscalisationPreflightSettings Preflight { get; set; } = new();
 

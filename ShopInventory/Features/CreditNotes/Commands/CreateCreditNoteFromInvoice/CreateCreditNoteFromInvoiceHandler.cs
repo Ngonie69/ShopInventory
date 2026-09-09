@@ -18,8 +18,7 @@ public sealed class CreateCreditNoteFromInvoiceHandler(
     ICreditNoteService creditNoteService,
     IAuditService auditService,
     ISender sender,
-    IFiscalisationApiClient fiscalisationClient,
-    IFiscalDeviceConfigCache fiscalConfigCache,
+    IFiscalReceiptReader fiscalReceiptReader,
     IIdempotencyRequestStore idempotencyRequestStore,
     INotificationService notificationService,
     IOptions<SecuritySettings> securitySettings,
@@ -132,8 +131,7 @@ public sealed class CreateCreditNoteFromInvoiceHandler(
 
             await CreditNoteFiscalTransactionSync.SyncAsync(
                 creditNote,
-                fiscalisationClient,
-                fiscalConfigCache,
+                fiscalReceiptReader,
                 sender,
                 logger,
                 command.UserId.ToString(),

@@ -66,6 +66,9 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
     private readonly RecordingMediator _mediator;
     private readonly FiscalisationSettings _fiscalisation = new()
     {
+        // A handset stamps against a device key the platform holds, and RequireStampedVanSales is
+        // only enforceable where a handset can stamp at all.
+        Provider = FiscalisationProvider.Platform,
         Enabled = true,
         Preflight = new FiscalisationPreflightSettings { Mode = FiscalisationPreflightMode.Local }
     };

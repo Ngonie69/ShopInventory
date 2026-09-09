@@ -227,7 +227,7 @@ public sealed class IngestVanSalesOfflineSalesHandler(
             // The one case worth refusing outright, and only once the fleet can all stamp. Until then
             // refusing would stop a van trading over a handset build its driver cannot change, which
             // costs real takings and makes nobody compliant.
-            if (!stamped && fiscalisationOptions.Value.RequireStampedVanSales)
+            if (!stamped && fiscalisationOptions.Value.RefusesUnstampedVanSales)
             {
                 const string unstampedRefusal =
                     "This sale carries no fiscal receipt. Stamped receipts are now required, so it cannot " +

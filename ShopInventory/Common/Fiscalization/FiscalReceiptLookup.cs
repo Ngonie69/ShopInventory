@@ -8,7 +8,7 @@ namespace ShopInventory.Common.Fiscalization;
 /// <summary>
 /// What the Fiscalisation platform knows about one document.
 /// </summary>
-internal sealed record FiscalReceiptSnapshot(
+public sealed record FiscalReceiptSnapshot(
     bool IsFiscalised,
     int? ReceiptGlobalNo,
     string? QrCode,

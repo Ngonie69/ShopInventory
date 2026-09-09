@@ -17,8 +17,7 @@ internal static class CreditNoteFiscalTransactionSync
 
     public static async Task SyncAsync(
         CreditNoteDto creditNote,
-        IFiscalisationApiClient client,
-        IFiscalDeviceConfigCache configCache,
+        IFiscalReceiptReader reader,
         ISender sender,
         ILogger logger,
         string? userId,
@@ -31,8 +30,24 @@ internal static class CreditNoteFiscalTransactionSync
 
         var docNum = creditNote.SAPDocNum.Value;
 
-        var snapshot = await FiscalReceiptLookup.TryLookupAsync(
-            client, configCache, docNum, ReceiptType.CreditNote, logger, cancellationToken);
+        FiscalReceiptSnapshot? snapshot;
+
+        try
+        {
+            snapshot = await reader.TryLookupAsync(
+                docNum, ReceiptType.CreditNote, logger, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Advisory only: this refreshes a status, and it must not be able to fail the document
+            // that triggered it.
+            logger.LogWarning(ex, "Fiscal receipt read-back failed for credit note {DocNum}", docNum);
+            snapshot = null;
+        }
 
         if (snapshot is null)
         {

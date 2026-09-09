@@ -38,12 +38,11 @@ public sealed class InvoiceFiscalStatusBackfillService(
             try
             {
                 using var scope = serviceScopeFactory.CreateScope();
-                var fiscalisationClient = scope.ServiceProvider.GetRequiredService<IFiscalisationApiClient>();
-                var fiscalConfigCache = scope.ServiceProvider.GetRequiredService<IFiscalDeviceConfigCache>();
+                var fiscalReceiptReader = scope.ServiceProvider.GetRequiredService<IFiscalReceiptReader>();
                 var sender = scope.ServiceProvider.GetRequiredService<ISender>();
 
                 await InvoiceFiscalTransactionSync.SyncAsync(
-                    invoice, fiscalisationClient, fiscalConfigCache, sender, logger, stoppingToken);
+                    invoice, fiscalReceiptReader, sender, logger, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

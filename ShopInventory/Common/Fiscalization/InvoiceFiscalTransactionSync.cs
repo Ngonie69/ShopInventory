@@ -133,8 +133,7 @@ internal static class InvoiceFiscalTransactionSync
 
     public static async Task<bool> SyncAsync(
         InvoiceDto? invoice,
-        IFiscalisationApiClient client,
-        IFiscalDeviceConfigCache configCache,
+        IFiscalReceiptReader reader,
         ISender sender,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -144,8 +143,24 @@ internal static class InvoiceFiscalTransactionSync
             return false;
         }
 
-        var snapshot = await FiscalReceiptLookup.TryLookupAsync(
-            client, configCache, invoice.DocNum, ReceiptType.FiscalInvoice, logger, cancellationToken);
+        FiscalReceiptSnapshot? snapshot;
+
+        try
+        {
+            snapshot = await reader.TryLookupAsync(
+                invoice.DocNum, ReceiptType.FiscalInvoice, logger, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Advisory only: this refreshes a status, and it must not be able to fail the document
+            // that triggered it.
+            logger.LogWarning(ex, "Fiscal receipt read-back failed for invoice {DocNum}", invoice.DocNum);
+            snapshot = null;
+        }
 
         if (snapshot is null)
         {

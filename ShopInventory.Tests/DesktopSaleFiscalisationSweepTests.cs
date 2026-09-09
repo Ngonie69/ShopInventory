@@ -77,7 +77,8 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
     private DesktopSaleFiscalisationSweep BuildSweep(
         Func<FiscalizationResult> respond,
         int callBudget = 50,
-        Func<FiscalizationResult?>? existingReceipt = null)
+        Func<FiscalizationResult?>? existingReceipt = null,
+        FiscalisationProvider provider = FiscalisationProvider.Revmax)
     {
         var calls = 0;
 
@@ -112,6 +113,7 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
             _context,
             fiscaliser,
             Options.Create(new DesktopSalePostingSettings()),
+            Options.Create(new FiscalisationSettings { Provider = provider }),
             NullLogger<DesktopSaleFiscalisationSweep>.Instance);
     }
 
@@ -301,11 +303,44 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
     }
 
     [Fact]
-    public async Task A_van_sale_is_left_to_its_own_route()
+    public async Task A_van_sale_is_left_to_its_own_route_on_the_platform()
     {
-        // Van sales are signed on the handset, not by this sweep. Offering one to the platform here
-        // would submit a receipt that already exists.
+        // Under the in-house platform a van sale is signed on the handset, not by this sweep. Offering
+        // one to the platform here would submit a receipt that already exists.
         Seed("VAN-20260813-0001", sourceSystem: SaleSourceSystems.VanSales);
+        await _context.SaveChangesAsync();
+
+        var result = await BuildSweep(
+                Signed, callBudget: 0, provider: FiscalisationProvider.Platform)
+            .FiscalisePendingSalesAsync(CancellationToken.None);
+
+        Assert.Equal(0, result.Total);
+    }
+
+    [Fact]
+    public async Task A_van_sale_is_fiscalised_by_the_sweep_under_revmax()
+    {
+        // REVMax's device is on the network, not in the van, so no handset can sign and an offline van
+        // sale arrives unstamped. Nothing else fiscalises it: VanSalesEndOfDayPostingService posts it
+        // to SAP and assumes the handset already did. Without this it would reach SAP with no ZIMRA
+        // receipt at all.
+        Seed("VAN-20260813-0002", sourceSystem: SaleSourceSystems.VanSales);
+        await _context.SaveChangesAsync();
+
+        var result = await BuildSweep(Signed).FiscalisePendingSalesAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.Total);
+
+        var sale = await _context.DesktopSales.SingleAsync(s => s.ExternalReferenceId == "VAN-20260813-0002");
+        Assert.Equal(DesktopSaleFiscalizationStatus.Success, sale.FiscalizationStatus);
+    }
+
+    [Fact]
+    public async Task An_online_van_sale_row_is_never_swept()
+    {
+        // KefalosVanSalesOnline rows carry a receipt, not a sale: the sale is already an SAP invoice,
+        // fiscalised in the request that made it. Sweeping one would fiscalise that invoice twice.
+        Seed("VAN-ONLINE-0001", sourceSystem: SaleSourceSystems.VanSalesOnline);
         await _context.SaveChangesAsync();
 
         var result = await BuildSweep(Signed, callBudget: 0).FiscalisePendingSalesAsync(CancellationToken.None);
