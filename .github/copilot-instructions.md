@@ -150,6 +150,15 @@ Other integrations:
   Code that must talk to the platform specifically — the fiscalisation console, handset
   registration, signed-receipt ingest — may take `IFiscalisationApiClient` directly, but must guard
   on `FiscalisationSettings.UsesPlatform`.
+- The van sales fiscal lease (`GetVanSalesFiscalLeaseHandler`) guards on that too, but **answers rather
+  than refusing**, and the distinction is load-bearing. A lease is two halves: the signing half (device,
+  QR url, day, counters), which only the platform can issue and which is omitted entirely under REVMax
+  — a lease naming no device is refused as a signing credential by the handset's own
+  `OfflineSalePolicy`; and the tax half, which is *not* a fiscal-device fact. The handset's
+  `SalesTaxContext` binds those rates into every money figure on every screen, so under REVMax they are
+  built from `Revmax:TaxIdMappings` + `Tax:RatesByTaxCode` instead. Refusing outright drops the fleet
+  onto a single hardcoded percentage and prices zero-rated (`O0`) stock at 15.5%, which looks entirely
+  normal on a handset.
 - Keep PayNow, Innbucks, and Ecocash behind payment gateway abstractions.
 - Keep WhatsApp session mechanics inside `OpenWA`; the .NET API remains the policy and orchestration layer.
 - Preserve health, readiness, and deployment-safe startup behavior.
