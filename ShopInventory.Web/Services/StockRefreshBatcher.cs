@@ -52,6 +52,7 @@ public sealed class StockRefreshBatcher : IDisposable
     private readonly ILogger _logger;
     private readonly Func<StockRefreshBatch, Task> _applyAsync;
     private readonly TimeSpan _window;
+    private readonly TimeProvider _timeProvider;
 
     private readonly object _gate = new();
     private readonly HashSet<string> _pending = new(StringComparer.OrdinalIgnoreCase);
@@ -60,16 +61,22 @@ public sealed class StockRefreshBatcher : IDisposable
     private bool _pumpRunning;
     private bool _disposed;
 
+    // timeProvider is where the coalescing window is measured. Null in the app, so the window is
+    // real time; a test passes a clock it advances itself, which is what makes "everything queued
+    // before the window elapsed rides one call" a fact rather than a race against how long the
+    // queueing took on a loaded machine.
     public StockRefreshBatcher(
         IWarehouseStockCacheService stockCache,
         ILogger logger,
         Func<StockRefreshBatch, Task> applyAsync,
-        TimeSpan? window = null)
+        TimeSpan? window = null,
+        TimeProvider? timeProvider = null)
     {
         _stockCache = stockCache;
         _logger = logger;
         _applyAsync = applyAsync;
         _window = window ?? DefaultWindow;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -188,7 +195,7 @@ public sealed class StockRefreshBatcher : IDisposable
             {
                 // Coalesce the burst. Choosing a source warehouse queues every line at once, and an
                 // operator working down the rows queues one per pick.
-                await Task.Delay(_window, token);
+                await Task.Delay(_window, _timeProvider, token);
 
                 string warehouseCode;
                 HashSet<string> codes;

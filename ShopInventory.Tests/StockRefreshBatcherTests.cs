@@ -21,9 +21,16 @@ namespace ShopInventory.Tests;
 /// </remarks>
 public sealed class StockRefreshBatcherTests
 {
-    // Short enough to keep the suite quick, long enough that a burst queued in a loop lands inside
-    // one window on a loaded CI machine.
+    // The window is measured on a clock this class owns, so its length buys nothing and costs
+    // nothing: it is only the step WaitFor advances that clock by.
     private static readonly TimeSpan Window = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>
+    /// The batcher's clock. Its debounce window elapses when the test says so and not before, which
+    /// is what keeps "these codes were queued inside one window" from being a race against how long
+    /// the queueing loop took on a machine running the rest of the suite alongside it.
+    /// </summary>
+    private readonly ManualClock clock = new();
 
     /// <summary>Records every call: what was asked for, and whether the token was cancelled.</summary>
     private sealed class RecordingStockCache : IWarehouseStockCacheService
@@ -119,18 +126,42 @@ public sealed class StockRefreshBatcherTests
         public event EventHandler<string>? SyncCompleted { add { } remove { } }
     }
 
-    /// <summary>Waits for <paramref name="predicate"/> rather than sleeping a guessed interval.</summary>
-    private static async Task WaitFor(Func<bool> predicate, string what, int timeoutMs = 5000)
+    /// <summary>
+    /// Waits for <paramref name="predicate"/>, letting the debounce window elapse a step at a time.
+    /// </summary>
+    /// <remarks>
+    /// The batcher cannot get past its window without one of these advances, so a test queues
+    /// everything it means to queue and only then calls this: what is pending at that point is what
+    /// the first call carries, however long the queueing took. Real time is here to fail rather
+    /// than hang, and nothing is asserted about it.
+    /// </remarks>
+    private async Task WaitFor(Func<bool> predicate, string what, int timeoutMs = 10000)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-        while (DateTime.UtcNow < deadline)
+        while (true)
         {
             if (predicate())
                 return;
-            await Task.Delay(10);
-        }
 
-        Assert.Fail($"Timed out waiting for {what}.");
+            if (DateTime.UtcNow >= deadline)
+                Assert.Fail($"Timed out waiting for {what}.");
+
+            clock.Advance(Window);
+            await Task.Delay(5);
+        }
+    }
+
+    /// <summary>
+    /// Gives work that must <em>not</em> happen every chance to happen: several windows on the
+    /// batcher's clock, and real turns for anything they set going.
+    /// </summary>
+    private async Task SettleAsync()
+    {
+        for (var i = 0; i < 10; i++)
+        {
+            clock.Advance(Window);
+            await Task.Delay(5);
+        }
     }
 
     // ── One call for the whole form, not one per line ───────────────────────────────────────
@@ -144,7 +175,7 @@ public sealed class StockRefreshBatcherTests
         using var batcher = new StockRefreshBatcher(
             cache, NullLogger.Instance,
             batch => { lock (batches) { batches.Add(batch); } return Task.CompletedTask; },
-            Window);
+            Window, clock);
 
         // What choosing a source warehouse does on a six-line form.
         foreach (var code in new[] { "A1", "B2", "C3", "D4", "E5", "F6" })
@@ -168,7 +199,7 @@ public sealed class StockRefreshBatcherTests
         using var batcher = new StockRefreshBatcher(
             cache, NullLogger.Instance,
             _ => { Interlocked.Increment(ref applied); return Task.CompletedTask; },
-            Window);
+            Window, clock);
 
         // Two lines for the same item, and the operator re-picking one of them.
         batcher.Request("KEFSHOP", "A1");
@@ -192,7 +223,7 @@ public sealed class StockRefreshBatcherTests
         using var batcher = new StockRefreshBatcher(
             cache, NullLogger.Instance,
             batch => { lock (batches) { batches.Add(batch); } return Task.CompletedTask; },
-            Window);
+            Window, clock);
 
         batcher.Request("KEFSHOP", "FIRST");
         await WaitFor(() => cache.Calls.Count == 1, "the first call to start");
@@ -200,8 +231,9 @@ public sealed class StockRefreshBatcherTests
         foreach (var code in new[] { "SECOND", "THIRD", "FOURTH" })
             batcher.Request("KEFSHOP", code);
 
-        // Long enough for a debounce window to elapse: nothing may start while the first call runs.
-        await Task.Delay(Window * 4);
+        // Several windows elapse on the batcher's own clock: nothing may start while the first
+        // call runs, however much rope it is given.
+        await SettleAsync();
         Assert.Single(cache.Calls);
 
         release.SetResult();
@@ -224,7 +256,7 @@ public sealed class StockRefreshBatcherTests
         using var batcher = new StockRefreshBatcher(
             cache, NullLogger.Instance,
             _ => { Interlocked.Increment(ref applied); return Task.CompletedTask; },
-            Window);
+            Window, clock);
 
         for (var i = 0; i < 130; i++)
             batcher.Request("KEFSHOP", $"ITEM{i:000}");
@@ -249,7 +281,7 @@ public sealed class StockRefreshBatcherTests
         using var batcher = new StockRefreshBatcher(
             cache, NullLogger.Instance,
             batch => { lock (batches) { batches.Add(batch); } return Task.CompletedTask; },
-            Window);
+            Window, clock);
 
         batcher.Request("KEFSHOP", "A1");
         await WaitFor(() => cache.Calls.Count == 1, "the first call to start");
@@ -277,7 +309,7 @@ public sealed class StockRefreshBatcherTests
         using var batcher = new StockRefreshBatcher(
             cache, NullLogger.Instance,
             _ => { Interlocked.Increment(ref applied); return Task.CompletedTask; },
-            Window);
+            Window, clock);
 
         batcher.Request("KEFSHOP", "A1");
         await WaitFor(() => cache.Calls.Count == 1, "the call to start");
@@ -285,7 +317,7 @@ public sealed class StockRefreshBatcherTests
         batcher.Cancel();
         release.SetResult();
 
-        await Task.Delay(Window * 6);
+        await SettleAsync();
         Assert.Equal(0, Volatile.Read(ref applied));
     }
 
@@ -301,7 +333,7 @@ public sealed class StockRefreshBatcherTests
         var batcher = new StockRefreshBatcher(
             cache, NullLogger.Instance,
             _ => { Interlocked.Increment(ref applied); return Task.CompletedTask; },
-            Window);
+            Window, clock);
 
         batcher.Request("KEFSHOP", "A1");
         await WaitFor(() => cache.Calls.Count == 1, "the call to start");
@@ -313,7 +345,7 @@ public sealed class StockRefreshBatcherTests
 
         // And a queue on a disposed batcher does nothing at all.
         batcher.Request("KEFSHOP", "B2");
-        await Task.Delay(Window * 4);
+        await SettleAsync();
 
         Assert.Single(cache.Calls);
         Assert.Equal(0, Volatile.Read(ref applied));
@@ -330,7 +362,7 @@ public sealed class StockRefreshBatcherTests
         using var batcher = new StockRefreshBatcher(
             cache, NullLogger.Instance,
             batch => { lock (batches) { batches.Add(batch); } return Task.CompletedTask; },
-            Window);
+            Window, clock);
 
         batcher.Request("KEFSHOP", "A1");
         batcher.Request("KEFSHOP", "B2");
@@ -353,7 +385,7 @@ public sealed class StockRefreshBatcherTests
         using var batcher = new StockRefreshBatcher(
             cache, NullLogger.Instance,
             batch => { lock (batches) { batches.Add(batch); } return Task.CompletedTask; },
-            Window);
+            Window, clock);
 
         batcher.Request("KEFSHOP", "A1");
         await WaitFor(() => batches.Count > 0, "the batch to be applied");
