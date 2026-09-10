@@ -659,6 +659,41 @@
                             <div class="ops-def-v">@selectedSale.PaymentReference</div>
                         </div>
                     }
+                    @* What this sale became in SAP, as a fact rather than only as a line in the
+                       trail — it is the number somebody opens this drawer to copy, and a timeline
+                       entry is not where you go to copy a number.
+
+                       Two routes reach SAP and they write different columns, so both are stated
+                       and neither is left to be inferred from the other's absence. A blank SAP
+                       invoice on a consolidated sale does not mean it never got there; it means
+                       the run's invoice carries it, which is what the sub-line says. *@
+                    @if (selectedSale.SapDocNum.HasValue)
+                    {
+                        <div>
+                            <div class="ops-def-k">SAP invoice</div>
+                            <div class="ops-def-v">#@selectedSale.SapDocNum</div>
+                        </div>
+                    }
+                    @if (selectedSale.ConsolidationId.HasValue)
+                    {
+                        <div>
+                            <div class="ops-def-k">Consolidation run</div>
+                            <div class="ops-def-v">
+                                #@selectedSale.ConsolidationId
+                                @if (!selectedSale.SapDocNum.HasValue)
+                                {
+                                    <div class="ops-sub">carries the SAP invoice for this sale</div>
+                                }
+                            </div>
+                        </div>
+                    }
+                    @if (selectedSale.PostedAt.HasValue)
+                    {
+                        <div>
+                            <div class="ops-def-k">Posted</div>
+                            <div class="ops-def-v">@Full(selectedSale.PostedAt.Value)</div>
+                        </div>
+                    }
                     @* Stated only once the invoice exists. Before that "not attempted" is not news
                        — there is nothing for a payment to settle. *@
                     @if (selectedSale.SapDocNum.HasValue)
