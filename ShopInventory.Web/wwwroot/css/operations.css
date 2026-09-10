@@ -37,7 +37,15 @@
    /desktop-transactions in the nav, so the two agreeing is worth something. The
    `.ops-ds` block at the foot is only what the design genuinely added: a
    right-hand hero meta column, the two day-summary cards with their lane strip,
-   a segmented period picker, and a dot-and-word status.
+   a segmented period picker, a dot-and-word status, and — from the design's
+   second revision — a fully stated detail drawer, with a two-row head, a
+   headline amount, the fiscal block the device signed, and a trail down a rail.
+
+   That drawer is the one place where this page needed rules under
+   `.ops-overlay` rather than `.ops-ds`, and it needed a lot of them: the
+   overlay is a sibling of the page element, so `.ops-ds .ops-ds-trail` reaches
+   nothing. Every drawer part below is scoped `.ops-overlay`, the same way
+   `.ops-ds-state` and `.ops-ds-facts` already were.
 
    Where the design differs from its five siblings is that it does **not** wrap
    the list in `.ops-panel`. The filter row and the table sit on the page ground
@@ -2301,7 +2309,8 @@
     color: var(--ops-accent-text);
 }
 
-.ops-ds .ops-ds-card-label {
+.ops-ds .ops-ds-card-label,
+.ops-overlay .ops-ds-card-label {
     font-size: 10.5px;
     letter-spacing: .12em;
     text-transform: uppercase;
@@ -2330,32 +2339,29 @@
 /* The four lanes. Each reads a family, and so does the strip below them, so a
    lane and its share of the bar cannot end up different colours. */
 
+/* Four columns rather than a wrapping run: they are shares of one whole, and
+   equal tracks let the eye read the four numbers as a comparison. Each lane
+   sits directly under its own segment of the strip above, so the strip is a
+   legend and the lanes need no dots of their own. */
 .ops-ds .ops-ds-lanes {
-    display: flex;
-    gap: 30px;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--ops-s4);
 }
 
 .ops-ds .ops-ds-lane-num {
     font-weight: 500;
-    font-size: 19px;
-    line-height: 1.2;
+    font-size: 24px;
+    line-height: 1.1;
+    letter-spacing: -.02em;
     font-variant-numeric: tabular-nums;
     color: var(--ops-fam, var(--ops-ink-2));
 }
 
 .ops-ds .ops-ds-lane-name {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 2px;
+    margin-top: 5px;
     font-size: 11px;
     color: var(--ops-mute-3);
-}
-
-.ops-ds .ops-ds-lane-name .ops-dot {
-    width: 6px;
-    height: 6px;
 }
 
 .ops-ds .ops-ds-strip {
@@ -2403,6 +2409,21 @@
     font-variant-numeric: tabular-nums;
 }
 
+/* The three money figures close the left card, so they are ruled off from the
+   lanes above them — they are a different question about the same day, not a
+   fifth lane. */
+.ops-ds .ops-ds-aside-ruled {
+    gap: var(--ops-s8);
+    padding-top: var(--ops-s4);
+    border-top: 1px solid var(--ops-rule);
+    font-size: 12px;
+}
+
+.ops-ds .ops-ds-aside-ruled b {
+    font-weight: 500;
+    color: var(--ops-ink-2);
+}
+
 .ops-ds .ops-ds-split {
     height: 1px;
     background: var(--ops-rule);
@@ -2421,17 +2442,22 @@
     gap: var(--ops-s4);
 }
 
-.ops-ds .ops-ds-break-name {
-    flex: 1 1 0;
-    min-width: 0;
+/* A fixed monospace column rather than a name that flexes: the row exists so
+   five bars can be compared, and a ragged name column starts all five of them
+   at a different x. The name is the row's `title`. */
+.ops-ds .ops-ds-break-code {
+    flex: none;
+    width: 68px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-family: var(--ops-mono);
+    font-size: 11px;
     color: var(--ops-mute-2);
 }
 
 .ops-ds .ops-ds-break-track {
-    flex: 0 1 92px;
+    flex: 1 1 0;
     height: 3px;
     border-radius: 999px;
     background: var(--ops-press);
@@ -2465,6 +2491,29 @@
     align-items: flex-end;
     gap: var(--ops-s6) var(--ops-s8);
     flex-wrap: wrap;
+    padding: var(--ops-s4) var(--ops-s6);
+    border-radius: var(--ops-r-md);
+    /* A wash rather than `.ops-ds-card`'s filled surface with its border: the
+       row is a ground for the controls, and an outlined box here would read as
+       a third card under the two above it. */
+    background: color-mix(in srgb, var(--ops-surface) 55%, transparent);
+}
+
+/* The count and Clear ride at the far end of the same row: the count is the
+   answer to these controls, and by the foot of a 50-row page they are off
+   screen together. */
+.ops-ds .ops-ds-filter-tail {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s4);
+    margin-left: auto;
+    padding-bottom: 6px;
+}
+
+.ops-ds .ops-ds-shown {
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+    font-variant-numeric: tabular-nums;
 }
 
 .ops-ds .ops-ds-filters .ops-field {
@@ -2562,9 +2611,44 @@
     white-space: nowrap;
 }
 
-/* Every row opens the drawer. */
+/* Every row opens the drawer, and says so on hover. The mark is drawn always
+   and revealed by opacity rather than inserted on hover: appearing from
+   nothing reflows the last column and nudges the row. */
 .ops-ds .ops-table tbody tr {
     cursor: pointer;
+}
+
+.ops-ds .ops-ds-chev-cell {
+    width: 28px;
+    text-align: right;
+}
+
+.ops-ds .ops-ds-chev {
+    font-size: 13px;
+    color: var(--ops-accent-text);
+    opacity: 0;
+    transform: translateX(-4px);
+    transition: opacity .16s ease, transform .16s ease;
+}
+
+.ops-ds .ops-table tbody tr:hover .ops-ds-chev,
+.ops-ds .ops-table tbody tr:focus-within .ops-ds-chev,
+.ops-ds .ops-table tbody tr.is-open .ops-ds-chev {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+/* The row the drawer is showing keeps the hover paint, so it is findable
+   behind the drawer on a wide screen. */
+.ops-ds .ops-table tbody tr.is-open td {
+    background: var(--ops-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ops-ds .ops-ds-chev {
+        transition: none;
+        transform: none;
+    }
 }
 
 .ops-ds .ops-table thead th:first-child,
@@ -2722,6 +2806,223 @@
 
 .ops-ds .ops-ds-foot-info {
     font-variant-numeric: tabular-nums;
+}
+
+/* ── The detail drawer ─────────────────────────────────────────────────── */
+/* Wider than the shared 420px: the design's drawer carries a fact grid, the
+   sale's lines, the fiscal block and the trail, and at 420px the lines table
+   is the only one of the four that fits. */
+
+.ops-overlay .ops-ds-drawer {
+    width: min(560px, 100%);
+}
+
+/* `.ops-drawer-head` is one centred flex row; this head is two rows — the
+   reference against its controls, then the marks across the full width. */
+.ops-overlay .ops-ds-dhead {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    row-gap: var(--ops-s4);
+}
+
+.ops-overlay .ops-ds-dhead-id {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+/* Wraps rather than truncates: a device-issued reference is what someone
+   matches against a paper receipt, and half of one matches nothing. */
+.ops-overlay .ops-ds-dhead-ref {
+    font-family: var(--ops-mono);
+    font-size: 13px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    color: var(--ops-ink);
+}
+
+.ops-overlay .ops-ds-dnav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: none;
+}
+
+.ops-overlay .ops-ds-dtags {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3) var(--ops-s4);
+    flex-wrap: wrap;
+}
+
+.ops-overlay .ops-ds-dwhen {
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* The amount, and what was handed over for it. */
+.ops-overlay .ops-ds-headline {
+    display: flex;
+    align-items: baseline;
+    gap: var(--ops-s4);
+    flex-wrap: wrap;
+}
+
+.ops-overlay .ops-ds-headline b {
+    font-weight: 500;
+    font-size: 30px;
+    line-height: 1.1;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-overlay .ops-ds-headline span {
+    font-size: 12px;
+    color: var(--ops-mute-3);
+}
+
+/* A titled section of the drawer body. The body's own gap separates sections;
+   this one holds a heading to its content. */
+.ops-overlay .ops-ds-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s3);
+    min-width: 0;
+}
+
+.ops-overlay .ops-ds-sum {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: var(--ops-s2);
+    font-size: 13px;
+}
+
+.ops-overlay .ops-ds-sum>div {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--ops-s6);
+    color: var(--ops-mute-2);
+}
+
+.ops-overlay .ops-ds-sum>div span:last-child {
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-overlay .ops-ds-sum-total {
+    padding-top: 7px;
+    border-top: 1px solid var(--ops-rule);
+    font-weight: 500;
+    color: var(--ops-ink);
+}
+
+/* The verification link, inside the QR panel. The plate answers a phone; this
+   answers a desk, and it is the same URL either way. */
+
+.ops-overlay .ops-ds-verify {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: none;
+    font-size: 12px;
+    color: var(--ops-accent-text);
+    text-decoration: none;
+}
+
+.ops-overlay .ops-ds-verify:hover {
+    text-decoration: underline;
+}
+
+.ops-overlay .ops-ds-verify i {
+    font-size: 12px;
+}
+
+/* ── The trail ─────────────────────────────────────────────────────────── */
+/* Four steps down a rail. The mark carries the family; the label stays ink so
+   the column does not become four colours, except where the family is the
+   whole point — a step that failed, or one that will never happen. */
+
+.ops-overlay .ops-ds-trail {
+    display: flex;
+    flex-direction: column;
+}
+
+.ops-overlay .ops-ds-trail-step {
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr);
+    gap: var(--ops-s4);
+}
+
+.ops-overlay .ops-ds-trail-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.ops-overlay .ops-ds-trail-mark {
+    width: 9px;
+    height: 9px;
+    flex: none;
+    margin-top: 5px;
+    border-radius: 999px;
+    background: var(--ops-fam, var(--ops-mute-3));
+}
+
+/* The step the sale is actually sitting on. */
+.ops-overlay .ops-ds-trail-mark.is-now {
+    box-shadow: 0 0 0 3px rgba(var(--ops-fam-rgb, 94, 100, 131), .22);
+}
+
+/* The connector. `flex: 1` needs a definite height to fill, which it has: the
+   rail is a grid item stretched to the row that the body's text sets.
+
+   `--ops-divider`, not `--ops-rule`: the rule token is an 8% wash, which is
+   right for a full-width line between blocks and disappears entirely at one
+   pixel wide. Measured, not guessed — it rendered at the correct 38px height
+   and was invisible in both themes. */
+.ops-overlay .ops-ds-trail-rail::after {
+    content: "";
+    flex: 1;
+    width: 1px;
+    margin-top: 4px;
+    background: var(--ops-divider);
+}
+
+.ops-overlay .ops-ds-trail-step:last-child .ops-ds-trail-rail::after {
+    content: none;
+}
+
+.ops-overlay .ops-ds-trail-body {
+    padding-bottom: var(--ops-s6);
+}
+
+.ops-overlay .ops-ds-trail-step:last-child .ops-ds-trail-body {
+    padding-bottom: 0;
+}
+
+.ops-overlay .ops-ds-trail-label {
+    font-size: 13px;
+    color: var(--ops-ink-2);
+}
+
+.ops-overlay .ops-ds-trail-step.ops-fam-bad .ops-ds-trail-label,
+.ops-overlay .ops-ds-trail-step.ops-fam-warn .ops-ds-trail-label {
+    color: var(--ops-fam);
+}
+
+.ops-overlay .ops-ds-trail-step.ops-fam-neutral .ops-ds-trail-label {
+    color: var(--ops-mute-3);
+}
+
+.ops-overlay .ops-ds-trail-meta {
+    margin-top: 2px;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--ops-mute-3);
 }
 
 /* ── The consolidation dialog ──────────────────────────────────────────── */
@@ -2919,6 +3220,25 @@
 
     .ops-ds .ops-ds-summary {
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    /* Four 24px numbers do not fit a phone; two rows of two do, and they still
+       read against the strip above them. */
+    .ops-ds .ops-ds-lanes {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--ops-s6) var(--ops-s4);
+    }
+
+    .ops-ds .ops-ds-filter-tail {
+        flex: 1 1 100%;
+        justify-content: space-between;
+        margin-left: 0;
+        padding-bottom: 0;
+    }
+
+    /* The hover cue has no hover to wait for. */
+    .ops-ds .ops-ds-chev-cell {
+        display: none;
     }
 
     .ops-ds .ops-ds-hero-side {

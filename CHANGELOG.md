@@ -90,6 +90,12 @@ otherwise be surprised.
   derived `canPostToSap`. Existing fields are unchanged, so a client that ignores these is
   unaffected.
 
+  `sapDocNum` and `postedAt` stay null for a sale the **end-of-day run** closed rather than the
+  per-sale posting job: that run folds a customer's sales into one consolidated invoice and stamps
+  the document number on the consolidation, so `consolidationId` is what names the invoice in that
+  case. A reader that treats a null `sapDocNum` as "never reached SAP" will be wrong for exactly
+  those rows.
+
 - **`CreditNoteDto` carries `fiscalQrCode`.** The fiscal transaction row has always held the ZIMRA
   verification QR for a credit note's receipt; the projector had nowhere to put it, so credit note
   responses could say a receipt existed but never showed it. Invoices already carried theirs.
