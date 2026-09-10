@@ -103,6 +103,13 @@ public class IdempotencyMiddleware
             // quotations before posting and among SAP DocEntries after, so a retry is answered with
             // the quotation rather than raising another.
             "POST /api/quotation",
+            // PostDesktopSalesToSapHandler posts a named set of sales, each under its own claim in
+            // IDesktopSalePostGuard, and answers with a row per sale saying whether it was posted,
+            // was already in SAP, or was left alone. A batch can outlive the caller's timeout while
+            // still posting, so re-sending it is the intended remedy — and replaying a remembered
+            // status here instead would hide exactly the per-sale outcomes the resend was asking
+            // for.
+            "POST /api/desktopintegration/sales/post-batch",
     };
 
     // The same, for routes whose path carries a variable segment. Matched on both ends because that
@@ -131,6 +138,12 @@ public class IdempotencyMiddleware
             // note it became). The middleware's bare message would lose both.
             ("POST /api/credit-note-approvals/", "/decision"),
             ("POST /api/credit-note-approvals/", "/add"),
+            // One sale's manual post to SAP. The handler claims the sale in IDesktopSalePostGuard
+            // before anything reaches SAP and completes with the invoice, so a repeat is answered
+            // with the document that exists. That claim is also what the background pass and a
+            // second operator collide on, which a per-client header key could never do. The batch
+            // route is an exact match above and does not reach here.
+            ("POST /api/desktopintegration/sales/", "/post"),
     };
 
     // And for routes whose variable segment is the last one, where there is no suffix to match

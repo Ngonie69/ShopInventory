@@ -287,6 +287,7 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
             sap.Client,
             new SapCircuitBreakerState(Options.Create(new SAPSettings())),
             new StockLedger(_context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance),
+            SalePostGuards.Backed(_connection),
             Options.Create(new VanSalesPostingSettings()),
             NullLogger<VanSalesEndOfDayPostingService>.Instance)
             .PostPendingSalesAsync(Day);

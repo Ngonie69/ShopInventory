@@ -379,6 +379,7 @@ public sealed class ExceptionCenterVanSalePostingTests : IDisposable
                 _sap.Client,
                 _circuit,
                 new StockLedger(_context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance),
+                SalePostGuards.Backed(_connection),
                 Options.Create(new VanSalesPostingSettings()),
                 NullLogger<VanSalesEndOfDayPostingService>.Instance),
             StubProxy.Unused<MediatR.IMediator>(),

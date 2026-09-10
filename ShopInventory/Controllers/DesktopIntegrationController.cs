@@ -53,6 +53,8 @@ using ShopInventory.Features.DesktopIntegration.Queries.ValidateStockAvailabilit
 using ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
 using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
+using ShopInventory.Features.DesktopIntegration.Commands.PostDesktopSaleToSap;
+using ShopInventory.Features.DesktopIntegration.Commands.PostDesktopSalesToSap;
 using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Features.DesktopIntegration.Commands.TriggerTransferListenerCheck;
@@ -933,6 +935,65 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
             new GetDesktopSalesQuery(
                 userId.Value, warehouseCode, cardCode, consolidationStatus, fromDate, toDate, page, pageSize, sourceSystem),
             cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Post one held sale to SAP now, instead of waiting for the pass that would.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Gated like the consolidation below, and for the same reason: the class-level "ApiAccess"
+    /// policy admits every staff role, and this creates an A/R invoice. It is additionally scoped to
+    /// the caller's own shop inside the handler, so a shop-scoped cashier cannot post another shop's
+    /// takings.
+    /// </para>
+    /// <para>
+    /// Safe to send twice. The handler claims the sale before anything reaches SAP, so a repeat is
+    /// answered with the invoice the first attempt created rather than raising a second — see
+    /// <c>IDesktopSalePostGuard</c>. The route is registered in
+    /// <see cref="Middleware.IdempotencyMiddleware"/>'s handler-owned set so that a client which does
+    /// send an <c>Idempotency-Key</c> gets that answer rather than the middleware's bare message.
+    /// </para>
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager,Cashier,ApiUser")]
+    [HttpPost("sales/{externalReference}/post")]
+    public async Task<IActionResult> PostDesktopSaleToSap(
+        string externalReference,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new PostDesktopSaleToSapCommand(userId.Value, externalReference), cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Post a chosen set of held sales to SAP, one invoice each.
+    /// </summary>
+    /// <remarks>
+    /// Answers 200 with a row per sale rather than failing on the first refusal: each sale becomes
+    /// its own SAP document, so there is nothing to roll back and an all-or-nothing status could only
+    /// misdescribe what happened. A caller reads the outcomes.
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager,Cashier,ApiUser")]
+    [HttpPost("sales/post-batch")]
+    public async Task<IActionResult> PostDesktopSalesToSap(
+        [FromBody] PostDesktopSalesRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new PostDesktopSalesToSapCommand(userId.Value, request.ExternalReferenceIds ?? []),
+            cancellationToken);
+
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

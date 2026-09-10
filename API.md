@@ -2798,6 +2798,8 @@ transfers is `transfer-queue`, separate from the invoice `queue`.
 |--------|----------|-------------|
 | POST | `/api/DesktopIntegration/sales` | Record a desktop sale |
 | GET | `/api/DesktopIntegration/sales` | The sales (`warehouseCode`, `cardCode`, `consolidationStatus`, `fromDate`, `toDate`, `page` 1, `pageSize` 50) |
+| POST | `/api/DesktopIntegration/sales/{externalReference}/post` | Post one held sale to SAP now |
+| POST | `/api/DesktopIntegration/sales/post-batch` | Post a named set of held sales, one invoice each (`externalReferenceIds`, at most 50) |
 | POST | `/api/DesktopIntegration/end-of-day/consolidate` | Consolidate the day's sales |
 | GET | `/api/DesktopIntegration/end-of-day/report` | The day's report (`reportDate`) |
 | POST | `/api/DesktopIntegration/end-of-day/email-report` | Email it (`reportDate`) |
@@ -2814,6 +2816,33 @@ Both were 201 until 10 September 2026, and the mismatch was only refused inside 
 window, so a reference reused the next day was answered with the previous day's invoice under a 201
 that a client could not tell from a creation. Sales created before that date carry no request
 fingerprint and are still replayed without the comparison; the server logs when it does so.
+
+**Posting is not consolidating.** Consolidating is the end-of-day run that folds a day's
+legacy-desktop sales into one invoice per customer. The two posting routes send till, vending and van
+sales to SAP as one A/R invoice each — the same thing the background pass does every minute, asked
+for now. They exist because the pass gives up after a few attempts, and a sale it has parked is
+invisible to every later pass; a person pressing Post has usually just fixed whatever SAP was
+refusing, so the attempt cap is deliberately not applied. Nothing else is relaxed.
+
+Both are **safe to send twice**. Each sale is claimed in `IDesktopSalePostGuard` — a durable,
+cross-instance claim keyed on the sale's own external reference — before anything reaches SAP, so a
+repeat is answered with the invoice the first attempt created rather than raising a second, and a
+person pressing Post while the background pass is mid-post is refused rather than allowed to run
+alongside it. That matters more here than the wording suggests: the customer already holds a ZIMRA
+receipt, so a duplicate SAP invoice can only be undone by a manual credit note.
+
+The batch answers **200 with a row per sale**, not a single status: each sale becomes its own SAP
+document, there is nothing to roll back, and an all-or-nothing status could only misdescribe what
+happened. Each row carries an `outcome` of `Posted`, `AlreadyInSap`, `InProgress` (another post holds
+the claim), `Failed` (SAP refused it) or `NotPostable`, with `sapDocEntry`/`sapDocNum` where one
+exists. A batch that outlives the caller's timeout keeps posting; re-sending it is the intended
+remedy. An account that may not post the sales at all is refused the whole request rather than
+reported row by row, because that is a statement about the caller and would be true of every row.
+
+Which sales may be posted is decided by `DesktopSalePostEligibility`, and the sales list reports it
+per row as `postRefusal` (null when the sale may be posted) so a client offers a button exactly where
+the command would accept one. Both routes are additionally scoped to the caller's own shop, so a
+shop-scoped account cannot post another shop's takings.
 
 The vendor route takes **no business partner and accepts none**. It reads the code off the
 signed-in account through `SellingAccountResolver` — the same value `POST .../sales` resolves

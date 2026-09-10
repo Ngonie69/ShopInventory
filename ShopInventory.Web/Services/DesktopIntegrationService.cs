@@ -40,6 +40,15 @@ public interface IDesktopIntegrationService
     Task<bool> TriggerStockFetchAsync();
     Task<bool> TriggerConsolidationAsync();
 
+    // Posting held sales to SAP by hand. Both return the API's own refusal rather than a bool: every
+    // one of them is a sentence the operator has to read — "not fiscalised yet", "already in SAP",
+    // "somebody else is posting this" — and a false would collapse them all into "it didn't work".
+    Task<(DesktopSalePostResultDto? Result, string? Error)> PostSaleToSapAsync(
+        string externalReference, CancellationToken cancellationToken = default);
+
+    Task<(DesktopSalesBulkPostResultDto? Result, string? Error)> PostSalesToSapAsync(
+        IReadOnlyList<string> externalReferences, CancellationToken cancellationToken = default);
+
     // Prices
     Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum, bool forceRefresh = false);
     Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode);
@@ -382,6 +391,101 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         }
     }
 
+    public async Task<(DesktopSalePostResultDto? Result, string? Error)> PostSaleToSapAsync(
+        string externalReference, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync(
+                $"api/DesktopIntegration/sales/{Uri.EscapeDataString(externalReference)}/post",
+                null,
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                // The API's own words. Every refusal on this route names the sale and says what is
+                // wrong with it — not fiscalised, already in SAP, being posted by somebody else — and
+                // a generic "the post failed" would throw away the only part the operator can act on.
+                return (null, await ReadProblemDetailAsync(response, cancellationToken));
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<DesktopSalePostResultDto>(cancellationToken);
+            return result is null
+                ? (null, "The API accepted the post but returned nothing to show for it.")
+                : (result, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error posting desktop sale {ExternalReference} to SAP", externalReference);
+            return (null, $"The post could not be sent: {ex.Message}");
+        }
+    }
+
+    public async Task<(DesktopSalesBulkPostResultDto? Result, string? Error)> PostSalesToSapAsync(
+        IReadOnlyList<string> externalReferences, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync(
+                "api/DesktopIntegration/sales/post-batch",
+                new { ExternalReferenceIds = externalReferences },
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return (null, await ReadProblemDetailAsync(response, cancellationToken));
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<DesktopSalesBulkPostResultDto>(cancellationToken);
+            return result is null
+                ? (null, "The API accepted the batch but returned nothing to show for it.")
+                : (result, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error posting {Count} desktop sales to SAP", externalReferences.Count);
+
+            // A batch can outlive the client's timeout while still posting, so this is deliberately
+            // not phrased as a failure. Re-pressing is safe — the sales that made it replay their
+            // documents rather than raising a second — and saying so is more useful than an error.
+            return (null,
+                $"The batch could not be completed from here: {ex.Message}. Refresh to see what reached SAP, "
+                + "then post whatever is still awaiting close — anything already posted will not be posted twice.");
+        }
+    }
+
+    /// <remarks>
+    /// Prefers <c>detail</c> over <c>title</c>: the API's ProblemDetails carries the domain error's
+    /// own sentence in detail, while title is the generic status name.
+    /// </remarks>
+    private static async Task<string> ReadProblemDetailAsync(
+        HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var problem = await response.Content.ReadFromJsonAsync<ProblemShape>(cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(problem?.Detail))
+            {
+                return problem.Detail;
+            }
+
+            return string.IsNullOrWhiteSpace(problem?.Title)
+                ? $"The API refused the post ({(int)response.StatusCode})."
+                : problem.Title;
+        }
+        catch
+        {
+            return $"The API refused the post ({(int)response.StatusCode}).";
+        }
+    }
+
+    private sealed class ProblemShape
+    {
+        public string? Title { get; set; }
+        public string? Detail { get; set; }
+    }
+
     #endregion
 
     #region Prices
@@ -580,6 +684,23 @@ public class DesktopSaleDto
     public string Currency { get; set; } = "ZWG";
     public string FiscalizationStatus { get; set; } = string.Empty;
     public string? FiscalReceiptNumber { get; set; }
+
+    // --- The receipt the device issued ---
+    //
+    // Sent by the API's DesktopSaleListItemDto and, until the drawer grew a QR panel, dropped on the
+    // floor here. The sale's receipt is the only place these live: it was signed under the sale's own
+    // external reference rather than a SAP document number, so the invoice this sale becomes carries
+    // no QR of its own to fall back on.
+    //
+    // Every one of these is nullable because the API's is. A `string` here against a `string?` there
+    // makes System.Text.Json throw on the whole response, and the page reports "no data" rather than
+    // the one field that disagreed.
+
+    public string? FiscalQRCode { get; set; }
+    public string? FiscalVerificationCode { get; set; }
+    public string? FiscalDeviceNumber { get; set; }
+    public string? FiscalDayNo { get; set; }
+
     public string ConsolidationStatus { get; set; } = string.Empty;
     public int? ConsolidationId { get; set; }
     public string WarehouseCode { get; set; } = string.Empty;
@@ -588,7 +709,114 @@ public class DesktopSaleDto
     public decimal AmountPaid { get; set; }
     public string? CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    // --- Where the sale got to on its way to SAP ---
+
+    public int? SapDocEntry { get; set; }
+    public int? SapDocNum { get; set; }
+    public DateTime? PostedAt { get; set; }
+    public int PostingAttempts { get; set; }
+    public string? LastPostingError { get; set; }
+    public string? PaymentStatus { get; set; }
+    public int? PaymentSapDocNum { get; set; }
+
+    /// <summary>
+    /// Why this sale may not be posted on request, or null when it may be.
+    /// </summary>
+    /// <remarks>
+    /// Decided by the API, deliberately. The rule is a real one — which sources post per sale, which
+    /// reach SAP through the consolidation, when an unfiscalised sale must not be invoiced — and a
+    /// copy of it here would be a second rule able to offer a button the API then refuses.
+    /// </remarks>
+    public string? PostRefusal { get; set; }
+
+    /// <summary>Whether the console should offer this sale a "Post to SAP" button.</summary>
+    /// <remarks>
+    /// Derived from <see cref="PostRefusal"/> rather than read off the wire, so the button and the
+    /// reason beside it cannot disagree.
+    /// </remarks>
+    public bool CanPostToSap => string.IsNullOrWhiteSpace(PostRefusal);
+
     public List<DesktopSaleLineDto> Lines { get; set; } = new();
+}
+
+/// <summary>
+/// What posting one sale to SAP did. Mirrors the API's <c>DesktopSalePostResult</c>.
+/// </summary>
+public class DesktopSalePostResultDto
+{
+    public string ExternalReferenceId { get; set; } = string.Empty;
+
+    /// <summary>One of <see cref="DesktopSalePostOutcomes"/>.</summary>
+    public string Outcome { get; set; } = string.Empty;
+
+    public int? SapDocEntry { get; set; }
+    public int? SapDocNum { get; set; }
+    public string? Message { get; set; }
+}
+
+/// <summary>
+/// The values <see cref="DesktopSalePostResultDto.Outcome"/> takes, spelled as the API spells them.
+/// </summary>
+/// <remarks>
+/// Constants rather than an enum on this side. The API sends these as strings, and an enum would
+/// turn a value this build has not heard of into a deserialization failure — losing the whole batch's
+/// outcomes over one row.
+/// </remarks>
+public static class DesktopSalePostOutcomes
+{
+    public const string Posted = "Posted";
+    public const string AlreadyInSap = "AlreadyInSap";
+    public const string InProgress = "InProgress";
+    public const string Failed = "Failed";
+    public const string NotPostable = "NotPostable";
+}
+
+/// <summary>
+/// The values <c>DesktopSaleDto.PaymentStatus</c> takes, as the API writes them.
+/// </summary>
+/// <remarks>
+/// Mirrored from the API's <c>DesktopSalePaymentStatuses</c>, which lives in a project this one does
+/// not reference. Anything not listed here is a status this build predates, and the page renders it
+/// as "not settled yet" rather than falling over — the settlement line is context, not the reason
+/// the drawer was opened.
+/// </remarks>
+public static class DesktopSalePaymentStatuses
+{
+    public const string Posted = "Posted";
+
+    /// <summary>SAP already showed the invoice settled, so no payment was sent.</summary>
+    public const string PostedUnconfirmed = "PostedUnconfirmed";
+
+    public const string Failed = "Failed";
+
+    /// <summary>The tender has no SAP payment means, or a swipe has no configured card code.</summary>
+    public const string Unmapped = "Unmapped";
+}
+
+/// <summary>
+/// What a bulk post did, sale by sale. Mirrors the API's <c>DesktopSalesBulkPostResult</c>.
+/// </summary>
+/// <remarks>
+/// The counts are recomputed from <see cref="Results"/> rather than read off the wire, for the same
+/// reason the API derives them: a summary that can disagree with the rows beneath it eventually does.
+/// </remarks>
+public class DesktopSalesBulkPostResultDto
+{
+    public List<DesktopSalePostResultDto> Results { get; set; } = new();
+
+    public int Requested => Results.Count;
+    public int Posted => Count(DesktopSalePostOutcomes.Posted);
+    public int AlreadyInSap => Count(DesktopSalePostOutcomes.AlreadyInSap);
+    public int InProgress => Count(DesktopSalePostOutcomes.InProgress);
+    public int Failed => Count(DesktopSalePostOutcomes.Failed);
+    public int NotPostable => Count(DesktopSalePostOutcomes.NotPostable);
+
+    /// <summary>Everything SAP now holds, however it got there.</summary>
+    public int InSap => Posted + AlreadyInSap;
+
+    private int Count(string outcome) =>
+        Results.Count(result => string.Equals(result.Outcome, outcome, StringComparison.Ordinal));
 }
 
 public class DesktopSaleLineDto
