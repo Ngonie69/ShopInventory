@@ -165,16 +165,16 @@ public partial class VanSalesCustomerOrders
     /// </summary>
     /// <remarks>
     /// "Awaiting delivery" is accent rather than warn: it is the ordinary open state of an order,
-    /// not something wrong. Cancelled is neutral for the mirror of that reason — a shop calling
-    /// off an order is a normal outcome, and colouring it red would put it next to the one status
-    /// that does need chasing, which is an order that expired undelivered.
+    /// not something wrong. Cancelled is warn, alongside "Part delivered" — both are orders that
+    /// did not go the way they were placed and are worth an eye, which is what warn says here.
+    /// Bad is kept for the one status nobody chose: an order that expired undelivered.
     /// </remarks>
     private static string StatusFamily(VanSalesOrderStatusModel status) => status switch
     {
         VanSalesOrderStatusModel.Accepted => "accent",
         VanSalesOrderStatusModel.Fulfilled => "good",
         VanSalesOrderStatusModel.PartiallyFulfilled => "warn",
-        VanSalesOrderStatusModel.Cancelled => "neutral",
+        VanSalesOrderStatusModel.Cancelled => "warn",
         VanSalesOrderStatusModel.Expired => "bad",
         _ => "neutral"
     };
