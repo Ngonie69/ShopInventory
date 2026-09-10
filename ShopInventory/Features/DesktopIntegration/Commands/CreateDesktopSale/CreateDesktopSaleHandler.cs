@@ -305,6 +305,88 @@ public sealed class CreateDesktopSaleHandler(
         return null;
     }
 
+    /// <summary>
+    /// The VAT group each of these items is sold under, from the local copy of the item master.
+    /// </summary>
+    /// <remarks>
+    /// The local copy and never SAP directly. Reading the item master costs a paged sweep of every
+    /// valid item against a concurrency limit shared with everything else the process does, and a
+    /// customer at a counter is the worst person to charge for it — <see cref="SapItemTaxGroupWarmJob"/>
+    /// pays it nightly instead.
+    ///
+    /// <para>
+    /// Empty on any failure, and empty is safe: a line with no answer keeps whatever the request
+    /// said, which is what every line had before this existed. A sale is never refused over a tax
+    /// lookup — the customer is at the counter and the basket is already rung up.
+    /// </para>
+    /// </remarks>
+    private async Task<Dictionary<string, string>> ResolveVatGroupsAsync(
+        IEnumerable<string?> itemCodes,
+        CancellationToken ct)
+    {
+        var codes = itemCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (codes.Count == 0)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        try
+        {
+            var rows = await context.SapItemTaxGroups
+                .AsNoTracking()
+                .Where(row => codes.Contains(row.ItemCode))
+                .ToListAsync(ct);
+
+            var resolved = rows
+                .GroupBy(row => row.ItemCode, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().VatGroup, StringComparer.OrdinalIgnoreCase);
+
+            // Named, not counted. An item with no VAT group is sold at the standard rate, so this is
+            // the line that says which customer was overcharged and on what - and the first sign
+            // that the nightly warm has not run or that an item is newer than its last pass.
+            var missing = codes.Where(code => !resolved.ContainsKey(code)).ToList();
+            if (missing.Count > 0)
+            {
+                logger.LogWarning(
+                    "No VAT group stored for {Count} item(s) on this sale: {Items}. They are taxed at "
+                    + "the standard rate, which is wrong for anything zero-rated or exempt.",
+                    missing.Count, string.Join(", ", missing));
+            }
+
+            return resolved;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex, "Could not read item VAT groups; this sale is taxed at the standard rate throughout.");
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>
+    /// The tax code one line is charged and declared under.
+    /// </summary>
+    /// <remarks>
+    /// The item master first. What the request asked for stands in only where the master has no
+    /// answer, which keeps a sale behaving exactly as it did before this lookup existed rather than
+    /// changing what an unresolved line is charged.
+    /// </remarks>
+    internal static string? TaxCodeFor(
+        CreateDesktopSaleLineRequest line,
+        IReadOnlyDictionary<string, string> vatGroups)
+    {
+        var itemCode = line.ItemCode?.Trim();
+
+        return !string.IsNullOrEmpty(itemCode) && vatGroups.TryGetValue(itemCode, out var vatGroup)
+            ? vatGroup
+            : line.TaxCode;
+    }
+
     private async Task<ErrorOr<DesktopSaleResponseDto>> ValidateDeductAndCreateSaleAsync(
         CreateDesktopSaleRequest req,
         string externalRef,
@@ -341,6 +423,14 @@ public sealed class CreateDesktopSaleHandler(
 
         var tax = taxSettings.Value;
 
+        // What each item is actually taxed at, from the item master's own VAT group.
+        //
+        // A till sends no tax code and should not: it has no source for one, and a tax code arriving
+        // from a client is a tax code a client can get wrong. Without this every line fell to the
+        // standard rate, so a zero-rated item was charged 15.5% the customer did not owe and the
+        // receipt declared to ZIMRA said the same thing.
+        var vatGroups = await ResolveVatGroupsAsync(req.Lines.Select(l => l.ItemCode), ct);
+
         // Calculate totals
         var lines = req.Lines.Select((l, idx) =>
         {
@@ -362,10 +452,13 @@ public sealed class CreateDesktopSaleHandler(
                 UnitPrice = l.UnitPrice,
                 LineTotal = lineTotal,
                 WarehouseCode = l.WarehouseCode,
-                TaxCode = l.TaxCode,
+                // The master's answer wins over the request's. Nothing that reaches this handler
+                // sends a tax code today, and the day something does, the item master is still the
+                // one that decides what an item is taxed at.
+                TaxCode = TaxCodeFor(l, vatGroups),
                 // Recorded on the line, not just implied by the total, so the basket can be explained
                 // afterwards and the receipt can be rebuilt without re-deriving it.
-                TaxPercent = tax.RateFor(l.TaxCode) * 100m,
+                TaxPercent = tax.RateFor(TaxCodeFor(l, vatGroups)) * 100m,
                 DiscountPercent = l.DiscountPercent,
                 UoMCode = l.UoMCode
             };
@@ -377,6 +470,7 @@ public sealed class CreateDesktopSaleHandler(
         // and exempt goods — the customer is overcharged, and the receipt declared to ZIMRA says
         // something the basket does not.
         var vatAmount = lines.Sum(l => tax.VatOn(l.LineTotal, l.TaxCode));
+
         var totalAmount = subtotal + vatAmount;
 
         // Create the sale entity

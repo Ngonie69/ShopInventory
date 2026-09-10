@@ -102,6 +102,10 @@ public static class QuartzConfiguration
             // with anything a person is waiting on.
             AddCronJob<SapItemUomWarmJob>(q, "sap-item-uom-warm", "0 30 3 * * ?");
 
+            // After the UoM warm rather than alongside it: both sweep SAP, and the item master read
+            // here is the wider of the two.
+            AddCronJob<SapItemTaxGroupWarmJob>(q, "sap-item-tax-group-warm", "0 45 3 * * ?");
+
             if (dailyStock.EnableAutoStockFetch)
             {
                 AddCronJob<DailyStockSnapshotJob>(q, "daily-stock-snapshot", BuildDailyCron(dailyStock.StockFetchTimeCAT, "07:00"));
