@@ -57,6 +57,9 @@ public sealed class VanSalesSignedReceiptIngestTests : IDisposable
             // and a platform preflight would be a second call to assert around in every one of them.
             Options.Create(new FiscalisationSettings
             {
+                // Signed handset receipts are the platform's model: REVMax's device signs
+                // everything itself and has no ingest route at all.
+                Provider = FiscalisationProvider.Platform,
                 Enabled = true,
                 Preflight = new FiscalisationPreflightSettings { Mode = FiscalisationPreflightMode.Local }
             }),

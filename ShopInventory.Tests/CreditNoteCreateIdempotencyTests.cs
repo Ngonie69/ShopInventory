@@ -12,6 +12,7 @@ using ShopInventory.Features.Notifications;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Tests;
@@ -365,8 +366,7 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
             BuildService(),
             StubProxy.For<IAuditService>((_, _) => Task.CompletedTask),
             StubProxy.Unused<MediatR.ISender>(),
-            StubProxy.Unused<IFiscalisationApiClient>(),
-            StubProxy.Unused<IFiscalDeviceConfigCache>(),
+            StubProxy.Unused<IFiscalReceiptReader>(),
             _store,
             StubProxy.For<INotificationService>((_, _) => Task.FromResult(new NotificationDto())),
             Options.Create(new SecuritySettings()),

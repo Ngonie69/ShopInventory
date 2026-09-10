@@ -19,8 +19,7 @@ namespace ShopInventory.Features.Invoices.Queries.GetInvoiceByDocNum;
 public sealed class GetInvoiceByDocNumHandler(
     ApplicationDbContext db,
     ISAPServiceLayerClient sapClient,
-    IFiscalisationApiClient fiscalisationClient,
-    IFiscalDeviceConfigCache fiscalConfigCache,
+    IFiscalReceiptReader fiscalReceiptReader,
     ISender sender,
     IAuditService auditService,
     IDocumentService documentService,
@@ -239,8 +238,7 @@ public sealed class GetInvoiceByDocNumHandler(
         {
             await InvoiceFiscalTransactionSync.SyncAsync(
                 invoiceDto,
-                fiscalisationClient,
-                fiscalConfigCache,
+                fiscalReceiptReader,
                 sender,
                 logger,
                 cancellationToken);

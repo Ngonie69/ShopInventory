@@ -15,8 +15,7 @@ namespace ShopInventory.Features.Invoices.Queries.GetInvoiceByDocEntry;
 public sealed class GetInvoiceByDocEntryHandler(
     ApplicationDbContext dbContext,
     ISAPServiceLayerClient sapClient,
-    IFiscalisationApiClient fiscalisationClient,
-    IFiscalDeviceConfigCache fiscalConfigCache,
+    IFiscalReceiptReader fiscalReceiptReader,
     ISender sender,
     IOptions<SAPSettings> settings,
     IOptions<FiscalisationSettings> fiscalisationSettings,
@@ -44,8 +43,7 @@ public sealed class GetInvoiceByDocEntryHandler(
             {
                 await InvoiceFiscalTransactionSync.SyncAsync(
                     invoiceDto,
-                    fiscalisationClient,
-                    fiscalConfigCache,
+                    fiscalReceiptReader,
                     sender,
                     logger,
                     cancellationToken);

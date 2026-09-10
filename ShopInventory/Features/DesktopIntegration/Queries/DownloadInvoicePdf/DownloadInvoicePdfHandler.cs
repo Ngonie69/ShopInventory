@@ -14,8 +14,7 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.DownloadInvoicePdf;
 public sealed class DownloadInvoicePdfHandler(
     ApplicationDbContext dbContext,
     ISAPServiceLayerClient sapClient,
-    IFiscalisationApiClient fiscalisationClient,
-    IFiscalDeviceConfigCache fiscalConfigCache,
+    IFiscalReceiptReader fiscalReceiptReader,
     IInvoicePdfService invoicePdfService,
     IOptions<SAPSettings> sapSettings,
     ILogger<DownloadInvoicePdfHandler> logger
@@ -77,9 +76,7 @@ public sealed class DownloadInvoicePdfHandler(
         {
             try
             {
-                var snapshot = await FiscalReceiptLookup.TryLookupAsync(
-                    fiscalisationClient,
-                    fiscalConfigCache,
+                var snapshot = await fiscalReceiptReader.TryLookupAsync(
                     docNum,
                     ReceiptType.FiscalInvoice,
                     logger,

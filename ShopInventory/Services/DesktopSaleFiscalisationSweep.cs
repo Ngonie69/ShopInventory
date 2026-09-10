@@ -22,6 +22,7 @@ public sealed class DesktopSaleFiscalisationSweep(
     ApplicationDbContext context,
     DesktopSaleFiscaliser fiscaliser,
     IOptions<DesktopSalePostingSettings> settings,
+    IOptions<FiscalisationSettings> fiscalisationSettings,
     ILogger<DesktopSaleFiscalisationSweep> logger)
 {
     public async Task<DesktopSaleFiscalisationRunResult> FiscalisePendingSalesAsync(
@@ -31,15 +32,32 @@ public sealed class DesktopSaleFiscalisationSweep(
         var result = new DesktopSaleFiscalisationRunResult();
         var cutoff = DateTime.UtcNow.Date.AddDays(-options.LookbackDays);
 
+        // Which sources this sweep owns depends on who signs a van's receipts.
+        //
+        // Under the in-house platform a van handset signs for itself: its offline sales arrive already
+        // fiscalised and are handed on by VanSalesSignedReceiptIngestService, so sweeping them here
+        // would submit a second receipt for a sale that already has one.
+        //
+        // Under REVMax nothing on the handset can sign — the device is on the network, not in the van —
+        // so an offline van sale arrives unstamped, is written Failed, and would otherwise be posted to
+        // SAP by VanSalesEndOfDayPostingService having never been fiscalised at all. This sweep is what
+        // fiscalises it, and it runs ahead of that posting service.
+        //
+        // KefalosVanSalesOnline is excluded either way: those rows exist only to carry a handset's
+        // receipt, and the sale itself is already an SAP invoice fiscalised in the request that made it.
+        var sweptSources = fiscalisationSettings.Value.UsesPlatform
+            ? new[] { SaleSourceSystems.Vending }
+            : new[] { SaleSourceSystems.Vending, SaleSourceSystems.VanSales };
+
         var pending = await context.DesktopSales
             .Include(s => s.Lines)
             .Where(s => s.DocDate >= cutoff &&
-                        // Vending only, and specifically NOT the set the posting job claims. A shop
-                        // till sale is committed Pending and stays that way for the whole ZIMRA round
-                        // trip it is making inline; if this swept those too it would submit the same
-                        // receipt while the request still had it in flight, and a duplicate fiscal
-                        // receipt cannot be withdrawn.
-                        s.SourceSystem == SaleSourceSystems.Vending &&
+                        // Specifically NOT the set the posting job claims. A shop till sale is
+                        // committed Pending and stays that way for the whole ZIMRA round trip it is
+                        // making inline; if this swept those too it would submit the same receipt while
+                        // the request still had it in flight, and a duplicate fiscal receipt cannot be
+                        // withdrawn.
+                        sweptSources.Contains(s.SourceSystem) &&
                         // Failed as well as Pending. A failure sets Failed, so selecting on Pending
                         // alone made a single transient error terminal — the sale was never retried,
                         // never invoiced, and the attempt budget below was unreachable.

@@ -61,6 +61,20 @@ public sealed class VanSalesSignedReceiptIngestService(
             return result;
         }
 
+        // This whole path is the in-house platform's: it hands over receipts a handset signed against a
+        // device key that platform holds. REVMax has no signed-receipt ingest and no chain to extend —
+        // its device signs everything itself, and a van sale is fiscalised server-side by
+        // DesktopSaleFiscalisationSweep once it arrives. Guarded here rather than by unscheduling the
+        // Quartz job, because the job store is clustered and persistent: a trigger already in the
+        // database keeps firing whether or not the code still schedules it.
+        if (!fiscalisationOptions.Value.UsesPlatform)
+        {
+            logger.LogDebug(
+                "Fiscalisation:Provider is REVMax, which has no signed-receipt ingest. Van sales are "
+                + "fiscalised server-side instead, so nothing was submitted here.");
+            return result;
+        }
+
         // Everything still outstanding, including the receipts that can no longer be sent. Loading the
         // blocked ones deliberately: filtering them out here would let the walk below step over a hole in
         // a device's chain and offer the platform a receipt whose predecessor it does not hold.

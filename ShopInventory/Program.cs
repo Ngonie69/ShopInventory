@@ -32,6 +32,7 @@ using ShopInventory.Health;
 using ShopInventory.Middleware;
 using ShopInventory.Models;
 using ShopInventory.Services;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Services.Fiscalisation;
 using System.IO.Compression;
 using System.Security.Claims;
@@ -840,6 +841,14 @@ try
     // Register exchange rate service (depends on SAP Service Layer client)
     builder.Services.AddScoped<IExchangeRateService, ExchangeRateService>();
 
+    // Register the REVMax fiscal device client. REVMax is the ZIMRA-approved path; the Fiscalisation
+    // platform registered below is present but dormant while it waits on ZIMRA approval. Which one
+    // IFiscalizationService resolves to is decided by Fiscalisation:Provider, further down.
+    builder.Services.Configure<RevmaxSettings>(
+        builder.Configuration.GetSection(RevmaxSettings.SectionName));
+
+    builder.Services.AddHttpClient<IRevmaxClient, RevmaxClient>();
+
     // Register the Fiscalisation platform client
     builder.Services.Configure<FiscalisationSettings>(
         builder.Configuration.GetSection(FiscalisationSettings.SectionName));
@@ -854,6 +863,7 @@ try
         .Get<FiscalisationSettings>();
 
     if (fiscalisationStartupSettings?.Enabled == true
+        && fiscalisationStartupSettings.UsesPlatform
         && string.IsNullOrWhiteSpace(fiscalisationStartupSettings.ApiKey))
     {
         Log.Warning(
@@ -865,6 +875,7 @@ try
     // for a different route group: the automatic close is scheduled hourly, so a missing service account
     // would otherwise be reported twenty-four times a day.
     if (fiscalisationStartupSettings?.Enabled == true
+        && fiscalisationStartupSettings.UsesPlatform
         && fiscalisationStartupSettings.FiscalDay.AutoCloseEnabled
         && !fiscalisationStartupSettings.FiscalDay.HasAnyServiceAccount)
     {
@@ -873,6 +884,22 @@ try
             + "Fiscalisation__FiscalDay__ServiceAccount__Username and __Password, or one credential per device "
             + "under Fiscalisation__FiscalDay__DeviceServiceAccounts__<deviceId>__. Until then no fiscal day is "
             + "closed and no offline file reaches ZIMRA, however many receipts are stamped.");
+    }
+
+    if (fiscalisationStartupSettings?.UsesPlatform == true)
+    {
+        Log.Warning(
+            "Fiscalisation is pointed at the in-house platform ({BaseUrl}), which is awaiting ZIMRA "
+            + "approval. Receipts filed through it are filed for real. Set Fiscalisation__Provider="
+            + "Revmax to use the approved device.",
+            fiscalisationStartupSettings.BaseUrl);
+    }
+    else
+    {
+        Log.Information(
+            "Fiscalisation provider: REVMax at {BaseUrl}. The in-house platform is registered but "
+            + "dormant.",
+            builder.Configuration[$"{RevmaxSettings.SectionName}:BaseUrl"] ?? new RevmaxSettings().BaseUrl);
     }
 
     builder.Services.AddHttpClient<IFiscalisationApiClient, FiscalisationApiClient>((serviceProvider, client) =>
@@ -918,7 +945,38 @@ try
     builder.Services.AddScoped<FiscalDayLifecycleService>();
 
     // Register fiscalization service - fiscalizes invoices after SAP posting
-    builder.Services.AddScoped<IFiscalizationService, FiscalizationService>();
+    // The read-back side of the same switch. Status syncs, invoice reads and PDFs must ask whichever
+    // device actually filed the receipt; asking the dormant one reports every invoice un-fiscalised.
+    builder.Services.AddScoped<PlatformFiscalReceiptReader>();
+    builder.Services.AddScoped<IFiscalReceiptReader>(serviceProvider =>
+    {
+        var fiscalisation = serviceProvider
+            .GetRequiredService<IOptions<FiscalisationSettings>>().Value;
+
+        if (fiscalisation.Provider == FiscalisationProvider.Platform)
+        {
+            return serviceProvider.GetRequiredService<PlatformFiscalReceiptReader>();
+        }
+
+        return new RevmaxFiscalReceiptReader(
+            serviceProvider.GetRequiredService<IRevmaxClient>(),
+            serviceProvider.GetRequiredService<IOptions<RevmaxSettings>>().Value);
+    });
+
+    // REVMax is the ZIMRA-approved device and the default. The platform implementation stays
+    // registered by concrete type so the fiscalisation console and settings screens still work while
+    // it waits for approval — but nothing fiscalises through it unless Fiscalisation:Provider says so.
+    builder.Services.AddScoped<FiscalizationService>();
+    builder.Services.AddScoped<RevmaxFiscalizationService>();
+    builder.Services.AddScoped<IFiscalizationService>(serviceProvider =>
+    {
+        var provider = serviceProvider
+            .GetRequiredService<IOptions<FiscalisationSettings>>().Value.Provider;
+
+        return provider == FiscalisationProvider.Platform
+            ? serviceProvider.GetRequiredService<FiscalizationService>()
+            : serviceProvider.GetRequiredService<RevmaxFiscalizationService>();
+    });
 
     builder.Services.Configure<OpenWASettings>(builder.Configuration.GetSection(OpenWASettings.SectionName));
     builder.Services.AddHttpClient<IOpenWAClient, OpenWAClient>((serviceProvider, client) =>
