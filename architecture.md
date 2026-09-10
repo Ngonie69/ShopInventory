@@ -142,7 +142,8 @@ The API process hosts:
 - output caching for selected read-heavy endpoints.
 - rate limiting.
 - health check endpoints for live, ready, deploy-ready, and dependency probes.
-- SignalR notifications at `/hubs/notifications`.
+- SignalR notifications at `/hubs/notifications`, and at `/api/hubs/notifications` for callers
+  that reach the API through the reverse proxy rather than on its own address.
 - custom middleware such as mobile version enforcement.
 
 The API also runs multiple hosted background services for asynchronous and long-running work, including:

@@ -1059,7 +1059,7 @@ before the credit note is built, with the allowed values named in the message. `
 (or an `Idempotency-Key` header) makes a retry replay instead of posting a second credit note.
 
 The response carries the credit note it raised and `notifiedWarehouses`. Cancelling also pushes an
-`InvoiceCancelled` event over `/hubs/notifications` to `warehouse:{CODE}` — the till that issued
+`InvoiceCancelled` event over the [notifications hub](#realtime) to `warehouse:{CODE}` — the till that issued
 the receipt — and raises the stored notification everyone who works invoices sees. An empty
 `notifiedWarehouses` means the invoice could not be traced to a till and nobody was pushed.
 
@@ -3026,7 +3026,13 @@ liveness and readiness at the first three.
 
 | Endpoint | Description |
 |----------|-------------|
-| `/hubs/notifications` | The SignalR hub the web app subscribes to for live notifications |
+| `/hubs/notifications` | The SignalR hub, on this service's own address — for callers inside the network |
+| `/api/hubs/notifications` | The same hub, for callers arriving through the reverse proxy |
+
+Both paths serve the one hub, and which to use is settled by where the caller sits rather than by
+what it wants. The proxy routes only `/api` and `/swagger` here, so anything outside the network —
+a till, for one — must use the `/api` path; the web app connects container-to-container and uses
+the short one.
 
 A hub is not a REST endpoint — connect with a SignalR client, not with `GET`. See
 [Notifications](#25-notifications) for the REST side of the same feature.
