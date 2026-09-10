@@ -59,18 +59,21 @@
                            placeholder="MACHIPISA" disabled="@(editing.Id > 0)" />
                 </div>
                 @* Two, not three. A shop name is a place name — "Machipisa", "Graniteside" — and the
-                   width it gave up goes to the warehouse picker, whose options are "CODE - Name" and
-                   were being clipped mid-word. A text input degrades gracefully when it runs out of
-                   room; a <select> does not, because the browser draws it. *@
+                   width it gave up goes to the two pickers beside it. *@
                 <div class="col-md-2">
                     <label class="shop-filter-label" for="shop-name">Name</label>
                     <input id="shop-name" class="shop-field" @bind="editing.Name" placeholder="Machipisa" />
                 </div>
-                @* A picker rather than a <select>: SAP holds several thousand
-                   business partners, one per currency per shop, and a list that
-                   long cannot be read by scrolling — which is what a native
-                   dropdown offers and all it offers. This one opens on a search
-                   box. See Components/NocturnePicker.razor. *@
+                @* Pickers rather than <select>s, for both of the fields that
+                   name an SAP record. The partner list runs to several thousand
+                   rows — one per currency per shop — and cannot be read by
+                   scrolling, which is what a native dropdown offers and all it
+                   offers. The warehouse list is shorter but no easier: the codes
+                   are alpha, not numbered, and the names they expand to are long
+                   enough that the browser clipped them mid-word. Both open on a
+                   search box and match on code or name, so an operator who knows
+                   "KEFGRS" or knows "Graniteside" gets there the same way.
+                   See Components/NocturnePicker.razor. *@
                 <div class="col-md-3">
                     <label class="shop-filter-label" for="shop-bp">Business partner</label>
                     <NocturnePicker Class="npick-block" Id="shop-bp"
@@ -84,20 +87,14 @@
                 </div>
                 <div class="col-md-3">
                     <label class="shop-filter-label" for="shop-wh">Warehouse</label>
-                    @if (isLoadingMasterData)
-                    {
-                        <div class="shop-meta">Loading…</div>
-                    }
-                    else
-                    {
-                        <select id="shop-wh" class="shop-field shop-select" @bind="editing.WarehouseCode">
-                            <option value="">-- Select warehouse --</option>
-                            @foreach (var wh in warehouses)
-                            {
-                                <option value="@wh.WarehouseCode">@wh.WarehouseCode - @wh.WarehouseName</option>
-                            }
-                        </select>
-                    }
+                    <NocturnePicker Class="npick-block" Id="shop-wh"
+                                    Options="warehouseOptions"
+                                    @bind-Value="WarehouseCode"
+                                    Loading="isLoadingMasterData"
+                                    Placeholder="Select warehouse"
+                                    SearchPlaceholder="Search by code or name…"
+                                    EmptyText="No warehouses loaded"
+                                    AriaLabel="Warehouse" />
                 </div>
                 <div class="col-md-2">
                     <label class="shop-filter-label" for="shop-cc">Cost centre</label>
@@ -198,7 +195,12 @@
     /// page re-renders on every keystroke in the form beside it.
     /// </summary>
     private List<NocturnePickerOption> businessPartnerOptions = [];
-    private List<WarehouseDto> warehouses = [];
+
+    /// <summary>
+    /// The active warehouses, already shaped for the picker. Ordered here
+    /// because the picker does not sort what it is given.
+    /// </summary>
+    private List<NocturnePickerOption> warehouseOptions = [];
     private List<CostCentreDto> costCentres = [];
 
     private bool isLoading;
@@ -242,6 +244,24 @@
         }
     }
 
+    /// <summary>
+    /// The warehouse, bound the same way as the partner above and for the same
+    /// reason: the picker's Clear hands back null and the DTO's field is a
+    /// non-null string, so an emptied field reaches SaveAsync as "" and is
+    /// refused there with a message rather than posted.
+    /// </summary>
+    private string? WarehouseCode
+    {
+        get => editing?.WarehouseCode;
+        set
+        {
+            if (editing is not null)
+            {
+                editing.WarehouseCode = value ?? string.Empty;
+            }
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
@@ -276,8 +296,14 @@
             // The same three caches the user management page loads, rather than three fresh calls.
             businessPartnerOptions = BusinessPartnerOptions.From(
                 await MasterDataCache.GetBusinessPartnersAsync());
-            warehouses = (await MasterDataCache.GetWarehousesAsync())
-                .Where(warehouse => warehouse.IsActive)
+            warehouseOptions = (await MasterDataCache.GetWarehousesAsync())
+                .Where(warehouse => warehouse.IsActive && !string.IsNullOrWhiteSpace(warehouse.WarehouseCode))
+                .Select(warehouse => new NocturnePickerOption(
+                    warehouse.WarehouseCode!,
+                    string.IsNullOrWhiteSpace(warehouse.WarehouseName)
+                        ? warehouse.WarehouseCode!
+                        : warehouse.WarehouseName))
+                .OrderBy(option => option.Value, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             costCentres = await MasterDataCache.GetCostCentresAsync();
         }
