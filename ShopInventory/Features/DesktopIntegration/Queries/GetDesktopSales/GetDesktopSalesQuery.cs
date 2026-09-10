@@ -50,6 +50,14 @@ public sealed record DesktopSaleListItemDto(
     string Currency,
     string FiscalizationStatus,
     string? FiscalReceiptNumber,
+
+    // The receipt the device issued, so a reprint carries the fiscal block the original did. It is
+    // held here and nowhere else a caller can reach: the receipt was signed under the sale's own
+    // external reference rather than a SAP document number, so the invoice this sale eventually
+    // becomes is marked fiscalised without the QR ever being restated on it.
+    string? FiscalQRCode,
+    string? FiscalVerificationCode,
+
     string ConsolidationStatus,
     int? ConsolidationId,
     string WarehouseCode,

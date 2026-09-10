@@ -109,6 +109,8 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db)
                 s.Currency,
                 s.FiscalizationStatus.ToString(),
                 s.FiscalReceiptNumber,
+                s.FiscalQRCode,
+                s.FiscalVerificationCode,
                 s.ConsolidationStatus.ToString(),
                 s.ConsolidationId,
                 s.WarehouseCode,
