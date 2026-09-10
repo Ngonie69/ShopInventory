@@ -33,7 +33,13 @@
     <div class="ops-filters">
         <div class="ops-field">
             <label for="vso-date">Delivery day</label>
-            <input id="vso-date" type="date" class="ops-input" @bind="visitDate" @bind:after="ReloadAsync" />
+            @* Not <input type="date">: the browser draws that calendar outside the page, so no
+               sheet reaches inside it and it refuses the shorthand an operator actually types.
+               NocturneDateField is a text input that takes 030826 and draws its own calendar.
+               No --ndf-* block needed on .ops — the component's defaults are already
+               .ops-input's 34px and 13px. See Components/NocturneDateField.razor. *@
+            <NocturneDateField Id="vso-date" @bind-Date="visitDate" @bind-Date:after="ReloadAsync"
+                               AriaLabel="Delivery day" Disabled="isBusy" />
         </div>
 
         <div class="ops-field">
