@@ -24,7 +24,13 @@ public class Item
     /// SAP's <c>TaxCode</c> on a document line is a different field and does not carry it.
     /// Null unless the query that fetched this item asked for it.
     /// </summary>
-    [JsonPropertyName("VatGroup")]
+    /// <remarks>
+    /// Named <c>SalesVATGroup</c> on the wire, not <c>VatGroup</c>. The item master and a marketing
+    /// document line spell this differently, and asking Items for <c>VatGroup</c> is not ignored —
+    /// the Service Layer refuses the whole request with "Property 'VatGroup' of 'Item' is invalid".
+    /// That is how this read returned nothing at all for as long as it asked for the wrong name.
+    /// </remarks>
+    [JsonPropertyName("SalesVATGroup")]
     public string? VatGroup { get; set; }
 
     [JsonPropertyName("BarCode")]
