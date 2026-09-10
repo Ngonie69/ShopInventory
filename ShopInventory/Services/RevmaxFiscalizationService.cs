@@ -973,10 +973,7 @@ public class RevmaxFiscalizationService : IFiscalizationService
             ? Math.Min(request.InvoiceAmount, receiptTotal)
             : request.InvoiceAmount;
 
-        var lineTotals = items
-            .Select(item => RoundCurrency(ParseAmount(item.Qty) * ParseAmount(item.Price)))
-            .ToList();
-
+        var lineTotals = DeviceLineTotals(items);
         var difference = RoundCurrency(target - lineTotals.Sum());
 
         if (difference != 0m)
@@ -992,32 +989,13 @@ public class RevmaxFiscalizationService : IFiscalizationService
                     + "discount or rounding amounts that are not line items.";
             }
 
-            var index = 0;
-
-            for (var i = 1; i < lineTotals.Count; i++)
-            {
-                if (Math.Abs(lineTotals[i]) > Math.Abs(lineTotals[index]))
-                {
-                    index = i;
-                }
-            }
-
-            var quantity = ParseAmount(items[index].Qty);
-
-            if (quantity == 0m)
+            if (!SpreadResidualOntoLargestLine(items, lineTotals, difference))
             {
                 return
                     $"Credit note {request.InvoiceNumber}: the lines miss the credited total by "
                     + $"{FormatMoney(difference)} and the largest line has no quantity to spread it "
                     + "over.";
             }
-
-            var adjusted = RoundCurrency(lineTotals[index] + difference);
-            items[index].Amt = FormatMoney(adjusted);
-
-            // PRICE is what the device multiplies, so it carries the correction and keeps more than
-            // two decimals to land on the amount exactly.
-            items[index].Price = FormatUnitPrice(adjusted / quantity);
         }
 
         request.InvoiceAmount = target;
@@ -1098,7 +1076,12 @@ public class RevmaxFiscalizationService : IFiscalizationService
         var items = document.Lines.Select(line =>
         {
             var quantity = Math.Abs(line.Quantity);
-            var price = GetPriceAfterVat(line);
+
+            // Rounded BEFORE the amount is derived from it. PRICE goes on the wire at two decimals and
+            // the device recomputes the line from what it was sent, so deriving AMT from the
+            // full-precision price put the two out of step on any price SAP did not already hold at two
+            // decimals: 3 x 1.115 declared 3.35 against a receipt line the device stored as 3.36.
+            var price = RoundCurrency(GetPriceAfterVat(line));
             var amount = GetLineAmount(line, quantity, price);
             var description = line.ItemDescription ?? string.Empty;
             var taxCode = NormalizeTaxCode(line);
@@ -1123,17 +1106,29 @@ public class RevmaxFiscalizationService : IFiscalizationService
     }
 
     /// <summary>
-    /// Absorbs sub-cent rounding so the declared lines add up to the declared invoice total.
+    /// Absorbs sub-cent rounding so the filed receipt adds up to the invoice total.
     /// </summary>
     /// <remarks>
-    /// Each line is rounded to the cent independently, so across a document of any size the lines can
-    /// miss the total by a cent or two — invoice 769617 lands 0.02 short over nine lines. A tax
-    /// document whose lines do not sum to its own total invites a query nobody can answer afterwards,
-    /// and the receipt cannot be amended.
+    /// Each unit price is rounded to the cent before it is multiplied out, so across a document of any
+    /// size the lines can miss the total by a cent or two — invoice 769617 lands 0.02 short over nine
+    /// lines. A tax document whose lines do not sum to its own total invites a query nobody can answer
+    /// afterwards, and the receipt cannot be amended.
+    ///
+    /// The correction goes on PRICE, because that is the only field the device reads: it recomputes
+    /// every line total from QTY x PRICE and discards the AMT it was sent — 769617's last line went
+    /// out at 1.91 and was stored as 1.89. This used to move AMT on the last line and leave PRICE
+    /// alone, on the reasoning that PRICE is a published unit price. That reasoning predates the
+    /// discovery above: moving AMT alone changed nothing on the receipt and left our own record
+    /// disagreeing with the copy in the customer's hand, which is the misstatement it was trying to
+    /// avoid. Carrying it on PRICE moves a real unit price by a fraction of a cent and makes the
+    /// receipt total right.
     ///
     /// Bounded deliberately at ten cents. Anything larger is not rounding — it is a wrong price, a
     /// missed discount or a line the mapping dropped — and quietly papering over it would file the
-    /// wrong receipt while making it look right. Those are left visibly unbalanced instead.
+    /// wrong receipt while making it look right. Those are left visibly unbalanced instead: unlike a
+    /// credit note, whose figure is measured against the original receipt and is refused outright, an
+    /// invoice that cannot be reconciled is still better filed than not filed at all — 769617 went
+    /// through two cents short.
     /// </remarks>
     private static void ReconcileToDocumentTotal(List<RevmaxRequestItem> items, decimal documentTotal)
     {
@@ -1142,18 +1137,58 @@ public class RevmaxFiscalizationService : IFiscalizationService
             return;
         }
 
-        var declared = items.Sum(item => ParseAmount(item.Amt));
-        var difference = RoundCurrency(documentTotal - declared);
+        var lineTotals = DeviceLineTotals(items);
+        var difference = RoundCurrency(documentTotal - lineTotals.Sum());
 
         if (difference == 0m || Math.Abs(difference) > 0.10m)
         {
             return;
         }
 
-        // The last line carries it, and only AMT moves: PRICE is a published unit price and nudging it
-        // would misstate what the customer was charged per unit.
-        var last = items[^1];
-        last.Amt = FormatMoney(ParseAmount(last.Amt) + difference);
+        SpreadResidualOntoLargestLine(items, lineTotals, difference);
+    }
+
+    /// <summary>What the DEVICE will make of each line: QTY x PRICE, not the AMT we sent it.</summary>
+    private static List<decimal> DeviceLineTotals(List<RevmaxRequestItem> items)
+        => items
+            .Select(item => RoundCurrency(ParseAmount(item.Qty) * ParseAmount(item.Price)))
+            .ToList();
+
+    /// <summary>
+    /// Moves a rounding residual onto the largest line, through PRICE, keeping AMT equal to
+    /// QTY x PRICE.
+    /// </summary>
+    /// <remarks>
+    /// The largest line carries it so the per-unit change is the smallest available. Answers false
+    /// when that line has no quantity to spread it over, which leaves the caller to decide whether an
+    /// unreconciled document may still be filed.
+    /// </remarks>
+    private static bool SpreadResidualOntoLargestLine(
+        List<RevmaxRequestItem> items,
+        IReadOnlyList<decimal> lineTotals,
+        decimal difference)
+    {
+        var index = 0;
+
+        for (var i = 1; i < lineTotals.Count; i++)
+        {
+            if (Math.Abs(lineTotals[i]) > Math.Abs(lineTotals[index]))
+            {
+                index = i;
+            }
+        }
+
+        var quantity = ParseAmount(items[index].Qty);
+
+        if (quantity == 0m)
+        {
+            return false;
+        }
+
+        var adjusted = RoundCurrency(lineTotals[index] + difference);
+        items[index].Amt = FormatMoney(adjusted);
+        items[index].Price = FormatUnitPrice(adjusted / quantity);
+        return true;
     }
 
     private static decimal ParseAmount(string? value)
@@ -1306,7 +1341,7 @@ public class RevmaxFiscalizationService : IFiscalizationService
     /// </remarks>
     private static string FormatUnitPrice(decimal value)
         => Math.Round(value, 6, MidpointRounding.AwayFromZero)
-            .ToString("0.######", CultureInfo.InvariantCulture);
+            .ToString("0.00####", CultureInfo.InvariantCulture);
 
     private static decimal RoundCurrency(decimal value)
         => Math.Round(value, 2, MidpointRounding.AwayFromZero);

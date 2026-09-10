@@ -524,6 +524,115 @@ public class RevmaxFiscalPayloadTests
         }
     };
 
+    /// <summary>What the DEVICE will total: QTY x PRICE per line, not the AMT it was sent.</summary>
+    private static decimal DeviceTotal(IEnumerable<RevmaxRequestItem> lines)
+        => lines.Sum(line =>
+            Math.Round(decimal.Parse(line.Qty!, CultureInfo.InvariantCulture)
+                       * decimal.Parse(line.Price!, CultureInfo.InvariantCulture),
+                2, MidpointRounding.AwayFromZero));
+
+    [Fact]
+    public async Task An_invoices_rounding_residual_is_carried_on_price_where_the_device_reads_it()
+    {
+        // The device recomputes each line from QTY x PRICE and discards AMT, so the residual has to
+        // move PRICE. This used to move AMT on the last line, which changed nothing on the receipt and
+        // left our record disagreeing with the customer's copy.
+        var invoice = Invoice();
+        invoice.DocTotal = 13.35m;
+        invoice.Lines =
+        [
+            new InvoiceLineDto
+            {
+                LineNum = 0, ItemCode = "A", ItemDescription = "Rounds up",
+                Quantity = 3m, PriceAfterVat = 1.115m, VatGroup = "O01"
+            },
+            new InvoiceLineDto
+            {
+                LineNum = 1, ItemCode = "B", ItemDescription = "Biggest line",
+                Quantity = 1m, PriceAfterVat = 10.00m, VatGroup = "O01"
+            }
+        ];
+
+        var client = new RecordingRevmaxClient();
+        var result = await Service(client).FiscalizeInvoiceAsync(invoice);
+
+        Assert.True(result.Success);
+
+        var lines = (List<RevmaxRequestItem>)client.LastInvoice!.ItemsXml!;
+
+        // What ZIMRA will hold, not what our AMTs claim.
+        Assert.Equal(13.35m, DeviceTotal(lines));
+
+        // The largest line carried it, so the per-unit change is the smallest available.
+        Assert.Equal("9.99", lines[1].Price);
+        Assert.Equal("1.12", lines[0].Price);
+    }
+
+    [Fact]
+    public async Task Every_reconciled_line_still_declares_amount_equal_to_quantity_times_price()
+    {
+        // The invariant the reconciliation used to break: it moved AMT and left PRICE, so the adjusted
+        // line went out claiming an amount the device would never compute.
+        var invoice = Invoice();
+        invoice.DocTotal = 13.35m;
+        invoice.Lines =
+        [
+            new InvoiceLineDto
+            {
+                LineNum = 0, ItemCode = "A", ItemDescription = "Rounds up",
+                Quantity = 3m, PriceAfterVat = 1.115m, VatGroup = "O01"
+            },
+            new InvoiceLineDto
+            {
+                LineNum = 1, ItemCode = "B", ItemDescription = "Biggest line",
+                Quantity = 1m, PriceAfterVat = 10.00m, VatGroup = "O01"
+            }
+        ];
+
+        var client = new RecordingRevmaxClient();
+        await Service(client).FiscalizeInvoiceAsync(invoice);
+
+        foreach (var line in (List<RevmaxRequestItem>)client.LastInvoice!.ItemsXml!)
+        {
+            var expected = Math.Round(
+                decimal.Parse(line.Qty!, CultureInfo.InvariantCulture)
+                * decimal.Parse(line.Price!, CultureInfo.InvariantCulture),
+                2, MidpointRounding.AwayFromZero);
+
+            Assert.Equal(expected, decimal.Parse(line.Amt!, CultureInfo.InvariantCulture));
+        }
+    }
+
+    [Fact]
+    public async Task An_invoice_too_far_out_to_be_rounding_is_still_filed()
+    {
+        // Deliberately unlike a credit note, whose figure is measured against the original receipt and
+        // is refused outright. A gap this size is a wrong price or a dropped line, and papering over it
+        // would file a wrong receipt that looks right — but not filing the sale at all is worse.
+        // Invoice 769617 went to ZIMRA two cents short.
+        var invoice = Invoice();
+        invoice.DocTotal = 115.50m;
+        invoice.Lines =
+        [
+            new InvoiceLineDto
+            {
+                LineNum = 0, ItemCode = "A", ItemDescription = "Only line",
+                Quantity = 1m, PriceAfterVat = 80.00m, VatGroup = "O01"
+            }
+        ];
+
+        var client = new RecordingRevmaxClient();
+        var result = await Service(client).FiscalizeInvoiceAsync(invoice);
+
+        Assert.True(result.Success);
+
+        var lines = (List<RevmaxRequestItem>)client.LastInvoice!.ItemsXml!;
+
+        // Left visibly unbalanced rather than quietly adjusted.
+        Assert.Equal("80.00", lines[0].Price);
+        Assert.Equal(80.00m, DeviceTotal(lines));
+    }
+
     [Fact]
     public async Task A_credit_note_is_capped_at_the_original_receipts_total()
     {
