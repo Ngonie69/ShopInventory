@@ -49,7 +49,9 @@ by `-ValidateOnly` before anything is installed:
   covering both is what lets one credential file serve the whole deployment; see
   [Both IIS nodes](#both-iis-nodes). Make it a domain account, per the loopback note above.
 - An account for the runner service — the *service account*. It needs no rights on production at
-  all, but you must be able to log in as it; see below.
+  all, but you must be able to log in as it; see below. Name it in 20 characters or fewer — the
+  SAM account name limit, local and domain alike. A local account is enough: everything this
+  identity does is local, and the remote work uses the deploy credential, not this account.
 
 ## Two accounts, on purpose
 

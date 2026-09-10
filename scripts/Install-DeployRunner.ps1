@@ -20,7 +20,11 @@
     to run on any machine you are merely considering.
 
 .PARAMETER ServiceAccount
-    The account the runner service runs as, e.g. "KEFALOS\svc-shopinventory-runner".
+    The account the runner service runs as, e.g. "KEFALOS\svc-shopinv-runner".
+
+    Keep the name to 20 characters or fewer - the SAM account name limit, which
+    applies to local and domain accounts alike. New-LocalUser rejects a longer one
+    outright; AD truncates.
 
     Deliberately not LocalSystem, unlike the Fiscalisation runner on this same pattern.
     That runner holds no secrets; this one holds an administrator credential for
@@ -39,7 +43,7 @@
     .\scripts\Install-DeployRunner.ps1 -ValidateOnly
 
 .EXAMPLE
-    .\scripts\Install-DeployRunner.ps1 -ServiceAccount "KEFALOS\svc-shopinventory-runner"
+    .\scripts\Install-DeployRunner.ps1 -ServiceAccount "KEFALOS\svc-shopinv-runner"
 
 .NOTES
     Run as Administrator. Full context in docs/operations/github-actions-deploy-runner.md.
@@ -64,6 +68,50 @@ function Write-Step { param([string]$Message) Write-Host "`n=== $Message ===" -F
 function Write-Ok { param([string]$Message) Write-Host "  [+] $Message" -ForegroundColor Green }
 function Write-Warn { param([string]$Message) Write-Host "  [!] $Message" -ForegroundColor Yellow }
 function Write-Bad { param([string]$Message) Write-Host "  [-] $Message" -ForegroundColor Red }
+
+# Runs a script as the service account, feeding it lines on stdin.
+#
+# The payload goes in as -EncodedCommand rather than a temp file on purpose: a file written to
+# the calling administrator's TEMP is unreadable by the service account, and the access denial
+# surfaces as "the file does not exist", which reads like a bug in this script rather than an
+# ACL. Secrets still travel on stdin, never on the command line.
+function Invoke-AsServiceAccount {
+    param($Credential, [string]$Body, [string[]]$InputLines)
+
+    $arguments = "-NoProfile -ExecutionPolicy Bypass -EncodedCommand " +
+        [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Body))
+
+    # CreateProcessWithLogonW - which is what setting UserName selects - caps the command line
+    # at 1024 characters and rejects a longer one with a bare "The parameter is incorrect",
+    # thrown before the logon is attempted. Left unguarded that reads like a credential fault.
+    # Base64 of UTF-16 costs four characters per two of script, so a body over ~360 characters
+    # trips it: keep the payloads terse, comments included.
+    if ($arguments.Length -gt 1024) {
+        throw ("Payload too long: $($arguments.Length) characters of command line, limit 1024. " +
+               "Shorten the script body (every comment in it counts).")
+    }
+
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = "powershell.exe"
+    $psi.Arguments = $arguments
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+    $psi.UserName = $Credential.GetNetworkCredential().UserName
+    $psi.Domain = $Credential.GetNetworkCredential().Domain
+    $psi.Password = $Credential.Password
+
+    $process = [System.Diagnostics.Process]::Start($psi)
+    foreach ($line in $InputLines) { $process.StandardInput.WriteLine($line) }
+    $process.StandardInput.Close()
+    $out = $process.StandardOutput.ReadToEnd().Trim()
+    $err = $process.StandardError.ReadToEnd().Trim()
+    $process.WaitForExit()
+
+    return [pscustomobject]@{ ExitCode = $process.ExitCode; Output = $out; Error = $err }
+}
 
 # ============================================================================
 # Step 1: prerequisites
@@ -285,18 +333,37 @@ Write-Ok "Extracted"
 
 Write-Step "Registering with $Repository"
 
-# Fetched at run time rather than typed: registration tokens expire in an hour, and one
+# Fetched at run time where gh can do it: registration tokens expire in an hour, and one
 # pasted into a terminal lands in the shell history of a machine that also holds the
-# production credential.
+# production credential. Where gh cannot, the catch below prompts for one instead - typed,
+# but through -AsSecureString, so it still never reaches the history.
 try {
     $token = & gh api -X POST "repos/$Repository/actions/runners/registration-token" -q .token 2>$null
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw "gh returned nothing" }
     Write-Ok "Registration token obtained via gh"
 }
 catch {
-    Write-Bad "Could not get a registration token. Is gh installed and authenticated with admin rights on $Repository?"
-    Write-Bad "Check with: gh auth status"
-    exit 1
+    # No usable gh here, which is the normal case on a production box: installing and
+    # authenticating a GitHub CLI is a real change to a machine that serves traffic. Fall back to
+    # typing one in. Read-Host -AsSecureString keeps it out of the shell history, which is the
+    # concern that made gh mandatory. (config.cmd still takes it as an argument, so it is briefly
+    # visible in a process listing either way - that is unchanged from the gh path.)
+    Write-Warn "gh could not supply a registration token (not installed, or not authenticated)."
+    Write-Host ""
+    Write-Host "Mint one where gh IS authenticated - it is valid for one hour:" -ForegroundColor White
+    Write-Host "  gh api -X POST repos/$Repository/actions/runners/registration-token -q .token" -ForegroundColor Cyan
+    Write-Host "or copy it from Settings -> Actions -> Runners -> New self-hosted runner." -ForegroundColor White
+    Write-Host ""
+
+    $secure = Read-Host -Prompt "Registration token (empty to abort)" -AsSecureString
+    $token = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+        [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
+
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        Write-Bad "No registration token supplied."
+        exit 1
+    }
+    Write-Ok "Registration token supplied by hand"
 }
 
 Write-Host ""
@@ -304,6 +371,24 @@ Write-Host "Enter the password for $ServiceAccount (the account the SERVICE runs
 Write-Host "not the production administrator - that comes next)." -ForegroundColor White
 $serviceCredential = Get-Credential -UserName $ServiceAccount -Message "Password for the runner service account $ServiceAccount"
 if (-not $serviceCredential) { Write-Bad "No credential supplied."; exit 1 }
+
+# Prove the credential logs on BEFORE anything is registered. config.cmd does not fail on an
+# account it cannot use - it silently installs the service as NETWORK SERVICE, which cannot
+# create the DPAPI seal, and the first sign of trouble is step 5 failing with a runner already
+# registered and a removal token needed to undo it. This is the same secondary logon step 5
+# depends on, so a pass here is a pass there.
+try {
+    $probe = Invoke-AsServiceAccount -Credential $serviceCredential -Body 'exit 0' -InputLines @()
+    if ($probe.ExitCode -ne 0) { throw $probe.Error }
+    Write-Ok "$($serviceCredential.UserName) logs on"
+}
+catch {
+    Write-Bad "Could not log on as $($serviceCredential.UserName): $($_.Exception.Message)"
+    Write-Bad "Nothing has been registered, so there is nothing to undo - just fix and re-run."
+    Write-Bad "For a LOCAL account the prefix is this machine ($env:COMPUTERNAME\<account>),"
+    Write-Bad "not a domain. Account names are capped at 20 characters."
+    exit 1
+}
 
 Push-Location $RunnerDirectory
 try {
@@ -333,6 +418,21 @@ if (-not $service) { Write-Bad "The service was not created."; exit 1 }
 if ($service.Status -ne 'Running') { Start-Service $service.Name }
 Write-Ok "Service $($service.Name) is $((Get-Service $service.Name).Status)"
 
+# Checked rather than assumed, for the same reason as the logon probe above: a fallback to
+# NETWORK SERVICE looks like a successful install right up until the seal cannot be made.
+$startName = (Get-CimInstance Win32_Service -Filter "Name='$($service.Name)'" -ErrorAction SilentlyContinue).StartName
+$wantLeaf = $serviceCredential.UserName.Split('\')[-1]
+$gotLeaf = ([string]$startName).Split('\')[-1]
+if ($gotLeaf -ne $wantLeaf) {
+    Write-Bad "The service runs as '$startName', not $($serviceCredential.UserName)."
+    Write-Bad "That identity cannot create the DPAPI seal, so deployment would fail later."
+    Write-Bad "Deregister and retry:"
+    Write-Bad "  cd $RunnerDirectory; .\config.cmd remove --token <removal token>"
+    Write-Bad "  gh api -X POST repos/$Repository/actions/runners/remove-token -q .token"
+    exit 1
+}
+Write-Ok "Service identity is $startName"
+
 # ============================================================================
 # Step 5: seal the production credential as the service account
 # ============================================================================
@@ -349,42 +449,26 @@ $deployCredential = Get-Credential -Message "Production deploy account (administ
 if (-not $deployCredential) { Write-Bad "No credential supplied."; exit 1 }
 
 # Export-Clixml seals under whoever runs it, so the export has to happen as the service
-# account or the service will not be able to open it. Handing the values over the command
-# line would put them in a process listing, so they go through the child's stdin instead.
+# account or the service will not be able to open it. Terse on purpose - the command line
+# limit is guarded in Invoke-AsServiceAccount. ProgressPreference is set because progress
+# records reach the parent as CLIXML on stderr, where they would bury a real error.
 $exportScript = @'
-$ErrorActionPreference = 'Stop'
-$user = [Console]::In.ReadLine()
-$pass = [Console]::In.ReadLine()
-$target = [Console]::In.ReadLine()
-$secure = ConvertTo-SecureString $pass -AsPlainText -Force
-(New-Object System.Management.Automation.PSCredential($user, $secure)) | Export-Clixml -LiteralPath $target
+$ErrorActionPreference='Stop'
+$ProgressPreference='SilentlyContinue'
+$u=[Console]::In.ReadLine()
+$p=[Console]::In.ReadLine()
+$t=[Console]::In.ReadLine()
+(New-Object System.Management.Automation.PSCredential($u,(ConvertTo-SecureString $p -AsPlainText -Force)))|Export-Clixml -LiteralPath $t
 '@
-$exportScriptPath = Join-Path $env:TEMP "shopinventory-seal-$([Guid]::NewGuid().ToString('N')).ps1"
-Set-Content -LiteralPath $exportScriptPath -Value $exportScript -Encoding UTF8
 
-try {
-    $psi = [System.Diagnostics.ProcessStartInfo]::new()
-    $psi.FileName = "powershell.exe"
-    $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$exportScriptPath`""
-    $psi.UseShellExecute = $false
-    $psi.RedirectStandardInput = $true
-    $psi.RedirectStandardError = $true
-    $psi.UserName = $serviceCredential.GetNetworkCredential().UserName
-    $psi.Domain = $serviceCredential.GetNetworkCredential().Domain
-    $psi.Password = $serviceCredential.Password
-
-    $process = [System.Diagnostics.Process]::Start($psi)
-    $process.StandardInput.WriteLine($deployCredential.UserName)
-    $process.StandardInput.WriteLine($deployCredential.GetNetworkCredential().Password)
-    $process.StandardInput.WriteLine($DeployCredentialPath)
-    $process.StandardInput.Close()
-    $stderr = $process.StandardError.ReadToEnd()
-    $process.WaitForExit()
-
-    if ($process.ExitCode -ne 0) { throw "sealing process exited $($process.ExitCode): $stderr" }
-}
-finally {
-    Remove-Item -LiteralPath $exportScriptPath -Force -ErrorAction SilentlyContinue
+$seal = Invoke-AsServiceAccount -Credential $serviceCredential -Body $exportScript -InputLines @(
+    $deployCredential.UserName
+    $deployCredential.GetNetworkCredential().Password
+    $DeployCredentialPath
+)
+if ($seal.ExitCode -ne 0) {
+    Write-Bad "Sealing failed: $($seal.Error)"
+    exit 1
 }
 
 if (-not (Test-Path -LiteralPath $DeployCredentialPath)) {
@@ -406,39 +490,18 @@ Write-Ok "SHOPINVENTORY_DEPLOY_CREDENTIAL set machine-wide"
 Write-Step "Verifying"
 
 $verifyScript = @'
-$ErrorActionPreference = 'Stop'
-$target = [Console]::In.ReadLine()
-(Import-Clixml -LiteralPath $target).UserName
+$ErrorActionPreference='Stop'
+$ProgressPreference='SilentlyContinue'
+$t=[Console]::In.ReadLine()
+(Import-Clixml -LiteralPath $t).UserName
 '@
-$verifyScriptPath = Join-Path $env:TEMP "shopinventory-verify-$([Guid]::NewGuid().ToString('N')).ps1"
-Set-Content -LiteralPath $verifyScriptPath -Value $verifyScript -Encoding UTF8
 
-try {
-    $psi = [System.Diagnostics.ProcessStartInfo]::new()
-    $psi.FileName = "powershell.exe"
-    $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$verifyScriptPath`""
-    $psi.UseShellExecute = $false
-    $psi.RedirectStandardInput = $true
-    $psi.RedirectStandardOutput = $true
-    $psi.UserName = $serviceCredential.GetNetworkCredential().UserName
-    $psi.Domain = $serviceCredential.GetNetworkCredential().Domain
-    $psi.Password = $serviceCredential.Password
-
-    $process = [System.Diagnostics.Process]::Start($psi)
-    $process.StandardInput.WriteLine($DeployCredentialPath)
-    $process.StandardInput.Close()
-    $readBack = $process.StandardOutput.ReadToEnd().Trim()
-    $process.WaitForExit()
-
-    if ($process.ExitCode -ne 0 -or $readBack -ne $deployCredential.UserName) {
-        Write-Bad "The service account could not read the credential back. Got '$readBack'."
-        exit 1
-    }
-    Write-Ok "$ServiceAccount reads it back as $readBack"
+$verify = Invoke-AsServiceAccount -Credential $serviceCredential -Body $verifyScript -InputLines @($DeployCredentialPath)
+if ($verify.ExitCode -ne 0 -or $verify.Output -ne $deployCredential.UserName) {
+    Write-Bad "The service account could not read the credential back. Got '$($verify.Output)'. $($verify.Error)"
+    exit 1
 }
-finally {
-    Remove-Item -LiteralPath $verifyScriptPath -Force -ErrorAction SilentlyContinue
-}
+Write-Ok "$ServiceAccount reads it back as $($verify.Output)"
 
 # Restart so the service picks up the machine variable set above - it does not see it otherwise.
 Restart-Service $service.Name

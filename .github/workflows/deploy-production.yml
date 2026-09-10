@@ -39,6 +39,10 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
+    # Windows PowerShell (5.1), not pwsh: the runner is a production IIS box, and the
+    # runbook asks only for "PowerShell 5.1 or later" - PowerShell 7 is not installed and
+    # putting it there is a real change to a machine serving traffic. Update-Production.ps1
+    # uses no 7-only syntax, and 5.1 is what it has always been run under by hand.
     runs-on: [self-hosted, windows, shopinventory-deploy]
     environment:
       name: production
@@ -58,7 +62,7 @@ jobs:
           fetch-depth: 0
 
       - name: Check the runner is provisioned
-        shell: pwsh
+        shell: powershell
         run: |
           $problems = @()
 
@@ -89,7 +93,7 @@ jobs:
           Write-Host "Runner is provisioned." -ForegroundColor Green
 
       - name: Publish, cut over and verify
-        shell: pwsh
+        shell: powershell
         env:
           # Deliberately not named SHOPINVENTORY_WEB_SMTP_PASSWORD. A workflow-level `env` key is
           # set even when the secret behind it is empty, so reusing that name would shadow the
@@ -138,7 +142,7 @@ jobs:
           exit $LASTEXITCODE
 
       - name: Verify production answers on its public address
-        shell: pwsh
+        shell: powershell
         env:
           HEALTH_URL: ${{ vars.PRODUCTION_HEALTH_URL || 'https://sis.kefaloscheese.com/health/ready' }}
         run: |
@@ -169,7 +173,7 @@ jobs:
 
       - name: Record what went out
         if: always()
-        shell: pwsh
+        shell: powershell
         run: |
           $sha = '${{ github.event.workflow_run.head_sha || github.sha }}'
           $lines = @(
