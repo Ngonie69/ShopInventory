@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -230,6 +230,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<NegativeStockObservationEntity> NegativeStockObservations { get; set; }
   public DbSet<DesktopFiscalTransactionEntity> DesktopFiscalTransactions { get; set; }
   public DbSet<SapItemUomMappingEntity> SapItemUomMappings { get; set; }
+  public DbSet<SapItemTaxGroupEntity> SapItemTaxGroups { get; set; }
   public DbSet<PodReportCacheEntryEntity> PodReportCacheEntries { get; set; }
 
   // Item volume reporting
@@ -278,6 +279,26 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
       entity.Property(e => e.ResponsePayload)
             .HasColumnType("text");
+    });
+
+    modelBuilder.Entity<SapItemTaxGroupEntity>(entity =>
+    {
+      entity.ToTable("SapItemTaxGroups");
+      entity.HasKey(e => e.Id);
+
+      // The sale path reads this by item code for the basket in front of it, and the nightly warm
+      // upserts on the same key - the uniqueness is what lets two nodes warming at once collapse
+      // onto one row rather than double the table.
+      entity.HasIndex(e => e.ItemCode)
+            .IsUnique();
+
+      entity.Property(e => e.ItemCode)
+            .IsRequired()
+            .HasMaxLength(100);
+
+      entity.Property(e => e.VatGroup)
+            .IsRequired()
+            .HasMaxLength(50);
     });
 
     modelBuilder.Entity<SapItemUomMappingEntity>(entity =>
