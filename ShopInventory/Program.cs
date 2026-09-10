@@ -1253,6 +1253,14 @@ try
     // Map SignalR hub for real-time notifications
     app.MapHub<ShopInventory.Hubs.NotificationHub>("/hubs/notifications");
 
+    // The same hub, reachable from outside the network. The mapping above is only ever hit
+    // container-to-container: the web app connects to it on this service's own address, which never
+    // passes the reverse proxy. A till on a shop floor does pass it, and there only /api and
+    // /swagger are routed here — everything else goes to the web app, which has no such route and
+    // answers 404. So tills address the hub under /api. Both stay: the internal callers are already
+    // on the short path and there is no reason to move them.
+    app.MapHub<ShopInventory.Hubs.NotificationHub>("/api/hubs/notifications");
+
     // Logout SAP session on shutdown to free the server-side session slot
     var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
     lifetime.ApplicationStopping.Register(() =>
