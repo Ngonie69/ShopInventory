@@ -43,8 +43,12 @@
         </div>
         <div class="ops-hero-actions">
             <div class="ops-dt-sync">
-                <div class="ops-dt-sync-now">Last sync @_lastSync.ToString("HH:mm:ss")</div>
-                <div class="ops-dt-sync-note">Polling SAP every @PollSeconds seconds</div>
+                @* Not a SAP round-trip: the timer re-reads the queue endpoints, which
+                   read the queue tables. What talks to SAP is InvoicePostingJob and
+                   InventoryTransferPostingJob on their own Quartz schedule. Saying
+                   "polling SAP" here claimed a freshness this page cannot offer. *@
+                <div class="ops-dt-sync-now">Last read @_lastSync.ToString("HH:mm:ss")</div>
+                <div class="ops-dt-sync-note">Auto-refreshes every @PollSeconds seconds</div>
             </div>
             <button type="button" class="ops-btn ops-btn-primary" @onclick="RefreshAll" disabled="@_isLoading">
                 @if (_isLoading)
@@ -160,6 +164,15 @@
                         {
                             <div class="ops-empty-actions">
                                 <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearFilters">Clear the filters</button>
+                            </div>
+                        }
+                        else if (EmptyLink is { } link)
+                        {
+                            <div class="ops-empty-actions">
+                                <a class="ops-btn ops-btn-ghost" href="@link.Href">
+                                    <i class="ph @link.Icon" aria-hidden="true"></i>
+                                    <span>@link.Label</span>
+                                </a>
                             </div>
                         }
                     </div>
@@ -760,11 +773,31 @@
         ? "Clear the search and the status filter to see the whole queue for this tab."
         : _lane switch
         {
-            Lane.Review => "No invoices have failed often enough to need a person.",
-            Lane.TransferReview => "No transfers have failed often enough to need a person.",
+            Lane.Review => "No queued invoice has failed often enough to need a person.",
+            Lane.TransferReview => "No queued transfer has failed often enough to need a person.",
             Lane.Reservations => "Stock reservations taken by the desktop applications appear here until they are confirmed or expire.",
-            _ => "Documents submitted from the desktop applications land here within a few seconds of being sent."
+            Lane.Transfers => "Only transfers SAP could not take are parked here. Ones awaiting approval are on Inventory Transfers.",
+            _ => "Only invoices SAP could not take are parked here. Till sales that went through are on Desktop Sales."
         };
+
+    private sealed record EmptyStateLink(string Href, string Icon, string Label);
+
+    // Every lane here holds only what SAP refused, which is not what the page
+    // name promises — so an empty lane names the page that does hold the work.
+    // Invoices: till sales are POST DesktopIntegration/sales, which writes
+    // DesktopSales and never touches a queue. Transfers: one awaiting approval
+    // lives in PendingInventoryTransfers until every stage passes, and only
+    // reaches a queue if the post that follows cannot reach SAP. Reservations
+    // are the exception — this page is where they are read, so there is nowhere
+    // else to send anyone.
+    private EmptyStateLink? EmptyLink => _lane switch
+    {
+        Lane.Invoices or Lane.Review =>
+            new EmptyStateLink("/desktop-sales", "ph-storefront", "Open Desktop Sales"),
+        Lane.Transfers or Lane.TransferReview =>
+            new EmptyStateLink("/inventory-transfers", "ph-arrows-left-right", "Open Inventory Transfers"),
+        _ => null
+    };
 
     // ─── Interaction ──────────────────────────────────────────────────────
 
