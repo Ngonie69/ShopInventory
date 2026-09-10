@@ -148,7 +148,7 @@ public partial class VanSalesCustomerOrders
     /// "Part delivered" rather than "PartiallyFulfilled": this is the row someone will be asked
     /// about by a shop, and the label should read the way the conversation will.
     /// </remarks>
-    private static string StatusLabel(VanSalesOrderStatusModel status) => status switch
+    internal static string StatusLabel(VanSalesOrderStatusModel status) => status switch
     {
         VanSalesOrderStatusModel.Accepted => "Awaiting delivery",
         VanSalesOrderStatusModel.Fulfilled => "Delivered",
@@ -164,14 +164,19 @@ public partial class VanSalesCustomerOrders
     /// time one is added.
     /// </summary>
     /// <remarks>
-    /// "Awaiting delivery" is accent rather than warn: it is the ordinary open state of an order,
-    /// not something wrong. Cancelled is warn, alongside "Part delivered" — both are orders that
-    /// did not go the way they were placed and are worth an eye, which is what warn says here.
-    /// Bad is kept for the one status nobody chose: an order that expired undelivered.
+    /// Only three of the five say anything. "Awaiting delivery" is neutral because it is an order
+    /// doing exactly what it should — nothing has happened to it yet, and a colour here would
+    /// compete with the rows that have earned one. Delivered is good. Part delivered and Cancelled
+    /// share warn: both are orders that did not go the way they were placed and are worth an eye.
+    /// Bad is kept for the one nobody chose — an order that expired undelivered.
+    ///
+    /// These have been revised twice, which is why <c>VanSalesOrderToneTests</c> now pins them:
+    /// the mapping is a judgement, and a judgement nobody can see is one that quietly rots. The
+    /// badge cannot be exercised locally either — the development database holds no orders.
     /// </remarks>
-    private static string StatusFamily(VanSalesOrderStatusModel status) => status switch
+    internal static string StatusFamily(VanSalesOrderStatusModel status) => status switch
     {
-        VanSalesOrderStatusModel.Accepted => "accent",
+        VanSalesOrderStatusModel.Accepted => "neutral",
         VanSalesOrderStatusModel.Fulfilled => "good",
         VanSalesOrderStatusModel.PartiallyFulfilled => "warn",
         VanSalesOrderStatusModel.Cancelled => "warn",
