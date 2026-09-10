@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 
@@ -29,6 +30,7 @@ public sealed class DesktopSalePostingService(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
     SapCircuitBreakerState circuitState,
+    IBatchInventoryValidationService batchValidation,
     IDesktopSalePostGuard postGuard,
     IOptions<DesktopSalePostingSettings> settings,
     IOptions<SAPSettings> sapSettings,
@@ -319,6 +321,32 @@ public sealed class DesktopSalePostingService(
             }
             else
             {
+                // Choose the batches the invoice issues from, before anything durable is written.
+                //
+                // SAP refuses a batch-managed line that names none, and it refuses the whole
+                // document with it, so a till sale of cheese could not reach SAP at all until this
+                // ran. Nothing upstream can supply the selection — a till sells by item and
+                // DesktopSaleLineEntity has no batch column — so it is allocated here, FEFO against
+                // the warehouse, exactly as the 18:00 consolidation does with these same lines.
+                //
+                // Placed before the post marker deliberately. Allocation is preparation: it reads
+                // stock and creates nothing, so a failure here must not leave PostIssuedAtUtc set on
+                // a sale SAP has never heard of — that sale would spend the rest of its budget
+                // asking SAP about an invoice that was never issued.
+                var request = DesktopSaleInvoiceRequestBuilder.Build(sale);
+                var allocation = await InvoiceBatchAllocation.AllocateAsync(
+                    batchValidation, request, BatchAllocationStrategy.FEFO, cancellationToken);
+
+                if (!allocation.IsValid)
+                {
+                    // Thrown rather than recorded here so it takes the same path as a SAP rejection:
+                    // RecordFailure asks SapFailureClassifier whether it spends an attempt, and an
+                    // unread warehouse must not — the message from DescribeFailure is what it reads.
+                    throw new InvalidOperationException(
+                        InvoiceBatchAllocation.DescribeFailure(
+                            allocation, $"till sale {sale.ExternalReferenceId}"));
+                }
+
                 // The last point at which abandoning the sale costs nothing.
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -332,8 +360,7 @@ public sealed class DesktopSalePostingService(
 
                 // CancellationToken.None, deliberately and literally: once the request is in flight, a
                 // shutdown must not stop us from learning the DocEntry SAP just issued.
-                var invoice = await sapClient.CreateInvoiceAsync(
-                    DesktopSaleInvoiceRequestBuilder.Build(sale), CancellationToken.None);
+                var invoice = await sapClient.CreateInvoiceAsync(request, CancellationToken.None);
 
                 MarkInvoicePosted(sale, invoice.DocEntry, invoice.DocNum);
                 result.Posted++;

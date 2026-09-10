@@ -218,6 +218,7 @@ public sealed class DesktopSalePostGuardTests : IDisposable
             context,
             sap.Client,
             new SapCircuitBreakerState(Options.Create(new SAPSettings())),
+            SaleBatchAllocators.Holding(),
             new StockLedger(context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance),
             _guard,
             Options.Create(new VanSalesPostingSettings()),

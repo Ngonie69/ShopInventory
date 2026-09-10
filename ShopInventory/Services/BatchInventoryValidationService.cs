@@ -764,6 +764,31 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 warehouseCode,
                 strategy,
                 cancellationToken);
+
+            // A batch read that failed comes back as an empty list, and every line below would then
+            // read it as a warehouse with nothing in it: "Insufficient remaining batch stock", which
+            // SapFailureClassifier parks in front of a person as a document to re-cut. It is a
+            // document to retry. Say so.
+            //
+            // Not subject to StockGuardFailClosed, unlike the non-batch check. Invoicing blind is an
+            // option there because the line can still post without the reading; here the reading IS
+            // the selection, and a batch-managed line SAP will refuse cannot be waved through.
+            if (availableBatches.Count == 0 &&
+                _passBatchReadFailures.TryGetValue(BuildStockKey(itemCode, warehouseCode), out var readFailure))
+            {
+                result.Errors.Add(CreateError(
+                    BatchValidationErrorCode.StockUnknown,
+                    groupLines[^1].LineNumber,
+                    itemCode,
+                    null,
+                    warehouseCode,
+                    groupLines.Sum(line => line.TotalQuantityAllocated),
+                    0,
+                    BuildStockUnknownMessage(itemCode, warehouseCode, readFailure),
+                    StockUnknownSuggestion));
+                continue;
+            }
+
             var reservedQuantities = await GetReservedBatchQuantitiesInternalAsync(
                 itemCode,
                 warehouseCode,
@@ -1023,9 +1048,16 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             {
                 sapBatches = await _sapClient.GetBatchNumbersForItemInWarehouseAsync(
                     itemCode, warehouseCode, cancellationToken);
+                _passBatchReadFailures.Remove(BuildStockKey(itemCode, warehouseCode));
             }
             catch (Exception ex)
             {
+                // Swallowed, as it always was — five callers read this list to show an operator what
+                // is available and an empty list is a reasonable answer to give them. What is not
+                // reasonable is letting the allocator conclude the warehouse is empty, so the failure
+                // is remembered here for it to find. See _passBatchReadFailures.
+                _passBatchReadFailures[BuildStockKey(itemCode, warehouseCode)] = ex;
+
                 _logger.LogWarning(ex, "Failed to fetch batches from SAP for {ItemCode} in {Warehouse}",
                     itemCode, warehouseCode);
             }
@@ -1729,6 +1761,19 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     /// </para>
     /// </remarks>
     private Dictionary<string, (StockQuantityDto? Stock, Exception? Failure)> _passStockReads = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Batch reads that failed, so an empty batch list can be told apart from an empty warehouse.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="GetAvailableBatchesAsync"/> answers a failed SAP read with an empty list, which is
+    /// the right answer for the callers that are showing an operator what is available and the wrong
+    /// one for the allocator: per-warehouse batch quantities live only in OBTQ and there is no second
+    /// source, so a failed read has to be reported as a failed read rather than substituted with
+    /// zero. Kept per instance, alongside <see cref="_passStockReads"/> and for the same reason: the
+    /// service is scoped to one request and its lines are processed in order.
+    /// </remarks>
+    private readonly Dictionary<string, Exception> _passBatchReadFailures = new(StringComparer.OrdinalIgnoreCase);
 
     private void BeginStockReadPass() =>
         _passStockReads = new Dictionary<string, (StockQuantityDto?, Exception?)>(StringComparer.OrdinalIgnoreCase);

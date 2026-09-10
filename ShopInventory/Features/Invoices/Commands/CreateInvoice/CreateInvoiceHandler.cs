@@ -271,7 +271,7 @@ public sealed class CreateInvoiceHandler(
             // Step 5: Apply auto-allocated batches
             if (batchValidationResult.BatchesAutoAllocated && batchValidationResult.AllocatedLines.Count > 0)
             {
-                ApplyAllocatedBatchesToRequest(request, batchValidationResult.AllocatedLines);
+                InvoiceBatchAllocation.ApplyTo(request, batchValidationResult.AllocatedLines);
                 logger.LogInformation("Applied auto-allocated batches to {LineCount} lines using {Strategy} strategy",
                     batchValidationResult.AllocatedLines.Count, command.AllocationStrategy);
             }
@@ -896,46 +896,5 @@ public sealed class CreateInvoiceHandler(
             if (string.IsNullOrWhiteSpace(request.Lines[i].WarehouseCode))
                 errors.Add($"Line {i + 1} (Item: {request.Lines[i].ItemCode ?? "unknown"}): Warehouse code is required for each invoice line.");
         return errors;
-    }
-
-    private void ApplyAllocatedBatchesToRequest(CreateInvoiceRequest request, List<AllocatedBatchLine> allocatedLines)
-    {
-        if (request.Lines == null) return;
-        foreach (var allocatedLine in allocatedLines)
-        {
-            var lineIndex = allocatedLine.LineNumber - 1;
-            if (lineIndex < 0 || lineIndex >= request.Lines.Count) continue;
-            var requestLine = request.Lines[lineIndex];
-            if (requestLine.BatchNumbers == null || requestLine.BatchNumbers.Count == 0)
-            {
-                if (allocatedLine.Batches.Count > 0)
-                {
-                    requestLine.BatchNumbers = allocatedLine.Batches
-                        .Select(b => new BatchNumberRequest
-                        {
-                            BatchNumber = b.BatchNumber,
-                            Quantity = b.QuantityAllocated,
-                            ExpiryDate = b.ExpiryDate
-                        }).ToList();
-                    logger.LogDebug("Applied {BatchCount} batches to line {LineNumber} for item {ItemCode}",
-                        allocatedLine.Batches.Count, allocatedLine.LineNumber, allocatedLine.ItemCode);
-                }
-            }
-
-            if (requestLine.SerialNumbers == null || requestLine.SerialNumbers.Count == 0)
-            {
-                if (allocatedLine.Serials.Count > 0)
-                {
-                    requestLine.SerialNumbers = allocatedLine.Serials
-                        .Select(s => new SerialNumberRequest
-                        {
-                            InternalSerialNumber = s.InternalSerialNumber,
-                            SystemSerialNumber = s.SystemSerialNumber
-                        }).ToList();
-                    logger.LogDebug("Applied {SerialCount} serial numbers to line {LineNumber} for item {ItemCode}",
-                        allocatedLine.Serials.Count, allocatedLine.LineNumber, allocatedLine.ItemCode);
-                }
-            }
-        }
     }
 }

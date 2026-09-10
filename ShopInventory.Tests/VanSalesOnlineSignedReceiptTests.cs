@@ -286,6 +286,7 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
             _context,
             sap.Client,
             new SapCircuitBreakerState(Options.Create(new SAPSettings())),
+            SaleBatchAllocators.Holding(),
             new StockLedger(_context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance),
             SalePostGuards.Backed(_connection),
             Options.Create(new VanSalesPostingSettings()),

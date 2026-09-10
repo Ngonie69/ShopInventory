@@ -672,6 +672,7 @@ public sealed class ExceptionCenterGuidKeyedSourceTests : IDisposable
             _context,
             StubProxy.Unused<ISAPServiceLayerClient>(),
             new SapCircuitBreakerState(Options.Create(new SAPSettings())),
+            StubProxy.Unused<IBatchInventoryValidationService>(),
             new StockLedger(_context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance),
             SalePostGuards.Backed(_connection),
             Options.Create(new VanSalesPostingSettings()),

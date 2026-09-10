@@ -68,6 +68,7 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
             _context,
             _sap.Client,
             _circuit,
+            SaleBatchAllocators.Holding(),
             new StockLedger(_context, Options.Create(new DailyStockSettings()), NullLogger<StockLedger>.Instance),
             SalePostGuards.Backed(_connection),
             Options.Create(settings),

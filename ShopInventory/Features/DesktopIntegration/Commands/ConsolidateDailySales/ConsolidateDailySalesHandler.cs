@@ -231,7 +231,7 @@ public sealed class ConsolidateDailySalesHandler(
                     + string.Join("; ", batchValidationResult.ValidationErrors.Select(error => error.Message)));
             }
 
-            ApplyAllocatedBatchesToRequest(invoiceRequest, batchValidationResult.AllocatedLines);
+            InvoiceBatchAllocation.ApplyTo(invoiceRequest, batchValidationResult.AllocatedLines);
 
             var stockValidationErrors = await sapClient.ValidateStockAvailabilityAsync(invoiceRequest, ct);
             if (stockValidationErrors.Count > 0)
@@ -643,46 +643,6 @@ public sealed class ConsolidateDailySalesHandler(
                 + "with FDMS and it must not be fiscalised",
                 consolidation.SapDocNum,
                 consolidation.SaleCount);
-        }
-    }
-
-    private static void ApplyAllocatedBatchesToRequest(
-        CreateInvoiceRequest request,
-        List<AllocatedBatchLine> allocatedLines)
-    {
-        if (request.Lines == null)
-            return;
-
-        foreach (var allocatedLine in allocatedLines)
-        {
-            var lineIndex = allocatedLine.LineNumber - 1;
-            if (lineIndex < 0 || lineIndex >= request.Lines.Count)
-                continue;
-
-            var requestLine = request.Lines[lineIndex];
-
-            if (requestLine.SerialNumbers is not { Count: > 0 } && allocatedLine.Serials.Count > 0)
-            {
-                requestLine.SerialNumbers = allocatedLine.Serials
-                    .Select(serial => new SerialNumberRequest
-                    {
-                        InternalSerialNumber = serial.InternalSerialNumber,
-                        SystemSerialNumber = serial.SystemSerialNumber
-                    })
-                    .ToList();
-            }
-
-            if (requestLine.BatchNumbers is { Count: > 0 } || allocatedLine.Batches.Count == 0)
-                continue;
-
-            requestLine.BatchNumbers = allocatedLine.Batches
-                .Select(batch => new BatchNumberRequest
-                {
-                    BatchNumber = batch.BatchNumber,
-                    Quantity = batch.QuantityAllocated,
-                    ExpiryDate = batch.ExpiryDate
-                })
-                .ToList();
         }
     }
 
