@@ -22,21 +22,37 @@
    own. `ops` is the scope; `ops-ds` is this page's own half of it. The 542-line
    inline <style> block is gone.
 
-   **The design's row selection is not built, deliberately.** It draws a
-   checkbox per row and a "Consolidate 4" button, i.e. consolidating a chosen
-   subset. `IDesktopIntegrationService.TriggerConsolidationAsync()` takes no
-   arguments — the run is end-of-day and server-side, and there is no endpoint
-   that accepts a set of sales. Checkboxes that did not decide what gets
-   consolidated would be a lie about what the button does, so the column is
-   left out and the dialog confirms the run the API actually performs. If a
-   selective endpoint appears, the column and the `Consolidate N` label are the
+   **The design's per-sale actions are not built, deliberately.** Its earlier
+   revision drew a checkbox per row and a "Consolidate 4" button; this one moves
+   the same idea into the drawer as "Consolidate now" and "Exclude from close",
+   and adds a "Receipt PDF". None of the three exists behind this page.
+   `IDesktopIntegrationService.TriggerConsolidationAsync()` takes no arguments —
+   the run is end-of-day and server-side, there is no endpoint that accepts a
+   set of sales or excludes one, and no receipt PDF is kept for a desktop sale.
+   A "Consolidate now" in a drawer about one invoice that silently closed the
+   whole day would be worse than no button. The hero's `Consolidate day` names
+   what the API actually does, and the dialog confirms it. If a selective
+   endpoint ever appears, those controls and a `Consolidate N` label are the
    only markup this page is missing.
 
-   Two other places where the design assumed data this page does not have:
-   its status lane strip is drawn from the end-of-day report's consolidation
-   counts rather than from an invented per-device lifecycle, and its per-site
-   value bars became per-customer, because `BusinessPartnerSummaries` is the
-   breakdown the report returns. *@
+   Three other places where the design assumed data this page does not have:
+
+   - Its status lanes come from the end-of-day report's consolidation counts
+     rather than an invented per-device lifecycle, and its per-site value bars
+     became per-customer, because `BusinessPartnerSummaries` is the breakdown
+     the report returns.
+   - Its drawer prints a raised time and a fiscalized time. A desktop sale
+     carries `CreatedAt` and nothing else, so one stamp is stated once.
+   - Its trail ends at "Posted to ledger" with a journal number. There is no
+     ledger posting time on this row; there is a SAP document number, by two
+     different routes (see `trail`), and that is the fact the last step states.
+
+   The fiscal signature panel is the one part of this revision that needed new
+   data, and it needed none from SAP: `FiscalQRCode`, `FiscalVerificationCode`,
+   `FiscalDeviceNumber` and `FiscalDayNo` have always come back from
+   `GET /api/DesktopIntegration/sales` and were simply missing from the Web's
+   hand-written mirror of that DTO. `SapDocNum` and `PostedAt` were added to
+   the API's list DTO for the trail's last step. *@
 
 <div class="ops ops-ds">
 
@@ -79,7 +95,7 @@
                     else
                     {
                         <i class="ph ph-paper-plane-tilt" aria-hidden="true"></i>
-                        <span>Consolidate</span>
+                        <span>Consolidate day</span>
                     }
                 </button>
                 <button type="button" class="ops-btn ops-btn-ghost" @onclick="ExportToExcel"
@@ -115,29 +131,17 @@
     @if (report != null)
     {
         <div class="ops-ds-summary">
-            @* The day, divided. The lanes and the strip beneath them read the
-               same family per lane, so a lane cannot be one colour and its
-               share of the bar another. *@
+            @* The day, divided. The strip states the split before the four
+               numbers do, so the shape of the day is readable before a single
+               figure is; each lane and its share of the strip read the same
+               family, so a lane cannot be one colour and its bar another. *@
             <div class="ops-ds-card">
                 <div class="ops-ds-card-head">
-                    <i class="ph ph-storefront" aria-hidden="true"></i>
                     <span class="ops-ds-card-label">@dayLabel</span>
                     <span class="ops-ds-card-tally">
                         <b>@report.TotalSalesCount</b>
                         <span>fiscalized</span>
                     </span>
-                </div>
-
-                <div class="ops-ds-lanes">
-                    @foreach (var lane in lanes)
-                    {
-                        <div class="@lane.Family">
-                            <div class="ops-ds-lane-num">@lane.Count</div>
-                            <div class="ops-ds-lane-name">
-                                <span class="ops-dot"></span>@lane.Name
-                            </div>
-                        </div>
-                    }
                 </div>
 
                 @if (laneTotal > 0)
@@ -151,10 +155,25 @@
                     </div>
                 }
 
-                <div class="ops-ds-aside">
-                    <span>Value @Money(report.TotalSalesAmount)</span>
-                    <span>VAT @Money(report.TotalVatAmount)</span>
-                    <span>Paid @Money(report.TotalAmountPaid)</span>
+                <div class="ops-ds-lanes">
+                    @foreach (var lane in lanes)
+                    {
+                        <div class="ops-ds-lane @lane.Family">
+                            <div class="ops-ds-lane-num">@lane.Count</div>
+                            <div class="ops-ds-lane-name">@lane.Name</div>
+                        </div>
+                    }
+                </div>
+
+                @* Net, not the gross the day totals to: the design states the
+                   three amounts side by side, and Net beside VAT that adds up
+                   to something else would be read as an arithmetic error.
+                   `TotalSalesAmount` is subtotal + VAT — see
+                   CreateDesktopSaleHandler — so the subtraction is exact. *@
+                <div class="ops-ds-aside ops-ds-aside-ruled">
+                    <span>Net <b>@Money(report.TotalSalesAmount - report.TotalVatAmount)</b></span>
+                    <span>VAT <b>@Money(report.TotalVatAmount)</b></span>
+                    <span>Paid <b>@Money(report.TotalAmountPaid)</b></span>
                 </div>
             </div>
 
@@ -163,17 +182,15 @@
                acts on, and the day's total is stated beside the lanes. *@
             <div class="ops-ds-card">
                 <div class="ops-ds-card-head">
-                    <i class="ph ph-coins" aria-hidden="true"></i>
+                    <i class="ph ph-hard-drives" aria-hidden="true"></i>
                     <span class="ops-ds-card-label">Value on the device</span>
                 </div>
 
                 <div class="ops-ds-value">
                     <b>@Money(awaitingValue)</b>
-                    <span>not yet in the back office</span>
                 </div>
                 <div class="ops-ds-aside">
-                    <span>@report.UnpostedInvoiceCount awaiting close</span>
-                    <span>@report.PostedInvoiceCount consolidated</span>
+                    <span>not yet in the back office · @report.UnpostedInvoiceCount awaiting close</span>
                 </div>
 
                 @if (topPartners.Count > 0)
@@ -184,8 +201,8 @@
                         @foreach (var partner in topPartners)
                         {
                             <div class="ops-ds-break-row">
-                                <span class="ops-ds-break-name" title="@(partner.CardName ?? partner.CardCode)">
-                                    @(partner.CardName ?? partner.CardCode)
+                                <span class="ops-ds-break-code" title="@(partner.CardName ?? partner.CardCode)">
+                                    @partner.CardCode
                                 </span>
                                 <span class="ops-ds-break-track">
                                     <span class="ops-ds-break-fill"
@@ -268,12 +285,20 @@
             </div>
         }
 
-        @if (hasFilters)
-        {
-            <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearFilters">
-                <i class="ph ph-x-circle" aria-hidden="true"></i>Clear filters
-            </button>
-        }
+        @* The count sits with the controls that decide it rather than under
+           the table: it is the answer to the filter row, and by the foot of a
+           50-row page the question is off screen. Clear appears only once
+           there is something to clear — the design draws it always, but a
+           button that does nothing on an unfiltered page is a dead control. *@
+        <div class="ops-ds-filter-tail">
+            <span class="ops-ds-shown">@shownText</span>
+            @if (hasFilters)
+            {
+                <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" @onclick="ClearFilters">
+                    <i class="ph ph-x" aria-hidden="true"></i>Clear
+                </button>
+            }
+        </div>
     </div>
 
     <div class="ops-rule-fade"></div>
@@ -300,12 +325,17 @@
                             <th class="ops-num">Paid</th>
                             <th>Fiscal</th>
                             <th>Consolidation</th>
+                            @* Empty on purpose: the mark below is a hover cue
+                               for a row that already announces itself as a
+                               button, not a column of data. *@
+                            <th class="ops-ds-chev-cell"><span class="visually-hidden">Open</span></th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var sale in sales)
                         {
-                            <tr @onclick="() => SelectSale(sale)">
+                            <tr class="@(selectedSale?.Id == sale.Id ? "is-open" : "")"
+                                @onclick="() => SelectSale(sale)">
                                 <td data-label="Fiscal number">
                                     <span class="ops-code">@sale.ExternalReferenceId</span>
                                 </td>
@@ -333,6 +363,9 @@
                                     {
                                         <div class="ops-sub">Run #@sale.ConsolidationId</div>
                                     }
+                                </td>
+                                <td class="ops-ds-chev-cell">
+                                    <i class="ph ph-arrow-right ops-ds-chev" aria-hidden="true"></i>
                                 </td>
                             </tr>
                         }
@@ -441,16 +474,62 @@
 @if (selectedSale != null)
 {
     <div class="ops-overlay ops-overlay-right" @onclick="CloseDrawer">
-        <aside class="ops-drawer" role="dialog" aria-modal="true" aria-label="Sale details"
+        <aside class="ops-drawer ops-ds-drawer" role="dialog" aria-modal="true"
+               aria-label="Fiscalized invoice @selectedSale.ExternalReferenceId"
                @onclick:stopPropagation="true">
-            <div class="ops-drawer-head">
-                <h2>@selectedSale.ExternalReferenceId</h2>
-                <button type="button" class="ops-x" aria-label="Close" @onclick="CloseDrawer">
-                    <i class="ph ph-x" aria-hidden="true"></i>
-                </button>
+
+            @* The head states the document rather than the page: a kicker, the
+               fiscal reference in full, and the two statuses as marks. The
+               reference is a long device-issued string, so it wraps instead of
+               being truncated into something nobody can match to a receipt. *@
+            <div class="ops-drawer-head ops-ds-dhead">
+                <div class="ops-ds-dhead-id">
+                    <span class="ops-kicker">Fiscalized invoice</span>
+                    <span class="ops-ds-dhead-ref">@selectedSale.ExternalReferenceId</span>
+                </div>
+
+                @* Up and down walk the page that is loaded, not the whole
+                   result set — paging is what the pager is for, and a Next
+                   that silently fetched the next page would move the list
+                   under the user while they were reading one row of it. *@
+                <div class="ops-ds-dnav">
+                    <button type="button" class="ops-icon-btn" title="Previous sale"
+                            aria-label="Previous sale" disabled="@(sales.Count < 2)"
+                            @onclick="() => StepSale(-1)">
+                        <i class="ph ph-caret-up" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" class="ops-icon-btn" title="Next sale"
+                            aria-label="Next sale" disabled="@(sales.Count < 2)"
+                            @onclick="() => StepSale(1)">
+                        <i class="ph ph-caret-down" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" class="ops-icon-btn" title="Close"
+                            aria-label="Close" @onclick="CloseDrawer">
+                        <i class="ph ph-x" aria-hidden="true"></i>
+                    </button>
+                </div>
+
+                <div class="ops-ds-dtags">
+                    <span class="ops-badge @ConsolidationFamily(selectedSale.ConsolidationStatus)">
+                        @ConsolidationLabel(selectedSale.ConsolidationStatus)
+                    </span>
+                    <span class="ops-ds-state @FiscalFamily(selectedSale.FiscalizationStatus)">
+                        <span class="ops-dot"></span>Fiscal @Blank(selectedSale.FiscalizationStatus)
+                    </span>
+                    @* One timestamp, stated once. The design shows a raised
+                       time and a fiscalized time; a desktop sale carries
+                       CreatedAt and nothing else, and two labels over one
+                       value would invent a gap nobody measured. *@
+                    <span class="ops-ds-dwhen">@Full(selectedSale.CreatedAt)</span>
+                </div>
             </div>
 
             <div class="ops-drawer-body">
+                <div class="ops-ds-headline">
+                    <b>@Money(selectedSale.TotalAmount, selectedSale.Currency)</b>
+                    <span>@tenderText</span>
+                </div>
+
                 <div class="ops-defs">
                     <div>
                         <div class="ops-def-k">Customer</div>
@@ -465,72 +544,30 @@
                         <div class="ops-def-v">@selectedSale.WarehouseCode</div>
                     </div>
                     <div>
-                        <div class="ops-def-k">Fiscalized</div>
-                        <div class="ops-def-v">@selectedSale.CreatedAt.AddHours(2).ToString("dd MMM yyyy, HH:mm")</div>
+                        <div class="ops-def-k">Raised in</div>
+                        <div class="ops-def-v">@Blank(selectedSale.SourceSystem)</div>
                     </div>
                     <div>
-                        <div class="ops-def-k">Total</div>
-                        <div class="ops-def-v">@Money(selectedSale.TotalAmount, selectedSale.Currency)</div>
-                    </div>
-                    <div>
-                        <div class="ops-def-k">VAT</div>
-                        <div class="ops-def-v">@Money(selectedSale.VatAmount, selectedSale.Currency)</div>
-                    </div>
-                    <div>
-                        <div class="ops-def-k">Paid</div>
-                        <div class="ops-def-v">@Money(selectedSale.AmountPaid, selectedSale.Currency)</div>
+                        <div class="ops-def-k">Captured by</div>
+                        <div class="ops-def-v">@Blank(selectedSale.CreatedBy)</div>
                     </div>
                     <div>
                         <div class="ops-def-k">Payment method</div>
-                        <div class="ops-def-v">@(selectedSale.PaymentMethod ?? "—")</div>
+                        <div class="ops-def-v">@Blank(selectedSale.PaymentMethod)</div>
                     </div>
-                    <div>
-                        <div class="ops-def-k">Fiscal status</div>
-                        <div class="ops-def-v">
-                            <span class="ops-ds-state @FiscalFamily(selectedSale.FiscalizationStatus)">
-                                <span class="ops-dot"></span>@Blank(selectedSale.FiscalizationStatus)
-                            </span>
-                        </div>
-                    </div>
-                    <div>
-                        <div class="ops-def-k">Consolidation</div>
-                        <div class="ops-def-v">
-                            <span class="ops-ds-state @ConsolidationFamily(selectedSale.ConsolidationStatus)">
-                                <span class="ops-dot"></span>@ConsolidationLabel(selectedSale.ConsolidationStatus)
-                            </span>
-                        </div>
-                    </div>
-                    @if (selectedSale.ConsolidationId.HasValue)
-                    {
-                        <div>
-                            <div class="ops-def-k">Consolidation run</div>
-                            <div class="ops-def-v">#@selectedSale.ConsolidationId</div>
-                        </div>
-                    }
-                    @if (!string.IsNullOrEmpty(selectedSale.FiscalReceiptNumber))
-                    {
-                        <div>
-                            <div class="ops-def-k">Fiscal receipt</div>
-                            <div class="ops-def-v">@selectedSale.FiscalReceiptNumber</div>
-                        </div>
-                    }
-                    @if (!string.IsNullOrEmpty(selectedSale.PaymentReference))
+                    @if (!string.IsNullOrWhiteSpace(selectedSale.PaymentReference))
                     {
                         <div>
                             <div class="ops-def-k">Payment reference</div>
                             <div class="ops-def-v">@selectedSale.PaymentReference</div>
                         </div>
                     }
-                    <div>
-                        <div class="ops-def-k">Captured by</div>
-                        <div class="ops-def-v">@(selectedSale.CreatedBy ?? "—")</div>
-                    </div>
                 </div>
 
                 @if (selectedSale.Lines.Count > 0)
                 {
-                    <div>
-                        <div class="ops-def-k">Line items</div>
+                    <div class="ops-ds-block">
+                        <div class="ops-def-k">Lines</div>
                         <table class="ops-table">
                             <thead>
                                 <tr>
@@ -558,10 +595,87 @@
                                 }
                             </tbody>
                         </table>
+
+                        @* Just "VAT": the design labels it 13%, but the rate is
+                           charged per line at its own tax code's rate — see
+                           CreateDesktopSaleHandler — so a basket carrying a
+                           zero-rated item is not 13% of anything. *@
+                        <div class="ops-ds-sum">
+                            <div>
+                                <span>Net</span>
+                                <span>@Money(selectedSale.TotalAmount - selectedSale.VatAmount, selectedSale.Currency)</span>
+                            </div>
+                            <div>
+                                <span>VAT</span>
+                                <span>@Money(selectedSale.VatAmount, selectedSale.Currency)</span>
+                            </div>
+                            <div class="ops-ds-sum-total">
+                                <span>Total</span>
+                                <span>@Money(selectedSale.TotalAmount, selectedSale.Currency)</span>
+                            </div>
+                        </div>
                     </div>
                 }
+
+                @* Only drawn when the device actually signed something. A panel
+                   headed "Fiscal signature" over four em dashes says the receipt
+                   is unsigned far less clearly than its absence does, and the
+                   trail below already carries that fact in words. *@
+                @if (hasFiscalBlock)
+                {
+                    <div class="ops-ds-sig">
+                        <div class="ops-ds-sig-head">
+                            <i class="ph ph-seal-check" aria-hidden="true"></i>
+                            <span class="ops-ds-card-label">Fiscal signature</span>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(selectedSale.FiscalVerificationCode))
+                        {
+                            <div class="ops-ds-sig-code">@GroupCode(selectedSale.FiscalVerificationCode)</div>
+                        }
+
+                        <div class="ops-ds-sig-foot">
+                            <span>@signatureMeta</span>
+                            @* FiscalQRCode holds the ZIMRA verification URL
+                               itself rather than an image, so it is a link and
+                               not a picture. Guarded all the same: an older row
+                               could hold something that is not a URL. *@
+                            @if (verifyUrl != null)
+                            {
+                                <a class="ops-ds-verify" href="@verifyUrl" target="_blank" rel="noopener noreferrer">
+                                    Verify with ZIMRA<i class="ph ph-arrow-up-right" aria-hidden="true"></i>
+                                </a>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <div class="ops-ds-block">
+                    <div class="ops-def-k">Consolidation trail</div>
+                    <div class="ops-ds-trail">
+                        @foreach (var step in trail)
+                        {
+                            <div class="ops-ds-trail-step @step.Family">
+                                <div class="ops-ds-trail-rail">
+                                    <span class="ops-ds-trail-mark @(step.IsNow ? "is-now" : "")"></span>
+                                </div>
+                                <div class="ops-ds-trail-body">
+                                    <div class="ops-ds-trail-label">@step.Label</div>
+                                    <div class="ops-ds-trail-meta">@step.Meta</div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
             </div>
 
+            @* The design's three per-sale actions — Consolidate now, Exclude
+               from close, Receipt PDF — are not drawn, for the same reason its
+               row checkboxes are not: nothing behind this page can do any of
+               them. Consolidation is a whole-day, server-side run that takes no
+               argument, there is no exclude endpoint, and no receipt PDF is
+               kept for a desktop sale. A Consolidate that quietly closed the
+               whole day would be the worst of the three. *@
             <div class="ops-drawer-foot">
                 <button type="button" class="ops-btn ops-btn-ghost" @onclick="CloseDrawer">Close</button>
             </div>
@@ -792,6 +906,245 @@
 
     private void CloseDrawer() => selectedSale = null;
 
+    // Up and down wrap within the loaded page. Falling off the end into the
+    // next page would fetch behind the drawer and rewrite the list underneath
+    // it; the pager is where changing page belongs.
+    private void StepSale(int direction)
+    {
+        if (selectedSale == null || sales.Count < 2)
+        {
+            return;
+        }
+
+        var index = sales.FindIndex(s => s.Id == selectedSale.Id);
+        if (index < 0)
+        {
+            return;
+        }
+
+        selectedSale = sales[((index + direction) % sales.Count + sales.Count) % sales.Count];
+    }
+
+    // What the customer handed over, and what went back. A sale can carry no
+    // tender at all — an account transfer the till never settled, a card that
+    // was declined — and "tendered 0.00 · change 0.00" states that far less
+    // clearly than saying so.
+    private string tenderText
+    {
+        get
+        {
+            var sale = selectedSale!;
+            if (sale.AmountPaid <= 0)
+            {
+                return "no payment recorded";
+            }
+
+            var tendered = $"tendered {Money(sale.AmountPaid, sale.Currency)}";
+            var change = sale.AmountPaid - sale.TotalAmount;
+            return change > 0 ? $"{tendered} · change {Money(change, sale.Currency)}" : tendered;
+        }
+    }
+
+    // ── The fiscal block ─────────────────────────────────────────────────
+    // Four columns the API has always returned and this page never read. They
+    // are the only record of what the device signed: the receipt was signed
+    // under the sale's own external reference rather than a SAP document
+    // number, so the invoice it eventually becomes never restates them.
+
+    private bool hasFiscalBlock =>
+        selectedSale != null &&
+        (!string.IsNullOrWhiteSpace(selectedSale.FiscalVerificationCode) ||
+         !string.IsNullOrWhiteSpace(selectedSale.FiscalReceiptNumber) ||
+         !string.IsNullOrWhiteSpace(selectedSale.FiscalDeviceNumber) ||
+         !string.IsNullOrWhiteSpace(selectedSale.FiscalDayNo) ||
+         verifyUrl != null);
+
+    private string signatureMeta
+    {
+        get
+        {
+            var sale = selectedSale!;
+            var parts = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(sale.FiscalReceiptNumber))
+            {
+                parts.Add($"Receipt {sale.FiscalReceiptNumber}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(sale.FiscalDeviceNumber))
+            {
+                parts.Add($"device {sale.FiscalDeviceNumber}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(sale.FiscalDayNo))
+            {
+                parts.Add($"fiscal day {sale.FiscalDayNo}");
+            }
+
+            return parts.Count > 0 ? string.Join(" · ", parts) : "Signed on the device";
+        }
+    }
+
+    // The QR payload is the ZIMRA verification URL, not an image — see
+    // FiscalReceiptQrComposer.BuildQrPayload, which composes it as
+    // {qrUrl}/{device}{date}{receipt}{code}. Anything that is not an http(s)
+    // URL is not turned into a link: the column is 500 characters of whatever
+    // the platform returned, and older rows predate the composer.
+    private string? verifyUrl
+    {
+        get
+        {
+            var raw = selectedSale?.FiscalQRCode?.Trim();
+            if (string.IsNullOrEmpty(raw))
+            {
+                return null;
+            }
+
+            return Uri.TryCreate(raw, UriKind.Absolute, out var uri) &&
+                   (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+                ? raw
+                : null;
+        }
+    }
+
+    // Blocks of four, the way the receipt prints it. Display only — the code
+    // goes to ZIMRA unbroken, and nothing here sends it anywhere.
+    private static string GroupCode(string? code)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return "";
+        }
+
+        var groups = new List<string>();
+        for (var i = 0; i < code.Length; i += 4)
+        {
+            groups.Add(code.Substring(i, Math.Min(4, code.Length - i)));
+        }
+
+        return string.Join("-", groups);
+    }
+
+    // ── The trail ────────────────────────────────────────────────────────
+    // Four steps, each read off a column rather than a script: when the sale
+    // was captured, whether the device signed it, whether the close took it,
+    // and what it became in SAP. The design's fourth step assumes a ledger
+    // posting time this page has no field for; the SAP document number is the
+    // fact that actually answers "and then what", so that is what it states.
+
+    private sealed record TrailStep(string Label, string Meta, string Family, bool IsNow = false);
+
+    private List<TrailStep> trail
+    {
+        get
+        {
+            var sale = selectedSale!;
+
+            var origin = new List<string> { Full(sale.CreatedAt) };
+            if (!string.IsNullOrWhiteSpace(sale.CreatedBy))
+            {
+                origin.Add(sale.CreatedBy);
+            }
+            if (!string.IsNullOrWhiteSpace(sale.SourceSystem))
+            {
+                origin.Add(sale.SourceSystem);
+            }
+
+            var steps = new List<TrailStep>
+            {
+                new("Raised in the desktop app", string.Join(" · ", origin), "ops-fam-good")
+            };
+
+            steps.Add(sale.FiscalizationStatus?.ToLowerInvariant() switch
+            {
+                "success" => new TrailStep(
+                    "Fiscalized on the device",
+                    string.IsNullOrWhiteSpace(sale.FiscalReceiptNumber)
+                        ? "the authority accepted the receipt"
+                        : $"receipt {sale.FiscalReceiptNumber} accepted",
+                    "ops-fam-good"),
+                "failed" => new TrailStep(
+                    "Fiscalization failed",
+                    "the device could not sign this receipt",
+                    "ops-fam-bad"),
+                "skipped" => new TrailStep(
+                    "Fiscalization skipped",
+                    "this sale was not put to the device",
+                    "ops-fam-neutral"),
+                _ => new TrailStep(
+                    "Awaiting fiscalization",
+                    "the device has not signed this receipt yet",
+                    "ops-fam-accent",
+                    IsNow: true)
+            });
+
+            steps.Add(sale.ConsolidationStatus?.ToLowerInvariant() switch
+            {
+                "consolidated" => new TrailStep(
+                    "Consolidated into the back office",
+                    sale.ConsolidationId.HasValue ? $"run #{sale.ConsolidationId}" : "closed",
+                    "ops-fam-good"),
+                "failed" => new TrailStep(
+                    "Consolidation failed",
+                    "the run could not take this sale",
+                    "ops-fam-bad"),
+                "excluded" => new TrailStep(
+                    "Excluded from the close",
+                    "left out of the consolidation run",
+                    "ops-fam-neutral"),
+                _ => new TrailStep(
+                    "Awaiting day close",
+                    "stays on the device until the day is consolidated",
+                    "ops-fam-accent",
+                    IsNow: true)
+            });
+
+            // Two routes reach SAP and they write different columns. The
+            // per-sale posting job stamps SapDocNum on the row; the end-of-day
+            // run groups a customer's sales into one consolidated invoice and
+            // stamps the DocNum on the *consolidation*, leaving only
+            // ConsolidationId here. Reading one and not the other is why a
+            // consolidated sale used to look like it had gone nowhere.
+            if (sale.SapDocNum.HasValue)
+            {
+                var meta = sale.PostedAt.HasValue
+                    ? $"invoice {sale.SapDocNum} · {Full(sale.PostedAt.Value)}"
+                    : $"invoice {sale.SapDocNum}";
+                steps.Add(new TrailStep("Posted to SAP", meta, "ops-fam-good"));
+            }
+            else if (sale.ConsolidationId.HasValue)
+            {
+                steps.Add(new TrailStep(
+                    "Posted with the consolidation run",
+                    $"run #{sale.ConsolidationId} carries the SAP invoice, not this row",
+                    "ops-fam-good"));
+            }
+            else if (Is(sale.ConsolidationStatus, "Consolidated"))
+            {
+                steps.Add(new TrailStep(
+                    "No SAP document recorded",
+                    "the sale is closed, but nothing on this row names the invoice it became",
+                    "ops-fam-warn"));
+            }
+            else if (Is(sale.ConsolidationStatus, "Excluded"))
+            {
+                steps.Add(new TrailStep(
+                    "No SAP document",
+                    "an excluded sale is never invoiced",
+                    "ops-fam-neutral"));
+            }
+            else
+            {
+                steps.Add(new TrailStep(
+                    "Not in SAP yet",
+                    "posts as part of the day's consolidation",
+                    "ops-fam-neutral"));
+            }
+
+            return steps;
+        }
+    }
+
     // ── Consolidation ────────────────────────────────────────────────────
 
     private void OpenConsolidate() => showConsolidate = true;
@@ -928,14 +1281,15 @@
 
     // ── Text ─────────────────────────────────────────────────────────────
 
-    private string footerText
-    {
-        get
-        {
-            var shown = $"Showing {sales.Count} of {totalCount} · newest first";
-            return lastPolledAt.HasValue ? $"{shown} · polled {lastPolledAt:HH:mm:ss}" : shown;
-        }
-    }
+    // The count answers the filter row and sits with it; the foot is left to
+    // say how fresh the rows under it are. The design puts a "refreshes every
+    // 30s" note there — nothing on this page polls on a timer, so it says what
+    // actually brings a new row in.
+    private string shownText => $"Showing {sales.Count} of {totalCount} · newest first";
+
+    private string footerText => lastPolledAt.HasValue
+        ? $"Polled {lastPolledAt:HH:mm:ss} · rows arrive as the devices report in"
+        : "Rows arrive as the devices report in";
 
     private string emptyTitle => hasFilters ? "Nothing matches these filters" : "The day is clear";
 
@@ -967,6 +1321,10 @@
         var local = createdAt.AddHours(2);
         return local.Date == DateTime.Today ? local.ToString("HH:mm") : local.ToString("dd MMM HH:mm");
     }
+
+    // The drawer states a date whatever day the row is from: it is read on its
+    // own, away from the column that made "12:17" unambiguous.
+    private static string Full(DateTime utc) => utc.AddHours(2).ToString("dd MMM yyyy, HH:mm");
 
     private static bool Is(string? status, string value) =>
         string.Equals(status, value, StringComparison.OrdinalIgnoreCase);

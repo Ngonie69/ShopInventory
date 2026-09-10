@@ -62,6 +62,13 @@ public sealed record DesktopSaleListItemDto(
 
     string ConsolidationStatus,
     int? ConsolidationId,
+
+    // Where the sale ended up once the consolidation run had it. `ConsolidationStatus` says the run
+    // took it; these two say the back office actually holds it, which is a different question and the
+    // last one a caller can ask about a desktop sale without going to SAP.
+    int? SapDocNum,
+    DateTime? PostedAt,
+
     string WarehouseCode,
     string? PaymentMethod,
     string? PaymentReference,

@@ -115,6 +115,8 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db)
                 s.FiscalDayNo,
                 s.ConsolidationStatus.ToString(),
                 s.ConsolidationId,
+                s.SapDocNum,
+                s.PostedAt,
                 s.WarehouseCode,
                 s.PaymentMethod,
                 s.PaymentReference,

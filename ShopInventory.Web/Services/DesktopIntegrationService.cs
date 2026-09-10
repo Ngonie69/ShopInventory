@@ -580,8 +580,22 @@ public class DesktopSaleDto
     public string Currency { get; set; } = "ZWG";
     public string FiscalizationStatus { get; set; } = string.Empty;
     public string? FiscalReceiptNumber { get; set; }
+
+    // The fiscal block the device signed, mirrored from the API's `DesktopSaleListItemDto`. The API
+    // has always returned these four and nothing here read them, so the drawer could say a sale was
+    // fiscalized without being able to show what it was fiscalized as. `FiscalQRCode` holds the ZIMRA
+    // verification URL itself rather than an image — see FiscalReceiptQrComposer.BuildQrPayload — which
+    // is what lets the drawer hang a link on it. `FiscalVerificationLink` is deliberately not mirrored:
+    // no writer in the solution ever sets that column, so it would always arrive null.
+    public string? FiscalQRCode { get; set; }
+    public string? FiscalVerificationCode { get; set; }
+    public string? FiscalDeviceNumber { get; set; }
+    public string? FiscalDayNo { get; set; }
+
     public string ConsolidationStatus { get; set; } = string.Empty;
     public int? ConsolidationId { get; set; }
+    public int? SapDocNum { get; set; }
+    public DateTime? PostedAt { get; set; }
     public string WarehouseCode { get; set; } = string.Empty;
     public string? PaymentMethod { get; set; }
     public string? PaymentReference { get; set; }

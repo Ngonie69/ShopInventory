@@ -73,6 +73,16 @@ otherwise be surprised.
 
 ### Changed
 
+- **`GET /api/DesktopIntegration/sales` rows carry `sapDocNum` and `postedAt`.** Additive: nothing
+  is renamed or removed, and a client deserialising into a fixed shape is unaffected unless it
+  rejects unknown members.
+
+  They answer the question the row could not answer before — what this sale became in SAP. Note
+  that both stay null for a sale closed by the end-of-day run rather than by the per-sale posting
+  job: that run groups a customer's sales into one consolidated invoice and stamps the document
+  number on the consolidation, so `consolidationId` is what names the invoice in that case. A
+  reader that treats a null `sapDocNum` as "not in SAP" will be wrong for exactly those rows.
+
 - **The morning stock snapshot falls back to TransferEventListener** when this API's own non-batch
   stock read fails, controlled by `TransferEventListener:UseForUnbatchedStockFallback` (on by
   default). The listener holds its own Service Layer session, so it can answer while all six of
