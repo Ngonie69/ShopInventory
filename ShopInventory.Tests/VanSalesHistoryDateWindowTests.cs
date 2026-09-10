@@ -40,6 +40,9 @@ public sealed class VanSalesHistoryDateWindowTests : IDisposable
     private const string WeekStart = "2026-08-06";
     private const string WeekEnd = "2026-08-12";
 
+    /// <summary>The account this van bills, carried by every order seeded here.</summary>
+    private const string OrderCardCode = "TMP119";
+
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
 
@@ -59,7 +62,16 @@ public sealed class VanSalesHistoryDateWindowTests : IDisposable
             Id = Rep,
             Username = "van-rep",
             PasswordHash = "not-a-real-hash",
-            Role = ShopInventory.Models.ApplicationRoles.Merchandiser
+            Role = ShopInventory.Models.ApplicationRoles.Merchandiser,
+
+            // The history read is scoped to this account's customers, and an empty scope now returns
+            // nothing rather than everything. Without a code here the rep sees none of their own
+            // orders and every date assertion in this file passes vacuously against an empty list.
+            //
+            // Set as assigned codes rather than AssignedBusinessPartnerCode because that field is only
+            // read for route-customer roles, and this rep is a Merchandiser — which is incidental to
+            // what this file is about and so left alone.
+            AssignedCustomerCodes = $"""["{OrderCardCode}"]"""
         });
         _context.SaveChanges();
         _context.ChangeTracker.Clear();
@@ -253,7 +265,7 @@ public sealed class VanSalesHistoryDateWindowTests : IDisposable
         _context.SalesOrders.Add(new SalesOrderEntity
         {
             OrderNumber = orderNumber,
-            CardCode = "TMP119",
+            CardCode = OrderCardCode,
             CardName = "Customer TMP119",
             OrderDate = orderDateUtc,
             CreatedAt = orderDateUtc,

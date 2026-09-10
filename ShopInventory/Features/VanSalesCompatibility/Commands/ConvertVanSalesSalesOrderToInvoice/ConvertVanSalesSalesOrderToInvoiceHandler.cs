@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Mobile;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopIntegration.Commands.ConvertSalesOrderToInvoice;
@@ -9,7 +10,8 @@ namespace ShopInventory.Features.VanSalesCompatibility.Commands.ConvertVanSalesS
 
 public sealed class ConvertVanSalesSalesOrderToInvoiceHandler(
     ApplicationDbContext db,
-    IMediator mediator
+    IMediator mediator,
+    ILogger<ConvertVanSalesSalesOrderToInvoiceHandler> logger
 ) : IRequestHandler<ConvertVanSalesSalesOrderToInvoiceCommand, ErrorOr<VanSalesConvertSalesOrderToInvoiceResponse>>
 {
     public async Task<ErrorOr<VanSalesConvertSalesOrderToInvoiceResponse>> Handle(
@@ -47,6 +49,43 @@ public sealed class ConvertVanSalesSalesOrderToInvoiceHandler(
             return Error.Validation(
                 "VanSalesCompatibility.InvalidSalesOrderId",
                 "A valid sales order identifier is required for invoice conversion.");
+        }
+
+        // The order has to be one this account actually calls on. The id arrives in the request body
+        // and nothing downstream reads the caller's scope — the inner handler fetches by id and asks
+        // only whether the order exists, is approved and has lines — so without this any id converts.
+        // What that costs is not abstract: the invoice bills the *order's* CardCode, which is another
+        // van's business partner, while the lines come off the caller's own warehouse, and it is
+        // fiscalised on the way out. Sales order ids are sequential.
+        //
+        // An empty scope refuses everything, which is the same direction the history read takes.
+        var effectiveCustomerCodes = await MobileAssignedCustomerScope.GetEffectiveCustomerCodesAsync(
+            db,
+            user,
+            logger,
+            cancellationToken);
+
+        var orderCardCode = await db.SalesOrders
+            .AsNoTracking()
+            .Where(order => order.Id == salesOrderId.Value)
+            .Select(order => order.CardCode)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // Case-insensitively, because the codes are stored as they were typed and refusing a real
+        // order over its casing is the more expensive mistake: the rep is standing at the counter.
+        if (orderCardCode is null ||
+            !effectiveCustomerCodes.Contains(orderCardCode, StringComparer.OrdinalIgnoreCase))
+        {
+            logger.LogWarning(
+                "Van sales user {UserId} asked to convert sales order {SalesOrderId}, which is outside their customer scope",
+                command.UserId,
+                salesOrderId.Value);
+
+            // Said the same way whether the order belongs to another van or does not exist at all, so
+            // the endpoint cannot be walked to find out which ids are real.
+            return Error.Validation(
+                "VanSalesCompatibility.SalesOrderNotFound",
+                $"Sales order {salesOrderId.Value} was not found for this account.");
         }
 
         var warehouseCode = VanSalesCompatibilityMapper.ResolveAssignedWarehouseCode(user);

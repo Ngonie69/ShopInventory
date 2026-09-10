@@ -420,8 +420,12 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
         var request = Stamped("VAN006-INV-20260810-AAA111", globalNo: 501, counter: 4);
         request.SalesOrderId = 42;
 
-        var result = await new ConvertVanSalesSalesOrderToInvoiceHandler(_context, _mediator).Handle(
-            new ConvertVanSalesSalesOrderToInvoiceCommand(request, VanUser), CancellationToken.None);
+        var result = await new ConvertVanSalesSalesOrderToInvoiceHandler(
+                _context,
+                _mediator,
+                NullLogger<ConvertVanSalesSalesOrderToInvoiceHandler>.Instance)
+            .Handle(
+                new ConvertVanSalesSalesOrderToInvoiceCommand(request, VanUser), CancellationToken.None);
 
         Assert.True(result.IsError);
         Assert.Equal("VanSalesCompatibility.StampedSaleCannotBeConverted", result.FirstError.Code);
