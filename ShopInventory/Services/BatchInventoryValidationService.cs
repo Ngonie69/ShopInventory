@@ -774,7 +774,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             // option there because the line can still post without the reading; here the reading IS
             // the selection, and a batch-managed line SAP will refuse cannot be waved through.
             if (availableBatches.Count == 0 &&
-                _passBatchReadFailures.TryGetValue(BuildStockKey(itemCode, warehouseCode), out var readFailure))
+                TryGetBatchReadFailure(itemCode, warehouseCode, out var readFailure))
             {
                 result.Errors.Add(CreateError(
                     BatchValidationErrorCode.StockUnknown,
@@ -1029,6 +1029,76 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         BatchAllocationStrategy strategy = BatchAllocationStrategy.FEFO,
         CancellationToken cancellationToken = default)
     {
+        var batches = await ReadWarehouseBatchesAsync(itemCode, warehouseCode, cancellationToken);
+
+        // Fresh instances every call, projected from the memo rather than shared with it.
+        // AvailableBatchDto is mutable and this method writes IsRecommended on what it returns, so
+        // handing two callers the same objects would let the second see the first edits, and the
+        // memo itself would drift away from what SAP said.
+        var result = batches
+            .Select(batch => new AvailableBatchDto
+            {
+                BatchNumber = batch.BatchNumber,
+                AvailableQuantity = batch.AvailableQuantity,
+                ExpiryDate = batch.ExpiryDate,
+                AdmissionDate = batch.AdmissionDate
+            })
+            .ToList();
+
+        // Sorted per call rather than in the memo: the strategy belongs to the caller, and two
+        // callers within one pass need not want the same order.
+        result = ApplySortingStrategy(result, strategy);
+
+        // Mark recommended batches
+        var runningTotal = 0m;
+        foreach (var batch in result)
+        {
+            batch.IsRecommended = runningTotal < 1000000; // Mark first batches as recommended
+            runningTotal += batch.AvailableQuantity;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Reads one item batches in one warehouse, at most once per pass, unsorted.
+    /// </summary>
+    /// <remarks>
+    /// The batch counterpart of <see cref="ReadWarehouseStockAsync"/>, and memoised for the same
+    /// reason. A document whose lines name their own batches is validated line by line, and each
+    /// line read the warehouse again: twenty such lines over five items spent twenty of these reads
+    /// to learn what five would have said, each one holding one of six process-wide Service Layer
+    /// slots, on the reads already known to hang for minutes.
+    ///
+    /// <para>
+    /// A failed read is memoised alongside a successful one, and still answered the way it always
+    /// was: with an empty list. Five callers read that list to show an operator what is available,
+    /// and empty is a reasonable answer to give them. It is not a reasonable thing to allocate from,
+    /// because per-warehouse batch quantities live only in OBTQ and there is no second source, so
+    /// the failure is kept for the allocator to find rather than turned into a zero.
+    /// </para>
+    ///
+    /// <para>
+    /// Cleared by <see cref="BeginStockReadPass"/>, so it lives exactly one pass and no longer. That
+    /// boundary is load-bearing in two directions. <see cref="PrePostValidationAsync"/> runs a second
+    /// pass under the inventory locks precisely so that it reads afresh, and carrying an answer into
+    /// it would leave the locks guarding a decision taken before they were held. And a job that posts
+    /// several sales in a row, as the till pass does, puts each one in SAP before the next is
+    /// allocated, so sharing a reading between them would hand the second sale stock the first has
+    /// already taken.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyList<AvailableBatchDto>> ReadWarehouseBatchesAsync(
+        string itemCode,
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        var key = BuildStockKey(itemCode, warehouseCode);
+        if (_passBatchReads.TryGetValue(key, out var memoised))
+        {
+            return memoised.Batches;
+        }
+
         // Try local database first
         var localBatches = await _dbContext.ProductBatches
             .AsNoTracking()
@@ -1040,6 +1110,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             .ToListAsync(cancellationToken);
 
         List<BatchNumber>? sapBatches = null;
+        Exception? failure = null;
 
         // If no local data or stale, fetch from SAP
         if (localBatches.Count == 0)
@@ -1048,26 +1119,23 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             {
                 sapBatches = await _sapClient.GetBatchNumbersForItemInWarehouseAsync(
                     itemCode, warehouseCode, cancellationToken);
-                _passBatchReadFailures.Remove(BuildStockKey(itemCode, warehouseCode));
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // Swallowed, as it always was — five callers read this list to show an operator what
-                // is available and an empty list is a reasonable answer to give them. What is not
-                // reasonable is letting the allocator conclude the warehouse is empty, so the failure
-                // is remembered here for it to find. See _passBatchReadFailures.
-                _passBatchReadFailures[BuildStockKey(itemCode, warehouseCode)] = ex;
+                // Not memoised for a cancellation, which is the caller hanging up rather than
+                // anything about this warehouse.
+                failure = ex;
 
                 _logger.LogWarning(ex, "Failed to fetch batches from SAP for {ItemCode} in {Warehouse}",
                     itemCode, warehouseCode);
             }
         }
 
-        var result = new List<AvailableBatchDto>();
+        var batches = new List<AvailableBatchDto>();
 
         if (sapBatches != null && sapBatches.Count > 0)
         {
-            result = sapBatches
+            batches = sapBatches
                 .Where(b => b.Quantity > 0)
                 .Select(b => new AvailableBatchDto
                 {
@@ -1080,7 +1148,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         }
         else if (localBatches.Count > 0)
         {
-            result = localBatches
+            batches = localBatches
                 .Select(b => new AvailableBatchDto
                 {
                     BatchNumber = b.BatchNumber,
@@ -1091,18 +1159,24 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 .ToList();
         }
 
-        // Apply FIFO/FEFO sorting
-        result = ApplySortingStrategy(result, strategy);
+        _passBatchReads[key] = (batches, failure);
+        return batches;
+    }
 
-        // Mark recommended batches
-        var runningTotal = 0m;
-        foreach (var batch in result)
+    /// <summary>
+    /// The exception this warehouse batch read failed with during this pass, if it failed.
+    /// </summary>
+    private bool TryGetBatchReadFailure(string itemCode, string warehouseCode, out Exception failure)
+    {
+        if (_passBatchReads.TryGetValue(BuildStockKey(itemCode, warehouseCode), out var memoised) &&
+            memoised.Failure is { } recorded)
         {
-            batch.IsRecommended = runningTotal < 1000000; // Mark first batches as recommended
-            runningTotal += batch.AvailableQuantity;
+            failure = recorded;
+            return true;
         }
 
-        return result;
+        failure = null!;
+        return false;
     }
 
     /// <inheritdoc/>
@@ -1555,6 +1629,28 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             BatchAllocationStrategy.FEFO,
             cancellationToken);
 
+        // Same distinction the auto-allocating path makes, on the path that validates a selection
+        // somebody else already made. An unread warehouse holds no batches as far as the lookup
+        // below can tell, so every batch the caller named reads as BatchNotFound: a refusal that
+        // sends a person to go and look for a batch that is sitting right there, and that
+        // SapFailureClassifier will not retry.
+        if (availableBatches.Count == 0 &&
+            TryGetBatchReadFailure(line.ItemCode ?? "", line.WarehouseCode ?? "", out var readFailure))
+        {
+            errors.Add(CreateError(
+                BatchValidationErrorCode.StockUnknown,
+                lineNumber,
+                line.ItemCode ?? "",
+                null,
+                line.WarehouseCode ?? "",
+                expectedInventoryQty,
+                0,
+                BuildStockUnknownMessage(line.ItemCode ?? "", line.WarehouseCode ?? "", readFailure),
+                StockUnknownSuggestion));
+
+            return (errors, warnings, null);
+        }
+
         var batchLookup = availableBatches.ToDictionary(
             b => b.BatchNumber,
             StringComparer.OrdinalIgnoreCase);
@@ -1763,20 +1859,22 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     private Dictionary<string, (StockQuantityDto? Stock, Exception? Failure)> _passStockReads = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Batch reads that failed, so an empty batch list can be told apart from an empty warehouse.
+    /// One warehouse batch reading per item per pass, and whether reading it failed.
     /// </summary>
     /// <remarks>
-    /// <see cref="GetAvailableBatchesAsync"/> answers a failed SAP read with an empty list, which is
-    /// the right answer for the callers that are showing an operator what is available and the wrong
-    /// one for the allocator: per-warehouse batch quantities live only in OBTQ and there is no second
-    /// source, so a failed read has to be reported as a failed read rather than substituted with
-    /// zero. Kept per instance, alongside <see cref="_passStockReads"/> and for the same reason: the
-    /// service is scoped to one request and its lines are processed in order.
+    /// See <see cref="ReadWarehouseBatchesAsync"/> for what this saves and why it must not outlive
+    /// the pass. Held the same way as <see cref="_passStockReads"/>, and for the same reason: a plain
+    /// field, because lines are processed sequentially and the service is scoped to one request.
     /// </remarks>
-    private readonly Dictionary<string, Exception> _passBatchReadFailures = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, (IReadOnlyList<AvailableBatchDto> Batches, Exception? Failure)> _passBatchReads =
+        new(StringComparer.OrdinalIgnoreCase);
 
-    private void BeginStockReadPass() =>
+    private void BeginStockReadPass()
+    {
         _passStockReads = new Dictionary<string, (StockQuantityDto?, Exception?)>(StringComparer.OrdinalIgnoreCase);
+        _passBatchReads =
+            new Dictionary<string, (IReadOnlyList<AvailableBatchDto>, Exception?)>(StringComparer.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     /// Reads one item's stock in one warehouse, at most once per pass. Rethrows the original
