@@ -11,6 +11,7 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.Notifications;
 using ShopInventory.Hubs;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 using Microsoft.Extensions.Options;
@@ -25,12 +26,72 @@ public sealed class CreateDesktopSaleHandler(
     IHubContext<NotificationHub> hubContext,
     IIdempotencyRequestStore idempotencyRequestStore,
     IOptions<TaxSettings> taxSettings,
+    IAuditService auditService,
     ILogger<CreateDesktopSaleHandler> logger
 ) : IRequestHandler<CreateDesktopSaleCommand, ErrorOr<CreateDesktopSaleResult>>
 {
     private static readonly TimeSpan LockDuration = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// Sells, then records that it sold.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The row is written for every outcome, around the whole attempt rather than at the point of
+    /// sale, so a refusal leaves a trace too. A till that cannot sell is worth as much to whoever is
+    /// reading the trail as one that can — more, usually, because the successful sale is also a
+    /// document and the refusal is nothing at all.
+    /// </para>
+    /// <para>
+    /// A replay is recorded as a replay. The idempotent path answers an existing sale rather than
+    /// making a second one, and a trail that showed two creations for one sale would invent a
+    /// duplicate that never happened.
+    /// </para>
+    /// </remarks>
     public async Task<ErrorOr<CreateDesktopSaleResult>> Handle(
+        CreateDesktopSaleCommand command,
+        CancellationToken cancellationToken)
+    {
+        var outcome = await SellAsync(command, cancellationToken);
+
+        await auditService.LogAsync(
+            AuditActions.CreateDesktopSale,
+            nameof(DesktopSaleEntity),
+            outcome.IsError ? command.Request.ExternalReferenceId : outcome.Value.Sale.ExternalReferenceId,
+            Describe(command, outcome),
+            !outcome.IsError,
+            outcome.IsError ? outcome.FirstError.Description : null);
+
+        return outcome;
+    }
+
+    /// <summary>The row's text. Internal so it can be asserted without standing up a till.</summary>
+    internal static string Describe(
+        CreateDesktopSaleCommand command,
+        ErrorOr<CreateDesktopSaleResult> outcome)
+    {
+        if (outcome.IsError)
+        {
+            var reference = string.IsNullOrWhiteSpace(command.Request.ExternalReferenceId)
+                ? "an unreferenced sale"
+                : $"sale {command.Request.ExternalReferenceId}";
+
+            return $"Refused {reference} over {command.Request.Lines.Count} line(s), "
+                + $"tendered {command.Request.PaymentMethod}.";
+        }
+
+        var sale = outcome.Value.Sale;
+        var verb = outcome.Value.WasExisting ? "Replayed" : "Sold";
+        var fiscal = string.IsNullOrWhiteSpace(sale.FiscalReceiptNumber)
+            ? sale.FiscalizationStatus
+            : $"{sale.FiscalizationStatus}, receipt {sale.FiscalReceiptNumber}";
+
+        return $"{verb} {sale.ExternalReferenceId} to {sale.CardCode} from {sale.WarehouseCode}: "
+            + $"{sale.TotalAmount:0.00} incl. {sale.VatAmount:0.00} VAT, "
+            + $"tendered {command.Request.PaymentMethod}. Fiscalisation {fiscal}.";
+    }
+
+    private async Task<ErrorOr<CreateDesktopSaleResult>> SellAsync(
         CreateDesktopSaleCommand command,
         CancellationToken cancellationToken)
     {

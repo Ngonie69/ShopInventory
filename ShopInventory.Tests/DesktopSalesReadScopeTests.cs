@@ -313,6 +313,6 @@ public sealed class DesktopSalesReadScopeTests : IDisposable
     }
 
     private Task<ErrorOr.ErrorOr<DesktopSalesListResult>> List(Guid callerId, string? warehouseCode) =>
-        new GetDesktopSalesHandler(_context)
+        new GetDesktopSalesHandler(_context, new RecordingAuditService())
             .Handle(new GetDesktopSalesQuery(callerId, warehouseCode), CancellationToken.None);
 }

@@ -59,6 +59,26 @@ public static class AuditActions
     /// successful one, because both mean somebody was chasing a sale that had not reached SAP.
     /// </summary>
     public const string PostDesktopSaleToSAP = "PostDesktopSaleToSAP";
+
+    // The desktop till and vending surface.
+    //
+    // These sit alongside the blanket row DesktopIntegrationAuditFilter writes for every desktop
+    // write. The filter's row names the endpoint and how it answered; these name the document, the
+    // customer and the money, which for these six is the whole question — the sale, the two invoice
+    // paths and the consolidation all carry their subject in the request body, so the endpoint alone
+    // says only that something was sold, not what.
+    //
+    // The two reads are here because the filter deliberately drops the desktop read side: a till
+    // polls stock and queue state continuously, but these two show a shop's takings and are worth a
+    // row each.
+    public const string CreateDesktopSale = "CreateDesktopSale";
+    public const string CreateDesktopInvoice = "CreateDesktopInvoice";
+    public const string QueueDesktopInvoice = "QueueDesktopInvoice";
+    public const string CancelQueuedDesktopInvoice = "CancelQueuedDesktopInvoice";
+    public const string RetryQueuedDesktopInvoice = "RetryQueuedDesktopInvoice";
+    public const string ConsolidateDesktopSales = "ConsolidateDesktopSales";
+    public const string ViewDesktopSales = "ViewDesktopSales";
+    public const string ViewDesktopEndOfDayReport = "ViewDesktopEndOfDayReport";
     public const string ConvertOrderToInvoice = "ConvertOrderToInvoice";
     public const string DeleteSalesOrder = "DeleteSalesOrder";
 
