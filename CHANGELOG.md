@@ -66,6 +66,22 @@ otherwise be surprised.
 
 ### Changed
 
+- **Every `/api/DesktopIntegration` write is now written to the audit trail.** The surface had no
+  audit at all: 70 endpoints, of which only the transfer request and the by-hand SAP post recorded
+  anything. A till could sell, invoice, cancel or retry a queued invoice, or consolidate the day's
+  takings into SAP and leave nothing behind but the documents themselves.
+
+  Nothing about the requests or responses changes. What changes is what an operator sees on
+  `/audit-trail` and `/user-activity`: a row per desktop write, action prefixed `Desktop`, plus a
+  fuller row from the handler for the sale, the two invoice paths, the queue cancel and retry, and
+  the consolidation. Reads are deliberately left out — a till polls stock and queue state
+  continuously — except `GET /sales` and `GET /end-of-day/report`, which show a shop's takings and
+  are logged as `ViewDesktopSales` and `ViewDesktopEndOfDayReport`.
+
+  The nightly `EndOfDayConsolidationJob` run is audited too, and its row carries no username,
+  because no user raised it. Van sales is unaffected: `/api/vansales` audits reads as well as
+  writes, as it always has.
+
 - **Posting a desktop sale to SAP now takes a durable claim on the sale.** Every route that puts a
   till, vending or van sale in SAP — the two background passes, the exception centre's retry and the
   new manual and bulk levers — now acquires a cross-instance claim keyed on the sale's own external

@@ -2,14 +2,25 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.DesktopIntegration.Commands.CreateQueuedInvoice;
 
+/// <summary>
+/// Reserves the stock for an invoice and queues it for posting.
+/// </summary>
+/// <remarks>
+/// Audited because the subject of this call is entirely in its body: the endpoint says an invoice was
+/// queued, and the row says for whom, over how many lines, and under which reference the caller will
+/// come back looking for it. A reference the caller generated itself is the only handle anyone has on
+/// the resulting document until SAP answers.
+/// </remarks>
 public sealed class CreateQueuedInvoiceHandler(
     IStockReservationService reservationService,
     IInvoiceQueueService queueService,
+    IAuditService auditService,
     ILogger<CreateQueuedInvoiceHandler> logger
 ) : IRequestHandler<CreateQueuedInvoiceCommand, ErrorOr<QueuedInvoiceResponseDto>>
 {
@@ -17,11 +28,35 @@ public sealed class CreateQueuedInvoiceHandler(
         CreateQueuedInvoiceCommand command,
         CancellationToken cancellationToken)
     {
+        var externalRef = command.Request.ExternalReferenceId ??
+            $"DESKTOP-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString()[..8]}";
+
+        var outcome = await QueueAsync(command, externalRef, cancellationToken);
+
+        await auditService.LogAsync(
+            AuditActions.QueueDesktopInvoice,
+            "InvoiceQueue",
+            externalRef,
+            outcome.IsError
+                ? $"Queueing an invoice for {command.Request.CardCode} over "
+                    + $"{command.Request.Lines.Count} line(s) was refused."
+                : $"Invoice queued for {command.Request.CardCode} over {command.Request.Lines.Count} "
+                    + $"line(s) as queue entry {outcome.Value.QueueId}, "
+                    + $"holding reservation {outcome.Value.ReservationId}.",
+            !outcome.IsError,
+            outcome.IsError ? outcome.FirstError.Description : null);
+
+        return outcome;
+    }
+
+    private async Task<ErrorOr<QueuedInvoiceResponseDto>> QueueAsync(
+        CreateQueuedInvoiceCommand command,
+        string externalRef,
+        CancellationToken cancellationToken)
+    {
         try
         {
             var request = command.Request;
-            var externalRef = request.ExternalReferenceId ??
-                $"DESKTOP-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString()[..8]}";
 
             logger.LogInformation("Desktop app creating queued invoice: {ExternalRef}", externalRef);
 

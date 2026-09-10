@@ -410,6 +410,7 @@ public sealed class ConsolidationLostReplyRecoveryTests : IDisposable
             StubProxy.For<INotificationService>((_, _) => Task.FromResult(new NotificationDto())),
             BuildHubContext(),
             BuildSender(),
+            new RecordingAuditService(),
             NullLogger<ConsolidateDailySalesHandler>.Instance);
 
     private ISAPServiceLayerClient BuildSapClient() =>

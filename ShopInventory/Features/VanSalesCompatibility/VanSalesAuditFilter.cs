@@ -1,126 +1,23 @@
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Filters;
-using ShopInventory.Services;
+using ShopInventory.Common.Auditing;
 
 namespace ShopInventory.Features.VanSalesCompatibility;
 
+/// <summary>
+/// Audits every handset request, reads included.
+/// </summary>
+/// <remarks>
+/// The handset is the only record of a van's day that the office can read, and a rep's reads are part
+/// of that record — which customers were pulled up, whose history was looked at — so the read side is
+/// kept rather than filtered out the way the desktop surface filters it.
+/// </remarks>
 public sealed class VanSalesAuditFilter(
-    IAuditService auditService,
+    IServiceScopeFactory scopeFactory,
     ILogger<VanSalesAuditFilter> logger
-) : IAsyncActionFilter
+) : EndpointAuditFilter(scopeFactory, logger)
 {
-    public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
-    {
-        ActionExecutedContext? executedContext = null;
-        Exception? pipelineException = null;
+    protected override string ActionPrefix => "VanSales";
 
-        try
-        {
-            executedContext = await next();
-        }
-        catch (Exception ex)
-        {
-            pipelineException = ex;
-            throw;
-        }
-        finally
-        {
-            try
-            {
-                var request = context.HttpContext.Request;
-                var path = request.Path.Value ?? "/api/vansales";
-                var statusCode = ResolveStatusCode(executedContext, pipelineException);
-                var isSuccess = pipelineException is null && statusCode < StatusCodes.Status400BadRequest;
-                var errorMessage = ResolveErrorMessage(executedContext, pipelineException);
-                var details = $"{request.Method.ToUpperInvariant()} {path} returned {statusCode}.";
+    protected override string EntityType => "VanSalesEndpoint";
 
-                await auditService.LogAsync(
-                    ResolveActionName(context, request.Method),
-                    "VanSalesEndpoint",
-                    path,
-                    details,
-                    isSuccess,
-                    errorMessage);
-            }
-            catch (Exception auditException)
-            {
-                logger.LogWarning(
-                    auditException,
-                    "Failed to audit van sales request {Method} {Path}",
-                    context.HttpContext.Request.Method,
-                    context.HttpContext.Request.Path);
-            }
-        }
-    }
-
-    private static string ResolveActionName(ActionExecutingContext context, string method)
-    {
-        if (context.ActionDescriptor.RouteValues.TryGetValue("action", out var actionName) &&
-            !string.IsNullOrWhiteSpace(actionName))
-        {
-            return $"VanSales{actionName}";
-        }
-
-        return $"VanSales{NormalizeToken(method)}";
-    }
-
-    private static int ResolveStatusCode(ActionExecutedContext? context, Exception? pipelineException)
-    {
-        if (pipelineException is not null)
-        {
-            return StatusCodes.Status500InternalServerError;
-        }
-
-        if (context?.Exception is not null && !context.ExceptionHandled)
-        {
-            return StatusCodes.Status500InternalServerError;
-        }
-
-        if (context?.Result is ObjectResult objectResult && objectResult.StatusCode.HasValue)
-        {
-            return objectResult.StatusCode.Value;
-        }
-
-        if (context?.Result is StatusCodeResult statusCodeResult)
-        {
-            return statusCodeResult.StatusCode;
-        }
-
-        return context?.HttpContext.Response.StatusCode is > 0
-            ? context.HttpContext.Response.StatusCode
-            : StatusCodes.Status200OK;
-    }
-
-    private static string? ResolveErrorMessage(ActionExecutedContext? context, Exception? pipelineException)
-    {
-        if (pipelineException is not null)
-        {
-            return pipelineException.Message;
-        }
-
-        if (context?.Exception is not null && !context.ExceptionHandled)
-        {
-            return context.Exception.Message;
-        }
-
-        if (context?.Result is ObjectResult { Value: ProblemDetails problemDetails })
-        {
-            return string.IsNullOrWhiteSpace(problemDetails.Detail)
-                ? problemDetails.Title
-                : problemDetails.Detail;
-        }
-
-        return null;
-    }
-
-    private static string NormalizeToken(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return "Request";
-        }
-
-        return char.ToUpperInvariant(value[0]) + value[1..];
-    }
+    protected override string FallbackPath => "/api/vansales";
 }

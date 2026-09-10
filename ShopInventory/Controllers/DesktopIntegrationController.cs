@@ -1,4 +1,4 @@
-﻿using MediatR;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.DTOs;
@@ -75,9 +75,11 @@ using ShopInventory.Features.Prices.Commands.SyncPriceLists;
 using ShopInventory.Services;
 using System.Security.Claims;
 using ShopInventory.Common.Security;
+using ShopInventory.Features.DesktopIntegration;
 
 namespace ShopInventory.Controllers;
 
+[ServiceFilter(typeof(DesktopIntegrationAuditFilter))]
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
 public class DesktopIntegrationController(IMediator mediator, IServiceScopeFactory scopeFactory) : ApiControllerBase

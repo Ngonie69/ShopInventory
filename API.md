@@ -2655,9 +2655,25 @@ the list endpoint returns, filtered to those currently blocked.
 ### 30. Desktop Integration
 
 **Base route:** `/api/DesktopIntegration`  
-**Auth:** Bearer + ApiAccess
+**Auth:** Bearer + ApiAccess  
+**Audit:** every **write** is written to the audit log by `DesktopIntegrationAuditFilter`, outcome
+included. Reads are not — a till polls stock and queue state for as long as it is switched on, and
+those rows would bury the ones worth reading. The two reads that show a shop's takings,
+`GET /sales` and `GET /end-of-day/report`, log for themselves in their handlers instead.
 
 This controller supports stock reservations and queue-based invoice posting for the desktop application.
+
+The filter's row names the endpoint and how it answered. Six calls write a second, fuller row from
+their handler, because their subject is in the request body and the endpoint alone cannot name it:
+`POST /sales` (the sale, its customer, warehouse, money and receipt — and whether the answer was a
+replay rather than a new sale), `POST /invoices` (the SAP document, or that the invoice was deferred
+to the queue instead), `POST /invoices/queued`, `DELETE /queue/{ref}` and
+`POST /queue/{ref}/retry` (the status the entry was cancelled or retried from, which the queue does
+not keep), and `POST /end-of-day/consolidate` (how many sales became how many SAP invoices).
+`POST /sales/{ref}/post` already logged its own.
+
+`end-of-day/consolidate` is also run by `EndOfDayConsolidationJob`. That run is audited too, with no
+username, because no user raised it.
 
 #### Stock Reservations
 

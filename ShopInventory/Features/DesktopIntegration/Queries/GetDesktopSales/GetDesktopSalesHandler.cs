@@ -4,14 +4,45 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Sales;
 using ShopInventory.Data;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 
-public sealed class GetDesktopSalesHandler(ApplicationDbContext db)
+public sealed class GetDesktopSalesHandler(ApplicationDbContext db, IAuditService auditService)
     : IRequestHandler<GetDesktopSalesQuery, ErrorOr<DesktopSalesListResult>>
 {
+    /// <summary>
+    /// Lists sales, and records whose takings were read.
+    /// </summary>
+    /// <remarks>
+    /// One of the two desktop reads the blanket filter deliberately leaves to its handler. This one
+    /// shows a shop's money, and the scope resolver below exists because the warehouse used to arrive
+    /// unchecked from the query string — so a refused read is exactly the event worth keeping: it is
+    /// either a client bug or somebody reaching for another shop's takings, and nothing else records
+    /// that it happened.
+    /// </remarks>
     public async Task<ErrorOr<DesktopSalesListResult>> Handle(
+        GetDesktopSalesQuery request, CancellationToken cancellationToken)
+    {
+        var outcome = await ReadAsync(request, cancellationToken);
+
+        await auditService.LogAsync(
+            AuditActions.ViewDesktopSales,
+            nameof(DesktopSaleEntity),
+            string.IsNullOrWhiteSpace(request.WarehouseCode) ? "(caller scope)" : request.WarehouseCode.Trim(),
+            outcome.IsError
+                ? $"Refused a sales read for warehouse {request.WarehouseCode}."
+                : $"Read {outcome.Value.Sales.Count} of {outcome.Value.TotalCount} sale(s), "
+                    + $"page {outcome.Value.Page}.",
+            !outcome.IsError,
+            outcome.IsError ? outcome.FirstError.Description : null);
+
+        return outcome;
+    }
+
+    private async Task<ErrorOr<DesktopSalesListResult>> ReadAsync(
         GetDesktopSalesQuery request, CancellationToken cancellationToken)
     {
         // Resolved here rather than in the controller so that no caller can reach these rows without

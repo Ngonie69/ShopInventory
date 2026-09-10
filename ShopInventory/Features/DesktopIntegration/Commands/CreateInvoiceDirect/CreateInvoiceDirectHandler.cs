@@ -2,15 +2,26 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.DesktopIntegration.Commands.CreateInvoiceDirect;
 
+/// <summary>
+/// Reserves and posts an invoice to SAP on the request.
+/// </summary>
+/// <remarks>
+/// The heaviest write on this surface: it raises an A/R invoice in SAP, and until now left no trace
+/// that a person had asked for one. The row names the customer and the SAP document, and says when
+/// the answer was a deferral rather than a posting — a queued invoice and a posted one are the same
+/// 200 to the caller, and only one of them means the money reached SAP.
+/// </remarks>
 public sealed class CreateInvoiceDirectHandler(
     IStockReservationService reservationService,
     IInvoiceQueueService queueService,
     SapCircuitBreakerState sapCircuitBreakerState,
+    IAuditService auditService,
     ILogger<CreateInvoiceDirectHandler> logger
 ) : IRequestHandler<CreateInvoiceDirectCommand, ErrorOr<ConfirmReservationResponseDto>>
 {
@@ -18,11 +29,54 @@ public sealed class CreateInvoiceDirectHandler(
         CreateInvoiceDirectCommand command,
         CancellationToken cancellationToken)
     {
+        var externalRef = command.Request.ExternalReferenceId ??
+            $"DESKTOP-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString()[..8]}";
+
+        var outcome = await CreateAsync(command, externalRef, cancellationToken);
+
+        await auditService.LogAsync(
+            AuditActions.CreateDesktopInvoice,
+            "InvoiceQueue",
+            externalRef,
+            Describe(command, outcome),
+            !outcome.IsError,
+            outcome.IsError ? outcome.FirstError.Description : null);
+
+        return outcome;
+    }
+
+    /// <summary>The row's text. Internal so it can be asserted without reaching SAP.</summary>
+    internal static string Describe(
+        CreateInvoiceDirectCommand command,
+        ErrorOr<ConfirmReservationResponseDto> outcome)
+    {
+        var subject = $"{command.Request.CardCode} over {command.Request.Lines.Count} line(s)";
+
+        if (outcome.IsError)
+        {
+            return $"Invoicing {subject} on the request was refused.";
+        }
+
+        var value = outcome.Value;
+
+        if (value.WasQueued)
+        {
+            return $"Invoice for {subject} was deferred to queue entry {value.QueueId} "
+                + $"rather than posted, holding reservation {value.ReservationId}.";
+        }
+
+        return $"Invoice for {subject} posted to SAP as DocNum {value.SAPDocNum} "
+            + $"(DocEntry {value.SAPDocEntry}).";
+    }
+
+    private async Task<ErrorOr<ConfirmReservationResponseDto>> CreateAsync(
+        CreateInvoiceDirectCommand command,
+        string externalRef,
+        CancellationToken cancellationToken)
+    {
         try
         {
             var request = command.Request;
-            var externalRef = request.ExternalReferenceId ??
-                $"DESKTOP-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString()[..8]}";
 
             logger.LogInformation("Desktop app creating direct invoice: {ExternalRef}", externalRef);
 

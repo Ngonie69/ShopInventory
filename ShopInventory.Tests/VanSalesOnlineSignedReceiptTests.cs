@@ -640,7 +640,7 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
         AddOfflineVanSale("VAN006-INV-20260810-OFF001", globalNo: 502);
         await _context.SaveChangesAsync();
 
-        var result = await new GenerateEndOfDayReportHandler(_context).Handle(
+        var result = await new GenerateEndOfDayReportHandler(_context, new RecordingAuditService()).Handle(
             new GenerateEndOfDayReportQuery(Day), CancellationToken.None);
 
         Assert.False(result.IsError);
@@ -670,7 +670,7 @@ public sealed class VanSalesOnlineSignedReceiptTests : IDisposable
         AddOfflineVanSale("VAN006-INV-20260810-OFF001", globalNo: 502);
         await _context.SaveChangesAsync();
 
-        var handler = new GetDesktopSalesHandler(_context);
+        var handler = new GetDesktopSalesHandler(_context, new RecordingAuditService());
 
         var byDefault = await handler.Handle(new GetDesktopSalesQuery(SalesReader), CancellationToken.None);
         Assert.False(byDefault.IsError);

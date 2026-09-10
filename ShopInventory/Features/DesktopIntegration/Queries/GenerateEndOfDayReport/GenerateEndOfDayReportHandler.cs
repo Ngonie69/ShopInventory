@@ -4,7 +4,9 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Sales;
 using ShopInventory.Data;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 
@@ -18,14 +20,45 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayRepo
 /// the filter below.
 /// </remarks>
 public sealed class GenerateEndOfDayReportHandler(
-    ApplicationDbContext context
+    ApplicationDbContext context,
+    IAuditService auditService
 ) : IRequestHandler<GenerateEndOfDayReportQuery, ErrorOr<EndOfDayReportDto>>
 {
+    /// <summary>
+    /// Builds the report, and records that the day's takings were read.
+    /// </summary>
+    /// <remarks>
+    /// The other desktop read the blanket filter leaves to its handler. It is a whole-business
+    /// reconciliation rather than one shop's, which is why the endpoint carries a role gate — and why
+    /// reading it is worth a row.
+    /// </remarks>
     public async Task<ErrorOr<EndOfDayReportDto>> Handle(
         GenerateEndOfDayReportQuery query,
         CancellationToken cancellationToken)
     {
         var reportDate = query.ReportDate?.Date ?? DateTime.UtcNow.Date;
+
+        var outcome = await BuildAsync(reportDate, cancellationToken);
+
+        await auditService.LogAsync(
+            AuditActions.ViewDesktopEndOfDayReport,
+            nameof(DesktopSaleEntity),
+            reportDate.ToString("yyyy-MM-dd"),
+            outcome.IsError
+                ? $"Refused the end-of-day report for {reportDate:yyyy-MM-dd}."
+                : $"Read the end-of-day report for {reportDate:yyyy-MM-dd}: "
+                    + $"{outcome.Value.TotalSalesCount} sale(s), {outcome.Value.TotalSalesAmount:0.00} "
+                    + $"incl. {outcome.Value.TotalVatAmount:0.00} VAT.",
+            !outcome.IsError,
+            outcome.IsError ? outcome.FirstError.Description : null);
+
+        return outcome;
+    }
+
+    private async Task<ErrorOr<EndOfDayReportDto>> BuildAsync(
+        DateTime reportDate,
+        CancellationToken cancellationToken)
+    {
 
         // Stated rather than assumed, because this handler had no source filter at all and so silently
         // absorbed a new source the day one was added.

@@ -26,6 +26,7 @@ public sealed class ConsolidateDailySalesHandler(
     INotificationService notificationService,
     IHubContext<NotificationHub> hubContext,
     ISender sender,
+    IAuditService auditService,
     ILogger<ConsolidateDailySalesHandler> logger
 ) : IRequestHandler<ConsolidateDailySalesCommand, ErrorOr<ConsolidateDailySalesResult>>
 {
@@ -38,12 +39,50 @@ public sealed class ConsolidateDailySalesHandler(
     private static string Truncate(string value, int maxLength)
         => value.Length <= maxLength ? value : value[..maxLength];
 
+    /// <summary>
+    /// Consolidates the day and records that it was consolidated.
+    /// </summary>
+    /// <remarks>
+    /// This posts a day's takings to SAP as one invoice per business partner, and it has two callers:
+    /// a person pressing the button on the sales console, and <c>EndOfDayConsolidationJob</c>. Both
+    /// are audited. The job's row carries no username because no user raised it — which is the truth,
+    /// and better than the alternative of the largest posting of the day appearing nowhere. There is
+    /// one such row per run, so it costs the trail nothing.
+    /// </remarks>
     public async Task<ErrorOr<ConsolidateDailySalesResult>> Handle(
         ConsolidateDailySalesCommand command,
         CancellationToken cancellationToken)
     {
         var consolidationDate = command.ConsolidationDate?.Date ?? DateTime.UtcNow.Date;
 
+        var outcome = await ConsolidateAsync(consolidationDate, cancellationToken);
+
+        // "Nothing to consolidate" is an ErrorOr error because the endpoint answers 404 for it, but it
+        // is not a failure and must not be recorded as one. The job runs every night including the
+        // quiet ones, and a trail that reddened on every quiet night would train whoever reads it to
+        // ignore the colour.
+        var nothingToDo = outcome.IsError
+            && outcome.FirstError.Code == "DesktopSales.NoPendingSales";
+
+        await auditService.LogAsync(
+            AuditActions.ConsolidateDesktopSales,
+            nameof(SaleConsolidationEntity),
+            consolidationDate.ToString("yyyy-MM-dd"),
+            outcome.IsError
+                ? $"Consolidation for {consolidationDate:yyyy-MM-dd} had nothing to post."
+                : $"Consolidated {outcome.Value.TotalSalesProcessed} pending sale(s) for "
+                    + $"{consolidationDate:yyyy-MM-dd} into {outcome.Value.SuccessfulPostings} SAP "
+                    + $"invoice(s); {outcome.Value.FailedPostings} group(s) failed.",
+            nothingToDo || (!outcome.IsError && outcome.Value.FailedPostings == 0),
+            outcome.IsError && !nothingToDo ? outcome.FirstError.Description : null);
+
+        return outcome;
+    }
+
+    private async Task<ErrorOr<ConsolidateDailySalesResult>> ConsolidateAsync(
+        DateTime consolidationDate,
+        CancellationToken cancellationToken)
+    {
         // Get all pending desktop sales for the date.
         //
         // Sales that post to SAP one-to-one are deliberately excluded — van sales, shop till sales and
