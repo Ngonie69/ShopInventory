@@ -57,6 +57,8 @@ public sealed record DesktopSaleListItemDto(
     // becomes is marked fiscalised without the QR ever being restated on it.
     string? FiscalQRCode,
     string? FiscalVerificationCode,
+    string? FiscalDeviceNumber,
+    string? FiscalDayNo,
 
     string ConsolidationStatus,
     int? ConsolidationId,

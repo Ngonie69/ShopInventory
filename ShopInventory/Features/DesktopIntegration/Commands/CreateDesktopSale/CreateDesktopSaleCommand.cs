@@ -85,6 +85,20 @@ public class DesktopSaleResponseDto
     public string? FiscalReceiptNumber { get; set; }
     public string? FiscalQRCode { get; set; }
     public string? FiscalVerificationCode { get; set; }
+
+    /// <summary>
+    /// The device that took the receipt, and the fiscal day it filed it under.
+    /// </summary>
+    /// <remarks>
+    /// Returned because the receipt prints them and a till has no other way to know either. The
+    /// device is not a setting to be read from configuration: submissions may fail over between
+    /// devices, and what comes back here is the one that actually signed this receipt.
+    /// </remarks>
+    public string? FiscalDeviceNumber { get; set; }
+
+    /// <inheritdoc cref="FiscalDeviceNumber"/>
+    public string? FiscalDayNo { get; set; }
+
     public string? FiscalError { get; set; }
     public DateTime CreatedAt { get; set; }
 }

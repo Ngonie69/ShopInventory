@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using ErrorOr;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
@@ -455,6 +455,8 @@ public sealed class CreateDesktopSaleHandler(
             FiscalReceiptNumber = sale.FiscalReceiptNumber,
             FiscalQRCode = sale.FiscalQRCode,
             FiscalVerificationCode = sale.FiscalVerificationCode,
+            FiscalDeviceNumber = sale.FiscalDeviceNumber,
+            FiscalDayNo = sale.FiscalDayNo,
             FiscalError = sale.FiscalError,
             CreatedAt = sale.CreatedAt
         };
@@ -488,6 +490,8 @@ public sealed class CreateDesktopSaleHandler(
             FiscalReceiptNumber = sale.FiscalReceiptNumber,
             FiscalQRCode = sale.FiscalQRCode,
             FiscalVerificationCode = sale.FiscalVerificationCode,
+            FiscalDeviceNumber = sale.FiscalDeviceNumber,
+            FiscalDayNo = sale.FiscalDayNo,
             FiscalError = sale.FiscalError,
             CreatedAt = sale.CreatedAt
         };
