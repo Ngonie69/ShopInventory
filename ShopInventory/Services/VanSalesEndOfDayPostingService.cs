@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 
@@ -30,6 +31,7 @@ public sealed class VanSalesEndOfDayPostingService(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
     SapCircuitBreakerState circuitState,
+    IBatchInventoryValidationService batchValidation,
     IStockLedger stockLedger,
     IDesktopSalePostGuard postGuard,
     IOptions<VanSalesPostingSettings> settings,
@@ -321,6 +323,28 @@ public sealed class VanSalesEndOfDayPostingService(
         }
 
         var request = BuildInvoiceRequest(sale);
+
+        // Choose the batches the invoice issues from, before anything durable is written.
+        //
+        // SAP refuses a batch-managed line that names none and refuses the whole document with it,
+        // and a van sells cheese. Nothing upstream can supply the selection — a handset sells by
+        // item and DesktopSaleLineEntity has no batch column — so it is allocated here, FEFO
+        // against the van's own warehouse.
+        //
+        // Before the post marker deliberately: allocation reads stock and creates nothing, so a
+        // failure must not leave PostIssuedAtUtc set on a sale SAP has never heard of.
+        var allocation = await InvoiceBatchAllocation.AllocateAsync(
+            batchValidation, request, BatchAllocationStrategy.FEFO, cancellationToken);
+
+        if (!allocation.IsValid)
+        {
+            // Thrown so it takes the same path as a SAP rejection, and worded by DescribeFailure so
+            // an unread warehouse goes back on the queue rather than spending one of the six
+            // attempts a van sale gets.
+            throw new InvalidOperationException(
+                InvoiceBatchAllocation.DescribeFailure(
+                    allocation, $"van sale {sale.ExternalReferenceId}"));
+        }
 
         // Durable before the request goes out. SapDocEntry is written from a reply that may never
         // arrive, so without this a post that commits and then times out leaves no local trace and

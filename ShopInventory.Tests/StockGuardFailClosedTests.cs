@@ -196,6 +196,50 @@ public sealed class StockGuardFailClosedTests
     }
 
     // ---------------------------------------------------------------
+    // The batch read, which has no second source
+    // ---------------------------------------------------------------
+
+    [Fact]
+    public async Task A_batch_read_that_failed_is_not_reported_as_an_empty_warehouse()
+    {
+        await using var context = InMemoryContext();
+        var service = CreateService(context, BatchManagedItemWhoseBatchReadThrows());
+
+        var result = await service.ValidateAndAllocateBatchesAsync(OneLineInvoice());
+
+        Assert.False(result.IsValid);
+
+        // GetAvailableBatchesAsync answers a failed read with an empty list, which is a reasonable
+        // answer to give an operator browsing batches and the wrong one to allocate from: per-
+        // warehouse batch quantities live only in OBTQ and there is no second source to fall back
+        // on. Read as zero, this refuses the sale and sends somebody to count a full shelf.
+        Assert.Contains(result.ValidationErrors, e => e.ErrorCode == BatchValidationErrorCode.StockUnknown);
+        Assert.DoesNotContain(result.ValidationErrors, e => e.ErrorCode == BatchValidationErrorCode.InsufficientTotalStock);
+
+        var message = result.ValidationErrors.First().Message;
+        Assert.False(SapFailureClassifier.IsPermanentStockRejection(message));
+        Assert.True(SapFailureClassifier.IsTransient(new Exception(message), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_batch_managed_line_is_allocated_from_what_the_warehouse_holds()
+    {
+        await using var context = InMemoryContext();
+        var service = CreateService(context, BatchManagedItemHolding(("B-EARLY", 5m), ("B-LATE", 20m)));
+
+        var result = await service.ValidateAndAllocateBatchesAsync(OneLineInvoice());
+
+        Assert.True(result.IsValid);
+
+        var line = Assert.Single(result.AllocatedLines);
+        Assert.Equal(12m, line.Batches.Sum(batch => batch.QuantityAllocated));
+
+        // FEFO: the batch expiring first is emptied before the next is touched.
+        Assert.Equal("B-EARLY", line.Batches[0].BatchNumber);
+        Assert.Equal(5m, line.Batches[0].QuantityAllocated);
+    }
+
+    // ---------------------------------------------------------------
 
     private static CreateInvoiceRequest OneLineInvoice() => new()
     {
@@ -251,6 +295,45 @@ public sealed class StockGuardFailClosedTests
                         Committed = committed
                     }
                 ]),
+            _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
+        });
+
+    /// <summary>A batch-managed item whose warehouse batch read fails.</summary>
+    private static ISAPServiceLayerClient BatchManagedItemWhoseBatchReadThrows() =>
+        StubProxy.For<ISAPServiceLayerClient>((method, _) => method.Name switch
+        {
+            nameof(ISAPServiceLayerClient.GetItemByCodeAsync) => Task.FromResult<Item?>(new Item
+            {
+                ItemCode = Item,
+                ManageBatchNumbers = "tYES",
+                ManageSerialNumbers = "tNO"
+            }),
+            nameof(ISAPServiceLayerClient.GetBatchNumbersForItemInWarehouseAsync) =>
+                Task.FromException<List<BatchNumber>>(
+                    new TimeoutException("SAP batch read exceeded its 60-second budget.")),
+            _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
+        });
+
+    /// <summary>A batch-managed item whose warehouse holds these batches, earliest expiry first.</summary>
+    private static ISAPServiceLayerClient BatchManagedItemHolding(params (string Batch, decimal Quantity)[] batches) =>
+        StubProxy.For<ISAPServiceLayerClient>((method, _) => method.Name switch
+        {
+            nameof(ISAPServiceLayerClient.GetItemByCodeAsync) => Task.FromResult<Item?>(new Item
+            {
+                ItemCode = Item,
+                ManageBatchNumbers = "tYES",
+                ManageSerialNumbers = "tNO"
+            }),
+            nameof(ISAPServiceLayerClient.GetBatchNumbersForItemInWarehouseAsync) =>
+                Task.FromResult(batches
+                    .Select((batch, index) => new BatchNumber
+                    {
+                        ItemCode = Item,
+                        BatchNum = batch.Batch,
+                        Quantity = batch.Quantity,
+                        ExpiryDate = new DateTime(2026, 10, 1).AddDays(index).ToString("yyyy-MM-dd")
+                    })
+                    .ToList()),
             _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
         });
 

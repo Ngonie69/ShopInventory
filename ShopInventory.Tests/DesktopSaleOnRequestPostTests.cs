@@ -166,6 +166,7 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
             _context,
             _sap.Client,
             circuit ?? new SapCircuitBreakerState(Options.Create(new SAPSettings())),
+            SaleBatchAllocators.Holding(),
             SalePostGuards.Backed(_connection),
             Options.Create(new DesktopSalePostingSettings()),
             Options.Create(new SAPSettings()),

@@ -44,29 +44,24 @@ public static class DesktopSaleInvoiceRequestBuilder
                 // From the header: DesktopSaleLineEntity.CostCentreCode is not mapped, so a re-read
                 // sale always has it null on the line.
                 CostCentreCode = sale.CostCentreCode,
-                // Left true, and it is worth knowing that nothing on this path acts on it.
-                //
-                // The comment here used to read "FEFO server-side", which was not true of either
-                // route that uses this builder: the flag is honoured by CreateInvoiceHandler, and
-                // the till posting service and the van end-of-day service both call the SAP client
-                // directly. Nothing allocated anything. A comment describing a behaviour nobody
-                // implemented is worse than none — it is the reason somebody stops looking.
-                //
-                // The value stays true rather than becoming false because true is the right answer
-                // if this request ever does reach a handler that reads it; false would mean "refuse
-                // a batch-managed item unless the caller names batches", and no caller here can.
                 AutoAllocateBatches = true,
                 //
-                // There is also nothing to allocate from. DesktopSaleLineEntity carries no batch,
-                // because neither a handset nor a till chooses one — both sell by item. Allocating
-                // FEFO here would mean reading the warehouse's batches per line and sending a
-                // selection, and a selection that does not add up is worse than none: SAP answers it
-                // with -4014 and refuses the whole document, where no selection at least leaves the
-                // decision to SAP's own item settings.
+                // Left unset here, and filled in before the post rather than never.
                 //
-                // So the document goes as it is, and what SAP does with a batch-managed item on this
-                // path is SAP's own configuration to answer. Worth confirming against a live company
-                // rather than assuming, which is why it is written down here.
+                // DesktopSaleLineEntity carries no batch, because neither a handset nor a till
+                // chooses one — both sell by item. This request used to go as it is, on the reasoning
+                // that no selection at least left the decision to SAP's own item settings. It does
+                // not: the first till sales to reach a live company one-to-one were answered with
+                // "Cannot add row without complete selection of batch/serial numbers", and SAP
+                // refuses the whole document, not the line. There is no configuration under which a
+                // batch-managed line posts without naming its batches.
+                //
+                // So both callers run InvoiceBatchAllocation.AllocateAsync over this request before
+                // issuing it — which is what the 18:00 consolidation has always done with these very
+                // same sale lines, and the reason its documents posted where these did not. That is
+                // also why AutoAllocateBatches stays true: it is the flag the allocator is asked
+                // for, and false would mean "refuse a batch-managed item unless the caller names
+                // batches", which no caller here can.
                 BatchNumbers = null
             })
             .ToList()
