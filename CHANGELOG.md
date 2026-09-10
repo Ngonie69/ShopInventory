@@ -18,6 +18,22 @@ otherwise be surprised.
 
 ### Added
 
+- **`POST /api/DesktopIntegration/sales/{externalReference}/post` and
+  `POST /api/DesktopIntegration/sales/post-batch`** (Admin, Manager, Cashier, ApiUser).
+
+  A held till, vending or van sale can now be sent to SAP on request, singly or as a chosen set,
+  instead of only by the background pass. The pass gives up after a few attempts and a sale it has
+  parked is invisible to every later pass, so until now a sale SAP had refused — usually for
+  something an operator could fix in a minute — could not be sent at all without editing the
+  database. The attempt cap is therefore deliberately not applied here; nothing else is relaxed.
+
+  The batch answers `200` with a row per sale rather than a single status, because each sale becomes
+  its own SAP document and there is nothing to roll back. Rows carry an `outcome` of `Posted`,
+  `AlreadyInSap`, `InProgress`, `Failed` or `NotPostable`.
+
+  Both are safe to send twice, and re-sending a batch that outlived a timeout is the intended
+  remedy. See the behaviour change below for why.
+
 - **`GET /api/DesktopIntegration/transfer-listener/status` and
   `POST /api/DesktopIntegration/transfer-listener/check-now`** (Admin, Manager).
 
@@ -48,6 +64,42 @@ otherwise be surprised.
   (added in the TransferEventListener repository at the same time). Against an older listener the
   probe gets a `404` and reports `Unhealthy`, so deploy the listener first.
 
+### Changed
+
+- **Posting a desktop sale to SAP now takes a durable claim on the sale.** Every route that puts a
+  till, vending or van sale in SAP — the two background passes, the exception centre's retry and the
+  new manual and bulk levers — now acquires a cross-instance claim keyed on the sale's own external
+  reference before anything reaches SAP.
+
+  The existing guards made a *sequence* of attempts safe: ask SAP for `U_Van_saleorder` first, mark
+  `PostIssuedAtUtc` before sending, adopt whatever is found. None of them says anything about two
+  attempts overlapping, and both would pass their checks before either wrote anything. That was
+  survivable while the only writer was one background pass; it stops being survivable now that a
+  person can press Post while that pass is running, which at a pass a minute is roughly whenever it
+  is pressed.
+
+  Operators will see one new outcome: a post refused because another is already in flight. Nothing
+  is written to the sale in that case and no attempt is spent — whoever holds the claim finishes,
+  and the console shows the result on its next poll. A completed claim is remembered for
+  `SecuritySettings:IdempotencyKeyExpirationMinutes` (an hour by default) and replays the invoice
+  that was created; every failure gives the claim straight back, so a refused sale stays retryable.
+
+- **`GET /api/DesktopIntegration/sales` reports where each sale got to on its way to SAP.** New
+  fields: `sapDocEntry`, `sapDocNum`, `postedAt`, `postingAttempts`, `lastPostingError`,
+  `paymentStatus`, `paymentSapDocNum`, plus `postRefusal` (null when the sale may be posted) and the
+  derived `canPostToSap`. Existing fields are unchanged, so a client that ignores these is
+  unaffected.
+
+  `sapDocNum` and `postedAt` stay null for a sale the **end-of-day run** closed rather than the
+  per-sale posting job: that run folds a customer's sales into one consolidated invoice and stamps
+  the document number on the consolidation, so `consolidationId` is what names the invoice in that
+  case. A reader that treats a null `sapDocNum` as "never reached SAP" will be wrong for exactly
+  those rows.
+
+- **`CreditNoteDto` carries `fiscalQrCode`.** The fiscal transaction row has always held the ZIMRA
+  verification QR for a credit note's receipt; the projector had nowhere to put it, so credit note
+  responses could say a receipt existed but never showed it. Invoices already carried theirs.
+
 ### Fixed
 
 - **`DailyStock:MonitoredWarehouses` was binding to every warehouse twice**, so the 07:00 stock
@@ -72,16 +124,6 @@ otherwise be surprised.
   `OptionsCollectionBindingTests` fails the build if a new settings class introduces it.
 
 ### Changed
-
-- **`GET /api/DesktopIntegration/sales` rows carry `sapDocNum` and `postedAt`.** Additive: nothing
-  is renamed or removed, and a client deserialising into a fixed shape is unaffected unless it
-  rejects unknown members.
-
-  They answer the question the row could not answer before — what this sale became in SAP. Note
-  that both stay null for a sale closed by the end-of-day run rather than by the per-sale posting
-  job: that run groups a customer's sales into one consolidated invoice and stamps the document
-  number on the consolidation, so `consolidationId` is what names the invoice in that case. A
-  reader that treats a null `sapDocNum` as "not in SAP" will be wrong for exactly those rows.
 
 - **The morning stock snapshot falls back to TransferEventListener** when this API's own non-batch
   stock read fails, controlled by `TransferEventListener:UseForUnbatchedStockFallback` (on by

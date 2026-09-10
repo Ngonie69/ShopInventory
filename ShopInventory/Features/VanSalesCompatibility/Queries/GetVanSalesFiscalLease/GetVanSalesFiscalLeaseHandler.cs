@@ -32,6 +32,8 @@ public sealed class GetVanSalesFiscalLeaseHandler(
     IFiscalisationApiClient fiscalisationClient,
     ISAPServiceLayerClient sapClient,
     IOptions<FiscalisationSettings> fiscalisationOptions,
+    IOptions<RevmaxSettings> revmaxOptions,
+    IOptions<TaxSettings> taxOptions,
     ILogger<GetVanSalesFiscalLeaseHandler> logger
 ) : IRequestHandler<GetVanSalesFiscalLeaseQuery, ErrorOr<VanSalesFiscalLeaseDto>>
 {
@@ -60,6 +62,20 @@ public sealed class GetVanSalesFiscalLeaseHandler(
         if (user is null || !user.IsActive)
         {
             return Error.Unauthorized("VanSalesCompatibility.Unauthenticated", "User is not authenticated.");
+        }
+
+        // Under REVMax there is no signing authority to lease out. The card is on the office network,
+        // the handset cannot reach it, and everything below this point — the nomination, the device
+        // configuration, the fiscal day status — is the in-house platform's, which is dormant while it
+        // waits on ZIMRA. Asking it anyway is how this route came to fail for the whole fleet.
+        //
+        // The tax table is issued regardless, and that is the point of answering rather than refusing:
+        // it is not the signing half. SalesTaxContext on the handset reads these rates, and they are
+        // bound into every money figure on every screen, so a handset with no table prices the whole
+        // catalogue at one standard percentage — including the zero-rated part of it.
+        if (!settings.UsesPlatform)
+        {
+            return await BuildOfficeFiscalisedLeaseAsync(settings, cancellationToken);
         }
 
         var deviceId = user.FiscalDeviceId ?? 0;
@@ -170,6 +186,92 @@ public sealed class GetVanSalesFiscalLeaseHandler(
             lease.ItemTaxes.Count);
 
         return lease;
+    }
+
+    /// <summary>
+    /// The lease for a fleet the office fiscalises for: the tax table, and none of the signing half.
+    /// </summary>
+    /// <remarks>
+    /// Every field that would name a signing authority is left at its default — no device, no QR
+    /// address, no certificate, no day, and a sequence of zero. That is deliberate and it is what the
+    /// handset checks: a lease naming no device is refused as a signing credential by
+    /// <c>OfflineSalePolicy.EvaluateLease</c>, so this cannot become a licence to sign offline if the
+    /// handset is ever put back into its on-device mode while this server is on REVMax.
+    ///
+    /// <para>The rates still have to arrive, and today they do not — the handset discards a lease with
+    /// no device before it reads them. Fixing that is the matching change in the handset repo; issuing
+    /// the table here is what it needs to land against.</para>
+    /// </remarks>
+    private async Task<ErrorOr<VanSalesFiscalLeaseDto>> BuildOfficeFiscalisedLeaseAsync(
+        FiscalisationSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var revmax = revmaxOptions.Value;
+
+        var taxes = VanSalesFiscalLeaseMapper.BuildProviderTaxes(
+            revmax.TaxIdMappings,
+            revmax.DefaultTaxId,
+            taxOptions.Value,
+            out var conflictingTaxIds);
+
+        if (conflictingTaxIds.Count > 0)
+        {
+            logger.LogWarning(
+                "Left {ConflictCount} REVMax tax id(s) out of the van sales tax table because two VAT "
+                + "groups gave them different rates: {TaxIds}. Revmax:TaxIdMappings and Tax:RatesByTaxCode "
+                + "disagree, and items in those groups cannot be priced on a handset.",
+                conflictingTaxIds.Count,
+                string.Join(", ", conflictingTaxIds.Order()));
+        }
+
+        Dictionary<string, string> vatGroupsByItem;
+
+        try
+        {
+            vatGroupsByItem = await sapClient.GetItemVatGroupsAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Same call as the platform path makes and the same judgement: a table with rates but no
+            // item map still lets a handset keep the map it holds, whereas failing the whole call
+            // leaves a van that has signal right now with nothing at all.
+            logger.LogWarning(
+                ex, "Could not read item VAT groups from SAP while issuing an office-fiscalised lease.");
+            vatGroupsByItem = [];
+        }
+
+        var itemTaxes = VanSalesFiscalLeaseMapper.BuildItemTaxes(
+            vatGroupsByItem,
+            revmax.TaxIdMappings,
+            revmax.DefaultTaxId,
+            settings.DefaultHsCode,
+            taxes,
+            out var unmappedGroups);
+
+        if (unmappedGroups.Count > 0)
+        {
+            logger.LogWarning(
+                "Left {UnmappedCount} VAT group(s) out of the van sales tax table because no REVMax tax "
+                + "id resolves for them: {Groups}.",
+                unmappedGroups.Count,
+                string.Join(", ", unmappedGroups.Order()));
+        }
+
+        logger.LogInformation(
+            "Issued an office-fiscalised van sales tax table: {TaxCount} taxes, {ItemCount} items. No "
+            + "signing authority is leased under Fiscalisation:Provider REVMax.",
+            taxes.Count,
+            itemTaxes.Count);
+
+        return new VanSalesFiscalLeaseDto
+        {
+            Taxes = taxes,
+            ItemTaxes = itemTaxes
+        };
     }
 
     /// <summary>

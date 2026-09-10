@@ -297,6 +297,8 @@
 
 @if (selectedCreditNote != null)
 {
+    var fiscalQrCodeImageSrc = FiscalQrCode.ToImageSource(selectedCreditNote.FiscalQrCode);
+
     <div class="cnx-overlay">
         <div class="cnx-scrim" @onclick="CloseCreditNoteDetails"></div>
         <aside class="cnx-drawer" aria-label="Credit note details">
@@ -361,6 +363,29 @@
                     <div class="cnx-note">
                         <div class="cnx-dt">Reason</div>
                         @selectedCreditNote.Reason
+                    </div>
+                }
+
+                @* Shown only when the device actually returned a code. A credit note raised before
+                   fiscalisation existed, or one still awaiting its receipt, has no QR and gets no
+                   empty plate telling the operator to look for one. *@
+                @if (!string.IsNullOrWhiteSpace(fiscalQrCodeImageSrc))
+                {
+                    <div class="cnx-qr">
+                        <div class="cnx-qr-plate">
+                            <img src="@fiscalQrCodeImageSrc" alt="ZIMRA fiscal receipt QR code" />
+                        </div>
+                        <div class="cnx-qr-copy">
+                            <div class="cnx-dt">Fiscal QR code</div>
+                            <div class="cnx-qr-title">Scan to verify this credit note's receipt</div>
+                            <p>
+                                Issued by the fiscal device for
+                                @(selectedCreditNote.FiscalReceiptGlobalNo.HasValue
+                                    ? $"receipt {selectedCreditNote.FiscalReceiptGlobalNo}"
+                                    : "this credit note")@(selectedCreditNote.SAPDocNum.HasValue
+                                    ? $", SAP credit note #{selectedCreditNote.SAPDocNum}" : "").
+                            </p>
+                        </div>
                     </div>
                 }
 

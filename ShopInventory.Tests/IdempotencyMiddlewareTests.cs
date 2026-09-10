@@ -196,6 +196,13 @@ public class IdempotencyMiddlewareTests
     [InlineData("/api/incomingpayment")]
     [InlineData("/api/inventorytransfer")]
     [InlineData("/api/quotation")]
+    // Posting a held sale to SAP, singly and in a batch. Both claim each sale in
+    // IDesktopSalePostGuard before anything reaches SAP, and answer with the invoice — or, for the
+    // batch, with a row per sale saying what became of it. A batch can outlive the caller's timeout
+    // while still posting, so re-sending it is the intended remedy, and a remembered status code
+    // here would hide exactly the outcomes the resend was asking for.
+    [InlineData("/api/desktopintegration/sales/KEFSHOP-01-20260910-000123/post")]
+    [InlineData("/api/desktopintegration/sales/post-batch")]
     public async Task Handler_owned_endpoints_are_not_replayed_by_this_middleware(string path)
     {
         // These handlers persist their own key and replay the real document. This middleware only
@@ -219,6 +226,32 @@ public class IdempotencyMiddlewareTests
         Assert.Equal(StatusCodes.Status200OK, retry.Response.StatusCode);
         Assert.False(retry.Response.Headers.ContainsKey("Idempotency-Replayed"));
         Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task Sibling_desktop_sale_routes_keep_the_middleware_guard()
+    {
+        // The sales list shares the /api/desktopintegration/sales/ prefix and owns no idempotency of
+        // its own — nor does anything else that might later be hung off it. A prefix-only rule would
+        // have dropped their guard along with the two posting routes.
+        var calls = 0;
+        var middleware = new IdempotencyMiddleware(
+            context =>
+            {
+                Interlocked.Increment(ref calls);
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                return Task.CompletedTask;
+            },
+            NullLogger<IdempotencyMiddleware>.Instance);
+
+        var key = $"desktop-sales-sibling-{Guid.NewGuid():N}";
+        const string path = "/api/desktopintegration/sales";
+        await middleware.InvokeAsync(CreateContext(key, path));
+        var retry = CreateContext(key, path);
+        await middleware.InvokeAsync(retry);
+
+        Assert.Equal("true", retry.Response.Headers["Idempotency-Replayed"]);
+        Assert.Equal(1, calls);
     }
 
     [Fact]

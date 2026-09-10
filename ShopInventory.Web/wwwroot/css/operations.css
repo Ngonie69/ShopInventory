@@ -2661,6 +2661,136 @@
     padding-right: 0;
 }
 
+/* ── Picking rows to post ──────────────────────────────────────────────── */
+/* The gutter column. Sized to the box rather than left to share the row's
+   auto layout, so the fiscal number beside it keeps the left edge it has on
+   every other operational page. The first-cell `padding-left: 0` further up
+   applies to this cell now, which is what keeps that edge. */
+
+.ops-ds .ops-table thead th.ops-ds-pick,
+.ops-ds .ops-table tbody td.ops-ds-pick {
+    width: 34px;
+    padding-right: 0;
+    vertical-align: middle;
+}
+
+/* The mark a row gets when it has no box. Not an empty cell: a gap in a column
+   of checkboxes reads as a rendering fault, and this one carries the reason as
+   its title. */
+.ops-ds .ops-ds-nopick {
+    display: inline-flex;
+    color: var(--ops-mute-3);
+    font-size: 12px;
+    cursor: help;
+}
+
+/* A picked row is marked at its edge, the same way `.ops-row-bad` is on the
+   sibling pages — a wash across the whole row would fight the two status
+   columns it contains. */
+.ops-ds .ops-table tbody tr.is-picked>td:first-child {
+    box-shadow: inset 2px 0 0 var(--ops-accent);
+}
+
+.ops-ds .ops-table tbody tr.is-picked>td {
+    background: rgba(var(--ops-accent-rgb), .06);
+}
+
+/* SAP's refusal, under the fiscal number. `.ops-sub` already sets the size and
+   the muted ink; this only spends the bad family's hue on it, because a row
+   SAP has rejected is the one thing on this page worth finding by colour. */
+.ops-ds .ops-ds-rejected {
+    color: var(--ops-fam-bad);
+    cursor: help;
+}
+
+/* ── The detail drawer's posting parts ─────────────────────────────────── */
+
+/* SAP's own words, verbatim and monospaced — it answers with codes and table
+   names, and a proportional face makes those hard to read back to anyone. */
+.ops-overlay .ops-ds-sapsaid {
+    margin-top: var(--ops-s2);
+    font-family: var(--ops-mono);
+    font-size: 11.5px;
+    line-height: 1.55;
+    word-break: break-word;
+}
+
+/* Stands where the Post button would, when there is a reason there is no
+   button. A disabled button with nothing to explain it is the thing this
+   avoids. */
+.ops-overlay .ops-ds-foot-why {
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--ops-mute-3);
+    text-wrap: pretty;
+}
+
+/* ── The fiscal QR ─────────────────────────────────────────────────────── */
+/* Scoped to `.ops-overlay` rather than `.ops`: the drawer is a sibling of the
+   page element, so an `.ops`-only rule never reaches inside it. */
+
+.ops-overlay .ops-ds-qr {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s6);
+    padding: var(--ops-s4);
+    border-radius: var(--ops-r-md);
+    border: 1px solid var(--ops-divider);
+    background: var(--ops-hover);
+}
+
+/* The code is generated black-on-white, so the plate stays white in both
+   schemes. Inverting it for dark mode would look better and would stop
+   scanners reading it, which is the only thing this element is for. */
+.ops-overlay .ops-ds-qr-plate {
+    flex: none;
+    width: 108px;
+    height: 108px;
+    padding: 6px;
+    border-radius: var(--ops-r-sm);
+    background: #ffffff;
+}
+
+.ops-overlay .ops-ds-qr-plate img {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.ops-overlay .ops-ds-qr-copy {
+    min-width: 0;
+}
+
+.ops-overlay .ops-ds-qr-title {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--ops-ink);
+}
+
+.ops-overlay .ops-ds-qr-copy p {
+    margin: var(--ops-s2) 0 0;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--ops-mute-2);
+    text-wrap: pretty;
+}
+
+/* The verification code is read out loud over a phone as often as it is
+   scanned, so it wraps rather than being clipped to the drawer's width. */
+.ops-overlay .ops-ds-qr-code {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--ops-s2) var(--ops-s3);
+    margin-top: var(--ops-s3);
+}
+
+.ops-overlay .ops-ds-qr-code .ops-code {
+    word-break: break-all;
+}
+
 /* The foot of an unpanelled list: no top border, because the last row rule is
    already there and two lines 11px apart read as a mistake. */
 .ops-ds .ops-ds-foot {
@@ -2790,50 +2920,8 @@
     color: var(--ops-ink);
 }
 
-/* ── The fiscal block ──────────────────────────────────────────────────── */
-/* The one filled panel in the drawer. It is the only thing in here that came
-   from the device rather than from this system, and the fill says so. */
-
-.ops-overlay .ops-ds-sig {
-    display: flex;
-    flex-direction: column;
-    gap: var(--ops-s3);
-    padding: 14px 16px;
-    border: 1px solid var(--ops-divider);
-    border-radius: var(--ops-r-md);
-    background: var(--ops-surface);
-}
-
-.ops-overlay .ops-ds-sig-head {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.ops-overlay .ops-ds-sig-head i {
-    font-size: 14px;
-    line-height: 1;
-    color: var(--ops-accent-text);
-}
-
-.ops-overlay .ops-ds-sig-code {
-    font-family: var(--ops-mono);
-    font-size: 12.5px;
-    letter-spacing: .02em;
-    line-height: 1.7;
-    overflow-wrap: anywhere;
-    color: var(--ops-ink-2);
-}
-
-.ops-overlay .ops-ds-sig-foot {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--ops-s4);
-    flex-wrap: wrap;
-    font-size: 11.5px;
-    color: var(--ops-mute-3);
-}
+/* The verification link, inside the QR panel. The plate answers a phone; this
+   answers a desk, and it is the same URL either way. */
 
 .ops-overlay .ops-ds-verify {
     display: inline-flex;
@@ -3179,5 +3267,12 @@
     .ops-ds .ops-ds-seg-opt {
         flex: 1 1 0;
         justify-content: center;
+    }
+
+    /* The plate is 108px and the copy needs a readable measure; below this the
+       two stop fitting side by side. */
+    .ops-overlay .ops-ds-qr {
+        flex-direction: column;
+        align-items: flex-start;
     }
 }

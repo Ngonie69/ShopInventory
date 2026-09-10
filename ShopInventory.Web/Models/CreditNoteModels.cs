@@ -82,6 +82,17 @@ public class CreditNoteDto
     public bool IsSynced { get; set; }
     public bool? IsFiscalized { get; set; }
     public string FiscalizationStatus { get; set; } = "Unknown";
+
+    /// <summary>
+    /// The ZIMRA verification QR for this credit note's fiscal receipt, when one was issued.
+    /// </summary>
+    /// <remarks>
+    /// Nullable to match the API's <c>CreditNoteDto.FiscalQrCode</c> exactly. These two records are
+    /// mirrored by hand, and a nullability that disagrees makes System.Text.Json throw on the whole
+    /// page rather than on the one field.
+    /// </remarks>
+    public string? FiscalQrCode { get; set; }
+
     public int? FiscalReceiptGlobalNo { get; set; }
     public DateTime? FiscalizedAtUtc { get; set; }
     public List<CreditNoteLineDto> Lines { get; set; } = new();

@@ -8,6 +8,7 @@ using ShopInventory.Features.FiscalisationConfiguration.Commands.AssignOfflineSi
 using ShopInventory.Features.FiscalisationConfiguration.Queries.GetOfflineSigningLease;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesFiscalLease;
 using ShopInventory.Models;
+using ShopInventory.Services;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services.Fiscalisation;
 using Xunit;
@@ -372,6 +373,106 @@ public sealed class OfflineSigningLeaseTests : IDisposable
         return result.Value;
     }
 
+    [Fact]
+    public async Task Under_revmax_a_handset_is_answered_with_rates_and_no_signing_authority()
+    {
+        // Deliberately the worst case for the platform path: no device registered against the user and
+        // so no nomination either. Under REVMax neither is a reason to refuse, because neither is what
+        // the handset is being sent.
+        var van = await SeedVanAsync("VAN010", deviceId: null);
+
+        var result = await RequestOfficeFiscalisedLeaseAsync(van.Id);
+
+        Assert.False(result.IsError);
+        var lease = result.Value;
+
+        // The signing half, absent. A lease naming no device is refused as a signing credential by the
+        // handset's own OfflineSalePolicy, which is what stops this becoming a licence to sign offline.
+        Assert.Equal(0, lease.DeviceId);
+        Assert.Empty(lease.QrUrl);
+        Assert.Equal(0, lease.FiscalDayNo);
+        Assert.False(lease.FiscalDayOpen);
+        Assert.Null(lease.CertificateValidTill);
+        Assert.Equal(0, lease.NextGlobalNo);
+        Assert.Equal(0, lease.NextCounter);
+
+        // The tax half, present — which is the whole reason this answers rather than refusing.
+        Assert.Equal(0m, Assert.Single(lease.Taxes, tax => tax.TaxId == 2).Percent);
+        Assert.Equal(15.5m, Assert.Single(lease.Taxes, tax => tax.TaxId == 1).Percent);
+
+        // And the item map that makes those rates reachable per line. The zero-rated one is the case
+        // the handset gets wrong on its own.
+        Assert.Equal(2, Assert.Single(lease.ItemTaxes, item => item.ItemCode == "BREAD01").TaxId);
+        Assert.Equal(1, Assert.Single(lease.ItemTaxes, item => item.ItemCode == "CHEESE01").TaxId);
+    }
+
+    [Fact]
+    public async Task Under_revmax_the_dormant_platform_is_never_asked()
+    {
+        var van = await SeedVanAsync("VAN011", deviceId: 36189);
+
+        // Both platform clients are null. Reaching either throws rather than failing an assertion, so
+        // this proves the branch returns before the config cache and the fiscal status call that made
+        // this route fail for the whole fleet.
+        var result = await RequestOfficeFiscalisedLeaseAsync(van.Id, configCache: null!);
+
+        Assert.False(result.IsError);
+        Assert.Equal(0, result.Value.DeviceId);
+    }
+
+    private Task<ErrorOr.ErrorOr<ShopInventory.DTOs.VanSalesFiscalLeaseDto>>
+        RequestOfficeFiscalisedLeaseAsync(Guid userId, IFiscalDeviceConfigCache? configCache = null)
+    {
+        var handler = new GetVanSalesFiscalLeaseHandler(
+            _context,
+            configCache ?? new NoDeviceConfig(),
+            fiscalisationClient: null!,
+            // Answers the one call this branch makes. Anything else on it throws, which is what proves
+            // the branch does not wander into the platform's reads.
+            sapClient: StubProxy.For<ISAPServiceLayerClient>((method, _) =>
+            {
+                if (method.Name != nameof(ISAPServiceLayerClient.GetItemVatGroupsAsync))
+                {
+                    throw new InvalidOperationException($"Unexpected call to {method.Name}");
+                }
+
+                return Task.FromResult(new Dictionary<string, string>
+                {
+                    ["CHEESE01"] = "O01",
+                    ["BREAD01"] = "O0"
+                });
+            }),
+            Options.Create(new FiscalisationSettings
+            {
+                Enabled = true,
+                Provider = FiscalisationProvider.Revmax
+            }),
+            Options.Create(new RevmaxSettings
+            {
+                DefaultTaxId = 1,
+                TaxIdMappings = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["O01"] = 1,
+                    ["O8"] = 1,
+                    ["O0"] = 2
+                }
+            }),
+            Options.Create(new TaxSettings
+            {
+                VatRate = 0.155m,
+                RatesByTaxCode = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["O01"] = 0.155m,
+                    ["O8"] = 0.155m,
+                    ["O0"] = 0.0m
+                }
+            }),
+            NullLogger<GetVanSalesFiscalLeaseHandler>.Instance);
+
+        return handler.Handle(
+            new GetVanSalesFiscalLeaseQuery(userId), CancellationToken.None);
+    }
+
     private Task<ErrorOr.ErrorOr<ShopInventory.DTOs.VanSalesFiscalLeaseDto>> RequestLeaseAsync(
         Guid userId,
         int? pendingSales = null)
@@ -381,7 +482,17 @@ public sealed class OfflineSigningLeaseTests : IDisposable
             new NoDeviceConfig(),
             fiscalisationClient: null!,
             sapClient: null!,
-            Options.Create(new FiscalisationSettings { Enabled = true }),
+            // Every case in this suite is about the offline signing nomination, which only the in-house
+            // platform issues. Said explicitly because the setting defaults the other way: under REVMax
+            // the handler answers with a tax table before it reaches any of this, and these tests would
+            // quietly stop asserting what they are named for.
+            Options.Create(new FiscalisationSettings
+            {
+                Enabled = true,
+                Provider = FiscalisationProvider.Platform
+            }),
+            Options.Create(new RevmaxSettings()),
+            Options.Create(new TaxSettings()),
             NullLogger<GetVanSalesFiscalLeaseHandler>.Instance);
 
         return handler.Handle(

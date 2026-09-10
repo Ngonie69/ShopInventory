@@ -225,6 +225,19 @@ public class CreditNoteDto
     public bool IsSynced { get; set; }
     public bool? IsFiscalized { get; set; }
     public string FiscalizationStatus { get; set; } = "Unknown";
+
+    /// <summary>
+    /// The ZIMRA verification QR the device returned for this credit note's receipt.
+    /// </summary>
+    /// <remarks>
+    /// Carried for the same reason <see cref="InvoiceDto.FiscalQrCode"/> is: the code is the only
+    /// thing on the document a customer can check for themselves, and a credit note is the document
+    /// most likely to be questioned. The fiscal transaction row has held it all along — the
+    /// projector simply had nowhere to put it, so the credit note pages could show that a receipt
+    /// existed but not the receipt.
+    /// </remarks>
+    public string? FiscalQrCode { get; set; }
+
     public int? FiscalReceiptGlobalNo { get; set; }
     public DateTime? FiscalizedAtUtc { get; set; }
     public List<CreditNoteLineDto> Lines { get; set; } = new();

@@ -29,6 +29,7 @@ public sealed class DesktopSalePostingService(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
     SapCircuitBreakerState circuitState,
+    IDesktopSalePostGuard postGuard,
     IOptions<DesktopSalePostingSettings> settings,
     IOptions<SAPSettings> sapSettings,
     ILogger<DesktopSalePostingService> logger)
@@ -127,6 +128,83 @@ public sealed class DesktopSalePostingService(
         return result;
     }
 
+    /// <summary>
+    /// Posts one named sale to SAP now, on request, and reports what happened to it. Returns null
+    /// when there is no such sale, or when it is not this route's to post.
+    /// </summary>
+    /// <remarks>
+    /// What the manual and bulk "Post to SAP" levers call, and the counterpart to
+    /// <c>VanSalesEndOfDayPostingService.PostSaleAsync</c> for the two till sources.
+    ///
+    /// <para>
+    /// The attempt cap is deliberately not applied. It exists to stop an automatic pass re-offering
+    /// a hopeless sale to SAP every minute forever, and a person pressing Post has said otherwise —
+    /// usually because they have just fixed the thing SAP was refusing. The sales most in need of
+    /// this are exactly the ones the cap has already parked, so honouring it here would make the
+    /// button useless in the only case it exists for.
+    /// </para>
+    ///
+    /// <para>
+    /// Nothing else is relaxed. The claim, the SAP lookup and the unresolved-post grace window all
+    /// still apply, because those prevent a second invoice rather than merely rationing attempts.
+    /// </para>
+    /// </remarks>
+    public async Task<DesktopSalePostingRunResult?> PostSaleAsync(
+        int saleId,
+        CancellationToken cancellationToken = default)
+    {
+        var sale = await context.DesktopSales
+            .Include(s => s.Lines)
+            .FirstOrDefaultAsync(s => s.Id == saleId, cancellationToken);
+
+        if (sale is null ||
+            sale.SourceSystem is null ||
+            !SaleSourceSystems.PostedByDesktopSaleJob.Contains(sale.SourceSystem))
+        {
+            return null;
+        }
+
+        var result = new DesktopSalePostingRunResult();
+
+        // Answered without a doomed round trip, and without touching the sale. Letting it through
+        // would overwrite LastPostingError with the circuit message, losing the SAP rejection that
+        // is the reason somebody is looking at this sale in the first place.
+        if (circuitState.ShouldShortCircuit(out var retryAfter))
+        {
+            var seconds = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds));
+            result.Failed++;
+            result.Errors.Add(
+                $"{sale.ExternalReferenceId}: SAP is unavailable; the circuit is open for another {seconds} seconds.");
+
+            logger.LogInformation(
+                "Refused to post till sale {ExternalReference} on request: the SAP circuit is open for another {RetryAfter}.",
+                sale.ExternalReferenceId, retryAfter);
+            return result;
+        }
+
+        try
+        {
+            await PostOneAsync(sale, result, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            RecordFailure(sale, ex, cancellationToken, settings.Value);
+            result.Failed++;
+            result.Errors.Add($"{sale.ExternalReferenceId}: {ex.Message}");
+
+            logger.LogError(
+                ex, "Failed to post till sale {ExternalReference} to SAP on request.", sale.ExternalReferenceId);
+        }
+
+        await context.SaveChangesAsync(CancellationToken.None);
+
+        logger.LogInformation(
+            "Till sale {ExternalReference} was posted on request: {Posted} posted, {Adopted} already in SAP, {Failed} failed.",
+            sale.ExternalReferenceId, result.Posted, result.Adopted, result.Failed);
+
+        return result;
+    }
+
     private async Task PostOneAsync(
         DesktopSaleEntity sale,
         DesktopSalePostingRunResult result,
@@ -141,6 +219,77 @@ public sealed class DesktopSalePostingService(
             var posted = await sapClient.GetInvoiceByDocEntryAsync(sale.SapDocEntry.Value, cancellationToken);
             await PostPaymentAsync(sale, posted);
             return;
+        }
+
+        var invoice = await PostInvoiceAsync(sale, result, cancellationToken);
+
+        // Outside the claim, deliberately. The claim guards the creation of one A/R document; a
+        // payment that failed is retried on later passes long after the invoice's claim completed,
+        // and holding it here would mean a completed claim replaying the invoice away and the
+        // settlement never being attempted again. The payment has its own guards — the persisted
+        // status, and what SAP says the invoice has been paid.
+        await PostPaymentAsync(sale, invoice);
+    }
+
+    /// <summary>
+    /// Puts the sale's A/R invoice in SAP, or establishes that SAP already holds it.
+    /// </summary>
+    /// <remarks>
+    /// Everything here runs under a claim on the sale, so the background pass, a manual post and a
+    /// bulk post exclude one another rather than each only excluding itself. Inside the claim the
+    /// order is still the invariant it always was: ask SAP before posting, record what SAP said
+    /// before doing anything else, and never let a cancellation land between issuing a document and
+    /// writing down its number.
+    /// </remarks>
+    private async Task<Invoice?> PostInvoiceAsync(
+        DesktopSaleEntity sale,
+        DesktopSalePostingRunResult result,
+        CancellationToken cancellationToken)
+    {
+        await using var claim = await postGuard.ClaimAsync(sale, cancellationToken);
+
+        if (claim.Outcome == DesktopSalePostClaimOutcome.InFlight)
+        {
+            // Nothing is written to the sale. The other post owns this row's outcome, and
+            // overwriting LastPostingError here would replace a real SAP rejection — the reason
+            // somebody is looking at the sale — with a note about scheduling.
+            result.InFlight++;
+
+            logger.LogInformation(
+                "Left till sale {ExternalReference} alone: a post for it is already in flight.",
+                sale.ExternalReferenceId);
+            return null;
+        }
+
+        if (claim.Receipt is { } receipt)
+        {
+            // An earlier post completed and this pass had not seen it yet. Take the document from
+            // the claim rather than posting, then read the invoice back so the payment step still
+            // has something to decide against.
+            MarkInvoicePosted(sale, receipt.SapDocEntry, receipt.SapDocNum);
+            result.Adopted++;
+            await context.SaveChangesAsync(CancellationToken.None);
+
+            logger.LogInformation(
+                "Till sale {ExternalReference} was posted by another attempt as invoice {DocNum}; adopted it.",
+                sale.ExternalReferenceId, receipt.SapDocNum);
+
+            try
+            {
+                return await sapClient.GetInvoiceByDocEntryAsync(receipt.SapDocEntry, cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                // The invoice is adopted and saved; only the settlement needs this read, and it is
+                // retried on its own. Letting the failure out would report the whole sale as failed
+                // and spend an attempt on it, having just established that SAP holds its invoice.
+                logger.LogWarning(
+                    exception,
+                    "Adopted till sale {ExternalReference} as invoice {DocNum} but could not read it back "
+                    + "to settle it. The payment is retried on a later pass.",
+                    sale.ExternalReferenceId, receipt.SapDocNum);
+                return null;
+            }
         }
 
         var postIssued = false;
@@ -199,7 +348,14 @@ public sealed class DesktopSalePostingService(
             // The invoice number must be durable before a payment is risked against it.
             await context.SaveChangesAsync(CancellationToken.None);
 
-            await PostPaymentAsync(sale, existing);
+            // Only now, with the numbers written down. Completing earlier would let a crash between
+            // the two leave a claim replaying a document the sale has no record of.
+            if (existing is not null)
+            {
+                await claim.CompleteAsync(existing.DocEntry, existing.DocNum);
+            }
+
+            return existing;
         }
         catch (Exception ex) when (postIssued)
         {
@@ -223,7 +379,8 @@ public sealed class DesktopSalePostingService(
 
             AdoptInvoice(sale, recovered, result);
             await context.SaveChangesAsync(CancellationToken.None);
-            await PostPaymentAsync(sale, recovered);
+            await claim.CompleteAsync(recovered.DocEntry, recovered.DocNum);
+            return recovered;
         }
     }
 
@@ -473,6 +630,18 @@ public sealed class DesktopSalePostingRunResult
     public int Posted { get; set; }
     public int Adopted { get; set; }
     public int Failed { get; set; }
+
+    /// <summary>
+    /// Sales left alone because another post for them held the claim.
+    /// </summary>
+    /// <remarks>
+    /// Not a failure and not counted in <see cref="Total"/>: nothing was attempted and nothing was
+    /// written to the sale. It is reported separately because a manual post has to be able to say
+    /// "somebody is already posting this" rather than either lying about success or inventing an
+    /// error the sale does not have.
+    /// </remarks>
+    public int InFlight { get; set; }
+
     public List<string> Errors { get; } = [];
 
     public int Total => Posted + Adopted + Failed;

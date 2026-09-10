@@ -31,6 +31,7 @@ public sealed class VanSalesEndOfDayPostingService(
     ISAPServiceLayerClient sapClient,
     SapCircuitBreakerState circuitState,
     IStockLedger stockLedger,
+    IDesktopSalePostGuard postGuard,
     IOptions<VanSalesPostingSettings> settings,
     ILogger<VanSalesEndOfDayPostingService> logger)
 {
@@ -238,6 +239,36 @@ public sealed class VanSalesEndOfDayPostingService(
         VanSalesPostingRunResult result,
         CancellationToken cancellationToken)
     {
+        // One post per sale at a time. The lookups below make a *sequence* of attempts safe; they say
+        // nothing about two running at once, and a van sale is the strictest case in the system — it
+        // already carries its own ZIMRA receipt, so a second invoice is a second fiscal document for
+        // one sale. The claim is what stops the half-hourly pass and a person pressing Post from each
+        // finding no invoice and sending one.
+        await using var claim = await postGuard.ClaimAsync(sale, cancellationToken);
+
+        if (claim.Outcome == DesktopSalePostClaimOutcome.InFlight)
+        {
+            // The sale is left untouched: the other post owns its outcome, and writing here would
+            // replace the SAP rejection somebody is reading with a note about scheduling.
+            result.InFlight++;
+
+            logger.LogInformation(
+                "Left van sale {ExternalReference} alone: a post for it is already in flight.",
+                sale.ExternalReferenceId);
+            return;
+        }
+
+        if (claim.Receipt is { } receipt)
+        {
+            MarkPosted(sale, receipt.SapDocEntry, receipt.SapDocNum);
+            result.Adopted++;
+
+            logger.LogInformation(
+                "Van sale {ExternalReference} was posted by another attempt as invoice {DocNum}; adopted it.",
+                sale.ExternalReferenceId, receipt.SapDocNum);
+            return;
+        }
+
         // The handset's van_order is the business key all the way through, and SAP holds it in
         // U_Van_saleorder. Asking SAP first is what makes the 19:30 mop-up safe to run over sales the
         // 18:00 run may have posted just before losing its connection: an invoice that already exists is
@@ -247,6 +278,12 @@ public sealed class VanSalesEndOfDayPostingService(
         {
             MarkPosted(sale, existing.DocEntry, existing.DocNum);
             result.Adopted++;
+
+            // The caller saves the row after this returns, so the claim briefly records a document
+            // the row does not. That gap is safe in the one direction that matters: an attempt
+            // landing in it is answered by the replay branch above, which puts the same numbers back
+            // on the sale. The reverse ordering has no such recovery.
+            await claim.CompleteAsync(existing.DocEntry, existing.DocNum);
 
             logger.LogInformation(
                 "Van sale {ExternalReference} was already in SAP as invoice {DocNum}; adopted it rather than posting again.",
@@ -307,6 +344,7 @@ public sealed class VanSalesEndOfDayPostingService(
 
         MarkPosted(sale, invoice.DocEntry, invoice.DocNum);
         result.Posted++;
+        await claim.CompleteAsync(invoice.DocEntry, invoice.DocNum);
 
         await RecordStockLeavingTheVanAsync(sale, invoice.DocNum, cancellationToken);
 
@@ -455,6 +493,13 @@ public sealed class VanSalesPostingRunResult(DateTime tradingDate, DateTime wind
     public int Posted { get; set; }
     public int Adopted { get; set; }
     public int Failed { get; set; }
+
+    /// <summary>
+    /// Sales left alone because another post for them held the claim. Not a failure, and not counted
+    /// in <see cref="Total"/>: nothing was attempted and nothing was written to the sale.
+    /// </summary>
+    public int InFlight { get; set; }
+
     public List<string> Errors { get; } = [];
 
     public int Total => Posted + Adopted + Failed;

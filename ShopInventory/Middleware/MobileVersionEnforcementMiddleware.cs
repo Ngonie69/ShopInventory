@@ -112,6 +112,7 @@ public sealed class MobileVersionEnforcementMiddleware(
         return path == "/"
                || path.StartsWith("/swagger", StringComparison.Ordinal)
                || path.StartsWith("/hubs/notifications", StringComparison.Ordinal)
+               || path.StartsWith("/api/hubs/notifications", StringComparison.Ordinal)
                || path.StartsWith("/api/health", StringComparison.Ordinal)
                || path.StartsWith("/api/appversion/mobile", StringComparison.Ordinal);
     }

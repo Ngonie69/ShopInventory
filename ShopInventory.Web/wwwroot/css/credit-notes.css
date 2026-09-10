@@ -970,6 +970,51 @@
     color: var(--cnx-mute-3);
 }
 
+/* ── Fiscal QR card ────────────────────────────────────────────────────── */
+/* The same part the invoice drawer carries, in this sheet's own vocabulary
+   rather than imported: `.ivx-qr` is scoped to /invoices and the two drawers
+   are different documents on different pages. Only the tokens are shared, so a
+   correction to the palette still reaches both. */
+
+.cnx-qr {
+    display: flex;
+    align-items: center;
+    gap: var(--cnx-s6);
+    padding: var(--cnx-s4);
+    border-radius: var(--cnx-r-md);
+    border: 1px solid var(--cnx-divider);
+    background: var(--cnx-hover);
+}
+
+/* The code is generated black-on-white, so the plate stays white in both
+   schemes. Inverting it would be prettier in dark mode and would stop scanners
+   reading it, which is the only thing this element is for. */
+.cnx-qr-plate {
+    flex: none;
+    width: 108px;
+    height: 108px;
+    padding: 6px;
+    border-radius: var(--cnx-r-sm);
+    background: #ffffff;
+}
+
+.cnx-qr-plate img {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.cnx-qr-title {
+    font-size: 13.5px;
+    font-weight: 500;
+}
+
+.cnx-qr-copy p {
+    margin: var(--cnx-s2) 0 0;
+    font-size: 12.5px;
+    color: var(--cnx-mute-2);
+}
+
 .cnx-lines {
     width: 100%;
     border-collapse: collapse;
@@ -1164,5 +1209,12 @@
 
     .cnx-grid {
         grid-template-columns: 1fr;
+    }
+
+    /* The plate is 108px and the copy needs a readable measure; below this the
+       two stop fitting side by side. */
+    .cnx-qr {
+        flex-direction: column;
+        align-items: flex-start;
     }
 }

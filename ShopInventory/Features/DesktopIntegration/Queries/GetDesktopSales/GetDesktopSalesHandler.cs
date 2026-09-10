@@ -93,11 +93,19 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db)
 
         var totalCount = await query.CountAsync(cancellationToken);
 
-        var sales = await query
+        // Projected in two steps rather than one. The posting-eligibility rule is a method — it has
+        // to be, because the console and the posting command must refuse identically — and a method
+        // cannot be translated to SQL, so the enums it reads are carried out of the database
+        // alongside the row and the rule is applied to the page in memory.
+        var rows = await query
             .OrderByDescending(s => s.CreatedAt)
             .Skip((request.Page - 1) * request.PageSize)
             .Take(request.PageSize)
-            .Select(s => new DesktopSaleListItemDto(
+            .Select(s => new
+            {
+                s.ConsolidationStatus,
+                s.FiscalizationStatus,
+                Sale = new DesktopSaleListItemDto(
                 s.Id,
                 s.ExternalReferenceId,
                 s.SourceSystem,
@@ -115,14 +123,21 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db)
                 s.FiscalDayNo,
                 s.ConsolidationStatus.ToString(),
                 s.ConsolidationId,
-                s.SapDocNum,
-                s.PostedAt,
                 s.WarehouseCode,
                 s.PaymentMethod,
                 s.PaymentReference,
                 s.AmountPaid,
                 s.CreatedBy,
                 s.CreatedAt,
+                s.SapDocEntry,
+                s.SapDocNum,
+                s.PostedAt,
+                s.PostingAttempts,
+                s.LastPostingError,
+                s.PaymentStatus,
+                s.PaymentSapDocNum,
+                // Filled in below, where the rule can actually be called.
+                null,
                 s.Lines.Select(l => new DesktopSaleLineItemDto(
                     l.LineNum,
                     l.ItemCode,
@@ -133,9 +148,17 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db)
                     l.WarehouseCode,
                     l.TaxCode,
                     l.DiscountPercent
-                )).ToList()
-            ))
+                )).ToList())
+            })
             .ToListAsync(cancellationToken);
+
+        var sales = rows
+            .Select(row => row.Sale with
+            {
+                PostRefusal = DesktopSalePostEligibility.Refusal(
+                    row.Sale.SourceSystem, row.ConsolidationStatus, row.FiscalizationStatus)
+            })
+            .ToList();
 
         return new DesktopSalesListResult(
             sales,
