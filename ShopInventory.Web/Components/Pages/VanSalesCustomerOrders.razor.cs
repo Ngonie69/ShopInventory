@@ -121,6 +121,27 @@ public partial class VanSalesCustomerOrders
     }
 
     /// <summary>
+    /// The four statuses an operator can filter to, plus the resting "Open only".
+    /// </summary>
+    /// <remarks>
+    /// Built from the two helpers below rather than spelled out, so a status added to the model
+    /// cannot arrive in the filter with a label the list already uses or a tone the badge does not.
+    /// "Open only" is the empty value every filter in this app uses for its resting state, which is
+    /// why it needs no IsUnset flag — NocturneSelect reads an empty string as unset already.
+    /// </remarks>
+    private static readonly NocturneSelectOption<string>[] StatusFilterOptions =
+    [
+        new(string.Empty, "Open only", "neutral") { RuleAfter = true },
+        Option(VanSalesOrderStatusModel.Fulfilled),
+        Option(VanSalesOrderStatusModel.PartiallyFulfilled),
+        Option(VanSalesOrderStatusModel.Cancelled),
+        Option(VanSalesOrderStatusModel.Expired)
+    ];
+
+    private static NocturneSelectOption<string> Option(VanSalesOrderStatusModel status) =>
+        new(status.ToString(), StatusLabel(status), StatusFamily(status));
+
+    /// <summary>
     /// The status in an operator's words.
     /// </summary>
     /// <remarks>
@@ -135,5 +156,26 @@ public partial class VanSalesCustomerOrders
         VanSalesOrderStatusModel.Cancelled => "Cancelled",
         VanSalesOrderStatusModel.Expired => "Not delivered",
         _ => status.ToString()
+    };
+
+    /// <summary>
+    /// The same status as a Nocturne family, feeding both the filter's swatch and the badge on
+    /// each order. One helper, because two switches over the same statuses drift apart the first
+    /// time one is added.
+    /// </summary>
+    /// <remarks>
+    /// "Awaiting delivery" is accent rather than warn: it is the ordinary open state of an order,
+    /// not something wrong. Cancelled is neutral for the mirror of that reason — a shop calling
+    /// off an order is a normal outcome, and colouring it red would put it next to the one status
+    /// that does need chasing, which is an order that expired undelivered.
+    /// </remarks>
+    private static string StatusFamily(VanSalesOrderStatusModel status) => status switch
+    {
+        VanSalesOrderStatusModel.Accepted => "accent",
+        VanSalesOrderStatusModel.Fulfilled => "good",
+        VanSalesOrderStatusModel.PartiallyFulfilled => "warn",
+        VanSalesOrderStatusModel.Cancelled => "neutral",
+        VanSalesOrderStatusModel.Expired => "bad",
+        _ => "neutral"
     };
 }

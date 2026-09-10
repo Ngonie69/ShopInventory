@@ -50,13 +50,16 @@
 
         <div class="ops-field">
             <label for="vso-status">Status</label>
-            <select id="vso-status" class="ops-input" @bind="status" @bind:after="ReloadAsync">
-                <option value="">Open only</option>
-                <option value="@VanSalesOrderStatusModel.Fulfilled">Delivered</option>
-                <option value="@VanSalesOrderStatusModel.PartiallyFulfilled">Part delivered</option>
-                <option value="@VanSalesOrderStatusModel.Cancelled">Cancelled</option>
-                <option value="@VanSalesOrderStatusModel.Expired">Not delivered</option>
-            </select>
+            @* A page control rather than a modal field, so NocturneSelect: this is a thing an
+               operator scans the bar for, and it is what the other converted filter bars use.
+               The families come from StatusFamily, the same helper that tones the badge on
+               each order below — kept in one place because a filter row whose swatch says
+               one thing and a badge that says another is worse than neither being coloured. *@
+            <NocturneSelect TValue="string" Id="vso-status" Class="nsel-block"
+                            Options="StatusFilterOptions" @bind-Value="status"
+                            OnChanged="ReloadAsync" Disabled="isBusy"
+                            Caption="Filter by delivery status" AriaLabel="Filter by delivery status"
+                            Placeholder="Open only" />
         </div>
 
         <button class="ops-btn ops-btn-ghost" @onclick="ReloadAsync" disabled="@isBusy">
@@ -117,7 +120,7 @@
                         <div class="ops-sub">@order.OrderNumber · @order.CustomerCode</div>
                     </div>
                     <div class="ops-hero-actions">
-                        <span class="ops-badge">@StatusLabel(order.Status)</span>
+                        <span class="ops-badge ops-fam-@StatusFamily(order.Status)">@StatusLabel(order.Status)</span>
                         <span class="ops-count">@order.Currency @order.DocTotal.ToString("N2")</span>
                     </div>
                 </header>
