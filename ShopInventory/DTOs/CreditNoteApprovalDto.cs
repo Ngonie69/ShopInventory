@@ -190,6 +190,13 @@ public sealed class CreditNoteApprovalFiscalisationDto
     public bool Attempted { get; set; }
     public bool Success { get; set; }
     public bool Skipped { get; set; }
+
+    /// <summary>
+    /// The device already held a receipt for this credit note, so nothing was filed and the receipt
+    /// below was adopted from it.
+    /// </summary>
+    public bool AlreadyFiscalised { get; set; }
+
     public string? Message { get; set; }
     public string? ReceiptGlobalNo { get; set; }
 }

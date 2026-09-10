@@ -15,6 +15,7 @@
 @inject IJSRuntime JS
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
+@inject ISnackbar Snackbar
 @rendermode InteractiveServer
 
 <PageTitle>@(IsVanSalesView ? "Van Sales Invoices" : "Invoices") - Shop Inventory</PageTitle>
@@ -1178,7 +1179,15 @@
         try
         {
             var result = await InvoiceService.FiscalizeInvoiceAsync(docEntry);
-            CaptureFiscalizationPayload(docNum.ToString(), result);
+
+            // An already-fiscalised invoice filed nothing, so there is no exchange worth showing: the
+            // panel would be displaying a request that was refused and the refusal itself, under a
+            // heading claiming it is the receipt this page just produced.
+            if (!result.AlreadyFiscalised)
+            {
+                CaptureFiscalizationPayload(docNum.ToString(), result);
+            }
+
             if (result.Success || result.Skipped)
             {
                 var refreshedInvoice = await InvoiceService.GetInvoiceByDocEntryAsync(docEntry);
@@ -1196,12 +1205,26 @@
                     await LoadInvoices();
                 }
 
-                successMessage = result.Message ?? $"Invoice #{docNum} fiscalised successfully.";
+                var outcome = result.Message ?? $"Invoice #{docNum} fiscalised successfully.";
+
+                if (result.AlreadyFiscalised)
+                {
+                    // The row above has just been refreshed to show it. A toast says so and leaves,
+                    // where the banner would sit on the page as if something needed attention.
+                    Snackbar.Add(
+                        result.Message ?? $"Invoice #{docNum} was already fiscalised.",
+                        Severity.Info);
+                }
+                else
+                {
+                    successMessage = outcome;
+                }
+
                 await AuditService.LogAsync(
                     AuditActions.FiscalizeInvoice,
                     "Invoice",
                     docEntry.ToString(),
-                    successMessage,
+                    outcome,
                     true);
             }
             else

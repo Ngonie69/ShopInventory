@@ -173,6 +173,16 @@ public class FiscalizationResult
     public bool Queued { get; set; }
 
     /// <summary>
+    /// The document was already fiscalised, so this attempt filed nothing: either we knew before
+    /// asking, or REVMax refused it as a duplicate and the receipt it already holds was adopted.
+    /// </summary>
+    /// <remarks>
+    /// Not the same as <see cref="Skipped"/>, which is also true when fiscalisation is switched off.
+    /// This one is the good outcome — ZIMRA has a receipt — and never a reason to offer a retry.
+    /// </remarks>
+    public bool AlreadyFiscalised { get; set; }
+
+    /// <summary>
     /// The document's fiscal state is unknown and must be resolved by looking it up, not by sending it
     /// again.
     /// </summary>
