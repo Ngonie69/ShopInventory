@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,7 +12,9 @@ public sealed class IdempotencyRequestStore(
     IServiceScopeFactory scopeFactory,
     IOptions<SecuritySettings> securitySettings) : IIdempotencyRequestStore
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
+    // Shared with the permanent guard on the same key, so the two cannot disagree about what
+    // "the same request" means. See IdempotencyRequestHash.
+    private static readonly JsonSerializerOptions SerializerOptions = IdempotencyRequestHash.SerializerOptions;
     private readonly int _expirationMinutes = securitySettings.Value.IdempotencyKeyExpirationMinutes > 0
         ? securitySettings.Value.IdempotencyKeyExpirationMinutes
         : 60;
@@ -37,7 +37,7 @@ public sealed class IdempotencyRequestStore(
 
         var normalizedScope = scope.Trim();
         var normalizedKey = key.Trim();
-        var requestHash = ComputeHash(JsonSerializer.Serialize(request, SerializerOptions));
+        var requestHash = IdempotencyRequestHash.Of(request);
         var now = DateTime.UtcNow;
         using var serviceScope = scopeFactory.CreateScope();
         var context = serviceScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -194,11 +194,5 @@ public sealed class IdempotencyRequestStore(
             entity.Id,
             CreatedAtUtc: entity.CreatedAtUtc,
             ExpiresAtUtc: entity.ExpiresAtUtc);
-    }
-
-    private static string ComputeHash(string value)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
-        return Convert.ToHexString(bytes);
     }
 }

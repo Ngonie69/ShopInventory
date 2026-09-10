@@ -884,10 +884,19 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         var result = await mediator.Send(
             new CreateDesktopSaleCommand(request, userId.Value), cancellationToken);
 
+        // 201 only for a sale this request actually made. A reference that already had one is
+        // answered 200 with that sale, so a client can tell "I sold this" from "you were shown an
+        // earlier one" — which, while both were 201, no client could do at all.
+        //
         // The location names the warehouse the sale actually drew from, which is the account's — the
         // body's value may have been absent, and is refused outright if it disagreed.
         return result.Match(
-            value => CreatedAtAction(nameof(GetLocalStock), new { warehouseCode = value.WarehouseCode }, value),
+            value => value.WasExisting
+                ? Ok(value.Sale)
+                : CreatedAtAction(
+                    nameof(GetLocalStock),
+                    new { warehouseCode = value.Sale.WarehouseCode },
+                    value.Sale),
             errors => Problem(errors));
     }
 

@@ -114,6 +114,26 @@ public class DesktopSaleEntity
     [MaxLength(100)]
     public string ExternalReferenceId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The fingerprint of the request that created this sale, so a re-use of
+    /// <see cref="ExternalReferenceId"/> can be told from a retry of it.
+    /// </summary>
+    /// <remarks>
+    /// The unique index above makes this row a permanent guard on the reference, and a permanent
+    /// guard that compares nothing is what replayed a 9 September invoice onto a 10 September basket:
+    /// the request was for a different item at a different price, and the lookup handed back the sale
+    /// it found regardless. <see cref="Common.Idempotency.IdempotencyRequestStore"/> makes exactly
+    /// this comparison and refuses a mismatch, but its record expires after an hour while this row
+    /// does not — so past the hour there was nothing left that looked at the payload.
+    ///
+    /// <para>
+    /// Null on every sale created before the column existed. Those cannot be compared and are not
+    /// guessed at: the handler answers them as it always did, and says so in the log.
+    /// </para>
+    /// </remarks>
+    [MaxLength(64)]
+    public string? RequestHash { get; set; }
+
     [MaxLength(50)]
     public string? SourceSystem { get; set; }
 

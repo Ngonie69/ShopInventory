@@ -26,11 +26,11 @@ public sealed class CreateDesktopSaleHandler(
     IIdempotencyRequestStore idempotencyRequestStore,
     IOptions<TaxSettings> taxSettings,
     ILogger<CreateDesktopSaleHandler> logger
-) : IRequestHandler<CreateDesktopSaleCommand, ErrorOr<DesktopSaleResponseDto>>
+) : IRequestHandler<CreateDesktopSaleCommand, ErrorOr<CreateDesktopSaleResult>>
 {
     private static readonly TimeSpan LockDuration = TimeSpan.FromSeconds(30);
 
-    public async Task<ErrorOr<DesktopSaleResponseDto>> Handle(
+    public async Task<ErrorOr<CreateDesktopSaleResult>> Handle(
         CreateDesktopSaleCommand command,
         CancellationToken cancellationToken)
     {
@@ -83,6 +83,12 @@ public sealed class CreateDesktopSaleHandler(
 
         var externalRef = normalizedExternalReference ??
             $"DS-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString()[..8]}";
+
+        // Taken here, at the same point and off the same object the idempotency store hashes, so the
+        // two guards on this key compare the same bytes. It is carried onto the sale row, which is
+        // the guard that outlives the store's record.
+        var requestHash = IdempotencyRequestHash.Of(req);
+
         long? idempotencyRequestId = null;
         var releaseIdempotencyRequest = false;
 
@@ -99,7 +105,7 @@ public sealed class CreateDesktopSaleHandler(
                 switch (acquireResult.Outcome)
                 {
                     case IdempotencyAcquireOutcome.ReplayAvailable when acquireResult.Response is not null:
-                        return acquireResult.Response;
+                        return new CreateDesktopSaleResult(acquireResult.Response, WasExisting: true);
                     case IdempotencyAcquireOutcome.InProgress:
                         return Errors.Idempotency.RequestInProgress("desktop sale creation");
                     case IdempotencyAcquireOutcome.RequestMismatch:
@@ -117,6 +123,26 @@ public sealed class CreateDesktopSaleHandler(
 
             if (existing != null)
             {
+                switch (VerifyReplay(existing, requestHash))
+                {
+                    case ReplayVerdict.Refuse:
+                        logger.LogError(
+                            "Desktop sale {Reference} already exists for a different request (sale "
+                            + "{SaleId} created {CreatedAt:u}); refusing rather than replaying it",
+                            externalRef,
+                            existing.Id,
+                            existing.CreatedAt);
+
+                        return Errors.Idempotency.RequestMismatch("desktop sale creation");
+
+                    case ReplayVerdict.Unverifiable:
+                        logger.LogWarning(
+                            "Desktop sale {Reference} predates request fingerprinting, so this replay "
+                            + "was answered without comparing the payload",
+                            externalRef);
+                        break;
+                }
+
                 var existingResponse = MapToResponse(existing);
 
                 if (idempotencyRequestId.HasValue)
@@ -132,7 +158,7 @@ public sealed class CreateDesktopSaleHandler(
                     }
                 }
 
-                return existingResponse;
+                return new CreateDesktopSaleResult(existingResponse, WasExisting: true);
             }
 
             // The document's accounting date, not a snapshot lookup — the stock ledger resolves its
@@ -171,7 +197,7 @@ public sealed class CreateDesktopSaleHandler(
             {
                 // Validate + deduct inside the lock with retry on concurrency conflict
                 var result = await ValidateDeductAndCreateSaleAsync(
-                    req, externalRef, docDate, account, vendor, cancellationToken);
+                    req, externalRef, requestHash, docDate, account, vendor, cancellationToken);
 
                 if (!result.IsError && idempotencyRequestId.HasValue)
                 {
@@ -186,7 +212,9 @@ public sealed class CreateDesktopSaleHandler(
                     }
                 }
 
-                return result;
+                return result.IsError
+                    ? result.Errors
+                    : new CreateDesktopSaleResult(result.Value, WasExisting: false);
             }
             finally
             {
@@ -269,6 +297,48 @@ public sealed class CreateDesktopSaleHandler(
     /// step that decides which stock is deducted, and it is not worth reaching through a fully mocked
     /// handler to check it.
     /// </remarks>
+    /// <summary>What to do with a request whose reference already has a sale.</summary>
+    internal enum ReplayVerdict
+    {
+        /// <summary>The same request as the one that made the sale. Answer with it.</summary>
+        Replay,
+
+        /// <summary>
+        /// The sale predates request fingerprinting, so the two cannot be compared.
+        /// </summary>
+        Unverifiable,
+
+        /// <summary>A different request under a reference that is already spent.</summary>
+        Refuse,
+    }
+
+    /// <summary>
+    /// Whether an existing sale under this reference answers this request.
+    /// </summary>
+    /// <remarks>
+    /// The permanent half of the duplicate guard, and until 10 September 2026 it did not exist: the
+    /// lookup returned whatever row carried the reference, compared against nothing. The other half —
+    /// <see cref="IdempotencyRequestStore"/> — does make this comparison and refuses a mismatch, but
+    /// its record expires after an hour while the sale row does not, so past the hour a re-used
+    /// reference was answered with an unrelated invoice under a 201. A till took that for its own
+    /// sale, printed it, banked $7.22 against a $7.00 document and deducted stock the document never
+    /// held.
+    ///
+    /// <para>
+    /// <see cref="ReplayVerdict.Unverifiable"/> is the honest answer for a row written before the
+    /// fingerprint column existed, and it replays rather than refuses. Refusing would turn every
+    /// legitimate retry of a pre-migration sale into a supervisor call, to close a hole that closes
+    /// itself as those rows age out — and the till now checks the sale's own age, so a stale answer
+    /// no longer passes unnoticed there either.
+    /// </para>
+    /// </remarks>
+    internal static ReplayVerdict VerifyReplay(DesktopSaleEntity existing, string requestHash) =>
+        string.IsNullOrWhiteSpace(existing.RequestHash)
+            ? ReplayVerdict.Unverifiable
+            : string.Equals(existing.RequestHash, requestHash, StringComparison.Ordinal)
+                ? ReplayVerdict.Replay
+                : ReplayVerdict.Refuse;
+
     internal static Error? ApplyAccountToRequest(
         CreateDesktopSaleRequest req,
         SellingAccountAssignments account)
@@ -308,6 +378,7 @@ public sealed class CreateDesktopSaleHandler(
     private async Task<ErrorOr<DesktopSaleResponseDto>> ValidateDeductAndCreateSaleAsync(
         CreateDesktopSaleRequest req,
         string externalRef,
+        string requestHash,
         DateTime docDate,
         SellingAccountAssignments account,
         RouteCustomerEntity? vendor,
@@ -383,6 +454,11 @@ public sealed class CreateDesktopSaleHandler(
         var sale = new DesktopSaleEntity
         {
             ExternalReferenceId = externalRef,
+
+            // What a later request under the same reference is compared against, once the
+            // idempotency store's own record has expired and this row is the only guard left.
+            RequestHash = requestHash,
+
             // Decides which route takes this sale to SAP, so it has to be one of the known spellings:
             // a value neither the posting service nor the 18:00 consolidation recognises would leave
             // the sale fiscalised and never invoiced.

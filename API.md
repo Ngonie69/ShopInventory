@@ -2803,6 +2803,18 @@ transfers is `transfer-queue`, separate from the invoice `queue`.
 | POST | `/api/DesktopIntegration/end-of-day/email-report` | Email it (`reportDate`) |
 | GET | `/api/DesktopIntegration/vendors` | The vendors this account may invoice, for a cart-vendor till |
 
+`POST .../sales` deduplicates on `externalReferenceId`, and **the status line says which answer you
+got**: `201 Created` for a sale this request made, `200 OK` for one that already existed under that
+reference. Resending an unconfirmed sale under the same reference is the supported way to retry, and
+is what stops one basket becoming two invoices — but the reference is spent once a sale exists under
+it. Sending a *different* basket under a reference that already has a sale is refused with
+`409 Idempotency.RequestMismatch` rather than answered with the earlier sale.
+
+Both were 201 until 10 September 2026, and the mismatch was only refused inside the idempotency
+window, so a reference reused the next day was answered with the previous day's invoice under a 201
+that a client could not tell from a creation. Sales created before that date carry no request
+fingerprint and are still replayed without the comparison; the server logs when it does so.
+
 The vendor route takes **no business partner and accepts none**. It reads the code off the
 signed-in account through `SellingAccountResolver` — the same value `POST .../sales` resolves
 `vendorCode` against — so the list an operator picks from and the set the server will accept are one
