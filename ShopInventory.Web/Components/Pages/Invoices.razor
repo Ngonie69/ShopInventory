@@ -1,11 +1,9 @@
 ﻿@page "/invoices"
 @page "/van-sales-invoices"
 @using System.Text.Encodings.Web
-@using System.Text
 @using System.Text.Json
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.JSInterop
-@using QRCoder
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin,Cashier")]
@@ -1377,27 +1375,11 @@
         }
     }
 
+    // Was this page's own six lines of QRCoder. Moved to FiscalQrCode when credit notes and desktop
+    // sales grew the same panel: the encoding is trivial, but the correction level and the
+    // render-nothing-on-failure rule are decisions, and three copies of a decision is two too many.
     private static string? BuildFiscalQrCodeImageSrc(string? fiscalQrCode)
-    {
-        if (string.IsNullOrWhiteSpace(fiscalQrCode))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var generator = new QRCodeGenerator();
-            using var data = generator.CreateQrCode(fiscalQrCode.Trim(), QRCodeGenerator.ECCLevel.Q);
-            var qrCode = new SvgQRCode(data);
-            var svg = qrCode.GetGraphic(8);
-            var bytes = Encoding.UTF8.GetBytes(svg);
-            return $"data:image/svg+xml;base64,{Convert.ToBase64String(bytes)}";
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => FiscalQrCode.ToImageSource(fiscalQrCode);
 
     private void ShowExistingCreditNotes()
     {

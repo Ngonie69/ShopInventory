@@ -68,8 +68,45 @@ public sealed record DesktopSaleListItemDto(
     decimal AmountPaid,
     string? CreatedBy,
     DateTime CreatedAt,
+
+    // --- Where this sale got to on its way to SAP ---
+    //
+    // The console offers a manual post, so it has to be able to say what there is to post and what
+    // happened last time. Without these the only thing a page could show was "Awaiting close", which
+    // is equally true of a sale uploaded a minute ago and one SAP has refused six times.
+
+    // The SAP A/R invoice this sale posted as, for the one-to-one routes, and how many times it has
+    // been offered to SAP so far.
+    int? SapDocEntry,
+    int? SapDocNum,
+    DateTime? PostedAt,
+    int PostingAttempts,
+    string? LastPostingError,
+
+    // How the settlement went: null (not attempted), "Posted", "PostedUnconfirmed", "Failed" or
+    // "Unmapped". Reported beside the invoice because the two fail independently — an invoice can
+    // post and its payment not, leaving a real open A/R document that must not be re-invoiced.
+    // The payment's own document number goes with it, because chasing an unsettled invoice in SAP
+    // starts with knowing whether there is a payment to look at.
+    string? PaymentStatus,
+    int? PaymentSapDocNum,
+
+    // Why this sale may not be posted on request, or null when it may be. From
+    // DesktopSalePostEligibility, which is the same rule the posting command refuses on — so a row
+    // the console offers a button for is a row the command accepts.
+    string? PostRefusal,
+
     List<DesktopSaleLineItemDto> Lines
-);
+)
+{
+    /// <summary>
+    /// Whether the console should offer this sale a "Post to SAP" button.
+    /// </summary>
+    /// <remarks>
+    /// Derived rather than carried, so it cannot contradict the reason beside it.
+    /// </remarks>
+    public bool CanPostToSap => PostRefusal is null;
+}
 
 public sealed record DesktopSaleLineItemDto(
     int LineNum,

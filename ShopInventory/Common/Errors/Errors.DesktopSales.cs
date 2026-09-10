@@ -168,5 +168,40 @@ public static partial class Errors
         public static Error SalesReadOutsideScope(string requested, string assigned) =>
             Error.Forbidden("DesktopSales.SalesReadOutsideScope",
                 $"This account can only read sales for warehouse '{assigned}', not '{requested}'.");
+
+        // --- Posting a sale to SAP on request ---
+        //
+        // The manual and bulk levers on the desktop sales console. Every one of these is a refusal to
+        // create a SAP document, so each says which sale it is about: a bulk post reports a row per
+        // reference, and a message that named no sale would be unreadable in that list.
+
+        /// <summary>
+        /// This sale is not one that may be posted as an invoice of its own — see
+        /// <see cref="Common.Sales.DesktopSalePostEligibility"/> for the rule and
+        /// <paramref name="reason"/> for which clause of it refused.
+        /// </summary>
+        public static Error SaleNotPostable(string externalRef, string reason) =>
+            Error.Validation("DesktopSales.SaleNotPostable", $"{externalRef}: {reason}");
+
+        /// <summary>
+        /// Somebody else is posting this sale right now — the background pass, or another person.
+        /// </summary>
+        /// <remarks>
+        /// A conflict rather than a failure, and the distinction is the point: nothing went wrong and
+        /// nothing was written, so the sale is neither retried nor marked. Whoever holds the claim
+        /// finishes, and the console shows the result on its next poll.
+        /// </remarks>
+        public static Error SalePostInProgress(string externalRef) =>
+            Error.Conflict("DesktopSales.SalePostInProgress",
+                $"{externalRef}: a post to SAP for this sale is already in progress. Wait for it to finish rather than sending a second.");
+
+        /// <summary>SAP refused the document, or could not be asked.</summary>
+        public static Error SalePostFailed(string externalRef, string detail) =>
+            Error.Failure("DesktopSales.SalePostFailed", $"{externalRef}: {detail}");
+
+        /// <summary>A bulk post that named nothing, or more references than one request may carry.</summary>
+        public static Error BulkPostReferencesRequired =>
+            Error.Validation("DesktopSales.BulkPostReferencesRequired",
+                "Name at least one sale to post.");
     }
 }

@@ -52,6 +52,13 @@ public static class AuditActions
     public const string UpdateSalesOrder = "UpdateSalesOrder";
     public const string ApproveSalesOrder = "ApproveSalesOrder";
     public const string PostSalesOrderToSAP = "PostSalesOrderToSAP";
+
+    /// <summary>
+    /// A person posted a till, vending or van sale to SAP by hand rather than waiting for the pass
+    /// that would. Audited whatever the outcome: a refused post is as worth knowing about as a
+    /// successful one, because both mean somebody was chasing a sale that had not reached SAP.
+    /// </summary>
+    public const string PostDesktopSaleToSAP = "PostDesktopSaleToSAP";
     public const string ConvertOrderToInvoice = "ConvertOrderToInvoice";
     public const string DeleteSalesOrder = "DeleteSalesOrder";
 

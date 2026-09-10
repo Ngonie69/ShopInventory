@@ -22,15 +22,20 @@
    own. `ops` is the scope; `ops-ds` is this page's own half of it. The 542-line
    inline <style> block is gone.
 
-   **The design's row selection is not built, deliberately.** It draws a
-   checkbox per row and a "Consolidate 4" button, i.e. consolidating a chosen
-   subset. `IDesktopIntegrationService.TriggerConsolidationAsync()` takes no
-   arguments — the run is end-of-day and server-side, and there is no endpoint
-   that accepts a set of sales. Checkboxes that did not decide what gets
-   consolidated would be a lie about what the button does, so the column is
-   left out and the dialog confirms the run the API actually performs. If a
-   selective endpoint appears, the column and the `Consolidate N` label are the
-   only markup this page is missing.
+   **The design's row selection is built now, against a different verb.** It
+   drew a checkbox per row and a "Consolidate 4" button — consolidating a chosen
+   subset — and that stayed unbuilt while `TriggerConsolidationAsync()` took no
+   arguments: checkboxes that did not decide what gets consolidated would have
+   been a lie about what the button does.
+
+   `POST sales/post-batch` is the selective endpoint that was missing, so the
+   column exists and carries the verb the API actually offers. **Posting is not
+   consolidating**, and the two must not be confused by anyone reading this
+   page: consolidating is the end-of-day run that folds a day's legacy-desktop
+   sales into one invoice per customer, while posting sends the chosen till, van
+   and vending sales to SAP as one invoice each — the same thing the background
+   pass does every minute, asked for now. So the hero keeps both buttons, and
+   only a sale the API says is postable gets a checkbox.
 
    Two other places where the design assumed data this page does not have:
    its status lane strip is drawn from the end-of-day report's consolidation
@@ -69,6 +74,25 @@
                 </div>
             </div>
             <div class="ops-hero-actions">
+                @* Only while something is selected. A permanently visible "Post 0 to SAP" would
+                   invite the press that does nothing, and the count is the whole point of the
+                   button: it states what is about to reach SAP before it does. *@
+                @if (selected.Count > 0)
+                {
+                    <button type="button" class="ops-btn ops-btn-primary" @onclick="OpenBulkPost"
+                            disabled="@(isPosting || isLoading)">
+                        @if (isPosting)
+                        {
+                            <span class="ops-spin"></span>
+                            <span>Posting&hellip;</span>
+                        }
+                        else
+                        {
+                            <i class="ph ph-cloud-arrow-up" aria-hidden="true"></i>
+                            <span>Post @selected.Count to SAP</span>
+                        }
+                    </button>
+                }
                 <button type="button" class="ops-btn ops-btn-primary" @onclick="OpenConsolidate"
                         disabled="@(isConsolidating || isLoading)">
                     @if (isConsolidating)
@@ -292,6 +316,18 @@
                 <table class="ops-table mobile-card-table">
                     <thead>
                         <tr>
+                            <th class="ops-ds-pick">
+                                @* Selects the postable rows on this page, not every row that
+                                   matches the filters. The button it feeds names a count, and a
+                                   count that included rows the operator cannot see would be the
+                                   one number on the page they could not check. *@
+                                @if (postableOnPage.Count > 0)
+                                {
+                                    <input type="checkbox" aria-label="Select every postable sale on this page"
+                                           title="Select every postable sale on this page"
+                                           checked="@allPostableSelected" @onchange="ToggleSelectAll" />
+                                }
+                            </th>
                             <th>Fiscal number</th>
                             <th>Customer</th>
                             <th>Warehouse</th>
@@ -305,9 +341,40 @@
                     <tbody>
                         @foreach (var sale in sales)
                         {
-                            <tr @onclick="() => SelectSale(sale)">
+                            <tr @onclick="() => SelectSale(sale)"
+                                class="@(selected.Contains(sale.ExternalReferenceId) ? "is-picked" : "")">
+                                @* The cell stops the click rather than the input: a press anywhere
+                                   in the gutter should tick the box, and letting either reach the
+                                   row would open the drawer over the list being selected. *@
+                                <td class="ops-ds-pick" data-label="Select"
+                                    @onclick:stopPropagation="true">
+                                    @if (sale.CanPostToSap)
+                                    {
+                                        <input type="checkbox" aria-label="@($"Select sale {sale.ExternalReferenceId} for posting")"
+                                               checked="@selected.Contains(sale.ExternalReferenceId)"
+                                               @onchange="e => ToggleSelected(sale, e)" />
+                                    }
+                                    else
+                                    {
+                                        @* Not an empty cell: a row with no box needs to say why, or
+                                           it reads as a rendering fault. *@
+                                        <span class="ops-ds-nopick" title="@sale.PostRefusal" aria-label="@sale.PostRefusal">
+                                            <i class="ph ph-minus" aria-hidden="true"></i>
+                                        </span>
+                                    }
+                                </td>
                                 <td data-label="Fiscal number">
                                     <span class="ops-code">@sale.ExternalReferenceId</span>
+                                    @if (sale.SapDocNum.HasValue)
+                                    {
+                                        <div class="ops-sub">SAP #@sale.SapDocNum</div>
+                                    }
+                                    else if (!string.IsNullOrWhiteSpace(sale.LastPostingError))
+                                    {
+                                        <div class="ops-sub ops-ds-rejected" title="@sale.LastPostingError">
+                                            SAP refused it@(sale.PostingAttempts > 0 ? $" · {sale.PostingAttempts} attempts" : "")
+                                        </div>
+                                    }
                                 </td>
                                 <td data-label="Customer" class="ops-name">
                                     @(sale.CardName ?? sale.CardCode)
@@ -440,6 +507,8 @@
 
 @if (selectedSale != null)
 {
+    var fiscalQrImageSrc = FiscalQrCode.ToImageSource(selectedSale.FiscalQRCode);
+
     <div class="ops-overlay ops-overlay-right" @onclick="CloseDrawer">
         <aside class="ops-drawer" role="dialog" aria-modal="true" aria-label="Sale details"
                @onclick:stopPropagation="true">
@@ -507,6 +576,37 @@
                             <div class="ops-def-v">#@selectedSale.ConsolidationId</div>
                         </div>
                     }
+                    @if (selectedSale.SapDocNum.HasValue)
+                    {
+                        <div>
+                            <div class="ops-def-k">SAP invoice</div>
+                            <div class="ops-def-v">#@selectedSale.SapDocNum</div>
+                        </div>
+                    }
+                    @if (selectedSale.PostedAt.HasValue)
+                    {
+                        <div>
+                            <div class="ops-def-k">Posted</div>
+                            <div class="ops-def-v">@selectedSale.PostedAt.Value.AddHours(2).ToString("dd MMM yyyy, HH:mm")</div>
+                        </div>
+                    }
+                    @* Stated only once the invoice exists. Before that "not attempted" is not news
+                       — there is nothing for a payment to settle. *@
+                    @if (selectedSale.SapDocNum.HasValue)
+                    {
+                        <div>
+                            <div class="ops-def-k">Settlement</div>
+                            <div class="ops-def-v">
+                                <span class="ops-ds-state @PaymentFamily(selectedSale.PaymentStatus)">
+                                    <span class="ops-dot"></span>@PaymentLabel(selectedSale.PaymentStatus)
+                                </span>
+                                @if (selectedSale.PaymentSapDocNum.HasValue)
+                                {
+                                    <div class="ops-sub">Payment #@selectedSale.PaymentSapDocNum</div>
+                                }
+                            </div>
+                        </div>
+                    }
                     @if (!string.IsNullOrEmpty(selectedSale.FiscalReceiptNumber))
                     {
                         <div>
@@ -526,6 +626,54 @@
                         <div class="ops-def-v">@(selectedSale.CreatedBy ?? "—")</div>
                     </div>
                 </div>
+
+                @* SAP's own words about why it refused, verbatim. Shown whenever there is one and
+                   no invoice, which is exactly when somebody has opened this drawer to find out
+                   what to do — an operator cannot fix "posting failed". *@
+                @if (!selectedSale.SapDocNum.HasValue && !string.IsNullOrWhiteSpace(selectedSale.LastPostingError))
+                {
+                    <div class="ops-msg ops-fam-bad" role="alert">
+                        <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                        <div class="ops-msg-body">
+                            <strong>SAP has not accepted this sale.</strong>
+                            <div class="ops-ds-sapsaid">@selectedSale.LastPostingError</div>
+                            @if (selectedSale.PostingAttempts > 0)
+                            {
+                                <div class="ops-sub">
+                                    @selectedSale.PostingAttempts attempt@(selectedSale.PostingAttempts == 1 ? "" : "s") so far.
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                @* The receipt the device issued, which lives on the sale and nowhere else: it was
+                   signed under this external reference rather than a SAP document number, so the
+                   invoice this sale becomes carries no QR to fall back on. *@
+                @if (!string.IsNullOrWhiteSpace(fiscalQrImageSrc))
+                {
+                    <div class="ops-ds-qr">
+                        <div class="ops-ds-qr-plate">
+                            <img src="@fiscalQrImageSrc" alt="ZIMRA fiscal receipt QR code" />
+                        </div>
+                        <div class="ops-ds-qr-copy">
+                            <div class="ops-def-k">Fiscal QR code</div>
+                            <div class="ops-ds-qr-title">Scan to verify this fiscal receipt</div>
+                            <p>
+                                Issued on the device for @selectedSale.ExternalReferenceId@(string.IsNullOrWhiteSpace(selectedSale.FiscalDeviceNumber)
+                                    ? "" : $" · device {selectedSale.FiscalDeviceNumber}")@(string.IsNullOrWhiteSpace(selectedSale.FiscalDayNo)
+                                    ? "" : $" · fiscal day {selectedSale.FiscalDayNo}").
+                            </p>
+                            @if (!string.IsNullOrWhiteSpace(selectedSale.FiscalVerificationCode))
+                            {
+                                <div class="ops-ds-qr-code">
+                                    <span class="ops-def-k">Verification code</span>
+                                    <span class="ops-code">@selectedSale.FiscalVerificationCode</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
 
                 @if (selectedSale.Lines.Count > 0)
                 {
@@ -564,8 +712,149 @@
 
             <div class="ops-drawer-foot">
                 <button type="button" class="ops-btn ops-btn-ghost" @onclick="CloseDrawer">Close</button>
+                @if (selectedSale.CanPostToSap)
+                {
+                    <button type="button" class="ops-btn ops-btn-primary"
+                            @onclick="() => PostOne(selectedSale)"
+                            disabled="@(isPosting || isLoading)">
+                        @if (postingReference == selectedSale.ExternalReferenceId)
+                        {
+                            <span class="ops-spin"></span>
+                            <span>Posting&hellip;</span>
+                        }
+                        else
+                        {
+                            <i class="ph ph-cloud-arrow-up" aria-hidden="true"></i>
+                            <span>Post to SAP</span>
+                        }
+                    </button>
+                }
+                else if (!string.IsNullOrWhiteSpace(selectedSale.PostRefusal))
+                {
+                    @* The reason stands in the button's place rather than a disabled button
+                       standing there greyed out with nothing to explain it. *@
+                    <span class="ops-ds-foot-why">@selectedSale.PostRefusal</span>
+                }
             </div>
         </aside>
+    </div>
+}
+
+@* Confirmed before it runs, like the consolidation is, and for a stronger reason: a SAP invoice
+   cannot be withdrawn, only reversed by a credit note. The dialog states the count and the value
+   about to reach SAP, because those are the two numbers somebody would want to have checked. *@
+@if (showBulkPost)
+{
+    <div class="ops-overlay ops-overlay-center" @onclick="CloseBulkPost">
+        <div class="ops-dialog" role="dialog" aria-modal="true" aria-label="Post sales to SAP"
+             @onclick:stopPropagation="true">
+            <div class="ops-dialog-head">
+                <h2>Post @selected.Count to SAP</h2>
+                <button type="button" class="ops-x" aria-label="Close" @onclick="CloseBulkPost">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </div>
+
+            <div class="ops-dialog-body">
+                <p class="ops-ds-lede">
+                    Each of these becomes one A/R invoice in SAP, keeping its own fiscal receipt.
+                    They are sent one at a time; a sale SAP refuses does not stop the rest.
+                </p>
+
+                <dl class="ops-ds-facts">
+                    <dt>Sales selected</dt>
+                    <dd>@selected.Count</dd>
+                    <dt>Value selected</dt>
+                    <dd>@Money(selectedValue)</dd>
+                    <dt>Posting date</dt>
+                    <dd>@DateTime.Today.ToString("dd.MM.yyyy")</dd>
+                </dl>
+
+                <div class="ops-msg ops-fam-info">
+                    <i class="ph ph-shield-check" aria-hidden="true"></i>
+                    <div class="ops-msg-body">
+                        Sending this twice is safe. Each sale is claimed before anything reaches SAP,
+                        so a sale that has already posted is reported with the invoice it became
+                        rather than being invoiced again.
+                    </div>
+                </div>
+            </div>
+
+            <div class="ops-dialog-foot">
+                <button type="button" class="ops-btn ops-btn-ghost" @onclick="CloseBulkPost">Cancel</button>
+                <button type="button" class="ops-btn ops-btn-primary" @onclick="PostSelected"
+                        disabled="@isPosting">
+                    @if (isPosting)
+                    {
+                        <span class="ops-spin"></span>
+                        <span>Posting&hellip;</span>
+                    }
+                    else
+                    {
+                        <span>Post @selected.Count to SAP</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* What the batch actually did, sale by sale. A summary line alone would not do: the whole point of
+   posting a set is that its members can end differently, and "4 of 5 posted" names neither the one
+   that did not nor why. *@
+@if (bulkResult != null)
+{
+    <div class="ops-overlay ops-overlay-center" @onclick="CloseBulkResult">
+        <div class="ops-dialog" role="dialog" aria-modal="true" aria-label="Posting results"
+             @onclick:stopPropagation="true">
+            <div class="ops-dialog-head">
+                <h2>@bulkResult.InSap of @bulkResult.Requested in SAP</h2>
+                <button type="button" class="ops-x" aria-label="Close" @onclick="CloseBulkResult">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </div>
+
+            <div class="ops-dialog-body">
+                <div class="ops-scroll">
+                    <table class="ops-table">
+                        <thead>
+                            <tr>
+                                <th>Sale</th>
+                                <th>Outcome</th>
+                                <th>Detail</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in bulkResult.Results)
+                            {
+                                <tr>
+                                    <td><span class="ops-code">@row.ExternalReferenceId</span></td>
+                                    <td>
+                                        <span class="ops-ds-state @PostOutcomeFamily(row.Outcome)">
+                                            <span class="ops-dot"></span>@PostOutcomeLabel(row.Outcome)
+                                        </span>
+                                    </td>
+                                    <td class="ops-name">
+                                        @if (row.SapDocNum.HasValue)
+                                        {
+                                            <span>Invoice #@row.SapDocNum</span>
+                                        }
+                                        else
+                                        {
+                                            @Blank(row.Message)
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="ops-dialog-foot">
+                <button type="button" class="ops-btn ops-btn-primary" @onclick="CloseBulkResult">Done</button>
+            </div>
+        </div>
     </div>
 }
 
@@ -599,6 +888,31 @@
     private bool isExporting;
     private bool showConsolidate;
     private DateTime? lastPolledAt;
+
+    // ── Posting to SAP ───────────────────────────────────────────────────
+    //
+    // Selection is held by external reference rather than by row index or by the DTO itself: a
+    // SignalR push reloads this page underneath the operator, and after it every `DesktopSaleDto`
+    // in `sales` is a different object. Keyed on the reference, a selection survives that reload —
+    // and the reference is what the API is sent anyway.
+
+    private readonly HashSet<string> selected = new(StringComparer.Ordinal);
+
+    private bool isPosting;
+
+    /// <summary>The one sale a single post is in flight for, so only its button spins.</summary>
+    private string? postingReference;
+
+    private bool showBulkPost;
+    private DesktopSalesBulkPostResultDto? bulkResult;
+
+    private List<DesktopSaleDto> postableOnPage => sales.Where(s => s.CanPostToSap).ToList();
+
+    private bool allPostableSelected =>
+        postableOnPage.Count > 0 && postableOnPage.All(s => selected.Contains(s.ExternalReferenceId));
+
+    private decimal selectedValue =>
+        sales.Where(s => selected.Contains(s.ExternalReferenceId)).Sum(s => s.TotalAmount);
 
     // One notice for everything this page does itself; the Snackbar is left to
     // the push events, which arrive while the user is looking elsewhere.
@@ -683,6 +997,12 @@
                 totalCount = response.TotalCount;
                 hasMore = response.HasMore;
                 lastPolledAt = DateTime.Now;
+
+                // After every reload, including the ones a SignalR push triggers. A sale that has
+                // just posted is no longer postable, so this is also what takes it back out of the
+                // selection when somebody else posted it while this page was open.
+                PruneSelection();
+
                 ClearError();
             }
             else
@@ -791,6 +1111,205 @@
     private void SelectSale(DesktopSaleDto sale) => selectedSale = sale;
 
     private void CloseDrawer() => selectedSale = null;
+
+    // ── Posting to SAP ───────────────────────────────────────────────────
+
+    private void ToggleSelected(DesktopSaleDto sale, ChangeEventArgs args)
+    {
+        if (args.Value is true)
+        {
+            selected.Add(sale.ExternalReferenceId);
+        }
+        else
+        {
+            selected.Remove(sale.ExternalReferenceId);
+        }
+    }
+
+    /// <remarks>
+    /// Clears only this page's postable rows rather than the whole set, so unticking here does not
+    /// silently drop a selection made on a page the operator has already left.
+    /// </remarks>
+    private void ToggleSelectAll(ChangeEventArgs args)
+    {
+        var references = postableOnPage.Select(s => s.ExternalReferenceId);
+
+        if (args.Value is true)
+        {
+            foreach (var reference in references)
+            {
+                selected.Add(reference);
+            }
+        }
+        else
+        {
+            foreach (var reference in references.ToList())
+            {
+                selected.Remove(reference);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Drops references the current list no longer offers.
+    /// </summary>
+    /// <remarks>
+    /// Called after every reload. Without it a filter change would leave a selection the operator
+    /// cannot see, and the hero would offer to post rows that are no longer on the page — which is
+    /// the one thing a count on a button must never do.
+    /// </remarks>
+    private void PruneSelection()
+    {
+        if (selected.Count == 0)
+        {
+            return;
+        }
+
+        var onPage = sales
+            .Where(s => s.CanPostToSap)
+            .Select(s => s.ExternalReferenceId)
+            .ToHashSet(StringComparer.Ordinal);
+
+        selected.RemoveWhere(reference => !onPage.Contains(reference));
+    }
+
+    private void OpenBulkPost() => showBulkPost = true;
+
+    private void CloseBulkPost() => showBulkPost = false;
+
+    private void CloseBulkResult() => bulkResult = null;
+
+    /// <summary>
+    /// Posts the one sale open in the drawer.
+    /// </summary>
+    /// <remarks>
+    /// The drawer closes on success and stays open on failure. A sale that posted has nothing left
+    /// to say — the row behind it now carries its invoice number — while a sale SAP refused is
+    /// exactly what the drawer is for, and closing it would hide the reason the operator asked for.
+    /// </remarks>
+    private async Task PostOne(DesktopSaleDto sale)
+    {
+        if (isPosting)
+        {
+            return;
+        }
+
+        isPosting = true;
+        postingReference = sale.ExternalReferenceId;
+        StateHasChanged();
+
+        try
+        {
+            var (result, error) = await DesktopService.PostSaleToSapAsync(sale.ExternalReferenceId);
+
+            if (error is not null)
+            {
+                SayError(error);
+                await LoadData();
+                return;
+            }
+
+            selected.Remove(sale.ExternalReferenceId);
+            selectedSale = null;
+
+            Say(
+                result!.Message ?? $"{sale.ExternalReferenceId} reached SAP.",
+                result.Outcome == DesktopSalePostOutcomes.Posted ? "ops-fam-good" : "ops-fam-info",
+                result.Outcome == DesktopSalePostOutcomes.Posted ? "ph-check-circle" : "ph-info");
+
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            SayError($"The post could not be sent: {ex.Message}");
+        }
+        finally
+        {
+            isPosting = false;
+            postingReference = null;
+        }
+    }
+
+    private async Task PostSelected()
+    {
+        if (isPosting || selected.Count == 0)
+        {
+            return;
+        }
+
+        isPosting = true;
+        StateHasChanged();
+
+        // Snapshotted before the call. A push can reload `sales` while this is in flight, and the
+        // results have to be matched against what was actually sent.
+        var references = selected.ToList();
+
+        try
+        {
+            var (result, error) = await DesktopService.PostSalesToSapAsync(references);
+            showBulkPost = false;
+
+            if (error is not null)
+            {
+                SayError(error);
+                await LoadData();
+                return;
+            }
+
+            bulkResult = result;
+
+            // Only the ones SAP now holds leave the selection. Whatever failed or was refused stays
+            // ticked, so pressing the button again retries exactly those rather than making the
+            // operator find them in the list a second time.
+            foreach (var row in result!.Results.Where(InSap))
+            {
+                selected.Remove(row.ExternalReferenceId);
+            }
+
+            Say(Summarise(result), SummaryFamily(result), SummaryIcon(result));
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            showBulkPost = false;
+            SayError($"The batch could not be completed: {ex.Message}");
+            await LoadData();
+        }
+        finally
+        {
+            isPosting = false;
+        }
+    }
+
+    private static bool InSap(DesktopSalePostResultDto row) =>
+        row.Outcome is DesktopSalePostOutcomes.Posted or DesktopSalePostOutcomes.AlreadyInSap;
+
+    private static string Summarise(DesktopSalesBulkPostResultDto result)
+    {
+        var parts = new List<string>();
+
+        if (result.Posted > 0) parts.Add($"{result.Posted} posted");
+        if (result.AlreadyInSap > 0) parts.Add($"{result.AlreadyInSap} already in SAP");
+        if (result.InProgress > 0) parts.Add($"{result.InProgress} already being posted");
+        if (result.Failed > 0) parts.Add($"{result.Failed} refused by SAP");
+        if (result.NotPostable > 0) parts.Add($"{result.NotPostable} not postable");
+
+        return parts.Count == 0
+            ? "Nothing was posted."
+            : $"{string.Join(", ", parts)}.";
+    }
+
+    // A batch with anything unresolved in it is not a success, whatever else went right: the row
+    // that did not post is the one somebody has to come back to.
+    private static string SummaryFamily(DesktopSalesBulkPostResultDto result) =>
+        result.Failed > 0 ? "ops-fam-bad"
+        : result.NotPostable > 0 || result.InProgress > 0 ? "ops-fam-warn"
+        : "ops-fam-good";
+
+    private static string SummaryIcon(DesktopSalesBulkPostResultDto result) =>
+        result.Failed > 0 ? "ph-warning-octagon"
+        : result.NotPostable > 0 || result.InProgress > 0 ? "ph-warning"
+        : "ph-check-circle";
 
     // ── Consolidation ────────────────────────────────────────────────────
 
@@ -994,6 +1513,49 @@
         "failed" => "ops-fam-bad",
         "excluded" => "ops-fam-neutral",
         _ => "ops-fam-neutral"
+    };
+
+    // A settlement that was never attempted is not a fault — most of these are read seconds after
+    // the invoice posted — so null takes the accent the way "awaiting close" does. Unmapped is a
+    // warning rather than a failure: nothing broke, but no amount of waiting will fix it either.
+    private static string PaymentFamily(string? status) => status switch
+    {
+        DesktopSalePaymentStatuses.Posted => "ops-fam-good",
+        DesktopSalePaymentStatuses.PostedUnconfirmed => "ops-fam-good",
+        DesktopSalePaymentStatuses.Failed => "ops-fam-bad",
+        DesktopSalePaymentStatuses.Unmapped => "ops-fam-warn",
+        _ => "ops-fam-accent"
+    };
+
+    private static string PaymentLabel(string? status) => status switch
+    {
+        DesktopSalePaymentStatuses.Posted => "Settled",
+        // Named for what actually happened rather than for the status word. SAP showed the invoice
+        // already paid, so nothing was sent — and an operator reading "PostedUnconfirmed" would
+        // reasonably go looking for a payment this system never made.
+        DesktopSalePaymentStatuses.PostedUnconfirmed => "Already settled in SAP",
+        DesktopSalePaymentStatuses.Failed => "Payment failed",
+        DesktopSalePaymentStatuses.Unmapped => "Tender not mapped",
+        _ => "Not settled yet"
+    };
+
+    private static string PostOutcomeFamily(string? outcome) => outcome switch
+    {
+        DesktopSalePostOutcomes.Posted => "ops-fam-good",
+        DesktopSalePostOutcomes.AlreadyInSap => "ops-fam-good",
+        DesktopSalePostOutcomes.InProgress => "ops-fam-accent",
+        DesktopSalePostOutcomes.Failed => "ops-fam-bad",
+        _ => "ops-fam-warn"
+    };
+
+    private static string PostOutcomeLabel(string? outcome) => outcome switch
+    {
+        DesktopSalePostOutcomes.Posted => "Posted",
+        DesktopSalePostOutcomes.AlreadyInSap => "Already in SAP",
+        DesktopSalePostOutcomes.InProgress => "Being posted",
+        DesktopSalePostOutcomes.Failed => "SAP refused it",
+        DesktopSalePostOutcomes.NotPostable => "Not postable",
+        _ => Blank(outcome)
     };
 
     public void Dispose()

@@ -18,6 +18,7 @@ using ShopInventory.Authentication;
 using ShopInventory.Behaviors;
 using ShopInventory.Common.Caching;
 using ShopInventory.Common.ProblemDetails;
+using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Features.RateLimit;
 using ShopInventory.Data;
@@ -692,6 +693,11 @@ try
     // the DesktopIntegrationController "run now" endpoint.
     builder.Services.AddScoped<EndOfDayConsolidationService>();
     builder.Services.AddScoped<VanSalesEndOfDayPostingService>();
+
+    // Hands out the right to post one sale to SAP. Shared by both posting routes and by the manual
+    // and bulk "Post to SAP" levers, so that a person pressing Post and the background pass exclude
+    // each other rather than each only excluding itself.
+    builder.Services.AddScoped<IDesktopSalePostGuard, DesktopSalePostGuard>();
 
     // Carries shop till and vending sales to SAP, one invoice and one payment each, shortly after the
     // till has already fiscalised and printed them.
