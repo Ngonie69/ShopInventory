@@ -412,6 +412,10 @@ public static partial class VanSalesCompatibilityMapper
             Item = order.Lines.Count,
             Units = order.Lines.Sum(line => RoundLegacyQuantity(line.Quantity)),
             Price = ToLegacyDouble(netTotal),
+            // The order's own total, which is what the customer is billed. Sent because the handset
+            // otherwise adds the tax back itself, off a net this DTO has already rounded to the cent
+            // and at a rate it falls back to guessing. See VanSalesLegacyOrderDto.Gross.
+            Gross = ToLegacyDouble(order.DocTotal),
             DocDate = FormatLegacyDateTime(order.OrderDate),
             DueDate = FormatLegacyDateTime(order.DeliveryDate ?? order.OrderDate),
             Invoice = order.InvoiceSapDocNum?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
@@ -475,6 +479,9 @@ public static partial class VanSalesCompatibilityMapper
             Item = lines.Count,
             Units = lines.Sum(line => RoundLegacyQuantity(line.Quantity)),
             Price = ToLegacyDouble(netTotal),
+            // SAP's own document total. The invoice list re-derived this the same way the sales order
+            // list did, so it carried the same cent and the same guessed rate.
+            Gross = ToLegacyDouble(invoice.DocTotal),
             DocDate = FormatLegacyDateTime(docDate),
             DueDate = FormatLegacyDateTime(dueDate),
             Invoice = invoice.DocNum.ToString(CultureInfo.InvariantCulture),
