@@ -16,7 +16,28 @@ namespace ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 public sealed record CreateDesktopSaleCommand(
     CreateDesktopSaleRequest Request,
     Guid UserId
-) : IRequest<ErrorOr<DesktopSaleResponseDto>>;
+) : IRequest<ErrorOr<CreateDesktopSaleResult>>;
+
+/// <summary>
+/// A sale, and whether this request is what made it.
+/// </summary>
+/// <param name="Sale">The sale, identical in either case.</param>
+/// <param name="WasExisting">
+/// True when the reference already had a sale and this request was answered with it.
+/// </param>
+/// <remarks>
+/// The flag exists so the endpoint can answer <c>200 OK</c> for a replay and keep <c>201 Created</c>
+/// for a creation. Both used to be 201, which left a client no way — even in principle — to tell a
+/// sale it had just made from one it was merely being shown. A till took the second for the first,
+/// printed a receipt for it, banked the takings against it and deducted the stock.
+///
+/// <para>
+/// It is kept off <see cref="DesktopSaleResponseDto"/> deliberately. The body describes the sale, and
+/// the sale is the same object however the caller arrived at it; whether this particular request
+/// created it is a property of the exchange, which is what the status line is for.
+/// </para>
+/// </remarks>
+public sealed record CreateDesktopSaleResult(DesktopSaleResponseDto Sale, bool WasExisting);
 
 /// <summary>
 /// Request DTO for creating a desktop sale.
