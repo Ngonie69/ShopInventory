@@ -132,6 +132,17 @@ public class FiscalizationResult
     public bool Queued { get; set; }
 
     /// <summary>
+    /// The receipt already existed at the fiscal device, so this attempt filed nothing new and the
+    /// fiscal details on this result were adopted from the receipt already on file.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="Skipped"/>, which also covers fiscalisation being switched off and a
+    /// server-side dry run. This one says a receipt exists at ZIMRA for the document: it is a success
+    /// for the document, and it must never be retried.
+    /// </remarks>
+    public bool AlreadyFiscalised { get; set; }
+
+    /// <summary>
     /// The document's fiscal state is unknown and must be reconciled by looking it up, not by
     /// resubmitting.
     /// </summary>

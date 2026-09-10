@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -293,6 +294,9 @@ public class RevmaxFiscalPayloadTests
         // response envelope. Reading the shim referenced fiscal day 0 on every credit note filed.
         var client = new RecordingRevmaxClient
         {
+            // The original invoice, and only it. The credit note's own number is not on file, or
+            // there would be nothing to file.
+            KnownInvoiceNumber = "123456",
             KnownInvoice = new InvoiceResponse
             {
                 Code = "1",
@@ -305,6 +309,10 @@ public class RevmaxFiscalPayloadTests
         var result = await Service(client).FiscalizeCreditNoteAsync(CreditNote(), "123456");
 
         Assert.True(result.Success);
+
+        // Our own device filed the original, so this is an ordinary reversal.
+        Assert.Equal("TransactM", client.LastEndpoint);
+
         Assert.Equal(524, client.LastCreditNote!.refFiscalDayNo);
         Assert.Equal(216080, client.LastCreditNote.refReceiptGlobalNo);
         Assert.Equal(22862, client.LastCreditNote.refDeviceId);
@@ -366,12 +374,18 @@ public class RevmaxFiscalPayloadTests
         var client = new RecordingRevmaxClient
         {
             ThrowOnPost = new HttpRequestException("connection reset"),
+            // Filed by the very call that threw, so the pre-flight lookup finds nothing.
+            KnownOnlyAfterPost = true,
             KnownInvoice = new InvoiceResponse
             {
                 Code = "1",
                 FiscalDay = "524",
+                DeviceID = "22862",
                 DeviceSerialNumber = "8DE6996C0188",
-                Data = new InvoiceData { ReceiptGlobalNo = 216081, ReceiptCounter = 42 }
+                Data = new InvoiceData
+                {
+                    ReceiptType = "FiscalInvoice", ReceiptGlobalNo = 216081, ReceiptCounter = 42
+                }
             }
         };
 
@@ -391,6 +405,532 @@ public class RevmaxFiscalPayloadTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => Service(client).FindPreSapReceiptAsync("VAN-0001"));
+    }
+
+    /// <summary>The device's own refusal, wording and all, for a number it already holds.</summary>
+    private static TransactMResponse DuplicateRefusal(string invoiceNumber) => new()
+    {
+        Code = "0",
+        Message =
+            "Transaction error: Duplicate Invoice Number - The invoice number (" + invoiceNumber
+            + ") already exists in your Device. Please check for duplicates (Invoice Numbers should "
+            + "be unique per TIN).",
+        DeviceID = "22862",
+        DeviceSerialNumber = "8DE6996C0188",
+        FiscalDay = "525"
+    };
+
+    [Fact]
+    public async Task An_invoice_the_device_already_holds_is_never_sent_at_all()
+    {
+        // The pre-flight GET /GetInvoice/{n}, and the case it exists for: this application is not the
+        // only thing filing to device 22862. The vendor's own SAP add-on files invoices to it, leaving
+        // no row in our fiscal log, so the invoice list reads "Not Fiscalised" and offers a Fiscalise
+        // button for a document ZIMRA already has a receipt for.
+        //
+        // The fixture is the device's real answer for 771485, read from
+        // http://172.16.16.201:8001/api/RevmaxAPI/GetInvoice/771485 on 2026-09-10.
+        var client = new RecordingRevmaxClient
+        {
+            KnownInvoice = new InvoiceResponse
+            {
+                Code = "1",
+                Message = "Success",
+                QRcode = "https://fdms.zimra.co.zw/000002286210092026000021640729B2D2C28D25A35C",
+                VerificationCode = "29B2-D2C2-8D25-A35C",
+                DeviceID = "22862",
+                DeviceSerialNumber = "8DE6996C0188",
+                FiscalDay = "524",
+                Data = new InvoiceData
+                {
+                    ReceiptType = "FiscalInvoice",
+                    ReceiptGlobalNo = 216407,
+                    ReceiptCounter = 515,
+                    InvoiceNo = "22862-771485",
+                    ReceiptNotes = "22862- From Comex Van Sales"
+                }
+            }
+        };
+
+        var result = await Service(client).FiscalizeInvoiceAsync(Invoice());
+
+        // Nothing reached the device. That is the whole point: the post could only be refused, and a
+        // refusal is what left the page showing an error and a raw payload.
+        Assert.Null(client.LastInvoice);
+
+        Assert.True(result.Success);
+        Assert.True(result.AlreadyFiscalised);
+        Assert.Equal("216407", result.ReceiptGlobalNo);
+        Assert.Equal("515", result.ReceiptCounter);
+
+        // The receipt's own fiscal day, not the device's current one.
+        Assert.Equal("524", result.FiscalDayNo);
+        Assert.Equal("29B2-D2C2-8D25-A35C", result.VerificationCode);
+        Assert.Equal("8DE6996C0188", result.DeviceSerial);
+    }
+
+    [Fact]
+    public async Task Another_devices_receipt_with_the_same_number_is_not_ours_to_adopt()
+    {
+        // GetInvoice is NOT scoped to our device. Verified against the live box 2026-09-10: number
+        // 700000 answers 3180-700000 and 50000 answers 3044-50000, both beside our own 22862-771485,
+        // and all three report DeviceSerialNumber 8DE6996C0188 - so the serial cannot tell them apart.
+        // Our SAP DocNums run through those ranges. Adopting on "found" alone would report our invoice
+        // fiscalised on another taxpayer's receipt and it would never actually be filed.
+        var client = new RecordingRevmaxClient
+        {
+            KnownInvoice = new InvoiceResponse
+            {
+                Code = "1",
+                Message = "Success",
+                FiscalDay = "543",
+                DeviceID = "3180",
+                DeviceSerialNumber = "8DE6996C0188",
+                Data = new InvoiceData
+                {
+                    ReceiptType = "FiscalInvoice",
+                    ReceiptGlobalNo = 49896,
+                    InvoiceNo = "3180-123456"
+                }
+            }
+        };
+
+        var result = await Service(client).FiscalizeInvoiceAsync(Invoice());
+
+        Assert.NotNull(client.LastInvoice);
+        Assert.True(result.Success);
+        Assert.False(result.AlreadyFiscalised);
+
+        // Ours, from the filing - not the stranger's 49896.
+        Assert.Equal("216090", result.ReceiptGlobalNo);
+    }
+
+    /// <summary>An original receipt on our device, with the lines and total a test needs.</summary>
+    private static InvoiceResponse OriginalReceipt(
+        decimal receiptTotal,
+        params ReceiptLine[] lines) => new()
+    {
+        Code = "1",
+        Message = "Success",
+        DeviceID = "22862",
+        FiscalDay = "524",
+        Data = new InvoiceData
+        {
+            ReceiptType = "FiscalInvoice",
+            ReceiptGlobalNo = 216407,
+            ReceiptCounter = 515,
+            ReceiptTotal = receiptTotal,
+            ReceiptLines = lines.ToList()
+        }
+    };
+
+    [Fact]
+    public async Task A_credit_note_is_capped_at_the_original_receipts_total()
+    {
+        // REVMax measures a credit note against the ORIGINAL RECEIPT, not against SAP. The two are
+        // rounded by different systems and SAP can land a cent above, which the device refuses
+        // outright: "Credit Note Amount X exceeds the original Invoice Amount Y".
+        var creditNote = CreditNote();
+        creditNote.DocTotal = -115.50m;
+        creditNote.Lines =
+        [
+            new InvoiceLineDto
+            {
+                LineNum = 0, ItemCode = "A", ItemDescription = "Widget",
+                Quantity = 1m, PriceAfterVat = 115.50m, VatGroup = "O01"
+            }
+        ];
+
+        var client = new RecordingRevmaxClient
+        {
+            KnownInvoiceNumber = "123456",
+            KnownInvoice = OriginalReceipt(115.49m)
+        };
+
+        var result = await Service(client).FiscalizeCreditNoteAsync(creditNote, "123456");
+
+        Assert.True(result.Success);
+
+        // Capped to the receipt, and the line follows it — the device recomputes QTY x PRICE and
+        // discards AMT, so a line left at 115.50 would still overshoot.
+        Assert.Equal(115.49m, client.LastCreditNote!.InvoiceAmount);
+
+        var line = ((List<RevmaxRequestItem>)client.LastCreditNote.ItemsXml!)[0];
+        Assert.Equal("115.49", line.Amt);
+        Assert.Equal("115.49", line.Price);
+    }
+
+    [Fact]
+    public async Task A_partial_credit_note_is_never_raised_to_the_receipt_total()
+    {
+        // The cap only ever lowers. Raising it would turn a partial credit note into a full one and
+        // credit the customer money they were not owed.
+        var creditNote = CreditNote();
+        creditNote.DocTotal = -20.00m;
+        creditNote.Lines =
+        [
+            new InvoiceLineDto
+            {
+                LineNum = 0, ItemCode = "A", ItemDescription = "Widget",
+                Quantity = 1m, PriceAfterVat = 20.00m, VatGroup = "O01"
+            }
+        ];
+
+        var client = new RecordingRevmaxClient
+        {
+            KnownInvoiceNumber = "123456",
+            KnownInvoice = OriginalReceipt(115.49m)
+        };
+
+        var result = await Service(client).FiscalizeCreditNoteAsync(creditNote, "123456");
+
+        Assert.True(result.Success);
+        Assert.Equal(20.00m, client.LastCreditNote!.InvoiceAmount);
+    }
+
+    [Fact]
+    public async Task A_credit_note_line_declares_the_tax_the_original_receipt_declared()
+    {
+        // Tax ids are configured per taxpayer on the device, so the receipt being reversed is the
+        // authority — not Revmax:TaxIdMappings. Our config maps O01 to 1; this device filed the line
+        // under 515. Crediting under a different id credits the wrong tax, and neither receipt can be
+        // amended.
+        var creditNote = CreditNote();
+        creditNote.DocTotal = -115.50m;
+        creditNote.Lines =
+        [
+            new InvoiceLineDto
+            {
+                LineNum = 0, ItemCode = "A", ItemDescription = "Widget",
+                Quantity = 1m, PriceAfterVat = 115.50m, VatGroup = "O01"
+            }
+        ];
+
+        var client = new RecordingRevmaxClient
+        {
+            KnownInvoiceNumber = "123456",
+            KnownInvoice = OriginalReceipt(
+                115.50m,
+                new ReceiptLine
+                {
+                    ReceiptLineName = "Widget", TaxID = 515, TaxCode = "A", TaxPercent = 15.5m
+                })
+        };
+
+        var result = await Service(client).FiscalizeCreditNoteAsync(creditNote, "123456");
+
+        Assert.True(result.Success);
+
+        var line = ((List<RevmaxRequestItem>)client.LastCreditNote!.ItemsXml!)[0];
+        Assert.Equal("515", line.Tax);
+        Assert.Equal("15.5", line.TaxR);
+    }
+
+    [Fact]
+    public async Task An_unmatched_line_borrows_the_receipts_tax_id_for_its_own_rate()
+    {
+        // An edited description matches no receipt line. It keeps the rate its VAT group gives it, but
+        // takes the receipt's id for that rate, so one credit note never mixes id schemes.
+        var creditNote = CreditNote();
+        creditNote.DocTotal = -115.50m;
+        creditNote.Lines =
+        [
+            new InvoiceLineDto
+            {
+                LineNum = 0, ItemCode = "A", ItemDescription = "Retyped by hand",
+                Quantity = 1m, PriceAfterVat = 115.50m, VatGroup = "O01"
+            }
+        ];
+
+        var client = new RecordingRevmaxClient
+        {
+            KnownInvoiceNumber = "123456",
+            KnownInvoice = OriginalReceipt(
+                115.50m,
+                new ReceiptLine
+                {
+                    ReceiptLineName = "Something else", TaxID = 515, TaxCode = "A", TaxPercent = 15.5m
+                })
+        };
+
+        var result = await Service(client).FiscalizeCreditNoteAsync(creditNote, "123456");
+
+        Assert.True(result.Success);
+
+        var line = ((List<RevmaxRequestItem>)client.LastCreditNote!.ItemsXml!)[0];
+        Assert.Equal("515", line.Tax);
+        Assert.Equal("15.5", line.TaxR);
+    }
+
+    [Fact]
+    public async Task Credit_note_lines_are_made_to_sum_to_the_credited_total()
+    {
+        // ZIMRA's RCPT019 rejects a receipt whose declared total differs from the sum of its lines,
+        // and the device builds those lines from QTY x PRICE. Three lines of 33.33 sum to 99.99
+        // against a document total of 100.00.
+        var creditNote = CreditNote();
+        creditNote.DocTotal = -100.00m;
+        creditNote.Lines = Enumerable.Range(0, 3).Select(i => new InvoiceLineDto
+        {
+            LineNum = i, ItemCode = "A" + i, ItemDescription = "Line " + i,
+            Quantity = 1m, PriceAfterVat = 33.33m, VatGroup = "O01"
+        }).ToList();
+
+        var client = new RecordingRevmaxClient
+        {
+            KnownInvoiceNumber = "123456",
+            KnownInvoice = OriginalReceipt(100.00m)
+        };
+
+        var result = await Service(client).FiscalizeCreditNoteAsync(creditNote, "123456");
+
+        Assert.True(result.Success);
+
+        var lines = (List<RevmaxRequestItem>)client.LastCreditNote!.ItemsXml!;
+        var recomputed = lines.Sum(l =>
+            Math.Round(decimal.Parse(l.Qty!, CultureInfo.InvariantCulture)
+                       * decimal.Parse(l.Price!, CultureInfo.InvariantCulture),
+                2, MidpointRounding.AwayFromZero));
+
+        // What the DEVICE will total, not what our AMTs say.
+        Assert.Equal(100.00m, recomputed);
+        Assert.Equal(100.00m, client.LastCreditNote.InvoiceAmount);
+    }
+
+    [Fact]
+    public async Task A_gap_too_large_to_be_rounding_is_refused_not_absorbed()
+    {
+        // Freight, a discount or a rounding row missing from the lines. Absorbing it would misstate a
+        // line on a document that cannot be amended.
+        var creditNote = CreditNote();
+        creditNote.DocTotal = -100.00m;
+        creditNote.Lines =
+        [
+            new InvoiceLineDto
+            {
+                LineNum = 0, ItemCode = "A", ItemDescription = "Widget",
+                Quantity = 1m, PriceAfterVat = 80.00m, VatGroup = "O01"
+            }
+        ];
+
+        var client = new RecordingRevmaxClient
+        {
+            KnownInvoiceNumber = "123456",
+            KnownInvoice = OriginalReceipt(100.00m)
+        };
+
+        var result = await Service(client).FiscalizeCreditNoteAsync(creditNote, "123456");
+
+        Assert.False(result.Success);
+        Assert.Equal("CREDIT_NOTE_NOT_RECONCILED", result.ErrorCode);
+
+        // Nothing was sent.
+        Assert.Null(client.LastCreditNote);
+    }
+
+    [Fact]
+    public async Task A_credit_note_against_another_devices_receipt_goes_to_TransactMExt()
+    {
+        // TransactMExt is for reversing a receipt filed on a DIFFERENT device: this device cannot
+        // resolve that reference itself, so it is carried explicitly. Everything else belongs on
+        // TransactM, which takes the same ref fields on the payload.
+        var client = new RecordingRevmaxClient
+        {
+            KnownInvoiceNumber = "123456",
+            KnownInvoice = new InvoiceResponse
+            {
+                Code = "1",
+                DeviceID = "3180",
+                FiscalDay = "543",
+                Data = new InvoiceData
+                {
+                    ReceiptType = "FiscalInvoice", ReceiptGlobalNo = 49896, ReceiptCounter = 49
+                }
+            }
+        };
+
+        var result = await Service(client).FiscalizeCreditNoteAsync(CreditNote(), "123456");
+
+        Assert.True(result.Success);
+        Assert.Equal("TransactMExt", client.LastEndpoint);
+
+        // The reference is the other device's, not ours — that is the whole point of the endpoint.
+        Assert.Equal(3180, client.LastCreditNote!.refDeviceId);
+        Assert.Equal(49896, client.LastCreditNote.refReceiptGlobalNo);
+        Assert.Equal(543, client.LastCreditNote.refFiscalDayNo);
+    }
+
+    [Fact]
+    public async Task An_invoice_receipt_is_not_adopted_for_a_credit_note()
+    {
+        // One number can hold either kind: REVMax keys a receipt on its number alone ("Invoice Numbers
+        // should be unique per TIN"), so a credit note whose DocNum matches an invoice's would find the
+        // invoice's receipt. Adopting it would report the reversal filed while ZIMRA never saw it, and
+        // the customer's refund would stay declared as a sale.
+        var client = new RecordingRevmaxClient
+        {
+            // An INVOICE receipt carrying the credit note's own number, and nothing under the
+            // original's - so the only thing the pre-flight check can find is the wrong kind.
+            KnownInvoiceNumber = "999001",
+            KnownInvoice = new InvoiceResponse
+            {
+                Code = "1",
+                Message = "Success",
+                FiscalDay = "524",
+                DeviceID = "22862",
+                Data = new InvoiceData
+                {
+                    ReceiptType = "FiscalInvoice",
+                    ReceiptGlobalNo = 216407,
+                    InvoiceNo = "22862-999001"
+                }
+            }
+        };
+
+        var result = await Service(client).FiscalizeCreditNoteAsync(CreditNote(), "123456");
+
+        // It refuses for the ordinary reason - no original receipt to reference - rather than
+        // reporting the credit note already fiscalised.
+        Assert.False(result.AlreadyFiscalised);
+        Assert.Equal("ORIGINAL_RECEIPT_NOT_FOUND", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task A_credit_note_the_device_already_holds_is_never_sent_again()
+    {
+        // The same pre-flight check as an invoice, against a CreditNote receipt on our own device.
+        var client = new RecordingRevmaxClient
+        {
+            KnownInvoiceNumber = "999001",
+            KnownInvoice = new InvoiceResponse
+            {
+                Code = "1",
+                Message = "Success",
+                FiscalDay = "828",
+                DeviceID = "22862",
+                VerificationCode = "AAAA-BBBB-CCCC-DDDD",
+                Data = new InvoiceData
+                {
+                    ReceiptType = "CreditNote",
+                    ReceiptGlobalNo = 47281,
+                    ReceiptCounter = 426,
+                    InvoiceNo = "22862-999001"
+                }
+            }
+        };
+
+        var result = await Service(client).FiscalizeCreditNoteAsync(CreditNote(), "123456");
+
+        Assert.Null(client.LastCreditNote);
+        Assert.True(result.Success);
+        Assert.True(result.AlreadyFiscalised);
+        Assert.Equal("47281", result.ReceiptGlobalNo);
+        Assert.Equal("828", result.FiscalDayNo);
+    }
+
+    [Fact]
+    public async Task A_device_that_cannot_be_asked_first_still_files_the_invoice()
+    {
+        // The pre-flight lookup is the cheap path, not the guard. Treating a failed lookup as "already
+        // fiscalised" would silently stop filing real invoices the moment the device went quiet.
+        var client = new RecordingRevmaxClient { ThrowOnGet = new HttpRequestException("unreachable") };
+
+        var result = await Service(client).FiscalizeInvoiceAsync(Invoice());
+
+        Assert.NotNull(client.LastInvoice);
+        Assert.True(result.Success);
+        Assert.False(result.AlreadyFiscalised);
+    }
+
+    [Fact]
+    public async Task A_duplicate_refusal_adopts_the_receipt_the_device_already_holds()
+    {
+        // The device refusing as a duplicate is it saying the document is fiscalised — ZIMRA has the
+        // receipt. Reported as a failure it left the invoice reading "Not Fiscalised" with a
+        // Fiscalise button on it, so the only visible state was one that invites another press.
+        var client = new RecordingRevmaxClient
+        {
+            RefusePostWith = DuplicateRefusal("123456"),
+            // Reaches the refusal rather than the pre-flight lookup: this is the backstop for a
+            // receipt filed between the two, and for a device that could not be asked first.
+            KnownOnlyAfterPost = true,
+            KnownInvoice = new InvoiceResponse
+            {
+                Code = "1",
+                Message = "Success",
+                FiscalDay = "525",
+                DeviceID = "22862",
+                DeviceSerialNumber = "8DE6996C0188",
+                QRcode = "https://fdms.zimra.co.zw/QR",
+                VerificationCode = "1234-5678",
+                Data = new InvoiceData
+                {
+                    ReceiptType = "FiscalInvoice", ReceiptGlobalNo = 216090, ReceiptCounter = 41
+                }
+            }
+        };
+
+        var result = await Service(client).FiscalizeInvoiceAsync(Invoice());
+
+        Assert.True(result.Success);
+        Assert.True(result.AlreadyFiscalised);
+        Assert.False(result.RequiresReconciliation);
+
+        // The fiscal details are the ones on file, not blanks — they are what marks the document
+        // fiscalised and what the reprint puts on the customer's copy.
+        Assert.Equal("216090", result.ReceiptGlobalNo);
+        Assert.Equal("41", result.ReceiptCounter);
+        Assert.Equal("525", result.FiscalDayNo);
+        Assert.Equal("8DE6996C0188", result.DeviceSerial);
+        Assert.Equal("https://fdms.zimra.co.zw/QR", result.QRCode);
+        Assert.Equal("1234-5678", result.VerificationCode);
+    }
+
+    [Fact]
+    public async Task A_duplicate_whose_receipt_cannot_be_read_is_never_reported_as_a_plain_failure()
+    {
+        // The device says a receipt exists and the read did not confirm it. Resubmitting is not the
+        // remedy for either half of that, so it must not come back as an ordinary retryable failure.
+        var client = new RecordingRevmaxClient
+        {
+            RefusePostWith = DuplicateRefusal("123456"),
+            ThrowOnGet = new HttpRequestException("unreachable")
+        };
+
+        var result = await Service(client).FiscalizeInvoiceAsync(Invoice());
+
+        Assert.False(result.Success);
+        Assert.False(result.AlreadyFiscalised);
+        Assert.True(result.RequiresReconciliation);
+    }
+
+    [Fact]
+    public async Task An_ordinary_refusal_is_still_a_refusal()
+    {
+        // The adoption path is entered on the device's duplicate wording alone. Anything else must
+        // stay a failure, or a refused invoice gets marked fiscalised on the strength of a receipt
+        // lookup that answered for some other reason.
+        var client = new RecordingRevmaxClient
+        {
+            RefusePostWith = new TransactMResponse
+            {
+                Code = "0",
+                Message = "Transaction error: Fiscal day is closed. Open a fiscal day and retry.",
+                FiscalDay = "525"
+            },
+            KnownOnlyAfterPost = true,
+            KnownInvoice = new InvoiceResponse
+            {
+                Code = "1",
+                Data = new InvoiceData { ReceiptGlobalNo = 999999 }
+            }
+        };
+
+        var result = await Service(client).FiscalizeInvoiceAsync(Invoice());
+
+        Assert.False(result.Success);
+        Assert.False(result.AlreadyFiscalised);
+        Assert.Null(result.ReceiptGlobalNo);
     }
 
     private static RevmaxFiscalizationService Service(IRevmaxClient client) =>
@@ -490,21 +1030,54 @@ public class RevmaxFiscalPayloadTests
 
         public TransactMExtRequest? LastCreditNote { get; private set; }
 
+        /// <summary>Which endpoint the last post went to.</summary>
+        public string? LastEndpoint { get; private set; }
+
         public InvoiceResponse? KnownInvoice { get; init; }
 
         public Exception? ThrowOnPost { get; init; }
 
         public Exception? ThrowOnGet { get; init; }
 
+        /// <summary>Refuse the post with this body instead of filing. Code "0" over HTTP 200, as the
+        /// device does.</summary>
+        public TransactMResponse? RefusePostWith { get; init; }
+
+        /// <summary>Answer <see cref="KnownInvoice"/> for this number only. Null answers it for any
+        /// number, which is what most of these tests want.</summary>
+        public string? KnownInvoiceNumber { get; init; }
+
+        /// <summary>The receipt does not exist until a post has been attempted — the device filed it
+        /// during the call, or refused the call because of something filed by another feed.</summary>
+        public bool KnownOnlyAfterPost { get; init; }
+
+        private bool _postAttempted;
+
         public Task<TransactMResponse?> TransactMAsync(
             TransactMRequest request, CancellationToken cancellationToken = default)
         {
+            _postAttempted = true;
+
             if (ThrowOnPost is not null)
             {
                 throw ThrowOnPost;
             }
 
             LastInvoice = request;
+            LastEndpoint = "TransactM";
+
+            // A credit note posted to TransactM is still a TransactMExtRequest — the ref fields ride
+            // on the payload either way, and only the endpoint distinguishes the two cases.
+            if (request is TransactMExtRequest ext)
+            {
+                LastCreditNote = ext;
+            }
+
+            if (RefusePostWith is not null)
+            {
+                return Task.FromResult<TransactMResponse?>(RefusePostWith);
+            }
+
             _hasFiled = true;
             return Task.FromResult<TransactMResponse?>(new TransactMResponse
             {
@@ -515,6 +1088,8 @@ public class RevmaxFiscalPayloadTests
         public Task<TransactMExtResponse?> TransactMExtAsync(
             TransactMExtRequest request, CancellationToken cancellationToken = default)
         {
+            _postAttempted = true;
+
             if (ThrowOnPost is not null)
             {
                 throw ThrowOnPost;
@@ -522,6 +1097,7 @@ public class RevmaxFiscalPayloadTests
 
             LastCreditNote = request;
             LastInvoice = request;
+            LastEndpoint = "TransactMExt";
             _hasFiled = true;
             return Task.FromResult<TransactMExtResponse?>(new TransactMExtResponse
             {
@@ -547,8 +1123,15 @@ public class RevmaxFiscalPayloadTests
                 return Task.FromResult<InvoiceResponse?>(FiledReceipt);
             }
 
+            if (KnownInvoice is not null
+                && (KnownInvoiceNumber is null || KnownInvoiceNumber == invoiceNumber)
+                && (!KnownOnlyAfterPost || _postAttempted))
+            {
+                return Task.FromResult<InvoiceResponse?>(KnownInvoice);
+            }
+
             // The device's own answer for a number it does not hold.
-            return Task.FromResult<InvoiceResponse?>(KnownInvoice ?? new InvoiceResponse
+            return Task.FromResult<InvoiceResponse?>(new InvoiceResponse
             {
                 Code = "0", Message = "Invoice not Found", FiscalDay = "524"
             });

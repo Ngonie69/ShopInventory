@@ -242,7 +242,9 @@ public sealed class AddApprovedCreditNoteHandler(
 
         var fiscal = fiscalisation.Attempted
             ? fiscalisation.Success
-                ? fiscalisation.Skipped ? " Already fiscalised." : " Fiscalised."
+                ? fiscalisation.Skipped || fiscalisation.AlreadyFiscalised
+                    ? " Already fiscalised."
+                    : " Fiscalised."
                 : $" Fiscalisation failed and has been logged for review: {fiscalisation.Message}"
             : string.Empty;
 
@@ -300,6 +302,7 @@ public sealed class AddApprovedCreditNoteHandler(
                 Attempted = true,
                 Success = result.Success,
                 Skipped = result.Skipped,
+                AlreadyFiscalised = result.AlreadyFiscalised,
                 Message = result.Message,
                 ReceiptGlobalNo = result.ReceiptGlobalNo
             };

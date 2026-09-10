@@ -97,6 +97,9 @@ public sealed class FiscalizeInvoiceHandler(
             {
                 Success = true,
                 Skipped = true,
+                // Says the same thing the device's own duplicate refusal says, so the caller has one
+                // condition to read whether we knew already or REVMax had to tell us.
+                AlreadyFiscalised = true,
                 Message = $"Invoice {invoice.DocNum} is already fiscalised.",
                 InvoiceNumber = invoice.DocNum.ToString()
             };
