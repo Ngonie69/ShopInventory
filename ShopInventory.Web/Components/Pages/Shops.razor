@@ -298,26 +298,13 @@
             // The same three caches the user management page loads, rather than three fresh calls.
             businessPartnerOptions = BusinessPartnerOptions.From(
                 await MasterDataCache.GetBusinessPartnersAsync());
-            warehouseOptions = (await MasterDataCache.GetWarehousesAsync())
-                .Where(warehouse => warehouse.IsActive && !string.IsNullOrWhiteSpace(warehouse.WarehouseCode))
-                .Select(warehouse => new NocturnePickerOption(
-                    warehouse.WarehouseCode!,
-                    string.IsNullOrWhiteSpace(warehouse.WarehouseName)
-                        ? warehouse.WarehouseCode!
-                        : warehouse.WarehouseName))
-                .OrderBy(option => option.Value, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            // Inactive ones are kept rather than filtered out, unlike the warehouses: they are
-            // already on shops, and dropping a row from the list is how a field that was set
-            // silently reads as unset. The hint says so instead.
-            costCentreOptions = (await MasterDataCache.GetCostCentresAsync())
-                .Where(centre => !string.IsNullOrWhiteSpace(centre.CenterCode))
-                .Select(centre => new NocturnePickerOption(
-                    centre.CenterCode!,
-                    string.IsNullOrWhiteSpace(centre.CenterName) ? centre.CenterCode! : centre.CenterName,
-                    centre.IsActive ? null : "Inactive"))
-                .OrderBy(option => option.Value, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            // Active only: this page writes the warehouse a shop trades from, and one that
+            // SAP has retired is not an answer. The cost centres are not filtered the same
+            // way — they are already on shops, and dropping a row is how a field that was
+            // set reads as unset, so CostCentreOptions marks an inactive one instead.
+            warehouseOptions = WarehouseOptions.ByCode(
+                (await MasterDataCache.GetWarehousesAsync()).Where(warehouse => warehouse.IsActive));
+            costCentreOptions = CostCentreOptions.ByCode(await MasterDataCache.GetCostCentresAsync());
         }
         catch (Exception)
         {
