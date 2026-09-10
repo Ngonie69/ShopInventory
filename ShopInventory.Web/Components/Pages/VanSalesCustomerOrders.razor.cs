@@ -121,13 +121,34 @@ public partial class VanSalesCustomerOrders
     }
 
     /// <summary>
+    /// The four statuses an operator can filter to, plus the resting "Open only".
+    /// </summary>
+    /// <remarks>
+    /// Built from the two helpers below rather than spelled out, so a status added to the model
+    /// cannot arrive in the filter with a label the list already uses or a tone the badge does not.
+    /// "Open only" is the empty value every filter in this app uses for its resting state, which is
+    /// why it needs no IsUnset flag — NocturneSelect reads an empty string as unset already.
+    /// </remarks>
+    private static readonly NocturneSelectOption<string>[] StatusFilterOptions =
+    [
+        new(string.Empty, "Open only", "neutral") { RuleAfter = true },
+        Option(VanSalesOrderStatusModel.Fulfilled),
+        Option(VanSalesOrderStatusModel.PartiallyFulfilled),
+        Option(VanSalesOrderStatusModel.Cancelled),
+        Option(VanSalesOrderStatusModel.Expired)
+    ];
+
+    private static NocturneSelectOption<string> Option(VanSalesOrderStatusModel status) =>
+        new(status.ToString(), StatusLabel(status), StatusFamily(status));
+
+    /// <summary>
     /// The status in an operator's words.
     /// </summary>
     /// <remarks>
     /// "Part delivered" rather than "PartiallyFulfilled": this is the row someone will be asked
     /// about by a shop, and the label should read the way the conversation will.
     /// </remarks>
-    private static string StatusLabel(VanSalesOrderStatusModel status) => status switch
+    internal static string StatusLabel(VanSalesOrderStatusModel status) => status switch
     {
         VanSalesOrderStatusModel.Accepted => "Awaiting delivery",
         VanSalesOrderStatusModel.Fulfilled => "Delivered",
@@ -135,5 +156,31 @@ public partial class VanSalesCustomerOrders
         VanSalesOrderStatusModel.Cancelled => "Cancelled",
         VanSalesOrderStatusModel.Expired => "Not delivered",
         _ => status.ToString()
+    };
+
+    /// <summary>
+    /// The same status as a Nocturne family, feeding both the filter's swatch and the badge on
+    /// each order. One helper, because two switches over the same statuses drift apart the first
+    /// time one is added.
+    /// </summary>
+    /// <remarks>
+    /// Only three of the five say anything. "Awaiting delivery" is neutral because it is an order
+    /// doing exactly what it should — nothing has happened to it yet, and a colour here would
+    /// compete with the rows that have earned one. Delivered is good. Part delivered and Cancelled
+    /// share warn: both are orders that did not go the way they were placed and are worth an eye.
+    /// Bad is kept for the one nobody chose — an order that expired undelivered.
+    ///
+    /// These have been revised twice, which is why <c>VanSalesOrderToneTests</c> now pins them:
+    /// the mapping is a judgement, and a judgement nobody can see is one that quietly rots. The
+    /// badge cannot be exercised locally either — the development database holds no orders.
+    /// </remarks>
+    internal static string StatusFamily(VanSalesOrderStatusModel status) => status switch
+    {
+        VanSalesOrderStatusModel.Accepted => "neutral",
+        VanSalesOrderStatusModel.Fulfilled => "good",
+        VanSalesOrderStatusModel.PartiallyFulfilled => "warn",
+        VanSalesOrderStatusModel.Cancelled => "warn",
+        VanSalesOrderStatusModel.Expired => "bad",
+        _ => "neutral"
     };
 }

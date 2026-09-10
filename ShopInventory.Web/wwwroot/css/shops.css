@@ -305,11 +305,6 @@
     font-weight: 500;
 }
 
-.shop .shop-meta {
-    font-size: 0.74rem;
-    color: var(--shop-mute-3);
-}
-
 .shop .shop-empty {
     padding: 56px 20px;
     text-align: center;
@@ -345,27 +340,13 @@
     margin-bottom: 18px;
 }
 
-/* The native <select>s in the shop form. Two lines, and the reason they are here
-   is in the header: without an opaque popup fill the dark-theme options are
-   present, focusable and invisible. This never reproduces in light theme, so a
-   light-mode screenshot proves nothing about it. */
-.shop .shop-select option,
-.shop .shop-select optgroup {
-    color: var(--shop-ink);
-    background-color: var(--shop-surface);
-}
-
-/* A closed <select> clips its text mid-word rather than ellipsing it, because the
-   browser draws the control. The warehouse picker's options are "CODE - Name" and a
-   long one read as "BFM - Bulk Feed Mi" with no sign it had been cut. Widening the
-   column fixed the placeholder; this keeps a long *value* honest at any width, and
-   costs nothing when the text already fits. The caret's 30px gutter is preserved by
-   the padding-right the rule above sets. */
-.shop .shop-select {
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    overflow: hidden;
-}
+/* No .shop-select rules any more, and that is the point: the form has no native
+   <select> left. Both of the rules that stood here were repairs to one — an opaque
+   option fill, because a dark-theme popup the browser paints is otherwise present,
+   focusable and invisible, and an ellipsis, because a closed <select> clips its
+   value mid-word. All three fields are NocturnePickers now, which the page draws
+   itself and nocturne-picker.css styles from the shared tokens, so neither repair
+   has anything to repair. Do not reintroduce one without them. */
 
 /* Narrow screens. Stated here rather than derived, because a rule lifted out of a
    media query stops being conditional — see the generator's note. */

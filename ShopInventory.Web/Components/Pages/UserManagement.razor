@@ -533,20 +533,19 @@
                                         <div class="um-form-field">
                                             <label>@(userModel.Role == "Merchandiser" ? "Default Warehouse" : "Assigned Warehouse") <span
                                                 class="required">*</span></label>
-                                                @if (isLoadingWarehouses)
-                                                {
-                                                    <div class="um-spinner-sm"></div>
-                                                }
-                                                else
-                                                {
-                                                    <select class="um-input" @bind="MerchandiserDefaultWarehouse">
-                                                        <option value="">-- Select Warehouse --</option>
-                                                        @foreach (var wh in MerchandiserWarehouseOptions)
-                                                        {
-                                                            <option value="@wh.WarehouseCode">@wh.WarehouseCode - @wh.WarehouseName</option>
-                                                        }
-                                                    </select>
-                                                }
+                                                @* A picker rather than a <select>, on the same
+                                                   argument as the business partner below: forty
+                                                   warehouses under alpha codes nobody reads by eye,
+                                                   and the only thing a native dropdown offers over
+                                                   that is scrolling. Same control as /shops. *@
+                                                <NocturnePicker Class="npick-block npick-bs"
+                                                                Options="MerchandiserWarehouseRows"
+                                                                @bind-Value="MerchandiserDefaultWarehouse"
+                                                                Loading="isLoadingWarehouses"
+                                                                Placeholder="Select warehouse"
+                                                                SearchPlaceholder="Search by code or name…"
+                                                                EmptyText="No warehouses loaded"
+                                                                AriaLabel="Assigned warehouse" />
                                                 <small class="um-form-hint">
                                                     @(userModel.Role == "Merchandiser"
                                                         ? "The warehouse used when this merchandiser submits sales orders from the mobile app"
@@ -699,22 +698,23 @@
 
                                                         <div class="um-form-field">
                                                             <label>Assigned Cost Centre <span class="required">*</span></label>
-                                                            @if (isLoadingCostCentres)
-                                                            {
-                                                                <div class="um-spinner-sm"></div>
-                                                            }
-                                                            else
-                                                            {
-                                                                <InputSelect class="um-input" @bind-Value="userModel.AssignedCostCentreCode">
-                                                                    <option value="">-- Select Cost Centre --</option>
-                                                                    @foreach (var costCentre in availableCostCentres.OrderBy(costCentre =>
-                                            costCentre.CenterCode))
-                                                                    {
-                                                                        <option value="@costCentre.CenterCode">@costCentre.CenterCode - @costCentre.CenterName
-                                                                        </option>
-                                                                    }
-                                                                </InputSelect>
-                                                            }
+                                                            @* Eighty-nine of them behind codes like
+                                                               Centr_z4 and GEM4000, so a search box
+                                                               rather than a scroll. Same as /shops.
+                                                               npick-end because this one sits in the
+                                                               form's right-hand column: the menu is
+                                                               wider than the field, and left-anchored
+                                                               it pushed the modal's own scrollport
+                                                               72px wider and scrolled the left column
+                                                               out of sight. *@
+                                                            <NocturnePicker Class="npick-block npick-bs npick-end"
+                                                                            Options="costCentreOptions"
+                                                                            @bind-Value="userModel.AssignedCostCentreCode"
+                                                                            Loading="isLoadingCostCentres"
+                                                                            Placeholder="Select cost centre"
+                                                                            SearchPlaceholder="Search by code or name…"
+                                                                            EmptyText="No cost centres loaded"
+                                                                            AriaLabel="Assigned cost centre" />
                                                             <ValidationMessage For="@(() => userModel.AssignedCostCentreCode)" />
                                                             <small class="um-form-hint">The cost centre applied to this van sales user’s orders and
                                                                 invoices</small>
@@ -722,20 +722,14 @@
 
                                                         <div class="um-form-field">
                                                             <label>Supplying Warehouse <span class="required">*</span></label>
-                                                            @if (isLoadingWarehouses)
-                                                            {
-                                                                <div class="um-spinner-sm"></div>
-                                                            }
-                                                            else
-                                                            {
-                                                                <InputSelect class="um-input" @bind-Value="userModel.SupplyingWarehouseCode">
-                                                                    <option value="">-- Select Warehouse --</option>
-                                                                    @foreach (var wh in SupplyingWarehouseOptions)
-                                                                    {
-                                                                        <option value="@wh.WarehouseCode">@wh.WarehouseCode - @wh.WarehouseName</option>
-                                                                    }
-                                                                </InputSelect>
-                                                            }
+                                                            <NocturnePicker Class="npick-block npick-bs"
+                                                                            Options="SupplyingWarehouseRows"
+                                                                            @bind-Value="userModel.SupplyingWarehouseCode"
+                                                                            Loading="isLoadingWarehouses"
+                                                                            Placeholder="Select warehouse"
+                                                                            SearchPlaceholder="Search by code or name…"
+                                                                            EmptyText="No warehouses loaded"
+                                                                            AriaLabel="Supplying warehouse" />
                                                             <ValidationMessage For="@(() => userModel.SupplyingWarehouseCode)" />
                                                             <small class="um-form-hint">The depot this van is loaded from. Its stock requests are
                                                                 raised against this warehouse — Bulawayo vans from KEFBYC, the rest from
@@ -981,7 +975,12 @@
     private List<NocturnePickerOption> customerPickerOptions = new();
     private bool isLoadingCustomers = false;
     private string customerSearchTerm = string.Empty;
-    private List<CostCentreDto> availableCostCentres = new();
+
+    /// <summary>
+    /// The active cost centres, already shaped for the picker. Built once when the cache lands
+    /// rather than per render — the modal re-renders on every keystroke in the fields beside it.
+    /// </summary>
+    private List<NocturnePickerOption> costCentreOptions = new();
     private bool isLoadingCostCentres = false;
     private List<RouteDto> RouteOptions = new();
     private bool isLoadingRoutes = false;
@@ -1285,7 +1284,12 @@ List<string>(AdminAvailableRoles);
         }
     }
 
-    private string MerchandiserDefaultWarehouse
+    /// <summary>
+    /// The single warehouse a merchandiser or van account carries, over the list the account
+    /// actually stores. Nullable because the picker's Clear hands back null; the setter already
+    /// read a blank as "no warehouse", so nothing else changes.
+    /// </summary>
+    private string? MerchandiserDefaultWarehouse
     {
         get => userModel.AssignedWarehouseCodes.FirstOrDefault() ?? "";
         set
@@ -1295,6 +1299,18 @@ List<string>(AdminAvailableRoles);
                 userModel.AssignedWarehouseCodes.Add(value);
         }
     }
+
+    /// <summary>
+    /// <see cref="MerchandiserWarehouseOptions"/> as picker rows. Order is kept, not sorted: that
+    /// list leads with the synthetic "Currently assigned" row when the master no longer offers the
+    /// code on the account, and sorting would bury the one row that explains itself.
+    /// </summary>
+    private List<NocturnePickerOption> MerchandiserWarehouseRows =>
+        WarehouseOptions.From(MerchandiserWarehouseOptions);
+
+    /// <summary><see cref="SupplyingWarehouseOptions"/> as picker rows, for the same reason.</summary>
+    private List<NocturnePickerOption> SupplyingWarehouseRows =>
+        WarehouseOptions.From(SupplyingWarehouseOptions);
 
     private IEnumerable<WarehouseDto> MerchandiserWarehouseOptions
     {
@@ -1381,8 +1397,11 @@ StringComparison.OrdinalIgnoreCase)))
         isLoadingCostCentres = true;
         try
         {
+            // Active only, unlike /shops: this field writes the cost centre a van's orders and
+            // invoices are booked to, and one SAP has retired is not an answer.
             var costCentres = await MasterDataCache.GetCostCentresAsync();
-            availableCostCentres = costCentres?.Where(costCentre => costCentre.IsActive).ToList() ?? new();
+            costCentreOptions = CostCentreOptions.ByCode(
+                costCentres?.Where(costCentre => costCentre.IsActive));
         }
         catch (Exception ex)
         {

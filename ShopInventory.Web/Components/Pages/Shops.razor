@@ -59,18 +59,22 @@
                            placeholder="MACHIPISA" disabled="@(editing.Id > 0)" />
                 </div>
                 @* Two, not three. A shop name is a place name — "Machipisa", "Graniteside" — and the
-                   width it gave up goes to the warehouse picker, whose options are "CODE - Name" and
-                   were being clipped mid-word. A text input degrades gracefully when it runs out of
-                   room; a <select> does not, because the browser draws it. *@
+                   width it gave up goes to the pickers beside it. *@
                 <div class="col-md-2">
                     <label class="shop-filter-label" for="shop-name">Name</label>
                     <input id="shop-name" class="shop-field" @bind="editing.Name" placeholder="Machipisa" />
                 </div>
-                @* A picker rather than a <select>: SAP holds several thousand
-                   business partners, one per currency per shop, and a list that
-                   long cannot be read by scrolling — which is what a native
-                   dropdown offers and all it offers. This one opens on a search
-                   box. See Components/NocturnePicker.razor. *@
+                @* Pickers rather than <select>s, for all three of the fields that
+                   name an SAP record. The partner list runs to several thousand
+                   rows — one per currency per shop — and cannot be read by
+                   scrolling, which is what a native dropdown offers and all it
+                   offers. The other two are shorter, forty warehouses and eighty-nine
+                   cost centres, and no easier: the codes are alpha, not numbered
+                   — KEFGRS, CMTRANS, Centr_z4 — and the names they expand to were
+                   being clipped mid-word by a control the browser draws itself.
+                   Each opens on a search box and matches on code or name, so an
+                   operator who knows "KEFGRS" and one who knows "Graniteside" get
+                   there the same way. See Components/NocturnePicker.razor. *@
                 <div class="col-md-3">
                     <label class="shop-filter-label" for="shop-bp">Business partner</label>
                     <NocturnePicker Class="npick-block" Id="shop-bp"
@@ -84,40 +88,32 @@
                 </div>
                 <div class="col-md-3">
                     <label class="shop-filter-label" for="shop-wh">Warehouse</label>
-                    @if (isLoadingMasterData)
-                    {
-                        <div class="shop-meta">Loading…</div>
-                    }
-                    else
-                    {
-                        <select id="shop-wh" class="shop-field shop-select" @bind="editing.WarehouseCode">
-                            <option value="">-- Select warehouse --</option>
-                            @foreach (var wh in warehouses)
-                            {
-                                <option value="@wh.WarehouseCode">@wh.WarehouseCode - @wh.WarehouseName</option>
-                            }
-                        </select>
-                    }
+                    <NocturnePicker Class="npick-block" Id="shop-wh"
+                                    Options="warehouseOptions"
+                                    @bind-Value="WarehouseCode"
+                                    Loading="isLoadingMasterData"
+                                    Placeholder="Select warehouse"
+                                    SearchPlaceholder="Search by code or name…"
+                                    EmptyText="No warehouses loaded"
+                                    AriaLabel="Warehouse" />
                 </div>
+                @* Optional, unlike the two above: SAP defaults a missing cost centre, so
+                   requiring it would stop a correctly configured shop trading for nothing
+                   that affects the money. That is what AllowClear is for here — on the
+                   other two an emptied field is refused on save, on this one it is the
+                   answer, and clearing it is the only way back to it. *@
                 <div class="col-md-2">
                     <label class="shop-filter-label" for="shop-cc">Cost centre</label>
-                    @if (isLoadingMasterData)
-                    {
-                        <div class="shop-meta">Loading…</div>
-                    }
-                    else
-                    {
-                        @* Optional, unlike the two above: SAP defaults a missing cost centre, so
-                           requiring it would stop a correctly configured shop trading for nothing
-                           that affects the money. *@
-                        <select id="shop-cc" class="shop-field shop-select" @bind="CostCentreCode">
-                            <option value="">-- None --</option>
-                            @foreach (var cc in costCentres.OrderBy(cc => cc.CenterCode))
-                            {
-                                <option value="@cc.CenterCode">@cc.CenterCode - @cc.CenterName</option>
-                            }
-                        </select>
-                    }
+                    @* npick-end because this is the last control in the row: the menu is
+                       wider than the field and a left-anchored one ran off the page. *@
+                    <NocturnePicker Class="npick-block npick-end" Id="shop-cc"
+                                    Options="costCentreOptions"
+                                    @bind-Value="CostCentreCode"
+                                    Loading="isLoadingMasterData"
+                                    Placeholder="None"
+                                    SearchPlaceholder="Search by code or name…"
+                                    EmptyText="No cost centres loaded"
+                                    AriaLabel="Cost centre" />
                 </div>
                 <div class="col-12 shop-actions">
                     <button class="shop-btn shop-btn-accent" @onclick="SaveAsync" disabled="@isSaving">
@@ -198,8 +194,15 @@
     /// page re-renders on every keystroke in the form beside it.
     /// </summary>
     private List<NocturnePickerOption> businessPartnerOptions = [];
-    private List<WarehouseDto> warehouses = [];
-    private List<CostCentreDto> costCentres = [];
+
+    /// <summary>
+    /// The active warehouses, already shaped for the picker. Ordered here
+    /// because the picker does not sort what it is given.
+    /// </summary>
+    private List<NocturnePickerOption> warehouseOptions = [];
+
+    /// <summary>The cost centres, shaped and ordered the same way.</summary>
+    private List<NocturnePickerOption> costCentreOptions = [];
 
     private bool isLoading;
     private bool isLoadingMasterData;
@@ -207,13 +210,14 @@
     private string? error;
 
     /// <summary>
-    /// Binds the optional cost centre through a non-null string, because a &lt;select&gt; posts "" for
-    /// its empty option and the server treats "" and null alike — storing "" would put a value on the
-    /// row that never reaches a sale.
+    /// The optional cost centre. Blank is coerced to null on the way in because the
+    /// server treats "" and null alike — storing "" would put a value on the row that
+    /// never reaches a sale. Unlike the two required fields below, a null here is
+    /// saved rather than refused.
     /// </summary>
-    private string CostCentreCode
+    private string? CostCentreCode
     {
-        get => editing?.CostCentreCode ?? string.Empty;
+        get => editing?.CostCentreCode;
         set
         {
             if (editing is not null)
@@ -238,6 +242,24 @@
             if (editing is not null)
             {
                 editing.BusinessPartnerCode = value ?? string.Empty;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The warehouse, bound the same way as the partner above and for the same
+    /// reason: the picker's Clear hands back null and the DTO's field is a
+    /// non-null string, so an emptied field reaches SaveAsync as "" and is
+    /// refused there with a message rather than posted.
+    /// </summary>
+    private string? WarehouseCode
+    {
+        get => editing?.WarehouseCode;
+        set
+        {
+            if (editing is not null)
+            {
+                editing.WarehouseCode = value ?? string.Empty;
             }
         }
     }
@@ -276,10 +298,13 @@
             // The same three caches the user management page loads, rather than three fresh calls.
             businessPartnerOptions = BusinessPartnerOptions.From(
                 await MasterDataCache.GetBusinessPartnersAsync());
-            warehouses = (await MasterDataCache.GetWarehousesAsync())
-                .Where(warehouse => warehouse.IsActive)
-                .ToList();
-            costCentres = await MasterDataCache.GetCostCentresAsync();
+            // Active only: this page writes the warehouse a shop trades from, and one that
+            // SAP has retired is not an answer. The cost centres are not filtered the same
+            // way — they are already on shops, and dropping a row is how a field that was
+            // set reads as unset, so CostCentreOptions marks an inactive one instead.
+            warehouseOptions = WarehouseOptions.ByCode(
+                (await MasterDataCache.GetWarehousesAsync()).Where(warehouse => warehouse.IsActive));
+            costCentreOptions = CostCentreOptions.ByCode(await MasterDataCache.GetCostCentresAsync());
         }
         catch (Exception)
         {
