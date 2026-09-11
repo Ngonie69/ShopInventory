@@ -30,6 +30,12 @@ by `-ValidateOnly` before anything is installed:
 - **`10.10.10.9` deploys itself over a loopback WinRM session.** That works, but it is the one
   place a *local* (non-domain) deploy account quietly fails: the token filter strips its
   administrator rights and `Invoke-Command` returns access denied. Use a domain account.
+- **Sessions are addressed by name, not IP.** WinRM will not use Kerberos against an IP address,
+  and falls back to NTLM, which it refuses for a host the client does not trust. The runner has no
+  TrustedHosts, so `Update-Production.ps1` turns the address into a name first: this machine's own
+  name for `10.10.10.9`, or for any other node a reverse DNS name inside this machine's own domain
+  that resolves back to the same address. See
+  [0x8009030e](#0x8009030e-a-specified-logon-session-does-not-exist).
 - **The final health check runs from inside the network.** It fetches the public URL, which has to
   hairpin back through NAT or resolve through split-horizon DNS. Where that does not work the
   check fails on every deployment while the site is perfectly healthy. It also means the check no
@@ -208,6 +214,35 @@ Invoke-WebRequest https://sis.kefaloscheese.com/health/ready -UseBasicParsing
 If that fails while the site is fine from outside, it is a NAT or split-horizon DNS problem, not a
 deployment problem. Fix the resolution, or point `PRODUCTION_HEALTH_URL` at an address the runner
 can actually reach — accepting that the check then proves less.
+
+### 0x8009030e, "A specified logon session does not exist"
+
+**"Could not establish a deployment session", straight after "Connection successful!".** This is
+not a bad password, even though it reads like one. Every run on 2026-09-10 failed this way, and the
+sealed credential was fine throughout.
+
+Negotiate can only use Kerberos against a name inside the domain. Against a bare IP, or a machine
+that is not domain-joined, it falls back to NTLM, and WinRM refuses NTLM to any host that is not in
+the client's `TrustedHosts`. The laptop the script used to run from had `10.10.10.9,10.10.10.58` in
+its TrustedHosts, which is why this never showed up by hand. The runner has none.
+
+`Update-Production.ps1` now addresses a node by name when that lets Kerberos in, so for
+`10.10.10.9` this is handled. A node it cannot name that way still needs trusting on the runner. That
+covers a node with no reverse DNS entry, one whose name is outside this machine's domain, and one
+whose name does not resolve back to the same address. The script keeps the address for such a node,
+so trust the **address**, from an elevated prompt:
+
+```powershell
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value '10.10.10.58' -Concatenate -Force
+```
+
+`-ValidateOnly` now predicts this per node. The older check it had, `Test-WSMan`, is anonymous and
+passes even where every authenticated session will fail.
+
+**`10.10.10.58` specifically.** It reverse-resolves to `DEV-TEST-SERVER` / `dev-test-server.local`
+and is not joined to the domain, so Kerberos can never authenticate it. The script keeps addressing
+it as `10.10.10.58`, and it needs the TrustedHosts entry above. Its name is also worth a second look before trusting it with production
+traffic.
 
 **"Access is denied" from `Invoke-Command` against `10.10.10.9` specifically, while `10.10.10.58`
 works.** The primary deploys itself over a loopback WinRM session, and Windows strips administrator

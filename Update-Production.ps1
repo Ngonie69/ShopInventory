@@ -163,6 +163,144 @@ function Get-AdditionalCredentialPathByServer {
     return $credentialPathByServer
 }
 
+# WinRM will not use Kerberos against an IP address - it says so outright - so Negotiate to
+# "10.10.10.9" can only fall back to NTLM, and WinRM refuses NTLM to an address the client does
+# not already trust. The result is 0x8009030e, "A specified logon session does not exist", which
+# reads like a credential fault and is not one.
+#
+# Run by hand from a laptop this never showed, because that laptop has 10.10.10.9 and 10.10.10.58
+# in its WinRM TrustedHosts and has had for years. The deploy runner does not, so every run failed
+# on its first session. Connecting by name instead lets Kerberos do the job it is there for, with
+# mutual authentication, and needs no per-machine trust list on whatever host deploys next.
+#
+# The name comes from reverse DNS, which is worth no trust on its own: a stale or wrong PTR would
+# silently point a deployment at another machine. So the name is only used when it resolves
+# forward to the same address we were asked for. Anything less and the address is kept, which
+# leaves the old behaviour exactly as it was for a client that does trust the address.
+function Resolve-DeploymentConnectionName {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Server
+    )
+
+    $address = $null
+    if (-not [System.Net.IPAddress]::TryParse($Server, [ref]$address)) {
+        # Already a name. Nothing to resolve, and Kerberos can use it as it stands.
+        return $Server
+    }
+
+    # The deploy runner lives on the primary node, so the most important target is this machine.
+    # Its own name needs no DNS round trip and cannot be spoofed by a PTR record, and nothing here
+    # needs forward-confirming because the address was just read off a local interface.
+    $localAddresses = @(
+        [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() |
+        ForEach-Object { $_.GetIPProperties().UnicastAddresses } |
+        ForEach-Object { $_.Address.IPAddressToString }
+    )
+    if ($localAddresses -contains $Server) {
+        $properties = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties()
+        if ([string]::IsNullOrWhiteSpace($properties.DomainName)) {
+            return $properties.HostName
+        }
+
+        return "$($properties.HostName).$($properties.DomainName)"
+    }
+
+    try {
+        $name = [System.Net.Dns]::GetHostEntry($Server).HostName
+    }
+    catch {
+        Write-Host "  Note: $Server has no reverse DNS entry, so the session must use the address." -ForegroundColor DarkGray
+        return $Server
+    }
+
+    if ([string]::IsNullOrWhiteSpace($name) -or $name -eq $Server) {
+        return $Server
+    }
+
+    # A name only helps if Kerberos can use it, and Kerberos can only use it inside our own domain.
+    # 10.10.10.58 reverse-resolves to dev-test-server.local, a workgroup name: switching to it fails
+    # exactly as the address does, and would quietly move the TrustedHosts entry it needs from
+    # '10.10.10.58' to a name nobody would think to trust. Outside the domain, keep the address.
+    $domain = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().DomainName
+    if ([string]::IsNullOrWhiteSpace($domain) -or -not $name.EndsWith(".$domain", [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $Server
+    }
+
+    # Forward-confirm. Without this a bad PTR record is enough to redirect a production
+    # deployment, and the script would report success against the wrong box.
+    try {
+        $forward = @([System.Net.Dns]::GetHostAddresses($name) | ForEach-Object { $_.IPAddressToString })
+    }
+    catch {
+        Write-Host "  Note: $Server reverse-resolves to $name, but that name does not resolve back. Using the address." -ForegroundColor DarkGray
+        return $Server
+    }
+
+    if ($forward -notcontains $Server) {
+        Write-Host "  Note: $Server reverse-resolves to $name, which points at $($forward -join ', ') instead. Using the address." -ForegroundColor Yellow
+        return $Server
+    }
+
+    return $name
+}
+
+# Every WinRM connection in this script is made through the three functions below, so how a
+# deployment session is authenticated is decided in exactly one place. $script:DeploymentConnectionName
+# is set once, before the first session, by Initialize-DeploymentConnection.
+function Get-DeploymentConnectionParameters {
+    if ([string]::IsNullOrWhiteSpace($script:DeploymentConnectionName)) {
+        throw "Initialize-DeploymentConnection has not run, so there is no connection target yet. This is a bug in Update-Production.ps1."
+    }
+
+    return @{
+        ComputerName   = $script:DeploymentConnectionName
+        Credential     = $script:DeploymentCredential
+        Authentication = 'Negotiate'
+    }
+}
+
+function Invoke-DeploymentCommand {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$ScriptBlock,
+        [object[]]$ArgumentList
+    )
+
+    $parameters = Get-DeploymentConnectionParameters
+    $parameters.ScriptBlock = $ScriptBlock
+
+    # Bound explicitly rather than by truthiness: several call sites pass a single array as the
+    # only argument, via the unary-comma idiom, and an empty one must still be passed through.
+    if ($PSBoundParameters.ContainsKey('ArgumentList')) {
+        $parameters.ArgumentList = $ArgumentList
+    }
+
+    Invoke-Command @parameters -ErrorAction Stop
+}
+
+function New-DeploymentSession {
+    $parameters = Get-DeploymentConnectionParameters
+    return New-PSSession @parameters -ErrorAction Stop
+}
+
+function Initialize-DeploymentConnection {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Server,
+        [Parameter(Mandatory = $true)]
+        [PSCredential]$Credential
+    )
+
+    $script:DeploymentCredential = $Credential
+    $script:DeploymentConnectionName = Resolve-DeploymentConnectionName -Server $Server
+
+    if ($script:DeploymentConnectionName -ne $Server) {
+        Write-Host "  Sessions will address $Server as $($script:DeploymentConnectionName)." -ForegroundColor Gray
+    }
+}
+
 function Assert-SourceUpToDate {
     # This script publishes whatever is in the local working copy. Merging a PR on the
     # remote does not update that copy, so a stale checkout deploys pre-fix code while
@@ -700,6 +838,10 @@ if (-not $Credential) {
     Write-Host ""
 }
 
+# From here on every WinRM session is opened by Invoke-DeploymentCommand or New-DeploymentSession,
+# both of which read what this sets.
+Initialize-DeploymentConnection -Server $ProductionServer -Credential $Credential
+
 $deploymentDefinitions = Get-SelectedDeploymentDefinitions -Definitions (Get-BlueGreenDeploymentDefinitions `
         -ApiPool $ApiAppPoolName `
         -WebPool $WebAppPoolName `
@@ -746,7 +888,7 @@ Write-Host ""
 # Validate remoting access up front because deployment packages are transferred over WinRM.
 Write-Host "Validating deployment remoting access..." -ForegroundColor Yellow
 try {
-    $remoteComputerName = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
+    $remoteComputerName = Invoke-DeploymentCommand -ScriptBlock {
         $env:COMPUTERNAME
     } -ErrorAction Stop
 
@@ -756,10 +898,33 @@ catch {
     Write-Host "ERROR: Could not establish a deployment session to $ProductionServer" -ForegroundColor Red
     Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host ""
-    Write-Host "Make sure:" -ForegroundColor Yellow
-    Write-Host "  1. WinRM is enabled on the server" -ForegroundColor White
-    Write-Host "  2. Your account has administrator access on the server" -ForegroundColor White
-    Write-Host "  3. PowerShell remoting is allowed through the firewall" -ForegroundColor White
+
+    # 0x8009030e reads like a rejected password and almost never is one. It is what Negotiate
+    # returns when it could not use Kerberos - which it cannot against a bare address, or against
+    # a machine outside the domain - and NTLM was then refused because the client does not trust
+    # the target. Anyone who hits this deserves to be told that before being sent to check a
+    # firewall that is fine.
+    if ($_.Exception.Message -match '0x8009030e') {
+        Write-Host "That error code is an authentication method problem, not a bad password." -ForegroundColor Yellow
+        Write-Host "Negotiate could not use Kerberos here, and NTLM was refused because this machine" -ForegroundColor White
+        Write-Host "does not trust the target. Kerberos is unavailable when the target is addressed by" -ForegroundColor White
+        Write-Host "IP, or when the target is not joined to the domain." -ForegroundColor White
+        Write-Host ""
+        Write-Host "  Session target used: $($script:DeploymentConnectionName)" -ForegroundColor White
+        Write-Host "  Client TrustedHosts: $(try { (Get-Item WSMan:\localhost\Client\TrustedHosts -ErrorAction Stop).Value } catch { '<unreadable - this process is not an administrator>' })" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Either give $ProductionServer a reverse DNS entry that resolves forward to the same" -ForegroundColor White
+        Write-Host "address, so this script can address it by name, or trust it explicitly on this" -ForegroundColor White
+        Write-Host "machine, from an elevated prompt:" -ForegroundColor White
+        Write-Host "  Set-Item WSMan:\localhost\Client\TrustedHosts -Value '$ProductionServer' -Concatenate -Force" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "Make sure:" -ForegroundColor Yellow
+        Write-Host "  1. WinRM is enabled on the server" -ForegroundColor White
+        Write-Host "  2. Your account has administrator access on the server" -ForegroundColor White
+        Write-Host "  3. PowerShell remoting is allowed through the firewall" -ForegroundColor White
+    }
+
     Wait-ForExitPrompt
     exit 1
 }
@@ -771,7 +936,7 @@ if ($RestartOnly) {
     Write-Host ""
     
     try {
-        $restartResults = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
+        $restartResults = Invoke-DeploymentCommand -ScriptBlock {
             param($Definitions)
 
             Import-Module WebAdministration
@@ -853,7 +1018,7 @@ if ($FirstTimeSetup) {
     Write-Host ""
     
     try {
-        Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
+        Invoke-DeploymentCommand -ScriptBlock {
             param($ApiPool, $WebPool, $ApiSite, $WebSite, $ApiPath, $WebPath, $ApiPort, $WebPort)
             
             Import-Module WebAdministration
@@ -1096,7 +1261,7 @@ Write-Host "Step 2: Preparing blue/green deployment slots..." -ForegroundColor C
 Write-Host "----------------------------------------" -ForegroundColor Gray
 
 try {
-    $deploymentPlans = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
+    $deploymentPlans = Invoke-DeploymentCommand -ScriptBlock {
         param($Definitions)
 
         Import-Module WebAdministration
@@ -1295,7 +1460,7 @@ if (-not $SkipBackup) {
     Write-Host "----------------------------------------" -ForegroundColor Gray
 
     try {
-        Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
+        Invoke-DeploymentCommand -ScriptBlock {
             param($Plans, $IncludeRuntimeDataInBackup)
 
             function Invoke-AppBackup {
@@ -1407,7 +1572,7 @@ if (-not $SkipDatabaseMigrations -and $publishedApps.Count -gt 0) {
 
             $migrationSession = $null
             try {
-                $migrationSession = New-PSSession -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ErrorAction Stop
+                $migrationSession = New-DeploymentSession
 
                 Invoke-Command -Session $migrationSession -ScriptBlock {
                     param($Directory)
@@ -1424,7 +1589,7 @@ if (-not $SkipDatabaseMigrations -and $publishedApps.Count -gt 0) {
                 }
             }
 
-            $migrationResult = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
+            $migrationResult = Invoke-DeploymentCommand -ScriptBlock {
                 param($BundlePath, $AppName, $ActiveAppPath, $ConnectionStringOverride)
 
                 # Only the connection string is read from web.config. The bundle resolves its
@@ -1570,7 +1735,7 @@ try {
         Write-Host "  Uploading to production server..." -ForegroundColor Gray
         $transferSession = $null
         try {
-            $transferSession = New-PSSession -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ErrorAction Stop
+            $transferSession = New-DeploymentSession
             Copy-Item -Path $zipPath -Destination "C:\inetpub\$zipFileName" -ToSession $transferSession -Force -ErrorAction Stop
         }
         finally {
@@ -1582,7 +1747,7 @@ try {
         Write-Host "  Upload complete!" -ForegroundColor Green
 
         Write-Host "  Deploying to inactive slot and warming it up..." -ForegroundColor Gray
-        $cutoverResult = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
+        $cutoverResult = Invoke-DeploymentCommand -ScriptBlock {
             param($ZipFile, $Plan, $DatabaseConnectionOverrides, $WebEmailConfigOverrides, $ApiKeyExpiryToDeploy, $ApiKeyIndexToDeploy)
 
             Import-Module WebAdministration
@@ -2172,7 +2337,7 @@ Write-Host "Step 6: Verifying public readiness endpoints..." -ForegroundColor Cy
 Write-Host "----------------------------------------" -ForegroundColor Gray
 
 try {
-    $verificationResults = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
+    $verificationResults = Invoke-DeploymentCommand -ScriptBlock {
         param($Plans)
 
         function Test-EndpointStability {
