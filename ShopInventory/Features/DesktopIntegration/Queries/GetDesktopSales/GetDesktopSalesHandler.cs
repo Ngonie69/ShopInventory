@@ -58,29 +58,15 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db, IAuditServic
             return scope.Errors;
         }
 
-        var requestedWarehouse = string.IsNullOrWhiteSpace(request.WarehouseCode)
-            ? null
-            : request.WarehouseCode.Trim();
-
-        var warehouseFilter = requestedWarehouse;
-
-        if (!scope.Value.IsUnrestricted)
+        // Refused rather than narrowed when a confined caller names another shop, and narrowed rather
+        // than widened when it names none — see DesktopSalesReadScope.Narrow, which the analysis shares.
+        var readScope = scope.Value.Narrow(request.WarehouseCode);
+        if (readScope.IsError)
         {
-            var assigned = scope.Value.WarehouseCode!;
-
-            // Refused rather than narrowed. A till rendering a page headed with one warehouse and
-            // filled with another's takings is worse than an error, and silently rewriting the request
-            // would hide a client bug — or a probe — that somebody should see.
-            if (requestedWarehouse is not null &&
-                !string.Equals(requestedWarehouse, assigned, StringComparison.OrdinalIgnoreCase))
-            {
-                return Errors.DesktopSales.SalesReadOutsideScope(requestedWarehouse, assigned);
-            }
-
-            // Applied whether or not the caller asked for one, so omitting the parameter narrows to the
-            // caller's own shop rather than widening to every shop.
-            warehouseFilter = assigned;
+            return readScope.Errors;
         }
+
+        var warehouseFilter = readScope.Value.WarehouseCode;
 
         var query = db.DesktopSales
             .AsNoTracking()

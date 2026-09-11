@@ -436,6 +436,19 @@
                                 </NavLink>
                             </Authorized>
                         </AuthorizeView>
+                        @* The till takings analysis. Its own gate rather than the insights
+                           roles: the API reads till sales for Admin, Manager and Cashier only,
+                           so a stock controller shown this link would open a refusal. *@
+                        <AuthorizeView Roles="Admin,Manager,Cashier" Context="desktopSalesReportCtx">
+                            <Authorized>
+                                <NavLink class="snav-link sub-link" href="/reports/desktop-sales" Match="NavLinkMatch.Prefix">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-cash-register" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Desktop Sales Analysis</span>
+                                </NavLink>
+                            </Authorized>
+                        </AuthorizeView>
                         @* The item volume pair and the factors behind it. These two are
                            the whole of a sales rep's Insights. *@
                         <AuthorizeView Roles="Admin,SalesRep" Context="itemVolumeCtx">

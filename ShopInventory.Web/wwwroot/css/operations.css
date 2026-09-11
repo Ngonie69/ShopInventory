@@ -1,7 +1,7 @@
 /* ==========================================================================
    Operations — Nocturne
 
-   The nine operational pages, on one sheet:
+   The ten operational pages, on one sheet:
 
      /gl-accounts             `.ops.ops-gl`     chart of accounts, synced from SAP
      /gl-accounts/{code}      `.ops.ops-glled`  one account's journal postings
@@ -12,6 +12,7 @@
      /route-sales-report      `.ops.ops-rsr`    route trading, dormancy, product mix
      /desktop-transactions    `.ops.ops-dt`     the desktop sync queues
      /desktop-sales           `.ops.ops-ds`     invoices fiscalized on the desktops
+     /reports/desktop-sales   `.ops.ops-dsa`    the same sales, broken down by tender
 
    The last two of the first seven arrived with the route-customer sales work.
    They are derivations like their siblings — same hero, same figures, same
@@ -3159,6 +3160,220 @@
     overflow-y: auto;
 }
 
+/* ── /reports/desktop-sales ────────────────────────────────────────────── */
+/* The same sales as /desktop-sales, summed. The page root carries `ops-ds` as
+   well as `ops-dsa`, so its hero, filter row, segment pickers, cards and break
+   bars are the ones above; what follows is only what an analysis adds — the
+   payment-method colours, the share strip and stacked day bars, and the hour
+   columns.
+
+   The method colours are the dataviz reference categorical slots in their
+   validated order (blue, orange, aqua, yellow, magenta), each theme's steps
+   checked against this sheet's own card surface (#ffffff light, #232532 dark):
+   every adjacent pair clears the colour-blind separation target in both.
+   Three light steps sit under 3:1 against white, which is why every coloured
+   mark on the page sits beside its name or in a table stating the same figure.
+   A method keeps its slot whatever else a period contains — Cash is always
+   blue — and "Not recorded" is grey, because it is not a way of paying. */
+
+.ops-dsa {
+    --dsa-t1: #2a78d6;
+    --dsa-t2: #eb6834;
+    --dsa-t3: #1baf7a;
+    --dsa-t4: #eda100;
+    --dsa-t5: #e87ba4;
+}
+
+.dark-theme .ops-dsa,
+[data-theme="dark"] .ops-dsa {
+    --dsa-t1: #3987e5;
+    --dsa-t2: #d95926;
+    --dsa-t3: #199e70;
+    --dsa-t4: #c98500;
+    --dsa-t5: #d55181;
+}
+
+.ops-dsa .ops-dsa-t1 { --dsa-series: var(--dsa-t1); }
+.ops-dsa .ops-dsa-t2 { --dsa-series: var(--dsa-t2); }
+.ops-dsa .ops-dsa-t3 { --dsa-series: var(--dsa-t3); }
+.ops-dsa .ops-dsa-t4 { --dsa-series: var(--dsa-t4); }
+.ops-dsa .ops-dsa-t5 { --dsa-series: var(--dsa-t5); }
+.ops-dsa .ops-dsa-tnone { --dsa-series: var(--ops-mute-3); }
+
+/* A name and its colour, wherever a colour appears. */
+.ops-dsa .ops-dsa-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.ops-dsa .ops-dsa-swatch {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    background: var(--dsa-series, var(--ops-mute-3));
+}
+
+.ops-dsa .ops-dsa-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin-left: auto;
+    font-size: 11.5px;
+    color: var(--ops-mute-2);
+}
+
+/* The whole divided, and each day divided the same way. The 2px gap is the
+   card surface showing between fills, so adjacent methods never touch. */
+.ops-dsa .ops-dsa-strip,
+.ops-dsa .ops-dsa-bar {
+    display: flex;
+    gap: 2px;
+    overflow: hidden;
+    border-radius: 4px;
+}
+
+.ops-dsa .ops-dsa-strip {
+    height: 14px;
+}
+
+.ops-dsa .ops-dsa-bar {
+    min-width: 3px;
+    height: 10px;
+}
+
+.ops-dsa .ops-dsa-seg {
+    flex: 1 1 0;
+    min-width: 3px;
+    height: 100%;
+    background: var(--dsa-series, var(--ops-mute-3));
+}
+
+.ops-dsa .ops-dsa-barcell {
+    width: 24%;
+    min-width: 140px;
+}
+
+.ops-dsa .ops-dsa-table tfoot td {
+    padding-top: 12px;
+    padding-bottom: 4px;
+    border-top: 1px solid var(--ops-divider);
+    font-weight: 500;
+    color: var(--ops-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-dsa .ops-dsa-idle td {
+    color: var(--ops-mute-3);
+}
+
+.ops-dsa .ops-dsa-strong {
+    font-weight: 500;
+    color: var(--ops-ink);
+}
+
+.ops-dsa .ops-dsa-when {
+    white-space: nowrap;
+}
+
+/* Status, so it carries an icon and words as well as the warning hue. */
+.ops-dsa .ops-dsa-flag {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 3px;
+    color: var(--ops-fam, var(--ops-mute-2));
+}
+
+/* Hours beside best sellers: two short answers that read better side by side
+   than as two more full-width cards. */
+.ops-dsa .ops-dsa-pair {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    gap: var(--ops-s4);
+    align-items: start;
+}
+
+.ops-dsa .ops-dsa-seg-end {
+    margin-left: auto;
+}
+
+/* The hour columns. One hue — this is magnitude, not identity — and the
+   busiest hour at full strength so the answer to "when" is found first. The
+   bar is absolutely placed in its track so its percentage height resolves
+   against a box that certainly has one. */
+/* Capped and centred, because a quiet day has two or three hours in it and an
+   uncapped column then fills half the card — a slab rather than a bar. */
+.ops-dsa .ops-dsa-hours {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    height: 176px;
+}
+
+.ops-dsa .ops-dsa-hour {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    max-width: 36px;
+}
+
+.ops-dsa .ops-dsa-hour-track {
+    position: relative;
+    flex: 1 1 auto;
+    border-bottom: 1px solid var(--ops-rule);
+}
+
+.ops-dsa .ops-dsa-hour-bar {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    border-radius: 4px 4px 0 0;
+    background: rgba(var(--ops-accent-rgb), .5);
+    transition: background-color .14s;
+}
+
+.ops-dsa .ops-dsa-hour-bar:not(.is-zero) {
+    min-height: 2px;
+}
+
+.ops-dsa .ops-dsa-hour-bar.is-peak,
+.ops-dsa .ops-dsa-hour:hover .ops-dsa-hour-bar {
+    background: var(--ops-accent);
+}
+
+.ops-dsa .ops-dsa-hour-label {
+    font-size: 10.5px;
+    text-align: center;
+    color: var(--ops-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-dsa .ops-dsa-items {
+    max-height: 432px;
+    overflow-y: auto;
+}
+
+.ops-dsa .ops-dsa-share {
+    display: block;
+    margin-top: 5px;
+}
+
+.ops-dsa .ops-dsa-share .ops-ds-break-track {
+    display: block;
+}
+
+.ops-dsa .ops-dsa-none {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--ops-mute-2);
+}
+
 /* ── Narrow screens ────────────────────────────────────────────────────── */
 
 @media (max-width: 900px) {
@@ -3274,5 +3489,25 @@
     .ops-overlay .ops-ds-qr {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    /* The analysis: the pair stacks, and the legend and view switch drop to
+       a row of their own under the card label rather than squeezing it. */
+    .ops-dsa .ops-dsa-pair {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .ops-dsa .ops-dsa-legend,
+    .ops-dsa .ops-dsa-seg-end {
+        flex: 1 1 100%;
+        margin-left: 0;
+    }
+
+    .ops-dsa .ops-dsa-hours {
+        gap: 2px;
+    }
+
+    .ops-dsa .ops-dsa-hour-label {
+        font-size: 9px;
     }
 }

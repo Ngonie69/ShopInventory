@@ -129,6 +129,11 @@
                         <span>Consolidate day</span>
                     }
                 </button>
+                @* The same sales, summed: by payment method, day, hour, shop and item. *@
+                <a class="ops-btn ops-btn-ghost" href="/reports/desktop-sales">
+                    <i class="ph ph-chart-pie-slice" aria-hidden="true"></i>
+                    <span>Sales analysis</span>
+                </a>
                 <button type="button" class="ops-btn ops-btn-ghost" @onclick="ExportToExcel"
                         disabled="@(isExporting || sales.Count == 0)">
                     @if (isExporting)
@@ -366,6 +371,7 @@
                             <th>Fiscalized</th>
                             <th class="ops-num">Total</th>
                             <th class="ops-num">Paid</th>
+                            <th>Payment</th>
                             <th>Fiscal</th>
                             <th>Consolidation</th>
                             @* Empty on purpose: the mark below is a hover cue
@@ -423,6 +429,16 @@
                                 <td data-label="Fiscalized" class="ops-ds-when">@Stamp(sale.CreatedAt)</td>
                                 <td data-label="Total" class="ops-num">@Money(sale.TotalAmount, sale.Currency)</td>
                                 <td data-label="Paid" class="ops-num">@Money(sale.AmountPaid, sale.Currency)</td>
+                                @* How it was paid, with the wallet confirmation or slip number under
+                                   it — the reference is what an EcoCash sale is reconciled by, so it
+                                   belongs on the row rather than only in the drawer. *@
+                                <td data-label="Payment">
+                                    @TenderName(sale.PaymentMethod)
+                                    @if (!string.IsNullOrWhiteSpace(sale.PaymentReference))
+                                    {
+                                        <div class="ops-sub">@sale.PaymentReference</div>
+                                    }
+                                </td>
                                 <td data-label="Fiscal">
                                     <span class="ops-ds-state @FiscalFamily(sale.FiscalizationStatus)">
                                         <span class="ops-dot"></span>@Blank(sale.FiscalizationStatus)
@@ -1851,6 +1867,13 @@
         string.Equals(status, value, StringComparison.OrdinalIgnoreCase);
 
     private static string Blank(string? text) => string.IsNullOrWhiteSpace(text) ? "—" : text;
+
+    // A tender as the counter names it. Older rows carry the till's own casing, so the comparison is
+    // case-blind; a sale nobody recorded a tender for says so rather than showing an empty cell.
+    private static string TenderName(string? tender) =>
+        string.IsNullOrWhiteSpace(tender) ? "Not recorded"
+        : tender.Trim().Equals("ecocash", StringComparison.OrdinalIgnoreCase) ? "EcoCash"
+        : tender.Trim();
 
     private static string ConsolidationLabel(string? status) =>
         Is(status, "Pending") ? "Awaiting close" : Blank(status);

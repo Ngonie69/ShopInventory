@@ -14,5 +14,8 @@ public static partial class Errors
 
         public static Error LoadMerchandiserPurchaseOrdersFailed(string message) =>
             Error.Failure("Report.LoadMerchandiserPurchaseOrdersFailed", message);
+
+        public static Error LoadDesktopSalesAnalysisFailed(string message) =>
+            Error.Failure("Report.LoadDesktopSalesAnalysisFailed", message);
     }
 }

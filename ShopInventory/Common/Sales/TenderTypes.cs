@@ -49,6 +49,40 @@ public static class TenderTypes
         Innbucks
     ];
 
+    /// <summary>What a report calls a sale whose till recorded no tender at all.</summary>
+    public const string NotRecorded = "Not recorded";
+
+    /// <summary>
+    /// The name a report groups a stored tender under.
+    /// </summary>
+    /// <remarks>
+    /// Rows written before the sale handler normalised on the way in carry the till's own casing, and the
+    /// oldest carry the legacy values, so grouping on the raw column would split one tender into several
+    /// lines that each look complete. An absent tender is its own group rather than being folded into
+    /// cash: a report is a statement about how money arrived, and nobody recorded how this did.
+    /// </remarks>
+    public static string ReportingName(string? tender)
+    {
+        if (string.IsNullOrWhiteSpace(tender))
+        {
+            return NotRecorded;
+        }
+
+        if (TryNormalize(tender, out var normalized))
+        {
+            return normalized;
+        }
+
+        var trimmed = tender.Trim();
+
+        return trimmed.ToLowerInvariant() switch
+        {
+            "transfer" => "Transfer",
+            "paynow" => "PayNow",
+            _ => trimmed
+        };
+    }
+
     /// <summary>
     /// Whether the tender is one a till may submit today.
     /// </summary>

@@ -1,0 +1,490 @@
+@page "/reports/desktop-sales"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis
+@attribute [Authorize(Roles = "Admin,Manager,Cashier")]
+@rendermode InteractiveServer
+
+<PageTitle>Desktop Sales Analysis - Shop Inventory</PageTitle>
+
+@* The till takings, broken down. A derivation on the /desktop-sales vocabulary rather than an import:
+   no design exists, and the page it analyses already has the hero, the filter row, the segment
+   picker and the cards, so the root carries `ops-ds` to reuse all of them and `ops-dsa` for the
+   little that is new — the payment-method colours, the stacked share bars and the hour columns.
+   See the `.ops-dsa` block in operations.css.
+
+   Colour is carried by payment method and nothing else, in a fixed order (Cash, Swipe, EcoCash,
+   Innbucks, then anything historical), so a method keeps its colour whichever methods a period
+   happens to contain. "Not recorded" is grey on purpose: it is not a way of paying. Every
+   coloured mark sits beside its name or in a table that states the figure, because three of the
+   light-theme hues fall under 3:1 against the card. *@
+
+<div class="ops ops-ds ops-dsa">
+
+    <div class="ops-hero">
+        <div class="ops-hero-text">
+            <span class="ops-kicker">Desktop sales · Analysis</span>
+            <h1>Sales breakdown</h1>
+            <p>
+                What the shop tills and vending counters took and how it was paid — by payment method,
+                day, hour, shop, operator and item. Online van receipts are left out: those sales are
+                counted as their SAP invoices.
+            </p>
+        </div>
+
+        <div class="ops-hero-actions">
+            @* Only for the roles that may open the list; a manager shown this link would land on
+               a refusal. *@
+            <AuthorizeView Roles="Admin,Cashier" Context="saleListCtx">
+                <Authorized>
+                    <a class="ops-btn ops-btn-ghost" href="/desktop-sales">
+                        <i class="ph ph-list-bullets" aria-hidden="true"></i>
+                        <span>Sale list</span>
+                    </a>
+                </Authorized>
+            </AuthorizeView>
+            <button type="button" class="ops-btn ops-btn-ghost" @onclick="ExportAsync"
+                    disabled="@(isExporting || isLoading || !HasSales)">
+                @if (isExporting)
+                {
+                    <span class="ops-spin"></span>
+                    <span>Exporting&hellip;</span>
+                }
+                else
+                {
+                    <i class="ph ph-file-xls" aria-hidden="true"></i>
+                    <span>Export</span>
+                }
+            </button>
+            <button type="button" class="ops-icon-btn" title="Refresh" aria-label="Refresh"
+                    @onclick="LoadAsync" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="ops-spin"></span>
+                }
+                else
+                {
+                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                }
+            </button>
+        </div>
+    </div>
+
+    <div class="ops-rule-fade"></div>
+
+    <div class="ops-ds-filters">
+        <div class="ops-field">
+            <label class="ops-label" for="dsa-warehouse">Shop</label>
+            <NocturneSelect Id="dsa-warehouse" Class="nsel-block" Options="WarehouseOptions"
+                            @bind-Value="warehouse" OnChanged="LoadAsync"
+                            Caption="Filter by shop" AriaLabel="Filter by shop" Placeholder="All shops" />
+        </div>
+
+        @* Not a <label>: the segment is several buttons, and a label would hand every click to
+           the first of them. *@
+        <div class="ops-field ops-ds-seg-field">
+            <span class="ops-label" id="dsa-period-label">Period</span>
+            <div class="ops-ds-seg" role="group" aria-labelledby="dsa-period-label">
+                @foreach (var option in PeriodOptions)
+                {
+                    <button type="button" class="ops-ds-seg-opt @(period == option.Key ? "is-on" : "")"
+                            aria-pressed="@(period == option.Key)"
+                            @onclick="() => SetPeriodAsync(option.Key)">@option.Label</button>
+                }
+            </div>
+        </div>
+
+        @if (period == PeriodCustom)
+        {
+            <div class="ops-ds-dates">
+                <div class="ops-field">
+                    <span class="ops-label">From</span>
+                    <NocturneDateField Id="dsa-from" Date="fromDate" DateChanged="OnFromDateChanged"
+                                       AriaLabel="From date" />
+                </div>
+                <div class="ops-field">
+                    <span class="ops-label">To</span>
+                    <NocturneDateField Id="dsa-to" Date="toDate" DateChanged="OnToDateChanged"
+                                       AriaLabel="To date" />
+                </div>
+            </div>
+        }
+
+        @* Only when the period actually traded in more than one: currencies are never added
+           together, so each is its own analysis. *@
+        @if (result is { Currencies.Count: > 1 })
+        {
+            <div class="ops-field ops-ds-seg-field">
+                <span class="ops-label" id="dsa-currency-label">Currency</span>
+                <div class="ops-ds-seg" role="group" aria-labelledby="dsa-currency-label">
+                    @foreach (var section in result.Currencies)
+                    {
+                        <button type="button" class="ops-ds-seg-opt @(Current?.Currency == section.Currency ? "is-on" : "")"
+                                aria-pressed="@(Current?.Currency == section.Currency)"
+                                @onclick="() => currency = section.Currency">@section.Currency</button>
+                    }
+                </div>
+            </div>
+        }
+
+        <div class="ops-ds-filter-tail">
+            <span class="ops-ds-shown">@PeriodText</span>
+        </div>
+    </div>
+
+    @if (error != null)
+    {
+        <div class="ops-msg ops-fam-bad" role="alert">
+            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+            <div class="ops-msg-body">@error</div>
+            <button type="button" class="ops-msg-x" aria-label="Dismiss" @onclick="() => error = null">
+                <i class="ph ph-x" aria-hidden="true"></i>
+            </button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="ops-loading">
+            <span class="ops-spin ops-spin-lg"></span>
+            <p>Working out the takings&hellip;</p>
+        </div>
+    }
+    else if (Current is not { } sales)
+    {
+        @if (error == null)
+        {
+            <div class="ops-empty">
+                <i class="ph ph-receipt" aria-hidden="true"></i>
+                <h3>No sales in this period</h3>
+                <p>Nothing was rung up at a till or vending counter @(warehouse == "" ? "" : $"at {warehouse} ")between these dates. Widen the period to see more.</p>
+            </div>
+        }
+    }
+    else
+    {
+        var methods = result!.PaymentMethods;
+
+        @* ── The four figures ─────────────────────────────────────────────── *@
+        <div class="ops-figures">
+            <div class="ops-figure ops-fam-accent">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Takings</div>
+                <div class="ops-figure-num">@Money(sales.TotalAmount)</div>
+                <div class="ops-figure-sub">@Plural(sales.SalesCount, "sale") over @Plural(sales.DaysTraded, "day")</div>
+            </div>
+            <div class="ops-figure ops-fam-info">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Before VAT</div>
+                <div class="ops-figure-num">@Money(sales.NetAmount)</div>
+                <div class="ops-figure-sub">VAT @Money(sales.VatAmount)</div>
+            </div>
+            <div class="ops-figure ops-fam-neutral">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Average sale</div>
+                <div class="ops-figure-num">@Money(sales.AverageSale)</div>
+                <div class="ops-figure-sub">@sales.QuantitySold.ToString("#,##0.##") units · @Plural(sales.DistinctItems, "item")</div>
+            </div>
+            <div class="ops-figure ops-fam-neutral">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Change given</div>
+                <div class="ops-figure-num">@Money(sales.ChangeGiven)</div>
+                <div class="ops-figure-sub">from @Money(sales.AmountPaid) handed over</div>
+            </div>
+        </div>
+
+        @* ── How it was paid ──────────────────────────────────────────────── *@
+        <section class="ops-ds-card ops-dsa-card" aria-labelledby="dsa-tenders-title">
+            <div class="ops-ds-card-head">
+                <i class="ph ph-wallet" aria-hidden="true"></i>
+                <span class="ops-ds-card-label" id="dsa-tenders-title">Payment methods</span>
+                <span class="ops-ds-card-tally">
+                    <b>@Money(sales.TotalAmount)</b>
+                    <span>@Plural(sales.SalesCount, "sale")</span>
+                </span>
+            </div>
+
+            @* The whole divided, before any figure is read. Each segment's name and share are in
+               the table directly beneath, and on its tooltip. *@
+            @if (sales.TotalAmount > 0)
+            {
+                <div class="ops-dsa-strip" role="img" aria-label="@StripDescription(sales)">
+                    @foreach (var row in sales.ByPaymentMethod.Where(r => r.TotalAmount > 0))
+                    {
+                        <span class="ops-dsa-seg @TenderClass(row.PaymentMethod)"
+                              style="flex-grow:@Weight(row.TotalAmount)"
+                              title="@($"{TenderLabel(row.PaymentMethod)} · {Money(row.TotalAmount)} · {Pct(row.ShareOfValuePercent)}")"></span>
+                    }
+                </div>
+            }
+
+            <div class="ops-scroll">
+                <table class="ops-table ops-dsa-table">
+                    <thead>
+                        <tr>
+                            <th>Payment method</th>
+                            <th class="ops-num">Sales</th>
+                            <th class="ops-num">Share of sales</th>
+                            <th class="ops-num">Takings</th>
+                            <th class="ops-num">Share of takings</th>
+                            <th class="ops-num">Average sale</th>
+                            <th class="ops-num">Change given</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in sales.ByPaymentMethod)
+                        {
+                            <tr class="@(row.SalesCount == 0 ? "ops-dsa-idle" : "")">
+                                <td>
+                                    <span class="ops-dsa-key">
+                                        <span class="ops-dsa-swatch @TenderClass(row.PaymentMethod)"></span>
+                                        @TenderLabel(row.PaymentMethod)
+                                    </span>
+                                    @* A wallet payment settles outside the till, and the reference is
+                                       what ties the receipt to money that arrived. *@
+                                    @if (NeedsReference(row.PaymentMethod) && row.WithoutReferenceCount > 0)
+                                    {
+                                        <div class="ops-sub ops-dsa-flag ops-fam-warn">
+                                            <i class="ph ph-warning" aria-hidden="true"></i>
+                                            @Plural(row.WithoutReferenceCount, "sale") without a reference
+                                        </div>
+                                    }
+                                </td>
+                                <td class="ops-num">@row.SalesCount.ToString("N0")</td>
+                                <td class="ops-num">@Pct(row.ShareOfCountPercent)</td>
+                                <td class="ops-num">@Money(row.TotalAmount)</td>
+                                <td class="ops-num">@Pct(row.ShareOfValuePercent)</td>
+                                <td class="ops-num">@(row.SalesCount == 0 ? "—" : Money(row.AverageSale))</td>
+                                <td class="ops-num">@(row.ChangeGiven == 0 ? "—" : Money(row.ChangeGiven))</td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td>Total</td>
+                            <td class="ops-num">@sales.SalesCount.ToString("N0")</td>
+                            <td class="ops-num">100%</td>
+                            <td class="ops-num">@Money(sales.TotalAmount)</td>
+                            <td class="ops-num">100%</td>
+                            <td class="ops-num">@Money(sales.AverageSale)</td>
+                            <td class="ops-num">@(sales.ChangeGiven == 0 ? "—" : Money(sales.ChangeGiven))</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </section>
+
+        @* ── By day ───────────────────────────────────────────────────────── *@
+        <section class="ops-ds-card ops-dsa-card" aria-labelledby="dsa-days-title">
+            <div class="ops-ds-card-head">
+                <i class="ph ph-calendar-blank" aria-hidden="true"></i>
+                <span class="ops-ds-card-label" id="dsa-days-title">By day</span>
+                <span class="ops-dsa-legend">
+                    @foreach (var method in methods)
+                    {
+                        <span class="ops-dsa-key">
+                            <span class="ops-dsa-swatch @TenderClass(method)"></span>@TenderLabel(method)
+                        </span>
+                    }
+                </span>
+            </div>
+
+            @{
+                var busiestDay = sales.ByDay.Count == 0 ? 0m : sales.ByDay.Max(d => d.TotalAmount);
+            }
+            <div class="ops-scroll">
+                <table class="ops-table ops-dsa-table">
+                    <thead>
+                        <tr>
+                            <th>Day</th>
+                            <th class="ops-num">Sales</th>
+                            @foreach (var method in methods)
+                            {
+                                <th class="ops-num">@TenderLabel(method)</th>
+                            }
+                            <th class="ops-num">Takings</th>
+                            <th class="ops-dsa-barcell"><span class="visually-hidden">Split by payment method</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var day in sales.ByDay)
+                        {
+                            <tr>
+                                <td class="ops-dsa-when">@day.Date.ToString("ddd dd MMM yyyy")</td>
+                                <td class="ops-num">@day.SalesCount.ToString("N0")</td>
+                                @foreach (var method in methods)
+                                {
+                                    <td class="ops-num">@Amount(AmountFor(day.ByPaymentMethod, method))</td>
+                                }
+                                <td class="ops-num ops-dsa-strong">@Amount(day.TotalAmount)</td>
+                                <td class="ops-dsa-barcell">
+                                    <span class="ops-dsa-bar" style="width:@Percent(day.TotalAmount, busiestDay)">
+                                        @foreach (var part in day.ByPaymentMethod.Where(p => p.TotalAmount > 0))
+                                        {
+                                            <span class="ops-dsa-seg @TenderClass(part.PaymentMethod)"
+                                                  style="flex-grow:@Weight(part.TotalAmount)"
+                                                  title="@($"{day.Date:dd MMM} · {TenderLabel(part.PaymentMethod)} · {Money(part.TotalAmount)}")"></span>
+                                        }
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <div class="ops-dsa-pair">
+            @* ── By hour ──────────────────────────────────────────────────────── *@
+            <section class="ops-ds-card ops-dsa-card" aria-labelledby="dsa-hours-title">
+                @{
+                    var slots = HourSlots(sales);
+                    var busiestHour = slots.Count == 0 ? null : slots.MaxBy(h => h.TotalAmount);
+                }
+                <div class="ops-ds-card-head">
+                    <i class="ph ph-clock" aria-hidden="true"></i>
+                    <span class="ops-ds-card-label" id="dsa-hours-title">By hour of day</span>
+                    @if (busiestHour is { TotalAmount: > 0 })
+                    {
+                        <span class="ops-ds-card-tally">
+                            <b>@HourLabel(busiestHour.Hour)</b>
+                            <span>busiest · @Money(busiestHour.TotalAmount)</span>
+                        </span>
+                    }
+                </div>
+
+                @* One hue: this is magnitude, not identity. The table view is the tooltip on each
+                   column and the day table above; the axis names every hour it draws. *@
+                <div class="ops-dsa-hours" role="img" aria-label="@HourDescription(slots)">
+                    @foreach (var slot in slots)
+                    {
+                        <div class="ops-dsa-hour"
+                             title="@($"{HourLabel(slot.Hour)}–{HourLabel(slot.Hour + 1)} · {Plural(slot.SalesCount, "sale")} · {Money(slot.TotalAmount)}")">
+                            <span class="ops-dsa-hour-track">
+                                <span class="ops-dsa-hour-bar @(slot.TotalAmount == 0 ? "is-zero" : "") @(slot == busiestHour ? "is-peak" : "")"
+                                      style="height:@Percent(slot.TotalAmount, busiestHour?.TotalAmount ?? 0)"></span>
+                            </span>
+                            <span class="ops-dsa-hour-label">@slot.Hour.ToString("00")</span>
+                        </div>
+                    }
+                </div>
+                <div class="ops-ds-aside">
+                    <span>Counter time (CAT), summed across the period.</span>
+                </div>
+            </section>
+
+            @* ── Best sellers ─────────────────────────────────────────────────── *@
+            <section class="ops-ds-card ops-dsa-card" aria-labelledby="dsa-items-title">
+                <div class="ops-ds-card-head">
+                    <i class="ph ph-package" aria-hidden="true"></i>
+                    <span class="ops-ds-card-label" id="dsa-items-title">Best sellers</span>
+                    <span class="ops-ds-card-tally">
+                        <b>@sales.TopItems.Count</b>
+                        <span>of @Plural(sales.DistinctItems, "item")</span>
+                    </span>
+                </div>
+
+                @if (sales.TopItems.Count == 0)
+                {
+                    <p class="ops-dsa-none">No lines were recorded on these sales.</p>
+                }
+                else
+                {
+                    var topNet = sales.TopItems.Max(i => i.NetAmount);
+
+                    <div class="ops-scroll ops-dsa-items">
+                        <table class="ops-table ops-dsa-table">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th class="ops-num">Qty</th>
+                                    <th class="ops-num">Sales</th>
+                                    <th class="ops-num">Value before VAT</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in sales.TopItems)
+                                {
+                                    <tr>
+                                        <td>
+                                            <span class="ops-code">@item.ItemCode</span>
+                                            @if (!string.IsNullOrWhiteSpace(item.ItemDescription) && item.ItemDescription != item.ItemCode)
+                                            {
+                                                <div class="ops-sub">@item.ItemDescription</div>
+                                            }
+                                        </td>
+                                        <td class="ops-num">@item.Quantity.ToString("#,##0.##")</td>
+                                        <td class="ops-num">@item.SalesCount.ToString("N0")</td>
+                                        <td class="ops-num">
+                                            @Amount(item.NetAmount)
+                                            <span class="ops-dsa-share" title="@($"{Pct(item.ShareOfNetPercent)} of line value")">
+                                                <span class="ops-ds-break-track">
+                                                    <span class="ops-ds-break-fill" style="width:@Percent(item.NetAmount, topNet)"></span>
+                                                </span>
+                                            </span>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </section>
+        </div>
+
+        @* ── By shop, operator or source ─────────────────────────────────── *@
+        <section class="ops-ds-card ops-dsa-card" aria-labelledby="dsa-breakdown-title">
+            <div class="ops-ds-card-head">
+                <i class="ph ph-storefront" aria-hidden="true"></i>
+                <span class="ops-ds-card-label" id="dsa-breakdown-title">Who took it</span>
+                <div class="ops-ds-seg ops-dsa-seg-end" role="group" aria-label="Break the takings down by">
+                    @foreach (var option in BreakdownOptions)
+                    {
+                        <button type="button" class="ops-ds-seg-opt @(breakdown == option.Key ? "is-on" : "")"
+                                aria-pressed="@(breakdown == option.Key)"
+                                @onclick="() => breakdown = option.Key">@option.Label</button>
+                    }
+                </div>
+            </div>
+
+            <div class="ops-scroll">
+                <table class="ops-table ops-dsa-table">
+                    <thead>
+                        <tr>
+                            <th>@BreakdownHeading</th>
+                            <th class="ops-num">Sales</th>
+                            @foreach (var method in methods)
+                            {
+                                <th class="ops-num">@TenderLabel(method)</th>
+                            }
+                            <th class="ops-num">Takings</th>
+                            <th class="ops-num">Share</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in BreakdownRows(sales))
+                        {
+                            <tr>
+                                <td class="ops-name">
+                                    @row.Label
+                                    @if (breakdown == BreakdownSource && row.Label != row.Key && row.Key != "")
+                                    {
+                                        <div class="ops-sub">@row.Key</div>
+                                    }
+                                </td>
+                                <td class="ops-num">@row.SalesCount.ToString("N0")</td>
+                                @foreach (var method in methods)
+                                {
+                                    <td class="ops-num">@Amount(AmountFor(row.ByPaymentMethod, method))</td>
+                                }
+                                <td class="ops-num ops-dsa-strong">@Amount(row.TotalAmount)</td>
+                                <td class="ops-num">@Pct(row.ShareOfValuePercent)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <div class="ops-ds-foot">
+            <span class="ops-ds-foot-info">
+                Generated @result.GeneratedAtUtc.AddHours(2).ToString("dd MMM yyyy, HH:mm") · amounts in @sales.Currency, VAT included unless stated
+            </span>
+        </div>
+    }
+</div>

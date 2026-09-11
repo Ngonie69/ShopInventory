@@ -4,6 +4,7 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using ShopInventory.Web.Common;
 using ShopInventory.Web.Features.Reports.Queries.GetAccountSalesPaymentReport;
+using ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis;
 using ShopInventory.Web.Features.Reports.Queries.GetItemVolumeSalesReport;
 using ShopInventory.Web.Features.Reports.Queries.GetMerchandiserPurchaseOrderReport;
 using ShopInventory.Web.Models;
@@ -51,6 +52,7 @@ public interface IReportExportService
 
     byte[] ExportVanStockToExcel(VanStockReportResponse report);
     byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null);
+    byte[] ExportDesktopSalesAnalysisToExcel(DesktopSalesAnalysisResult report);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     byte[] ExportAccountSalesPaymentReportToExcel(GetAccountSalesPaymentReportResult report);
     byte[] ExportItemVolumeSalesReportToExcel(GetItemVolumeSalesReportResult report, string title);
@@ -8935,7 +8937,7 @@ public class ReportExportService : IReportExportService
     {
         using var workbook = NewWorkbook("Desktop Sales Report");
         var ws = AddSheet(workbook, "Desktop Sales");
-        const int cols = 11;
+        const int cols = 13;
 
         var row = WriteReportHeader(ws, "Desktop Sales Report", cols, fromDate, toDate);
 
@@ -8952,7 +8954,9 @@ public class ReportExportService : IReportExportService
         // Column headers. Date and Currency were both missing: the report is
         // date-ranged and the amounts are not all in one currency, so without them a
         // row could not be placed in time or read as an amount.
-        var headers = new[] { "Date", "Reference", "Customer", "Card Code", "Warehouse", "Currency", "Amount", "VAT", "Paid", "Fiscal Status", "Consolidation" };
+        // Payment Method and its reference sit beside Paid: the tender is how the takings are
+        // reconciled, and an EcoCash sale is matched to its money by the reference alone.
+        var headers = new[] { "Date", "Reference", "Customer", "Card Code", "Warehouse", "Currency", "Amount", "VAT", "Paid", "Payment Method", "Payment Reference", "Fiscal Status", "Consolidation" };
         for (int i = 0; i < headers.Length; i++)
         {
             ws.Cell(row, i + 1).Value = headers[i];
@@ -8978,10 +8982,13 @@ public class ReportExportService : IReportExportService
             ws.Cell(row, 8).Value = sale.VatAmount;
             ws.Cell(row, 9).Value = sale.AmountPaid;
             ws.Range(row, 7, row, 9).Style.NumberFormat.Format = FormatMoney;
-            ws.Cell(row, 10).Value = sale.FiscalizationStatus;
+            ws.Cell(row, 10).Value = string.IsNullOrWhiteSpace(sale.PaymentMethod) ? "Not recorded" : sale.PaymentMethod.Trim();
             ws.Cell(row, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 11).Value = sale.ConsolidationStatus;
-            ws.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 11).Value = sale.PaymentReference ?? "";
+            ws.Cell(row, 12).Value = sale.FiscalizationStatus;
+            ws.Cell(row, 12).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 13).Value = sale.ConsolidationStatus;
+            ws.Cell(row, 13).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             row++;
         }
 
@@ -9007,6 +9014,330 @@ public class ReportExportService : IReportExportService
         WriteFooter(ws, row - 1, cols);
         FinalizeSheet(ws, cols, headerRow, landscape: true);
         return WorkbookToBytes(workbook);
+    }
+
+    // ─── Desktop Sales Analysis Export ───────────────────────────
+
+    /// <summary>
+    /// The till takings analysis as a workbook: the payment-method breakdown first, then each other
+    /// breakdown on a sheet of its own.
+    /// </summary>
+    /// <remarks>
+    /// The breakdown sheets carry a Currency column rather than splitting into a sheet per currency:
+    /// tills sell in USD and ZWG, one filter separates them, and no total on any sheet is ever taken
+    /// across that column. The payment-method sheet is the exception — it states each currency's
+    /// figures as a block, because its totals and shares are the point of it.
+    /// </remarks>
+    public byte[] ExportDesktopSalesAnalysisToExcel(DesktopSalesAnalysisResult report)
+    {
+        using var workbook = NewWorkbook("Desktop Sales Analysis");
+        var scope = string.IsNullOrWhiteSpace(report.WarehouseCode)
+            ? "All shops"
+            : $"Shop: {report.WarehouseCode}";
+
+        WriteDesktopAnalysisPaymentMethods(workbook, report, scope);
+
+        WriteDesktopAnalysisMatrix(workbook, "By Day", "Desktop Sales by Day", "Day", scope, report,
+            section => section.ByDay.Select(day => new DesktopAnalysisMatrixRow(
+                day.Date, "", day.SalesCount, day.TotalAmount, 0m, day.ByPaymentMethod)),
+            withShare: false);
+
+        WriteDesktopAnalysisMatrix(workbook, "By Shop", "Desktop Sales by Shop", "Shop", scope, report,
+            section => section.ByWarehouse.Select(DesktopAnalysisBreakdownRow),
+            withShare: true);
+
+        WriteDesktopAnalysisMatrix(workbook, "By Operator", "Desktop Sales by Operator", "Operator", scope, report,
+            section => section.ByOperator.Select(DesktopAnalysisBreakdownRow),
+            withShare: true);
+
+        WriteDesktopAnalysisMatrix(workbook, "By Source", "Desktop Sales by Source", "Source", scope, report,
+            section => section.BySource.Select(DesktopAnalysisBreakdownRow),
+            withShare: true);
+
+        WriteDesktopAnalysisHours(workbook, report, scope);
+        WriteDesktopAnalysisItems(workbook, report, scope);
+
+        return WorkbookToBytes(workbook);
+    }
+
+    private sealed record DesktopAnalysisMatrixRow(
+        DateTime? Date,
+        string Label,
+        int SalesCount,
+        decimal TotalAmount,
+        decimal SharePercent,
+        List<DesktopSalesPaymentAmount> Parts);
+
+    private static DesktopAnalysisMatrixRow DesktopAnalysisBreakdownRow(DesktopSalesBreakdownRow row) =>
+        new(null, row.Label, row.SalesCount, row.TotalAmount, row.ShareOfValuePercent, row.ByPaymentMethod);
+
+    private static string DesktopAnalysisTenderName(string method) => method == "Ecocash" ? "EcoCash" : method;
+
+    private static void WriteDesktopAnalysisPaymentMethods(
+        XLWorkbook workbook, DesktopSalesAnalysisResult report, string scope)
+    {
+        const int cols = 9;
+        var ws = AddSheet(workbook, "Payment Methods");
+        var row = WriteReportHeader(ws, "Desktop Sales by Payment Method", cols, report.FromDate, report.ToDate, scope);
+
+        if (report.Currencies.Count == 0)
+        {
+            ws.Range(row, 1, row, cols).Merge();
+            ws.Cell(row, 1).Value = "No desktop sales fell in this period.";
+            ws.Cell(row, 1).Style.Font.Italic = true;
+            ws.Cell(row, 1).Style.Font.FontColor = MutedText;
+            row += 2;
+        }
+
+        var headers = new[]
+        {
+            "Currency", "Payment Method", "Sales", "Share of Sales", "Takings", "Share of Takings",
+            "Average Sale", "Change Given", "Without Reference"
+        };
+
+        foreach (var section in report.Currencies)
+        {
+            WriteSectionTitle(ws, row, cols,
+                $"{section.Currency} · {section.SalesCount:N0} sale(s) over {section.DaysTraded:N0} day(s)");
+            row++;
+
+            WriteKpiCard(ws, row, 1, "Takings", section.TotalAmount, FormatMoney);
+            WriteKpiCard(ws, row, 2, "Before VAT", section.NetAmount, FormatMoney);
+            WriteKpiCard(ws, row, 3, "VAT", section.VatAmount, FormatMoney);
+            WriteKpiCard(ws, row, 4, "Average Sale", section.AverageSale, FormatMoney);
+            WriteKpiCard(ws, row, 5, "Change Given", section.ChangeGiven, FormatMoney);
+            row += 3;
+
+            for (var i = 0; i < headers.Length; i++)
+            {
+                ws.Cell(row, i + 1).Value = headers[i];
+            }
+            StyleTableHeader(ws, row, cols);
+            var headerRow = row;
+            row++;
+
+            var dataStart = row;
+            foreach (var method in section.ByPaymentMethod)
+            {
+                ws.Cell(row, 1).Value = section.Currency;
+                ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 2).Value = DesktopAnalysisTenderName(method.PaymentMethod);
+                ws.Cell(row, 3).Value = method.SalesCount;
+                ws.Cell(row, 3).Style.NumberFormat.Format = FormatCount;
+                ws.Cell(row, 4).Value = method.ShareOfCountPercent / 100m;
+                ws.Cell(row, 4).Style.NumberFormat.Format = FormatPercent;
+                ws.Cell(row, 5).Value = method.TotalAmount;
+                ws.Cell(row, 5).Style.NumberFormat.Format = FormatMoney;
+                ws.Cell(row, 6).Value = method.ShareOfValuePercent / 100m;
+                ws.Cell(row, 6).Style.NumberFormat.Format = FormatPercent;
+                ws.Cell(row, 7).Value = method.AverageSale;
+                ws.Cell(row, 8).Value = method.ChangeGiven;
+                ws.Range(row, 7, row, 8).Style.NumberFormat.Format = FormatMoney;
+
+                // Only a wallet is reconciled by its reference; for anything else the count is
+                // every sale and would read as a problem that is not one.
+                if (method.PaymentMethod is "Ecocash" or "Innbucks")
+                {
+                    ws.Cell(row, 9).Value = method.WithoutReferenceCount;
+                    ws.Cell(row, 9).Style.NumberFormat.Format = FormatCount;
+                    if (method.WithoutReferenceCount > 0)
+                    {
+                        ws.Cell(row, 9).Style.Font.FontColor = WarningOrange;
+                    }
+                }
+
+                row++;
+            }
+
+            row = FinishTable(ws, headerRow, dataStart, row, cols, "No sales.", filter: false);
+
+            ws.Cell(row, 1).Value = section.Currency;
+            ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 2).Value = "Total";
+            ws.Cell(row, 3).Value = section.SalesCount;
+            ws.Cell(row, 3).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 4).Value = 1m;
+            ws.Cell(row, 6).Value = 1m;
+            ws.Range(row, 4, row, 4).Style.NumberFormat.Format = FormatPercent;
+            ws.Range(row, 6, row, 6).Style.NumberFormat.Format = FormatPercent;
+            ws.Cell(row, 5).Value = section.TotalAmount;
+            ws.Cell(row, 7).Value = section.AverageSale;
+            ws.Cell(row, 8).Value = section.ChangeGiven;
+            ws.Cell(row, 5).Style.NumberFormat.Format = FormatMoney;
+            ws.Range(row, 7, row, 8).Style.NumberFormat.Format = FormatMoney;
+            ws.Range(row, 1, row, cols).Style.Font.Bold = true;
+            ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = TotalsBackground;
+            row += 2;
+        }
+
+        WriteFooter(ws, row - 1, cols);
+        FinalizeSheet(ws, cols);
+    }
+
+    private static void WriteDesktopAnalysisMatrix(
+        XLWorkbook workbook,
+        string sheetName,
+        string title,
+        string firstHeading,
+        string scope,
+        DesktopSalesAnalysisResult report,
+        Func<DesktopSalesCurrencyAnalysis, IEnumerable<DesktopAnalysisMatrixRow>> rows,
+        bool withShare)
+    {
+        var methods = report.PaymentMethods;
+
+        var headers = new List<string> { "Currency", firstHeading, "Sales" };
+        headers.AddRange(methods.Select(DesktopAnalysisTenderName));
+        headers.Add("Takings");
+        if (withShare)
+        {
+            headers.Add("Share of Takings");
+        }
+
+        var cols = headers.Count;
+        var ws = AddSheet(workbook, sheetName);
+        var row = WriteReportHeader(ws, title, cols, report.FromDate, report.ToDate, scope);
+
+        for (var i = 0; i < headers.Count; i++)
+        {
+            ws.Cell(row, i + 1).Value = headers[i];
+        }
+        StyleTableHeader(ws, row, cols);
+        var headerRow = row;
+        row++;
+
+        var dataStart = row;
+        foreach (var section in report.Currencies)
+        {
+            foreach (var line in rows(section))
+            {
+                var col = 1;
+
+                ws.Cell(row, col).Value = section.Currency;
+                ws.Cell(row, col).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                col++;
+
+                if (line.Date is { } date)
+                {
+                    ws.Cell(row, col).Value = date;
+                    ws.Cell(row, col).Style.NumberFormat.Format = FormatDayDate;
+                }
+                else
+                {
+                    ws.Cell(row, col).Value = line.Label;
+                }
+                col++;
+
+                ws.Cell(row, col).Value = line.SalesCount;
+                ws.Cell(row, col).Style.NumberFormat.Format = FormatCount;
+                col++;
+
+                foreach (var method in methods)
+                {
+                    ws.Cell(row, col).Value = line.Parts.FirstOrDefault(part => part.PaymentMethod == method)?.TotalAmount ?? 0m;
+                    ws.Cell(row, col).Style.NumberFormat.Format = FormatMoney;
+                    col++;
+                }
+
+                ws.Cell(row, col).Value = line.TotalAmount;
+                ws.Cell(row, col).Style.NumberFormat.Format = FormatMoney;
+                ws.Cell(row, col).Style.Font.Bold = true;
+                col++;
+
+                if (withShare)
+                {
+                    ws.Cell(row, col).Value = line.SharePercent / 100m;
+                    ws.Cell(row, col).Style.NumberFormat.Format = FormatPercent;
+                }
+
+                row++;
+            }
+        }
+
+        row = FinishTable(ws, headerRow, dataStart, row, cols, "No desktop sales fell in this period.");
+        WriteFooter(ws, row - 1, cols);
+        FinalizeSheet(ws, cols, headerRow, landscape: true);
+    }
+
+    private static void WriteDesktopAnalysisHours(XLWorkbook workbook, DesktopSalesAnalysisResult report, string scope)
+    {
+        const int cols = 4;
+        var ws = AddSheet(workbook, "By Hour");
+        var row = WriteReportHeader(ws, "Desktop Sales by Hour of Day (CAT)", cols, report.FromDate, report.ToDate, scope);
+
+        var headers = new[] { "Currency", "Hour", "Sales", "Takings" };
+        for (var i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(row, i + 1).Value = headers[i];
+        }
+        StyleTableHeader(ws, row, cols);
+        var headerRow = row;
+        row++;
+
+        var dataStart = row;
+        foreach (var section in report.Currencies)
+        {
+            foreach (var hour in section.ByHour)
+            {
+                ws.Cell(row, 1).Value = section.Currency;
+                ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 2).Value = $"{hour.Hour:00}:00–{(hour.Hour + 1) % 24:00}:00";
+                ws.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 3).Value = hour.SalesCount;
+                ws.Cell(row, 3).Style.NumberFormat.Format = FormatCount;
+                ws.Cell(row, 4).Value = hour.TotalAmount;
+                ws.Cell(row, 4).Style.NumberFormat.Format = FormatMoney;
+                row++;
+            }
+        }
+
+        row = FinishTable(ws, headerRow, dataStart, row, cols, "No desktop sales fell in this period.");
+        WriteFooter(ws, row - 1, cols);
+        FinalizeSheet(ws, cols, headerRow);
+    }
+
+    private static void WriteDesktopAnalysisItems(XLWorkbook workbook, DesktopSalesAnalysisResult report, string scope)
+    {
+        const int cols = 8;
+        var ws = AddSheet(workbook, "Best Sellers");
+        var row = WriteReportHeader(ws, "Desktop Sales — Best Sellers (before VAT)", cols, report.FromDate, report.ToDate, scope);
+
+        var headers = new[] { "Currency", "Rank", "Item Code", "Description", "Quantity", "Sales", "Value Before VAT", "Share of Line Value" };
+        for (var i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(row, i + 1).Value = headers[i];
+        }
+        StyleTableHeader(ws, row, cols);
+        var headerRow = row;
+        row++;
+
+        var dataStart = row;
+        foreach (var section in report.Currencies)
+        {
+            var rank = 1;
+            foreach (var item in section.TopItems)
+            {
+                ws.Cell(row, 1).Value = section.Currency;
+                ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 2).Value = rank++;
+                ws.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 3).Value = item.ItemCode;
+                ws.Cell(row, 4).Value = item.ItemDescription ?? "";
+                ws.Cell(row, 5).Value = item.Quantity;
+                ws.Cell(row, 5).Style.NumberFormat.Format = FormatQuantity;
+                ws.Cell(row, 6).Value = item.SalesCount;
+                ws.Cell(row, 6).Style.NumberFormat.Format = FormatCount;
+                ws.Cell(row, 7).Value = item.NetAmount;
+                ws.Cell(row, 7).Style.NumberFormat.Format = FormatMoney;
+                ws.Cell(row, 8).Value = item.ShareOfNetPercent / 100m;
+                ws.Cell(row, 8).Style.NumberFormat.Format = FormatPercent;
+                row++;
+            }
+        }
+
+        row = FinishTable(ws, headerRow, dataStart, row, cols, "No lines were recorded on sales in this period.");
+        WriteFooter(ws, row - 1, cols);
+        FinalizeSheet(ws, cols, headerRow, landscape: true);
     }
 
     // ─── Local Stock Export ──────────────────────────────────────
