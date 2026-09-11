@@ -173,6 +173,40 @@ public static class AuditActions
     public const string CreateVanSalesCustomerAccount = "CreateVanSalesCustomerAccount";
     public const string DeactivateVanSalesCustomerAccount = "DeactivateVanSalesCustomerAccount";
 
+    // Using one of those accounts.
+    //
+    // Staff sign-ins have always written Login and LoginFailed; these are the same events for the
+    // customer app, which had none. Sign-in is split into two actions the way the staff pair is,
+    // because "did anyone get in" and "is somebody grinding at this account" are the two questions
+    // asked of this data and one of them wants only the failures.
+    //
+    // VanSalesCustomerOtpRequest is recorded whether or not a code was actually sent. The endpoint
+    // answers identically either way on purpose — it will not say which numbers have accounts — so
+    // the row is the only place the truth of it survives.
+    //
+    // VanSalesCustomerSessionRefresh carries the theft signal. A refresh token presented after it
+    // was rotated is either a retry or a replay, and the handler cannot tell which, so it revokes
+    // the device's whole chain. That row is a failure with the reason spelled out.
+    public const string VanSalesCustomerSignIn = "VanSalesCustomerSignIn";
+    public const string VanSalesCustomerSignInFailed = "VanSalesCustomerSignInFailed";
+    public const string VanSalesCustomerOtpRequest = "VanSalesCustomerOtpRequest";
+    public const string VanSalesCustomerSessionRefresh = "VanSalesCustomerSessionRefresh";
+    public const string VanSalesCustomerSignOut = "VanSalesCustomerSignOut";
+    public const string RegisterVanSalesCustomerDevice = "RegisterVanSalesCustomerDevice";
+
+    // The handset fleet, administered from the fiscalisation console.
+    //
+    // Which handset signs on which fiscal device, and who may sign offline, are decisions with
+    // fiscal consequences and no other record: the device row afterwards shows the state, never who
+    // put it there or what it displaced.
+    public const string AssignFiscalDeviceHandset = "AssignFiscalDeviceHandset";
+    public const string AssignOfflineSigningLease = "AssignOfflineSigningLease";
+
+    // Push registrations, and the broadcast.
+    public const string RegisterPushDevice = "RegisterPushDevice";
+    public const string UnregisterPushDevice = "UnregisterPushDevice";
+    public const string SendPushNotification = "SendPushNotification";
+
     // Orders a van sales customer placed for themselves. Auto-accepted, so the audit row is the
     // only place a human decision is recorded — there is no approval step to look back at.
     public const string SubmitVanSalesCustomerOrder = "SubmitVanSalesCustomerOrder";

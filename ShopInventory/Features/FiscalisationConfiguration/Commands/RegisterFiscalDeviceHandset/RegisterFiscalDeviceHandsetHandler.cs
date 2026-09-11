@@ -8,6 +8,7 @@ using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Features.FiscalisationConfiguration.Commands.RegisterFiscalDeviceHandset;
@@ -34,6 +35,7 @@ public sealed class RegisterFiscalDeviceHandsetHandler(
     IFiscalisationApiClient client,
     IOptionsMonitor<FiscalisationSettings> settings,
     IMediator mediator,
+    IAuditService auditService,
     ILogger<RegisterFiscalDeviceHandsetHandler> logger)
     : IRequestHandler<RegisterFiscalDeviceHandsetCommand, ErrorOr<FiscalDevicePreviewDto>>
 {
@@ -79,9 +81,31 @@ public sealed class RegisterFiscalDeviceHandsetHandler(
 
         await db.SaveChangesAsync(cancellationToken);
 
-        return await mediator.Send(
+        var preview = await mediator.Send(
             new Queries.PreviewFiscalDevice.PreviewFiscalDeviceQuery(command.DeviceId, command.HandsetUserId),
             cancellationToken);
+
+        // Written after the save, from the state before and the state after. The device row itself
+        // only ever shows where a device ended up: who moved it, what it displaced, and whether the
+        // move was forced over a handset still carrying receipts survive nowhere else.
+        var wasWith = holder is null ? "nobody" : OfflineSigningLeaseMapper.Label(holder);
+        var nowWith = preview.IsError
+            ? "an unknown handset"
+            : preview.Value.CurrentHolderLabel ?? "nobody";
+
+        await auditService.LogAsync(
+            AuditActions.AssignFiscalDeviceHandset,
+            "FiscalDevice",
+            command.DeviceId.ToString(),
+            command.HandsetUserId is null
+                ? $"Released fiscal device {command.DeviceId} from {wasWith}"
+                    + $"{(command.Force ? ", forced over an unsynced handset" : string.Empty)}."
+                : $"Registered fiscal device {command.DeviceId} to {nowWith}, previously held by {wasWith}"
+                    + $"{(command.Force ? ", forced" : string.Empty)}.",
+            !preview.IsError,
+            preview.IsError ? preview.FirstError.Description : null);
+
+        return preview;
     }
 
     /// <summary>

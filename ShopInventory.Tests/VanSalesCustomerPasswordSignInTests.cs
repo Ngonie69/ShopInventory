@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Models;
 using ShopInventory.Features.VanSalesCustomerAuth;
 using ShopInventory.Features.VanSalesCustomerAuth.Commands.OnboardVanSalesCustomerAccount;
 using ShopInventory.Features.VanSalesCustomerAuth.Commands.SignInVanSalesCustomer;
@@ -37,6 +38,9 @@ public sealed class VanSalesCustomerPasswordSignInTests : IDisposable
 
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
+
+    /// <summary>The rows the handler under test wrote, so a test can say what reached the trail.</summary>
+    private RecordingAuditService Audit { get; } = new();
 
     public VanSalesCustomerPasswordSignInTests()
     {
@@ -92,6 +96,75 @@ public sealed class VanSalesCustomerPasswordSignInTests : IDisposable
 
         Assert.True(result.IsError);
         Assert.Equal(Errors.VanSalesCustomerAuth.InvalidCredentials.Code, result.FirstError.Code);
+    }
+
+    // ---- What reaches the audit trail -----------------------------------------------------------
+    //
+    // Staff sign-ins have always been audited; the customer app's were not, so an account that can
+    // place orders in a shop's name could be signed into or ground at and only the log knew.
+
+    [Fact]
+    public async Task A_successful_sign_in_is_recorded_against_the_account()
+    {
+        await GivenCustomerAsync();
+
+        var result = await SignInAsync(TypedNumber, Password);
+
+        var row = Assert.Single(Audit.Entries);
+        Assert.Equal(AuditActions.VanSalesCustomerSignIn, row.Action);
+        Assert.True(row.Success);
+        Assert.Equal(AccountId().ToString(), row.EntityId);
+        Assert.Contains("Signed in by password", row.Details);
+        Assert.False(result.IsError);
+    }
+
+    [Fact]
+    public async Task A_wrong_password_is_recorded_as_a_failure()
+    {
+        await GivenCustomerAsync();
+
+        await SignInAsync(TypedNumber, WrongPassword);
+
+        var row = Assert.Single(Audit.Entries);
+        Assert.Equal(AuditActions.VanSalesCustomerSignInFailed, row.Action);
+        Assert.False(row.Success);
+        Assert.Equal(AccountId().ToString(), row.EntityId);
+    }
+
+    /// <summary>
+    /// The counterpart to the refusal-parity test above, and the reason the audit call sits around
+    /// the whole attempt rather than inside the branch that found an account. One row either way
+    /// means the two attempts cost the same number of writes; a row on only one of them would hand
+    /// an attacker, through the clock, exactly the answer the identical error refuses to give.
+    /// </summary>
+    [Fact]
+    public async Task An_unregistered_number_costs_the_same_one_row_as_a_registered_one()
+    {
+        await GivenCustomerAsync();
+
+        await SignInAsync(TypedNumber, WrongPassword);
+        var afterRegistered = Audit.Entries.Count;
+
+        await SignInAsync("0779999999", WrongPassword);
+        var afterUnregistered = Audit.Entries.Count;
+
+        Assert.Equal(1, afterRegistered);
+        Assert.Equal(2, afterUnregistered);
+
+        // And the unregistered one names no account, because there is none to name.
+        Assert.Null(Audit.Entries[1].EntityId);
+    }
+
+    [Fact]
+    public async Task A_number_that_is_not_a_phone_number_still_leaves_a_row()
+    {
+        await GivenCustomerAsync();
+
+        await SignInAsync("not a number", Password);
+
+        var row = Assert.Single(Audit.Entries);
+        Assert.Equal(AuditActions.VanSalesCustomerSignInFailed, row.Action);
+        Assert.Null(row.EntityId);
     }
 
     [Fact]
@@ -346,6 +419,7 @@ public sealed class VanSalesCustomerPasswordSignInTests : IDisposable
                 Options.Create(Settings),
                 NullLogger<VanSalesCustomerSessionIssuer>.Instance),
             Options.Create(Settings),
+            Audit,
             NullLogger<SignInVanSalesCustomerHandler>.Instance);
 
         var result = await handler.Handle(
@@ -354,6 +428,9 @@ public sealed class VanSalesCustomerPasswordSignInTests : IDisposable
         _context.ChangeTracker.Clear();
         return result;
     }
+
+    private int AccountId() =>
+        _context.VanSalesCustomerAccounts.AsNoTracking().Single(a => a.PhoneE164 == StoredNumber).Id;
 
     private async Task<ErrorOr.ErrorOr<VanSalesCustomerAccountResult>> OnboardAsync(string? password)
     {

@@ -38,6 +38,9 @@ public sealed class OfflineSigningLeaseTests : IDisposable
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
 
+    /// <summary>The rows the handler under test wrote, so a test can say what reached the trail.</summary>
+    private RecordingAuditService Audit { get; } = new();
+
     public OfflineSigningLeaseTests()
     {
         _connection = new SqliteConnection("DataSource=:memory:");
@@ -137,6 +140,44 @@ public sealed class OfflineSigningLeaseTests : IDisposable
         Assert.False(result.IsError);
         Assert.Equal(incoming.Id, result.Value.HolderUserId);
         Assert.Null(result.Value.HolderPendingSales);
+    }
+
+    /// <summary>
+    /// A forced handover is the office choosing to fork a receipt chain rather than wait, and the
+    /// lease row afterwards is indistinguishable from an ordinary one — same holder, same empty
+    /// queue. The audit row is where that decision survives, and it is recorded as a failure so it
+    /// stands out from the handovers that waited.
+    /// </summary>
+    [Fact]
+    public async Task A_forced_handover_is_recorded_as_one()
+    {
+        var outgoing = await SeedVanAsync("VAN003");
+        var incoming = await SeedVanAsync("VAN005", deviceId: null);
+
+        await AssignAsync(outgoing.Id);
+        await ReportQueueAsync(pendingSales: 4);
+        await MoveDeviceAsync(outgoing, incoming);
+
+        await AssignAsync(incoming.Id, force: true);
+
+        var forced = Audit.Entries[^1];
+        Assert.Equal(AuditActions.AssignOfflineSigningLease, forced.Action);
+        Assert.False(forced.Success);
+        Assert.Contains("still carrying signed receipts", forced.Details);
+        Assert.Equal(DeviceId.ToString(), forced.EntityId);
+    }
+
+    [Fact]
+    public async Task An_ordinary_handover_is_recorded_without_the_warning()
+    {
+        var van = await SeedVanAsync("VAN003");
+
+        await AssignAsync(van.Id);
+
+        var row = Assert.Single(Audit.Entries);
+        Assert.Equal(AuditActions.AssignOfflineSigningLease, row.Action);
+        Assert.True(row.Success);
+        Assert.Null(row.Error);
     }
 
     /// <summary>Re-confirming the same van must not throw away what it has told us about its queue.</summary>
@@ -516,7 +557,7 @@ public sealed class OfflineSigningLeaseTests : IDisposable
         bool force = false)
     {
         var handler = new AssignOfflineSigningLeaseHandler(
-            _context, NullLogger<AssignOfflineSigningLeaseHandler>.Instance);
+            _context, Audit, NullLogger<AssignOfflineSigningLeaseHandler>.Instance);
 
         return handler.Handle(
             new AssignOfflineSigningLeaseCommand(DeviceId, holderUserId, force, Guid.NewGuid(), "Office"),

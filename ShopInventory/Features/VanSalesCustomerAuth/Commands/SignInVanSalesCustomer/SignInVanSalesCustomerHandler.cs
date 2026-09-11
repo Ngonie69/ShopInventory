@@ -5,6 +5,8 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Models;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.VanSalesCustomerAuth.Commands.SignInVanSalesCustomer;
 
@@ -30,12 +32,31 @@ public sealed class SignInVanSalesCustomerHandler(
     ApplicationDbContext context,
     IVanSalesCustomerSessionIssuer sessionIssuer,
     IOptions<VanSalesCustomerAuthSettings> authSettings,
+    IAuditService auditService,
     ILogger<SignInVanSalesCustomerHandler> logger)
     : IRequestHandler<SignInVanSalesCustomerCommand, ErrorOr<VanSalesCustomerSessionResult>>
 {
     private readonly VanSalesCustomerAuthSettings _settings = authSettings.Value;
 
+    /// <summary>
+    /// Signs in, and records the attempt whichever way it went.
+    /// </summary>
+    /// <remarks>
+    /// Exactly one row on every path, including the ones that return before an account is found. A
+    /// row written on only some branches would cost those branches a database round trip the others
+    /// did not pay, and this handler's whole defence is that a registered number and an unregistered
+    /// one cost the same. See <see cref="VanSalesCustomerAuditTrail"/>.
+    /// </remarks>
     public async Task<ErrorOr<VanSalesCustomerSessionResult>> Handle(
+        SignInVanSalesCustomerCommand command,
+        CancellationToken cancellationToken)
+    {
+        var (outcome, row) = await SignInAsync(command, cancellationToken);
+        await VanSalesCustomerAuditTrail.RecordAsync(auditService, row);
+        return outcome;
+    }
+
+    private async Task<(ErrorOr<VanSalesCustomerSessionResult> Outcome, VanSalesCustomerAuditRow Row)> SignInAsync(
         SignInVanSalesCustomerCommand command,
         CancellationToken cancellationToken)
     {
@@ -44,7 +65,13 @@ public sealed class SignInVanSalesCustomerHandler(
                 _settings.DefaultCountryCode,
                 out var phone))
         {
-            return Errors.VanSalesCustomerAuth.InvalidPhoneNumber;
+            return (Errors.VanSalesCustomerAuth.InvalidPhoneNumber, new VanSalesCustomerAuditRow(
+                AuditActions.VanSalesCustomerSignInFailed,
+                null,
+                null,
+                "A password sign-in arrived with a phone number that could not be read.",
+                Success: false,
+                Errors.VanSalesCustomerAuth.InvalidPhoneNumber.Description));
         }
 
         var now = DateTime.UtcNow;
@@ -59,7 +86,13 @@ public sealed class SignInVanSalesCustomerHandler(
                 "Refused a van sales customer sign-in for {MaskedPhone}: locked out until {LockedUntil:O}.",
                 masked,
                 until);
-            return Errors.VanSalesCustomerAuth.TooManyAttempts;
+            return (Errors.VanSalesCustomerAuth.TooManyAttempts, new VanSalesCustomerAuditRow(
+                AuditActions.VanSalesCustomerSignInFailed,
+                masked,
+                account.Id,
+                $"Password sign-in refused: the account is locked until {until:O}.",
+                Success: false,
+                Errors.VanSalesCustomerAuth.TooManyAttempts.Description));
         }
 
         // Always a full BCrypt verification, even with no account and no stored hash, so that the
@@ -72,7 +105,15 @@ public sealed class SignInVanSalesCustomerHandler(
         {
             await RecordFailureAsync(account, now, cancellationToken);
             logger.LogInformation("Incorrect van sales customer password for {MaskedPhone}.", masked);
-            return Errors.VanSalesCustomerAuth.InvalidCredentials;
+            return (Errors.VanSalesCustomerAuth.InvalidCredentials, new VanSalesCustomerAuditRow(
+                AuditActions.VanSalesCustomerSignInFailed,
+                masked,
+                account?.Id,
+                account is null
+                    ? "Password sign-in refused for a number with no account."
+                    : "Password sign-in refused: wrong password, or the account has none set.",
+                Success: false,
+                Errors.VanSalesCustomerAuth.InvalidCredentials.Description));
         }
 
         if (account is null)
@@ -81,7 +122,13 @@ public sealed class SignInVanSalesCustomerHandler(
             // verification implies a real account. Here so that a future change to the decoy cannot
             // turn this into a session for nobody.
             logger.LogError("A van sales customer password verified against no account for {MaskedPhone}.", masked);
-            return Errors.VanSalesCustomerAuth.InvalidCredentials;
+            return (Errors.VanSalesCustomerAuth.InvalidCredentials, new VanSalesCustomerAuditRow(
+                AuditActions.VanSalesCustomerSignInFailed,
+                masked,
+                null,
+                "A password verified against no account. The decoy hash has been weakened.",
+                Success: false,
+                Errors.VanSalesCustomerAuth.InvalidCredentials.Description));
         }
 
         var session = await sessionIssuer.IssueAsync(
@@ -100,7 +147,20 @@ public sealed class SignInVanSalesCustomerHandler(
                 masked);
         }
 
-        return session;
+        return (session, session.IsError
+            ? new VanSalesCustomerAuditRow(
+                AuditActions.VanSalesCustomerSignInFailed,
+                masked,
+                account.Id,
+                "The password was right but no session could be issued.",
+                Success: false,
+                session.FirstError.Description)
+            : new VanSalesCustomerAuditRow(
+                AuditActions.VanSalesCustomerSignIn,
+                masked,
+                account.Id,
+                $"Signed in by password from device {command.DeviceName ?? command.DeviceId ?? "(unnamed)"}.",
+                Success: true));
     }
 
     /// <summary>

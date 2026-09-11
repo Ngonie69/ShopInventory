@@ -66,6 +66,22 @@ otherwise be surprised.
 
 ### Changed
 
+- **The van sales customer app's sign-ins are now written to the audit trail.** Staff sign-ins have
+  always written `Login` and `LoginFailed`; the customer app wrote nothing. An account that can place
+  orders in a shop's name could be signed into, refused, sent codes on demand or handed a fresh token,
+  and only the application log knew.
+
+  All five `/api/van-sales-customer/auth` endpoints now write one row each, keyed on the account with
+  the phone masked, plus `POST /api/van-sales-customer/devices`. Two rows are worth knowing about
+  specifically: `VanSalesCustomerOtpRequest` records whether a code was *actually* sent, which the
+  response deliberately does not say; and a failed `VanSalesCustomerSessionRefresh` with the error
+  `Refresh token replay` is a rotated refresh token coming back — the strongest compromise signal
+  the system produces.
+
+  Also newly audited: handset assignment and offline-signing leases on `/api/fiscal-devices` (a forced
+  handover over unsynced receipts is recorded as a failure), and push `register`, `unregister` and
+  `send`. No request or response changes.
+
 - **Every `/api/DesktopIntegration` write is now written to the audit trail.** The surface had no
   audit at all: 70 endpoints, of which only the transfer request and the by-hand SAP post recorded
   anything. A till could sell, invoice, cancel or retry a queued invoice, or consolidate the day's

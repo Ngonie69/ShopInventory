@@ -3835,7 +3835,10 @@ named; nothing called it that way, and it is now authenticated like the rest.
 ### 42. Push Notifications
 
 **Base route:** `/api/PushNotification`  
-**Auth:** Bearer + `ApiAccess`; `/send` is Admin
+**Auth:** Bearer + `ApiAccess`; `/send` is Admin  
+**Audit:** `register`, `unregister` and `send` each write a row. The `send` row names the audience — a
+user, a role, or every registered device when neither is given — and how many devices were reached,
+because nothing else records that a broadcast happened.
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
@@ -3905,7 +3908,11 @@ reaches SAP unapproved. Documents raised in the B1 client can still be held by S
 ### 45. Fiscal Device Offline Leases
 
 **Base route:** `/api/fiscal-devices`  
-**Auth:** Bearer + the `AdminOnly` policy
+**Auth:** Bearer + the `AdminOnly` policy  
+**Audit:** `PUT {deviceId}/handset` writes `AssignFiscalDeviceHandset` naming who held the device
+before and who holds it after; `PUT {deviceId}/offline-lease` writes `AssignOfflineSigningLease`. A
+handover **forced** over a handset still carrying signed receipts is recorded as a failure, so it
+stands out: the lease row afterwards is indistinguishable from an ordinary one.
 
 Which handset is allowed to sign receipts for a fiscal device while it is offline. Distinct from the
 lease a handset draws for itself at `GET /api/vansales/fiscal/lease` — this is the administrative
@@ -4052,6 +4059,15 @@ every existing query in the system for "is this row one a shopkeeper typed?".
 **Base route:** `/api/van-sales-customer/auth`
 **Auth:** none on the first four - a customer has no session yet, and refresh exists precisely to be
 callable once the access token has expired. Rate limited under the `auth` policy.
+
+**Audit:** every call writes exactly one row, on every path, keyed on the account id with the phone
+number masked. Sign-in by password or code writes `VanSalesCustomerSignIn` or
+`VanSalesCustomerSignInFailed`. `otp/request` writes `VanSalesCustomerOtpRequest` and records whether a
+code was **actually** sent — the response is identical either way, so the row is the only place that
+is written down. A refresh token presented after it was rotated is recorded as a failed
+`VanSalesCustomerSessionRefresh` with the error `Refresh token replay`: that is the theft signal. One
+row per path is deliberate — a write on only the branches that found an account would make those
+branches measurably slower, and give back through the clock the answer the uniform error withholds.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|

@@ -5,6 +5,7 @@ using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.FiscalisationConfiguration.Commands.AssignOfflineSigningLease;
 
@@ -24,6 +25,7 @@ namespace ShopInventory.Features.FiscalisationConfiguration.Commands.AssignOffli
 /// </summary>
 public sealed class AssignOfflineSigningLeaseHandler(
     ApplicationDbContext db,
+    IAuditService auditService,
     ILogger<AssignOfflineSigningLeaseHandler> logger)
     : IRequestHandler<AssignOfflineSigningLeaseCommand, ErrorOr<FiscalDeviceOfflineLeaseDto>>
 {
@@ -84,6 +86,9 @@ public sealed class AssignOfflineSigningLeaseHandler(
             return Error.Conflict("OfflineSigningLease.HolderStillCarrying", DescribeRisk(nomination));
         }
 
+        var outgoingLabel = nomination.HolderLabel ?? "nobody";
+        var forcedOverAnUnsyncedHandset = changingHands && outgoing is not null && !nomination.CanHandOver;
+
         Apply(nomination, command, holder, resetCheckIn: changingHands);
 
         await db.SaveChangesAsync(cancellationToken);
@@ -94,6 +99,20 @@ public sealed class AssignOfflineSigningLeaseHandler(
             nomination.HolderLabel ?? "nobody",
             command.ActorName,
             command.Force && changingHands ? " (forced)" : string.Empty);
+
+        // A forced handover is the row that matters. It is the office deciding to fork a receipt chain
+        // rather than wait, and the lease row afterwards is indistinguishable from an ordinary one.
+        await auditService.LogAsync(
+            AuditActions.AssignOfflineSigningLease,
+            "FiscalDevice",
+            command.DeviceId.ToString(),
+            $"Offline signing on fiscal device {command.DeviceId} moved from {outgoingLabel} to "
+                + $"{nomination.HolderLabel ?? "nobody"}"
+                + $"{(forcedOverAnUnsyncedHandset ? ", forced over a handset still carrying signed receipts" : string.Empty)}.",
+            !forcedOverAnUnsyncedHandset,
+            forcedOverAnUnsyncedHandset
+                ? "Forced handover: the outgoing handset had not reported an empty queue"
+                : null);
 
         return OfflineSigningLeaseMapper.ToDto(nomination);
     }

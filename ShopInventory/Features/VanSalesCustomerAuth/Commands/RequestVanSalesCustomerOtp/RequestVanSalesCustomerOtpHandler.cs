@@ -5,6 +5,8 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Models;
+using ShopInventory.Services;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.VanSalesCustomerAuth.Commands.RequestVanSalesCustomerOtp;
@@ -30,13 +32,31 @@ public sealed class RequestVanSalesCustomerOtpHandler(
     IVanSalesCustomerOtpSender sender,
     IOptions<VanSalesCustomerAuthSettings> authSettings,
     IOptions<JwtSettings> jwtSettings,
+    IAuditService auditService,
     ILogger<RequestVanSalesCustomerOtpHandler> logger)
     : IRequestHandler<RequestVanSalesCustomerOtpCommand, ErrorOr<RequestVanSalesCustomerOtpResult>>
 {
     private readonly VanSalesCustomerAuthSettings _settings = authSettings.Value;
     private readonly JwtSettings _jwt = jwtSettings.Value;
 
+    /// <summary>
+    /// Sends a code, or does not, and records which.
+    /// </summary>
+    /// <remarks>
+    /// The caller is told the same thing either way — that is the point of the endpoint — so the row
+    /// is the only place it is written down whether a code actually went out, and why not when it did
+    /// not. One row on every path, for the timing reason in <see cref="VanSalesCustomerAuditTrail"/>.
+    /// </remarks>
     public async Task<ErrorOr<RequestVanSalesCustomerOtpResult>> Handle(
+        RequestVanSalesCustomerOtpCommand command,
+        CancellationToken cancellationToken)
+    {
+        var (outcome, row) = await RequestAsync(command, cancellationToken);
+        await VanSalesCustomerAuditTrail.RecordAsync(auditService, row);
+        return outcome;
+    }
+
+    private async Task<(ErrorOr<RequestVanSalesCustomerOtpResult> Outcome, VanSalesCustomerAuditRow Row)> RequestAsync(
         RequestVanSalesCustomerOtpCommand command,
         CancellationToken cancellationToken)
     {
@@ -50,7 +70,13 @@ public sealed class RequestVanSalesCustomerOtpHandler(
                 _settings.DefaultCountryCode,
                 out var phone))
         {
-            return Errors.VanSalesCustomerAuth.InvalidPhoneNumber;
+            return (Errors.VanSalesCustomerAuth.InvalidPhoneNumber, new VanSalesCustomerAuditRow(
+                AuditActions.VanSalesCustomerOtpRequest,
+                null,
+                null,
+                "A sign-in code was requested for a phone number that could not be read.",
+                Success: false,
+                Errors.VanSalesCustomerAuth.InvalidPhoneNumber.Description));
         }
 
         var now = DateTime.UtcNow;
@@ -71,7 +97,15 @@ public sealed class RequestVanSalesCustomerOtpHandler(
             logger.LogInformation(
                 "A van sales customer sign-in code was requested for {MaskedPhone}, which has no active account. Answering as though it were sent.",
                 VanSalesCustomerPhone.Mask(phone));
-            return uniformResult;
+            return (uniformResult, new VanSalesCustomerAuditRow(
+                AuditActions.VanSalesCustomerOtpRequest,
+                VanSalesCustomerPhone.Mask(phone),
+                account?.Id,
+                account is null
+                    ? "No code sent: the number has no account. The caller was told one was sent."
+                    : "No code sent: the account is deactivated. The caller was told one was sent.",
+                Success: false,
+                "No active account"));
         }
 
         if (account.LockedUntil is { } lockedUntil && lockedUntil > now)
@@ -80,7 +114,13 @@ public sealed class RequestVanSalesCustomerOtpHandler(
                 "Suppressed a van sales customer sign-in code for {MaskedPhone}: the account is locked until {LockedUntil:O}.",
                 VanSalesCustomerPhone.Mask(phone),
                 lockedUntil);
-            return uniformResult;
+            return (uniformResult, new VanSalesCustomerAuditRow(
+                AuditActions.VanSalesCustomerOtpRequest,
+                VanSalesCustomerPhone.Mask(phone),
+                account.Id,
+                $"No code sent: the account is locked until {lockedUntil:O}. The caller was told one was sent.",
+                Success: false,
+                "Account locked"));
         }
 
         var cooldownStart = now.AddSeconds(-_settings.ResendCooldownSeconds);
@@ -93,7 +133,13 @@ public sealed class RequestVanSalesCustomerOtpHandler(
             logger.LogInformation(
                 "Suppressed a van sales customer sign-in code for {MaskedPhone}: one was sent within the cooldown.",
                 VanSalesCustomerPhone.Mask(phone));
-            return uniformResult;
+            return (uniformResult, new VanSalesCustomerAuditRow(
+                AuditActions.VanSalesCustomerOtpRequest,
+                VanSalesCustomerPhone.Mask(phone),
+                account.Id,
+                "No code sent: one was already sent inside the cooldown. The caller was told one was sent.",
+                Success: false,
+                "Within resend cooldown"));
         }
 
         // Any code still outstanding for this number is retired before a new one is issued, so a
@@ -124,6 +170,11 @@ public sealed class RequestVanSalesCustomerOtpHandler(
         otp.DeliveryChannel = channel.ToString();
         await context.SaveChangesAsync(cancellationToken);
 
-        return uniformResult;
+        return (uniformResult, new VanSalesCustomerAuditRow(
+            AuditActions.VanSalesCustomerOtpRequest,
+            VanSalesCustomerPhone.Mask(phone),
+            account.Id,
+            $"Sign-in code sent by {channel}.",
+            Success: true));
     }
 }
