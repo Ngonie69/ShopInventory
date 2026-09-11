@@ -240,6 +240,179 @@ public sealed class StockGuardFailClosedTests
     }
 
     // ---------------------------------------------------------------
+    // One reading per warehouse per pass
+    // ---------------------------------------------------------------
+
+    [Fact]
+    public async Task A_warehouse_is_read_once_a_pass_however_many_lines_name_it()
+    {
+        await using var context = InMemoryContext();
+        var sap = new CountingBatchClient(("B1", 100m));
+        var service = CreateService(context, sap.Client);
+
+        // Every line naming its own batches is validated line by line, and each line used to read
+        // the warehouse again on top of the one read the aggregate check makes. These reads are the
+        // ones known to hang for minutes while holding one of six process-wide Service Layer slots,
+        // so four of them to answer one question is the whole cost this memo removes.
+        var result = await service.ValidateAndAllocateBatchesAsync(ThreeLinesNamingBatches());
+
+        Assert.True(result.IsValid, string.Join("; ", result.ValidationErrors.Select(e => e.Message)));
+        Assert.Equal(1, sap.BatchReads);
+    }
+
+    [Fact]
+    public async Task A_second_pass_reads_the_warehouse_again()
+    {
+        await using var context = InMemoryContext();
+        var sap = new CountingBatchClient(("B1", 100m));
+        var service = CreateService(context, sap.Client);
+
+        await service.ValidateAndAllocateBatchesAsync(ThreeLinesNamingBatches());
+        await service.ValidateAndAllocateBatchesAsync(ThreeLinesNamingBatches());
+
+        // The boundary the memo must not cross, in both directions. PrePostValidationAsync runs a
+        // second pass under the inventory locks precisely so that it reads afresh; and the till job
+        // posts each sale to SAP before allocating the next, so a reading carried between passes
+        // would hand the second sale stock the first has already taken.
+        Assert.Equal(2, sap.BatchReads);
+    }
+
+    [Fact]
+    public async Task A_failed_read_is_not_retried_within_the_pass()
+    {
+        await using var context = InMemoryContext();
+        var sap = new CountingBatchClient(failure: new TimeoutException("SAP batch read exceeded its budget."));
+        var service = CreateService(context, sap.Client);
+
+        var result = await service.ValidateAndAllocateBatchesAsync(ThreeLinesNamingBatches());
+
+        // During an outage a twenty-line document would otherwise spend twenty hung reads to reach
+        // the verdict the first one already gave.
+        Assert.Equal(1, sap.BatchReads);
+        Assert.Contains(result.ValidationErrors, e => e.ErrorCode == BatchValidationErrorCode.StockUnknown);
+    }
+
+    [Fact]
+    public async Task Two_callers_in_one_pass_do_not_see_each_other_edits()
+    {
+        await using var context = InMemoryContext();
+        var sap = new CountingBatchClient(("EARLY", 5m), ("LATE", 20m));
+        var service = CreateService(context, sap.Client);
+
+        var fefo = await service.GetAvailableBatchesAsync(Item, Warehouse);
+        fefo[0].AvailableQuantity = -999m;
+
+        // AvailableBatchDto is mutable and GetAvailableBatchesAsync writes IsRecommended on what it
+        // returns, so the memo hands out fresh instances rather than its own.
+        var second = await service.GetAvailableBatchesAsync(Item, Warehouse);
+
+        Assert.Equal(1, sap.BatchReads);
+        Assert.Equal(5m, second[0].AvailableQuantity);
+    }
+
+    [Fact]
+    public async Task The_memo_holds_one_reading_and_each_caller_sorts_it_for_itself()
+    {
+        await using var context = InMemoryContext();
+
+        // Admission order is the reverse of expiry order, so the two strategies disagree and a memo
+        // that had cached somebody sorted list would be caught out.
+        var sap = new CountingBatchClient(
+            ("EXPIRES-LAST", 10m, "2026-12-01", "2026-01-01"),
+            ("EXPIRES-FIRST", 10m, "2026-10-01", "2026-06-01"));
+        var service = CreateService(context, sap.Client);
+
+        var fefo = await service.GetAvailableBatchesAsync(Item, Warehouse, BatchAllocationStrategy.FEFO);
+        var fifo = await service.GetAvailableBatchesAsync(Item, Warehouse, BatchAllocationStrategy.FIFO);
+
+        Assert.Equal(1, sap.BatchReads);
+        Assert.Equal("EXPIRES-FIRST", fefo[0].BatchNumber);
+        Assert.Equal("EXPIRES-LAST", fifo[0].BatchNumber);
+    }
+
+    /// <summary>Three lines on one item and warehouse, each naming its own batch.</summary>
+    private static CreateInvoiceRequest ThreeLinesNamingBatches() => new()
+    {
+        CardCode = "C-1",
+        DocCurrency = "USD",
+        Lines = Enumerable.Range(0, 3)
+            .Select(_ => new CreateInvoiceLineRequest
+            {
+                ItemCode = Item,
+                Quantity = 2,
+                UnitPrice = 5m,
+                WarehouseCode = Warehouse,
+                BatchNumbers = [new BatchNumberRequest { BatchNumber = "B1", Quantity = 2 }]
+            })
+            .ToList()
+    };
+
+    /// <summary>A batch-managed item whose warehouse read is counted.</summary>
+    private sealed class CountingBatchClient
+    {
+        private readonly (string Batch, decimal Quantity, string Expiry, string Admission)[] _batches;
+        private readonly Exception? _failure;
+
+        public CountingBatchClient(params (string Batch, decimal Quantity)[] batches)
+            : this(null, batches.Select(b => (b.Batch, b.Quantity, "2026-12-01", "2026-01-01")).ToArray())
+        {
+        }
+
+        public CountingBatchClient(params (string Batch, decimal Quantity, string Expiry, string Admission)[] batches)
+            : this(null, batches)
+        {
+        }
+
+        public CountingBatchClient(Exception failure)
+            : this(failure, [])
+        {
+        }
+
+        private CountingBatchClient(
+            Exception? failure,
+            (string Batch, decimal Quantity, string Expiry, string Admission)[] batches)
+        {
+            _failure = failure;
+            _batches = batches;
+        }
+
+        public int BatchReads { get; private set; }
+
+        public ISAPServiceLayerClient Client => StubProxy.For<ISAPServiceLayerClient>((method, _) => method.Name switch
+        {
+            nameof(ISAPServiceLayerClient.GetItemByCodeAsync) => Task.FromResult<Item?>(new Item
+            {
+                ItemCode = Item,
+                ManageBatchNumbers = "tYES",
+                ManageSerialNumbers = "tNO"
+            }),
+            nameof(ISAPServiceLayerClient.GetBatchNumbersForItemInWarehouseAsync) => Read(),
+            _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
+        });
+
+        private Task<List<BatchNumber>> Read()
+        {
+            BatchReads++;
+
+            if (_failure is not null)
+            {
+                return Task.FromException<List<BatchNumber>>(_failure);
+            }
+
+            return Task.FromResult(_batches
+                .Select(batch => new BatchNumber
+                {
+                    ItemCode = Item,
+                    BatchNum = batch.Batch,
+                    Quantity = batch.Quantity,
+                    ExpiryDate = batch.Expiry,
+                    AdmissionDate = batch.Admission
+                })
+                .ToList());
+        }
+    }
+
+    // ---------------------------------------------------------------
 
     private static CreateInvoiceRequest OneLineInvoice() => new()
     {
