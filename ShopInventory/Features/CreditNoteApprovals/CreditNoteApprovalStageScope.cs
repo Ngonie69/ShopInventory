@@ -18,7 +18,7 @@ public sealed record CreditNoteApprovalStageFilter(IReadOnlyList<string> StageNa
 
     public bool Admits(int? stageCode) => StageCodes is null || stageCode is int code && StageCodes.Contains(code);
 
-    /// <summary>'Production WashBay', or 'A' or 'B' — for the messages that name the scope.</summary>
+    /// <summary>'Wash Bay Approvals', or 'A' or 'B' — for the messages that name the scope.</summary>
     public string Describe() => string.Join(" or ", StageNames.Select(name => $"'{name}'"));
 }
 

@@ -114,7 +114,7 @@ public sealed class CreditNoteApprovalStageScopeTests : IDisposable
     {
         var settings = new CreditNoteApprovalSettings
         {
-            RoleStageScopes = { ["washbay"] = [" Production WashBay "] }
+            RoleStageScopes = { ["washbay"] = [" Wash Bay Approvals "] }
         };
 
         var result = await Scope(settings, WashBayAndByoStages()).ResolveForRoleAsync("WashBay", CancellationToken.None);
@@ -124,7 +124,7 @@ public sealed class CreditNoteApprovalStageScopeTests : IDisposable
         Assert.True(result.Value.Admits(4));
         Assert.False(result.Value.Admits(5));
         Assert.False(result.Value.Admits(null));
-        Assert.Equal("'Production WashBay'", result.Value.Describe());
+        Assert.Equal("'Wash Bay Approvals'", result.Value.Describe());
     }
 
     /// <summary>
@@ -172,7 +172,7 @@ public sealed class CreditNoteApprovalStageScopeTests : IDisposable
         var settings = new CreditNoteApprovalSettings();
         configuration.GetSection(CreditNoteApprovalSettings.SectionName).Bind(settings);
 
-        Assert.Equal(["Production WashBay"], CreditNoteApprovalStageScope.ConfiguredStageNames(settings, ApplicationRoles.WashBay));
+        Assert.Equal(["Wash Bay Approvals"], CreditNoteApprovalStageScope.ConfiguredStageNames(settings, ApplicationRoles.WashBay));
         Assert.Empty(CreditNoteApprovalStageScope.ConfiguredStageNames(settings, ApplicationRoles.Manager));
     }
 
@@ -182,11 +182,11 @@ public sealed class CreditNoteApprovalStageScopeTests : IDisposable
         => new(new ApplicationDbContext(_options), Options.Create(settings), lookups, NullLogger<CreditNoteApprovalStageScope>.Instance);
 
     private static CreditNoteApprovalSettings WashBayConfigured()
-        => new() { RoleStageScopes = { ["WashBay"] = ["Production WashBay"] } };
+        => new() { RoleStageScopes = { ["WashBay"] = ["Wash Bay Approvals"] } };
 
     private static FakeSapApprovalLookups WashBayAndByoStages()
     {
-        var lookups = FakeSapApprovalLookups.WithStage(4, "Production WashBay", [Manager], 1);
+        var lookups = FakeSapApprovalLookups.WithStage(4, "Wash Bay Approvals", [Manager], 1);
         lookups.Stages[5] = new SAPApprovalStage { Code = 5, Name = "BYO", NoOfApproversRequired = 1, ApprovalStageApprovers = [] };
         return lookups;
     }

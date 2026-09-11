@@ -297,11 +297,11 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
         var sap = new RecordingSap(Pending(3110));
         var audit = new RecordingAuditService();
 
-        var result = await Handler(sap, audit, scope: FixedStageScope.Stages("Production WashBay", 5))
+        var result = await Handler(sap, audit, scope: FixedStageScope.Stages("Wash Bay Approvals", 5))
             .Handle(Command(3110, "Approved", null), CancellationToken.None);
 
         Assert.Equal("CreditNoteApproval.OutsideStageScope", result.FirstError.Code);
-        Assert.Contains("'Production WashBay'", result.FirstError.Description);
+        Assert.Contains("'Wash Bay Approvals'", result.FirstError.Description);
         Assert.Empty(sap.Decisions);
         Assert.Empty(audit.Entries);
     }
@@ -310,7 +310,7 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
     public async Task A_stage_scoped_caller_decides_a_request_at_its_own_stage()
     {
         var sap = new RecordingSap(Pending(3110)) { AfterDecision = Approved(3110) };
-        var scope = FixedStageScope.Stages("Production WashBay", 4);
+        var scope = FixedStageScope.Stages("Wash Bay Approvals", 4);
 
         var result = await Handler(sap, new RecordingAuditService(), scope: scope)
             .Handle(Command(3110, "Approved", null), CancellationToken.None);

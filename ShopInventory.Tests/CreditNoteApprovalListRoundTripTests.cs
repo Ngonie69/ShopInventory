@@ -276,7 +276,7 @@ public sealed class CreditNoteApprovalListRoundTripTests
             if (path.Contains("/ApprovalStages(", StringComparison.Ordinal))
             {
                 return Json("""
-                    {"Code":4,"Name":"Production WashBay","NoOfApproversRequired":1,
+                    {"Code":4,"Name":"Wash Bay Approvals","NoOfApproversRequired":1,
                      "ApprovalStageApprovers":[{"UserID":1}]}
                     """);
             }

@@ -50,7 +50,7 @@ curl -sk -H "Cookie: B1SESSION=$SID" "$B/Users?\$filter=UserCode%20eq%20'manager
 | `SAP:ApprovalApproverUsername` | `SAP:Username` | The SAP user decisions are recorded as |
 | `SAP:ApprovalApproverPassword` | `SAP:Password` when the approver is the session user, else omitted from the payload | Its password; never logged |
 | `CreditNoteApprovals:FiscaliseAfterAdd` | `true` | Fiscalise the credit note right after the add. A document added through the Service Layer never passes the fiscalisation platform's B1 print bridge, so with this off it is fiscalised only when somebody next prints it in the B1 client |
-| `CreditNoteApprovals:RoleStageScopes` | `WashBay` → `Production WashBay` in `appsettings.json`; empty if absent | Role → the SAP stage names it may read and decide; see "Stage scopes" below |
+| `CreditNoteApprovals:RoleStageScopes` | `WashBay` → `Wash Bay Approvals` in `appsettings.json`; empty if absent | Role → the SAP stage names it may read and decide; see "Stage scopes" below |
 | `CreditNoteApprovals:AttachmentReadMode` | `Share` in `appsettings.json`; `ServiceLayer` if the key is absent | `Share` reads the file off `SAP:AttachmentsPath` with the share credentials instead of streaming `$value`, for a Service Layer that cannot serve the folder — which is this landscape, see below |
 
 ## Stage scopes
@@ -70,7 +70,7 @@ account is refused.
 
 The wash bay (`WashBay`) is the role that must be scoped — `ApplicationRoles.RequiresCreditNoteStageScope` —
 so a missing entry refuses its page instead of opening the whole queue. It decides but cannot add. For
-its rows to offer Approve at all, SAP must also list the service approver on the `Production WashBay` stage.
+its rows to offer Approve at all, SAP must also list the service approver on the `Wash Bay Approvals` stage.
 
 ## The routes
 

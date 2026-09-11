@@ -175,15 +175,15 @@ public sealed class SapApprovalClientTests
     {
         var sap = new FakeServiceLayer();
         sap.On(r => r.Path.EndsWith("/ApprovalStages"),
-            _ => Json("""{"value":[{"Code":4,"Name":"Production WashBay","ApprovalStageApprovers":[{"UserID":1}]}]}"""));
+            _ => Json("""{"value":[{"Code":4,"Name":"Wash Bay Approvals","ApprovalStageApprovers":[{"UserID":1}]}]}"""));
         var client = CreateClient(sap);
 
-        var stages = await client.GetApprovalStagesByNameAsync(["Production WashBay", " production washbay ", "O'Neil", " "]);
+        var stages = await client.GetApprovalStagesByNameAsync(["Wash Bay Approvals", " wash bay approvals ", "O'Neil", " "]);
 
         Assert.Equal(4, Assert.Single(stages).Code);
         var get = Assert.Single(sap.Requests);
         var query = Uri.UnescapeDataString(get.Query);
-        Assert.Contains("$filter=Name eq 'Production WashBay' or Name eq 'O''Neil'&", query);
+        Assert.Contains("$filter=Name eq 'Wash Bay Approvals' or Name eq 'O''Neil'&", query);
         Assert.Contains("$select=Code,Name,NoOfApproversRequired,ApprovalStageApprovers", query);
     }
 

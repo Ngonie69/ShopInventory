@@ -129,7 +129,7 @@ public sealed class CreditNoteDraftAttachmentDownloadTests
     public async Task A_stage_scoped_caller_cannot_download_from_a_request_outside_its_stages()
     {
         var sap = new RecordingSapClient();
-        var handler = Handler(sap, readFromShare: false, FixedStageScope.Stages("Production WashBay", 999));
+        var handler = Handler(sap, readFromShare: false, FixedStageScope.Stages("Wash Bay Approvals", 999));
 
         var result = await handler.Handle(new DownloadCreditNoteDraftAttachmentQuery(3110, 2, CallerUserId: Guid.NewGuid()), CancellationToken.None);
 

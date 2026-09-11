@@ -190,9 +190,9 @@ public sealed class CreditNoteApprovalListTests
         var request = Pending(code: 3110, draftEntry: 88123, stage: 4, originator: 12, template: 7);
         var draft = Draft(88123, "SPA059", "Spar Avondale", 10m, attachmentEntry: null);
         var scoped = new RecordingSapClient([request], total: 1, [draft]);
-        var scope = FixedStageScope.Stages("Production WashBay", 4);
+        var scope = FixedStageScope.Stages("Wash Bay Approvals", 4);
 
-        var result = await Handler(scoped, LookupsWithStage(4, "Production WashBay", 1), scope)
+        var result = await Handler(scoped, LookupsWithStage(4, "Wash Bay Approvals", 1), scope)
             .Handle(new GetCreditNoteApprovalsQuery(null, 1, 25, CallerUserId: WashBayUserId), CancellationToken.None);
 
         Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
@@ -201,7 +201,7 @@ public sealed class CreditNoteApprovalListTests
 
         // The negative control: a caller who sees every stage sends no stage filter at all.
         var unscoped = new RecordingSapClient([request], total: 1, [draft]);
-        await Handler(unscoped, LookupsWithStage(4, "Production WashBay", 1))
+        await Handler(unscoped, LookupsWithStage(4, "Wash Bay Approvals", 1))
             .Handle(new GetCreditNoteApprovalsQuery(null, 1, 25, CallerUserId: Guid.NewGuid()), CancellationToken.None);
         Assert.NotNull(unscoped.RequestedStatuses);
         Assert.Null(unscoped.RequestedStageCodes);
@@ -211,7 +211,7 @@ public sealed class CreditNoteApprovalListTests
     public async Task A_scope_that_cannot_be_resolved_is_refused_before_the_queue_is_read()
     {
         var sap = new RecordingSapClient([], 0, []);
-        var scope = new FixedStageScope(Errors.CreditNoteApproval.StageScopeUnresolved("'Production WashBay'"));
+        var scope = new FixedStageScope(Errors.CreditNoteApproval.StageScopeUnresolved("'Wash Bay Approvals'"));
 
         var result = await Handler(sap, LookupsWithStage(4, "Finance review", 1), scope)
             .Handle(new GetCreditNoteApprovalsQuery(null, 1, 25, CallerUserId: WashBayUserId), CancellationToken.None);
@@ -338,7 +338,7 @@ public sealed class CreditNoteApprovalListTests
         var requests = codes.Select(code => Pending(code, draftEntry: code - 31140, stage: 4, originator: 12, template: 7)).ToList();
         var drafts = requests.Select(request => Draft(request.DraftEntry!.Value, "TMP092", "Pick n Pay Westgate", 150.15m, attachmentEntry: null)).ToList();
         var sap = new RecordingSapClient(requests, total: 9729, drafts);
-        var handler = Handler(sap, LookupsWithStage(4, "Production WashBay", 1, 9));
+        var handler = Handler(sap, LookupsWithStage(4, "Wash Bay Approvals", 1, 9));
 
         var result = await handler.Handle(new GetCreditNoteApprovalsQuery("all", 1, 3), CancellationToken.None);
 

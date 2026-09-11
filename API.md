@@ -4246,7 +4246,7 @@ approval template covering A/R credit memos, or every decision is refused with
 whose current SAP stage carries one of the names configured for it. The list and its `totalCount` are
 filtered in SAP; the detail, the attachment download and the decision answer
 `403 CreditNoteApproval.OutsideStageScope` for any other request. `WashBay` ships scoped to
-`Production WashBay` and holds `creditnotes.approve` without `creditnotes.add_approved`; if its entry is
+`Wash Bay Approvals` and holds `creditnotes.approve` without `creditnotes.add_approved`; if its entry is
 missing it is refused the queue (`CreditNoteApproval.StageScopeNotConfigured`) rather than shown all of it,
 and a configured name SAP does not have is `CreditNoteApproval.StageScopeUnresolved`. The add is not
 scoped, because no scoped role may add.
