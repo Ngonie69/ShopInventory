@@ -4227,8 +4227,11 @@ carried through for the range label only. The approvals screen pages this way an
 page reached so Previous is a re-read of the same window rather than a fresh count.
 
 Each row says what may happen next: `canDecide` when the request is pending and SAP's current stage
-lists the service approver, `canAdd` when SAP shows it approved and the draft is still open, and
-`statusNote` in a sentence otherwise. A decision or an add that SAP refuses comes back as
+lists the service approver, `canAdd` when SAP shows the request approved and its draft is still open and
+itself `dasApproved`, and `statusNote` in a sentence otherwise. SAP can approve a request and leave its
+draft Pending; that row cannot be added and has to be raised again in SAP. The decision answer follows
+the same rule: an approval that leaves the draft Pending comes back `status: "Approved"` with
+`canAdd: false` and a message that says so. A decision or an add that SAP refuses comes back as
 `400 CreditNoteApproval.SapRejected` carrying SAP's own message; one that got no clear answer comes back
 as `CreditNoteApproval.DecisionUncertain` / `AddUncertain`, and the request should be reloaded before
 trying again. Both POSTs own their idempotency: a decision repeated with the same `Idempotency-Key` (or
