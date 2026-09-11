@@ -1643,9 +1643,9 @@ provider's webhook configuration at. `/refund` is the one route on this controll
 | POST | `/api/InventoryTransfer/pending/{id}/cancel` | Cancel a held transfer |
 | POST | `/api/InventoryTransfer/request` | Raise a transfer request — ask a warehouse for stock |
 | GET | `/api/InventoryTransfer/requests` | List transfer requests, newest first (`page`, `pageSize`, `status`) |
-| PATCH | `/api/InventoryTransfer/request/{docEntry}` | Change an open request's lines and warehouses. Admin, StockController, DepotController, Manager |
-| POST | `/api/InventoryTransfer/request/{docEntry}/convert` | Authorize a request and generate the SAP transfer. Admin, StockController, DepotController |
-| POST | `/api/InventoryTransfer/request/{docEntry}/close` | Close a request in SAP without converting it. Admin, StockController, DepotController |
+| PATCH | `/api/InventoryTransfer/request/{docEntry}` | Change an open request's lines and warehouses. Admin, StockController, WashBay, DepotController, Manager |
+| POST | `/api/InventoryTransfer/request/{docEntry}/convert` | Authorize a request and generate the SAP transfer. Admin, StockController, WashBay, DepotController |
+| POST | `/api/InventoryTransfer/request/{docEntry}/close` | Close a request in SAP without converting it. Admin, StockController, WashBay, DepotController |
 | GET | `/api/InventoryTransfer/requests/{warehouseCode}` | A warehouse's transfer requests |
 | GET | `/api/InventoryTransfer/request/{docEntry}` | One transfer request |
 | GET | `/api/InventoryTransfer/request-edits` | List changes held for approval (`status`, `requestDocEntry`, `page`, `pageSize`) |
@@ -1773,7 +1773,7 @@ repeat returns the existing held transfer rather than opening a second approval.
 |--------|----------|-------------|
 | GET | `/api/InventoryTransfer/pending` | List held transfers. `status` (default `AwaitingApproval`, or `all`), `warehouseCode`, `mineOnly`, `page`, `pageSize` |
 | GET | `/api/InventoryTransfer/pending/{id}` | Held transfer with lines and per-stage approval progress |
-| POST | `/api/InventoryTransfer/pending/{id}/decision` | Approve or reject. Admin, StockController, DepotController, Manager |
+| POST | `/api/InventoryTransfer/pending/{id}/decision` | Approve or reject. Admin, StockController, WashBay, DepotController, Manager |
 | POST | `/api/InventoryTransfer/pending/{id}/post` | Retry the SAP post after a `PostFailed` |
 | POST | `/api/InventoryTransfer/pending/{id}/cancel` | Withdraw. Submitter or Admin only, before any decision |
 
@@ -2797,8 +2797,8 @@ transfers is `transfer-queue`, separate from the invoice `queue`.
 | GET | `/api/DesktopIntegration/transfer-requests/{docEntry}` | (class) | One request |
 | GET | `/api/DesktopIntegration/transfer-requests/warehouse/{warehouseCode}` | (class) | A warehouse's requests |
 | GET | `/api/DesktopIntegration/transfer-requests/paged` | (class) | Requests, paginated |
-| POST | `/api/DesktopIntegration/transfer-requests/{docEntry}/convert` | Admin, StockController, DepotController | Authorise and generate the transfer |
-| POST | `/api/DesktopIntegration/transfer-requests/{docEntry}/close` | Admin, StockController, DepotController | Close without converting |
+| POST | `/api/DesktopIntegration/transfer-requests/{docEntry}/convert` | Admin, StockController, WashBay, DepotController | Authorise and generate the transfer |
+| POST | `/api/DesktopIntegration/transfer-requests/{docEntry}/close` | Admin, StockController, WashBay, DepotController | Close without converting |
 | GET | `/api/DesktopIntegration/transfer-queue` | (class) | The transfer queue (`sourceSystem`, `limit` 100) |
 | GET | `/api/DesktopIntegration/transfer-queue/review` | (class) | Entries needing a look (`limit` 50) |
 | GET | `/api/DesktopIntegration/transfer-queue/stats` | (class) | Queue counts |
@@ -4241,6 +4241,15 @@ off. A fiscal failure is an Exception Center incident; the add still stands.
 **SAP prerequisite:** the service approver must be listed as an approver on every stage of every SAP
 approval template covering A/R credit memos, or every decision is refused with
 `CreditNoteApproval.ApproverNotOnStage`.
+
+**Stage scope.** A role named in `CreditNoteApprovals:RoleStageScopes` sees and decides only the requests
+whose current SAP stage carries one of the names configured for it. The list and its `totalCount` are
+filtered in SAP; the detail, the attachment download and the decision answer
+`403 CreditNoteApproval.OutsideStageScope` for any other request. `WashBay` ships scoped to
+`Production WashBay` and holds `creditnotes.approve` without `creditnotes.add_approved`; if its entry is
+missing it is refused the queue (`CreditNoteApproval.StageScopeNotConfigured`) rather than shown all of it,
+and a configured name SAP does not have is `CreditNoteApproval.StageScopeUnresolved`. The add is not
+scoped, because no scoped role may add.
 
 ---
 

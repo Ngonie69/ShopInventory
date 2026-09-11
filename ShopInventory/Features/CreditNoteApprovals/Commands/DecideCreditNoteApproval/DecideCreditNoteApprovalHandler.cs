@@ -30,6 +30,7 @@ namespace ShopInventory.Features.CreditNoteApprovals.Commands.DecideCreditNoteAp
 public sealed class DecideCreditNoteApprovalHandler(
     ISAPServiceLayerClient sap,
     ISapApprovalLookups lookups,
+    ICreditNoteApprovalStageScope stageScope,
     IIdempotencyRequestStore idempotencyRequestStore,
     IAuditService auditService,
     IOptions<SAPSettings> sapSettings,
@@ -93,6 +94,12 @@ public sealed class DecideCreditNoteApprovalHandler(
 
         try
         {
+            var scope = await stageScope.ResolveAsync(command.UserId, cancellationToken);
+            if (scope.IsError)
+            {
+                return scope.Errors;
+            }
+
             var clientRequestId = string.IsNullOrWhiteSpace(command.ClientRequestId) ? null : command.ClientRequestId.Trim();
             if (clientRequestId is not null)
             {
@@ -107,6 +114,13 @@ public sealed class DecideCreditNoteApprovalHandler(
             if (request is null || !string.Equals(request.ObjectType, SapObjectTypes.CreditNote, StringComparison.Ordinal))
             {
                 return Errors.CreditNoteApproval.NotFound(command.Code);
+            }
+
+            // Before any state is described: a request outside the caller's stages is not theirs to learn
+            // anything about, pending or not.
+            if (!scope.Value.Admits(request.CurrentStage))
+            {
+                return Errors.CreditNoteApproval.OutsideStageScope(command.Code, scope.Value.Describe());
             }
 
             if (!string.Equals(request.Status, SapApprovalRequestStatuses.Pending, StringComparison.OrdinalIgnoreCase))

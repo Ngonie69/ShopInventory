@@ -138,6 +138,56 @@ public sealed class SapApprovalClientTests
     }
 
     [Fact]
+    public async Task A_stage_filter_narrows_the_rows_and_the_count_alike()
+    {
+        var sap = new FakeServiceLayer();
+        sap.On(r => r.Method == HttpMethod.Get && r.Path.EndsWith("/ApprovalRequests"),
+            _ => Json("""{"value":[{"Code":5,"ObjectType":"14","Status":"arsPending","CurrentStage":4}]}"""));
+        sap.On(r => r.Path.EndsWith("/ApprovalRequests/$count"), _ => Text("1"));
+        var client = CreateClient(sap);
+
+        await client.GetCreditNoteApprovalRequestsAsync(
+            [SapApprovalRequestStatuses.Pending], page: 1, pageSize: 5, stageCodes: [9, 4, 4]);
+
+        const string scoped = "ObjectType eq '14' and (Status eq 'arsPending') and (CurrentStage eq 4 or CurrentStage eq 9)";
+        var list = Assert.Single(sap.Requests, r => r.Path.EndsWith("/ApprovalRequests"));
+        Assert.Contains(scoped, Uri.UnescapeDataString(list.Query));
+
+        // A count of the whole queue over a scoped page would promise pages that never come.
+        var count = Assert.Single(sap.Requests, r => r.Path.EndsWith("/$count"));
+        Assert.Contains(scoped, Uri.UnescapeDataString(count.Query));
+    }
+
+    [Fact]
+    public async Task An_empty_stage_filter_is_refused_rather_than_read_as_every_stage()
+    {
+        var sap = new FakeServiceLayer();
+        var client = CreateClient(sap);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => client.GetCreditNoteApprovalRequestsAsync([SapApprovalRequestStatuses.Pending], 1, 5, stageCodes: []));
+
+        Assert.Empty(sap.Requests);
+    }
+
+    [Fact]
+    public async Task Stages_are_looked_up_by_name_once_per_name_with_quotes_doubled()
+    {
+        var sap = new FakeServiceLayer();
+        sap.On(r => r.Path.EndsWith("/ApprovalStages"),
+            _ => Json("""{"value":[{"Code":4,"Name":"Production WashBay","ApprovalStageApprovers":[{"UserID":1}]}]}"""));
+        var client = CreateClient(sap);
+
+        var stages = await client.GetApprovalStagesByNameAsync(["Production WashBay", " production washbay ", "O'Neil", " "]);
+
+        Assert.Equal(4, Assert.Single(stages).Code);
+        var get = Assert.Single(sap.Requests);
+        var query = Uri.UnescapeDataString(get.Query);
+        Assert.Contains("$filter=Name eq 'Production WashBay' or Name eq 'O''Neil'&", query);
+        Assert.Contains("$select=Code,Name,NoOfApproversRequired,ApprovalStageApprovers", query);
+    }
+
+    [Fact]
     public async Task An_unknown_status_or_decision_is_refused_before_anything_is_sent()
     {
         var sap = new FakeServiceLayer();

@@ -26,6 +26,7 @@ public sealed class RoleLandingRouteTests
     [InlineData(UserRoles.DepotController, "/dashboard")]
     [InlineData(UserRoles.Lab, "/lab/batch-status")]
     [InlineData(UserRoles.MerchandiserPurchaseOrderViewer, "/reports/merchandiser-purchase-orders")]
+    [InlineData(UserRoles.WashBay, "/inventory-transfers")]
     public void Each_role_lands_on_its_own_page(string role, string expected)
     {
         Assert.Equal(expected, RoleLandingRoutes.For(role));
@@ -71,6 +72,7 @@ public sealed class RoleLandingRouteTests
     [InlineData(UserRoles.Cashier)]
     [InlineData(UserRoles.StockController)]
     [InlineData(UserRoles.Manager)]
+    [InlineData(UserRoles.WashBay)]
     public void An_admin_holding_a_narrow_role_still_lands_on_the_dashboard(string role)
     {
         Assert.Equal(RoleLandingRoutes.Dashboard, RoleLandingRoutes.For(Principal(UserRoles.Admin, role)));

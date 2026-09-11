@@ -110,7 +110,7 @@ public sealed class CreditNoteApprovalListRoundTripTests
         var lookups = new SapApprovalLookups(client, new MemoryCache(new MemoryCacheOptions()), Options.Create(settings));
 
         return new GetCreditNoteApprovalsHandler(
-            client, lookups, Options.Create(settings), NullLogger<GetCreditNoteApprovalsHandler>.Instance);
+            client, lookups, FixedStageScope.EveryStage, Options.Create(settings), NullLogger<GetCreditNoteApprovalsHandler>.Instance);
     }
 
     private static SAPServiceLayerClient CreateClient(FakeSap sap, SAPSettings settings)

@@ -44,6 +44,31 @@ public class SapCreditNoteApprovalReadTests(SapClientFixture fixture)
         Assert.All(items, item => Assert.Equal(SapObjectTypes.CreditNote, item.ObjectType));
     }
 
+    /// <summary>
+    /// The two filters the wash bay's stage scope rests on: stages found by name, and the queue narrowed
+    /// to a stage. Neither is proven by the metadata, and a Service Layer that refused either would take
+    /// the wash bay's page down.
+    /// </summary>
+    [SapFact]
+    public async Task The_queue_filters_on_current_stage_and_stages_are_found_by_name()
+    {
+        var (items, _) = await fixture.Client.GetCreditNoteApprovalRequestsAsync(AllStatuses, 1, 20);
+        var staged = items.FirstOrDefault(item => item.CurrentStage is not null);
+        Assert.False(staged is null, "None of the newest 20 credit memo approval requests carries a stage, so the stage filter cannot be exercised.");
+
+        var stage = await fixture.Client.GetApprovalStageAsync(staged!.CurrentStage!.Value);
+        Assert.NotNull(stage);
+        Assert.False(string.IsNullOrWhiteSpace(stage.Name));
+
+        var byName = await fixture.Client.GetApprovalStagesByNameAsync([stage.Name!]);
+        Assert.Contains(byName, found => found.Code == stage.Code);
+
+        var (scoped, scopedTotal) = await fixture.Client.GetCreditNoteApprovalRequestsAsync(AllStatuses, 1, 5, stageCodes: [stage.Code]);
+        Assert.NotEmpty(scoped);
+        Assert.All(scoped, item => Assert.Equal(stage.Code, item.CurrentStage));
+        Assert.True(scopedTotal >= scoped.Count, $"SAP counted {scopedTotal} requests at stage {stage.Code} but returned {scoped.Count}.");
+    }
+
     [SapFact]
     public async Task A_request_reads_back_with_its_draft_stage_template_originator_and_attachment()
     {

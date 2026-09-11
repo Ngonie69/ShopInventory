@@ -655,7 +655,7 @@
     private static void Toggle<T>(List<T> list,T value,bool selected){if(selected){if(!list.Contains(value))list.Add(value);}else list.Remove(value);}
     private static ApprovalStageDefinitionModel Clone(ApprovalStageDefinitionModel x)=>new(){Id=x.Id,Name=x.Name,Description=x.Description,ApprovalsRequired=x.ApprovalsRequired,RejectionsRequired=x.RejectionsRequired,AuthorizerUserIds=[..x.AuthorizerUserIds],AuthorizerRoles=[..x.AuthorizerRoles],IsActive=x.IsActive};
     private static ApprovalTemplateDefinitionModel Clone(ApprovalTemplateDefinitionModel x)=>new(){Id=x.Id,Name=x.Name,Description=x.Description,DocumentType=x.DocumentType,OriginatorUserIds=[..x.OriginatorUserIds],OriginatorRoles=[..x.OriginatorRoles],StageIds=[..x.StageIds],FromWarehouse=x.FromWarehouse,ToWarehouse=x.ToWarehouse,Priority=x.Priority,IsActive=x.IsActive};
-    private static string FriendlyRole(string role)=>role switch{"StockController"=>"Stock Officer","DepotController"=>"Depot Controller",_=>role};
+    private static string FriendlyRole(string role)=>role switch{"StockController"=>"Stock Officer","DepotController"=>"Depot Controller","WashBay"=>"Wash Bay",_=>role};
     private static string FriendlyDocumentType(string? documentType)=>documentType switch{"InventoryTransferRequest"=>"Transfer requests","InventoryTransfer"=>"Direct transfers",_=>documentType ?? "Unknown"};
 
     // Drawn once and reused: the tick sits inside every checkbox on the page

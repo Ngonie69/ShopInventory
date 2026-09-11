@@ -10,6 +10,7 @@ namespace ShopInventory.Features.CreditNoteApprovals.Queries.DownloadCreditNoteD
 
 public sealed class DownloadCreditNoteDraftAttachmentHandler(
     ISAPServiceLayerClient sap,
+    ICreditNoteApprovalStageScope stageScope,
     IOptions<SAPSettings> sapSettings,
     IOptions<CreditNoteApprovalSettings> approvalSettings,
     ILogger<DownloadCreditNoteDraftAttachmentHandler> logger)
@@ -24,10 +25,21 @@ public sealed class DownloadCreditNoteDraftAttachmentHandler(
             return Errors.CreditNoteApproval.SapDisabled;
         }
 
+        var scope = await stageScope.ResolveAsync(query.CallerUserId, cancellationToken);
+        if (scope.IsError)
+        {
+            return scope.Errors;
+        }
+
         var request = await sap.GetApprovalRequestAsync(query.Code, cancellationToken);
         if (request is null || !string.Equals(request.ObjectType, SapObjectTypes.CreditNote, StringComparison.Ordinal))
         {
             return Errors.CreditNoteApproval.NotFound(query.Code);
+        }
+
+        if (!scope.Value.Admits(request.CurrentStage))
+        {
+            return Errors.CreditNoteApproval.OutsideStageScope(query.Code, scope.Value.Describe());
         }
 
         if (request.DraftEntry is not int draftEntry)

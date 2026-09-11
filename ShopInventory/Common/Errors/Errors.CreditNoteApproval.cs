@@ -64,6 +64,19 @@ public static partial class Errors
         public static Error AlreadyDecided(string stageName) =>
             Error.Conflict("CreditNoteApproval.AlreadyDecided", $"A decision has already been recorded on stage '{stageName}'.");
 
+        public static Error StageScopeNotConfigured(string role) =>
+            Error.Failure("CreditNoteApproval.StageScopeNotConfigured",
+                $"The {role} role may only see credit memos at its own SAP approval stages, and " +
+                $"CreditNoteApprovals:RoleStageScopes names none for it.");
+
+        public static Error StageScopeUnresolved(string stageNames) =>
+            Error.Failure("CreditNoteApproval.StageScopeUnresolved",
+                $"SAP has no approval stage named {stageNames}. Check CreditNoteApprovals:RoleStageScopes against the stage names in SAP.");
+
+        public static Error OutsideStageScope(int code, string stageNames) =>
+            Error.Forbidden("CreditNoteApproval.OutsideStageScope",
+                $"Approval request {code} is not at SAP stage {stageNames}, so it is not yours to see or decide.");
+
         public static Error SapRejected(string message) =>
             Error.Failure("CreditNoteApproval.SapRejected", $"SAP refused the request: {message}");
 

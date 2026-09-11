@@ -663,7 +663,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Authorise and generate the transfer
     /// </summary>
     [HttpPost("transfer-requests/{docEntry:int}/convert")]
-    [Authorize(Roles = "Admin,StockController,DepotController")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
     public async Task<IActionResult> ConvertTransferRequest(int docEntry, CancellationToken cancellationToken)
     {
         var userId = UserClaimReader.GetUserId(User);
@@ -680,7 +680,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Close without converting
     /// </summary>
     [HttpPost("transfer-requests/{docEntry:int}/close")]
-    [Authorize(Roles = "Admin,StockController,DepotController")]
+    [Authorize(Roles = "Admin,StockController,WashBay,DepotController")]
     public async Task<IActionResult> CloseTransferRequest(int docEntry, CancellationToken cancellationToken)
     {
         var userId = UserClaimReader.GetUserId(User);

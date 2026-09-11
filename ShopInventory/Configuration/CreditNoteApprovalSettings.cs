@@ -32,6 +32,18 @@ public sealed class CreditNoteApprovalSettings
     /// </remarks>
     public string AttachmentReadMode { get; set; } = AttachmentReadModes.ServiceLayer;
 
+    /// <summary>
+    /// Roles that see only part of SAP's credit memo approval queue: role → the names of the SAP approval
+    /// stages it may read and decide. A role not named here sees every stage — except one that
+    /// <c>ApplicationRoles.RequiresCreditNoteStageScope</c> says must be scoped, which is refused the
+    /// queue outright rather than shown all of it.
+    /// </summary>
+    /// <remarks>
+    /// Names rather than codes: a stage's code differs between company databases, and its name is what
+    /// the SAP administrator sees. A name SAP does not have is an error on the page, not an empty list.
+    /// </remarks>
+    public Dictionary<string, List<string>> RoleStageScopes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public bool ReadsAttachmentsFromShare
         => string.Equals(AttachmentReadMode, AttachmentReadModes.Share, StringComparison.OrdinalIgnoreCase);
 

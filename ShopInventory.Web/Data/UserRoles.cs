@@ -83,6 +83,12 @@ public static class UserRoles
     public const string TillOperator = "TillOperator";
 
     /// <summary>
+    /// The production wash bay: inventory transfers, as a stock controller has them, and the SAP
+    /// credit memo approvals held at its own stage — deciding them, not adding them.
+    /// </summary>
+    public const string WashBay = "WashBay";
+
+    /// <summary>
     /// Legacy POD role. Not offered for new accounts, but still runtime-supported and
     /// still landing on the POD list — see <c>RoleLandingRoutes.For</c>.
     /// </summary>
@@ -131,15 +137,24 @@ public static class UserRoles
     /// </summary>
     public const string QuotationRoles = "Admin,Cashier,SalesRep";
     public const string PaymentRoles = "Admin,Cashier";
-    public const string InventoryTransferRoles = "Admin,Manager,StockController,DepotController";
+    public const string InventoryTransferRoles = "Admin,Manager,StockController,WashBay,DepotController";
 
     /// <summary>
     /// Who can open /credit-notes/approvals: the people who decide another person's SAP credit memo
     /// and post it. Not <see cref="InvoicingRoles"/> — a cashier raises credit notes and must not
     /// thereby approve them. The API agrees through its <c>creditnotes.approve</c> and
     /// <c>creditnotes.add_approved</c> permissions; <c>CreditNoteApprovalAccessTests</c> pins the two.
+    /// The wash bay is here to decide only the requests at its own SAP stage, which the API narrows;
+    /// it cannot add, which <see cref="CreditNoteAddRoles"/> narrows.
     /// </summary>
-    public const string CreditNoteApprovalRoles = "Admin,Manager";
+    public const string CreditNoteApprovalRoles = "Admin,Manager,WashBay";
+
+    /// <summary>
+    /// Who on <see cref="CreditNoteApprovalRoles"/> is offered "Add credit note". Posting the approved
+    /// memo is <c>creditnotes.add_approved</c>, which the wash bay does not hold, so showing it the
+    /// button would only submit into a 403.
+    /// </summary>
+    public const string CreditNoteAddRoles = "Admin,Manager";
     public const string SalesOrderRoles = "Admin,Cashier,Merchandiser,SalesRep";
     public const string PurchasingRoles = "Admin,Manager";
 
@@ -184,6 +199,7 @@ public static class UserRoles
         Cashier,
         StockController,
         DepotController,
+        WashBay,
         Lab,
         MerchandiserPurchaseOrderViewer,
         Admin,
@@ -224,7 +240,8 @@ public static class UserRoles
         Adr,
         Sales,
         CartVendor,
-        TillOperator
+        TillOperator,
+        WashBay
     ];
 
     /// <summary>
@@ -315,6 +332,7 @@ public static class UserRoles
         IsAdmin(role) ||
         string.Equals(role, Manager, StringComparison.OrdinalIgnoreCase) ||
         string.Equals(role, StockController, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(role, WashBay, StringComparison.OrdinalIgnoreCase) ||
         string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
