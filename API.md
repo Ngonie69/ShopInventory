@@ -2989,8 +2989,10 @@ the key. `POST /test-connection` with a blank or absent `apiKey` tests the key a
 **VAT Rate:** 15.5%, configured at `Tax:VatRate`.
 
 **Fiscal fields on an invoice** — `isFiscalized`, `fiscalizationStatus`, `fiscalQrCode`,
-`fiscalReceiptGlobalNo`, `fiscalizedAtUtc`. These come from the local projection in
-`DesktopFiscalTransactions`, not from a live call.
+`fiscalReceiptGlobalNo`, `fiscalVerificationCode`, `fiscalDeviceId`, `fiscalDay`, `fiscalizedAtUtc`.
+These come from the local projection in `DesktopFiscalTransactions`, not from a live call. The invoice
+PDF prints the verification code, fiscal day and device id beside the QR; when the projection has no QR,
+the PDF download asks the fiscal device and fills all of them from its answer.
 
 The QR code is **composed by this API**, not returned by the platform: the verification segment is the
 first 16 hex characters of `MD5(deviceSignatureValue)`, appended to the device's `qrUrl` along with the

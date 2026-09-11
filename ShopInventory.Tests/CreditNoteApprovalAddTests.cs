@@ -69,7 +69,7 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
 
         var fiscalised = Assert.Single(fiscal.Calls);
         Assert.Equal(9001, fiscalised.Document.DocEntry);
-        Assert.Equal("77001", fiscalised.OriginalInvoiceNumber);
+        Assert.Equal("5501", fiscalised.OriginalInvoiceNumber);
         Assert.Equal(245.60m, fiscalised.Document.DocTotal);
 
         var recorded = Assert.Single(fiscal.Recorded);
@@ -78,7 +78,7 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         Assert.Equal("Success", recorded.Request.Status);
         Assert.Equal(9001, recorded.Request.DocNum);
         Assert.Equal(4411, recorded.Request.ReceiptGlobalNo);
-        Assert.Equal("77001", recorded.Request.OriginalInvoiceNumber);
+        Assert.Equal("5501", recorded.Request.OriginalInvoiceNumber);
 
         Assert.True(result.Value.Resolved);
         Assert.Equal(9001, result.Value.CreditNoteDocEntry);
@@ -290,6 +290,7 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
         audit,
         Options.Create(new SAPSettings { Enabled = true }),
         Options.Create(new CreditNoteApprovalSettings { FiscaliseAfterAdd = fiscaliseAfterAdd }),
+        Options.Create(new FiscalisationSettings()),
         NullLogger<AddApprovedCreditNoteHandler>.Instance);
 
     private IIdempotencyRequestStore Store()
@@ -383,6 +384,10 @@ public sealed class CreditNoteApprovalAddTests : IDisposable
             nameof(ISAPServiceLayerClient.SaveDraftToDocumentAsync) => Save(args!),
             nameof(ISAPServiceLayerClient.GetCreditNoteByDocEntryAsync)
                 => Task.FromResult<SAPCreditNote?>((int)args![0]! == (CreditNoteDocEntry ?? SaveReturns) ? CreditNote((int)args[0]!) : null),
+            // The invoice the credit note's lines are based on. Its receipt is filed under the DocNum,
+            // which is a different number from the BaseEntry the credit note carries.
+            nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync)
+                => Task.FromResult<Invoice?>((int)args![0]! == 77001 ? new Invoice { DocEntry = 77001, DocNum = 5501 } : null),
             _ => throw new InvalidOperationException($"{method.Name} was not expected.")
         });
 

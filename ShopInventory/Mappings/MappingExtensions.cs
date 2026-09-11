@@ -77,6 +77,54 @@ public static class MappingExtensions
     }
 
     /// <summary>
+    /// The document a credit note is fiscalised from, as SAP holds it.
+    /// </summary>
+    /// <remarks>
+    /// One mapping for every route that fiscalises a credit note it has just raised or added. SAP
+    /// returns a credit note's amounts as magnitudes on some reads and negative on others, so they are
+    /// made positive here and the receipt type carries the sign.
+    ///
+    /// <para>
+    /// The gross price and the VAT group are the point of it. A receipt declares what the customer
+    /// paid, and REVMax prices every line from it; without them each line fell back to SAP's NET unit
+    /// price, so the lines summed short of the credited total by the VAT and the credit note was refused
+    /// as unreconciled — 356.25 of lines against 411.47 on till invoice 772109. The tax code likewise
+    /// lives in <c>VatGroup</c>; <c>TaxCode</c> comes back null.
+    /// </para>
+    /// </remarks>
+    public static InvoiceDto ToFiscalDocument(this SAPCreditNote creditNote, string? comments)
+    {
+        return new InvoiceDto
+        {
+            DocEntry = creditNote.DocEntry,
+            DocNum = creditNote.DocNum,
+            CardCode = creditNote.CardCode,
+            CardName = creditNote.CardName,
+            DocTotal = Math.Abs(creditNote.DocTotal),
+            VatSum = Math.Abs(creditNote.VatSum),
+            DocCurrency = creditNote.DocCurrency,
+            Comments = comments,
+            Lines = creditNote.DocumentLines?.Select(line => new InvoiceLineDto
+            {
+                LineNum = line.LineNum,
+                ItemCode = line.ItemCode,
+                ItemDescription = line.ItemDescription,
+                Quantity = Math.Abs(line.Quantity),
+                UnitPrice = line.UnitPrice,
+                GrossPrice = Math.Abs(line.GrossPrice),
+                PriceAfterVat = Math.Abs(line.PriceAfterVAT),
+                GrossTotal = Math.Abs(line.GrossTotal),
+                VatGroup = line.VatGroup,
+                LineTotal = Math.Abs(line.LineTotal),
+                TaxCode = line.TaxCode,
+                WarehouseCode = line.WarehouseCode,
+                DiscountPercent = line.DiscountPercent ?? 0m,
+                UoMCode = line.UoMCode
+            }).ToList()
+        };
+    }
+
+    /// <summary>
     /// Maps InvoiceLine model to DTO
     /// </summary>
     public static InvoiceLineDto ToDto(this InvoiceLine model)

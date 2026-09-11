@@ -286,6 +286,17 @@ public class CreateCreditNoteRequest
     /// </summary>
     public int? OriginalInvoiceDocEntry { get; set; }
 
+    /// <summary>
+    /// SAP DocNum of the original invoice, when the service has already read it.
+    /// </summary>
+    /// <remarks>
+    /// Server-set and never bound, like <see cref="SapReference"/>: it decides which fiscal receipt the
+    /// credit note reverses, so a caller must not be able to point it at another. Absent, the service
+    /// reads it from SAP by <see cref="OriginalInvoiceDocEntry"/>.
+    /// </remarks>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int? OriginalInvoiceDocNum { get; set; }
+
     [Required(ErrorMessage = "Reason is required")]
     public string Reason { get; set; } = null!;
 

@@ -184,27 +184,14 @@ public class CreditNoteService : ICreditNoteService
                 return new CreateCreditNoteResult { Success = true, CreditNote = creditNote };
             }
             var errorContent = await response.Content.ReadAsStringAsync();
-            _logger.LogWarning("Failed to create credit note from invoice {InvoiceId}: {StatusCode} - {Error}", invoiceId, response.StatusCode, errorContent);
+            _logger.LogWarning("Failed to create credit note from invoice {InvoiceId}: {StatusCode} - {Error}",
+                invoiceId, response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
-            // Try to parse error message from response
-            string errorMessage = "Failed to create credit note.";
-            try
-            {
-                var jsonOptions = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent, jsonOptions);
-                if (!string.IsNullOrEmpty(errorResponse?.Message))
-                {
-                    errorMessage = errorResponse.Message;
-                }
-            }
-            catch
-            {
-                // If parsing fails, use the raw content if it's readable
-                if (!string.IsNullOrWhiteSpace(errorContent) && errorContent.Length < 200)
-                {
-                    errorMessage = errorContent;
-                }
-            }
+            // The API answers with problem+json, whose reason is in errors/errorDetails. This used to read
+            // a "message" property the API no longer sends, so every refusal — SAP saying no, an invoice
+            // already credited — reached the operator as the same fallback sentence.
+            var errorMessage = ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode, errorContent, "Failed to create credit note.");
 
             return new CreateCreditNoteResult { Success = false, ErrorMessage = errorMessage };
         }
@@ -213,11 +200,6 @@ public class CreditNoteService : ICreditNoteService
             _logger.LogError(ex, "Error creating credit note from invoice {InvoiceId}", invoiceId);
             return new CreateCreditNoteResult { Success = false, ErrorMessage = ex.Message };
         }
-    }
-
-    private class ErrorResponse
-    {
-        public string? Message { get; set; }
     }
 
     public async Task<CreditNoteDto?> ApproveAsync(int id)

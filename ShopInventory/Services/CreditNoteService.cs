@@ -4,7 +4,11 @@ using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
+using ShopInventory.Mappings;
 
 namespace ShopInventory.Services;
 
@@ -20,6 +24,7 @@ public class CreditNoteService : ICreditNoteService
     private readonly IFiscalizationService _fiscalizationService;
     private readonly ICreditNoteProjectionSyncService _projectionSyncService;
     private readonly IStockLedger _stockLedger;
+    private readonly FiscalisationSettings _fiscalisationSettings;
     private readonly ILogger<CreditNoteService> _logger;
 
     public CreditNoteService(
@@ -28,6 +33,7 @@ public class CreditNoteService : ICreditNoteService
         IFiscalizationService fiscalizationService,
         ICreditNoteProjectionSyncService projectionSyncService,
         IStockLedger stockLedger,
+        IOptions<FiscalisationSettings> fiscalisationSettings,
         ILogger<CreditNoteService> logger)
     {
         _context = context;
@@ -35,6 +41,7 @@ public class CreditNoteService : ICreditNoteService
         _fiscalizationService = fiscalizationService;
         _projectionSyncService = projectionSyncService;
         _stockLedger = stockLedger;
+        _fiscalisationSettings = fiscalisationSettings.Value;
         _logger = logger;
     }
 
@@ -617,33 +624,14 @@ public class CreditNoteService : ICreditNoteService
         FiscalizationResult? fiscalizationResult = null;
         try
         {
-            // For credit notes, we need the original invoice number
-            var originalInvoiceNumber = request.OriginalInvoiceDocEntry?.ToString() ?? "";
+            // The number the device holds the reversed invoice's receipt under — its DocNum, or for a
+            // sale fiscalised before SAP the sale's own reference. Never the DocEntry, which is what
+            // this used to send.
+            var original = await ResolveOriginalReceiptAsync(request);
 
-            if (!string.IsNullOrEmpty(originalInvoiceNumber))
+            if (original.InvoiceNumber is { } originalInvoiceNumber)
             {
-                var creditNoteDto = new InvoiceDto
-                {
-                    DocEntry = sapCreditNote.DocEntry,
-                    DocNum = sapCreditNote.DocNum,
-                    CardCode = sapCreditNote.CardCode,
-                    CardName = sapCreditNote.CardName,
-                    DocTotal = Math.Abs(sapCreditNote.DocTotal),
-                    VatSum = Math.Abs(sapCreditNote.VatSum),
-                    DocCurrency = sapCreditNote.DocCurrency,
-                    Comments = request.Reason,
-                    Lines = sapCreditNote.DocumentLines?.Select(l => new InvoiceLineDto
-                    {
-                        LineNum = l.LineNum,
-                        ItemCode = l.ItemCode,
-                        ItemDescription = l.ItemDescription,
-                        Quantity = Math.Abs(l.Quantity),
-                        UnitPrice = l.UnitPrice,
-                        LineTotal = Math.Abs(l.LineTotal),
-                        TaxCode = l.TaxCode,
-                        WarehouseCode = l.WarehouseCode
-                    }).ToList()
-                };
+                var creditNoteDto = sapCreditNote.ToFiscalDocument(request.Reason);
 
                 fiscalizationResult = await _fiscalizationService.FiscalizeCreditNoteAsync(
                     creditNoteDto,
@@ -676,14 +664,15 @@ public class CreditNoteService : ICreditNoteService
             else
             {
                 _logger.LogWarning(
-                    "Cannot fiscalize credit note {DocNum}: No original invoice reference",
-                    sapCreditNote.DocNum);
+                    "Not fiscalising credit note {DocNum}: {Refusal}",
+                    sapCreditNote.DocNum,
+                    original.Refusal);
 
                 await CaptureCreditNoteFiscalizationIncidentAsync(
                     creditNote.CreditNoteNumber,
                     sapCreditNote.DocNum,
                     request.CardCode,
-                    "Fiscalisation skipped because the original invoice reference was missing.",
+                    $"Fiscalisation skipped: {original.Refusal}",
                     CancellationToken.None);
             }
         }
@@ -768,6 +757,37 @@ public class CreditNoteService : ICreditNoteService
             .Include(c => c.ApprovedByUser)
             .AsNoTracking()
             .FirstOrDefaultAsync(c => c.SAPDocEntry == sapDocEntry, cancellationToken);
+
+    /// <summary>
+    /// The number the fiscal device holds the reversed invoice's receipt under.
+    /// </summary>
+    /// <remarks>
+    /// See <see cref="CreditNoteOriginalReceipt"/>. The from-invoice route has already read the invoice
+    /// and carries its DocNum; a credit note raised directly carries only the DocEntry, so the DocNum
+    /// is read here. On <see cref="CancellationToken.None"/>, like everything after the post.
+    /// </remarks>
+    private async Task<CreditNoteOriginalReceiptNumber> ResolveOriginalReceiptAsync(CreateCreditNoteRequest request)
+    {
+        var docNum = request.OriginalInvoiceDocNum;
+
+        if (docNum is null && request.OriginalInvoiceDocEntry is > 0)
+        {
+            var invoice = await _sapClient.GetInvoiceByDocEntryAsync(
+                request.OriginalInvoiceDocEntry.Value, CancellationToken.None);
+            docNum = invoice?.DocNum;
+        }
+
+        if (docNum is null)
+        {
+            return CreditNoteOriginalReceiptNumber.Refused(
+                request.OriginalInvoiceDocEntry is > 0
+                    ? $"invoice DocEntry {request.OriginalInvoiceDocEntry} could not be read from SAP, so the receipt it reverses cannot be found."
+                    : "the credit note does not reference an original invoice.");
+        }
+
+        return await CreditNoteOriginalReceipt.ResolveAsync(
+            _context, docNum.Value, _fiscalisationSettings, CancellationToken.None);
+    }
 
     /// <summary>
     /// Looks for a credit note a failed post may still have created.
@@ -964,6 +984,7 @@ public class CreditNoteService : ICreditNoteService
             Type = CreditNoteType.Return,
             OriginalInvoiceId = localInvoice?.Id, // Local DB ID (null if not found locally)
             OriginalInvoiceDocEntry = sapInvoice.DocEntry, // SAP DocEntry for reference
+            OriginalInvoiceDocNum = sapInvoice.DocNum, // what the invoice's fiscal receipt is filed under
             Reason = reason,
             Currency = sapInvoice.DocCurrency,
             RestockItems = true,
