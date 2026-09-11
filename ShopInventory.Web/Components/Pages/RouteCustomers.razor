@@ -232,11 +232,17 @@
                                                 </button>
                                                 @if (customer.IsActive)
                                                 {
-                                                    <button type="button" class="ops-icon-btn ops-icon-btn-danger" title="Remove from the vans"
-                                                            aria-label="@($"Remove {customer.Name} from the vans")"
-                                                            @onclick="() => PromptDelete(customer)">
-                                                        <i class="ph ph-trash" aria-hidden="true"></i>
-                                                    </button>
+                                                    @* Removing is customers.delete, which only Admin holds. Manager and Cashier
+                                                       edit and restore route customers here; the removal would be refused. *@
+                                                    <AuthorizeView Roles="Admin" Context="deleteCustomerAccess">
+                                                        <Authorized>
+                                                            <button type="button" class="ops-icon-btn ops-icon-btn-danger" title="Remove from the vans"
+                                                                    aria-label="@($"Remove {customer.Name} from the vans")"
+                                                                    @onclick="() => PromptDelete(customer)">
+                                                                <i class="ph ph-trash" aria-hidden="true"></i>
+                                                            </button>
+                                                        </Authorized>
+                                                    </AuthorizeView>
                                                 }
                                                 else
                                                 {

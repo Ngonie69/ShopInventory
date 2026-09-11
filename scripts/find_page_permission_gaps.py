@@ -1293,11 +1293,13 @@ def build_model(web_roles):
                 entry_roles[mname] = None if any(g is None for g in gates) else set().union(*map(set, gates))
 
         def blank(text, ranges):
+            # \x01, not a space: _member_calls' patterns put \s* on both sides of an optional
+            # generic, and across a run of thousands of spaces they backtrack quadratically.
             chars = list(text)
             for a, b in ranges:
                 for k in range(max(a, 0), min(b, len(chars))):
                     if chars[k] != "\n":
-                        chars[k] = " "
+                        chars[k] = "\x01"
             return "".join(chars)
 
         ungated_markup = blank(info.src, code + [(a, b) for a, b, _ in spans])
@@ -1473,7 +1475,8 @@ ROLE_REDIRECTS = {
 
 # Calls a page makes only behind a role check the scan cannot read: an @if on a role flag, or a modal
 # opened from a gated button. Keyed (page component, role, "VERB route" as the controller declares
-# it); the value is the source patterns that must all still match the page, and why.
+# it); the value is the source patterns that must all still match the page (its .razor and its
+# code-behind together), and why.
 ROLE_HIDDEN_CALLS = {
     ("UserManagement", "PodOperator", "PUT api/UserManagement/{id:guid}/permissions"): (
         [r"isPodOperatorView\s*=>\s*string\.Equals\(\s*currentUserRole\s*,\s*UserRoles\.PodOperator",
@@ -1483,6 +1486,27 @@ ROLE_HIDDEN_CALLS = {
         [r'<AuthorizeView Roles="Admin"[^>]*>\s*<button[^\n]*@onclick="OpenCancelInvoiceModal"',
          r"(?s)Task OpenCancelInvoiceModal\(\).{0,1200}?showCancelInvoiceModal\s*=\s*true"],
         "Invoices.razor opens the cancel modal only from an Admin-gated button"),
+    ("SalesOrders", "SalesRep", "POST api/SalesOrder/{id}/convert-to-invoice"): (
+        [r'(?s)<AuthorizeView Roles="Admin,Cashier"[^>]*>.{0,800}?OpenConvertDialog\(order\)',
+         r"(?s)void OpenConvertDialog\(SalesOrderDto order\).{0,300}?convertOrder\s*=\s*order;",
+         r"(?s)\A(?!(?:.*?\bOpenConvertDialog\b){3})"],
+        "SalesOrders.razor opens the convert dialog only from an Admin,Cashier-gated button"),
+    ("RouteCustomers", "Cashier", "DELETE api/route-customers/{id:int}"): (
+        [r'(?s)<AuthorizeView Roles="Admin"[^>]*>.{0,800}?PromptDelete\(customer\)',
+         r"(?s)void PromptDelete\(RouteCustomerModel customer\).{0,300}?customerPendingDelete\s*=\s*customer;",
+         r"(?s)\A(?!(?:.*?\bPromptDelete\b){3})"],
+        "RouteCustomers.razor opens the removal confirmation only from an Admin-gated button"),
+    ("RouteCustomers", "Manager", "DELETE api/route-customers/{id:int}"): (
+        [r'(?s)<AuthorizeView Roles="Admin"[^>]*>.{0,800}?PromptDelete\(customer\)',
+         r"(?s)void PromptDelete\(RouteCustomerModel customer\).{0,300}?customerPendingDelete\s*=\s*customer;",
+         r"(?s)\A(?!(?:.*?\bPromptDelete\b){3})"],
+        "RouteCustomers.razor opens the removal confirmation only from an Admin-gated button"),
+    ("CreditNoteApprovals", "WashBay", "POST api/credit-note-approvals/{code:int}/add"): (
+        [r'(?s)<AuthorizeView Roles="@UserRoles\.CreditNoteAddRoles"[^>]*>.{0,600}?@onclick="OpenAddConfirm"',
+         r"private void OpenAddConfirm\(\)\s*=>\s*showAddConfirm\s*=\s*true;",
+         r"(?s)\A(?!(?:.*?\bOpenAddConfirm\b){3})",
+         r"(?s)\A(?!(?:.*?\bshowAddConfirm\s*=\s*true){2})"],
+        "CreditNoteApprovals opens the add confirmation only from the CreditNoteAddRoles-gated button"),
 }
 USED_HIDDEN_CALLS = set()
 STALE_EXCEPTIONS = []
@@ -1527,6 +1551,11 @@ def main():
     perm_endpoints = [e for e in endpoints if e["attrs"]]
 
     units, razors, impls, request_types, all_urls = build_model(web_roles)
+
+    def component_source(page):
+        """A page's .razor and its code-behind, for exception patterns."""
+        unit = units.get(page)
+        return "\n".join(f[1] for f in unit.files) if unit else razors[page].src
 
     # URL statistics over every URL occurrence in the Web
     url_stats = {"matched": 0, "unmatched": 0, "generic": 0}
@@ -1590,7 +1619,7 @@ def main():
         for (page_name, role), (patterns, why) in ROLE_REDIRECTS.items():
             if page_name != name:
                 continue
-            unmatched_patterns = [p for p in patterns if not re.search(p, info.src)]
+            unmatched_patterns = [p for p in patterns if not re.search(p, component_source(name))]
             if unmatched_patterns:
                 STALE_EXCEPTIONS.append({"page": name, "role": role, "why": why, "unmatched": unmatched_patterns})
                 continue
@@ -1639,7 +1668,7 @@ def main():
                     hidden_key = (name, role, f"{e['verb']} {e['route']}")
                     if hidden_key in ROLE_HIDDEN_CALLS:
                         patterns, why = ROLE_HIDDEN_CALLS[hidden_key]
-                        unmatched_patterns = [p for p in patterns if not re.search(p, info.src)]
+                        unmatched_patterns = [p for p in patterns if not re.search(p, component_source(name))]
                         if not unmatched_patterns:
                             USED_HIDDEN_CALLS.add(hidden_key)
                             continue
