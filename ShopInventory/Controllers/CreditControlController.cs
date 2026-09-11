@@ -45,8 +45,12 @@ public class CreditControlController(ISender mediator) : ApiControllerBase
     /// </param>
     /// <param name="refresh">Re-reads SAP instead of serving the cached result.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <remarks>
+    /// Approving sales orders as well as viewing customers, because the approver is who this is for: a
+    /// sales rep approves orders but holds no customers.view.
+    /// </remarks>
     [HttpGet("headroom")]
-    [RequirePermission(Permission.ViewCustomers)]
+    [RequirePermission(Permission.ViewCustomers, Permission.ApproveSalesOrders)]
     [ProducesResponseType(typeof(CreditHeadroomResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetCreditHeadroom(

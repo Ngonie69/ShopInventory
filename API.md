@@ -1338,7 +1338,7 @@ over. The notification reaches Admin, Cashier and SalesRep users.
 | Method | Endpoint | Permission | Description |
 |--------|----------|-----------|-------------|
 | GET | `/api/credit-control/over-limit` | `customers.view` | Accounts and groups currently over their credit limit |
-| GET | `/api/credit-control/headroom` | `customers.view` | How much credit room named customers have left |
+| GET | `/api/credit-control/headroom` | `customers.view` or `salesorders.approve` | How much credit room named customers have left |
 
 Same finding as the evening review, on demand and in full. Served from a 10-minute cache; pass
 `?refresh=true` to re-read SAP, which is what to do after taking a payment. Concurrent callers
@@ -1479,7 +1479,7 @@ quotation, keyed by its own id. A `{docEntry}` and an `{id}` are not interchange
 | POST | `/api/PurchaseOrder/{id}/receive` | `purchasing.receive` | Receive goods |
 | DELETE | `/api/PurchaseOrder/{id}` | `purchasing.delete` | Delete it |
 | POST | `/api/PurchaseOrder/documents/upload` | `purchasing.upload_documents` | Attach a document (multipart; `poReferenceNumber`, `description`) |
-| GET | `/api/PurchaseOrder/documents` | `purchasing.view` | Attached documents (`poReferenceNumber`) |
+| GET | `/api/PurchaseOrder/documents` | `purchasing.view` or `salesorders.view` | Attached documents (`poReferenceNumber`) |
 
 **Query parameters:** `page` (1), `pageSize` (20), `cardCode`, `fromDate`, `toDate`; the local list
 also takes `status`

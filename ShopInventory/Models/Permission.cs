@@ -329,7 +329,10 @@ public static class Permissions
                 ViewPayments, CreatePayments,
                 ViewStock, ViewInventory,
                 ViewCustomers, CreateCustomers, EditCustomers,
-                ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders,
+                // Posting to SAP as well as approving: /mobile-drafts and /sales-orders offer a cashier
+                // "Post to SAP" on purpose (MobileDrafts.razor gates it on Admin,Cashier,SalesRep). The
+                // two stay separate permissions; a cashier holds both, as a sales rep already did.
+                ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders, PostSalesOrdersToSAP,
                 ViewQuotations, CreateQuotations, EditQuotations,
                 ViewReports
             },
