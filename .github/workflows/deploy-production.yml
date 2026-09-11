@@ -73,6 +73,18 @@ jobs:
           elseif (-not ($sdks -match '^10\.')) {
             $problems += "No .NET 10 SDK on this runner. Installed: $($sdks -join '; ')"
           }
+          else {
+            # Stated on every run, because the publish uses whichever SDK `dotnet` resolves to and a
+            # different compiler is invisible otherwise. A release-candidate SDK here compiled Razor
+            # that every developer's GA SDK accepted differently, and production went undeployed for
+            # a day with nothing in the log naming the version. scripts/check_razor_parser_hazards.py
+            # guards the constructs that SDK rejected.
+            $active = & dotnet --version
+            Write-Host "Publishing with .NET SDK $active (installed: $($sdks -join '; '))"
+            if ($active -match '-(preview|rc)\.') {
+              Write-Host "::warning::This runner publishes with a pre-release .NET SDK ($active). Install the current .NET 10 GA SDK - see docs/operations/github-actions-deploy-runner.md."
+            }
+          }
 
           # Set as a machine-scoped variable on the runner box, not a GitHub secret: it holds a
           # path, and the credential it points at is sealed with DPAPI under the runner's own

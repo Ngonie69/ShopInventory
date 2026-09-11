@@ -116,11 +116,11 @@
             <div class="ops-field ops-ds-seg-field">
                 <span class="ops-label" id="dsa-currency-label">Currency</span>
                 <div class="ops-ds-seg" role="group" aria-labelledby="dsa-currency-label">
-                    @foreach (var section in result.Currencies)
+                    @foreach (var option in result.Currencies)
                     {
-                        <button type="button" class="ops-ds-seg-opt @(Current?.Currency == section.Currency ? "is-on" : "")"
-                                aria-pressed="@(Current?.Currency == section.Currency)"
-                                @onclick="() => currency = section.Currency">@section.Currency</button>
+                        <button type="button" class="ops-ds-seg-opt @(Current?.Currency == option.Currency ? "is-on" : "")"
+                                aria-pressed="@(Current?.Currency == option.Currency)"
+                                @onclick="() => currency = option.Currency">@option.Currency</button>
                     }
                 </div>
             </div>
