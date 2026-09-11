@@ -54,12 +54,12 @@ public class RequirePermissionAttribute : AuthorizeAttribute, IAsyncAuthorizatio
             return;
         }
 
-        // Allow API key authenticated users with Admin or ApiUser roles to bypass
-        // permission checks (service-to-service calls don't have a user-specific identity)
-        var authMethod = user.FindFirst(ClaimTypes.AuthenticationMethod)?.Value;
-        if (authMethod == "ApiKey" && (user.IsInRole(ApplicationRoles.Admin) || user.IsInRole(ApplicationRoles.ApiUser)))
+        // An Admin or ApiUser API key calling on its own has no user whose permissions could be read,
+        // so it passes. A key sent alongside a user's token does not: the Web sends both on every
+        // call, and the user is the one acting — see ApiKeyServiceCaller.
+        if (ApiKeyServiceCaller.IsServiceCall(user))
         {
-            return; // Allow access for API key service accounts
+            return;
         }
 
         // Get user management service from DI

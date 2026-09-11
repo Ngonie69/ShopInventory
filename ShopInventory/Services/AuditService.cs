@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using ShopInventory.Authentication;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
@@ -161,15 +162,9 @@ public class AuditService : IAuditService
             return null;
         }
 
-        return identities.FirstOrDefault(identity => !IsApiKeyIdentity(identity) && HasDisplayableUser(identity))
+        return identities.FirstOrDefault(identity => !ApiKeyServiceCaller.IsApiKeyIdentity(identity) && HasDisplayableUser(identity))
             ?? identities.FirstOrDefault(HasDisplayableUser)
             ?? identities.First();
-    }
-
-    private static bool IsApiKeyIdentity(ClaimsIdentity identity)
-    {
-        return string.Equals(identity.FindFirst(ClaimTypes.AuthenticationMethod)?.Value, "ApiKey", StringComparison.OrdinalIgnoreCase)
-            || identity.HasClaim(claim => string.Equals(claim.Type, "api_key_name", StringComparison.Ordinal));
     }
 
     private static bool HasDisplayableUser(ClaimsIdentity identity)
