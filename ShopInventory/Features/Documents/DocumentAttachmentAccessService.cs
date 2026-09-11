@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using ShopInventory.Authentication;
 using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Crates;
@@ -424,9 +425,9 @@ public sealed class DocumentAttachmentAccessService(
             return Errors.Auth.Unauthenticated;
         }
 
-        var authMethod = user.FindFirst(ClaimTypes.AuthenticationMethod)?.Value;
-        if (string.Equals(authMethod, "ApiKey", StringComparison.OrdinalIgnoreCase) &&
-            (user.IsInRole("Admin") || user.IsInRole("ApiUser")))
+        // Only a key calling on its own bypasses. A Web request carries the key and the user's token
+        // together, and is held to that user's role below.
+        if (ApiKeyServiceCaller.IsServiceCall(user))
         {
             return (Guid.Empty, "ApiKey", null, true);
         }
