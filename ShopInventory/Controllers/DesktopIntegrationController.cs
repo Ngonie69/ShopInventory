@@ -61,6 +61,7 @@ using ShopInventory.Features.DesktopIntegration.Commands.TriggerTransferListener
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferListenerStatus;
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
+using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnalysis;
 using ShopInventory.Middleware;
 using ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
 using ShopInventory.Features.DesktopIntegration.Queries.GetMonitoredWarehouses;
@@ -1034,6 +1035,34 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GenerateEndOfDayReportQuery(reportDate), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// A period's till takings broken down by payment method, day, hour, shop, source, operator and item.
+    /// </summary>
+    /// <remarks>
+    /// Role-gated like the report above and warehouse-scoped like the sales list: a caller confined to a
+    /// shop is narrowed to it, and naming another shop's warehouse is refused. The period is inclusive
+    /// business dates, at most a year, defaulting to today.
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager,Cashier,ApiUser")]
+    [HttpGet("sales/analysis")]
+    public async Task<IActionResult> GetDesktopSalesAnalysis(
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        [FromQuery] string? warehouseCode,
+        [FromQuery] string? sourceSystem,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new GetDesktopSalesAnalysisQuery(userId.Value, fromDate, toDate, warehouseCode, sourceSystem),
+            cancellationToken);
+
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

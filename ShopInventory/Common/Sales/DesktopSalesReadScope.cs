@@ -15,6 +15,36 @@ public sealed record DesktopSalesReadScope(string? WarehouseCode)
     public static readonly DesktopSalesReadScope Unrestricted = new((string?)null);
 
     public bool IsUnrestricted => WarehouseCode is null;
+
+    /// <summary>
+    /// The scope one read runs under, given the warehouse the caller asked for.
+    /// </summary>
+    /// <remarks>
+    /// Refused rather than narrowed when a confined caller names another warehouse: a page headed with
+    /// one warehouse and filled with another's takings is worse than an error, and silently rewriting
+    /// the request would hide a client bug — or a probe — that somebody should see. A confined caller
+    /// who names none is narrowed to their own shop, never widened to every shop. For anyone entitled to
+    /// the whole set the parameter stays a filter.
+    ///
+    /// Shared by every read of till takings so that the list and the analysis cannot come to disagree
+    /// about whose money a caller may see.
+    /// </remarks>
+    public ErrorOr<DesktopSalesReadScope> Narrow(string? requestedWarehouse)
+    {
+        var requested = string.IsNullOrWhiteSpace(requestedWarehouse) ? null : requestedWarehouse.Trim();
+
+        if (IsUnrestricted)
+        {
+            return requested is null ? this : new DesktopSalesReadScope(requested);
+        }
+
+        if (requested is not null && !string.Equals(requested, WarehouseCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return Errors.Errors.DesktopSales.SalesReadOutsideScope(requested, WarehouseCode!);
+        }
+
+        return this;
+    }
 }
 
 /// <summary>

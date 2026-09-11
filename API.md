@@ -2658,8 +2658,9 @@ the list endpoint returns, filtered to those currently blocked.
 **Auth:** Bearer + ApiAccess  
 **Audit:** every **write** is written to the audit log by `DesktopIntegrationAuditFilter`, outcome
 included. Reads are not — a till polls stock and queue state for as long as it is switched on, and
-those rows would bury the ones worth reading. The two reads that show a shop's takings,
-`GET /sales` and `GET /end-of-day/report`, log for themselves in their handlers instead.
+those rows would bury the ones worth reading. The three reads that show a shop's takings,
+`GET /sales`, `GET /sales/analysis` and `GET /end-of-day/report`, log for themselves in their handlers
+instead.
 
 This controller supports stock reservations and queue-based invoice posting for the desktop application.
 
@@ -2814,6 +2815,7 @@ transfers is `transfer-queue`, separate from the invoice `queue`.
 |--------|----------|-------------|
 | POST | `/api/DesktopIntegration/sales` | Record a desktop sale |
 | GET | `/api/DesktopIntegration/sales` | The sales (`warehouseCode`, `cardCode`, `consolidationStatus`, `fromDate`, `toDate`, `page` 1, `pageSize` 50) |
+| GET | `/api/DesktopIntegration/sales/analysis` | Admin, Manager, Cashier, ApiUser. A period's takings, one section per currency, broken down by payment method (Cash, Swipe and Ecocash always listed; legacy spellings folded; `Not recorded` for none), day, hour in CAT, shop, source, operator and the 25 best-selling items (`fromDate`, `toDate` — business dates, inclusive, default today, at most 366 days; `warehouseCode`, scoped exactly like the list; `sourceSystem`) |
 | POST | `/api/DesktopIntegration/sales/{externalReference}/post` | Post one held sale to SAP now |
 | POST | `/api/DesktopIntegration/sales/post-batch` | Post a named set of held sales, one invoice each (`externalReferenceIds`, at most 50) |
 | POST | `/api/DesktopIntegration/end-of-day/consolidate` | Consolidate the day's sales |

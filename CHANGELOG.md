@@ -18,6 +18,21 @@ otherwise be surprised.
 
 ### Added
 
+- **`GET /api/DesktopIntegration/sales/analysis`** (Admin, Manager, Cashier, ApiUser).
+
+  A period's till takings broken down by how they were paid — and by day, hour, shop, source,
+  operator and best-selling item — with one section per currency, since tills sell in both USD and
+  ZWG. It backs the new `/reports/desktop-sales` page and its Excel export. The shop till now asks the
+  cashier for Cash, Swipe or EcoCash and sends it as `paymentMethod`, with the EcoCash confirmation as
+  `paymentReference`; until now every till sale was sent as cash whatever the customer paid with, so
+  earlier sales in this report are cash by that assumption rather than by record.
+
+  Scoped exactly as `GET /sales` is: an account assigned to a shop is narrowed to it, and naming
+  another shop's warehouse is refused. Logged as `ViewDesktopSales`. Tenders are grouped by their
+  canonical names, so rows stored in a till's own casing or under the legacy `transfer`/`paynow`
+  values fold into one line each rather than splitting; a sale with no tender recorded is its own
+  `Not recorded` line and is never counted as cash.
+
 - **`POST /api/DesktopIntegration/sales/{externalReference}/post` and
   `POST /api/DesktopIntegration/sales/post-batch`** (Admin, Manager, Cashier, ApiUser).
 
