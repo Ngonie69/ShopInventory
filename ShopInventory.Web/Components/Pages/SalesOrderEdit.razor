@@ -1,7 +1,9 @@
 @page "/sales-orders/edit/{Id:int}"
 @using Microsoft.AspNetCore.Authorization
 @using MudBlazor
-@attribute [Authorize(Roles = "Admin,Cashier,Merchandiser,SalesRep")]
+@* Not Merchandiser: saving is salesorders.edit, which a merchandiser does not hold. /mobile-drafts
+   shows a merchandiser no Edit button, and this gate is what stops a typed URL. *@
+@attribute [Authorize(Roles = "Admin,Cashier,SalesRep")]
 @inject ISalesOrderService SalesOrderService
 @inject IBusinessPartnerService BusinessPartnerService
 @inject IMasterDataCacheService CacheService

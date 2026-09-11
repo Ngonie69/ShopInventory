@@ -181,6 +181,24 @@ public sealed class WebPageGatePermissionAlignmentTests
         }
     }
 
+    /// <summary>
+    /// /sales-orders/edit saves the order, which is salesorders.edit. A merchandiser reads mobile orders
+    /// but does not hold it, so the page must not admit one, even by a typed URL.
+    /// </summary>
+    [Fact]
+    public async Task Every_role_the_sales_order_editor_admits_can_save_the_order()
+    {
+        var roles = PageRoles("ShopInventory.Web.Components.Pages.SalesOrderEdit");
+        Assert.DoesNotContain(ApplicationRoles.Merchandiser, roles);
+
+        foreach (var role in roles)
+        {
+            Assert.True(
+                await Passes<SalesOrderController>(nameof(SalesOrderController.Update), role),
+                $"{role} can open /sales-orders/edit but the API refuses the save.");
+        }
+    }
+
     /// <summary>The non-Admin roles a compiled Web page admits, read off its [Authorize] attribute.</summary>
     internal static string[] PageRoles(string pageTypeName)
     {

@@ -1507,6 +1507,11 @@ ROLE_HIDDEN_CALLS = {
          r"(?s)\A(?!(?:.*?\bOpenAddConfirm\b){3})",
          r"(?s)\A(?!(?:.*?\bshowAddConfirm\s*=\s*true){2})"],
         "CreditNoteApprovals opens the add confirmation only from the CreditNoteAddRoles-gated button"),
+    ("MobileDrafts", "Merchandiser", "PUT api/SalesOrder/{id}"): (
+        [r"canSaveOrderPrices\s*=\s*user\.IsInRole\(UserRoles\.Admin\)\s*\|\|\s*user\.IsInRole\(UserRoles\.Cashier\)\s*\|\|\s*user\.IsInRole\(UserRoles\.SalesRep\);",
+         r"(?s)if\s*\(\s*!canSaveOrderPrices\s*\)\s*\{\s*ApplyLocalOrderPricing\(order,\s*updatedLines\);\s*return true;\s*\}.{0,3000}?SalesOrderService\.UpdateSalesOrderAsync\(order\.Id",
+         r"(?s)\A(?!(?:.*?\bUpdateSalesOrderAsync\(){2})"],
+        "MobileDrafts saves hydrated prices only for Admin, Cashier and SalesRep; a merchandiser's stay in memory"),
 }
 USED_HIDDEN_CALLS = set()
 STALE_EXCEPTIONS = []
