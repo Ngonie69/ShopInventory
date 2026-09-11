@@ -148,6 +148,20 @@ function Test-Prerequisites {
         $problems.Add("git is not on PATH for this session.")
     }
 
+    # Loaded out of Update-Production.ps1 rather than copied, so that the check below predicts with
+    # the same code the deployment will actually run. The two scripts always ship together.
+    $deployScriptPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'Update-Production.ps1'
+    $deployParseErrors = $null
+    $deployAst = [System.Management.Automation.Language.Parser]::ParseFile($deployScriptPath, [ref]$null, [ref]$deployParseErrors)
+    $resolverAst = $deployAst.Find({
+            param($n)
+            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Resolve-DeploymentConnectionName'
+        }, $true)
+    if (-not $resolverAst) {
+        throw "Resolve-DeploymentConnectionName was not found in $deployScriptPath. The two scripts are out of step."
+    }
+    . ([scriptblock]::Create($resolverAst.Extent.Text))
+
     # Deployment packages travel over WinRM, not SMB, so 5985 is the port that matters.
     foreach ($node in $ProductionNodes) {
         $reachable = Test-NetConnection -ComputerName $node -Port 5985 -WarningAction SilentlyContinue
@@ -164,6 +178,35 @@ function Test-Prerequisites {
         }
         catch {
             $problems.Add("Port 5985 is open on $node but WinRM did not answer: $($_.Exception.Message)")
+            continue
+        }
+
+        # Test-WSMan above is anonymous, so it passes even where every authenticated session will
+        # fail. That is exactly how this check once reported a healthy runner that could not open
+        # one session: Negotiate cannot use Kerberos against a bare IP or a machine outside the
+        # domain, and falls back to NTLM, which WinRM refuses for a host the client does not trust.
+        # The symptom is 0x8009030e, which reads like a bad password.
+        #
+        # Update-Production.ps1 addresses a node by name only where that lets Kerberos in, and needs
+        # TrustedHosts everywhere else. The prediction runs that script's own resolver, loaded
+        # below, so the two cannot disagree about which case a node is in.
+        $address = $null
+        if ([System.Net.IPAddress]::TryParse($node, [ref]$address)) {
+            $connectionName = Resolve-DeploymentConnectionName -Server $node
+
+            $trusted = $null
+            try { $trusted = (Get-Item WSMan:\localhost\Client\TrustedHosts -ErrorAction Stop).Value } catch { }
+            $isTrusted = $trusted -and (($trusted -split ',' | ForEach-Object { $_.Trim() }) | Where-Object { $_ -eq '*' -or $_ -eq $node })
+
+            if ($connectionName -ne $node) {
+                Write-Ok "$node will be addressed as $connectionName, so Kerberos can authenticate it"
+            }
+            elseif ($isTrusted) {
+                Write-Ok "$node is in TrustedHosts, so NTLM will be accepted"
+            }
+            else {
+                $problems.Add("Authenticated sessions to $node will fail with 0x8009030e: it has no reverse DNS name inside this machine's domain that resolves back to it, and it is not in this machine's WinRM TrustedHosts (unreadable without elevation, so re-run elevated if you believe it is). Give it a matching domain DNS record, or from an elevated prompt run: Set-Item WSMan:\localhost\Client\TrustedHosts -Value '$node' -Concatenate -Force")
+            }
         }
     }
 
