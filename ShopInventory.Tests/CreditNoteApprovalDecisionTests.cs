@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Idempotency;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Features.CreditNoteApprovals;
 using ShopInventory.Features.CreditNoteApprovals.Commands.DecideCreditNoteApproval;
 using ShopInventory.Models;
 using ShopInventory.Services;
@@ -70,6 +71,29 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
         Assert.Equal(AuditActions.ApproveSapCreditNote, entry.Action);
         Assert.True(entry.Success);
         Assert.Contains("ngoni", entry.Details);
+    }
+
+    /// <summary>
+    /// Production request 86300: SAP marked the request Approved and left its draft Pending, so neither
+    /// the B1 client nor the add can use it. Reporting "can now be added" there was the bug.
+    /// </summary>
+    [Fact]
+    public async Task An_approval_sap_records_without_approving_the_draft_says_the_credit_note_cannot_be_added()
+    {
+        var sap = new RecordingSap(Pending(3110))
+        {
+            AfterDecision = Approved(3110),
+            DraftAfterDecision = Draft(SapDocumentAuthorizationStatuses.Pending)
+        };
+
+        var result = await Handler(sap, new RecordingAuditService()).Handle(Command(3110, "Approved", null), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        Assert.Equal("Approved", result.Value.Status);
+        Assert.False(result.Value.CanAdd);
+        Assert.False(result.Value.StillPending);
+        Assert.DoesNotContain("can now be added", result.Value.Message);
+        Assert.Contains("left draft 88123 Pending", result.Value.Message);
     }
 
     [Fact]
@@ -238,6 +262,7 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
         var handler = new DecideCreditNoteApprovalHandler(
             sap.AsClient(),
             FakeSapApprovalLookups.WithStage(4, "Finance review", [Manager, Finance], 1, 9),
+            FixedStageScope.EveryStage,
             Store(),
             new RecordingAuditService(),
             Options.Create(new SAPSettings
@@ -263,6 +288,7 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
         var handler = new DecideCreditNoteApprovalHandler(
             sap.AsClient(),
             lookups,
+            FixedStageScope.EveryStage,
             Store(),
             new RecordingAuditService(),
             Options.Create(new SAPSettings
@@ -284,15 +310,52 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
         Assert.Null(patch.Password);
     }
 
+    /// <summary>
+    /// The wash bay decides as the same SAP service approver a manager does, so SAP would record its
+    /// decision on any stage that approver sits on. The scope is the only thing keeping it to its own.
+    /// </summary>
+    [Fact]
+    public async Task A_stage_scoped_caller_cannot_decide_a_request_at_another_stage()
+    {
+        var sap = new RecordingSap(Pending(3110));
+        var audit = new RecordingAuditService();
+
+        var result = await Handler(sap, audit, scope: FixedStageScope.Stages("Wash Bay Approvals", 5))
+            .Handle(Command(3110, "Approved", null), CancellationToken.None);
+
+        Assert.Equal("CreditNoteApproval.OutsideStageScope", result.FirstError.Code);
+        Assert.Contains("'Wash Bay Approvals'", result.FirstError.Description);
+        Assert.Empty(sap.Decisions);
+        Assert.Empty(audit.Entries);
+    }
+
+    [Fact]
+    public async Task A_stage_scoped_caller_decides_a_request_at_its_own_stage()
+    {
+        var sap = new RecordingSap(Pending(3110)) { AfterDecision = Approved(3110) };
+        var scope = FixedStageScope.Stages("Wash Bay Approvals", 4);
+
+        var result = await Handler(sap, new RecordingAuditService(), scope: scope)
+            .Handle(Command(3110, "Approved", null), CancellationToken.None);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Single(sap.Decisions);
+
+        // Scoped by the account that decided, not by anything else on the request.
+        Assert.Equal(Ngoni, Assert.Single(scope.AskedFor));
+    }
+
     // ── Harness ──────────────────────────────────────────────────────────────────
 
     private DecideCreditNoteApprovalHandler Handler(
         RecordingSap sap,
         RecordingAuditService audit,
         FakeSapApprovalLookups? lookups = null,
-        IIdempotencyRequestStore? store = null) => new(
+        IIdempotencyRequestStore? store = null,
+        ICreditNoteApprovalStageScope? scope = null) => new(
         sap.AsClient(),
         lookups ?? FakeSapApprovalLookups.WithStage(4, "Finance review", [Manager, Finance], 1, 9),
+        scope ?? FixedStageScope.EveryStage,
         store ?? Store(),
         audit,
         Options.Create(new SAPSettings { Enabled = true, Username = "manager", Password = "pw" }),
@@ -323,11 +386,23 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
     private static SAPApprovalRequestLine Line(int stage, int user, string status)
         => new() { StageCode = stage, UserID = user, Status = status };
 
+    private static SAPCreditNote Draft(string authorizationStatus) => new()
+    {
+        DocEntry = 88123,
+        DocObjectCode = SapDocObjectCodes.CreditNotes,
+        DocumentStatus = SapDocumentStatuses.Open,
+        AuthorizationStatus = authorizationStatus
+    };
+
     private sealed class RecordingSap(SAPApprovalRequest current)
     {
         private bool _decided;
 
         public SAPApprovalRequest? AfterDecision { get; init; }
+
+        /// <summary>The draft SAP shows once the decision is in; by default it followed the request.</summary>
+        public SAPCreditNote? DraftAfterDecision { get; init; } = Draft(SapDocumentAuthorizationStatuses.Approved);
+
         public string? RefuseWith { get; init; }
         public Exception? ThrowOnDecision { get; init; }
         public List<(int Code, string? Approver, string? Password, string Decision, string? Remarks, CancellationToken Token)> Decisions { get; } = [];
@@ -336,6 +411,8 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
         {
             nameof(ISAPServiceLayerClient.GetApprovalRequestAsync)
                 => Task.FromResult<SAPApprovalRequest?>(_decided ? AfterDecision ?? current : current),
+            nameof(ISAPServiceLayerClient.GetCreditNoteDraftAsync)
+                => Task.FromResult(DraftAfterDecision),
             nameof(ISAPServiceLayerClient.SubmitApprovalDecisionAsync) => Decide(args!),
             _ => throw new InvalidOperationException($"{method.Name} was not expected.")
         });

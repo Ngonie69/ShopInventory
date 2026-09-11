@@ -1738,11 +1738,11 @@ else if (pendingActionTitle is not null)
 
     // ── Editing a transfer request ──────────────────────
     private static readonly string[] RequestEditorRoles =
-        [UserRoles.Admin, UserRoles.StockController, UserRoles.DepotController, UserRoles.Manager];
+        [UserRoles.Admin, UserRoles.StockController, UserRoles.WashBay, UserRoles.DepotController, UserRoles.Manager];
     // Mirrors [Authorize] on POST api/inventorytransfer/request/{docEntry}/convert. Managers may
     // edit a request but not convert one, so this is deliberately not RequestEditorRoles.
     private static readonly string[] RequestConverterRoles =
-        [UserRoles.Admin, UserRoles.StockController, UserRoles.DepotController];
+        [UserRoles.Admin, UserRoles.StockController, UserRoles.WashBay, UserRoles.DepotController];
     private bool isEditingRequestLines = false;
     private bool isSavingRequestEdit = false;
     private bool isDecidingRequestEdit = false;
@@ -3795,6 +3795,7 @@ else if (pendingActionTitle is not null)
     {
         "StockController" => "Stock Officer",
         "DepotController" => "Depot Controller",
+        "WashBay" => "Wash Bay",
         "Admin" => "Administrator",
         // No role means no approval was raised here — the request came straight from SAP. This used
         // to read "Administrator review", which described a review that does not exist.

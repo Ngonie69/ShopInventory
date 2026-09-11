@@ -48,6 +48,19 @@ public static class ApplicationRoles
     public const string TillOperator = "TillOperator";
 
     /// <summary>
+    /// The production wash bay: moves stock between warehouses and approves the A/R credit memos
+    /// SAP holds at its own approval stage.
+    /// </summary>
+    /// <remarks>
+    /// Transfers work as they do for <see cref="StockController"/> — any warehouse, including
+    /// converting and closing requests — so the role needs no warehouse assignment. Credit memo access
+    /// is narrower than a manager's twice over: it may decide but not add
+    /// (<c>creditnotes.approve</c> without <c>creditnotes.add_approved</c>), and only the requests
+    /// sitting at the SAP stages <c>CreditNoteApprovals:RoleStageScopes</c> names for it.
+    /// </remarks>
+    public const string WashBay = "WashBay";
+
+    /// <summary>
     /// A van sales customer signing in on the customer ordering app. Not an employee.
     /// </summary>
     /// <remarks>
@@ -96,7 +109,8 @@ public static class ApplicationRoles
         Adr,
         Sales,
         CartVendor,
-        TillOperator
+        TillOperator,
+        WashBay
     ];
 
     // Roles that can continue to exist on managed users during compatibility cleanup.
@@ -119,7 +133,8 @@ public static class ApplicationRoles
         Adr,
         Sales,
         CartVendor,
-        TillOperator
+        TillOperator,
+        WashBay
     ];
 
     public static readonly string[] ApiAccessRoles =
@@ -140,7 +155,8 @@ public static class ApplicationRoles
         Adr,
         Sales,
         CartVendor,
-        TillOperator
+        TillOperator,
+        WashBay
     ];
 
     public static readonly string[] ApiAccessWithOperatorRoles =
@@ -162,7 +178,8 @@ public static class ApplicationRoles
         Adr,
         Sales,
         CartVendor,
-        TillOperator
+        TillOperator,
+        WashBay
     ];
 
     public static readonly string[] ScopedPodViewerRoles =
@@ -314,6 +331,14 @@ public static class ApplicationRoles
     /// </remarks>
     public static bool SupportsFiscalDevice(string? role)
         => Contains(DepotLoadedRoles, role);
+
+    /// <summary>
+    /// Whether the role may only read and decide the credit memo approvals held at the SAP stages
+    /// <c>CreditNoteApprovals:RoleStageScopes</c> names for it. With no stage configured the role is
+    /// refused the queue, never shown all of it.
+    /// </summary>
+    public static bool RequiresCreditNoteStageScope(string? role)
+        => Contains([WashBay], role);
 
     public static string DescribeAssignableRoles() => string.Join(", ", AssignableRoles);
 

@@ -110,7 +110,7 @@ public sealed class CreditNoteApprovalListRoundTripTests
         var lookups = new SapApprovalLookups(client, new MemoryCache(new MemoryCacheOptions()), Options.Create(settings));
 
         return new GetCreditNoteApprovalsHandler(
-            client, lookups, Options.Create(settings), NullLogger<GetCreditNoteApprovalsHandler>.Instance);
+            client, lookups, FixedStageScope.EveryStage, Options.Create(settings), NullLogger<GetCreditNoteApprovalsHandler>.Instance);
     }
 
     private static SAPServiceLayerClient CreateClient(FakeSap sap, SAPSettings settings)
@@ -276,7 +276,7 @@ public sealed class CreditNoteApprovalListRoundTripTests
             if (path.Contains("/ApprovalStages(", StringComparison.Ordinal))
             {
                 return Json("""
-                    {"Code":4,"Name":"Production WashBay","NoOfApproversRequired":1,
+                    {"Code":4,"Name":"Wash Bay Approvals","NoOfApproversRequired":1,
                      "ApprovalStageApprovers":[{"UserID":1}]}
                     """);
             }

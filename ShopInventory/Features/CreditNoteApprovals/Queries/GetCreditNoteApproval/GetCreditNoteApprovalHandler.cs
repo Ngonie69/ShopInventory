@@ -12,6 +12,7 @@ namespace ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprov
 public sealed class GetCreditNoteApprovalHandler(
     ISAPServiceLayerClient sap,
     ISapApprovalLookups lookups,
+    ICreditNoteApprovalStageScope stageScope,
     IOptions<SAPSettings> sapSettings,
     ILogger<GetCreditNoteApprovalHandler> logger)
     : IRequestHandler<GetCreditNoteApprovalQuery, ErrorOr<CreditNoteApprovalDetailDto>>
@@ -25,10 +26,21 @@ public sealed class GetCreditNoteApprovalHandler(
             return Errors.CreditNoteApproval.SapDisabled;
         }
 
+        var scope = await stageScope.ResolveAsync(query.CallerUserId, cancellationToken);
+        if (scope.IsError)
+        {
+            return scope.Errors;
+        }
+
         var request = await sap.GetApprovalRequestAsync(query.Code, cancellationToken);
         if (request is null || !string.Equals(request.ObjectType, SapObjectTypes.CreditNote, StringComparison.Ordinal))
         {
             return Errors.CreditNoteApproval.NotFound(query.Code);
+        }
+
+        if (!scope.Value.Admits(request.CurrentStage))
+        {
+            return Errors.CreditNoteApproval.OutsideStageScope(query.Code, scope.Value.Describe());
         }
 
         SAPCreditNote? draft = null;

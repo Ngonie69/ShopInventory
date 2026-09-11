@@ -84,6 +84,10 @@ public partial class SAPServiceLayerClient
     /// The cursor: read the requests below this <c>Code</c>. Given, the page is keyed rather than
     /// offset — see the remarks. Null reads from the top, and <paramref name="page"/> then offsets.
     /// </param>
+    /// <param name="stageCodes">
+    /// Only the requests whose <c>CurrentStage</c> is one of these, in the rows and the count alike. Null
+    /// reads every stage; an empty collection is refused before anything is sent.
+    /// </param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     /// <remarks>
     /// The queue is ordered <c>Code desc</c> and it is live: a credit memo raised while somebody is
@@ -98,6 +102,7 @@ public partial class SAPServiceLayerClient
         int page,
         int pageSize,
         int? beforeCode = null,
+        IReadOnlyCollection<int>? stageCodes = null,
         CancellationToken cancellationToken = default)
     {
         // The statuses go into the filter as literals, so they are whitelisted rather than escaped.
@@ -114,12 +119,25 @@ public partial class SAPServiceLayerClient
             throw new ArgumentException("At least one SAP approval request status is required.", nameof(sapStatuses));
         }
 
+        var stages = stageCodes?.Distinct().Order().ToList();
+        if (stages is { Count: 0 })
+        {
+            throw new ArgumentException("A stage filter must name at least one stage; pass null to read every stage.", nameof(stageCodes));
+        }
+
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, DocumentListPageSize);
         var skip = (page - 1) * pageSize;
 
         var statusFilter = string.Join(" or ", statuses.Select(status => $"Status eq '{status}'"));
         var baseFilter = $"ObjectType eq '{SapObjectTypes.CreditNote}' and ({statusFilter})";
+
+        // Part of the base filter, so the count is of the scoped queue too: a count of the whole queue
+        // over a scoped page would promise pages that never come.
+        if (stages is not null)
+        {
+            baseFilter += $" and ({string.Join(" or ", stages.Select(code => $"CurrentStage eq {code}"))})";
+        }
 
         // The count is of the whole queue, so it never carries the cursor — the page label says how
         // far through the queue this page is, not how much of it is below the cursor.
@@ -250,6 +268,30 @@ public partial class SAPServiceLayerClient
     public Task<SAPApprovalStage?> GetApprovalStageAsync(int code, CancellationToken cancellationToken = default)
         => ReadSapJsonAsync<SAPApprovalStage>(
             $"ApprovalStages({code})?{ApprovalStageSelect}", $"read approval stage {code}", cancellationToken);
+
+    public async Task<List<SAPApprovalStage>> GetApprovalStagesByNameAsync(
+        IReadOnlyCollection<string> names,
+        CancellationToken cancellationToken = default)
+    {
+        var distinct = names
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (distinct.Count == 0)
+        {
+            return [];
+        }
+
+        var filter = string.Join(" or ", distinct.Select(name => $"Name eq '{EscapeODataStringLiteral(name)}'"));
+        var page = await ReadSapJsonAsync<SAPResponse<SAPApprovalStage>>(
+            $"ApprovalStages?$filter={Uri.EscapeDataString(filter)}&{ApprovalStageSelect}",
+            $"look up approval stages named {string.Join(", ", distinct)}",
+            cancellationToken,
+            pageSize: 20);
+
+        return page?.Value ?? [];
+    }
 
     #endregion
 

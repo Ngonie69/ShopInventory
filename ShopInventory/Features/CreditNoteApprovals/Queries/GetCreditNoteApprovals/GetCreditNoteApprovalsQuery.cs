@@ -15,5 +15,9 @@ namespace ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprov
 /// The cursor from the previous page's <c>NextCursor</c>. Given, the page continues below that
 /// <c>Code</c>; null reads from the top and <paramref name="Page"/> offsets into the queue.
 /// </param>
-public sealed record GetCreditNoteApprovalsQuery(string? Status, int Page, int PageSize, int? BeforeCode = null)
+/// <param name="CallerUserId">
+/// The caller's account, whose role decides which SAP stages of the queue they see — see
+/// <see cref="ICreditNoteApprovalStageScope"/>. Null is a service caller and sees every stage.
+/// </param>
+public sealed record GetCreditNoteApprovalsQuery(string? Status, int Page, int PageSize, int? BeforeCode = null, Guid? CallerUserId = null)
     : IRequest<ErrorOr<CreditNoteApprovalListResponseDto>>;

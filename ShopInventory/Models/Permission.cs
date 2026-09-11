@@ -376,6 +376,16 @@ public static class Permissions
                 // /van-sales-customer-orders: loading the van from what shops ordered.
                 FulfilVanSalesCustomerOrders
             },
+            // A stock controller's transfer rights plus the decision on a held credit memo. Not the
+            // add: posting the approved memo stays with the managers, and which memos it may decide
+            // at all is narrowed again by SAP stage — see CreditNoteApprovals:RoleStageScopes.
+            ApplicationRoles.WashBay => new List<string>
+            {
+                ViewDashboard, ViewProducts,
+                ViewStock, ViewInventory, TransferStock, TransferInventory,
+                ViewCustomers,
+                ApproveSapCreditNotes
+            },
             // Depot controllers are limited to inventory transfers, local stock, and loading vans from the
             // orders shops placed (/van-sales-customer-orders).
             ApplicationRoles.DepotController => new List<string>

@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Security;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -11,7 +12,8 @@ namespace ShopInventory.Features.UserManagement.Queries.GetUsers;
 
 public sealed class GetUsersHandler(
     ApplicationDbContext context,
-    IHttpContextAccessor httpContextAccessor
+    IHttpContextAccessor httpContextAccessor,
+    ICallerAccountReader callerAccounts
 ) : IRequestHandler<GetUsersQuery, ErrorOr<PagedResult<UserDetailDto>>>
 {
     public async Task<ErrorOr<PagedResult<UserDetailDto>>> Handle(
@@ -27,7 +29,13 @@ public sealed class GetUsersHandler(
         // filter reassignments below cannot be assigned back to.
         IQueryable<User> usersQuery = context.Users.AsNoTracking().Include(user => user.Shop);
 
-        if (httpContextAccessor.HttpContext?.User.IsInRole(ApplicationRoles.PodOperator) == true)
+        var caller = await callerAccounts.ReadAsync(httpContextAccessor.HttpContext?.User, cancellationToken);
+        if (caller.IsError)
+        {
+            return caller.Errors;
+        }
+
+        if (caller.Value.IsInRole(ApplicationRoles.PodOperator))
         {
             usersQuery = usersQuery.Where(userEntity => userEntity.Role == ApplicationRoles.Driver);
         }

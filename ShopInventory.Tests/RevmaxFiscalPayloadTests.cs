@@ -2,8 +2,11 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Notifications;
+using ShopInventory.Models.Entities;
 using ShopInventory.Models.Revmax;
 using ShopInventory.Services;
 
@@ -463,8 +466,10 @@ public class RevmaxFiscalPayloadTests
         Assert.Equal("216407", result.ReceiptGlobalNo);
         Assert.Equal("515", result.ReceiptCounter);
 
-        // The receipt's own fiscal day, not the device's current one.
-        Assert.Equal("524", result.FiscalDayNo);
+        // No fiscal day. The 524 on this lookup was once taken for the receipt's own day, but FDMS holds
+        // 771485 as 515/216407 on day 525: the envelope is not the receipt's day, and an adopted receipt
+        // may be from any earlier day.
+        Assert.Null(result.FiscalDayNo);
         Assert.Equal("29B2-D2C2-8D25-A35C", result.VerificationCode);
         Assert.Equal("8DE6996C0188", result.DeviceSerial);
     }
@@ -934,7 +939,9 @@ public class RevmaxFiscalPayloadTests
         Assert.True(result.Success);
         Assert.True(result.AlreadyFiscalised);
         Assert.Equal("47281", result.ReceiptGlobalNo);
-        Assert.Equal("828", result.FiscalDayNo);
+
+        // The lookup's FiscalDay envelope is not the receipt's day.
+        Assert.Null(result.FiscalDayNo);
     }
 
     [Fact]
@@ -989,7 +996,9 @@ public class RevmaxFiscalPayloadTests
         // fiscalised and what the reprint puts on the customer's copy.
         Assert.Equal("216090", result.ReceiptGlobalNo);
         Assert.Equal("41", result.ReceiptCounter);
-        Assert.Equal("525", result.FiscalDayNo);
+
+        // Except the day: the lookup does not carry the receipt's, and its FiscalDay envelope is not it.
+        Assert.Null(result.FiscalDayNo);
         Assert.Equal("8DE6996C0188", result.DeviceSerial);
         Assert.Equal("https://fdms.zimra.co.zw/QR", result.QRCode);
         Assert.Equal("1234-5678", result.VerificationCode);
@@ -1040,6 +1049,207 @@ public class RevmaxFiscalPayloadTests
         Assert.False(result.Success);
         Assert.False(result.AlreadyFiscalised);
         Assert.Null(result.ReceiptGlobalNo);
+    }
+
+    /// <summary>
+    /// Till sale 5, GRC-FAC-20260911-286EEC7389FD. FDMS holds its receipt as "Invoice No: 985/216877,
+    /// Fiscal day No: 525"; the till printed fiscal day 524 and no receipt number.
+    /// </summary>
+    private const string TillSaleReference = "GRC-FAC-20260911-286EEC7389FD";
+
+    private const string TillSaleQrCode =
+        "https://fdms.zimra.co.zw/000002286211092026000021687760A74CD961202377";
+
+    /// <summary>
+    /// TransactM's answer for the till sale, as far as the API's response to the till shows it: a QR code
+    /// and verification code, no receipt number, and the envelope day of 524.
+    /// </summary>
+    private static TransactMResponse TillSaleFiling() => new()
+    {
+        Code = "1",
+        Message = "Upload Success",
+        QRcode = TillSaleQrCode,
+        VerificationCode = "60A7-4CD9-6120-2377",
+        DeviceID = "22862",
+        DeviceSerialNumber = "8DE6996C0188",
+        FiscalDay = "524"
+    };
+
+    /// <summary>
+    /// GetInvoice/GRC-FAC-20260911-286EEC7389FD and GetDayStatus, as the device answered them on
+    /// 2026-09-11. Both envelopes read FiscalDay 524; only the day status's own lastFiscalDayNo is 525.
+    /// </summary>
+    private static RecordingRevmaxClient TillSaleDevice(DayStatusResponse? dayStatus) => new()
+    {
+        AcceptPostWith = TillSaleFiling(),
+        FiledReceipt = new InvoiceResponse
+        {
+            Code = "1",
+            Message = "Success",
+            QRcode = TillSaleQrCode,
+            VerificationCode = "60A7-4CD9-6120-2377",
+            DeviceID = "22862",
+            DeviceSerialNumber = "8DE6996C0188",
+            FiscalDay = "524",
+            Data = new InvoiceData
+            {
+                ReceiptType = "FiscalInvoice",
+                ReceiptCurrency = "USD",
+                ReceiptCounter = 985,
+                ReceiptGlobalNo = 216877,
+                InvoiceNo = "22862-" + TillSaleReference,
+                ReceiptTotal = 411.48m
+            }
+        },
+        DayStatus = dayStatus
+    };
+
+    private static DayStatusResponse TillSaleDayStatus(
+        string code = "1",
+        string? fiscalDayStatus = "FiscalDayCloseFailed",
+        int lastReceiptGlobalNo = 216975) => new()
+    {
+        Code = code,
+        Message = code == "1" ? "Success" : "Init error -1",
+        DeviceID = "22862",
+        DeviceSerialNumber = "8DE6996C0188",
+        FiscalDay = "524",
+        Data = fiscalDayStatus is null
+            ? null
+            : new DayStatusData
+            {
+                FiscalDayStatus = fiscalDayStatus,
+                LastFiscalDayNo = 525,
+                LastReceiptGlobalNo = lastReceiptGlobalNo
+            }
+    };
+
+    /// <summary>Sale 5 as the Graniteside till sent it, from its order log.</summary>
+    private static DesktopSaleEntity TillSale() => new()
+    {
+        ExternalReferenceId = TillSaleReference,
+        SourceSystem = SaleSourceSystems.ShopTill,
+        CardCode = "COR007",
+        WarehouseCode = "KEFGRS",
+        DocDate = new DateTime(2026, 9, 11),
+        Currency = "USD",
+        TotalAmount = 411.48m,
+        VatAmount = 55.23m,
+        AmountPaid = 412m,
+        PaymentMethod = TenderTypes.Cash,
+        Lines =
+        [
+            new DesktopSaleLineEntity
+            {
+                LineNum = 0, ItemCode = "ICS025", ItemDescription = "5 Litre Shamiso Blueberry",
+                Quantity = 17m, UnitPrice = 6.25m, LineTotal = 106.25m
+            },
+            new DesktopSaleLineEntity
+            {
+                LineNum = 1, ItemCode = "ICS026", ItemDescription = "5 Litre Shamiso Bubblegum",
+                Quantity = 20m, UnitPrice = 6.25m, LineTotal = 125m
+            },
+            new DesktopSaleLineEntity
+            {
+                LineNum = 2, ItemCode = "ICS027", ItemDescription = "5 Litre Shamiso Banana",
+                Quantity = 20m, UnitPrice = 6.25m, LineTotal = 125m
+            }
+        ]
+    };
+
+    private static DesktopSaleFiscaliser Fiscaliser(IRevmaxClient client) => new(
+        Service(client),
+        StubProxy.For<INotificationService>((method, _) => method.Name switch
+        {
+            nameof(INotificationService.CreateNotificationAsync) => Task.FromResult(0),
+            _ => throw new InvalidOperationException($"INotificationService.{method.Name} was not expected.")
+        }),
+        Options.Create(Tax),
+        NullLogger<DesktopSaleFiscaliser>.Instance);
+
+    [Fact]
+    public async Task A_till_sale_records_the_receipt_number_and_fiscal_day_fdms_holds()
+    {
+        // The till printed fiscal day 524 and no receipt number for this sale; FDMS holds 985/216877 on
+        // day 525. TransactM's body carries no receipt number, and every REVMax envelope - TransactM,
+        // GetInvoice and GetDayStatus alike - read FiscalDay 524 that week, so copying the response
+        // got both wrong on every till receipt.
+        var sale = TillSale();
+
+        await Fiscaliser(TillSaleDevice(TillSaleDayStatus())).FiscaliseAsync(sale, CancellationToken.None);
+
+        Assert.Equal(DesktopSaleFiscalizationStatus.Success, sale.FiscalizationStatus);
+        Assert.Equal("216877", sale.FiscalReceiptNumber);
+        Assert.Equal("525", sale.FiscalDayNo);
+        Assert.Equal(TillSaleQrCode, sale.FiscalQRCode);
+        Assert.Equal("60A7-4CD9-6120-2377", sale.FiscalVerificationCode);
+        Assert.Equal("8DE6996C0188", sale.FiscalDeviceNumber);
+    }
+
+    [Fact]
+    public async Task A_filed_receipt_carries_the_counter_the_device_recorded_it_under()
+    {
+        var result = await Service(TillSaleDevice(TillSaleDayStatus()))
+            .FiscalizePreSapInvoiceAsync(Invoice(), TillSaleReference);
+
+        Assert.True(result.Success);
+        Assert.Equal("216877", result.ReceiptGlobalNo);
+        Assert.Equal("985", result.ReceiptCounter);
+        Assert.Equal("525", result.FiscalDayNo);
+    }
+
+    [Fact]
+    public async Task The_receipt_number_survives_a_read_back_that_cannot_be_made()
+    {
+        // The QR code on the filing's own answer carries the global number, so a device too busy to
+        // read the receipt back still leaves it on the sale. Only the counter is lost.
+        var client = new RecordingRevmaxClient
+        {
+            AcceptPostWith = TillSaleFiling(),
+            ThrowOnGet = new HttpRequestException("busy"),
+            DayStatus = TillSaleDayStatus()
+        };
+
+        var result = await Service(client).FiscalizePreSapInvoiceAsync(Invoice(), TillSaleReference);
+
+        Assert.True(result.Success);
+        Assert.Equal("216877", result.ReceiptGlobalNo);
+        Assert.Null(result.ReceiptCounter);
+        Assert.Equal("525", result.FiscalDayNo);
+    }
+
+    [Theory]
+    // A close under way: the receipt may be in the day being closed or, moments later, the next.
+    [InlineData("1", "FiscalDayCloseInitiated", 216975)]
+    // Closed: the device's day is not one this receipt can still be in.
+    [InlineData("1", "FiscalDayClosed", 216975)]
+    // FDMS has not yet received this receipt, so the day it reports may not be the receipt's.
+    [InlineData("1", "FiscalDayCloseFailed", 216876)]
+    // The device's routine busy answer, Code "0" with Data "".
+    [InlineData("0", null, 0)]
+    public async Task A_fiscal_day_the_device_cannot_vouch_for_is_left_blank_not_guessed(
+        string code, string? fiscalDayStatus, int lastReceiptGlobalNo)
+    {
+        var client = TillSaleDevice(TillSaleDayStatus(code, fiscalDayStatus, lastReceiptGlobalNo));
+
+        var result = await Service(client).FiscalizePreSapInvoiceAsync(Invoice(), TillSaleReference);
+
+        // Filed is filed: a blank day never makes the receipt a failure or invites a retry.
+        Assert.True(result.Success);
+        Assert.False(result.RequiresReconciliation);
+        Assert.Equal("216877", result.ReceiptGlobalNo);
+        Assert.Null(result.FiscalDayNo);
+    }
+
+    [Fact]
+    public async Task A_day_status_that_cannot_be_read_leaves_the_fiscal_day_blank()
+    {
+        var result = await Service(TillSaleDevice(dayStatus: null))
+            .FiscalizePreSapInvoiceAsync(Invoice(), TillSaleReference);
+
+        Assert.True(result.Success);
+        Assert.Equal("216877", result.ReceiptGlobalNo);
+        Assert.Null(result.FiscalDayNo);
     }
 
     private static RevmaxFiscalizationService Service(IRevmaxClient client) =>
@@ -1152,6 +1362,13 @@ public class RevmaxFiscalPayloadTests
         /// device does.</summary>
         public TransactMResponse? RefusePostWith { get; init; }
 
+        /// <summary>File the post and answer with this body instead of the default one.</summary>
+        public TransactMResponse? AcceptPostWith { get; init; }
+
+        /// <summary>What GetDayStatus answers. Null refuses the call, as a device that cannot be
+        /// asked.</summary>
+        public DayStatusResponse? DayStatus { get; init; }
+
         /// <summary>Answer <see cref="KnownInvoice"/> for this number only. Null answers it for any
         /// number, which is what most of these tests want.</summary>
         public string? KnownInvoiceNumber { get; init; }
@@ -1188,7 +1405,7 @@ public class RevmaxFiscalPayloadTests
             }
 
             _hasFiled = true;
-            return Task.FromResult<TransactMResponse?>(new TransactMResponse
+            return Task.FromResult<TransactMResponse?>(AcceptPostWith ?? new TransactMResponse
             {
                 Code = "1", Message = "Success", FiscalDay = "524", ReceiptGlobalNo = "216090"
             });
@@ -1250,7 +1467,9 @@ public class RevmaxFiscalPayloadTests
             => throw new NotSupportedException();
 
         public Task<DayStatusResponse?> GetDayStatusAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => DayStatus is null
+                ? throw new NotSupportedException()
+                : Task.FromResult<DayStatusResponse?>(DayStatus);
 
         public Task<LicenseResponse?> GetLicenseAsync(CancellationToken cancellationToken = default)
             => throw new NotSupportedException();

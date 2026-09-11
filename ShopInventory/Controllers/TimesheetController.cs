@@ -26,7 +26,7 @@ namespace ShopInventory.Controllers;
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
 [Produces("application/json")]
-public class TimesheetController(IMediator mediator) : ApiControllerBase
+public class TimesheetController(IMediator mediator, ICallerAccountReader callerAccounts) : ApiControllerBase
 {
     /// <summary>
     /// Check into a customer. Answers 201
@@ -148,12 +148,14 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
         [FromQuery] DateTime? toDate = null,
         CancellationToken cancellationToken = default)
     {
-        // Merchandiser can only see their own timesheets
-        if (User.IsInRole("Merchandiser") && !User.IsInRole("Admin"))
-        {
-            var currentUserId = GetCurrentUserId();
-            userId = currentUserId;
-        }
+        // A merchandiser sees only their own calls. Read off the account, not the request: the Web sends
+        // its integration key with the user's token, and the key's Admin role is on every such request.
+        var caller = await callerAccounts.ReadAsync(User, cancellationToken);
+        if (caller.IsError)
+            return Problem(caller.Errors);
+
+        if (caller.Value.IsInRole(ApplicationRoles.Merchandiser))
+            userId = caller.Value.UserId;
 
         // Normalize dates to UTC for PostgreSQL timestamptz compatibility
         var utcFromDate = fromDate.HasValue ? DateTime.SpecifyKind(fromDate.Value, DateTimeKind.Utc) : fromDate;
@@ -185,12 +187,13 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
         var from = fromDate.HasValue ? DateTime.SpecifyKind(fromDate.Value, DateTimeKind.Utc) : DateTime.UtcNow.AddDays(-30);
         var to = toDate.HasValue ? DateTime.SpecifyKind(toDate.Value, DateTimeKind.Utc) : DateTime.UtcNow;
 
-        // Merchandiser can only see their own report
-        if (User.IsInRole("Merchandiser") && !User.IsInRole("Admin"))
-        {
-            var currentUserId = GetCurrentUserId();
-            userId = currentUserId;
-        }
+        // A merchandiser sees only their own report, by account — see GetTimesheets.
+        var caller = await callerAccounts.ReadAsync(User, cancellationToken);
+        if (caller.IsError)
+            return Problem(caller.Errors);
+
+        if (caller.Value.IsInRole(ApplicationRoles.Merchandiser))
+            userId = caller.Value.UserId;
 
         var result = await mediator.Send(
             new GetTimesheetReportQuery(userId, username, from, to),

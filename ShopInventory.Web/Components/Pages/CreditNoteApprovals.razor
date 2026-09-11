@@ -469,10 +469,15 @@
                 }
                 @if (detail?.Request.CanAdd == true)
                 {
-                    <button type="button" class="cna-btn cna-btn-primary" @onclick="OpenAddConfirm" disabled="@isSubmitting">
-                        <i class="ph ph-plus-circle" aria-hidden="true"></i>
-                        <span>Add credit note</span>
-                    </button>
+                    @* CanAdd says SAP would take the add, not that this person may make it. *@
+                    <AuthorizeView Roles="@UserRoles.CreditNoteAddRoles" Context="addCtx">
+                        <Authorized>
+                            <button type="button" class="cna-btn cna-btn-primary" @onclick="OpenAddConfirm" disabled="@isSubmitting">
+                                <i class="ph ph-plus-circle" aria-hidden="true"></i>
+                                <span>Add credit note</span>
+                            </button>
+                        </Authorized>
+                    </AuthorizeView>
                 }
             </div>
         </aside>

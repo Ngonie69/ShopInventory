@@ -20,6 +20,10 @@ namespace ShopInventory.Controllers;
 /// <remarks>
 /// SAP is the source of truth. Nothing here is mirrored into the local approval engine behind
 /// <c>/api/approval-process</c>, which governs documents this app posts.
+///
+/// The reads and the decision pass the caller's user id, never a role claim, to the stage scope: the Web
+/// sends its integration key alongside the user's token, so the request's role claims include the key's
+/// Admin. The add needs no scope — the one stage-scoped role cannot add.
 /// </remarks>
 [Route("api/credit-note-approvals")]
 [Authorize(Policy = "ApiAccess")]
@@ -50,7 +54,7 @@ public sealed class CreditNoteApprovalController(IMediator mediator) : ApiContro
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetCreditNoteApprovalsQuery(status, page, pageSize, beforeCode), cancellationToken);
+            new GetCreditNoteApprovalsQuery(status, page, pageSize, beforeCode, UserClaimReader.GetUserId(User)), cancellationToken);
         return result.Match(Ok, Problem);
     }
 
@@ -61,7 +65,7 @@ public sealed class CreditNoteApprovalController(IMediator mediator) : ApiContro
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetByCode(int code, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new GetCreditNoteApprovalQuery(code), cancellationToken);
+        var result = await mediator.Send(new GetCreditNoteApprovalQuery(code, UserClaimReader.GetUserId(User)), cancellationToken);
         return result.Match(Ok, Problem);
     }
 
@@ -72,7 +76,7 @@ public sealed class CreditNoteApprovalController(IMediator mediator) : ApiContro
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DownloadAttachment(int code, int lineNum, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new DownloadCreditNoteDraftAttachmentQuery(code, lineNum), cancellationToken);
+        var result = await mediator.Send(new DownloadCreditNoteDraftAttachmentQuery(code, lineNum, UserClaimReader.GetUserId(User)), cancellationToken);
         return result.Match(
             download => File(download.Content, download.ContentType, download.FileName),
             Problem);

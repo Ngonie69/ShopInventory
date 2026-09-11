@@ -1,3 +1,4 @@
+using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ShopInventory.Data;
@@ -31,6 +32,13 @@ internal sealed class FakeSapApprovalLookups : ISapApprovalLookups
     public Task<SAPApprovalStage?> GetStageAsync(int code, CancellationToken cancellationToken)
         => Answer(Stages.GetValueOrDefault(code));
 
+    public Task<IReadOnlyList<SAPApprovalStage>> GetStagesByNameAsync(IReadOnlyCollection<string> names, CancellationToken cancellationToken)
+        => Unavailable
+            ? throw new HttpRequestException("SAP is not answering")
+            : Task.FromResult<IReadOnlyList<SAPApprovalStage>>(Stages.Values
+                .Where(stage => names.Contains(stage.Name ?? string.Empty, StringComparer.OrdinalIgnoreCase))
+                .ToList());
+
     /// <summary>A stage listing these approver keys, plus the users named and template 7 "Returns".</summary>
     public static FakeSapApprovalLookups WithStage(int code, string name, IEnumerable<SAPUser> users, params int[] approvers)
     {
@@ -53,6 +61,24 @@ internal sealed class FakeSapApprovalLookups : ISapApprovalLookups
 
     private Task<T?> Answer<T>(T? value) where T : class
         => Unavailable ? throw new HttpRequestException("SAP is not answering") : Task.FromResult(value);
+}
+
+/// <summary>A stage scope that gives the answer it was built with, and remembers which accounts asked.</summary>
+internal sealed class FixedStageScope(ErrorOr<CreditNoteApprovalStageFilter> answer) : ICreditNoteApprovalStageScope
+{
+    /// <summary>A fresh instance each time, so parallel tests never share <see cref="AskedFor"/>.</summary>
+    public static FixedStageScope EveryStage => new(CreditNoteApprovalStageFilter.EveryStage);
+
+    public static FixedStageScope Stages(string name, params int[] codes)
+        => new(new CreditNoteApprovalStageFilter([name], codes.ToHashSet()));
+
+    public List<Guid?> AskedFor { get; } = [];
+
+    public Task<ErrorOr<CreditNoteApprovalStageFilter>> ResolveAsync(Guid? userId, CancellationToken cancellationToken)
+    {
+        AskedFor.Add(userId);
+        return Task.FromResult(answer);
+    }
 }
 
 /// <summary>Keeps every audit entry so a test can say what was recorded and whether it was a success.</summary>

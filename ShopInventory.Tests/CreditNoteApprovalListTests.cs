@@ -1,6 +1,7 @@
 using System.Reflection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Features.CreditNoteApprovals;
 using ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprovals;
@@ -24,6 +25,7 @@ public sealed class CreditNoteApprovalListTests
     private static readonly SAPUser Manager = new() { InternalKey = 1, UserCode = "manager", UserName = "Site Manager" };
     private static readonly SAPUser Clerk = new() { InternalKey = 12, UserCode = "clerk", UserName = "Front Clerk" };
     private static readonly SAPUser Finance = new() { InternalKey = 9, UserCode = "finmgr", UserName = "Finance Manager" };
+    private static readonly Guid WashBayUserId = Guid.Parse("5a5b0000-0000-0000-0000-000000000b01");
 
     [Fact]
     public async Task Rows_join_the_draft_and_name_the_people_template_and_stage()
@@ -103,6 +105,22 @@ public sealed class CreditNoteApprovalListTests
     }
 
     [Fact]
+    public async Task An_approved_request_whose_draft_sap_left_pending_cannot_be_added_and_says_why()
+    {
+        var sap = new RecordingSapClient([Approved(3111, 88124)], 1, [Draft(88124, "TMP065", "TM Newlands USD", 265.65m, null)]);
+        var handler = Handler(sap, LookupsWithStage(4, "Finance review", 1));
+
+        var row = Assert.Single((await handler.Handle(new GetCreditNoteApprovalsQuery("approved", 1, 25), CancellationToken.None)).Value.Items);
+
+        Assert.Equal("Approved", row.Status);
+        Assert.Equal("Pending", row.DraftAuthorizationStatus);
+        Assert.False(row.CanAdd);
+        Assert.Equal(
+            "SAP marked the request Approved but left the draft Pending, so it cannot be added. Ask the originator to raise it again in SAP.",
+            row.StatusNote);
+    }
+
+    [Fact]
     public async Task A_generated_request_names_its_credit_note_and_a_missing_draft_is_reported_not_dropped()
     {
         var generated = new SAPApprovalRequest
@@ -167,6 +185,7 @@ public sealed class CreditNoteApprovalListTests
         var handler = new GetCreditNoteApprovalsHandler(
             sap.AsClient(),
             LookupsWithStage(4, "Finance review", 1),
+            FixedStageScope.EveryStage,
             Options.Create(new SAPSettings { Enabled = false }),
             NullLogger<GetCreditNoteApprovalsHandler>.Instance);
 
@@ -177,10 +196,58 @@ public sealed class CreditNoteApprovalListTests
         Assert.Null(sap.RequestedStatuses);
     }
 
+    /// <summary>
+    /// The wash bay's queue is filtered in SAP, not after it. Dropping other stages' rows from a page of
+    /// the whole queue would leave short pages and a count promising rows that never come.
+    /// </summary>
+    [Fact]
+    public async Task A_stage_scoped_caller_asks_sap_for_its_own_stages_only()
+    {
+        var request = Pending(code: 3110, draftEntry: 88123, stage: 4, originator: 12, template: 7);
+        var draft = Draft(88123, "SPA059", "Spar Avondale", 10m, attachmentEntry: null);
+        var scoped = new RecordingSapClient([request], total: 1, [draft]);
+        var scope = FixedStageScope.Stages("Wash Bay Approvals", 4);
+
+        var result = await Handler(scoped, LookupsWithStage(4, "Wash Bay Approvals", 1), scope)
+            .Handle(new GetCreditNoteApprovalsQuery(null, 1, 25, CallerUserId: WashBayUserId), CancellationToken.None);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Equal([4], scoped.RequestedStageCodes!);
+        Assert.Equal(WashBayUserId, Assert.Single(scope.AskedFor));
+
+        // The negative control: a caller who sees every stage sends no stage filter at all.
+        var unscoped = new RecordingSapClient([request], total: 1, [draft]);
+        await Handler(unscoped, LookupsWithStage(4, "Wash Bay Approvals", 1))
+            .Handle(new GetCreditNoteApprovalsQuery(null, 1, 25, CallerUserId: Guid.NewGuid()), CancellationToken.None);
+        Assert.NotNull(unscoped.RequestedStatuses);
+        Assert.Null(unscoped.RequestedStageCodes);
+    }
+
+    [Fact]
+    public async Task A_scope_that_cannot_be_resolved_is_refused_before_the_queue_is_read()
+    {
+        var sap = new RecordingSapClient([], 0, []);
+        var scope = new FixedStageScope(Errors.CreditNoteApproval.StageScopeUnresolved("'Wash Bay Approvals'"));
+
+        var result = await Handler(sap, LookupsWithStage(4, "Finance review", 1), scope)
+            .Handle(new GetCreditNoteApprovalsQuery(null, 1, 25, CallerUserId: WashBayUserId), CancellationToken.None);
+
+        Assert.Equal("CreditNoteApproval.StageScopeUnresolved", result.FirstError.Code);
+        Assert.Null(sap.RequestedStatuses);
+    }
+
     // ── Harness ──────────────────────────────────────────────────────────────────
 
-    private static GetCreditNoteApprovalsHandler Handler(RecordingSapClient sap, FakeLookups lookups) =>
-        new(sap.AsClient(), lookups, Options.Create(new SAPSettings { Enabled = true }), NullLogger<GetCreditNoteApprovalsHandler>.Instance);
+    private static GetCreditNoteApprovalsHandler Handler(
+        RecordingSapClient sap,
+        FakeLookups lookups,
+        ICreditNoteApprovalStageScope? scope = null) =>
+        new(
+            sap.AsClient(),
+            lookups,
+            scope ?? FixedStageScope.EveryStage,
+            Options.Create(new SAPSettings { Enabled = true }),
+            NullLogger<GetCreditNoteApprovalsHandler>.Instance);
 
     private static SAPApprovalRequest Pending(int code, int draftEntry, int stage, int originator, int template) => new()
     {
@@ -273,6 +340,11 @@ public sealed class CreditNoteApprovalListTests
 
         public Task<SAPApprovalStage?> GetStageAsync(int code, CancellationToken cancellationToken)
             => Task.FromResult(Stages.GetValueOrDefault(code));
+
+        public Task<IReadOnlyList<SAPApprovalStage>> GetStagesByNameAsync(IReadOnlyCollection<string> names, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<SAPApprovalStage>>(Stages.Values
+                .Where(stage => names.Contains(stage.Name ?? string.Empty, StringComparer.OrdinalIgnoreCase))
+                .ToList());
     }
 
     [Fact]
@@ -282,7 +354,7 @@ public sealed class CreditNoteApprovalListTests
         var requests = codes.Select(code => Pending(code, draftEntry: code - 31140, stage: 4, originator: 12, template: 7)).ToList();
         var drafts = requests.Select(request => Draft(request.DraftEntry!.Value, "TMP092", "Pick n Pay Westgate", 150.15m, attachmentEntry: null)).ToList();
         var sap = new RecordingSapClient(requests, total: 9729, drafts);
-        var handler = Handler(sap, LookupsWithStage(4, "Production WashBay", 1, 9));
+        var handler = Handler(sap, LookupsWithStage(4, "Wash Bay Approvals", 1, 9));
 
         var result = await handler.Handle(new GetCreditNoteApprovalsQuery("all", 1, 3), CancellationToken.None);
 
@@ -324,6 +396,7 @@ public sealed class CreditNoteApprovalListTests
         public IReadOnlyCollection<string>? RequestedStatuses { get; private set; }
         public IReadOnlyCollection<int>? RequestedDraftEntries { get; private set; }
         public int? RequestedBeforeCode { get; private set; }
+        public IReadOnlyCollection<int>? RequestedStageCodes { get; private set; }
 
         public ISAPServiceLayerClient AsClient() => StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
@@ -336,6 +409,7 @@ public sealed class CreditNoteApprovalListTests
         {
             RequestedStatuses = (IReadOnlyCollection<string>)args[0]!;
             RequestedBeforeCode = (int?)args[3];
+            RequestedStageCodes = (IReadOnlyCollection<int>?)args[4];
             return Task.FromResult((requests, total));
         }
 
