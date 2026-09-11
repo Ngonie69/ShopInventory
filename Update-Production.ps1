@@ -1140,7 +1140,11 @@ function New-MigrationBundle {
 
     # Out-Host, not bare invocation: dotnet's build chatter would otherwise land on this function's
     # output stream and be returned to the caller alongside $bundlePath.
-    dotnet ef migrations bundle `
+    #
+    # `dotnet tool run dotnet-ef`, not `dotnet ef`: the tool is the version pinned in the repository's
+    # manifest (.config/dotnet-tools.json), restored before the first bundle, so no machine needs a
+    # global install and every bundle is built by the dotnet-ef that matches the EF Core packages.
+    dotnet tool run dotnet-ef migrations bundle `
         --project $ProjectPath `
         --context $ContextName `
         --configuration Release `
@@ -1148,7 +1152,7 @@ function New-MigrationBundle {
         --force | Out-Host
 
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $bundlePath)) {
-        throw "Failed to build the $AppName migration bundle. Ensure dotnet-ef is installed: dotnet tool install --global dotnet-ef"
+        throw "Failed to build the $AppName migration bundle. See the dotnet-ef output above; the tool is restored from .config/dotnet-tools.json."
     }
 
     $bundleSize = [math]::Round((Get-Item $bundlePath).Length / 1MB, 2)
@@ -1233,6 +1237,17 @@ $migrationBundles = @{}
 
 if (-not $SkipDatabaseMigrations) {
     New-Item -Path $MigrationBundlePath -ItemType Directory -Force | Out-Null
+
+    # The pinned dotnet-ef from .config/dotnet-tools.json. Restored rather than assumed: the deploy
+    # runner had no global install, and every deploy that got as far as this stopped here. Resolved from
+    # the current directory, like `dotnet tool run` below - the repository root, where the workflow and
+    # the runbook both run this script from.
+    dotnet tool restore | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERROR: dotnet tool restore failed - dotnet-ef could not be restored from .config/dotnet-tools.json. Run this script from the repository root." -ForegroundColor Red
+        Wait-ForExitPrompt
+        exit 1
+    }
 
     try {
         foreach ($app in $publishedApps) {

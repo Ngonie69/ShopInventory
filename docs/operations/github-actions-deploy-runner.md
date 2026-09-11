@@ -49,6 +49,9 @@ by `-ValidateOnly` before anything is installed:
 - **.NET 10 SDK** on `PATH`. Note this is the SDK, not the ASP.NET Core Hosting Bundle that
   production already has — publishing needs the full SDK, and installing it on a production box is
   a real change to that box.
+- **No global `dotnet-ef`.** `Update-Production.ps1` runs `dotnet tool restore` for the version pinned
+  in `.config/dotnet-tools.json` before it builds the migration bundles, so the tool always matches the
+  EF Core packages. The runner needs NuGet access for that, which publishing needs anyway.
 - `git` on `PATH`.
 - WinRM answering on `10.10.10.9` **and** `10.10.10.58`.
 - One account with administrator rights on **both** nodes — the *deploy account*. A single account
@@ -220,19 +223,22 @@ can actually reach — accepting that the check then proves less.
 **"The type or namespace name '__builder' could not be found" in a `*_razor.g.cs` file, or RZ2005
 "The 'section' directive must appear at the start of the line", during "Publishing Web app...".**
 The code compiles everywhere except here because this runner publishes with an older .NET 10 SDK.
-On 2026-09-11 it was **10.0.100-rc.1** — a release candidate — while developers and CI use the GA
-SDK, whose Razor parser accepts constructs the RC's rejects. Two of them held production back:
+On 2026-09-11 it was **10.0.103** (10.0.100 also installed) — the 10.0.1xx feature band — while
+developers and CI build with 10.0.3xx and later, whose Razor parser accepts constructs the older one
+rejects. Two of them held production back:
 
-- A switch expression whose first arm starts with `<` (`{` then `< 1024 => ...`): the RC reads the
-  line as a markup tag and fails the whole page.
-- A loop variable named `section` rendered as `@section.Label`: the RC reads it as the `@section`
+- A switch expression whose first arm starts with `<` (`{` then `< 1024 => ...`): the older parser
+  reads the line as a markup tag and fails the whole page.
+- A loop variable named `section` rendered as `@section.Label`: it reads that as the `@section`
   directive.
 
-The provisioning step now prints the SDK it publishes with and warns when it is a pre-release. The
-lasting fix is on this machine: install the current .NET 10 GA SDK so `dotnet --version` reports it,
-then restart the runner service. Until then `scripts/check_razor_parser_hazards.py` runs in the Tests
-workflow and fails a pull request that reintroduces either construct. To reproduce a publish failure
-locally, pin the RC with a temporary `global.json` and build `ShopInventory.Web` in Release.
+The provisioning step prints the SDK it publishes with and warns when it is in the 10.0.1xx band. The
+lasting fix is on this machine: install a 10.0.3xx or later .NET 10 SDK (10.0.303 and 10.0.401 both
+compile these constructs) so `dotnet --version` reports it, then restart the runner service. Until
+then `scripts/check_razor_parser_hazards.py` runs in the Tests workflow and fails a pull request that
+reintroduces either construct. To reproduce a publish failure locally, build `ShopInventory.Web` in
+Release under a temporary `global.json` pinning a 10.0.1xx SDK — `10.0.100-rc.1.25451.107` fails
+with the runner's exact errors.
 
 ### 0x8009030e, "A specified logon session does not exist"
 
