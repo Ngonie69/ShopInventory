@@ -1,7 +1,5 @@
 ﻿@page "/invoices"
 @page "/van-sales-invoices"
-@using System.Text.Encodings.Web
-@using System.Text.Json
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.JSInterop
 @using ShopInventory.Web.Models
@@ -15,6 +13,7 @@
 @inject IAuditService AuditService
 @inject ISnackbar Snackbar
 @rendermode InteractiveServer
+@implements IDisposable
 
 <PageTitle>@(IsVanSalesView ? "Van Sales Invoices" : "Invoices") - Shop Inventory</PageTitle>
 
@@ -68,44 +67,8 @@
                 </button>
             </div>
         }
-        @if (!string.IsNullOrEmpty(successMessage))
-        {
-            <div class="ivx-alert is-ok" role="status">
-                <i class="ph ph-check-circle" aria-hidden="true"></i>
-                <div class="ivx-alert-body">@successMessage</div>
-                <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon-sm" title="Dismiss"
-                        aria-label="Dismiss message" @onclick="() => successMessage = null">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
-                </button>
-            </div>
-        }
-
-        @if (HasLatestFiscalizationPayload)
-        {
-            <section class="ivx-payload">
-                <div class="ivx-payload-head">
-                    <div class="ivx-payload-titles">
-                        <div class="ivx-payload-eyebrow">Most recent TransactM payload</div>
-                        <h2 class="ivx-payload-title">Invoice #@(latestFiscalizationInvoiceNumber ?? "Unknown")</h2>
-                        <p class="ivx-payload-sub">Captured from the last fiscalisation request sent from this page.</p>
-                    </div>
-                    <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon" title="Dismiss"
-                            aria-label="Dismiss payload" @onclick="ClearLatestFiscalizationPayload">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
-                    </button>
-                </div>
-                <div class="ivx-payload-grid">
-                    <div>
-                        <div class="ivx-payload-caption">Request JSON</div>
-                        <pre class="ivx-code">@(latestFiscalizationRequestJson ?? "No raw request returned.")</pre>
-                    </div>
-                    <div>
-                        <div class="ivx-payload-caption">Response JSON</div>
-                        <pre class="ivx-code">@(latestFiscalizationResponseJson ?? "No raw response returned.")</pre>
-                    </div>
-                </div>
-            </section>
-        }
+        @* A fiscalisation's outcome is a toast, not a banner. The TransactM request and response are
+           not shown here at all: the API records both in the fiscal transaction log. *@
 
         @* Counted over what is loaded, not over the whole ledger — the labels say so. *@
         <section class="ivx-stats" aria-label="Invoice totals">
@@ -180,8 +143,41 @@
 
         <section class="ivx-card">
 
+            @{
+                var selectedForFiscalisation = SelectedInvoices;
+                var fiscalisableCount = FiscalisableInvoices.Count;
+            }
             <div class="ivx-toolbar">
-                <span class="ivx-range">@RangeLabel</span>
+                @if (selectedForFiscalisation.Count > 0)
+                {
+                    <span class="ivx-range">@selectedForFiscalisation.Count.ToString("N0") selected</span>
+                    <button type="button" class="ivx-btn ivx-btn-primary ivx-btn-sm" disabled="@IsFiscalisingAny"
+                            @onclick="OpenBulkFiscaliseDialog">
+                        Fiscalise @selectedForFiscalisation.Count.ToString("N0")
+                    </button>
+                    @if (selectedForFiscalisation.Count < fiscalisableCount)
+                    {
+                        <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-sm" disabled="@IsFiscalisingAny"
+                                @onclick="SelectAllFiscalisable">
+                            Select all @fiscalisableCount.ToString("N0") not fiscalised
+                        </button>
+                    }
+                    <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-sm" disabled="@IsFiscalisingAny"
+                            @onclick="ClearSelection">
+                        Clear
+                    </button>
+                }
+                else
+                {
+                    <span class="ivx-range">@RangeLabel</span>
+                    @if (fiscalisableCount > 0)
+                    {
+                        <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-sm" disabled="@IsFiscalisingAny"
+                                @onclick="SelectAllFiscalisable">
+                            Select all @fiscalisableCount.ToString("N0") not fiscalised
+                        </button>
+                    }
+                }
                 <div class="ivx-quick">
                     <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
                     <input class="ivx-input" type="search" placeholder="Quick filter…" aria-label="Quick filter"
@@ -193,6 +189,15 @@
                 <table class="ivx-table">
                     <thead>
                         <tr>
+                            <th style="width:34px">
+                                @if (PageFiscalisableInvoices.Count > 0)
+                                {
+                                    <input class="ivx-check" type="checkbox" title="Select this page"
+                                           aria-label="Select every invoice on this page that is not fiscalised"
+                                           checked="@AllPageSelected" disabled="@IsFiscalisingAny"
+                                           @onchange="TogglePageSelection" />
+                                }
+                            </th>
                             <th>Doc #</th>
                             <th>Customer</th>
                             <th>Date</th>
@@ -210,7 +215,7 @@
                             @for (var skeletonRow = 0; skeletonRow < 8; skeletonRow++)
                             {
                                 <tr>
-                                    @for (var skeletonCell = 0; skeletonCell < 9; skeletonCell++)
+                                    @for (var skeletonCell = 0; skeletonCell < 10; skeletonCell++)
                                     {
                                         <td><div class="ivx-skel"></div></td>
                                     }
@@ -222,6 +227,16 @@
                             @foreach (var invoice in PageRows)
                             {
                                 <tr @key="invoice.DocEntry">
+                                    <td>
+                                        @if (CanFiscalize(invoice))
+                                        {
+                                            <input class="ivx-check" type="checkbox"
+                                                   aria-label="Select invoice @invoice.DocNum"
+                                                   checked="@selectedDocEntries.Contains(invoice.DocEntry)"
+                                                   disabled="@IsFiscalisingAny"
+                                                   @onchange="e => ToggleSelection(invoice.DocEntry, e)" />
+                                        }
+                                    </td>
                                     <td>
                                         <button type="button" class="ivx-link" @onclick="() => ViewInvoice(invoice.DocEntry)">
                                             #@invoice.DocNum
@@ -236,12 +251,23 @@
                                     <td class="ivx-date">@FormatDate(invoice.DocDate)</td>
                                     <td class="ivx-date">@FormatDate(invoice.DocDueDate)</td>
                                     <td>
-                                        <span class="ivx-fiscal">
-                                            <span class="ivx-dot @GetFiscalDotClass(invoice.FiscalizationStatus)" aria-hidden="true"></span>
-                                            <span class="ivx-fiscal-text @GetFiscalTextClass(invoice.FiscalizationStatus)">
-                                                @invoice.FiscalizationStatus
+                                        @if (unresolvedDocEntries.Contains(invoice.DocEntry))
+                                        {
+                                            <span class="ivx-fiscal"
+                                                  title="It is not known whether this invoice reached FDMS. Look the receipt up before sending it again.">
+                                                <span class="ivx-dot is-bad" aria-hidden="true"></span>
+                                                <span class="ivx-fiscal-text is-bad">Unresolved</span>
                                             </span>
-                                        </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="ivx-fiscal">
+                                                <span class="ivx-dot @GetFiscalDotClass(invoice.FiscalizationStatus)" aria-hidden="true"></span>
+                                                <span class="ivx-fiscal-text @GetFiscalTextClass(invoice.FiscalizationStatus)">
+                                                    @invoice.FiscalizationStatus
+                                                </span>
+                                            </span>
+                                        }
                                     </td>
                                     <td class="ivx-curr">@invoice.DocCurrency</td>
                                     <td class="ivx-num">@invoice.VatSum.ToString("N2")</td>
@@ -251,7 +277,7 @@
                                             @if (CanFiscalize(invoice) || IsInvoiceFiscalizeBusy(invoice.DocEntry))
                                             {
                                                 <button type="button" class="ivx-btn ivx-btn-secondary ivx-btn-sm"
-                                                        disabled="@isFiscalizingInvoice"
+                                                        disabled="@IsFiscalisingAny"
                                                         @onclick="() => FiscalizeInvoiceAsync(invoice)">
                                                     @if (IsInvoiceFiscalizeBusy(invoice.DocEntry))
                                                     {
@@ -829,6 +855,68 @@
     </div>
 }
 
+@if (showBulkFiscaliseDialog)
+{
+    <div class="ivx-overlay">
+        <div class="ivx-dialog-wrap">
+            <div class="ivx-dialog" role="dialog" aria-modal="true" aria-labelledby="ivx-bulkfiscal-title"
+                 @onclick:stopPropagation="true">
+
+                @if (isBulkFiscalising)
+                {
+                    @* Measured, unlike the credit note's ring: it counts invoices that have come back. *@
+                    <div class="ivx-posting" aria-live="polite">
+                        <div class="ivx-ring">
+                            <svg viewBox="0 0 100 100" aria-hidden="true">
+                                <circle class="ivx-ring-track" cx="50" cy="50" r="42" />
+                                <circle class="ivx-ring-fill" cx="50" cy="50" r="42"
+                                        stroke-dasharray="@($"{264 * bulkDone / Math.Max(1, bulkQueue.Count)} 264")" />
+                            </svg>
+                            <span class="ivx-ring-label">@(100 * bulkDone / Math.Max(1, bulkQueue.Count))%</span>
+                        </div>
+                        <h3>Fiscalising invoice #@bulkCurrentDocNum</h3>
+                        <p>@bulkDone of @bulkQueue.Count done</p>
+                        <button type="button" class="ivx-btn ivx-btn-secondary ivx-btn-sm"
+                                disabled="@bulkStopRequested" @onclick="() => bulkStopRequested = true">
+                            @(bulkStopRequested ? "Stopping after this invoice…" : "Stop after this invoice")
+                        </button>
+                        <small>Keep this page open until the run finishes.</small>
+                    </div>
+                }
+
+                <div class="ivx-dialog-head">
+                    <h2 class="ivx-dialog-title" id="ivx-bulkfiscal-title">
+                        <i class="ph ph-stamp" aria-hidden="true"></i>
+                        Fiscalise @bulkQueue.Count @(bulkQueue.Count == 1 ? "invoice" : "invoices")
+                    </h2>
+                    <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon" title="Close" aria-label="Close"
+                            disabled="@isBulkFiscalising" @onclick="CloseBulkFiscaliseDialog">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                    </button>
+                </div>
+                <div class="ivx-dialog-body">
+                    <div class="ivx-note is-warn">
+                        Each invoice is submitted to ZIMRA in turn, and a fiscal receipt cannot be withdrawn.
+                        If one comes back without a clear answer, the run stops there and nothing after it is sent.
+                    </div>
+                    <div class="ivx-note">
+                        <span class="ivx-dt">Total</span>
+                        @BulkTotalsLabel
+                    </div>
+                </div>
+                <div class="ivx-dialog-actions">
+                    <button type="button" class="ivx-btn ivx-btn-secondary" disabled="@isBulkFiscalising"
+                            @onclick="CloseBulkFiscaliseDialog">Cancel</button>
+                    <button type="button" class="ivx-btn ivx-btn-primary" disabled="@isBulkFiscalising"
+                            @onclick="RunBulkFiscaliseAsync">
+                        Fiscalise @bulkQueue.Count
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @if (!string.IsNullOrEmpty(creditNoteMessage))
 {
     <div class="ivx-overlay">
@@ -868,10 +956,19 @@
     private bool isFiscalizingInvoice;
     private int? fiscalizingInvoiceDocEntry;
     private string? errorMessage;
-    private string? successMessage;
-    private string? latestFiscalizationInvoiceNumber;
-    private string? latestFiscalizationRequestJson;
-    private string? latestFiscalizationResponseJson;
+
+    // Bulk fiscalisation. The run sends a snapshot taken when its dialog opens, so rows leaving the
+    // filtered list as they fiscalise cannot change what is sent.
+    private readonly HashSet<int> selectedDocEntries = [];
+    // Invoices whose outcome nobody could establish, for as long as this page is open. They lose their
+    // checkbox and Fiscalise button: the receipt may already exist at FDMS.
+    private readonly HashSet<int> unresolvedDocEntries = [];
+    private bool showBulkFiscaliseDialog;
+    private bool isBulkFiscalising;
+    private bool bulkStopRequested;
+    private List<InvoiceDto> bulkQueue = [];
+    private int bulkDone;
+    private int? bulkCurrentDocNum;
 
     // The fetch pulls one large page and the pager below works over it in the browser,
     // which is what the 100/5000 fetch sizes in LoadInvoices are sized for.
@@ -887,11 +984,6 @@
 
     private CancellationTokenSource? _debounceTokenSource;
     private const int DebounceDelayMs = 300;
-    private static readonly JsonSerializerOptions FiscalJsonOptions = new()
-    {
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        WriteIndented = true
-    };
 
     // PDF state
     private bool isPdfLoading = false;
@@ -993,6 +1085,8 @@
     {
         isLoading = true;
         errorMessage = null;
+        // The rows are about to be replaced, so a selection made over the old set means nothing.
+        selectedDocEntries.Clear();
 
         try
         {
@@ -1141,12 +1235,59 @@
             _ => "unknown"
         };
 
-    private static bool CanFiscalize(InvoiceDto? invoice)
+    private bool CanFiscalize(InvoiceDto? invoice)
         => invoice is { DocEntry: > 0 }
-           && NormalizeFiscalStatus(invoice.FiscalizationStatus) != "fiscalised";
+           && NormalizeFiscalStatus(invoice.FiscalizationStatus) != "fiscalised"
+           && !unresolvedDocEntries.Contains(invoice.DocEntry);
 
     private bool IsInvoiceFiscalizeBusy(int docEntry)
-        => isFiscalizingInvoice && fiscalizingInvoiceDocEntry == docEntry;
+        => fiscalizingInvoiceDocEntry == docEntry;
+
+    private bool IsFiscalisingAny => isFiscalizingInvoice || isBulkFiscalising;
+
+    private List<InvoiceDto> FiscalisableInvoices => FilteredInvoices.Where(CanFiscalize).ToList();
+
+    /// <summary>
+    /// Only what the current filters still show. A row selected and then filtered out is not sent.
+    /// </summary>
+    private List<InvoiceDto> SelectedInvoices => FilteredInvoices
+        .Where(invoice => selectedDocEntries.Contains(invoice.DocEntry) && CanFiscalize(invoice))
+        .ToList();
+
+    private List<InvoiceDto> PageFiscalisableInvoices => PageRows.Where(CanFiscalize).ToList();
+
+    private bool AllPageSelected => PageFiscalisableInvoices is { Count: > 0 } rows
+                                    && rows.All(invoice => selectedDocEntries.Contains(invoice.DocEntry));
+
+    private void ToggleSelection(int docEntry, ChangeEventArgs e)
+    {
+        if (e.Value is true)
+        {
+            selectedDocEntries.Add(docEntry);
+        }
+        else
+        {
+            selectedDocEntries.Remove(docEntry);
+        }
+    }
+
+    private void TogglePageSelection(ChangeEventArgs e)
+    {
+        foreach (var invoice in PageFiscalisableInvoices)
+        {
+            ToggleSelection(invoice.DocEntry, e);
+        }
+    }
+
+    private void SelectAllFiscalisable()
+    {
+        foreach (var invoice in FiscalisableInvoices)
+        {
+            selectedDocEntries.Add(invoice.DocEntry);
+        }
+    }
+
+    private void ClearSelection() => selectedDocEntries.Clear();
 
     private async Task ViewInvoice(int docEntry)
     {
@@ -1160,99 +1301,239 @@
 
     private async Task FiscalizeInvoiceAsync(InvoiceDto invoice)
     {
-        if (invoice == null || isFiscalizingInvoice)
+        if (invoice == null || IsFiscalisingAny)
         {
             return;
         }
 
-        var docEntry = invoice.DocEntry;
-        var docNum = invoice.DocNum;
-
         isFiscalizingInvoice = true;
-        fiscalizingInvoiceDocEntry = docEntry;
-        errorMessage = null;
-        successMessage = null;
-        ClearLatestFiscalizationPayload();
+        fiscalizingInvoiceDocEntry = invoice.DocEntry;
 
         try
         {
-            var result = await InvoiceService.FiscalizeInvoiceAsync(docEntry);
-
-            // An already-fiscalised invoice filed nothing, so there is no exchange worth showing: the
-            // panel would be displaying a request that was refused and the refusal itself, under a
-            // heading claiming it is the receipt this page just produced.
-            if (!result.AlreadyFiscalised)
-            {
-                CaptureFiscalizationPayload(docNum.ToString(), result);
-            }
-
-            if (result.Success || result.Skipped)
-            {
-                var refreshedInvoice = await InvoiceService.GetInvoiceByDocEntryAsync(docEntry);
-                if (refreshedInvoice != null)
-                {
-                    if (selectedInvoice?.DocEntry == docEntry)
-                    {
-                        selectedInvoice = refreshedInvoice;
-                    }
-
-                    UpsertInvoice(refreshedInvoice);
-                }
-                else
-                {
-                    await LoadInvoices();
-                }
-
-                var outcome = result.Message ?? $"Invoice #{docNum} fiscalised successfully.";
-
-                if (result.AlreadyFiscalised)
-                {
-                    // The row above has just been refreshed to show it. A toast says so and leaves,
-                    // where the banner would sit on the page as if something needed attention.
-                    Snackbar.Add(
-                        result.Message ?? $"Invoice #{docNum} was already fiscalised.",
-                        Severity.Info);
-                }
-                else
-                {
-                    successMessage = outcome;
-                }
-
-                await AuditService.LogAsync(
-                    AuditActions.FiscalizeInvoice,
-                    "Invoice",
-                    docEntry.ToString(),
-                    outcome,
-                    true);
-            }
-            else
-            {
-                errorMessage = result.Message ?? $"Failed to fiscalise invoice #{docNum}.";
-                await AuditService.LogAsync(
-                    AuditActions.FiscalizeInvoice,
-                    "Invoice",
-                    docEntry.ToString(),
-                    errorMessage,
-                    false,
-                    errorMessage);
-            }
-        }
-        catch (Exception ex)
-        {
-            errorMessage = ApiErrorResponse.GetFriendlyMessage(ex, $"Failed to fiscalise invoice #{docNum}.");
-            await AuditService.LogAsync(
-                AuditActions.FiscalizeInvoice,
-                "Invoice",
-                docEntry.ToString(),
-                errorMessage,
-                false,
-                errorMessage);
+            var result = await InvoiceFiscalisationRun.FiscaliseAsync(InvoiceService, invoice);
+            await RecordFiscalOutcomeAsync(invoice, result);
+            ToastFiscalOutcome(invoice.DocNum, result);
         }
         finally
         {
             isFiscalizingInvoice = false;
             fiscalizingInvoiceDocEntry = null;
         }
+    }
+
+    private void OpenBulkFiscaliseDialog()
+    {
+        if (IsFiscalisingAny)
+        {
+            return;
+        }
+
+        bulkQueue = SelectedInvoices;
+        if (bulkQueue.Count == 0)
+        {
+            return;
+        }
+
+        bulkDone = 0;
+        bulkStopRequested = false;
+        bulkCurrentDocNum = null;
+        showBulkFiscaliseDialog = true;
+    }
+
+    private void CloseBulkFiscaliseDialog()
+    {
+        if (isBulkFiscalising)
+        {
+            return;
+        }
+
+        showBulkFiscaliseDialog = false;
+        bulkQueue = [];
+    }
+
+    private string BulkTotalsLabel => string.Join(" · ", bulkQueue
+        .GroupBy(invoice => invoice.DocCurrency ?? string.Empty)
+        .Select(group => $"{group.Key} {group.Sum(invoice => invoice.DocTotal):N2}".Trim()));
+
+    private async Task RunBulkFiscaliseAsync()
+    {
+        if (IsFiscalisingAny || bulkQueue.Count == 0)
+        {
+            return;
+        }
+
+        isBulkFiscalising = true;
+        bulkDone = 0;
+        bulkStopRequested = false;
+
+        InvoiceFiscalisationSummary summary;
+        try
+        {
+            summary = await InvoiceFiscalisationRun.RunAsync(
+                InvoiceService,
+                bulkQueue,
+                () => bulkStopRequested,
+                onStarting: invoice =>
+                {
+                    fiscalizingInvoiceDocEntry = invoice.DocEntry;
+                    bulkCurrentDocNum = invoice.DocNum;
+                    StateHasChanged();
+                    return Task.CompletedTask;
+                },
+                onFinished: async (invoice, result) =>
+                {
+                    await RecordFiscalOutcomeAsync(invoice, result);
+                    bulkDone++;
+                    StateHasChanged();
+                });
+        }
+        finally
+        {
+            isBulkFiscalising = false;
+            fiscalizingInvoiceDocEntry = null;
+            bulkCurrentDocNum = null;
+            showBulkFiscaliseDialog = false;
+            bulkQueue = [];
+        }
+
+        ToastBulkSummary(summary);
+    }
+
+    /// <summary>
+    /// Everything an outcome changes on the page, for one invoice or for each in a run: the row, the
+    /// selection, the lock-out, and the audit trail.
+    /// </summary>
+    private async Task RecordFiscalOutcomeAsync(InvoiceDto invoice, FiscalRetryResult result)
+    {
+        var docEntry = invoice.DocEntry;
+
+        if (result.IsSettled || result.MustNotRetry)
+        {
+            selectedDocEntries.Remove(docEntry);
+        }
+
+        if (result.MustNotRetry)
+        {
+            unresolvedDocEntries.Add(docEntry);
+        }
+
+        if (result.IsSettled)
+        {
+            InvoiceDto? refreshedInvoice = null;
+            try
+            {
+                refreshedInvoice = await InvoiceService.GetInvoiceByDocEntryAsync(docEntry);
+            }
+            catch (Exception)
+            {
+                // Falls through to the local update below. A failed read must not end a run.
+            }
+
+            if (refreshedInvoice is null)
+            {
+                // FDMS holds a receipt either way, so the row says so rather than offering it again.
+                invoice.FiscalizationStatus = "Fiscalised";
+                refreshedInvoice = invoice;
+            }
+
+            if (selectedInvoice?.DocEntry == docEntry)
+            {
+                selectedInvoice = refreshedInvoice;
+            }
+
+            UpsertInvoice(refreshedInvoice);
+        }
+
+        await AuditService.LogAsync(
+            AuditActions.FiscalizeInvoice,
+            "Invoice",
+            docEntry.ToString(),
+            result.Message,
+            result.IsSettled,
+            result.IsSettled ? null : result.Detail ?? result.Message);
+    }
+
+    private void ToastFiscalOutcome(int docNum, FiscalRetryResult result)
+    {
+        switch (result.Outcome)
+        {
+            case FiscalRetryOutcome.Fiscalised:
+                Snackbar.Add($"Invoice #{docNum} fiscalised.", Severity.Success);
+                break;
+
+            case FiscalRetryOutcome.AlreadyFiscalised:
+                Snackbar.Add($"Invoice #{docNum} was already fiscalised.", Severity.Info);
+                break;
+
+            case FiscalRetryOutcome.Reconcile or FiscalRetryOutcome.Unknown:
+                Snackbar.Add(WithDetail(result), Severity.Error, config => config.RequireInteraction = true);
+                break;
+
+            default:
+                Snackbar.Add(result.Message, Severity.Warning, config => config.RequireInteraction = true);
+                break;
+        }
+    }
+
+    private void ToastBulkSummary(InvoiceFiscalisationSummary summary)
+    {
+        var parts = new List<string>
+        {
+            summary.Fiscalised == summary.Requested
+                ? $"Fiscalised {Invoices(summary.Requested)}."
+                : $"Fiscalised {summary.Fiscalised:N0} of {Invoices(summary.Requested)}."
+        };
+
+        if (summary.AlreadyFiscalised > 0)
+        {
+            parts.Add($"{summary.AlreadyFiscalised:N0} already fiscalised.");
+        }
+
+        var notFiscalised = summary.NotFiscalised;
+        var reasons = notFiscalised.Select(item => item.Result.Message).Distinct().ToList();
+        if (notFiscalised.Count > 0)
+        {
+            var numbers = string.Join(", ", notFiscalised.Take(5).Select(item => $"#{item.Invoice.DocNum}"))
+                          + (notFiscalised.Count > 5 ? ", …" : string.Empty);
+
+            parts.Add(reasons.Count == 1
+                ? $"{numbers} not fiscalised: {reasons[0]}"
+                : $"{numbers} not fiscalised, and still selected.");
+        }
+
+        if (summary.StoppedByUser && summary.NotSent > 0)
+        {
+            parts.Add($"Stopped with {Invoices(summary.NotSent)} not sent.");
+        }
+
+        var allSettled = summary.Fiscalised + summary.AlreadyFiscalised == summary.Requested;
+        Snackbar.Add(
+            string.Join(" ", parts),
+            allSettled ? Severity.Success : Severity.Warning,
+            allSettled ? null : config => config.RequireInteraction = true);
+
+        if (summary.Unresolved is { } unresolved)
+        {
+            var notSent = summary.NotSent > 0 ? $" The run stopped there: {Invoices(summary.NotSent)} not sent." : string.Empty;
+            Snackbar.Add(
+                WithDetail(unresolved.Result) + notSent,
+                Severity.Error,
+                config => config.RequireInteraction = true);
+        }
+
+        static string Invoices(int count) => count == 1 ? "1 invoice" : $"{count:N0} invoices";
+    }
+
+    private static string WithDetail(FiscalRetryResult result)
+        => string.IsNullOrWhiteSpace(result.Detail) || result.Message.Contains(result.Detail, StringComparison.Ordinal)
+            ? result.Message
+            : $"{result.Message} ({result.Detail.TrimEnd('.')})";
+
+    public void Dispose()
+    {
+        // Leaving the page ends a run between invoices. The one in flight is never interrupted.
+        bulkStopRequested = true;
     }
 
     private void UpsertInvoice(InvoiceDto updatedInvoice)
@@ -1267,49 +1548,9 @@
         }
 
         invoices = ApplyFiscalStatusFilter(allInvoices ?? new List<InvoiceDto>());
-    }
 
-    private bool HasLatestFiscalizationPayload
-        => !string.IsNullOrWhiteSpace(latestFiscalizationRequestJson)
-           || !string.IsNullOrWhiteSpace(latestFiscalizationResponseJson);
-
-    private void CaptureFiscalizationPayload(string fallbackInvoiceNumber, FiscalizationResult? result)
-    {
-        if (result == null)
-        {
-            return;
-        }
-
-        latestFiscalizationInvoiceNumber = string.IsNullOrWhiteSpace(result.InvoiceNumber)
-            ? fallbackInvoiceNumber
-            : result.InvoiceNumber;
-        latestFiscalizationRequestJson = PrettyPrintJson(result.RawRequestJson);
-        latestFiscalizationResponseJson = PrettyPrintJson(result.RawResponseJson);
-    }
-
-    private void ClearLatestFiscalizationPayload()
-    {
-        latestFiscalizationInvoiceNumber = null;
-        latestFiscalizationRequestJson = null;
-        latestFiscalizationResponseJson = null;
-    }
-
-    private static string? PrettyPrintJson(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(value);
-            return JsonSerializer.Serialize(document.RootElement, FiscalJsonOptions);
-        }
-        catch (JsonException)
-        {
-            return value;
-        }
+        // Under the "Not fiscalised" filter a fiscalised row leaves the list, which can empty the page.
+        displayPage = Math.Clamp(displayPage, 1, DisplayPageCount);
     }
 
     private void CloseModal()
