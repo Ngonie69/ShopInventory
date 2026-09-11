@@ -318,6 +318,7 @@ public sealed class CreditNoteProjectionTests : IDisposable
             StubProxy.Unused<IFiscalizationService>(),
             CreateReadyService(),
             StubProxy.Unused<IStockLedger>(),
+            Options.Create(new ShopInventory.Configuration.FiscalisationSettings()),
             NullLogger<CreditNoteService>.Instance);
 
     private CreditNoteProjectionSyncService CreateReadyService() =>

@@ -1865,7 +1865,18 @@
                 await Task.Delay(500);
 
                 creditNoteSuccess = true;
-                creditNoteMessage = $"Credit Note {result.CreditNote.CreditNoteNumber} created successfully!";
+
+                // Whether ZIMRA holds it too. Read back from the device after the post, so a credit note
+                // that reached SAP but not the fiscal device says so here rather than only in the log.
+                var fiscal = result.CreditNote.IsFiscalized switch
+                {
+                    true when result.CreditNote.FiscalReceiptGlobalNo is { } receipt => $" and fiscalised (receipt {receipt})",
+                    true => " and fiscalised",
+                    false => ". It is not fiscalised yet and has been logged for review",
+                    null => ". Its fiscal status could not be confirmed"
+                };
+
+                creditNoteMessage = $"Credit Note {result.CreditNote.CreditNoteNumber} created{fiscal}.";
                 showCreateCreditNoteModal = false;
 
                 existingCreditNotes = await CreditNoteService.GetCreditNotesForInvoiceAsync(selectedInvoice.DocEntry);

@@ -285,6 +285,46 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
         Assert.Contains("could not be asked", result.FirstError.Description, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// The device files an invoice's receipt under its DocNum, so that is what a credit note has to
+    /// reference. This used to send the DocEntry — a different number — and the device either found
+    /// nothing or found some other document carrying it.
+    /// </summary>
+    [Fact]
+    public async Task A_credit_note_from_an_invoice_is_fiscalised_against_the_invoices_DocNum()
+    {
+        var result = await CreateFromInvoiceAsync();
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : string.Empty);
+        Assert.Equal([CreditedInvoice.DocNum.ToString()], _fiscalisedAgainst);
+    }
+
+    /// <summary>
+    /// A till sale was fiscalised before SAP, under its own reference, and the device holds nothing
+    /// under the invoice's number. Its credit note has to point at the sale's receipt.
+    /// </summary>
+    [Fact]
+    public async Task A_credit_note_against_a_till_sale_is_fiscalised_against_the_sales_own_receipt()
+    {
+        _context.DesktopSales.Add(new DesktopSaleEntity
+        {
+            ExternalReferenceId = "GRC-FAC-20260911-286EEC7389FD",
+            CardCode = "ABS006",
+            WarehouseCode = "KEFSHOP",
+            SapDocNum = CreditedInvoice.DocNum,
+            SapDocEntry = CreditedInvoice.DocEntry,
+            FiscalizationStatus = DesktopSaleFiscalizationStatus.Success,
+            FiscalReceiptNumber = "216877"
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var result = await CreateFromInvoiceAsync();
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : string.Empty);
+        Assert.Equal(["GRC-FAC-20260911-286EEC7389FD"], _fiscalisedAgainst);
+    }
+
     private async Task<ErrorOr.ErrorOr<CreditNoteDto>> CreateFromInvoiceAsync()
     {
         var lines = new List<CreateCreditNoteLineRequest>
@@ -379,6 +419,7 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
             BuildFiscalizationService(),
             StubProxy.For<ICreditNoteProjectionSyncService>((_, _) => Task.CompletedTask),
             StubProxy.Unused<IStockLedger>(),
+            Options.Create(new FiscalisationSettings()),
             NullLogger<CreditNoteService>.Instance);
 
     private ISAPServiceLayerClient BuildSapClient() =>
@@ -448,12 +489,21 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
         return Task.FromResult(Posted);
     }
 
+    /// <summary>The original-receipt number each fiscalisation was asked to reverse.</summary>
+    private readonly List<string> _fiscalisedAgainst = [];
+
     private IFiscalizationService BuildFiscalizationService() =>
-        StubProxy.For<IFiscalizationService>((method, _) =>
-            method.Name == nameof(IFiscalizationService.FiscalizeCreditNoteAsync)
-                ? Task.FromResult(new FiscalizationResult { Success = true })
-                : throw new InvalidOperationException(
-                    $"IFiscalizationService.{method.Name} was not expected on this path."));
+        StubProxy.For<IFiscalizationService>((method, args) =>
+        {
+            if (method.Name != nameof(IFiscalizationService.FiscalizeCreditNoteAsync))
+            {
+                throw new InvalidOperationException(
+                    $"IFiscalizationService.{method.Name} was not expected on this path.");
+            }
+
+            _fiscalisedAgainst.Add((string)args![1]!);
+            return Task.FromResult(new FiscalizationResult { Success = true });
+        });
 
     private void HangUpIfAsked()
     {

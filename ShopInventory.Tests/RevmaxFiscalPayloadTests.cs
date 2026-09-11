@@ -1252,6 +1252,81 @@ public class RevmaxFiscalPayloadTests
         Assert.Null(result.FiscalDayNo);
     }
 
+    /// <summary>
+    /// A credit note SAP has just raised is declared at what the customer paid, and so reconciles
+    /// against the receipt it reverses.
+    /// </summary>
+    /// <remarks>
+    /// The full credit of till invoice 772109, as SAP and the device hold them on 2026-09-11: three
+    /// 5-litre Shamiso lines at 6.25 net, 7.21875 gross, VAT group O01, DocTotal 411.47; the original
+    /// receipt 216877 totals 411.48. The mapping from SAP's credit note used to carry neither the VAT
+    /// group nor a gross price, so every line was declared at its NET price: 356.25 of lines against
+    /// 411.47 to credit, which the reconciliation refuses — and would have for every credit note raised
+    /// from the app.
+    /// </remarks>
+    [Fact]
+    public async Task A_credit_note_raised_in_SAP_is_declared_at_gross_and_reconciles_to_its_receipt()
+    {
+        var sap = new ShopInventory.Models.SAPCreditNote
+        {
+            DocEntry = 0,
+            DocNum = 400123,
+            CardCode = "COR007",
+            CardName = "Graniteside Kefalos Shop USD POS",
+            DocTotal = 411.47m,
+            VatSum = 55.22m,
+            DocCurrency = "USD",
+            DocumentLines =
+            [
+                ShamisoLine(0, "ICS025", "5 Litre Shamiso Blueberry", 17m, 106.25m),
+                ShamisoLine(1, "ICS026", "5 Litre Shamiso Bubblegum", 20m, 125.00m),
+                ShamisoLine(2, "ICS027", "5 Litre Shamiso Banana", 20m, 125.00m)
+            ]
+        };
+
+        var client = new RecordingRevmaxClient
+        {
+            KnownInvoiceNumber = "GRC-FAC-20260911-286EEC7389FD",
+            KnownInvoice = OriginalReceipt(
+                411.48m,
+                new ReceiptLine { ReceiptLineName = "5 Litre Shamiso Blueberry", TaxID = 515, TaxCode = "A", TaxPercent = 15.5m },
+                new ReceiptLine { ReceiptLineName = "5 Litre Shamiso Bubblegum", TaxID = 515, TaxCode = "A", TaxPercent = 15.5m },
+                new ReceiptLine { ReceiptLineName = "5 Litre Shamiso Banana", TaxID = 515, TaxCode = "A", TaxPercent = 15.5m })
+        };
+
+        var document = ShopInventory.Mappings.MappingExtensions.ToFiscalDocument(sap, "Customer changed order");
+
+        var result = await Service(client).FiscalizeCreditNoteAsync(document, "GRC-FAC-20260911-286EEC7389FD");
+
+        Assert.True(result.Success, $"{result.ErrorCode}: {result.Message}");
+
+        var filed = client.LastCreditNote!;
+        var lines = (List<RevmaxRequestItem>)filed.ItemsXml!;
+
+        Assert.Equal(411.47m, filed.InvoiceAmount);
+        Assert.Equal(411.47m, DeviceTotal(lines));
+        Assert.All(lines, line => Assert.Equal("515", line.Tax));
+        Assert.Equal(216407, filed.refReceiptGlobalNo);
+        Assert.Equal(22862, filed.refDeviceId);
+    }
+
+    private static ShopInventory.Models.SAPCreditNoteLine ShamisoLine(
+        int lineNum, string itemCode, string description, decimal quantity, decimal netTotal) => new()
+    {
+        LineNum = lineNum,
+        ItemCode = itemCode,
+        ItemDescription = description,
+        Quantity = quantity,
+        UnitPrice = 6.25m,
+        Price = 6.25m,
+        PriceAfterVAT = 7.21875m,
+        GrossPrice = 7.21875m,
+        LineTotal = netTotal,
+        GrossTotal = Math.Round(quantity * 7.21875m, 2, MidpointRounding.AwayFromZero),
+        VatGroup = "O01",
+        WarehouseCode = "KEFGRS"
+    };
+
     private static RevmaxFiscalizationService Service(IRevmaxClient client) =>
         new(client,
             Options.Create(Settings),

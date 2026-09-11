@@ -144,6 +144,23 @@ public class FiscalisationSettings
     public string PreSapInvoiceNoPrefix { get; set; } = "SI-";
 
     /// <summary>
+    /// The invoice number a sale fiscalised before SAP was filed under.
+    /// </summary>
+    /// <remarks>
+    /// One implementation, because two readers must agree with the writer: the providers file a pre-SAP
+    /// receipt under it, and a credit note against that sale's SAP invoice has to ask the device for the
+    /// receipt under exactly the same string. Non-numeric references pass through unchanged.
+    /// </remarks>
+    public string BuildPreSapInvoiceNo(string externalReference)
+    {
+        var trimmed = externalReference.Trim();
+
+        return trimmed.All(char.IsAsciiDigit)
+            ? PreSapInvoiceNoPrefix + trimmed
+            : trimmed;
+    }
+
+    /// <summary>
     /// The SAP user-defined fields this integration reads and writes on a marketing document.
     /// </summary>
     public FiscalisationUdfSettings Udf { get; set; } = new();
