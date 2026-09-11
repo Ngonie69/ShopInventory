@@ -128,6 +128,22 @@ public class SAPCreditNoteLine
     [JsonPropertyName("TaxCode")]
     public string? TaxCode { get; set; }
 
+    /// <summary>SAP VAT group code. Where the line's tax actually lives; <see cref="TaxCode"/> comes back null.</summary>
+    [JsonPropertyName("VatGroup")]
+    public string? VatGroup { get; set; }
+
+    /// <summary>Gross unit price BEFORE the line discount.</summary>
+    [JsonPropertyName("GrossPrice")]
+    public decimal GrossPrice { get; set; }
+
+    /// <summary>Gross unit price after the line discount — what the customer paid, and what a receipt declares.</summary>
+    [JsonPropertyName("PriceAfterVAT")]
+    public decimal PriceAfterVAT { get; set; }
+
+    /// <summary>Gross line total after the line discount.</summary>
+    [JsonPropertyName("GrossTotal")]
+    public decimal GrossTotal { get; set; }
+
     [JsonPropertyName("DiscountPercent")]
     public decimal? DiscountPercent { get; set; }
 

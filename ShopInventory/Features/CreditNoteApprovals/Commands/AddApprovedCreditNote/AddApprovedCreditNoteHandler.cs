@@ -3,11 +3,13 @@ using ErrorOr;
 using MediatR;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Idempotency;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.CreditNotes;
+using ShopInventory.Mappings;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Models;
 using ShopInventory.Services;
@@ -35,6 +37,7 @@ public sealed class AddApprovedCreditNoteHandler(
     IAuditService auditService,
     IOptions<SAPSettings> sapSettings,
     IOptions<CreditNoteApprovalSettings> approvalSettings,
+    IOptions<FiscalisationSettings> fiscalisationSettings,
     ILogger<AddApprovedCreditNoteHandler> logger)
     : IRequestHandler<AddApprovedCreditNoteCommand, ErrorOr<AddApprovedCreditNoteResultDto>>
 {
@@ -254,38 +257,36 @@ public sealed class AddApprovedCreditNoteHandler(
     private async Task<CreditNoteApprovalFiscalisationDto> FiscaliseAsync(SAPCreditNote creditNote, AddApprovedCreditNoteCommand command)
     {
         // The line-level base entry is what a credit memo raised against an invoice carries; the header
-        // one is not selected on credit notes. Advisory either way — the platform reads the link itself.
+        // one is not selected on credit notes. REVMax needs it to find the receipt being reversed; the
+        // platform reads the link itself.
         var originalInvoiceDocEntry = creditNote.BaseEntry
             ?? creditNote.DocumentLines?.FirstOrDefault(line => line.BaseType == 13 && line.BaseEntry.HasValue)?.BaseEntry;
 
-        var document = new InvoiceDto
-        {
-            DocEntry = creditNote.DocEntry,
-            DocNum = creditNote.DocNum,
-            CardCode = creditNote.CardCode,
-            CardName = creditNote.CardName,
-            DocTotal = Math.Abs(creditNote.DocTotal),
-            VatSum = Math.Abs(creditNote.VatSum),
-            DocCurrency = creditNote.DocCurrency,
-            Comments = creditNote.Comments,
-            Lines = creditNote.DocumentLines?.Select(line => new InvoiceLineDto
-            {
-                LineNum = line.LineNum,
-                ItemCode = line.ItemCode,
-                ItemDescription = line.ItemDescription,
-                Quantity = Math.Abs(line.Quantity),
-                UnitPrice = line.UnitPrice,
-                LineTotal = Math.Abs(line.LineTotal),
-                TaxCode = line.TaxCode,
-                WarehouseCode = line.WarehouseCode
-            }).ToList()
-        };
+        var document = creditNote.ToFiscalDocument(creditNote.Comments);
 
         var customer = new CustomerFiscalDetails { CustomerName = creditNote.CardName };
-        var originalInvoiceNumber = originalInvoiceDocEntry?.ToString() ?? string.Empty;
 
         try
         {
+            // The receipt being reversed is filed under the invoice's DocNum — or, for a sale fiscalised
+            // before SAP, under the sale's own reference — never under the BaseEntry this used to send.
+            var original = await ResolveOriginalReceiptAsync(originalInvoiceDocEntry);
+
+            if (original.InvoiceNumber is not { } originalInvoiceNumber)
+            {
+                var skipped = $"Fiscalisation skipped: {original.Refusal}";
+
+                logger.LogWarning(
+                    "Not fiscalising credit note {DocNum} added from approval request {Code}: {Refusal}",
+                    creditNote.DocNum, command.Code, original.Refusal);
+
+                await CreditNoteFiscalisationIncidents.CaptureAsync(
+                    context, logger, $"SAP-CN-{creditNote.DocNum}", creditNote.DocNum, creditNote.CardCode ?? string.Empty,
+                    skipped, CancellationToken.None);
+
+                return new CreditNoteApprovalFiscalisationDto { Attempted = true, Success = false, Message = skipped };
+            }
+
             var result = await fiscalizationService.FiscalizeCreditNoteAsync(document, originalInvoiceNumber, customer, CancellationToken.None);
 
             await TryRecordFiscalTransactionAsync(creditNote, document, originalInvoiceNumber, result, command);
@@ -316,6 +317,33 @@ public sealed class AddApprovedCreditNoteHandler(
 
             return new CreditNoteApprovalFiscalisationDto { Attempted = true, Success = false, Message = exception.Message };
         }
+    }
+
+    /// <summary>
+    /// The number the fiscal device holds the reversed invoice's receipt under.
+    /// </summary>
+    /// <remarks>
+    /// See <see cref="CreditNoteOriginalReceipt"/>. The credit note carries only its base invoice's
+    /// DocEntry, and the receipt is filed under the DocNum, so the invoice is read first.
+    /// </remarks>
+    private async Task<CreditNoteOriginalReceiptNumber> ResolveOriginalReceiptAsync(int? originalInvoiceDocEntry)
+    {
+        if (originalInvoiceDocEntry is not > 0)
+        {
+            return CreditNoteOriginalReceiptNumber.Refused(
+                "the credit note is not based on an invoice, so there is no receipt for it to reverse.");
+        }
+
+        var invoice = await sap.GetInvoiceByDocEntryAsync(originalInvoiceDocEntry.Value, CancellationToken.None);
+
+        if (invoice is null)
+        {
+            return CreditNoteOriginalReceiptNumber.Refused(
+                $"invoice DocEntry {originalInvoiceDocEntry} could not be read from SAP, so the receipt it reverses cannot be found.");
+        }
+
+        return await CreditNoteOriginalReceipt.ResolveAsync(
+            context, invoice.DocNum, fiscalisationSettings.Value, CancellationToken.None);
     }
 
     /// <summary>

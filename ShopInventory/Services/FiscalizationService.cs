@@ -530,13 +530,7 @@ public class FiscalizationService : IFiscalizationService
     }
 
     internal string BuildPreSapInvoiceNo(string externalReference)
-    {
-        var trimmed = externalReference.Trim();
-
-        return trimmed.All(char.IsAsciiDigit)
-            ? _settings.PreSapInvoiceNoPrefix + trimmed
-            : trimmed;
-    }
+        => _settings.BuildPreSapInvoiceNo(externalReference);
 
     private async Task<FiscalizationResult> MapSuccessAsync(
         SubmitReceiptApiResponse response,
