@@ -107,6 +107,23 @@ answer reads as a wrong password rather than as missing configuration.
 
 A rejected decision is atomic: the request stays `arsPending` and can be decided again.
 
+### A decision can approve the request and leave the draft Pending
+
+Production, 2026-09-11: request **86300** (template "Credit Notes to Wash", one stage "Washbay", one
+approval required) was approved from the app as SAP user `Software`. The request went `arsApproved`;
+draft **78069** stayed `bost_Open` / `dasPending` with its update stamp untouched, so the B1 client
+showed it "[Pending]" and the add refused it.
+
+It was the first decision the app had ever made in production. Every B1-client decision among the
+newest 2,000 credit memo requests moved its draft, non-superusers included, and so did the Service Layer
+decisions in `KEFALOS_TEST_3` — all made by `manager`, a superuser. `Software` is not one. That is the
+leading explanation and it is **not yet proven**; reproducing it means deciding a test request as a
+non-superuser (`Mgmt` is listed on stage 21 "Jay Phil Tat").
+
+What the code does about it: after an approval the decision handler reads the draft back and does not
+say "can now be added" unless the draft is `dasApproved`; the list and detail say SAP left the draft
+Pending. A draft stranded this way has to be raised again in SAP.
+
 ### The add: what survives it, and how the credit note is found
 
 A successful conversion **deletes the approval request**. The draft survives and is the only witness:

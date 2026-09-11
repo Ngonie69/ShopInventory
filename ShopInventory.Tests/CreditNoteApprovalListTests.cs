@@ -103,6 +103,22 @@ public sealed class CreditNoteApprovalListTests
     }
 
     [Fact]
+    public async Task An_approved_request_whose_draft_sap_left_pending_cannot_be_added_and_says_why()
+    {
+        var sap = new RecordingSapClient([Approved(3111, 88124)], 1, [Draft(88124, "TMP065", "TM Newlands USD", 265.65m, null)]);
+        var handler = Handler(sap, LookupsWithStage(4, "Finance review", 1));
+
+        var row = Assert.Single((await handler.Handle(new GetCreditNoteApprovalsQuery("approved", 1, 25), CancellationToken.None)).Value.Items);
+
+        Assert.Equal("Approved", row.Status);
+        Assert.Equal("Pending", row.DraftAuthorizationStatus);
+        Assert.False(row.CanAdd);
+        Assert.Equal(
+            "SAP marked the request Approved but left the draft Pending, so it cannot be added. Ask the originator to raise it again in SAP.",
+            row.StatusNote);
+    }
+
+    [Fact]
     public async Task A_generated_request_names_its_credit_note_and_a_missing_draft_is_reported_not_dropped()
     {
         var generated = new SAPApprovalRequest

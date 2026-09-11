@@ -72,6 +72,29 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
         Assert.Contains("ngoni", entry.Details);
     }
 
+    /// <summary>
+    /// Production request 86300: SAP marked the request Approved and left its draft Pending, so neither
+    /// the B1 client nor the add can use it. Reporting "can now be added" there was the bug.
+    /// </summary>
+    [Fact]
+    public async Task An_approval_sap_records_without_approving_the_draft_says_the_credit_note_cannot_be_added()
+    {
+        var sap = new RecordingSap(Pending(3110))
+        {
+            AfterDecision = Approved(3110),
+            DraftAfterDecision = Draft(SapDocumentAuthorizationStatuses.Pending)
+        };
+
+        var result = await Handler(sap, new RecordingAuditService()).Handle(Command(3110, "Approved", null), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        Assert.Equal("Approved", result.Value.Status);
+        Assert.False(result.Value.CanAdd);
+        Assert.False(result.Value.StillPending);
+        Assert.DoesNotContain("can now be added", result.Value.Message);
+        Assert.Contains("left draft 88123 Pending", result.Value.Message);
+    }
+
     [Fact]
     public async Task Rejecting_sends_not_approved_and_audits_the_rejection()
     {
@@ -323,11 +346,23 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
     private static SAPApprovalRequestLine Line(int stage, int user, string status)
         => new() { StageCode = stage, UserID = user, Status = status };
 
+    private static SAPCreditNote Draft(string authorizationStatus) => new()
+    {
+        DocEntry = 88123,
+        DocObjectCode = SapDocObjectCodes.CreditNotes,
+        DocumentStatus = SapDocumentStatuses.Open,
+        AuthorizationStatus = authorizationStatus
+    };
+
     private sealed class RecordingSap(SAPApprovalRequest current)
     {
         private bool _decided;
 
         public SAPApprovalRequest? AfterDecision { get; init; }
+
+        /// <summary>The draft SAP shows once the decision is in; by default it followed the request.</summary>
+        public SAPCreditNote? DraftAfterDecision { get; init; } = Draft(SapDocumentAuthorizationStatuses.Approved);
+
         public string? RefuseWith { get; init; }
         public Exception? ThrowOnDecision { get; init; }
         public List<(int Code, string? Approver, string? Password, string Decision, string? Remarks, CancellationToken Token)> Decisions { get; } = [];
@@ -336,6 +371,8 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
         {
             nameof(ISAPServiceLayerClient.GetApprovalRequestAsync)
                 => Task.FromResult<SAPApprovalRequest?>(_decided ? AfterDecision ?? current : current),
+            nameof(ISAPServiceLayerClient.GetCreditNoteDraftAsync)
+                => Task.FromResult(DraftAfterDecision),
             nameof(ISAPServiceLayerClient.SubmitApprovalDecisionAsync) => Decide(args!),
             _ => throw new InvalidOperationException($"{method.Name} was not expected.")
         });
