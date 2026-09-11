@@ -349,7 +349,14 @@ public sealed class DesktopSalePostingService(
                 // stock and creates nothing, so a failure here must not leave PostIssuedAtUtc set on
                 // a sale SAP has never heard of — that sale would spend the rest of its budget
                 // asking SAP about an invoice that was never issued.
-                var request = DesktopSaleInvoiceRequestBuilder.Build(sale);
+                // What SAP shows in the invoice's Remarks: where the sale came from, its reference, the
+                // fiscal receipt, who captured it and how it was paid. Till invoices used to arrive with
+                // the column blank. Resolved here, with the rest of the preparation, so a failed name
+                // lookup costs nothing durable.
+                var remarkNames = await DesktopSaleInvoiceRemarks.ResolveNamesAsync(
+                    context, sale, logger, cancellationToken);
+                var request = DesktopSaleInvoiceRequestBuilder.Build(
+                    sale, DesktopSaleInvoiceRemarks.Build(sale, remarkNames));
                 var allocation = await InvoiceBatchAllocation.AllocateAsync(
                     batchValidation, request, BatchAllocationStrategy.FEFO, cancellationToken);
 

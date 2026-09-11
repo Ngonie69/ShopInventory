@@ -336,7 +336,13 @@ public sealed class VanSalesEndOfDayPostingService(
             return;
         }
 
-        var request = BuildInvoiceRequest(sale);
+        // What SAP shows in the invoice's Remarks, from the same builder the till route uses, so an
+        // invoice reads the same whichever route posted it. Resolved before the post marker, so a
+        // failed name lookup leaves nothing behind.
+        var remarkNames = await DesktopSaleInvoiceRemarks.ResolveNamesAsync(
+            context, sale, logger, cancellationToken);
+        var request = DesktopSaleInvoiceRequestBuilder.Build(
+            sale, DesktopSaleInvoiceRemarks.Build(sale, remarkNames));
 
         // Choose the batches the invoice issues from, before anything durable is written.
         //
@@ -479,35 +485,6 @@ public sealed class VanSalesEndOfDayPostingService(
                 "Van sale {ExternalReference} posted as invoice {DocNum}, but the stock ledger was not told",
                 sale.ExternalReferenceId, docNum);
         }
-    }
-
-    private static CreateInvoiceRequest BuildInvoiceRequest(DesktopSaleEntity sale) =>
-        DesktopSaleInvoiceRequestBuilder.Build(sale, BuildComments(sale));
-
-    /// <summary>
-    /// Carries the ZIMRA receipt onto the SAP document so the link is visible to anyone reading the
-    /// invoice in SAP, not only to a reconciliation query that knows to join on it.
-    /// </summary>
-    private static string BuildComments(DesktopSaleEntity sale)
-    {
-        var parts = new List<string> { "Van sale, fiscalised on device" };
-
-        if (!string.IsNullOrWhiteSpace(sale.FiscalDeviceNumber))
-        {
-            parts.Add($"device {sale.FiscalDeviceNumber}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(sale.FiscalDayNo))
-        {
-            parts.Add($"fiscal day {sale.FiscalDayNo}");
-        }
-
-        if (sale.ReceiptGlobalNo.HasValue)
-        {
-            parts.Add($"receipt {sale.ReceiptGlobalNo}");
-        }
-
-        return Truncate(string.Join(", ", parts) + ".", 500);
     }
 
     private static void MarkPosted(DesktopSaleEntity sale, int docEntry, int docNum)
