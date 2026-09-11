@@ -113,7 +113,7 @@ internal static class CreditNoteApprovalProjection
                 && !string.Equals(draft.AuthorizationStatus, SapDocumentAuthorizationStatuses.Approved, StringComparison.OrdinalIgnoreCase))
             {
                 var draftState = SapEnumNames.StripPrefix(draft.AuthorizationStatus, "das");
-                return (false, false, $"The draft's own approval state is {draftState}, not Approved; it may have been changed in SAP since.");
+                return (false, false, $"SAP marked the request Approved but left the draft {draftState}, so it cannot be added. Ask the originator to raise it again in SAP.");
             }
 
             return (false, true, null);

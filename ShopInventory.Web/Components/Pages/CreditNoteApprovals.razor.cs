@@ -397,7 +397,10 @@ public partial class CreditNoteApprovals : IAsyncDisposable
             {
                 detailError = null;
                 decisionRemarks = null;
-                Snackbar.Add(result.Value.Message, Severity.Success);
+                // An approval SAP recorded without approving the draft is not a success anybody can act on.
+                Snackbar.Add(result.Value.Message, result.Value.Status == "Approved" && !result.Value.CanAdd
+                    ? Severity.Warning
+                    : Severity.Success);
             }
         }
         catch (Exception ex)

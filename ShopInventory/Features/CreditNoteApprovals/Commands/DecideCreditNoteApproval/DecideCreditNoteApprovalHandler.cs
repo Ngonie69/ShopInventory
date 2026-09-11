@@ -192,7 +192,18 @@ public sealed class DecideCreditNoteApprovalHandler(
                 logger.LogWarning(exception, "The {Decision} on approval request {Code} landed although the call failed; SAP shows it recorded", decision, command.Code);
             }
 
-            var result = Describe(command.Code, decision, approving, after ?? request, stageName);
+            var final = after ?? request;
+
+            // The request is not the whole answer. SAP has marked a request Approved and left its draft
+            // Pending (production request 86300), and the draft is what the B1 client and the add both
+            // read. Ask it before saying the credit note can be added.
+            var draftAfter = approving
+                && string.Equals(final.Status, SapApprovalRequestStatuses.Approved, StringComparison.OrdinalIgnoreCase)
+                && final.DraftEntry is int draftEntry
+                    ? await TryReadDraftAsync(draftEntry)
+                    : null;
+
+            var result = Describe(command.Code, decision, approving, final, stageName, draftAfter);
             await TryAuditAsync(approving, command, stageName, true, $"Status now {result.Status}.", remarks);
 
             if (idempotencyRequestId.HasValue)
@@ -243,23 +254,37 @@ public sealed class DecideCreditNoteApprovalHandler(
         return text.Length <= SapRemarksLength ? text : text[..SapRemarksLength];
     }
 
+    /// <remarks>
+    /// <c>draftAfter</c> is the draft read back after an approval SAP reports complete; null when there was
+    /// nothing to read or the read failed, in which case the add checks the draft again before it converts
+    /// anything.
+    /// </remarks>
     private static CreditNoteApprovalDecisionResultDto Describe(
         int code,
         string decision,
         bool approving,
         SAPApprovalRequest after,
-        string stageName)
+        string stageName,
+        SAPCreditNote? draftAfter)
     {
         var status = SapApprovalRequestStatuses.ToDisplay(after.Status);
         var stillPending = string.Equals(after.Status, SapApprovalRequestStatuses.Pending, StringComparison.OrdinalIgnoreCase);
-        var canAdd = string.Equals(after.Status, SapApprovalRequestStatuses.Approved, StringComparison.OrdinalIgnoreCase);
+        var requestApproved = string.Equals(after.Status, SapApprovalRequestStatuses.Approved, StringComparison.OrdinalIgnoreCase);
+        var draftLeftBehind = requestApproved
+            && !string.IsNullOrWhiteSpace(draftAfter?.AuthorizationStatus)
+            && !string.Equals(draftAfter.AuthorizationStatus, SapDocumentAuthorizationStatuses.Approved, StringComparison.OrdinalIgnoreCase);
+        var canAdd = requestApproved && !draftLeftBehind;
 
-        var message = (approving, stillPending, canAdd) switch
+        var message = (approving, stillPending, canAdd, draftLeftBehind) switch
         {
-            (true, _, true) => "Approval complete. The credit note can now be added.",
-            (true, true, _) => $"Approved at stage '{stageName}'. SAP is waiting on another stage before the credit note can be added.",
-            (true, _, _) => $"Approval recorded. SAP now shows the request as {status}.",
-            (false, _, _) => "Rejected. The originator will see the decision in SAP."
+            (true, _, _, true) =>
+                $"SAP recorded the approval and marked the request Approved, but left draft {draftAfter!.DocEntry} "
+                + $"{SapEnumNames.StripPrefix(draftAfter.AuthorizationStatus, "das")}, so the credit note cannot be added. "
+                + "Ask the originator to raise it again in SAP.",
+            (true, _, true, _) => "Approval complete. The credit note can now be added.",
+            (true, true, _, _) => $"Approved at stage '{stageName}'. SAP is waiting on another stage before the credit note can be added.",
+            (true, _, _, _) => $"Approval recorded. SAP now shows the request as {status}.",
+            (false, _, _, _) => "Rejected. The originator will see the decision in SAP."
         };
 
         return new CreditNoteApprovalDecisionResultDto
@@ -282,6 +307,19 @@ public sealed class DecideCreditNoteApprovalHandler(
         catch (Exception exception)
         {
             logger.LogWarning(exception, "Could not read approval request {Code} back after the decision", code);
+            return null;
+        }
+    }
+
+    private async Task<SAPCreditNote?> TryReadDraftAsync(int draftEntry)
+    {
+        try
+        {
+            return await sap.GetCreditNoteDraftAsync(draftEntry, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Could not read draft {DraftEntry} back after the decision", draftEntry);
             return null;
         }
     }
