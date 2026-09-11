@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.DTOs;
 using ShopInventory.Authentication;
+using ShopInventory.Common.Security;
 using ShopInventory.Models;
 using ShopInventory.Features.Crates.Commands.UploadInvoiceCratePod;
 using ShopInventory.Features.Invoices.Commands.CancelInvoice;
@@ -35,7 +36,7 @@ namespace ShopInventory.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccessWithOperator")]
-public class InvoiceController(ISender mediator) : ApiControllerBase
+public class InvoiceController(ISender mediator, ICallerAccountReader callerAccounts) : ApiControllerBase
 {
     /// <summary>
     /// Create a new invoice (posts to SAP)
@@ -139,11 +140,16 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         int docNum,
         CancellationToken cancellationToken = default)
     {
-        var restrictToAssignedCustomers = User.IsInRole("Driver") || User.IsInRole("Operator");
+        // By account, not by the request's role claims — see ICallerAccountReader.
+        var caller = await callerAccounts.ReadAsync(User, cancellationToken);
+        if (caller.IsError)
+            return Problem(caller.Errors);
+
+        var restrictToAssignedCustomers = caller.Value.IsInRole(ApplicationRoles.Driver) || caller.Value.IsInRole(ApplicationRoles.Operator);
         var result = await mediator.Send(
             new GetInvoiceByDocNumQuery(
                 docNum,
-                restrictToAssignedCustomers ? GetUserId() : null,
+                restrictToAssignedCustomers ? caller.Value.UserId : null,
                 restrictToAssignedCustomers),
             cancellationToken);
         return result.Match(Ok, Problem);
@@ -259,7 +265,11 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         [FromQuery] int? pageSize = null,
         [FromQuery] bool includeLines = false)
     {
-        var restrictToAssignedCustomers = User.IsInRole("Driver");
+        var caller = await callerAccounts.ReadAsync(User, cancellationToken);
+        if (caller.IsError)
+            return Problem(caller.Errors);
+
+        var restrictToAssignedCustomers = caller.Value.IsInRole(ApplicationRoles.Driver);
         var result = await mediator.Send(
             new GetInvoicesByCustomerQuery(
                 cardCode,
@@ -267,7 +277,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
                 toDate,
                 page,
                 pageSize,
-                restrictToAssignedCustomers ? GetUserId() : null,
+                restrictToAssignedCustomers ? caller.Value.UserId : null,
                 restrictToAssignedCustomers,
                 includeLines),
             cancellationToken);
@@ -441,7 +451,11 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         if (userId == null && string.IsNullOrWhiteSpace(cardCode))
             return Unauthorized();
 
-        Guid? uploadedByUserId = User.IsInRole("Driver") ? userId : null;
+        var caller = await callerAccounts.ReadAsync(User, cancellationToken);
+        if (caller.IsError)
+            return Problem(caller.Errors);
+
+        Guid? uploadedByUserId = caller.Value.IsInRole(ApplicationRoles.Driver) ? userId : null;
 
         var result = await mediator.Send(
             new GetAllPodsQuery(page, pageSize, cardCode, fromDate, toDate, search, uploadedByUsername, uploadedFromLocation, uploadedByUserId, userId),

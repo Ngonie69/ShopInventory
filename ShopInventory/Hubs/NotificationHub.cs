@@ -1,6 +1,7 @@
 ﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using ShopInventory.Common.Security;
 
 namespace ShopInventory.Hubs;
 
@@ -23,21 +24,36 @@ public class NotificationHub : Hub
     private static string NormalizeWarehouse(string warehouseCode) => warehouseCode.Trim().ToUpperInvariant();
 
     private readonly ILogger<NotificationHub> _logger;
+    private readonly ICallerAccountReader _callerAccounts;
 
-    public NotificationHub(ILogger<NotificationHub> logger)
+    public NotificationHub(ILogger<NotificationHub> logger, ICallerAccountReader callerAccounts)
     {
         _logger = logger;
+        _callerAccounts = callerAccounts;
     }
 
     public override async Task OnConnectedAsync()
     {
-        var username = Context.User?.Identity?.Name;
-        var roles = Context.User?
-            .FindAll(ClaimTypes.Role)
-            .Select(claim => claim.Value)
-            .Where(role => !string.IsNullOrWhiteSpace(role))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray() ?? [];
+        // The user and role groups follow the account. A client that sends an integration key beside
+        // the user's token has the key's identity first on the principal, and would otherwise join the
+        // key's name and its Admin role's group instead of the user's own.
+        var caller = await _callerAccounts.ReadAsync(Context.User, Context.ConnectionAborted);
+        if (caller.IsError)
+        {
+            _logger.LogWarning("NotificationHub: refused a connection whose account is gone or disabled");
+            Context.Abort();
+            return;
+        }
+
+        var username = caller.Value.IsServiceCaller ? Context.User?.Identity?.Name : caller.Value.Username;
+        var roles = caller.Value.IsServiceCaller
+            ? Context.User?
+                .FindAll(ClaimTypes.Role)
+                .Select(claim => claim.Value)
+                .Where(role => !string.IsNullOrWhiteSpace(role))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray() ?? []
+            : new[] { caller.Value.Role! };
 
         var warehouses = Context.User?
             .FindAll(WarehouseClaimType)
