@@ -115,3 +115,11 @@ jobs:
         run: |
           ./scripts/Test-DeployCredentialHandling.ps1
           exit $LASTEXITCODE
+
+      # The Firebase key is gitignored, so the runner's package never has it. Losing the carry-over
+      # fails nothing either - it publishes an API whose push notifications are silently dead.
+      - name: Check a deployment keeps the API's Firebase key
+        shell: pwsh
+        run: |
+          ./scripts/Test-DeploySlotSeeding.ps1
+          exit $LASTEXITCODE

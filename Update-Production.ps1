@@ -1215,7 +1215,7 @@ if ($DeployTarget -eq "Both" -or $DeployTarget -eq "API") {
         Write-Host "  Firebase service account key included." -ForegroundColor Green
     }
     else {
-        Write-Host "  WARNING: firebase-service-account.json not found - push notifications will be disabled on deploy." -ForegroundColor Yellow
+        Write-Host "  firebase-service-account.json is not in this checkout - each node carries its key over from the active API slot (see the cutover output)." -ForegroundColor Yellow
     }
 
     $publishedApps += "API"
@@ -1801,6 +1801,48 @@ try {
                 throw "No source web.config was available for $($DeploymentPlan.Name) slot $($DeploymentPlan.TargetSlot). Copy the active site's production web.config into $targetWebConfigPath and rerun the deployment."
             }
 
+            # The API reads its FCM key from its own folder - ServiceAccountKeyPath is a bare relative
+            # name - and the key is gitignored, so a package built from a fresh clone has none. That is
+            # every runner deployment and every worktree run, and each used to publish an API with push
+            # notifications dead behind a warning. Carried over from the live slot, as web.config is.
+            # A key in the package still wins, so rotating the key is an ordinary deployment.
+            function Initialize-SlotFirebaseKey {
+                param(
+                    [object]$DeploymentPlan,
+                    [string]$ExtractedKeyPath
+                )
+
+                $keyName = 'firebase-service-account.json'
+                $targetKeyPath = Join-Path $DeploymentPlan.TargetPath $keyName
+
+                if (-not [string]::IsNullOrWhiteSpace($ExtractedKeyPath) -and (Test-Path $ExtractedKeyPath)) {
+                    Copy-Item $ExtractedKeyPath $targetKeyPath -Force
+                    Write-Host "  Firebase key taken from the deployment package" -ForegroundColor Green
+                    return 'Package'
+                }
+
+                $currentKeyPath = if ([string]::IsNullOrWhiteSpace($DeploymentPlan.CurrentPath)) {
+                    $null
+                }
+                else {
+                    Join-Path $DeploymentPlan.CurrentPath $keyName
+                }
+
+                if (-not [string]::IsNullOrWhiteSpace($currentKeyPath) -and (Test-Path $currentKeyPath)) {
+                    Copy-Item $currentKeyPath $targetKeyPath -Force
+                    Write-Host "  Carried Firebase key over from active site" -ForegroundColor Green
+                    return 'ActiveSite'
+                }
+
+                if (Test-Path $targetKeyPath) {
+                    Write-Host "  Retaining the Firebase key already in this slot - neither the package nor the active site had one" -ForegroundColor Yellow
+                    return 'Retained'
+                }
+
+                Write-Host "  WARNING: no Firebase key in the package, the active site or this slot - push notifications will be disabled. Copy $keyName into $($DeploymentPlan.TargetPath)." -ForegroundColor Yellow
+                return 'Missing'
+            }
+
             function Set-WebConfigEnvironmentVariableValue {
                 param(
                     [string]$WebConfigPath,
@@ -2185,6 +2227,8 @@ try {
                 Initialize-SlotWebConfig -DeploymentPlan $Plan -ExtractedWebConfigPath "$tempPath\web.config"
 
                 if ($Plan.Name -eq 'API') {
+                    $null = Initialize-SlotFirebaseKey -DeploymentPlan $Plan -ExtractedKeyPath "$tempPath\firebase-service-account.json"
+
                     $apiWebConfigPaths = @("$($Plan.TargetPath)\web.config")
                     if (-not [string]::IsNullOrWhiteSpace($Plan.CurrentPath)) {
                         $currentApiWebConfigPath = Join-Path $Plan.CurrentPath 'web.config'
