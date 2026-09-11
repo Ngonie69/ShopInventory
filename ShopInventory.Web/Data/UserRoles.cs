@@ -18,12 +18,14 @@ public static class UserRoles
     public const string Cashier = "Cashier";
 
     /// <summary>
-    /// Stock Controller with access to inventory transfers only
+    /// Stock Controller with access to inventory transfers, and to loading vans from the orders shops
+    /// placed (/van-sales-customer-orders)
     /// </summary>
     public const string StockController = "StockController";
 
     /// <summary>
-    /// Depot Controller with access to inventory transfers and local stock only
+    /// Depot Controller with access to inventory transfers, local stock, and loading vans from the orders
+    /// shops placed (/van-sales-customer-orders)
     /// </summary>
     public const string DepotController = "DepotController";
 

@@ -133,6 +133,15 @@ public static class Permissions
     // Van sales attendance
     public const string ViewVanSalesAttendance = "vansales.attendance.view";
 
+    // Van sales customer orders: the depot's side of orders shops placed in the app, meaning a day's
+    // route load, deliveries, and conversion to a sales order. Narrower than salesorders.*, which the
+    // depot roles do not hold and must not gain for this one screen.
+    public const string FulfilVanSalesCustomerOrders = "vansales.customer_orders.fulfil";
+
+    // Van sales routes: creating and editing routes and the stops on their plans. Narrower than
+    // users.edit, which the route endpoints used to borrow and which also edits every user account.
+    public const string ManageVanSalesRoutes = "vansales.routes.manage";
+
     /// <summary>
     /// Get all permissions grouped by category
     /// </summary>
@@ -261,7 +270,9 @@ public static class Permissions
             },
             ["Van Sales"] = new()
             {
-                new(ViewVanSalesAttendance, "View Van Sales Attendance", "View van sales check-in/check-out activity and departure compliance")
+                new(ViewVanSalesAttendance, "View Van Sales Attendance", "View van sales check-in/check-out activity and departure compliance"),
+                new(FulfilVanSalesCustomerOrders, "Fulfil Van Sales Customer Orders", "See the orders a route's shops placed, record deliveries and turn orders into sales orders"),
+                new(ManageVanSalesRoutes, "Manage Van Sales Routes", "Create and edit selling routes and the stops on each route's plan")
             },
             ["System"] = new()
             {
@@ -310,9 +321,9 @@ public static class Permissions
                 ViewSettings, EditSettings,
                 ViewAuditLogs,
                 ViewSyncStatus,
-                // Van sales attendance, and only van sales attendance. A manager oversees the vans;
-                // merchandiser timesheets are the sales rep's to read.
-                ViewVanSalesAttendance
+                // Van sales: attendance, fulfilling customer orders, and the routes themselves. A manager
+                // oversees the vans; merchandiser timesheets are the sales rep's to read.
+                ViewVanSalesAttendance, FulfilVanSalesCustomerOrders, ManageVanSalesRoutes
             },
             ApplicationRoles.User => new List<string>
             {
@@ -334,7 +345,8 @@ public static class Permissions
                 // two stay separate permissions; a cashier holds both, as a sales rep already did.
                 ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders, PostSalesOrdersToSAP,
                 ViewQuotations, CreateQuotations, EditQuotations,
-                ViewReports
+                ViewReports,
+                FulfilVanSalesCustomerOrders
             },
             // Narrower than Cashier on purpose. A cart vendor invoices vendors from a list somebody
             // else maintains, takes cash only, and prints nothing — so it needs no rights over
@@ -360,13 +372,17 @@ public static class Permissions
             {
                 ViewDashboard, ViewProducts,
                 ViewStock, ViewInventory, TransferStock, TransferInventory,
-                ViewCustomers
+                ViewCustomers,
+                // /van-sales-customer-orders: loading the van from what shops ordered.
+                FulfilVanSalesCustomerOrders
             },
-            // Depot controllers are limited to inventory transfers and local stock.
+            // Depot controllers are limited to inventory transfers, local stock, and loading vans from the
+            // orders shops placed (/van-sales-customer-orders).
             ApplicationRoles.DepotController => new List<string>
             {
                 ViewProducts,
-                ViewStock, ViewInventory, TransferStock, TransferInventory
+                ViewStock, ViewInventory, TransferStock, TransferInventory,
+                FulfilVanSalesCustomerOrders
             },
             ApplicationRoles.ReadOnly => new List<string>
             {
@@ -565,6 +581,10 @@ public static class Permission
 
     // Van sales attendance
     public const string ViewVanSalesAttendance = Permissions.ViewVanSalesAttendance;
+
+    // Van sales customer orders and routes
+    public const string FulfilVanSalesCustomerOrders = Permissions.FulfilVanSalesCustomerOrders;
+    public const string ManageVanSalesRoutes = Permissions.ManageVanSalesRoutes;
 
     /// <summary>
     /// Get all permissions grouped by category (delegates to Permissions)

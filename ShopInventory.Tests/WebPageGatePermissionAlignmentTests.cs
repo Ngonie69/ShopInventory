@@ -85,6 +85,98 @@ public sealed class WebPageGatePermissionAlignmentTests
     }
 
     /// <summary>
+    /// /van-sales-customer-orders is where the depot roles load a van from what shops ordered. They
+    /// hold the narrow fulfilment permission, not salesorders.*.
+    /// </summary>
+    [Theory]
+    [InlineData(ApplicationRoles.StockController, nameof(VanSalesOrdersController.GetRouteLoad))]
+    [InlineData(ApplicationRoles.StockController, nameof(VanSalesOrdersController.RecordDelivery))]
+    [InlineData(ApplicationRoles.StockController, nameof(VanSalesOrdersController.Convert))]
+    [InlineData(ApplicationRoles.DepotController, nameof(VanSalesOrdersController.GetRouteLoad))]
+    [InlineData(ApplicationRoles.DepotController, nameof(VanSalesOrdersController.RecordDelivery))]
+    [InlineData(ApplicationRoles.DepotController, nameof(VanSalesOrdersController.Convert))]
+    public async Task The_depot_roles_can_fulfil_van_customer_orders(string role, string action)
+    {
+        Assert.True(await Passes<VanSalesOrdersController>(action, role));
+    }
+
+    /// <summary>The negative control: the fulfilment permission is not a way into sales orders.</summary>
+    [Theory]
+    [InlineData(ApplicationRoles.StockController)]
+    [InlineData(ApplicationRoles.DepotController)]
+    public async Task Fulfilling_van_orders_does_not_open_the_sales_order_api(string role)
+    {
+        Assert.False(await Passes<SalesOrderController>(nameof(SalesOrderController.Create), role));
+    }
+
+    [Fact]
+    public async Task Every_role_the_customer_orders_page_admits_can_load_it()
+    {
+        foreach (var role in PageRoles("ShopInventory.Web.Components.Pages.VanSalesCustomerOrders"))
+        {
+            Assert.True(
+                await Passes<VanSalesOrdersController>(nameof(VanSalesOrdersController.GetRouteLoad), role),
+                $"{role} can open /van-sales-customer-orders but the API refuses its route load.");
+        }
+    }
+
+    /// <summary>
+    /// /van-sales/routes admits Admin and Manager. The route writes used to borrow users.edit, which would
+    /// also let a manager edit every user account.
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(VanSalesReportController.CreateRoute))]
+    [InlineData(nameof(VanSalesReportController.UpdateRoute))]
+    [InlineData(nameof(VanSalesReportController.CreateRouteStop))]
+    [InlineData(nameof(VanSalesReportController.UpdateRouteStop))]
+    [InlineData(nameof(VanSalesReportController.DeleteRouteStop))]
+    [InlineData(nameof(VanSalesReportController.ReorderRouteStops))]
+    public async Task Every_role_the_routes_page_admits_can_edit_routes_and_stops(string action)
+    {
+        foreach (var role in PageRoles("ShopInventory.Web.Components.Pages.VanSalesRoutes"))
+        {
+            Assert.True(
+                await Passes<VanSalesReportController>(action, role),
+                $"{role} can open /van-sales/routes but the API refuses {action}.");
+        }
+    }
+
+    /// <summary>The negative control: running the routes is not a way into user accounts.</summary>
+    [Fact]
+    public async Task Managing_routes_does_not_let_a_manager_edit_users()
+    {
+        Assert.False(await Passes<UserManagementController>(nameof(UserManagementController.UpdateUser), ApplicationRoles.Manager));
+    }
+
+    /// <summary>
+    /// UpdateUserPermissionsAsync rejects a permission missing from the catalogue, so a permission left
+    /// out of it could never be granted to one user.
+    /// </summary>
+    [Fact]
+    public void The_van_sales_permissions_are_in_the_catalogue()
+    {
+        var all = Permission.GetAllPermissions();
+        Assert.Contains(Permission.FulfilVanSalesCustomerOrders, all);
+        Assert.Contains(Permission.ManageVanSalesRoutes, all);
+    }
+
+    /// <summary>The non-Admin roles a compiled Web page admits, read off its [Authorize] attribute.</summary>
+    internal static string[] PageRoles(string pageTypeName)
+    {
+        var page = typeof(ShopInventory.Web.Data.UserRoles).Assembly.GetType(pageTypeName);
+        Assert.NotNull(page);
+
+        var authorize = page!.GetCustomAttributes<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>(inherit: true).Single();
+        var roles = authorize.Roles!
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Where(role => role != ApplicationRoles.Admin)
+            .ToArray();
+
+        Assert.NotEmpty(roles);
+        return roles;
+    }
+
+    /// <summary>
     /// Whether every [RequirePermission] on the action lets a user with the role's default permissions
     /// through, answered by the filter itself.
     /// </summary>

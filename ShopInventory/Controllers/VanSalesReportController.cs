@@ -277,8 +277,13 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
     /// <summary>Creates a route.</summary>
     /// <param name="request">The route's code, name, territory and truck.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <remarks>
+    /// Every route and stop write takes users.edit or vansales.routes.manage. users.edit is what they
+    /// borrowed first, because routes were edited beside users; the narrow permission lets a manager
+    /// run the routes without also being able to edit every user account.
+    /// </remarks>
     [HttpPost("routes")]
-    [RequirePermission(Permission.EditUsers)]
+    [RequirePermission(Permission.EditUsers, Permission.ManageVanSalesRoutes)]
     [ProducesResponseType(typeof(RouteDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> CreateRoute(
@@ -293,7 +298,7 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
     /// <param name="request">The route's code, name, territory and truck.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [HttpPut("routes/{id:int}")]
-    [RequirePermission(Permission.EditUsers)]
+    [RequirePermission(Permission.EditUsers, Permission.ManageVanSalesRoutes)]
     [ProducesResponseType(typeof(RouteDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -340,7 +345,7 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
     /// <param name="request">The route, the area, and when it is worked.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [HttpPost("route-stops")]
-    [RequirePermission(Permission.EditUsers)]
+    [RequirePermission(Permission.EditUsers, Permission.ManageVanSalesRoutes)]
     [ProducesResponseType(typeof(RouteStopDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -356,7 +361,7 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
     /// <param name="request">The route, the area, and when it is worked.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [HttpPut("route-stops/{id:int}")]
-    [RequirePermission(Permission.EditUsers)]
+    [RequirePermission(Permission.EditUsers, Permission.ManageVanSalesRoutes)]
     [ProducesResponseType(typeof(RouteStopDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -372,7 +377,7 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
     /// <param name="request">The heading, and its stops in their new order.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [HttpPost("route-stops/reorder")]
-    [RequirePermission(Permission.EditUsers)]
+    [RequirePermission(Permission.EditUsers, Permission.ManageVanSalesRoutes)]
     [ProducesResponseType(typeof(List<RouteStopDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -399,7 +404,7 @@ public class VanSalesReportController(IMediator mediator) : ApiControllerBase
     /// <param name="id">The stop to drop.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     [HttpDelete("route-stops/{id:int}")]
-    [RequirePermission(Permission.EditUsers)]
+    [RequirePermission(Permission.EditUsers, Permission.ManageVanSalesRoutes)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteRouteStop(

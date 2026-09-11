@@ -3087,13 +3087,13 @@ handlers and are not recorded twice.
 | GET | `/api/van-sales/replenishment-report` | `vansales.attendance.view` | How well the depots are keeping the vans stocked |
 | GET | `/api/van-sales/stock-report` | `vansales.attendance.view` | What each van carried, sold, and is still riding around with |
 | GET | `/api/van-sales/routes` | any of `vansales.attendance.view`, `users.view`, `users.create_merchandiser_accounts` | The selling routes |
-| POST | `/api/van-sales/routes` | `users.edit` | Create a route |
-| PUT | `/api/van-sales/routes/{id}` | `users.edit` | Update a route |
+| POST | `/api/van-sales/routes` | `users.edit` or `vansales.routes.manage` | Create a route |
+| PUT | `/api/van-sales/routes/{id}` | `users.edit` or `vansales.routes.manage` | Update a route |
 | GET | `/api/van-sales/route-stops` | any of `vansales.attendance.view`, `users.view`, `users.create_merchandiser_accounts` | The areas each route works, and when |
-| POST | `/api/van-sales/route-stops` | `users.edit` | Add an area to a route's plan |
-| PUT | `/api/van-sales/route-stops/{id}` | `users.edit` | Edit an area on a route's plan |
-| DELETE | `/api/van-sales/route-stops/{id}` | `users.edit` | Drop an area from a route's plan |
-| POST | `/api/van-sales/route-stops/reorder` | `users.edit` | Put one weekday's or cycle week's stops in order |
+| POST | `/api/van-sales/route-stops` | `users.edit` or `vansales.routes.manage` | Add an area to a route's plan |
+| PUT | `/api/van-sales/route-stops/{id}` | `users.edit` or `vansales.routes.manage` | Edit an area on a route's plan |
+| DELETE | `/api/van-sales/route-stops/{id}` | `users.edit` or `vansales.routes.manage` | Drop an area from a route's plan |
+| POST | `/api/van-sales/route-stops/reorder` | `users.edit` or `vansales.routes.manage` | Put one weekday's or cycle week's stops in order |
 | GET | `/api/van-sales/visits` | `vansales.attendance.view` | A page of van sales calls, newest first |
 | GET | `/api/van-sales/visits/report` | `vansales.attendance.view` | Time on the round, summarised per rep |
 
@@ -4174,9 +4174,9 @@ password back, so an operator who loses one sets a new one.
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
-| GET | `/api/van-sales-orders/route-load` | `salesorders.view` | What a van has been asked to carry |
-| POST | `/api/van-sales-orders/{orderId}/delivery` | `salesorders.edit` | Record what was actually delivered |
-| POST | `/api/van-sales-orders/{orderId}/convert` | `salesorders.create` | Turn a customer's order into a sales order |
+| GET | `/api/van-sales-orders/route-load` | `salesorders.view` or `vansales.customer_orders.fulfil` | What a van has been asked to carry |
+| POST | `/api/van-sales-orders/{orderId}/delivery` | `salesorders.edit` or `vansales.customer_orders.fulfil` | Record what was actually delivered |
+| POST | `/api/van-sales-orders/{orderId}/convert` | `salesorders.create` or `vansales.customer_orders.fulfil` | Turn a customer's order into a sales order |
 
 `route-load` takes `assignedBusinessPartnerCode`, `routeCode`, `visitDate` and `status`, and returns
 two views of the same orders: per-item totals for the depot to load to, and the orders themselves for
