@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Security;
 using ShopInventory.Data;
 using ShopInventory.Features.UserManagement;
 using ShopInventory.Models;
@@ -13,6 +14,7 @@ namespace ShopInventory.Features.UserManagement.Commands.UpdateGlobalDriverAssig
 public sealed class UpdateGlobalDriverAssignedCustomersHandler(
     ApplicationDbContext context,
     IHttpContextAccessor httpContextAccessor,
+    ICallerAccountReader callerAccounts,
     IAuditService auditService,
     IBusinessPartnerService businessPartnerService,
     INotificationService notificationService,
@@ -23,7 +25,13 @@ public sealed class UpdateGlobalDriverAssignedCustomersHandler(
         UpdateGlobalDriverAssignedCustomersCommand command,
         CancellationToken cancellationToken)
     {
-        if (httpContextAccessor.HttpContext?.User.IsInRole(ApplicationRoles.PodOperator) == true)
+        var caller = await callerAccounts.ReadAsync(httpContextAccessor.HttpContext?.User, cancellationToken);
+        if (caller.IsError)
+        {
+            return caller.Errors;
+        }
+
+        if (caller.Value.IsInRole(ApplicationRoles.PodOperator))
         {
             return Errors.UserManagement.PodOperatorCanOnlyManageDrivers;
         }

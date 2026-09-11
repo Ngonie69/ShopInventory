@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.AspNetCore.Http;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Security;
 using ShopInventory.Models;
 using ShopInventory.Services;
 
@@ -9,6 +10,7 @@ namespace ShopInventory.Features.UserManagement.Commands.UnlockUser;
 
 public sealed class UnlockUserHandler(
     IHttpContextAccessor httpContextAccessor,
+    ICallerAccountReader callerAccounts,
     IUserManagementService userManagementService,
     IAuditService auditService
 ) : IRequestHandler<UnlockUserCommand, ErrorOr<Success>>
@@ -17,7 +19,13 @@ public sealed class UnlockUserHandler(
         UnlockUserCommand command,
         CancellationToken cancellationToken)
     {
-        if (httpContextAccessor.HttpContext?.User.IsInRole(ApplicationRoles.PodOperator) == true)
+        var caller = await callerAccounts.ReadAsync(httpContextAccessor.HttpContext?.User, cancellationToken);
+        if (caller.IsError)
+        {
+            return caller.Errors;
+        }
+
+        if (caller.Value.IsInRole(ApplicationRoles.PodOperator))
         {
             var targetUser = await userManagementService.GetUserByIdAsync(command.Id);
             if (targetUser is null)

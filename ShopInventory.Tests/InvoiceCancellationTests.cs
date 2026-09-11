@@ -2,6 +2,7 @@
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
+using ErrorOr;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Memory;
@@ -10,6 +11,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Caching;
+using ShopInventory.Common.Security;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Hubs;
@@ -161,7 +163,12 @@ public sealed class InvoiceCancellationTests
         var claims = new List<Claim> { new(ClaimTypes.Name, "till-1"), new(ClaimTypes.Role, "Cashier") };
         claims.AddRange(warehouses.Select(warehouse => new Claim("warehouse", warehouse)));
 
-        return new NotificationHub(NullLogger<NotificationHub>.Instance)
+        // No NameIdentifier claim, so the reader answers "service caller" and the groups come from the
+        // claims — this till has no account row here to read.
+        var serviceCaller = StubProxy.For<ICallerAccountReader>((_, _) =>
+            Task.FromResult<ErrorOr<CallerAccount>>(CallerAccount.ServiceCaller));
+
+        return new NotificationHub(NullLogger<NotificationHub>.Instance, serviceCaller)
         {
             Context = new StubHubCallerContext(new ClaimsPrincipal(new ClaimsIdentity(claims, "test"))),
             Groups = groups
