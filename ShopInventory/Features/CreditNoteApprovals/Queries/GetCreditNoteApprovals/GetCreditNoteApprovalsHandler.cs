@@ -17,6 +17,7 @@ namespace ShopInventory.Features.CreditNoteApprovals.Queries.GetCreditNoteApprov
 public sealed class GetCreditNoteApprovalsHandler(
     ISAPServiceLayerClient sap,
     ISapApprovalLookups lookups,
+    ICreditNoteApprovalStageScope stageScope,
     IOptions<SAPSettings> sapSettings,
     ILogger<GetCreditNoteApprovalsHandler> logger)
     : IRequestHandler<GetCreditNoteApprovalsQuery, ErrorOr<CreditNoteApprovalListResponseDto>>
@@ -40,12 +41,20 @@ public sealed class GetCreditNoteApprovalsHandler(
         var filter = CreditNoteApprovalStatusFilters.Normalise(query.Status);
         var statuses = CreditNoteApprovalStatusFilters.ToSapStatuses(filter);
 
+        // A stage-scoped role's queue is filtered in SAP rather than here, so the count and the cursor
+        // describe the queue it sees instead of a page of the whole one with rows missing.
+        var scope = await stageScope.ResolveAsync(query.CallerUserId, cancellationToken);
+        if (scope.IsError)
+        {
+            return scope.Errors;
+        }
+
         // Who this app decides as is configuration, not a property of any row, so it is read
         // alongside the list rather than after it.
         var serviceApproverTask = TryLookupAsync(() => lookups.GetServiceApproverAsync(cancellationToken), "the service approver");
 
         var (requests, total) = await sap.GetCreditNoteApprovalRequestsAsync(
-            statuses, query.Page, query.PageSize, query.BeforeCode, cancellationToken);
+            statuses, query.Page, query.PageSize, query.BeforeCode, scope.Value.StageCodes, cancellationToken);
 
         var draftEntries = requests
             .Where(request => request.DraftEntry is > 0)

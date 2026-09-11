@@ -79,6 +79,20 @@ public sealed class TransferRequestConversionTests : IDisposable
     }
 
     [Fact]
+    public async Task The_wash_bay_converts_a_request_raised_in_SAP_as_a_stock_officer_does()
+    {
+        // No warehouses assigned: the wash bay is unscoped, so an empty assignment must not read as
+        // "no warehouse you may act on".
+        var washBay = await AddUserAsync(ApplicationRoles.WashBay);
+        var sap = new RecordingSapClient();
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, washBay.Id), default);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Equal(1, sap.Conversions);
+    }
+
+    [Fact]
     public async Task Converting_a_request_raised_in_SAP_opens_no_approval_against_it()
     {
         // Listing stopped opening approvals on SAP-raised requests; converting one must not put

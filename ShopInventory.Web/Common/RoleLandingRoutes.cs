@@ -41,6 +41,9 @@ public static class RoleLandingRoutes
     /// <summary>The manager's workspace: purchasing, approvals and the day's trading.</summary>
     public const string ManagerDashboard = "/manager-dashboard";
 
+    /// <summary>Where the wash bay lands: the transfers list.</summary>
+    public const string InventoryTransfers = "/inventory-transfers";
+
     /// <summary>
     /// Resolves the landing route from a role predicate, so a caller holding a
     /// <see cref="ClaimsPrincipal"/> and one holding only the role name from a
@@ -80,6 +83,13 @@ public static class RoleLandingRoutes
         if (isInRole(UserRoles.Merchandiser))
         {
             return "/mobile-drafts";
+        }
+
+        // No dashboard of its own. Transfers are most of the wash bay's day; its credit memo
+        // approvals are one nav link away.
+        if (isInRole(UserRoles.WashBay) && !isInRole(UserRoles.Admin))
+        {
+            return InventoryTransfers;
         }
 
         // The three roles the dashboard route still serves, each with a page of

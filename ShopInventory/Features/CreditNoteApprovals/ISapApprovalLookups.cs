@@ -20,4 +20,7 @@ public interface ISapApprovalLookups
     Task<SAPUser?> GetUserAsync(int internalKey, CancellationToken cancellationToken);
     Task<SAPApprovalTemplate?> GetTemplateAsync(int code, CancellationToken cancellationToken);
     Task<SAPApprovalStage?> GetStageAsync(int code, CancellationToken cancellationToken);
+
+    /// <summary>The stages SAP holds under any of these names. A name SAP does not have is simply absent.</summary>
+    Task<IReadOnlyList<SAPApprovalStage>> GetStagesByNameAsync(IReadOnlyCollection<string> names, CancellationToken cancellationToken);
 }

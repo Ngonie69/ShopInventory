@@ -33,6 +33,17 @@ public sealed class SapApprovalLookups(
     public Task<SAPApprovalStage?> GetStageAsync(int code, CancellationToken cancellationToken)
         => GetOrReadAsync($"SapApproval_Stage_{code}", () => sap.GetApprovalStageAsync(code, cancellationToken));
 
+    public async Task<IReadOnlyList<SAPApprovalStage>> GetStagesByNameAsync(
+        IReadOnlyCollection<string> names,
+        CancellationToken cancellationToken)
+    {
+        var key = "SapApproval_StagesByName_" + string.Join(
+            "|", names.Select(name => name.Trim().ToUpperInvariant()).Order(StringComparer.Ordinal));
+
+        return await GetOrReadAsync<List<SAPApprovalStage>>(
+            key, async () => await sap.GetApprovalStagesByNameAsync(names, cancellationToken)) ?? [];
+    }
+
     private async Task<T?> GetOrReadAsync<T>(string key, Func<Task<T?>> read) where T : class
     {
         if (cache.TryGetValue(key, out object? cached))

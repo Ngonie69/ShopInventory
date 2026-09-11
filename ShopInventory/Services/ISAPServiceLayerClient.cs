@@ -683,12 +683,18 @@ public interface ISAPServiceLayerClient
     /// top. The queue is live and newest-first, so an offset page shifts under a reader every time a
     /// credit memo is raised; a cursor does not. Null offsets by <paramref name="page"/> as before.
     /// </param>
+    /// <param name="stageCodes">
+    /// Only the requests whose current stage is one of these, in the rows and the count alike. Null reads
+    /// every stage; an empty collection is refused, because a scope that names nothing must not read as
+    /// "everything".
+    /// </param>
     /// <param name="cancellationToken">Cancels the reads.</param>
     Task<(List<SAPApprovalRequest> Items, int TotalCount)> GetCreditNoteApprovalRequestsAsync(
         IReadOnlyCollection<string> sapStatuses,
         int page,
         int pageSize,
         int? beforeCode = null,
+        IReadOnlyCollection<int>? stageCodes = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>One approval request with its approver lines; null when SAP has no such code.</summary>
@@ -719,6 +725,12 @@ public interface ISAPServiceLayerClient
     Task<SAPUser?> GetSapUserByCodeAsync(string userCode, CancellationToken cancellationToken = default);
     Task<SAPApprovalTemplate?> GetApprovalTemplateAsync(int code, CancellationToken cancellationToken = default);
     Task<SAPApprovalStage?> GetApprovalStageAsync(int code, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The approval stages named any of <paramref name="names"/>, with their approvers. Turns the stage
+    /// names a role is scoped to into the codes the requests carry.
+    /// </summary>
+    Task<List<SAPApprovalStage>> GetApprovalStagesByNameAsync(IReadOnlyCollection<string> names, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Records a decision on an approval request. <paramref name="sapDecision"/> is one of

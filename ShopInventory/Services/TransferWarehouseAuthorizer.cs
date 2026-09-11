@@ -64,8 +64,10 @@ public sealed class TransferWarehouseAuthorizer(ApplicationDbContext context) : 
         if (user is null)
             return Errors.InventoryTransfer.ApproverNotAuthenticated;
 
+        // The wash bay converts as a stock controller does: any source warehouse, no approval.
         if (string.Equals(user.Role, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(user.Role, ApplicationRoles.StockController, StringComparison.OrdinalIgnoreCase))
+            string.Equals(user.Role, ApplicationRoles.StockController, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(user.Role, ApplicationRoles.WashBay, StringComparison.OrdinalIgnoreCase))
         {
             return Result.Success;
         }

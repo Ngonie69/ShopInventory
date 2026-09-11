@@ -35,10 +35,10 @@
 
             @* ── Sales & Billing ──
                Merchandiser is in the gate for Mobile Orders alone, which used to
-               sit here with no heading over it at all; Manager is in it for
-               Credit Note Approvals alone. The section gate is the union of its
-               row gates. *@
-            <AuthorizeView Roles="Admin,Cashier,Merchandiser,Manager" Context="salesBillingCtx">
+               sit here with no heading over it at all; Manager and WashBay are in
+               it for Credit Note Approvals alone. The section gate is the union of
+               its row gates. *@
+            <AuthorizeView Roles="Admin,Cashier,Merchandiser,Manager,WashBay" Context="salesBillingCtx">
                 <Authorized>
                     <NavSection Title="Sales & Billing">
                         <AuthorizeView Roles="Admin,Cashier" Context="invoiceCtx">

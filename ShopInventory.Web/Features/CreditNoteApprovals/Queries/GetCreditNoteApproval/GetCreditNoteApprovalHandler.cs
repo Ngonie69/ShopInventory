@@ -17,10 +17,10 @@ public sealed class GetCreditNoteApprovalHandler(
     {
         try
         {
-            var detail = await approvalService.GetApprovalAsync(request.Code);
-            if (detail is null)
+            var (success, message, detail) = await approvalService.GetApprovalAsync(request.Code);
+            if (!success || detail is null)
             {
-                return Errors.CreditNoteApproval.LoadFailed($"Approval request {request.Code} could not be read from SAP.");
+                return Errors.CreditNoteApproval.LoadFailed(message);
             }
 
             return detail;

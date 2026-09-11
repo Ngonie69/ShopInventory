@@ -592,6 +592,8 @@ try
 
     // Files attached to a SAP-held credit memo draft, streamed from SAP through the API. The same
     // shape as the POD route above: the page turns the response into a blob URL for its viewer.
+    // Whoever may open the page may open its files, so both read the page's own role list; the API
+    // narrows a stage-scoped role to the requests at its stages.
     app.MapGet("/download/credit-note-approval/{code:int}/{lineNum:int}", async (
         int code,
         int lineNum,
@@ -602,12 +604,12 @@ try
             httpContext,
             $"api/credit-note-approvals/{code}/attachments/{lineNum}/download",
             $"credit-note-draft-{code}-{lineNum}",
-            ["Admin", "Manager"],
+            ShopInventory.Web.Data.UserRoles.CreditNoteApprovalRoles.Split(','),
             ct))
         .RequireAuthorization(new AuthorizeAttribute
         {
             AuthenticationSchemes = ApiBearerAuthenticationHandler.SchemeName,
-            Roles = "Admin,Manager"
+            Roles = ShopInventory.Web.Data.UserRoles.CreditNoteApprovalRoles
         });
 
     app.Run();

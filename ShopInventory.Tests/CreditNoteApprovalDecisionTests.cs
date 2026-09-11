@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Idempotency;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Features.CreditNoteApprovals;
 using ShopInventory.Features.CreditNoteApprovals.Commands.DecideCreditNoteApproval;
 using ShopInventory.Models;
 using ShopInventory.Services;
@@ -261,6 +262,7 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
         var handler = new DecideCreditNoteApprovalHandler(
             sap.AsClient(),
             FakeSapApprovalLookups.WithStage(4, "Finance review", [Manager, Finance], 1, 9),
+            FixedStageScope.EveryStage,
             Store(),
             new RecordingAuditService(),
             Options.Create(new SAPSettings
@@ -286,6 +288,7 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
         var handler = new DecideCreditNoteApprovalHandler(
             sap.AsClient(),
             lookups,
+            FixedStageScope.EveryStage,
             Store(),
             new RecordingAuditService(),
             Options.Create(new SAPSettings
@@ -307,15 +310,52 @@ public sealed class CreditNoteApprovalDecisionTests : IDisposable
         Assert.Null(patch.Password);
     }
 
+    /// <summary>
+    /// The wash bay decides as the same SAP service approver a manager does, so SAP would record its
+    /// decision on any stage that approver sits on. The scope is the only thing keeping it to its own.
+    /// </summary>
+    [Fact]
+    public async Task A_stage_scoped_caller_cannot_decide_a_request_at_another_stage()
+    {
+        var sap = new RecordingSap(Pending(3110));
+        var audit = new RecordingAuditService();
+
+        var result = await Handler(sap, audit, scope: FixedStageScope.Stages("Wash Bay Approvals", 5))
+            .Handle(Command(3110, "Approved", null), CancellationToken.None);
+
+        Assert.Equal("CreditNoteApproval.OutsideStageScope", result.FirstError.Code);
+        Assert.Contains("'Wash Bay Approvals'", result.FirstError.Description);
+        Assert.Empty(sap.Decisions);
+        Assert.Empty(audit.Entries);
+    }
+
+    [Fact]
+    public async Task A_stage_scoped_caller_decides_a_request_at_its_own_stage()
+    {
+        var sap = new RecordingSap(Pending(3110)) { AfterDecision = Approved(3110) };
+        var scope = FixedStageScope.Stages("Wash Bay Approvals", 4);
+
+        var result = await Handler(sap, new RecordingAuditService(), scope: scope)
+            .Handle(Command(3110, "Approved", null), CancellationToken.None);
+
+        Assert.False(result.IsError, string.Join("; ", result.Errors.Select(error => error.Description)));
+        Assert.Single(sap.Decisions);
+
+        // Scoped by the account that decided, not by anything else on the request.
+        Assert.Equal(Ngoni, Assert.Single(scope.AskedFor));
+    }
+
     // ── Harness ──────────────────────────────────────────────────────────────────
 
     private DecideCreditNoteApprovalHandler Handler(
         RecordingSap sap,
         RecordingAuditService audit,
         FakeSapApprovalLookups? lookups = null,
-        IIdempotencyRequestStore? store = null) => new(
+        IIdempotencyRequestStore? store = null,
+        ICreditNoteApprovalStageScope? scope = null) => new(
         sap.AsClient(),
         lookups ?? FakeSapApprovalLookups.WithStage(4, "Finance review", [Manager, Finance], 1, 9),
+        scope ?? FixedStageScope.EveryStage,
         store ?? Store(),
         audit,
         Options.Create(new SAPSettings { Enabled = true, Username = "manager", Password = "pw" }),

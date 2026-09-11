@@ -66,21 +66,61 @@ public sealed class CreditNoteApprovalAccessTests
     /// <summary>
     /// The cross-project pin. The page is gated by role and the API by permission, and neither side
     /// can see the other; a role on the page's list without the permission is a button that submits
-    /// into a 403.
+    /// into a 403. Deciding and adding are pinned separately because the wash bay holds one and not
+    /// the other.
     /// </summary>
     [Fact]
-    public void Every_role_that_may_open_the_page_holds_both_permissions_by_default()
+    public void Every_role_that_may_open_the_page_may_decide()
     {
-        var roles = UserRoles.CreditNoteApprovalRoles.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var roles = Split(UserRoles.CreditNoteApprovalRoles);
         Assert.NotEmpty(roles);
 
         foreach (var role in roles)
         {
-            var permissions = Permission.GetDefaultPermissionsForRole(role);
-            Assert.Contains(Permission.ApproveSapCreditNotes, permissions);
-            Assert.Contains(Permission.AddApprovedCreditNotes, permissions);
+            Assert.Contains(Permission.ApproveSapCreditNotes, Permission.GetDefaultPermissionsForRole(role));
         }
     }
+
+    [Fact]
+    public void Every_role_offered_the_add_may_add_and_may_open_the_page()
+    {
+        var roles = Split(UserRoles.CreditNoteAddRoles);
+        Assert.NotEmpty(roles);
+
+        foreach (var role in roles)
+        {
+            Assert.Contains(Permission.AddApprovedCreditNotes, Permission.GetDefaultPermissionsForRole(role));
+            Assert.Contains(role, Split(UserRoles.CreditNoteApprovalRoles));
+        }
+    }
+
+    /// <summary>
+    /// The other direction, which the two pins above cannot see: a page role that holds the add but is
+    /// left off the add list would lose a button it is entitled to, silently.
+    /// </summary>
+    [Fact]
+    public void Every_page_role_that_holds_the_add_is_offered_it()
+    {
+        foreach (var role in Split(UserRoles.CreditNoteApprovalRoles))
+        {
+            var mayAdd = Permission.GetDefaultPermissionsForRole(role).Contains(Permission.AddApprovedCreditNotes);
+            Assert.Equal(mayAdd, Split(UserRoles.CreditNoteAddRoles).Contains(role));
+        }
+    }
+
+    [Fact]
+    public void The_wash_bay_may_decide_but_not_add()
+    {
+        var permissions = Permission.GetDefaultPermissionsForRole(ApplicationRoles.WashBay);
+
+        Assert.Contains(Permission.ApproveSapCreditNotes, permissions);
+        Assert.DoesNotContain(Permission.AddApprovedCreditNotes, permissions);
+        Assert.Contains(UserRoles.WashBay, Split(UserRoles.CreditNoteApprovalRoles));
+        Assert.DoesNotContain(UserRoles.WashBay, Split(UserRoles.CreditNoteAddRoles));
+    }
+
+    private static string[] Split(string roles)
+        => roles.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private static MethodInfo[] Actions() => typeof(CreditNoteApprovalController)
         .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)

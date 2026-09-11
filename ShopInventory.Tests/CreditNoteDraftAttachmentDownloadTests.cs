@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
+using ShopInventory.Features.CreditNoteApprovals;
 using ShopInventory.Features.CreditNoteApprovals.Queries.DownloadCreditNoteDraftAttachment;
 using ShopInventory.Models;
 using ShopInventory.Services;
@@ -120,10 +121,29 @@ public sealed class CreditNoteDraftAttachmentDownloadTests
         Assert.Contains("attachments folder", result.FirstError.Description);
     }
 
+    /// <summary>
+    /// The download is keyed on the approval request, so a caller scoped to other stages must not reach a
+    /// file of this request's draft by guessing its code.
+    /// </summary>
+    [Fact]
+    public async Task A_stage_scoped_caller_cannot_download_from_a_request_outside_its_stages()
+    {
+        var sap = new RecordingSapClient();
+        var handler = Handler(sap, readFromShare: false, FixedStageScope.Stages("Wash Bay Approvals", 999));
+
+        var result = await handler.Handle(new DownloadCreditNoteDraftAttachmentQuery(3110, 2, CallerUserId: Guid.NewGuid()), CancellationToken.None);
+
+        Assert.Equal("CreditNoteApproval.OutsideStageScope", result.FirstError.Code);
+    }
+
     // ── Harness ──────────────────────────────────────────────────────────────────
 
-    private static DownloadCreditNoteDraftAttachmentHandler Handler(RecordingSapClient sap, bool readFromShare) => new(
+    private static DownloadCreditNoteDraftAttachmentHandler Handler(
+        RecordingSapClient sap,
+        bool readFromShare,
+        ICreditNoteApprovalStageScope? scope = null) => new(
         sap.AsClient(),
+        scope ?? FixedStageScope.EveryStage,
         Options.Create(new SAPSettings { Enabled = true }),
         Options.Create(new CreditNoteApprovalSettings
         {
