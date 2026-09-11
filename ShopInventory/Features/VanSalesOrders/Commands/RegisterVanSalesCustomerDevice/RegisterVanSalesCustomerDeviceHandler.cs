@@ -3,7 +3,10 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
+using ShopInventory.Features.VanSalesCustomerAuth;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.VanSalesOrders.Commands.RegisterVanSalesCustomerDevice;
 
@@ -18,6 +21,7 @@ namespace ShopInventory.Features.VanSalesOrders.Commands.RegisterVanSalesCustome
 /// </remarks>
 public sealed class RegisterVanSalesCustomerDeviceHandler(
     ApplicationDbContext context,
+    IAuditService auditService,
     ILogger<RegisterVanSalesCustomerDeviceHandler> logger)
     : IRequestHandler<RegisterVanSalesCustomerDeviceCommand, ErrorOr<Success>>
 {
@@ -31,11 +35,23 @@ public sealed class RegisterVanSalesCustomerDeviceHandler(
 
         if (!accountExists)
         {
+            await VanSalesCustomerAuditTrail.RecordAsync(auditService, new VanSalesCustomerAuditRow(
+                AuditActions.RegisterVanSalesCustomerDevice,
+                null,
+                command.AccountId,
+                "Refused a push device registration: the account is inactive or gone.",
+                Success: false,
+                Errors.VanSalesCustomerAuth.AccountInactive.Description));
+
             return Errors.VanSalesCustomerAuth.AccountInactive;
         }
 
         var token = command.DeviceToken!.Trim();
         var now = DateTime.UtcNow;
+
+        // Held so the row can say the handset changed hands. Afterwards the device row shows only
+        // where it ended up, and a shop sold or a handset passed on looks the same as a re-register.
+        int? movedFrom = null;
 
         var existing = await context.VanSalesCustomerDevices
             .FirstOrDefaultAsync(d => d.DeviceToken == token, cancellationToken);
@@ -55,6 +71,10 @@ public sealed class RegisterVanSalesCustomerDeviceHandler(
         }
         else
         {
+            movedFrom = existing.VanSalesCustomerAccountId == command.AccountId
+                ? null
+                : existing.VanSalesCustomerAccountId;
+
             existing.VanSalesCustomerAccountId = command.AccountId;
             existing.DeviceId = command.DeviceId ?? existing.DeviceId;
             existing.DeviceName = command.DeviceName ?? existing.DeviceName;
@@ -71,6 +91,16 @@ public sealed class RegisterVanSalesCustomerDeviceHandler(
         logger.LogInformation(
             "Registered a push device for van sales customer account {AccountId}.",
             command.AccountId);
+
+        await VanSalesCustomerAuditTrail.RecordAsync(auditService, new VanSalesCustomerAuditRow(
+            AuditActions.RegisterVanSalesCustomerDevice,
+            null,
+            command.AccountId,
+            movedFrom is { } previous
+                ? $"Registered push device {command.DeviceName ?? command.DeviceId ?? "(unnamed)"}, "
+                    + $"taken over from account {previous}."
+                : $"Registered push device {command.DeviceName ?? command.DeviceId ?? "(unnamed)"}.",
+            Success: true));
 
         return Result.Success;
     }

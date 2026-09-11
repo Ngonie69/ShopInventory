@@ -2,6 +2,8 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
+using ShopInventory.Models;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.VanSalesCustomerAuth.Commands.LogoutVanSalesCustomer;
 
@@ -20,6 +22,7 @@ namespace ShopInventory.Features.VanSalesCustomerAuth.Commands.LogoutVanSalesCus
 /// </remarks>
 public sealed class LogoutVanSalesCustomerHandler(
     ApplicationDbContext context,
+    IAuditService auditService,
     ILogger<LogoutVanSalesCustomerHandler> logger)
     : IRequestHandler<LogoutVanSalesCustomerCommand, ErrorOr<Success>>
 {
@@ -66,6 +69,16 @@ public sealed class LogoutVanSalesCustomerHandler(
             "Signed out van sales customer account {AccountId}: {Revoked} token(s) revoked.",
             command.AccountId,
             revoked);
+
+        // Recorded as a success even when nothing was revoked, which is what the caller is told and
+        // what actually happened: there were no live sessions to end.
+        await VanSalesCustomerAuditTrail.RecordAsync(auditService, new VanSalesCustomerAuditRow(
+            AuditActions.VanSalesCustomerSignOut,
+            null,
+            command.AccountId,
+            $"Signed out {(string.IsNullOrWhiteSpace(command.DeviceId) ? "every device" : $"device {command.DeviceId}")}: "
+                + $"{revoked} token(s) revoked.",
+            Success: true));
 
         return Result.Success;
     }

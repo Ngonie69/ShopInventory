@@ -5,6 +5,8 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Models;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.VanSalesCustomerAuth.Commands.VerifyVanSalesCustomerOtp;
 
@@ -31,13 +33,31 @@ public sealed class VerifyVanSalesCustomerOtpHandler(
     IVanSalesCustomerSessionIssuer sessionIssuer,
     IOptions<VanSalesCustomerAuthSettings> authSettings,
     IOptions<JwtSettings> jwtSettings,
+    IAuditService auditService,
     ILogger<VerifyVanSalesCustomerOtpHandler> logger)
     : IRequestHandler<VerifyVanSalesCustomerOtpCommand, ErrorOr<VanSalesCustomerSessionResult>>
 {
     private readonly VanSalesCustomerAuthSettings _settings = authSettings.Value;
     private readonly JwtSettings _jwt = jwtSettings.Value;
 
+    /// <summary>
+    /// Verifies a code, and records the attempt whichever way it went.
+    /// </summary>
+    /// <remarks>
+    /// One row on every path, for the timing reason in <see cref="VanSalesCustomerAuditTrail"/>.
+    /// Failures are recorded under the same action as a failed password so that "is somebody
+    /// grinding at this account" is one filter rather than two.
+    /// </remarks>
     public async Task<ErrorOr<VanSalesCustomerSessionResult>> Handle(
+        VerifyVanSalesCustomerOtpCommand command,
+        CancellationToken cancellationToken)
+    {
+        var (outcome, row) = await VerifyAsync(command, cancellationToken);
+        await VanSalesCustomerAuditTrail.RecordAsync(auditService, row);
+        return outcome;
+    }
+
+    private async Task<(ErrorOr<VanSalesCustomerSessionResult> Outcome, VanSalesCustomerAuditRow Row)> VerifyAsync(
         VerifyVanSalesCustomerOtpCommand command,
         CancellationToken cancellationToken)
     {
@@ -46,7 +66,9 @@ public sealed class VerifyVanSalesCustomerOtpHandler(
                 _settings.DefaultCountryCode,
                 out var phone))
         {
-            return Errors.VanSalesCustomerAuth.InvalidPhoneNumber;
+            return (Errors.VanSalesCustomerAuth.InvalidPhoneNumber, Failed(
+                null, null, "A sign-in code was submitted with a phone number that could not be read.",
+                Errors.VanSalesCustomerAuth.InvalidPhoneNumber));
         }
 
         var now = DateTime.UtcNow;
@@ -61,7 +83,9 @@ public sealed class VerifyVanSalesCustomerOtpHandler(
                 "Refused a van sales customer sign-in for {MaskedPhone}: locked out until {LockedUntil:O}.",
                 masked,
                 until);
-            return Errors.VanSalesCustomerAuth.TooManyAttempts;
+            return (Errors.VanSalesCustomerAuth.TooManyAttempts, Failed(
+                masked, known.Id, $"Code sign-in refused: the account is locked until {until:O}.",
+                Errors.VanSalesCustomerAuth.TooManyAttempts));
         }
 
         var otp = await context.VanSalesCustomerOtps
@@ -72,7 +96,9 @@ public sealed class VerifyVanSalesCustomerOtpHandler(
         if (otp is null)
         {
             await RecordFailureAsync(account, now, cancellationToken);
-            return Errors.VanSalesCustomerAuth.InvalidCode;
+            return (Errors.VanSalesCustomerAuth.InvalidCode, Failed(
+                masked, account?.Id, "Code sign-in refused: no code is outstanding for this number.",
+                Errors.VanSalesCustomerAuth.InvalidCode));
         }
 
         if (otp.AttemptCount >= _settings.MaxOtpAttempts)
@@ -84,7 +110,9 @@ public sealed class VerifyVanSalesCustomerOtpHandler(
             await RecordFailureAsync(account, now, cancellationToken);
 
             logger.LogWarning("Van sales customer sign-in code for {MaskedPhone} exhausted its attempts.", masked);
-            return Errors.VanSalesCustomerAuth.TooManyAttempts;
+            return (Errors.VanSalesCustomerAuth.TooManyAttempts, Failed(
+                masked, account?.Id, "Code sign-in refused: the code had already been guessed at to its limit.",
+                Errors.VanSalesCustomerAuth.TooManyAttempts));
         }
 
         // Charged before the comparison, so abandoning the request does not buy a free guess.
@@ -95,7 +123,10 @@ public sealed class VerifyVanSalesCustomerOtpHandler(
         {
             await RecordFailureAsync(account, now, cancellationToken);
             logger.LogInformation("Incorrect van sales customer sign-in code for {MaskedPhone}.", masked);
-            return Errors.VanSalesCustomerAuth.InvalidCode;
+            return (Errors.VanSalesCustomerAuth.InvalidCode, Failed(
+                masked, account?.Id,
+                $"Code sign-in refused: wrong code, attempt {otp.AttemptCount} of {_settings.MaxOtpAttempts}.",
+                Errors.VanSalesCustomerAuth.InvalidCode));
         }
 
         otp.ConsumedAt = now;
@@ -107,7 +138,9 @@ public sealed class VerifyVanSalesCustomerOtpHandler(
             // Reported as an invalid code, because saying "no such account" here would answer the
             // question the request endpoint spends all its effort refusing to answer.
             logger.LogWarning("A valid code for {MaskedPhone} had no account behind it.", masked);
-            return Errors.VanSalesCustomerAuth.InvalidCode;
+            return (Errors.VanSalesCustomerAuth.InvalidCode, Failed(
+                masked, null, "A valid code had no account behind it; it was removed after the code was sent.",
+                Errors.VanSalesCustomerAuth.InvalidCode));
         }
 
         var session = await sessionIssuer.IssueAsync(
@@ -123,8 +156,18 @@ public sealed class VerifyVanSalesCustomerOtpHandler(
             logger.LogInformation("Van sales customer {AccountId} signed in from {MaskedPhone}.", account.Id, masked);
         }
 
-        return session;
+        return (session, session.IsError
+            ? Failed(masked, account.Id, "The code was right but no session could be issued.", session.FirstError)
+            : new VanSalesCustomerAuditRow(
+                AuditActions.VanSalesCustomerSignIn,
+                masked,
+                account.Id,
+                $"Signed in by code from device {command.DeviceName ?? command.DeviceId ?? "(unnamed)"}.",
+                Success: true));
     }
+
+    private static VanSalesCustomerAuditRow Failed(string? masked, int? accountId, string details, Error error) =>
+        new(AuditActions.VanSalesCustomerSignInFailed, masked, accountId, details, Success: false, error.Description);
 
     /// <summary>
     /// Count a failure against the account and lock it once they pile up.

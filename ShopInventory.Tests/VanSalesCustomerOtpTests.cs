@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Models;
 using ShopInventory.Features.VanSalesCustomerAuth;
 using ShopInventory.Features.VanSalesCustomerAuth.Commands.RequestVanSalesCustomerOtp;
 using ShopInventory.Features.VanSalesCustomerAuth.Commands.VerifyVanSalesCustomerOtp;
@@ -33,6 +34,9 @@ public sealed class VanSalesCustomerOtpTests : IDisposable
 
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
+
+    /// <summary>The rows the handler under test wrote, so a test can say what reached the trail.</summary>
+    private RecordingAuditService Audit { get; } = new();
     private readonly RecordingOtpSender _sender = new();
 
     public VanSalesCustomerOtpTests()
@@ -128,6 +132,76 @@ public sealed class VanSalesCustomerOtpTests : IDisposable
 
         var verifyNew = await VerifyAsync(TypedNumber, _sender.Sent[1].Code);
         Assert.False(verifyNew.IsError);
+    }
+
+    // ---- What reaches the audit trail -----------------------------------------------------------
+
+    /// <summary>
+    /// The endpoint answers a registered and an unregistered number identically, on purpose. The
+    /// audit row is therefore the only place it is written down whether a code actually went out.
+    /// </summary>
+    [Fact]
+    public async Task A_code_that_was_not_sent_is_recorded_as_not_sent()
+    {
+        await GivenCustomerAsync();
+
+        var sent = await RequestAsync(TypedNumber);
+        var notSent = await RequestAsync("0779999999");
+
+        // Same answer to the caller...
+        Assert.False(sent.IsError);
+        Assert.False(notSent.IsError);
+
+        // ...and a trail that distinguishes them.
+        Assert.Equal(2, Audit.Entries.Count);
+        Assert.All(Audit.Entries, e => Assert.Equal(AuditActions.VanSalesCustomerOtpRequest, e.Action));
+
+        Assert.True(Audit.Entries[0].Success);
+        Assert.Contains("Sign-in code sent", Audit.Entries[0].Details);
+
+        Assert.False(Audit.Entries[1].Success);
+        Assert.Contains("no account", Audit.Entries[1].Details);
+        Assert.Contains("told one was sent", Audit.Entries[1].Details);
+    }
+
+    [Fact]
+    public async Task A_code_suppressed_by_the_cooldown_says_so()
+    {
+        await GivenCustomerAsync();
+
+        await RequestAsync(TypedNumber);
+        await RequestAsync(TypedNumber);
+
+        Assert.Equal(2, Audit.Entries.Count);
+        Assert.False(Audit.Entries[1].Success);
+        Assert.Contains("cooldown", Audit.Entries[1].Details);
+    }
+
+    [Fact]
+    public async Task Signing_in_with_a_code_is_recorded_as_a_sign_in()
+    {
+        await GivenCustomerAsync();
+        await RequestAsync(TypedNumber);
+
+        await VerifyAsync(TypedNumber, _sender.Sent[0].Code);
+
+        var signIn = Assert.Single(Audit.Entries, e => e.Action == AuditActions.VanSalesCustomerSignIn);
+        Assert.True(signIn.Success);
+        Assert.Contains("Signed in by code", signIn.Details);
+    }
+
+    [Fact]
+    public async Task A_wrong_code_is_recorded_as_a_failed_sign_in_with_the_attempt_count()
+    {
+        await GivenCustomerAsync();
+        await RequestAsync(TypedNumber);
+
+        await VerifyAsync(TypedNumber, WrongCode(_sender.Sent[0].Code));
+
+        var failure = Assert.Single(
+            Audit.Entries, e => e.Action == AuditActions.VanSalesCustomerSignInFailed);
+        Assert.False(failure.Success);
+        Assert.Contains("attempt 1 of", failure.Details);
     }
 
     [Fact]
@@ -322,6 +396,7 @@ public sealed class VanSalesCustomerOtpTests : IDisposable
             _sender,
             Options.Create(Settings),
             Options.Create(Jwt),
+            Audit,
             NullLogger<RequestVanSalesCustomerOtpHandler>.Instance);
 
         var result = await handler.Handle(new RequestVanSalesCustomerOtpCommand(phone, "127.0.0.1"), default);
@@ -340,6 +415,7 @@ public sealed class VanSalesCustomerOtpTests : IDisposable
                 NullLogger<VanSalesCustomerSessionIssuer>.Instance),
             Options.Create(Settings),
             Options.Create(Jwt),
+            Audit,
             NullLogger<VerifyVanSalesCustomerOtpHandler>.Instance);
 
         var result = await handler.Handle(

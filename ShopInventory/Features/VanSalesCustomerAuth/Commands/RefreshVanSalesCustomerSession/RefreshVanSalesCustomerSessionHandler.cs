@@ -3,6 +3,8 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
+using ShopInventory.Models;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.VanSalesCustomerAuth.Commands.RefreshVanSalesCustomerSession;
 
@@ -24,10 +26,28 @@ namespace ShopInventory.Features.VanSalesCustomerAuth.Commands.RefreshVanSalesCu
 public sealed class RefreshVanSalesCustomerSessionHandler(
     ApplicationDbContext context,
     IVanSalesCustomerSessionIssuer sessionIssuer,
+    IAuditService auditService,
     ILogger<RefreshVanSalesCustomerSessionHandler> logger)
     : IRequestHandler<RefreshVanSalesCustomerSessionCommand, ErrorOr<VanSalesCustomerSessionResult>>
 {
+    /// <summary>
+    /// Rotates the token, and records it — the replay above all.
+    /// </summary>
+    /// <remarks>
+    /// A token presented after it was rotated is the one event on this endpoint somebody would want
+    /// to find later, and until now it existed only as a log warning. It is recorded as a failure
+    /// naming the account and the device whose chain was cut.
+    /// </remarks>
     public async Task<ErrorOr<VanSalesCustomerSessionResult>> Handle(
+        RefreshVanSalesCustomerSessionCommand command,
+        CancellationToken cancellationToken)
+    {
+        var (outcome, row) = await RefreshAsync(command, cancellationToken);
+        await VanSalesCustomerAuditTrail.RecordAsync(auditService, row);
+        return outcome;
+    }
+
+    private async Task<(ErrorOr<VanSalesCustomerSessionResult> Outcome, VanSalesCustomerAuditRow Row)> RefreshAsync(
         RefreshVanSalesCustomerSessionCommand command,
         CancellationToken cancellationToken)
     {
@@ -38,7 +58,9 @@ public sealed class RefreshVanSalesCustomerSessionHandler(
 
         if (token is null)
         {
-            return Errors.VanSalesCustomerAuth.SessionExpired;
+            return (Errors.VanSalesCustomerAuth.SessionExpired, Row(
+                null, "Refresh refused: the token is not one this server issued.", false,
+                Errors.VanSalesCustomerAuth.SessionExpired.Description));
         }
 
         if (token.IsRevoked)
@@ -52,22 +74,39 @@ public sealed class RefreshVanSalesCustomerSessionHandler(
                 token.VanSalesCustomerAccountId,
                 token.DeviceId ?? "(unknown)");
 
-            return Errors.VanSalesCustomerAuth.SessionExpired;
+            return (Errors.VanSalesCustomerAuth.SessionExpired, Row(
+                token.VanSalesCustomerAccountId,
+                $"A refresh token already rotated or revoked was presented for device "
+                    + $"{token.DeviceId ?? "(unknown)"}. That device's remaining tokens were revoked.",
+                false,
+                "Refresh token replay"));
         }
 
         if (token.IsExpired)
         {
-            return Errors.VanSalesCustomerAuth.SessionExpired;
+            return (Errors.VanSalesCustomerAuth.SessionExpired, Row(
+                token.VanSalesCustomerAccountId, "Refresh refused: the token had expired.", false,
+                Errors.VanSalesCustomerAuth.SessionExpired.Description));
         }
 
-        return await sessionIssuer.IssueAsync(
+        var session = await sessionIssuer.IssueAsync(
             token.VanSalesCustomerAccountId,
             command.DeviceId ?? token.DeviceId,
             command.DeviceName ?? token.DeviceName,
             command.RequestedFromIp,
             replacesTokenHash: hash,
             cancellationToken);
+
+        return (session, session.IsError
+            ? Row(token.VanSalesCustomerAccountId, "The token was good but no session could be issued.",
+                false, session.FirstError.Description)
+            : Row(token.VanSalesCustomerAccountId,
+                $"Session refreshed for device {command.DeviceId ?? token.DeviceId ?? "(unnamed)"}.",
+                true));
     }
+
+    private static VanSalesCustomerAuditRow Row(int? accountId, string details, bool success, string? error = null) =>
+        new(AuditActions.VanSalesCustomerSessionRefresh, null, accountId, details, success, error);
 
     private async Task RevokeDeviceChainAsync(
         int accountId,
