@@ -215,6 +215,25 @@ If that fails while the site is fine from outside, it is a NAT or split-horizon 
 deployment problem. Fix the resolution, or point `PRODUCTION_HEALTH_URL` at an address the runner
 can actually reach — accepting that the check then proves less.
 
+### Web publish fails with `__builder` or `section` errors that no developer can reproduce
+
+**"The type or namespace name '__builder' could not be found" in a `*_razor.g.cs` file, or RZ2005
+"The 'section' directive must appear at the start of the line", during "Publishing Web app...".**
+The code compiles everywhere except here because this runner publishes with an older .NET 10 SDK.
+On 2026-09-11 it was **10.0.100-rc.1** — a release candidate — while developers and CI use the GA
+SDK, whose Razor parser accepts constructs the RC's rejects. Two of them held production back:
+
+- A switch expression whose first arm starts with `<` (`{` then `< 1024 => ...`): the RC reads the
+  line as a markup tag and fails the whole page.
+- A loop variable named `section` rendered as `@section.Label`: the RC reads it as the `@section`
+  directive.
+
+The provisioning step now prints the SDK it publishes with and warns when it is a pre-release. The
+lasting fix is on this machine: install the current .NET 10 GA SDK so `dotnet --version` reports it,
+then restart the runner service. Until then `scripts/check_razor_parser_hazards.py` runs in the Tests
+workflow and fails a pull request that reintroduces either construct. To reproduce a publish failure
+locally, pin the RC with a temporary `global.json` and build `ShopInventory.Web` in Release.
+
 ### 0x8009030e, "A specified logon session does not exist"
 
 **"Could not establish a deployment session", straight after "Connection successful!".** This is

@@ -78,6 +78,24 @@ jobs:
           ./scripts/Test-RouteCatalogues.ps1
           exit $LASTEXITCODE
 
+  # The production runner publishes with an older .NET 10 SDK than developers and this CI use, and its
+  # Razor parser rejects two constructs the newer one accepts. Nothing here compiles with that SDK, so
+  # without this a page that builds green everywhere fails only at the production publish - which is
+  # how a switch expression and a loop variable named `section` held production back for a day.
+  # See scripts/check_razor_parser_hazards.py for the constructs and the evidence behind them.
+  #
+  # No .NET here on purpose: the check reads the .razor files as text.
+  razor-parser:
+    name: Razor parser hazards
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check Razor the production runner cannot compile
+        run: python3 scripts/check_razor_parser_hazards.py
+
   # Update-Production.ps1 grew switches so the deploy workflow can run it with no console attached.
   # Breaking them fails nothing here that anyone would notice - it hangs a production deployment on
   # a credential prompt, or reports a dead site as deployed. So it gets its own check.

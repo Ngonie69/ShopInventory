@@ -1425,12 +1425,16 @@ filterUploadedFromLocation.Trim();
         return DateTime.TryParse(dateStr, out var dt) ? dt.ToString("dd MMM yyyy") : dateStr;
     }
 
-    private static string FormatFileSize(long bytes) => bytes switch
+    // Written as returns rather than a switch on `< 1024 =>` arms. A line inside @code that starts with
+    // `<` is read as a markup tag by the Razor parser in the SDK the production runner publishes with,
+    // which then took every later generic (`List<string>`) for a tag too and failed the whole page.
+    // scripts/check_razor_parser_hazards.py guards it.
+    private static string FormatFileSize(long bytes)
     {
-        < 1024 => $"{bytes} B",
-        < 1024 * 1024 => $"{bytes / 1024.0:N1} KB",
-        _ => $"{bytes / (1024.0 * 1024.0):N1} MB"
-    };
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:N1} KB";
+        return $"{bytes / (1024.0 * 1024.0):N1} MB";
+    }
 
     // ── Upload Mode ─────────────────────────────────────────
     private void SwitchUploadMode(UploadMode mode)

@@ -189,13 +189,13 @@
         }
 
         <div class="vsp-sections">
-            @foreach (var section in Sections)
+            @foreach (var option in Sections)
             {
                 <button type="button"
-                        class="vs-chip @(activeSection == section.Key ? "vs-chip-info" : "vs-chip-quiet")"
-                        @onclick="() => activeSection = section.Key">
-                    @section.Label
-                    <span class="vsp-section-count">@section.Count(report)</span>
+                        class="vs-chip @(activeSection == option.Key ? "vs-chip-info" : "vs-chip-quiet")"
+                        @onclick="() => activeSection = option.Key">
+                    @option.Label
+                    <span class="vsp-section-count">@option.Count(report)</span>
                 </button>
             }
         </div>
