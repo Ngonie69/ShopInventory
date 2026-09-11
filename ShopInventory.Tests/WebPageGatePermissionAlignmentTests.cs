@@ -160,6 +160,27 @@ public sealed class WebPageGatePermissionAlignmentTests
         Assert.Contains(Permission.ManageVanSalesRoutes, all);
     }
 
+    /// <summary>
+    /// Merchandiser timesheets are the sales rep's to read, and a manager holds no timesheets.view, so
+    /// the timesheet pages must not admit a manager. Stated over every role each page admits, so the next
+    /// role added to a gate has to hold the permission too.
+    /// </summary>
+    [Theory]
+    [InlineData("ShopInventory.Web.Components.Pages.Timesheets", nameof(TimesheetController.GetTimesheets))]
+    [InlineData("ShopInventory.Web.Components.Pages.TimesheetReport", nameof(TimesheetController.GetReport))]
+    public async Task Every_role_a_timesheet_page_admits_can_read_timesheets(string pageTypeName, string action)
+    {
+        var roles = PageRoles(pageTypeName);
+        Assert.DoesNotContain(ApplicationRoles.Manager, roles);
+
+        foreach (var role in roles)
+        {
+            Assert.True(
+                await Passes<TimesheetController>(action, role),
+                $"{role} can open {pageTypeName} but the API refuses {action}.");
+        }
+    }
+
     /// <summary>The non-Admin roles a compiled Web page admits, read off its [Authorize] attribute.</summary>
     internal static string[] PageRoles(string pageTypeName)
     {

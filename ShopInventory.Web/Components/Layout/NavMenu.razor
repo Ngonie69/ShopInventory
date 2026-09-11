@@ -483,8 +483,10 @@
 
             @* Merchandiser check-in/out. Its own group rather than the tail of
                Insights, which is where the two used to land for want of a
-               heading — and where a merchandiser saw them under nothing at all. *@
-            <AuthorizeView Roles="Admin,Manager,Merchandiser" Context="timesheetsAdminCtx">
+               heading — and where a merchandiser saw them under nothing at all.
+               Not Manager: merchandiser timesheets are the sales rep's to read, and a
+               sales rep has these two links in its own section above. *@
+            <AuthorizeView Roles="Admin,Merchandiser" Context="timesheetsAdminCtx">
                 <Authorized>
                     <NavSection Title="Timesheets">
                         <NavLink class="snav-link" href="/timesheets" Match="NavLinkMatch.Prefix">
