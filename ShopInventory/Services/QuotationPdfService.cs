@@ -321,7 +321,7 @@ public class QuotationPdfService(ILogger<QuotationPdfService> logger) : IQuotati
         var bankTable = new Table(new float[] { 1.8f, 3f }).SetWidth(UnitValue.CreatePercentValue(75));
         BankRow(bankTable, "Bank:", "Stanbic Bank Zimbabwe");
         BankRow(bankTable, "Account Name:", "Kefalos Cheese Products");
-        BankRow(bankTable, "Account Number:", "9140000966435");
+        BankRow(bankTable, "Account Number:", "9140005966435");
         BankRow(bankTable, "Branch:", "Belgravia");
         BankRow(bankTable, "Currency:", quotation.Currency ?? "USD");
         bankCell.Add(bankTable);
