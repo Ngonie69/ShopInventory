@@ -75,14 +75,14 @@ jobs:
           }
           else {
             # Stated on every run, because the publish uses whichever SDK `dotnet` resolves to and a
-            # different compiler is invisible otherwise. A release-candidate SDK here compiled Razor
-            # that every developer's GA SDK accepted differently, and production went undeployed for
-            # a day with nothing in the log naming the version. scripts/check_razor_parser_hazards.py
-            # guards the constructs that SDK rejected.
+            # different compiler is invisible otherwise. This runner's 10.0.1xx SDK (10.0.103 on
+            # 2026-09-11) rejects Razor that the 10.0.3xx and later SDKs developers and CI use accept,
+            # and production went undeployed for a day with nothing in the log naming the version.
+            # scripts/check_razor_parser_hazards.py guards the constructs it rejected.
             $active = & dotnet --version
             Write-Host "Publishing with .NET SDK $active (installed: $($sdks -join '; '))"
-            if ($active -match '-(preview|rc)\.') {
-              Write-Host "::warning::This runner publishes with a pre-release .NET SDK ($active). Install the current .NET 10 GA SDK - see docs/operations/github-actions-deploy-runner.md."
+            if ($active -match '^10\.0\.1\d\d') {
+              Write-Host "::warning::This runner publishes with .NET SDK $active, whose Razor parser is older than the 10.0.3xx+ one developers and CI build with. Install a 10.0.3xx or later SDK - see docs/operations/github-actions-deploy-runner.md."
             }
           }
 

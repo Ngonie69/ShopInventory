@@ -1,8 +1,9 @@
 """Find Razor that the production runner's SDK cannot compile.
 
-The deploy runner (KFL-DNS2) publishes with a .NET 10 release-candidate SDK (10.0.100-rc.1) whose
-Razor parser is older than the one on every developer machine. Two constructs that newer SDKs accept
-failed the production publish there while building cleanly everywhere else:
+The deploy runner (KFL-DNS2) publishes with a 10.0.1xx .NET 10 SDK (10.0.103 on 2026-09-11) whose
+Razor parser is older than the 10.0.3xx+ one on developer machines and in CI. Two constructs that the
+newer SDKs accept failed the production publish there while building cleanly everywhere else. Both
+reproduce locally under 10.0.100-rc.1, which fails with the runner's exact errors:
 
   A. A C# variable named `section` rendered as `@section.Something`. The old parser reads `@section`
      as the `@section` directive and fails with RZ2005/RZ1011.
