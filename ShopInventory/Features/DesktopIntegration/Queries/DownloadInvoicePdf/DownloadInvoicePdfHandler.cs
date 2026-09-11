@@ -64,7 +64,18 @@ public sealed class DownloadInvoicePdfHandler(
 
         if (string.IsNullOrWhiteSpace(fiscalQrCode))
         {
-            fiscalQrCode = await TryGetFiscalQrCodeAsync(invoiceDto.DocNum, cancellationToken);
+            var receipt = await TryLookupFiscalReceiptAsync(invoiceDto.DocNum, cancellationToken);
+            fiscalQrCode = receipt?.QrCode;
+
+            // The invoice prints the verification code, day and device beside the QR, so a
+            // receipt read from the device must fill them too — not just the QR it answered with.
+            if (receipt is { IsFiscalised: true })
+            {
+                invoiceDto.FiscalVerificationCode ??= receipt.VerificationCode;
+                invoiceDto.FiscalDeviceId ??= receipt.DeviceId;
+                invoiceDto.FiscalDay ??= receipt.FiscalDay;
+                invoiceDto.FiscalReceiptGlobalNo ??= receipt.ReceiptGlobalNo;
+            }
         }
 
         var pdfBytes = await invoicePdfService.GenerateInvoicePdfAsync(invoiceDto, fiscalQrCode);
@@ -72,22 +83,20 @@ public sealed class DownloadInvoicePdfHandler(
 
         return new InvoicePdfResult(pdfBytes, fileName);
 
-        async Task<string?> TryGetFiscalQrCodeAsync(int docNum, CancellationToken token)
+        async Task<FiscalReceiptSnapshot?> TryLookupFiscalReceiptAsync(int docNum, CancellationToken token)
         {
             try
             {
-                var snapshot = await fiscalReceiptReader.TryLookupAsync(
+                return await fiscalReceiptReader.TryLookupAsync(
                     docNum,
                     ReceiptType.FiscalInvoice,
                     logger,
                     token);
-
-                return snapshot?.QrCode;
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex,
-                    "Could not load the fiscal QR code for desktop invoice {DocNum} while generating PDF",
+                    "Could not load the fiscal receipt for desktop invoice {DocNum} while generating PDF",
                     docNum);
                 return null;
             }
