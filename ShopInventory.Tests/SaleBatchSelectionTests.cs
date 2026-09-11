@@ -142,6 +142,92 @@ public sealed class SaleBatchSelectionTests : IDisposable
     }
 
     [Fact]
+    public async Task A_pass_reads_each_warehouse_once_and_allocates_from_what_is_left()
+    {
+        // The real allocator over a real read window, because the whole point is what the two do
+        // together and a stub for either would prove neither.
+        await GivenSaleAsync(reference: "KEFSHOP-01-20260910-000001", quantity: 2m);
+        await GivenSaleAsync(reference: "KEFSHOP-01-20260910-000002", quantity: 2m);
+
+        var sap = new CountingWarehouse(("B-EARLY", 3m, "2026-10-01"), ("B-LATE", 10m, "2026-12-01"));
+
+        var result = await TillServiceOver(sap).PostPendingSalesAsync();
+
+        Assert.Equal(2, result.Posted);
+
+        // One reading for the pass, not one per sale. These are the reads that hang for minutes
+        // while holding one of six process-wide Service Layer slots.
+        Assert.Equal(1, sap.BatchReads);
+
+        // And the second sale allocated from what the first left, not from the reading as it was
+        // taken. B-EARLY held 3 and the first sale took 2, so the second gets the last of it and
+        // the rest from B-LATE. Without the deduction it would have asked SAP for 2 of B-EARLY a
+        // second time, and SAP would have refused the document.
+        Assert.Equal(
+            [("B-EARLY", 1m), ("B-LATE", 1m)],
+            sap.Created[1].Lines![0].BatchNumbers!
+                .Select(batch => (batch.BatchNumber, batch.Quantity))
+                .ToArray());
+    }
+
+    [Fact]
+    public async Task A_sale_that_did_not_post_is_not_taken_off_the_reading()
+    {
+        // A refusal SAP is certain about: nothing was created, so the warehouse still holds what the
+        // reading says and the next sale must see all of it.
+        await GivenSaleAsync(reference: "KEFSHOP-01-20260910-000001", quantity: 2m);
+        await GivenSaleAsync(reference: "KEFSHOP-01-20260910-000002", quantity: 2m);
+
+        var sap = new CountingWarehouse(("B-EARLY", 3m, "2026-10-01"), ("B-LATE", 10m, "2026-12-01"))
+        {
+            RefuseFirstPost = true
+        };
+
+        var result = await TillServiceOver(sap).PostPendingSalesAsync();
+
+        Assert.Equal(1, result.Posted);
+        Assert.Equal(1, result.Failed);
+
+        // The sale that posted took B-EARLY from the top, because the refused one committed
+        // nothing. Deducting for it would have pushed this sale onto B-LATE, and over a run of
+        // refusals would have refused sales that were fine.
+        var posted = Assert.Single(sap.Created).Lines![0].BatchNumbers!;
+        Assert.Equal("B-EARLY", Assert.Single(posted).BatchNumber);
+        Assert.Equal(2m, posted[0].Quantity);
+    }
+
+    [Fact]
+    public void A_window_cannot_be_opened_twice_over()
+    {
+        // Nesting would give the inner window the outer readings and end them on the inner dispose.
+        // Refused rather than quietly allowed, because that is a lifetime nobody wrote down.
+        var service = RealAllocator(new CountingWarehouse());
+
+        using var window = service.BeginSharedReadWindow();
+
+        Assert.Throws<InvalidOperationException>(() => service.BeginSharedReadWindow());
+    }
+
+    [Fact]
+    public async Task Readings_do_not_outlive_the_window()
+    {
+        var sap = new CountingWarehouse(("B-EARLY", 3m, "2026-10-01"));
+        var service = RealAllocator(sap);
+
+        using (service.BeginSharedReadWindow())
+        {
+            await service.GetAvailableBatchesAsync("CHE011", "KEFGRS");
+            await service.GetAvailableBatchesAsync("CHE011", "KEFGRS");
+        }
+
+        await service.GetAvailableBatchesAsync("CHE011", "KEFGRS");
+
+        // Two asks inside the window cost one read; the ask after it costs another. The service is
+        // scoped to a request and may well be asked something else once the run is over.
+        Assert.Equal(2, sap.BatchReads);
+    }
+
+    [Fact]
     public void An_explicit_selection_is_not_overwritten()
     {
         // The transfer and credit-note paths name their own batches, having already validated them.
@@ -198,11 +284,13 @@ public sealed class SaleBatchSelectionTests : IDisposable
 
     private async Task<DesktopSaleEntity> GivenSaleAsync(
         string source = SaleSourceSystems.ShopTill,
-        string warehouse = "KEFGRS")
+        string warehouse = "KEFGRS",
+        string reference = "KEFSHOP-01-20260910-000123",
+        decimal quantity = 2m)
     {
         var sale = new DesktopSaleEntity
         {
-            ExternalReferenceId = "KEFSHOP-01-20260910-000123",
+            ExternalReferenceId = reference,
             SourceSystem = source,
             CardCode = "COR007",
             DocDate = TradingDate.Date,
@@ -219,7 +307,7 @@ public sealed class SaleBatchSelectionTests : IDisposable
                 {
                     LineNum = 0,
                     ItemCode = "CHE011",
-                    Quantity = 2m,
+                    Quantity = quantity,
                     UnitPrice = 3.61m,
                     LineTotal = 7.22m,
                     WarehouseCode = warehouse
@@ -230,6 +318,123 @@ public sealed class SaleBatchSelectionTests : IDisposable
         _context.DesktopSales.Add(sale);
         await _context.SaveChangesAsync();
         return sale;
+    }
+
+    /// <summary>The till pass over the real allocator, so the read window is the real one too.</summary>
+    private DesktopSalePostingService TillServiceOver(CountingWarehouse sap)
+        => new(
+            _context,
+            sap.Client,
+            new SapCircuitBreakerState(Options.Create(new SAPSettings())),
+            RealAllocator(sap),
+            SalePostGuards.Backed(_connection),
+            Options.Create(new DesktopSalePostingSettings()),
+            Options.Create(new SAPSettings()),
+            NullLogger<DesktopSalePostingService>.Instance);
+
+    private BatchInventoryValidationService RealAllocator(CountingWarehouse sap)
+        => new(
+            _context,
+            sap.Client,
+            StubProxy.Unused<IInventoryLockService>(),
+            Options.Create(new SAPSettings()),
+            NullLogger<BatchInventoryValidationService>.Instance);
+
+    /// <summary>
+    /// A batch-managed warehouse whose reads are counted, and which can refuse a post outright.
+    /// </summary>
+    private sealed class CountingWarehouse
+    {
+        private readonly (string Batch, decimal Quantity, string Expiry)[] _batches;
+        private ISAPServiceLayerClient? _client;
+        private bool _refused;
+        private int _nextDocNum = 8000;
+
+        public CountingWarehouse(params (string Batch, decimal Quantity, string Expiry)[] batches) =>
+            _batches = batches;
+
+        public int BatchReads { get; private set; }
+
+        public bool RefuseFirstPost { get; init; }
+
+        public List<CreateInvoiceRequest> Created { get; } = [];
+
+        public ISAPServiceLayerClient Client =>
+            _client ??= StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
+            {
+                nameof(ISAPServiceLayerClient.GetItemByCodeAsync) => Task.FromResult<Item?>(new Item
+                {
+                    ItemCode = "CHE011",
+                    ManageBatchNumbers = "tYES",
+                    ManageSerialNumbers = "tNO"
+                }),
+
+                nameof(ISAPServiceLayerClient.GetBatchNumbersForItemInWarehouseAsync) => ReadBatches(),
+
+                nameof(ISAPServiceLayerClient.GetInvoiceByVanSaleOrderAsync) =>
+                    (object)Task.FromResult<Invoice?>(null),
+
+                nameof(ISAPServiceLayerClient.CreateInvoiceAsync) => Create((CreateInvoiceRequest)args![0]!),
+
+                _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
+            });
+
+        private Task<Invoice> Create(CreateInvoiceRequest request)
+        {
+            if (RefuseFirstPost && !_refused)
+            {
+                _refused = true;
+
+                // The one refusal SAP is certain about, and so the one that proves nothing exists.
+                return Task.FromException<Invoice>(
+                    new SapRequestRejectedException(
+                        "SAP refused to create the invoice: bad line.",
+                        System.Net.HttpStatusCode.BadRequest,
+                        "-5002"));
+            }
+
+            // Deep enough to survive the caller: the request object is reused per sale and the
+            // allocation is written onto its lines, so a shallow record would read as the last one.
+            Created.Add(new CreateInvoiceRequest
+            {
+                CardCode = request.CardCode,
+                U_Van_saleorder = request.U_Van_saleorder,
+                Lines = request.Lines?
+                    .Select(line => new CreateInvoiceLineRequest
+                    {
+                        ItemCode = line.ItemCode,
+                        Quantity = line.Quantity,
+                        WarehouseCode = line.WarehouseCode,
+                        BatchNumbers = line.BatchNumbers?
+                            .Select(batch => new BatchNumberRequest
+                            {
+                                BatchNumber = batch.BatchNumber,
+                                Quantity = batch.Quantity
+                            })
+                            .ToList()
+                    })
+                    .ToList()
+            });
+
+            var docNum = _nextDocNum++;
+            return Task.FromResult(new Invoice { DocEntry = docNum, DocNum = docNum });
+        }
+
+        private Task<List<BatchNumber>> ReadBatches()
+        {
+            BatchReads++;
+
+            return Task.FromResult(_batches
+                .Select(batch => new BatchNumber
+                {
+                    ItemCode = "CHE011",
+                    BatchNum = batch.Batch,
+                    Quantity = batch.Quantity,
+                    ExpiryDate = batch.Expiry,
+                    AdmissionDate = "2026-01-01"
+                })
+                .ToList());
+        }
     }
 
     private DesktopSalePostingService TillService(IBatchInventoryValidationService? allocator = null)

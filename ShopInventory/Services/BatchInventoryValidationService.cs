@@ -31,11 +31,89 @@ public interface IReservedQuantityProvider
 }
 
 /// <summary>
+/// One reading of each warehouse, shared across the several documents of one posting run.
+/// </summary>
+/// <remarks>
+/// Ordinarily every validation pass reads the warehouses it touches, which is right for a single
+/// document and wasteful for a job posting a queue of them: a till pass invoices a minute of sales
+/// off the same few items, and read them again per sale. These reads are the ones known to hang for
+/// minutes while holding one of six process-wide Service Layer slots.
+///
+/// <para>
+/// What makes sharing safe is <see cref="RecordIssued"/>. Each sale is in SAP before the next is
+/// allocated, so a reading held across them is wrong the moment one posts — unless what it took is
+/// taken off the reading, which is what the caller does once SAP has confirmed the document. A
+/// reading nobody has decremented would hand the next sale stock the last one already had.
+/// </para>
+///
+/// <para>
+/// It is a local ledger over one SAP reading, not a substitute for reading SAP. It cannot see what
+/// anything outside this run does to the warehouse, and it is not meant to: that was equally true
+/// of the per-sale read it replaces, which was stale by the time its own post landed.
+/// </para>
+/// </remarks>
+public interface IStockReadWindow : IDisposable
+{
+    /// <summary>
+    /// Takes what a document has actually issued off the shared reading.
+    /// </summary>
+    /// <remarks>
+    /// Called only once SAP has confirmed the document. Calling it for a post that failed would
+    /// understate the warehouse for the rest of the run and refuse a later sale that is fine;
+    /// not calling it for one that succeeded is the error that matters, and hands the next sale
+    /// stock that is gone.
+    /// </remarks>
+    void RecordIssued(IReadOnlyList<AllocatedBatchLine> allocatedLines);
+
+    /// <summary>
+    /// Throws the shared reading away, so the next document reads SAP afresh.
+    /// </summary>
+    /// <remarks>
+    /// For the case the ledger cannot describe: a post was issued and its outcome is unknown, so
+    /// neither deducting nor not deducting is defensible. Guessing either way would be a guess
+    /// about stock; re-reading is not.
+    /// </remarks>
+    void Discard();
+}
+
+/// <summary>
+/// The window a caller that is posting one document at a time holds: every reading is its own, and
+/// there is nothing to decrement or discard.
+/// </summary>
+public sealed class NoStockReadWindow : IStockReadWindow
+{
+    public static readonly IStockReadWindow Instance = new NoStockReadWindow();
+
+    private NoStockReadWindow()
+    {
+    }
+
+    public void RecordIssued(IReadOnlyList<AllocatedBatchLine> allocatedLines)
+    {
+    }
+
+    public void Discard()
+    {
+    }
+
+    public void Dispose()
+    {
+    }
+}
+
+/// <summary>
 /// Service for batch-level inventory validation and auto-allocation for SAP B1 invoicing.
 /// Implements FIFO/FEFO strategies and prevents negative batch quantities.
 /// </summary>
 public interface IBatchInventoryValidationService
 {
+    /// <summary>
+    /// Holds one reading of each warehouse until the returned window is disposed, instead of
+    /// reading afresh for every document. See <see cref="IStockReadWindow"/> for what the caller
+    /// takes on by asking for this.
+    /// </summary>
+    IStockReadWindow BeginSharedReadWindow();
+
     /// <summary>
     /// Validates and optionally auto-allocates batches for invoice lines.
     /// This is the main entry point for batch validation before posting to SAP.
@@ -119,6 +197,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     private readonly IOptions<SAPSettings> _settings;
     private readonly ILogger<BatchInventoryValidationService> _logger;
     private IReservedQuantityProvider? _reservedQuantityProvider;
+    private SharedReadWindow? _sharedWindow;
     private const decimal QuantityTolerance = 0.0001m;
 
     // Management flags are not cached here: the item read they come from is cached with a
@@ -1034,7 +1113,8 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         // Fresh instances every call, projected from the memo rather than shared with it.
         // AvailableBatchDto is mutable and this method writes IsRecommended on what it returns, so
         // handing two callers the same objects would let the second see the first edits, and the
-        // memo itself would drift away from what SAP said.
+        // memo itself would drift away from what SAP said. TakeIssuedOffReadings is the one thing
+        // that may write to the memo, and it writes what a posted document actually took.
         var result = batches
             .Select(batch => new AvailableBatchDto
             {
@@ -1279,6 +1359,12 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             // The re-read is not free, but it is not an extra read either: within a pass the
             // per-line and aggregate checks now share one answer, so an invoice makes the same
             // number of SAP stock calls it made before this changed. See BeginStockReadPass.
+            //
+            // Discarded rather than left to BeginStockReadPass, which defers to an open shared
+            // window. This is the read the locks exist to hold, so it is the one place that must
+            // read SAP whoever is asking.
+            DiscardStockReadings();
+
             var validationResult = await ValidateAndAllocateBatchesAsync(
                 request,
                 autoAllocate: true,
@@ -1871,9 +1957,107 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
     private void BeginStockReadPass()
     {
+        // A shared window owns the readings and says when they end. This is the one place that
+        // distinction lives, so every reader below is unchanged by it.
+        if (_sharedWindow is not null)
+        {
+            return;
+        }
+
+        DiscardStockReadings();
+    }
+
+    private void DiscardStockReadings()
+    {
         _passStockReads = new Dictionary<string, (StockQuantityDto?, Exception?)>(StringComparer.OrdinalIgnoreCase);
         _passBatchReads =
             new Dictionary<string, (IReadOnlyList<AvailableBatchDto>, Exception?)>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <inheritdoc/>
+    public IStockReadWindow BeginSharedReadWindow()
+    {
+        if (_sharedWindow is not null)
+        {
+            // Nesting would give the inner window the outer readings and end them on the inner
+            // dispose, which is a lifetime nobody wrote down and nobody wants.
+            throw new InvalidOperationException(
+                "A shared stock read window is already open on this service.");
+        }
+
+        DiscardStockReadings();
+        _sharedWindow = new SharedReadWindow(this);
+        return _sharedWindow;
+    }
+
+    /// <summary>
+    /// Takes an issued document off the shared reading, so the next one allocates from what is left.
+    /// </summary>
+    /// <remarks>
+    /// The one sanctioned writer to the memos. Everything else projects out of them.
+    ///
+    /// <para>
+    /// Serial-managed lines are not deducted, because no reading of them is memoised to deduct from
+    /// — serials are claimed within a document, not carried between them. No item in the company is
+    /// serial-managed, and if one ever is, that is the gap to close rather than a silent wrong
+    /// answer here.
+    /// </para>
+    /// </remarks>
+    private void TakeIssuedOffReadings(IReadOnlyList<AllocatedBatchLine> allocatedLines)
+    {
+        foreach (var line in allocatedLines)
+        {
+            var key = BuildStockKey(line.ItemCode, line.WarehouseCode);
+
+            if (line.IsBatchManaged)
+            {
+                if (!_passBatchReads.TryGetValue(key, out var reading))
+                {
+                    continue;
+                }
+
+                foreach (var issued in line.Batches)
+                {
+                    var batch = reading.Batches.FirstOrDefault(candidate =>
+                        string.Equals(candidate.BatchNumber, issued.BatchNumber, StringComparison.OrdinalIgnoreCase));
+
+                    if (batch is not null)
+                    {
+                        batch.AvailableQuantity = Math.Max(0, batch.AvailableQuantity - issued.QuantityAllocated);
+                    }
+                }
+
+                continue;
+            }
+
+            if (_passStockReads.TryGetValue(key, out var stock) && stock.Stock is { } quantities)
+            {
+                // Issuable is on hand less committed, so what a document takes is what it commits.
+                quantities.Committed += line.TotalQuantityAllocated;
+            }
+        }
+    }
+
+    private sealed class SharedReadWindow(BatchInventoryValidationService owner) : IStockReadWindow
+    {
+        public void RecordIssued(IReadOnlyList<AllocatedBatchLine> allocatedLines) =>
+            owner.TakeIssuedOffReadings(allocatedLines);
+
+        public void Discard() => owner.DiscardStockReadings();
+
+        public void Dispose()
+        {
+            if (!ReferenceEquals(owner._sharedWindow, this))
+            {
+                return;
+            }
+
+            owner._sharedWindow = null;
+
+            // Nothing outlives the window. The service is scoped to one request and may well be
+            // asked another question after the run finishes.
+            owner.DiscardStockReadings();
+        }
     }
 
     /// <summary>

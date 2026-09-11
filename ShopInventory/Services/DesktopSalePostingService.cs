@@ -88,6 +88,14 @@ public sealed class DesktopSalePostingService(
 
         logger.LogInformation("Posting {Count} till sales to SAP.", pending.Count);
 
+        // One reading of each warehouse for the whole pass, rather than one per sale. A minute of
+        // till takings is mostly the same few items, and each of those reads is one of six
+        // process-wide Service Layer slots held for as long as SAP takes to answer.
+        //
+        // What makes it safe to hold is that every sale that reaches SAP is taken off the reading
+        // below, so the next sale allocates from what is actually left. See IStockReadWindow.
+        using var readWindow = batchValidation.BeginSharedReadWindow();
+
         foreach (var sale in pending)
         {
             if (cancellationToken.IsCancellationRequested)
@@ -101,7 +109,7 @@ public sealed class DesktopSalePostingService(
 
             try
             {
-                await PostOneAsync(sale, result, cancellationToken);
+                await PostOneAsync(sale, result, readWindow, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -186,7 +194,7 @@ public sealed class DesktopSalePostingService(
 
         try
         {
-            await PostOneAsync(sale, result, cancellationToken);
+            await PostOneAsync(sale, result, NoStockReadWindow.Instance, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -210,6 +218,7 @@ public sealed class DesktopSalePostingService(
     private async Task PostOneAsync(
         DesktopSaleEntity sale,
         DesktopSalePostingRunResult result,
+        IStockReadWindow readWindow,
         CancellationToken cancellationToken)
     {
         // A sale already invoiced, back only because its payment failed. Re-read the invoice — it is
@@ -223,7 +232,7 @@ public sealed class DesktopSalePostingService(
             return;
         }
 
-        var invoice = await PostInvoiceAsync(sale, result, cancellationToken);
+        var invoice = await PostInvoiceAsync(sale, result, readWindow, cancellationToken);
 
         // Outside the claim, deliberately. The claim guards the creation of one A/R document; a
         // payment that failed is retried on later passes long after the invoice's claim completed,
@@ -246,6 +255,7 @@ public sealed class DesktopSalePostingService(
     private async Task<Invoice?> PostInvoiceAsync(
         DesktopSaleEntity sale,
         DesktopSalePostingRunResult result,
+        IStockReadWindow readWindow,
         CancellationToken cancellationToken)
     {
         await using var claim = await postGuard.ClaimAsync(sale, cancellationToken);
@@ -268,6 +278,12 @@ public sealed class DesktopSalePostingService(
             // An earlier post completed and this pass had not seen it yet. Take the document from
             // the claim rather than posting, then read the invoice back so the payment step still
             // has something to decide against.
+            //
+            // Whoever posted it did so outside this pass, so whether the shared reading was taken
+            // before or after their invoice is not knowable from here. Thrown away rather than
+            // guessed at, the same as an outcome this pass could not establish.
+            readWindow.Discard();
+
             MarkInvoicePosted(sale, receipt.SapDocEntry, receipt.SapDocNum);
             result.Adopted++;
             await context.SaveChangesAsync(CancellationToken.None);
@@ -365,6 +381,11 @@ public sealed class DesktopSalePostingService(
                 MarkInvoicePosted(sale, invoice.DocEntry, invoice.DocNum);
                 result.Posted++;
 
+                // SAP has the document, so the stock it names is gone. Told to the shared reading
+                // here and not a line earlier: what is deducted has to be what was actually issued,
+                // and until CreateInvoiceAsync returns it was only what we asked for.
+                readWindow.RecordIssued(allocation.AllocatedLines);
+
                 logger.LogInformation(
                     "Posted till sale {ExternalReference} to SAP as invoice {DocNum}.",
                     sale.ExternalReferenceId, invoice.DocNum);
@@ -395,6 +416,11 @@ public sealed class DesktopSalePostingService(
                 await context.SaveChangesAsync(CancellationToken.None);
                 throw;
             }
+
+            // Past here the document may or may not exist, so neither deducting nor leaving the
+            // reading alone can be justified. The rest of the pass reads SAP again rather than
+            // allocating from a ledger that is a guess.
+            readWindow.Discard();
 
             // The post was issued and we do not know whether SAP took it. Ask on the same business key.
             var recovered = await TryFindAfterFailedPostAsync(sale, ex);

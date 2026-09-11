@@ -112,6 +112,14 @@ public sealed class VanSalesEndOfDayPostingService(
             "Posting {Count} van sales for {WindowStart:yyyy-MM-dd} to {TradingDate:yyyy-MM-dd} to SAP.",
             pending.Count, windowStart, date);
 
+        // One reading of each van's warehouse for the whole run, rather than one per sale. A van
+        // sells the same few lines all day, and each of these reads holds one of six process-wide
+        // Service Layer slots for as long as SAP takes to answer.
+        //
+        // Safe to hold only because every sale that reaches SAP is taken off the reading. See
+        // IStockReadWindow.
+        using var readWindow = batchValidation.BeginSharedReadWindow();
+
         foreach (var sale in pending)
         {
             if (cancellationToken.IsCancellationRequested)
@@ -126,7 +134,7 @@ public sealed class VanSalesEndOfDayPostingService(
 
             // Never let one sale stop the run: the rest of the day's takings still need to reach SAP,
             // and this one will be offered again by the mop-up.
-            await TryPostAsync(sale, result, cancellationToken);
+            await TryPostAsync(sale, result, readWindow, cancellationToken);
         }
 
         await context.SaveChangesAsync(cancellationToken);
@@ -184,7 +192,7 @@ public sealed class VanSalesEndOfDayPostingService(
             return result;
         }
 
-        await TryPostAsync(sale, result, cancellationToken);
+        await TryPostAsync(sale, result, NoStockReadWindow.Instance, cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation(
@@ -201,11 +209,12 @@ public sealed class VanSalesEndOfDayPostingService(
     private async Task TryPostAsync(
         DesktopSaleEntity sale,
         VanSalesPostingRunResult result,
+        IStockReadWindow readWindow,
         CancellationToken cancellationToken)
     {
         try
         {
-            await PostOneAsync(sale, result, cancellationToken);
+            await PostOneAsync(sale, result, readWindow, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -239,6 +248,7 @@ public sealed class VanSalesEndOfDayPostingService(
     private async Task PostOneAsync(
         DesktopSaleEntity sale,
         VanSalesPostingRunResult result,
+        IStockReadWindow readWindow,
         CancellationToken cancellationToken)
     {
         // One post per sale at a time. The lookups below make a *sequence* of attempts safe; they say
@@ -262,6 +272,10 @@ public sealed class VanSalesEndOfDayPostingService(
 
         if (claim.Receipt is { } receipt)
         {
+            // Posted outside this run, so whether the shared reading was taken before or after that
+            // invoice is not knowable from here. Thrown away rather than guessed at.
+            readWindow.Discard();
+
             MarkPosted(sale, receipt.SapDocEntry, receipt.SapDocNum);
             result.Adopted++;
 
@@ -365,9 +379,20 @@ public sealed class VanSalesEndOfDayPostingService(
             await context.SaveChangesAsync(CancellationToken.None);
             throw;
         }
+        catch
+        {
+            // Anything else leaves the document's existence unknown, so neither deducting nor
+            // leaving the reading alone can be justified. The rest of the run reads SAP again.
+            readWindow.Discard();
+            throw;
+        }
 
         MarkPosted(sale, invoice.DocEntry, invoice.DocNum);
         result.Posted++;
+
+        // SAP has the document, so the stock it names is gone. After the post and not before it:
+        // what is deducted has to be what was issued, not what was asked for.
+        readWindow.RecordIssued(allocation.AllocatedLines);
         await claim.CompleteAsync(invoice.DocEntry, invoice.DocNum);
 
         await RecordStockLeavingTheVanAsync(sale, invoice.DocNum, cancellationToken);

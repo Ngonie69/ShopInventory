@@ -26,6 +26,9 @@ internal static class SaleBatchAllocators
             nameof(IBatchInventoryValidationService.ValidateAndAllocateBatchesAsync) =>
                 Task.FromResult(Allocate((CreateInvoiceRequest)args![0]!, batchNumber)),
 
+            // A stub holds no readings, so there is nothing for a window to share.
+            nameof(IBatchInventoryValidationService.BeginSharedReadWindow) => NoStockReadWindow.Instance,
+
             _ => throw new InvalidOperationException($"Unexpected allocator call: {method.Name}")
         });
 
@@ -50,6 +53,8 @@ internal static class SaleBatchAllocators
                 [
                     new BatchValidationErrorDto { ErrorCode = code, Message = message }
                 ])),
+
+            nameof(IBatchInventoryValidationService.BeginSharedReadWindow) => NoStockReadWindow.Instance,
 
             _ => throw new InvalidOperationException($"Unexpected allocator call: {method.Name}")
         });
