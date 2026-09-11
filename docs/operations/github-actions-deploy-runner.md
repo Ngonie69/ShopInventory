@@ -46,7 +46,8 @@ by `-ValidateOnly` before anything is installed:
 ## Prerequisites
 
 - Windows with PowerShell 5.1 or later.
-- **.NET 10 SDK** on `PATH`. Note this is the SDK, not the ASP.NET Core Hosting Bundle that
+- A **released .NET 10 SDK** on `PATH` — not a preview or RC, which miscompiles Razor pages that a
+  released SDK builds cleanly. Note this is the SDK, not the ASP.NET Core Hosting Bundle that
   production already has — publishing needs the full SDK, and installing it on a production box is
   a real change to that box.
 - `git` on `PATH`.
@@ -189,9 +190,16 @@ The git safety check is **not** skipped. It still refuses to publish a dirty tre
 **Job never starts, stays queued.** The runner is offline or its labels do not match. Check
 **Settings → Actions → Runners** and `Get-Service actions.runner.*`.
 
-**"This runner is not provisioned for deployment."** Either the .NET 10 SDK is missing from the
-service's `PATH`, or `SHOPINVENTORY_DEPLOY_CREDENTIAL` is unset or points at nothing. The step names
-which. Note that a variable set after the service started is invisible to it until a restart.
+**"This runner is not provisioned for deployment."** Either `dotnet` is missing from the service's
+`PATH`, the SDK it would build with is not a released .NET 10 SDK, or
+`SHOPINVENTORY_DEPLOY_CREDENTIAL` is unset or points at nothing. The step names which. Note that a
+variable set after the service started is invisible to it until a restart.
+
+The SDK check judges what `dotnet --version` resolves to, not what is installed: with no
+`global.json` that is the highest version present, so a preview newer than every installed release
+is what gets used. Install a released SDK and remove the preview. A pre-release SDK is not a
+cosmetic problem — .NET 10 RC1 fails five Razor pages with hundreds of `CS1003` and
+`CS0246 '__builder'` errors while Tests, on a released SDK, pass.
 
 **"Could not read the credential file."** The file was created by a different account than the one
 the service runs as. Re-create it while logged in as the service account.

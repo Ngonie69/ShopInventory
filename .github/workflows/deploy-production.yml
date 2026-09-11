@@ -66,12 +66,19 @@ jobs:
         run: |
           $problems = @()
 
+          # The SDK dotnet will actually build with, not merely one that is installed: without a
+          # global.json that is the highest version present, so a preview can win. A pre-release
+          # .NET 10 SDK miscompiles Razor here - RC1 reads `< 1024 =>` in a switch inside @code as
+          # markup and fails five pages - while Tests, on a released SDK, stay green.
           $sdks = & dotnet --list-sdks 2>$null
           if ($LASTEXITCODE -ne 0) {
             $problems += "dotnet is not on this runner's PATH."
           }
-          elseif (-not ($sdks -match '^10\.')) {
-            $problems += "No .NET 10 SDK on this runner. Installed: $($sdks -join '; ')"
+          else {
+            $selected = & dotnet --version 2>$null | Select-Object -First 1
+            if ("$selected" -notmatch '^10\.\d+\.\d+$') {
+              $problems += "dotnet would build with SDK '$selected'; deployment needs a released .NET 10 SDK, not a preview or RC. Installed: $($sdks -join '; ')"
+            }
           }
 
           # Set as a machine-scoped variable on the runner box, not a GitHub secret: it holds a

@@ -128,11 +128,15 @@ function Test-Prerequisites {
     try {
         $sdks = & dotnet --list-sdks 2>$null
         if ($LASTEXITCODE -ne 0) { throw "dotnet exited $LASTEXITCODE" }
-        if ($sdks -match '^10\.') {
-            Write-Ok ".NET 10 SDK present"
+        # Judge the SDK dotnet will build with - the highest installed, so a preview can win - not
+        # whether any 10.x is present. A pre-release .NET 10 SDK miscompiles Razor pages (RC1 fails
+        # five of them) while Tests, on a released SDK, stay green.
+        $selected = & dotnet --version 2>$null | Select-Object -First 1
+        if ("$selected" -match '^10\.\d+\.\d+$') {
+            Write-Ok ".NET 10 SDK present ($selected)"
         }
         else {
-            $problems.Add("No .NET 10 SDK. Installed: $($sdks -join '; ')")
+            $problems.Add("dotnet would build with SDK '$selected'; a released .NET 10 SDK is required, not a preview or RC. Installed: $($sdks -join '; ')")
         }
     }
     catch {
