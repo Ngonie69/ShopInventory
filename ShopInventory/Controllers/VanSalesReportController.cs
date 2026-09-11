@@ -16,6 +16,7 @@ using ShopInventory.Features.VanSalesReports.Queries.GetVanStockReport;
 using ShopInventory.Features.VanSalesReports.Queries.GetVanSalesPerformanceReport;
 using ShopInventory.Models;
 using ShopInventory.Services;
+using ShopInventory.Features.VanSalesReports;
 
 namespace ShopInventory.Controllers;
 
@@ -26,6 +27,7 @@ namespace ShopInventory.Controllers;
 /// handset's legacy dialect, envelopes and snake_case and all, and is not free to change. This is a
 /// plain API for the web app and should stay one.
 /// </summary>
+[ServiceFilter(typeof(VanSalesPortalReadAuditFilter))]
 [Route("api/van-sales")]
 [Authorize(Policy = "ApiAccess")]
 [Produces("application/json")]

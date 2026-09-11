@@ -3071,7 +3071,11 @@ should be added to `/api/vansales` that a new caller would want.
 #### Portal surface
 
 **Base route:** `/api/van-sales`  
-**Auth:** Bearer + `ApiAccess` policy, plus the per-endpoint permission below
+**Auth:** Bearer + `ApiAccess` policy, plus the per-endpoint permission below  
+**Audit:** every **read** — the five reports, `routes`, `route-stops` and both `visits` endpoints — is
+written to the audit log by `VanSalesPortalReadAuditFilter`, **query string included**, so the row says
+whose figures were pulled, on which route, for which period. The writes already log from their
+handlers and are not recorded twice.
 
 | Method | Endpoint | Permission | Description |
 |--------|----------|------------|-------------|
