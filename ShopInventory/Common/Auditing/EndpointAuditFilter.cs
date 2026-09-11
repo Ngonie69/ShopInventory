@@ -46,6 +46,13 @@ public abstract class EndpointAuditFilter(
     /// </summary>
     protected virtual bool ShouldAudit(HttpRequest request) => true;
 
+    /// <summary>
+    /// Whether the row's details carry the query string. Off by default, because a query string can
+    /// carry anything a caller chose to put there; a surface turns it on when its parameters are what
+    /// make a row worth reading — a report's period and subject, say.
+    /// </summary>
+    protected virtual bool RecordQueryString => false;
+
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
         if (!ShouldAudit(context.HttpContext.Request))
@@ -75,7 +82,8 @@ public abstract class EndpointAuditFilter(
                 var statusCode = ResolveStatusCode(executedContext, pipelineException);
                 var isSuccess = pipelineException is null && statusCode < StatusCodes.Status400BadRequest;
                 var errorMessage = ResolveErrorMessage(executedContext, pipelineException);
-                var details = $"{request.Method.ToUpperInvariant()} {path} returned {statusCode}.";
+                var query = RecordQueryString ? request.QueryString.Value : null;
+                var details = $"{request.Method.ToUpperInvariant()} {path}{query} returned {statusCode}.";
 
                 await using var scope = scopeFactory.CreateAsyncScope();
                 var auditService = scope.ServiceProvider.GetRequiredService<IAuditService>();

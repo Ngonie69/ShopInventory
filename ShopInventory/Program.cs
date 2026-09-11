@@ -548,6 +548,7 @@ try
     builder.Services.AddScoped<ShopInventory.Features.CreditNoteApprovals.ISapApprovalLookups, ShopInventory.Features.CreditNoteApprovals.SapApprovalLookups>();
     builder.Services.AddScoped<VanSalesAuditFilter>();
     builder.Services.AddScoped<ShopInventory.Features.DesktopIntegration.DesktopIntegrationAuditFilter>();
+    builder.Services.AddScoped<ShopInventory.Features.VanSalesReports.VanSalesPortalReadAuditFilter>();
     builder.Services.AddScoped<MobileOrderStatusCompatibilityService>();
 
     builder.Services.AddSingleton<IMobileVersionPolicyEvaluator, MobileVersionPolicyEvaluator>();

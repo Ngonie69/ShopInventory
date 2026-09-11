@@ -8,12 +8,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Features.DesktopIntegration;
 using ShopInventory.Features.VanSalesCompatibility;
+using ShopInventory.Features.VanSalesReports;
 using ShopInventory.Services;
 
 namespace ShopInventory.Tests;
 
 /// <summary>
-/// Pins what the two blanket audit filters record.
+/// Pins what the three blanket audit filters record.
 ///
 /// The desktop surface had no audit at all: 70 endpoints, and of its handlers only the transfer
 /// request and the by-hand SAP post wrote a row. A till could sell, queue an invoice, cancel a queued
@@ -21,9 +22,9 @@ namespace ShopInventory.Tests;
 /// themselves. The filter closes that by auditing the controller rather than a list of endpoints, so
 /// an action added later is covered without anyone remembering to add it.
 ///
-/// Reads are where the two surfaces differ, and the difference is deliberate — see each filter. The
-/// tests below pin both halves, because "audits everything" and "audits the writes" are each wrong
-/// for the other surface.
+/// Reads are where the surfaces differ, and the difference is deliberate — see each filter. The
+/// handset audits everything, the desktop only its writes, and the van sales portal only its reads,
+/// because its writes already log from their handlers. The tests below pin each of those.
 /// </summary>
 public sealed class EndpointAuditFilterTests
 {
@@ -135,6 +136,61 @@ public sealed class EndpointAuditFilterTests
     }
 
     /// <summary>
+    /// A report row without its parameters says only that somebody opened a report. The query string
+    /// is what says whose figures, on which route, for which period.
+    /// </summary>
+    [Fact]
+    public async Task Portal_filter_records_a_report_read_with_its_query()
+    {
+        var audit = new RecordingAuditService();
+
+        await RunAsync(
+            PortalFilter(audit),
+            "GET",
+            "/api/van-sales/performance-report",
+            "GetPerformanceReport",
+            queryString: "?userId=7b1c&fromDate=2026-08-01&toDate=2026-08-31");
+
+        var entry = Assert.Single(audit.Entries);
+        Assert.Equal("VanSalesPortalGetPerformanceReport", entry.Action);
+        Assert.Equal("/api/van-sales/performance-report", entry.EntityId);
+        Assert.Equal(
+            "GET /api/van-sales/performance-report?userId=7b1c&fromDate=2026-08-01&toDate=2026-08-31 returned 200.",
+            entry.Details);
+    }
+
+    /// <summary>Every portal write already logs from its handler. A second row would be noise.</summary>
+    [Theory]
+    [InlineData("POST")]
+    [InlineData("PUT")]
+    [InlineData("DELETE")]
+    public async Task Portal_filter_leaves_writes_to_their_handlers(string method)
+    {
+        var audit = new RecordingAuditService();
+
+        await RunAsync(PortalFilter(audit), method, "/api/van-sales/route-stops", "CreateRouteStop");
+
+        Assert.Empty(audit.Entries);
+    }
+
+    /// <summary>
+    /// Recording the query string is opt-in, and pinned off for the two surfaces that did not opt in:
+    /// a query string carries whatever a caller put there, and a handset or a till has no reason to be
+    /// trusted not to put a token in one.
+    /// </summary>
+    [Fact]
+    public async Task Filters_that_did_not_opt_in_never_record_the_query_string()
+    {
+        var audit = new RecordingAuditService();
+
+        await RunAsync(VanFilter(audit), "GET", "/api/vansales/customer", "GetCustomers", queryString: "?token=secret");
+        await RunAsync(DesktopFilter(audit), "POST", "/api/DesktopIntegration/sales", "CreateDesktopSale", queryString: "?token=secret");
+
+        Assert.Equal(2, audit.Entries.Count);
+        Assert.All(audit.Entries, entry => Assert.DoesNotContain("secret", entry.Details));
+    }
+
+    /// <summary>
     /// The filter is only worth anything if it is attached. A blanket filter is easy to detach by
     /// accident — it is one attribute on a class that nobody editing an endpoint has reason to read —
     /// and detaching it silences 70 endpoints at once, with no failing behaviour to notice.
@@ -142,6 +198,8 @@ public sealed class EndpointAuditFilterTests
     [Theory]
     [InlineData(typeof(ShopInventory.Controllers.DesktopIntegrationController), typeof(DesktopIntegrationAuditFilter))]
     [InlineData(typeof(ShopInventory.Controllers.VanSalesCompatibilityController), typeof(VanSalesAuditFilter))]
+    [InlineData(typeof(ShopInventory.Controllers.VanSalesReportController), typeof(VanSalesPortalReadAuditFilter))]
+    [InlineData(typeof(ShopInventory.Controllers.VanSalesAttendanceController), typeof(VanSalesPortalReadAuditFilter))]
     public void The_controller_carries_its_audit_filter(Type controller, Type filter)
     {
         var attached = controller
@@ -158,17 +216,26 @@ public sealed class EndpointAuditFilterTests
     private static VanSalesAuditFilter VanFilter(IAuditService audit)
         => new(new StubScopeFactory(audit), NullLogger<VanSalesAuditFilter>.Instance);
 
+    private static VanSalesPortalReadAuditFilter PortalFilter(IAuditService audit)
+        => new(new StubScopeFactory(audit), NullLogger<VanSalesPortalReadAuditFilter>.Instance);
+
     private static async Task RunAsync(
         IAsyncActionFilter filter,
         string method,
         string path,
         string actionName,
         IActionResult? result = null,
-        Exception? throws = null)
+        Exception? throws = null,
+        string? queryString = null)
     {
         var httpContext = new DefaultHttpContext();
         httpContext.Request.Method = method;
         httpContext.Request.Path = path;
+
+        if (queryString is not null)
+        {
+            httpContext.Request.QueryString = new QueryString(queryString);
+        }
 
         var descriptor = new ControllerActionDescriptor
         {

@@ -6,6 +6,7 @@ using ShopInventory.Features.VanSalesAttendance.Queries.GetVanVisitReport;
 using ShopInventory.Features.VanSalesAttendance.Queries.GetVanVisits;
 using ShopInventory.Models;
 using ShopInventory.Services;
+using ShopInventory.Features.VanSalesReports;
 
 namespace ShopInventory.Controllers;
 
@@ -20,6 +21,7 @@ namespace ShopInventory.Controllers;
 /// Distinct from <c>VanSalesCompatibilityController</c>, which speaks the handset's legacy dialect on
 /// <c>/api/vansales</c> and writes these rows. This is the read side, for the web app.
 /// </summary>
+[ServiceFilter(typeof(VanSalesPortalReadAuditFilter))]
 [Route("api/van-sales/visits")]
 [Authorize(Policy = "ApiAccess")]
 [Produces("application/json")]

@@ -66,6 +66,13 @@ otherwise be surprised.
 
 ### Changed
 
+- **Reading the van sales portal is now written to the audit trail.** Every write on `/api/van-sales`
+  was already audited; none of the reads were, so a supervisor could pull any rep's takings, coverage
+  or compliance for any period and nothing recorded who looked. All nine reads — the five reports,
+  `routes`, `route-stops`, `visits` and `visits/report` — now write a row prefixed `VanSalesPortal`,
+  with the query string, because the parameters are what say whose figures were read. No request or
+  response changes.
+
 - **The van sales customer app's sign-ins are now written to the audit trail.** Staff sign-ins have
   always written `Login` and `LoginFailed`; the customer app wrote nothing. An account that can place
   orders in a shop's name could be signed into, refused, sent codes on demand or handed a fresh token,
