@@ -153,7 +153,10 @@ public class RevmaxFiscalizationService : IFiscalizationService
                     mapped, invoiceNumber, InvoiceReceiptType, cancellationToken);
             }
 
-            return await VerifyDeclaredTaxAsync(mapped, request, cancellationToken);
+            var filed = await ReadBackFiledReceiptAsync(
+                mapped, request, InvoiceReceiptType, cancellationToken);
+
+            return await StampFiscalDayAsync(filed, cancellationToken);
         }
         catch (Exception ex) when (
             ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
@@ -272,7 +275,10 @@ public class RevmaxFiscalizationService : IFiscalizationService
                     mapped, invoiceNumber, CreditNoteReceiptType, cancellationToken);
             }
 
-            return await VerifyDeclaredTaxAsync(mapped, request, cancellationToken);
+            var filed = await ReadBackFiledReceiptAsync(
+                mapped, request, CreditNoteReceiptType, cancellationToken);
+
+            return await StampFiscalDayAsync(filed, cancellationToken);
         }
         catch (Exception ex) when (
             ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
@@ -361,7 +367,7 @@ public class RevmaxFiscalizationService : IFiscalizationService
             InvoiceNumber = invoiceNumber,
             ReceiptGlobalNo = response.Data?.ReceiptGlobalNo.ToString(CultureInfo.InvariantCulture),
             ReceiptCounter = response.Data?.ReceiptCounter.ToString(CultureInfo.InvariantCulture),
-            FiscalDayNo = NullIfBlank(response.FiscalDay),
+            // No FiscalDayNo: the lookup does not carry the receipt's day. See AdoptedReceipt.
             DeviceSerial = NullIfBlank(response.DeviceSerialNumber) ?? NullIfBlank(response.Data?.DeviceSerial),
             QRCode = NullIfBlank(response.QRcode),
             VerificationCode = NullIfBlank(response.VerificationCode)
@@ -378,7 +384,7 @@ public class RevmaxFiscalizationService : IFiscalizationService
     ///
     /// It cannot, because this application is not the only thing filing to this device: the vendor's
     /// own SAP add-on files invoices to it too, leaving no row in our log. Invoice 771485 is one —
-    /// receipt 216407, filed 2026-09-10 10:05:22 on fiscal day 524, note "22862- From Comex Van
+    /// receipt 515/216407, filed 2026-09-10 10:05:22 on fiscal day 525, note "22862- From Comex Van
     /// Sales" — while the invoice list still read "Not Fiscalised" and offered a Fiscalise button
     /// that could only ever be refused.
     ///
@@ -491,9 +497,12 @@ public class RevmaxFiscalizationService : IFiscalizationService
     /// </summary>
     /// <remarks>
     /// Success, because the document is fiscalised and ZIMRA has the receipt — the fields carried here
-    /// are what mark it so, and what a reprint puts on the customer's copy. <c>FiscalDay</c> on this
-    /// response is the receipt's own day, not the device's current one: on 771485 it reads 524 while
-    /// the device was on 525.
+    /// are what mark it so, and what a reprint puts on the customer's copy.
+    ///
+    /// No fiscal day. <c>FiscalDay</c> on this response is not the receipt's day: it was taken to be,
+    /// because 771485 reads 524 here, but FDMS holds 771485 on day 525. Nor can the device's current day
+    /// stand in, because an adopted receipt may have been filed on any day before this one. A blank day
+    /// is an omission; the envelope's was a misstatement. See <see cref="StampFiscalDayAsync"/>.
     /// </remarks>
     private static FiscalizationResult AdoptedReceipt(InvoiceResponse existing, string invoiceNumber)
         => new()
@@ -506,7 +515,6 @@ public class RevmaxFiscalizationService : IFiscalizationService
             InvoiceNumber = invoiceNumber,
             ReceiptGlobalNo = existing.Data?.ReceiptGlobalNo.ToString(CultureInfo.InvariantCulture),
             ReceiptCounter = existing.Data?.ReceiptCounter.ToString(CultureInfo.InvariantCulture),
-            FiscalDayNo = NullIfBlank(existing.FiscalDay),
             DeviceSerial = NullIfBlank(existing.DeviceSerialNumber)
                 ?? NullIfBlank(existing.Data?.DeviceSerial),
             QRCode = NullIfBlank(existing.QRcode),
@@ -645,7 +653,7 @@ public class RevmaxFiscalizationService : IFiscalizationService
                         existing.Data?.ReceiptGlobalNo.ToString(CultureInfo.InvariantCulture),
                     ReceiptCounter =
                         existing.Data?.ReceiptCounter.ToString(CultureInfo.InvariantCulture),
-                    FiscalDayNo = NullIfBlank(existing.FiscalDay),
+                    // No FiscalDayNo: this receipt may predate the call. See AdoptedReceipt.
                     DeviceSerial = NullIfBlank(existing.DeviceSerialNumber)
                         ?? NullIfBlank(existing.Data?.DeviceSerial),
                     QRCode = NullIfBlank(existing.QRcode),
@@ -694,7 +702,8 @@ public class RevmaxFiscalizationService : IFiscalizationService
     }
 
     /// <summary>
-    /// Reads the filed receipt back and checks the device taxed each line the way we declared it.
+    /// Reads the filed receipt back: takes its receipt counter, and checks the device taxed each line
+    /// the way we declared it.
     /// </summary>
     /// <remarks>
     /// The one failure this integration cannot otherwise see. REVMax answers a submission with
@@ -712,18 +721,17 @@ public class RevmaxFiscalizationService : IFiscalizationService
     ///
     /// Best-effort: a read-back that cannot be made says nothing about the receipt, so it is logged
     /// and passed over rather than reported as a mismatch.
+    ///
+    /// The receipt counter is taken here because this read-back is the only place it appears — see
+    /// <see cref="ApplyFiledReceiptNumbers"/>.
     /// </remarks>
-    private async Task<FiscalizationResult> VerifyDeclaredTaxAsync(
+    private async Task<FiscalizationResult> ReadBackFiledReceiptAsync(
         FiscalizationResult result,
         TransactMRequest request,
+        string expectedReceiptType,
         CancellationToken cancellationToken)
     {
         if (!result.Success || result.Skipped || result.InvoiceNumber is null)
-        {
-            return result;
-        }
-
-        if (request.ItemsXml is not List<RevmaxRequestItem> declared || declared.Count == 0)
         {
             return result;
         }
@@ -739,9 +747,16 @@ public class RevmaxFiscalizationService : IFiscalizationService
         {
             _logger.LogWarning(
                 ex,
-                "Filed {InvoiceNumber} but could not read it back to check the tax it was recorded "
-                + "under.",
+                "Filed {InvoiceNumber} but could not read it back to take its receipt counter or check "
+                + "the tax it was recorded under.",
                 result.InvoiceNumber);
+            return result;
+        }
+
+        ApplyFiledReceiptNumbers(result, filed, expectedReceiptType);
+
+        if (request.ItemsXml is not List<RevmaxRequestItem> declared || declared.Count == 0)
+        {
             return result;
         }
 
@@ -806,6 +821,127 @@ public class RevmaxFiscalizationService : IFiscalizationService
         return result;
     }
 
+    /// <summary>
+    /// Takes the receipt counter from the read-back, and the global number too where the filing's QR
+    /// code did not carry one — but only when the read-back is this filing's receipt.
+    /// </summary>
+    /// <remarks>
+    /// TransactM's own body carries neither number: till sale GRC-FAC-20260911-286EEC7389FD came back
+    /// without <c>ReceiptGlobalNo</c>, so every till sale recorded a blank receipt number. The
+    /// read-back has both, but <c>GetInvoice</c> is not device-scoped (see <see cref="IsOurReceipt"/>),
+    /// so it is matched on the global number in the QR code, or failing a QR code, on our device and
+    /// the receipt type.
+    /// </remarks>
+    private void ApplyFiledReceiptNumbers(
+        FiscalizationResult result,
+        InvoiceResponse? filed,
+        string expectedReceiptType)
+    {
+        if (filed?.Success != true || filed.Data is not { ReceiptGlobalNo: > 0 } receipt)
+        {
+            return;
+        }
+
+        var filedGlobalNo = receipt.ReceiptGlobalNo.ToString(CultureInfo.InvariantCulture);
+        var qrGlobalNo = ReceiptGlobalNoFromQrCode(result.QRCode);
+
+        var isThisFiling = qrGlobalNo is not null
+            ? qrGlobalNo == filedGlobalNo
+            : string.Equals(
+                  filed.DeviceID,
+                  _settings.DefaultRefDeviceId.ToString(CultureInfo.InvariantCulture),
+                  StringComparison.Ordinal)
+              && string.Equals(receipt.ReceiptType, expectedReceiptType, StringComparison.OrdinalIgnoreCase);
+
+        if (!isThisFiling)
+        {
+            return;
+        }
+
+        result.ReceiptGlobalNo = filedGlobalNo;
+
+        if (receipt.ReceiptCounter > 0)
+        {
+            result.ReceiptCounter = receipt.ReceiptCounter.ToString(CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>
+    /// Sets the fiscal day a receipt this call has just filed went into, when the device can vouch for
+    /// it.
+    /// </summary>
+    /// <remarks>
+    /// Never from a REVMax envelope. <c>FiscalDay</c> rides on every response and is not the receipt's
+    /// day: on 2026-09-11 TransactM, GetInvoice and GetDayStatus all read 524, while FDMS holds till
+    /// sale GRC-FAC-20260911-286EEC7389FD as 985/216877 on day 525 — and 771485, filed the day before,
+    /// as 515/216407 on day 525 too. Copying it printed the wrong day on every till receipt.
+    ///
+    /// GetDayStatus's <c>lastFiscalDayNo</c> is ZIMRA's, and read 525 — but it is the device's day now,
+    /// not the receipt's. It is taken as the receipt's only when nothing can have come between: FDMS
+    /// already holds this receipt (<c>lastReceiptGlobalNo</c> has reached it), and that day is still
+    /// open — <c>FiscalDayOpened</c>, or <c>FiscalDayCloseFailed</c>, which leaves it open. A different
+    /// day would need this one closed and the next opened in the moments since the device answered, and
+    /// a close under way reads <c>FiscalDayCloseInitiated</c>, which is refused.
+    ///
+    /// Anything short of that leaves the day blank and the receipt still a success: a blank day is an
+    /// omission, a wrong one is a misstatement on a document that cannot be amended. Receipts this call
+    /// did not file — adopted, or found after a failed call — are never stamped, because they may be
+    /// from any earlier day. The cost is one more call per filing, about 1.7s, since the device asks
+    /// FDMS.
+    /// </remarks>
+    private async Task<FiscalizationResult> StampFiscalDayAsync(
+        FiscalizationResult result,
+        CancellationToken cancellationToken)
+    {
+        if (!result.Success
+            || result.Skipped
+            || result.AlreadyFiscalised
+            || !long.TryParse(
+                result.ReceiptGlobalNo, NumberStyles.None, CultureInfo.InvariantCulture, out var receiptGlobalNo))
+        {
+            return result;
+        }
+
+        DayStatusResponse? status;
+
+        try
+        {
+            status = await _client.GetDayStatusAsync(cancellationToken);
+        }
+        catch (Exception ex) when (
+            ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex,
+                "Filed receipt {ReceiptGlobalNo} for {InvoiceNumber} but could not read the device's day "
+                + "status, so its fiscal day is left blank.",
+                receiptGlobalNo,
+                result.InvoiceNumber);
+            return result;
+        }
+
+        var day = status is { Code: "1" } ? status.Data : null;
+
+        if (day is { LastFiscalDayNo: > 0, FiscalDayStatus: "FiscalDayOpened" or "FiscalDayCloseFailed" }
+            && day.LastReceiptGlobalNo >= receiptGlobalNo)
+        {
+            result.FiscalDayNo = day.LastFiscalDayNo.ToString(CultureInfo.InvariantCulture);
+            return result;
+        }
+
+        _logger.LogWarning(
+            "Filed receipt {ReceiptGlobalNo} for {InvoiceNumber}, but the device's day status cannot show "
+            + "which fiscal day it went into (Code {Code}, {FiscalDayStatus}, day {LastFiscalDayNo}, last "
+            + "receipt {LastReceiptGlobalNo}), so its fiscal day is left blank.",
+            receiptGlobalNo,
+            result.InvoiceNumber,
+            status?.Code,
+            status?.Data?.FiscalDayStatus,
+            status?.Data?.LastFiscalDayNo,
+            status?.Data?.LastReceiptGlobalNo);
+        return result;
+    }
+
     private FiscalizationResult MapResponse(
         TransactMResponse? response,
         string invoiceNumber,
@@ -850,10 +986,12 @@ public class RevmaxFiscalizationService : IFiscalizationService
             InvoiceNumber = invoiceNumber,
             QRCode = NullIfBlank(response.QRcode),
             VerificationCode = NullIfBlank(response.VerificationCode),
-            // FiscalDay is the device's current day and rides on every response; FiscalDayNo appears
-            // only on some builds. Prefer the specific one where it is present.
-            FiscalDayNo = NullIfBlank(response.FiscalDayNo) ?? NullIfBlank(response.FiscalDay),
-            ReceiptGlobalNo = NullIfBlank(response.ReceiptGlobalNo),
+            // No FiscalDayNo: nothing on this body is the receipt's day. It is stamped once the
+            // device's day status can vouch for one — see StampFiscalDayAsync.
+            //
+            // No receipt number on the body either (till receipt 216877 came back without one), but
+            // the QR code is here, and it carries the number.
+            ReceiptGlobalNo = ReceiptGlobalNoFromQrCode(response.QRcode) ?? NullIfBlank(response.ReceiptGlobalNo),
             ReceiptCounter = NullIfBlank(response.ReceiptCounter),
             DeviceSerial = NullIfBlank(response.DeviceSerialNumber) ?? NullIfBlank(response.DeviceSerial),
             RawRequestJson = rawRequestJson,
@@ -1322,6 +1460,36 @@ public class RevmaxFiscalizationService : IFiscalizationService
         => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : null;
+
+    /// <summary>The receipt global number a ZIMRA verification QR code carries, if it is one.</summary>
+    /// <remarks>
+    /// The code is the portal URL followed by the device id (10 digits), the receipt date (ddMMyyyy),
+    /// the receipt global number (10 digits) and 16 hex characters of signature. Till sale
+    /// GRC-FAC-20260911-286EEC7389FD's reads 0000022862 11092026 0000216877 60A74CD961202377, and FDMS
+    /// shows that receipt as 216877. Anything not shaped like that answers null.
+    /// </remarks>
+    private static string? ReceiptGlobalNoFromQrCode(string? qrCode)
+    {
+        if (string.IsNullOrWhiteSpace(qrCode))
+        {
+            return null;
+        }
+
+        var trimmed = qrCode.Trim().TrimEnd('/');
+        var code = trimmed[(trimmed.LastIndexOf('/') + 1)..];
+
+        if (code.Length != 44
+            || !code[..28].All(char.IsAsciiDigit)
+            || !code[28..].All(char.IsAsciiHexDigit))
+        {
+            return null;
+        }
+
+        return long.TryParse(code.AsSpan(18, 10), NumberStyles.None, CultureInfo.InvariantCulture, out var globalNo)
+               && globalNo > 0
+            ? globalNo.ToString(CultureInfo.InvariantCulture)
+            : null;
+    }
 
     private static string? NullIfBlank(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value;
