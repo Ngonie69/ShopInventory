@@ -38,8 +38,12 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
     private const string DerivedReference = "CN-" + IdempotencyKey;
     private static readonly Guid Cashier = Guid.Parse("44444444-4444-4444-4444-444444444444");
 
-    /// <summary>The invoice the from-invoice route credits against.</summary>
-    private static readonly Invoice CreditedInvoice = new()
+    /// <summary>
+    /// The invoice the from-invoice route credits against, as SAP returns it: four units on line 0,
+    /// none credited yet. A test that needs part of it credited already says so with
+    /// <see cref="CreditedAlready"/>.
+    /// </summary>
+    private readonly Invoice _invoice = new()
     {
         DocEntry = 2148037,
         DocNum = 90210,
@@ -49,7 +53,15 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
         DocCurrency = "USD",
         DocumentLines =
         [
-            new InvoiceLine { LineNum = 0, ItemCode = "NRI049", Quantity = 4m, UnitPrice = 60.00m }
+            new InvoiceLine
+            {
+                LineNum = 0,
+                ItemCode = "NRI049",
+                Quantity = 4m,
+                UnitPrice = 60.00m,
+                RemainingOpenQuantity = 4m,
+                LineStatus = "bost_Open"
+            }
         ]
     };
 
@@ -79,8 +91,8 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
     private bool _callerHangsUpBeforeThePost;
     private Exception? _lookupFailsWith;
 
-    /// <summary>Set to make the "what has this invoice already been credited" read fail.</summary>
-    private Exception? _creditHistoryFailsWith;
+    /// <summary>Set to make SAP's read of the invoice being credited fail.</summary>
+    private Exception? _invoiceReadFailsWith;
 
     private readonly List<string> _lookups = [];
     private int _postCount;
@@ -268,40 +280,178 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
     }
 
     /// <summary>
-    /// The guard that decides how much of an invoice is still creditable used to fall back to the
-    /// local database when SAP could not be asked. That reads as "nothing has been credited" for the
-    /// one case it matters — a credit note whose reply was lost is in neither place the fallback can
-    /// see — and clears a second full credit note against the invoice.
+    /// The control for the refusals below: a line SAP still holds open is credited, and the credit
+    /// note is based on that line.
     /// </summary>
     [Fact]
-    public async Task An_invoice_whose_credit_history_cannot_be_read_is_not_credited_further()
+    public async Task A_line_SAP_still_holds_open_is_credited()
     {
-        _creditHistoryFailsWith = new HttpRequestException("Connection refused");
+        var result = await CreateFromInvoiceAsync();
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : string.Empty);
+        Assert.Equal(1, _postCount);
+        Assert.Equal<int?>(_invoice.DocEntry, _lastPosted?.OriginalInvoiceDocEntry);
+        Assert.Equal<int?>(0, Assert.Single(_lastPosted!.Lines).OriginalInvoiceLineId);
+    }
+
+    /// <summary>
+    /// Invoice 772109 on 2026-09-11. Credit memo 55294 had credited every line in full, and SAP read
+    /// each one RemainingOpenQuantity 0, bost_Close. The guard used to total the invoice's credit notes
+    /// from a lookup that was a stub answering "none", so it would have cleared a second full credit.
+    /// </summary>
+    [Fact]
+    public async Task An_invoice_SAP_reports_fully_credited_is_not_credited_again()
+    {
+        CreditedAlready(stillOpen: 0m, lineStatus: "bost_Close");
+
+        var result = await CreateFromInvoiceAsync();
+
+        Assert.True(result.IsError);
+        Assert.Contains("already been fully credited", result.FirstError.Description);
+        Assert.Equal(0, _postCount);
+    }
+
+    /// <summary>
+    /// A partial credit leaves the rest creditable and no more than the rest. On invoice 770686 a line
+    /// of 90 read 20 open once 70 had been credited.
+    /// </summary>
+    [Fact]
+    public async Task A_credit_cannot_take_more_than_a_partly_credited_line_still_holds()
+    {
+        CreditedAlready(stillOpen: 1m);
+
+        var result = await CreateFromInvoiceAsync(quantity: 2m);
+
+        Assert.True(result.IsError);
+        Assert.Contains("exceeds the 1 still creditable", result.FirstError.Description);
+        Assert.Equal(0, _postCount);
+    }
+
+    /// <summary>The boundary: exactly what is still open may be credited.</summary>
+    [Fact]
+    public async Task What_a_partly_credited_line_still_holds_can_be_credited()
+    {
+        CreditedAlready(stillOpen: 2m);
+
+        var result = await CreateFromInvoiceAsync(quantity: 2m);
+
+        Assert.False(result.IsError, result.IsError ? result.FirstError.Description : string.Empty);
+        Assert.Equal(1, _postCount);
+    }
+
+    /// <summary>
+    /// Two credit lines against one invoice line draw on one balance. Checked apart, each would pass.
+    /// </summary>
+    [Fact]
+    public async Task Credit_lines_against_the_same_invoice_line_are_counted_together()
+    {
+        CreditedAlready(stillOpen: 3m);
+
+        var result = await CreateFromInvoiceAsync(quantity: 2m, lineCount: 2);
+
+        Assert.True(result.IsError);
+        Assert.Contains("exceeds the 3 still creditable", result.FirstError.Description);
+        Assert.Equal(0, _postCount);
+    }
+
+    /// <summary>
+    /// SAP could not be reached for the invoice at all. Nothing is known about what it has been
+    /// credited, so nothing more is.
+    /// </summary>
+    [Fact]
+    public async Task An_invoice_SAP_cannot_be_asked_for_is_not_credited_further()
+    {
+        _invoiceReadFailsWith = new HttpRequestException("Connection refused");
 
         var result = await CreateFromInvoiceAsync();
 
         Assert.True(result.IsError);
         Assert.Equal(0, _postCount);
-        Assert.Contains("could not be asked", result.FirstError.Description, StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task<ErrorOr.ErrorOr<CreditNoteDto>> CreateFromInvoiceAsync()
+    /// <summary>
+    /// SAP answered without the open quantities — a narrower $select, a renamed field. A missing number
+    /// is not a line with nothing credited, and reading it as one is how a return gets credited twice.
+    /// </summary>
+    [Fact]
+    public async Task An_invoice_read_without_its_open_quantities_is_not_credited_further()
     {
-        var lines = new List<CreateCreditNoteLineRequest>
-        {
-            new()
+        _invoice.DocumentLines![0].RemainingOpenQuantity = null;
+
+        var result = await CreateFromInvoiceAsync();
+
+        Assert.True(result.IsError);
+        Assert.Contains("could not be read", result.FirstError.Description);
+        Assert.Equal(0, _postCount);
+    }
+
+    /// <summary>A credit line that names no line of the invoice has no balance to be checked against.</summary>
+    [Fact]
+    public async Task A_credit_line_matching_no_invoice_line_is_refused()
+    {
+        var result = await CreateFromInvoiceAsync(itemCode: "FET018", lineNum: 7);
+
+        Assert.True(result.IsError);
+        Assert.Contains("has no line for item FET018", result.FirstError.Description);
+        Assert.Equal(0, _postCount);
+    }
+
+    /// <summary>
+    /// The guard reads two fields off SAP's JSON, and a misspelt name deserialises to null — which the
+    /// guard refuses, so every credit note from an invoice would be refused. These lines are SAP's own
+    /// answer on 2026-09-11: invoice 772109 line 0, fully credited, and invoice 770686 line 23, 70 of
+    /// 90 credited.
+    /// </summary>
+    [Fact]
+    public void SAPs_invoice_lines_carry_their_open_quantity_and_status()
+    {
+        const string sapJson = """
             {
-                ItemCode = "NRI049",
-                Quantity = 2m,
-                UnitPrice = 60.00m,
-                OriginalInvoiceLineId = 0
+              "DocEntry": 2342939,
+              "DocNum": 772109,
+              "DocumentLines": [
+                { "LineNum": 0, "ItemCode": "ICS025", "Quantity": 17.0, "RemainingOpenQuantity": 0.0, "LineStatus": "bost_Close", "OpenAmount": 106.25 },
+                { "LineNum": 23, "ItemCode": "ICV008", "Quantity": 90.0, "RemainingOpenQuantity": 20.0, "LineStatus": "bost_Open", "OpenAmount": 801.9 }
+              ]
             }
-        };
+            """;
+
+        var invoice = System.Text.Json.JsonSerializer.Deserialize<Invoice>(sapJson)!;
+
+        Assert.Equal(0m, invoice.DocumentLines![0].RemainingOpenQuantity);
+        Assert.Equal("bost_Close", invoice.DocumentLines[0].LineStatus);
+        Assert.Equal(20m, invoice.DocumentLines[1].RemainingOpenQuantity);
+        Assert.Equal("bost_Open", invoice.DocumentLines[1].LineStatus);
+    }
+
+    /// <summary>What credit memos already based on invoice line 0 have left open on it.</summary>
+    private void CreditedAlready(decimal stillOpen, string lineStatus = "bost_Open")
+    {
+        var line = _invoice.DocumentLines![0];
+        line.RemainingOpenQuantity = stillOpen;
+        line.LineStatus = lineStatus;
+    }
+
+    private async Task<ErrorOr.ErrorOr<CreditNoteDto>> CreateFromInvoiceAsync(
+        decimal quantity = 2m,
+        string itemCode = "NRI049",
+        int lineNum = 0,
+        int lineCount = 1)
+    {
+        var lines = Enumerable.Range(0, lineCount)
+            .Select(_ => new CreateCreditNoteLineRequest
+            {
+                ItemCode = itemCode,
+                Quantity = quantity,
+                UnitPrice = 60.00m,
+                OriginalInvoiceLineId = lineNum
+            })
+            .ToList();
 
         try
         {
             var creditNote = await BuildService().CreateFromInvoiceAsync(
-                CreditedInvoice.DocEntry, lines, "Damaged in transit", Cashier, IdempotencyKey, _caller.Token);
+                _invoice.DocEntry, lines, "Damaged in transit", Cashier, IdempotencyKey, _caller.Token);
 
             return creditNote;
         }
@@ -386,9 +536,9 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
         {
             nameof(ISAPServiceLayerClient.GetCreditNoteByReferenceAsync) => (object)ReferenceLookup(args),
             nameof(ISAPServiceLayerClient.CreateCreditNoteAsync) => Post(args),
-            nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync) =>
-                Task.FromResult<Invoice?>(CreditedInvoice),
-            nameof(ISAPServiceLayerClient.GetCreditNotesByInvoiceAsync) => CreditHistory(),
+            nameof(ISAPServiceLayerClient.GetInvoiceByDocEntryAsync) => ReadInvoice(),
+            // Not GetCreditNotesByInvoiceAsync. It is a stub that always answers "none", so nothing on
+            // this path may depend on it, and a call to it fails the test.
             _ => throw new InvalidOperationException(
                 $"ISAPServiceLayerClient.{method.Name} was not expected on this path.")
         });
@@ -405,14 +555,14 @@ public sealed class CreditNoteCreateIdempotencyTests : IDisposable
         return Task.FromResult(_sapHolds);
     }
 
-    private Task<List<SAPCreditNote>> CreditHistory()
+    private Task<Invoice?> ReadInvoice()
     {
-        if (_creditHistoryFailsWith is not null)
+        if (_invoiceReadFailsWith is not null)
         {
-            throw _creditHistoryFailsWith;
+            throw _invoiceReadFailsWith;
         }
 
-        return Task.FromResult(new List<SAPCreditNote>());
+        return Task.FromResult<Invoice?>(_invoice);
     }
 
     private Task<SAPCreditNote> Post(object?[]? args)

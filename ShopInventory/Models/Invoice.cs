@@ -156,6 +156,27 @@ public class InvoiceLine
     public int? UoMEntry { get; set; }
 
     /// <summary>
+    /// How much of this line SAP still lets a target document be based on — for an A/R invoice, how
+    /// much of it is still creditable.
+    /// </summary>
+    /// <remarks>
+    /// SAP lowers it as credit memos are based on the line and closes the line at zero, whether the
+    /// credit memo came from this app or was keyed in SAP. Paying the invoice does not touch it:
+    /// invoice 772109 read <c>bost_Close</c> as a document with every line still fully open, until
+    /// credit memo 55294 was based on it and took every line to zero. <c>OpenAmount</c> beside it did
+    /// not move, so it is no measure of what has been credited.
+    ///
+    /// <para>Nullable on purpose. A read that did not carry the field is not a line with nothing
+    /// open, and the over-credit guard refuses rather than guess.</para>
+    /// </remarks>
+    [JsonPropertyName("RemainingOpenQuantity")]
+    public decimal? RemainingOpenQuantity { get; set; }
+
+    /// <summary><c>bost_Open</c> or <c>bost_Close</c>; closed once nothing is left to credit.</summary>
+    [JsonPropertyName("LineStatus")]
+    public string? LineStatus { get; set; }
+
+    /// <summary>
     /// Batch numbers used in this invoice line (returned by SAP)
     /// </summary>
     [JsonPropertyName("BatchNumbers")]
