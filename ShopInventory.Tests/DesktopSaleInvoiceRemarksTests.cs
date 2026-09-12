@@ -225,6 +225,7 @@ public sealed class DesktopSaleInvoiceRemarksTests : IDisposable
             new SapCircuitBreakerState(Options.Create(new SAPSettings())),
             SaleBatchAllocators.Holding(),
             SalePostGuards.Backed(_connection),
+            DesktopCreditPosters.Idle(_context),
             Options.Create(new DesktopSalePostingSettings()),
             Options.Create(new SAPSettings()),
             NullLogger<DesktopSalePostingService>.Instance).PostPendingSalesAsync();

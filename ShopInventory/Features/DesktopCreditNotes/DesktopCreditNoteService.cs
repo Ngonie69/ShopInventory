@@ -10,7 +10,7 @@ using ShopInventory.Services;
 namespace ShopInventory.Features.DesktopCreditNotes;
 
 public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCreditFiscalGateway fiscal,
-    IAuditService audit, ILogger<DesktopCreditNoteService> logger)
+    DesktopCreditSapPoster sapPoster, IAuditService audit, ILogger<DesktopCreditNoteService> logger)
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -57,7 +57,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         {
             if (previous.SaleId != sale.Id || previous.RequestHash != hash)
                 throw new InvalidOperationException("This request key belongs to a different credit note. Reopen the form for a new credit.");
-            return previous.Status == "Prepared" ? await IssueAsync(previous, ct) : Map(previous);
+            return previous.Status == DesktopCreditStatuses.Prepared ? await IssueAsync(previous, ct) : Map(previous);
         }
         var source = await fiscal.ReadOriginalAsync(sale, ct);
         DesktopCreditNoteEntity note;
@@ -67,7 +67,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         {
             var notes = await db.DesktopCreditNotes.AsNoTracking().Where(n => n.SaleId == sale.Id).ToListAsync(ct);
             var plan = DesktopCreditPlanner.Build(source, request, Reserved(notes),
-                notes.Where(n => n.Status != "Rejected").Sum(n => n.Amount), DateTime.UtcNow);
+                notes.Where(n => n.Status != DesktopCreditStatuses.Rejected).Sum(n => n.Amount), DateTime.UtcNow);
             plan.Receipt.Username = caller.ToString();
             note = new DesktopCreditNoteEntity
             {
@@ -86,8 +86,8 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
 
     private async Task<DesktopCreditNoteResult> IssueAsync(DesktopCreditNoteEntity note, CancellationToken ct)
     {
-        var claimed = await db.DesktopCreditNotes.Where(n => n.Id == note.Id && n.Status == "Prepared")
-            .ExecuteUpdateAsync(s => s.SetProperty(n => n.Status, "Submitting")
+        var claimed = await db.DesktopCreditNotes.Where(n => n.Id == note.Id && n.Status == DesktopCreditStatuses.Prepared)
+            .ExecuteUpdateAsync(s => s.SetProperty(n => n.Status, DesktopCreditStatuses.Submitting)
                 .SetProperty(n => n.SubmitStartedAtUtc, DateTime.UtcNow)
                 .SetProperty(n => n.Message, "Submission is in progress. Check this saved note; do not create it again."), ct);
         if (claimed == 0) return await Reload(note.Id, ct);
@@ -98,19 +98,19 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
             // Once claimed, disconnects cannot cancel either the submission or its durable outcome.
             var existing = await fiscal.FindAsync(plan, CancellationToken.None);
             if (existing?.Success == true && !existing.Skipped)
-                return await SaveOutcome(note.Id, "Fiscalised", existing, existing.Message);
+                return await SaveOutcome(note.Id, DesktopCreditStatuses.Fiscalised, existing, existing.Message);
             var refusal = await fiscal.PreflightAsync(plan, CancellationToken.None);
-            if (refusal is not null) return await SaveOutcome(note.Id, "Rejected", null, refusal);
+            if (refusal is not null) return await SaveOutcome(note.Id, DesktopCreditStatuses.Rejected, null, refusal);
             submitted = true;
             var outcome = await fiscal.SubmitAsync(plan, CancellationToken.None);
-            return await SaveOutcome(note.Id, outcome.Success && !outcome.Skipped ? "Fiscalised" : "ReconciliationRequired",
+            return await SaveOutcome(note.Id, outcome.Success && !outcome.Skipped ? DesktopCreditStatuses.Fiscalised : DesktopCreditStatuses.ReconciliationRequired,
                 outcome, outcome.Message ?? "The fiscal outcome needs to be checked.");
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Desktop credit {CreditNote} could not complete", note.Number);
             // A failed preliminary lookup does not prove absence; retain the reservation in either case.
-            return await SaveOutcome(note.Id, "ReconciliationRequired", null,
+            return await SaveOutcome(note.Id, DesktopCreditStatuses.ReconciliationRequired, null,
                 submitted ? "The submission outcome is unknown. Check the saved note before any further credit."
                           : "The fiscal service could not verify this credit. Check the saved note before any further credit.");
         }
@@ -121,11 +121,11 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         var sale = await ReadSale(caller, reference, ct);
         var note = await db.DesktopCreditNotes.AsNoTracking().SingleOrDefaultAsync(n => n.Id == id && n.SaleId == sale.Id, ct)
             ?? throw new InvalidOperationException("Credit note not found for this sale.");
-        if (note.Status is "Fiscalised" or "Rejected") return Map(note);
+        if (note.Status is DesktopCreditStatuses.Fiscalised or DesktopCreditStatuses.Rejected) return Map(note);
         var plan = JsonSerializer.Deserialize<DesktopCreditPlan>(note.PlanJson, Json)!;
         var result = await fiscal.FindAsync(plan, ct);
         if (result?.Success == true && !result.Skipped)
-            return await SaveOutcome(note.Id, "Fiscalised", result, "The existing fiscal receipt was found. No new receipt was submitted.");
+            return await SaveOutcome(note.Id, DesktopCreditStatuses.Fiscalised, result, "The existing fiscal receipt was found. No new receipt was submitted.");
         return Map(note) with { Message = "No receipt was confirmed. The credit remains reserved for reconciliation; nothing was resubmitted." };
     }
 
@@ -134,18 +134,27 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         var sale = await ReadSale(caller, reference, ct);
         var note = await db.DesktopCreditNotes.AsNoTracking().SingleOrDefaultAsync(n => n.Id == id && n.SaleId == sale.Id, ct)
             ?? throw new InvalidOperationException("Credit note not found for this sale.");
-        return note.Status == "Prepared" ? await IssueAsync(note, ct) : Map(note);
+        return note.Status == DesktopCreditStatuses.Prepared ? await IssueAsync(note, ct) : Map(note);
     }
 
     private async Task<DesktopCreditNoteResult> SaveOutcome(Guid id, string status, FiscalizationResult? result, string? message)
     {
         var json = result is null ? null : JsonSerializer.Serialize(result, Json);
-        DateTime? fiscalisedAt = status == "Fiscalised" ? DateTime.UtcNow : null;
-        await db.DesktopCreditNotes.Where(n => n.Id == id && n.Status != "Fiscalised")
+        DateTime? fiscalisedAt = status == DesktopCreditStatuses.Fiscalised ? DateTime.UtcNow : null;
+        await db.DesktopCreditNotes.Where(n => n.Id == id && n.Status != DesktopCreditStatuses.Fiscalised)
             .ExecuteUpdateAsync(s => s.SetProperty(n => n.Status, status).SetProperty(n => n.Message, message)
                 .SetProperty(n => n.FiscalResultJson, json).SetProperty(n => n.FiscalisedAtUtc, fiscalisedAt), CancellationToken.None);
-        try { await audit.LogAsync("DesktopCreditNote", "DesktopCreditNote", id.ToString(), message, status == "Fiscalised"); }
+        try { await audit.LogAsync("DesktopCreditNote", "DesktopCreditNote", id.ToString(), message, status == DesktopCreditStatuses.Fiscalised); }
         catch (Exception ex) { logger.LogWarning(ex, "Could not audit desktop credit {Id}", id); }
+        // ZIMRA has it; now the back office. Deferred when the sale has not posted yet, which is the
+        // ordinary case at a till — see DesktopCreditSapPoster. Never allowed to disturb the fiscal
+        // outcome above: the receipt is filed either way, and a SAP failure here is recorded on the
+        // credit's own row and retried by the sweep rather than reported as a fiscal problem.
+        if (status == DesktopCreditStatuses.Fiscalised)
+        {
+            try { await sapPoster.SettleAsync(id, CancellationToken.None); }
+            catch (Exception ex) { logger.LogError(ex, "Could not raise the SAP credit memo for desktop credit {Id}", id); }
+        }
         return await Reload(id, CancellationToken.None);
     }
 
@@ -159,7 +168,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
     }
 
     private static Dictionary<int, decimal> Reserved(IEnumerable<DesktopCreditNoteEntity> notes) => notes
-        .Where(n => n.Status != "Rejected")
+        .Where(n => n.Status != DesktopCreditStatuses.Rejected)
         .SelectMany(n => JsonSerializer.Deserialize<DesktopCreditPlan>(n.PlanJson, Json)!.Quantities)
         .GroupBy(l => l.LineNo).ToDictionary(g => g.Key, g => g.Sum(l => l.Quantity));
 
@@ -167,6 +176,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
     {
         var result = note.FiscalResultJson is null ? null : JsonSerializer.Deserialize<FiscalizationResult>(note.FiscalResultJson, Json);
         return new(note.Id, note.Number, note.Status, note.Amount, note.Currency, note.Reason,
-            note.OriginalFiscalNumber, note.CreatedAtUtc, note.Message, result?.QRCode, result?.ReceiptGlobalNo, note.SapDocNum);
+            note.OriginalFiscalNumber, note.CreatedAtUtc, note.Message, result?.QRCode, result?.ReceiptGlobalNo,
+            note.SapDocNum, note.SapStatus, note.SapError);
     }
 }
