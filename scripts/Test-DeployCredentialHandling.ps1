@@ -173,6 +173,43 @@ Check "the workflow's parameters are all still bindable" {
     }
 }
 
+# The only way to bring up a node that has never held the customer portal's signing secret. Without
+# it that server has to be configured by hand before it can be deployed to at all.
+Check "a first-time node can still be given the customer portal secret" {
+    if (-not (Get-Command $ScriptPath).Parameters.ContainsKey('CustomerPortalJwtSecret')) {
+        throw "-CustomerPortalJwtSecret is gone; a node without the secret cannot be deployed to"
+    }
+}
+
+Write-Host ""
+Write-Host "Startup secrets are checked before cutover" -ForegroundColor Cyan
+
+# ShopInventory.Web refuses to start without CustomerPortal:JwtSecret, so a slot missing it is a
+# slot that cannot serve. 10.10.10.58 proved on 2026-09-12 what happens when the deployment finds
+# that out afterwards: the app crash-looped, the warm-up probe returned 502 for four minutes, and
+# the reason was only in the slot's stdout log. The check has to run before the cutover, and after
+# the overrides, or a value passed on the command line would not count.
+Check "the Web slot's portal secret is asserted before it is cut over" {
+    $assertion = $ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq 'Assert-CustomerPortalJwtSecret'
+        }, $true) | Select-Object -First 1
+
+    if (-not $assertion) { throw "Assert-CustomerPortalJwtSecret is gone; a node missing the secret would cut over and crash-loop" }
+
+    $callSite = $ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst] -and
+            $node.GetCommandName() -eq 'Assert-CustomerPortalJwtSecret'
+        }, $true) | Select-Object -First 1
+
+    if (-not $callSite) { throw "Assert-CustomerPortalJwtSecret is defined but never called" }
+    if ($callSite.Extent.Text -notmatch 'TargetPath') {
+        throw "the assertion must read the target slot's web.config, not the live one"
+    }
+}
+
 Write-Host ""
 Write-Host "Multi-server child processes" -ForegroundColor Cyan
 

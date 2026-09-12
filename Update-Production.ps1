@@ -26,6 +26,13 @@ param(
     [int]$WebEmailSmtpPort = 587,
     [string]$WebEmailSmtpUsername = "alerts@kefaloscheese.com",
     [string]$WebEmailSmtpPassword = $env:SHOPINVENTORY_WEB_SMTP_PASSWORD,
+    # Only ever needed to bring a node up for the first time. Every later deployment carries the
+    # value forward inside the active slot's web.config, so leaving this unset is the normal case.
+    #
+    # It MUST be the same value on every node serving the portal. The secret signs the customer
+    # portal's JWTs, so a token issued by one node has to verify on the next; a freshly generated
+    # value silently signs every portal user out the moment traffic reaches that node.
+    [string]$CustomerPortalJwtSecret = $env:SHOPINVENTORY_CUSTOMERPORTAL_JWTSECRET,
     [string]$WebEmailFromEmail = "alerts@kefaloscheese.com",
     [string]$WebEmailFromName = "Kefalos Cheese - POD Reports",
     [string]$WebEmailApplicationUrl = "https://sis.kefaloscheese.com",
@@ -871,6 +878,12 @@ $webEmailConfigOverrides = @{
 
 if (-not [string]::IsNullOrWhiteSpace($WebEmailSmtpPassword)) {
     $webEmailConfigOverrides['Email__SmtpPassword'] = $WebEmailSmtpPassword
+}
+
+# Carried in the same hashtable as the SMTP settings because it goes to the same place by the same
+# route - the Web slot's web.config - not because it has anything to do with email.
+if (-not [string]::IsNullOrWhiteSpace($CustomerPortalJwtSecret)) {
+    $webEmailConfigOverrides['CustomerPortal__JwtSecret'] = $CustomerPortalJwtSecret
 }
 
 # Test connection to production server
@@ -2004,6 +2017,53 @@ try {
                 Write-Host "  Applied Web SMTP web.config settings" -ForegroundColor Green
             }
 
+            # The Web app refuses to start without this, by design - see ShopInventory.Web/Program.cs.
+            # Checked here, before the slot is cut over, because the alternative is what 10.10.10.58
+            # showed on 2026-09-12: the app crash-looped on startup, the warm-up probe returned 502 for
+            # four minutes, and the reason was only visible to somebody who went and read the slot's
+            # stdout log. A deployment that cannot succeed should say so in the deployment output.
+            #
+            # It is normally carried forward inside the active slot's web.config by
+            # Initialize-SlotWebConfig, so this only fires on a node that has never had the value -
+            # a first-time bring-up, or a node so far behind that it predates the setting.
+            function Assert-CustomerPortalJwtSecret {
+                param([string]$WebConfigPath)
+
+                $secret = Get-WebConfigEnvironmentVariableValue -WebConfigPath $WebConfigPath -Name 'CustomerPortal__JwtSecret'
+
+                if ((Test-UsableConfigValue -Value $secret) -and $secret.Trim().Length -ge 32) {
+                    Write-Host "  CustomerPortal__JwtSecret is present" -ForegroundColor Green
+                    return
+                }
+
+                $reason = if ([string]::IsNullOrWhiteSpace($secret)) {
+                    'is not set on this node'
+                }
+                elseif (-not (Test-UsableConfigValue -Value $secret)) {
+                    'is still a placeholder'
+                }
+                else {
+                    "is only $($secret.Trim().Length) characters; it must be at least 32"
+                }
+
+                throw @"
+CustomerPortal__JwtSecret $reason, so ShopInventory.Web will not start on this server.
+
+It signs the customer portal's JWTs and MUST be byte-identical on every node that serves the
+portal - a token issued by one node has to verify on the next. Copy the value from a node that
+already works rather than generating a new one, or every portal session breaks the moment
+traffic reaches this server.
+
+Read it from the live node:
+  [xml]`$c = Get-Content C:\inetpub\ShopInventory-Web\web.config
+  `$c.SelectNodes("//environmentVariable[@name='CustomerPortal__JwtSecret']") | Select -Expand value
+
+Then redeploy with:
+  .\Update-Production.ps1 -CustomerPortalJwtSecret '<the value from the live node>'
+  (or set SHOPINVENTORY_CUSTOMERPORTAL_JWTSECRET and rerun)
+"@
+            }
+
             function Wait-ForHealthyEndpoint {
                 param(
                     [string]$Url,
@@ -2254,6 +2314,9 @@ try {
 
                 if ($Plan.Name -eq 'Web') {
                     Set-ShopInventoryWebEmailConfig -WebConfigPath "$($Plan.TargetPath)\web.config" -EmailConfig $WebEmailConfigOverrides
+                    # After the overrides, so a value supplied on the command line counts, and before
+                    # the cutover, so a node that cannot start is refused rather than swapped in.
+                    Assert-CustomerPortalJwtSecret -WebConfigPath "$($Plan.TargetPath)\web.config"
                 }
 
                 $managedEnvironmentVariablesByApp = @{
