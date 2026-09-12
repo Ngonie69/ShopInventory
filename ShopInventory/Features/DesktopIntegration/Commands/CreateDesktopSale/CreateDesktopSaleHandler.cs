@@ -598,10 +598,12 @@ public sealed class CreateDesktopSaleHandler(
 
         var subtotal = lines.Sum(l => l.LineTotal);
 
-        // Per line, at its own code's rate. A flat rate across the basket charges VAT on zero-rated
+        // At each line's own code's rate. A flat rate across the basket charges VAT on zero-rated
         // and exempt goods — the customer is overcharged, and the receipt declared to ZIMRA says
-        // something the basket does not.
-        var vatAmount = lines.Sum(l => tax.VatOn(l.LineTotal, l.TaxCode));
+        // something the basket does not. Rounded once per rate rather than once per line, because
+        // that is how the device files it: rounding each line put a cent on sale 5's total that the
+        // till never charged and ZIMRA was nonetheless told was paid.
+        var vatAmount = tax.VatOnBasket(lines.Select(l => (l.LineTotal, l.TaxCode)));
 
         var totalAmount = subtotal + vatAmount;
 

@@ -71,24 +71,70 @@ public sealed class SaleTaxTests
     }
 
     [Fact]
-    public void A_mixed_basket_is_taxed_line_by_line_not_in_aggregate()
+    public void A_mixed_basket_is_taxed_at_each_lines_rate_not_flat_across_it()
     {
         // THE case. Two lines, one zero-rated. Flat-rating the basket charges 15.5% on all of it.
         var tax = Settings();
 
-        var lines = new[]
-        {
-            (Net: 100m, TaxCode: "O01"),
-            (Net: 100m, TaxCode: "O0"),
-        };
+        (decimal NetAmount, string? TaxCode)[] lines =
+        [
+            (100m, "O01"),
+            (100m, "O0"),
+        ];
 
-        var perLine = lines.Sum(l => tax.VatOn(l.Net, l.TaxCode));
-        var flatOverBasket = Math.Round(lines.Sum(l => l.Net) * tax.VatRate, 2);
+        var byRate = tax.VatOnBasket(lines);
+        var flatOverBasket = Math.Round(lines.Sum(l => l.NetAmount) * tax.VatRate, 2);
 
-        Assert.Equal(15.50m, perLine);
+        Assert.Equal(15.50m, byRate);
         Assert.Equal(31.00m, flatOverBasket);
         // The customer would have been overcharged by exactly the VAT on the exempt line.
-        Assert.Equal(15.50m, flatOverBasket - perLine);
+        Assert.Equal(15.50m, flatOverBasket - byRate);
+    }
+
+    [Fact]
+    public void A_basket_rounds_its_vat_once_per_rate_not_once_per_line()
+    {
+        // Sale 5 at Graniteside, 11 September: 17, 20 and 20 units at net 6.25, sent with no tax codes.
+        // Line by line that is 16.47 + 19.38 + 19.38 = 55.23, and the sale was totalled 411.48. The till
+        // charged 411.47, SAP invoiced VAT of 55.22, and ZIMRA holds 55.22: 356.25 x 15.5%, rounded once.
+        var tax = Settings();
+
+        (decimal NetAmount, string? TaxCode)[] lines =
+        [
+            (106.25m, null),
+            (125.00m, null),
+            (125.00m, null),
+        ];
+
+        Assert.Equal(55.23m, lines.Sum(l => tax.VatOn(l.NetAmount, l.TaxCode)));
+        Assert.Equal(55.22m, tax.VatOnBasket(lines));
+    }
+
+    [Fact]
+    public void A_line_with_no_code_is_rounded_together_with_the_standard_rated_lines()
+    {
+        // Both are declared under the default, standard-rated tax id, so FDMS files them as one group.
+        // 15.5% of 0.10 is 0.0155: 0.02 twice line by line, but 0.031 once over the pair.
+        Assert.Equal(0.03m, Settings().VatOnBasket([(0.10m, null), (0.10m, "O01")]));
+    }
+
+    [Fact]
+    public void The_vat_charged_is_the_vat_the_fiscal_device_works_back_from_the_total()
+    {
+        // FDMS is handed the tax-inclusive total and derives the group's tax from it, rounded once — the
+        // formula FiscalReceiptDerivation.Derive mirrors. Rounding once over a group's net lands on that
+        // same cent for every amount, checked here to $2,000.00. A single line cannot tell once-per-rate
+        // from once-per-line; the baskets above are what pin that.
+        var tax = Settings();
+
+        for (var cents = 1; cents <= 200_000; cents++)
+        {
+            var net = cents / 100m;
+            var vat = tax.VatOnBasket([(net, "O01")]);
+            var filed = Math.Round((net + vat) * 15.5m / 115.5m, 2, MidpointRounding.AwayFromZero);
+
+            Assert.Equal(filed, vat);
+        }
     }
 
     [Fact]

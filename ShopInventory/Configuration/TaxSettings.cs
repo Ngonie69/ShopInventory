@@ -56,4 +56,28 @@ public class TaxSettings
     /// </summary>
     public decimal VatOn(decimal netAmount, string? taxCode)
         => Math.Round(netAmount * RateFor(taxCode), 2, MidpointRounding.AwayFromZero);
+
+    /// <summary>
+    /// The VAT on a basket: each line at its own code's rate, with the net summed per rate and each
+    /// rate's VAT rounded once.
+    /// </summary>
+    /// <remarks>
+    /// Once per rate, not once per line, because that is how the receipt is filed. FDMS works each tax
+    /// group's VAT back out of the group's tax-inclusive total and rounds it once, so rounding every line
+    /// first drifts from the filed figure by up to half a cent a line — and the drift is in the total the
+    /// customer is charged. Sale 5 at Graniteside on 11 September, 17, 20 and 20 units at net 6.25, was
+    /// totalled 411.48 with VAT of 55.23 that way. The till charged 411.47, SAP invoiced 411.47 with VAT
+    /// of 55.22, and ZIMRA holds VAT of 55.22 on a declared cash payment of 411.48 — a cent the customer
+    /// never paid.
+    ///
+    /// Grouped on the rate rather than the code. A line with no code and an O01 line are both
+    /// standard-rated and both declared under the default tax id, so FDMS files them as one group. Two
+    /// codes at the same rate that map to different tax ids would be one group here and two there, but
+    /// the pair that exists, O01 and O8, are the USD and ZiG codes and one sale never carries both.
+    /// </remarks>
+    public decimal VatOnBasket(IEnumerable<(decimal NetAmount, string? TaxCode)> lines)
+        => lines
+            .GroupBy(line => RateFor(line.TaxCode))
+            .Sum(group => Math.Round(
+                group.Sum(line => line.NetAmount) * group.Key, 2, MidpointRounding.AwayFromZero));
 }

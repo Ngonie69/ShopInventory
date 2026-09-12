@@ -82,8 +82,8 @@ public sealed class FiscalReceiptTotalTests
     };
 
     /// <summary>
-    /// Builds the receipt the way a till sale does: net unit price, VAT rounded once per line, and a
-    /// tax-inclusive per-unit price on the line.
+    /// Builds the receipt the way a till sale does: net unit price, VAT rounded once per rate over the
+    /// basket, and a tax-inclusive per-unit price on the line.
     /// </summary>
     private static async Task<(decimal Charged, decimal Declared)> SubmitAsync(
         params (decimal UnitPrice, decimal Quantity, string TaxCode)[] basket)
@@ -106,11 +106,12 @@ public sealed class FiscalReceiptTotalTests
                     TaxCode = b.TaxCode
                 },
                 Net = lineTotal,
-                Vat = Tax.VatOn(lineTotal, b.TaxCode)
+                b.TaxCode
             };
         }).ToList();
 
-        var charged = lines.Sum(l => l.Net) + lines.Sum(l => l.Vat);
+        var charged = lines.Sum(l => l.Net)
+            + Tax.VatOnBasket(lines.Select(l => (l.Net, (string?)l.TaxCode)));
 
         var client = new CapturingClient();
         var service = new FiscalizationService(
@@ -147,6 +148,20 @@ public sealed class FiscalReceiptTotalTests
         var (charged, declared) = await SubmitAsync(((decimal)unitPrice, quantity, "O01"));
 
         Assert.Equal(charged, declared);
+    }
+
+    [Fact]
+    public async Task Sale_5_is_totalled_and_declared_at_what_the_till_charged()
+    {
+        // Graniteside, 11 September: 17, 20 and 20 units at net 6.25. VAT rounded line by line totalled
+        // it 411.48, which was declared as the cash payment although the till charged 411.47.
+        var (charged, declared) = await SubmitAsync(
+            (6.25m, 17, "O01"),
+            (6.25m, 20, "O01"),
+            (6.25m, 20, "O01"));
+
+        Assert.Equal(411.47m, charged);
+        Assert.Equal(411.47m, declared);
     }
 
     [Fact]
