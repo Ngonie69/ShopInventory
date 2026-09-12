@@ -3631,6 +3631,7 @@ of that dialect matter before you call anything here:
 | POST | `/api/vansales/sales` | `invoices.create` | Take custody of offline, already-ZIMRA-stamped sales |
 | POST | `/api/vansales/order/convert-to-invoice` | `invoices.create` | Always `202` |
 | POST | `/api/vansales/stock/position` | `inventory.transfer` | What the van is carrying, as its own handset counts it. Becomes that van's stock snapshot for the trading day — the first count of a day is the one kept |
+| GET | `/api/vansales/stock/position` | `inventory.transfer` | What the van is carrying now: the morning count, plus loads transferred in since, less every sale received today. For a handset that has lost its own ledger. `counted: false` means the position is unknown, not that the van is empty |
 | POST | `/api/vansales/inventory/request` | `inventory.transfer` | Ask the depot for stock. `201` |
 | GET | `/api/vansales/inventory/request` | `inventory.transfer` | The caller's transfer requests |
 | POST | `/api/vansales/inventory/confirm` | `inventory.transfer` | Confirm a transfer into the van |
