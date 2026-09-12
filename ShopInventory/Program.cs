@@ -325,6 +325,17 @@ try
 
         options.Events = new JwtBearerEvents
         {
+            OnMessageReceived = context =>
+            {
+                // A hub connection cannot always send a header. See HubAccessToken.
+                var token = HubAccessToken.FromQuery(context.Request.Path, context.Request.Query);
+                if (token is not null)
+                {
+                    context.Token = token;
+                }
+
+                return Task.CompletedTask;
+            },
             OnAuthenticationFailed = context =>
             {
                 var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
