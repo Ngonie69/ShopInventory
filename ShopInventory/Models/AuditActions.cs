@@ -60,6 +60,13 @@ public static class AuditActions
     /// </summary>
     public const string PostDesktopSaleToSAP = "PostDesktopSaleToSAP";
 
+    /// <summary>
+    /// The back-office half of a desktop credit note reached SAP — or was refused, or was handed to a
+    /// person. Audited whatever the outcome, and usually raised by no user at all: a credit taken at
+    /// the counter is posted by the pass that posts the sale it reverses, hours later.
+    /// </summary>
+    public const string PostDesktopCreditNoteToSAP = "PostDesktopCreditNoteToSAP";
+
     // The desktop till and vending surface.
     //
     // These sit alongside the blanket row DesktopIntegrationAuditFilter writes for every desktop

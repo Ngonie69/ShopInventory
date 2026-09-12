@@ -1017,7 +1017,8 @@
             </div>
             <div class="ops-dialog-body">
                 <p>Create a fiscal credit against the original REVMax receipt, including before SAP posting.
-                    SAP credit posting and any stock return remain separate back-office actions.</p>
+                    The SAP credit memo and the stock return follow on their own: at once if this sale is
+                    already in SAP, otherwise as soon as it posts.</p>
                 @if (!string.IsNullOrWhiteSpace(desktopCreditError))
                 {
                     <p role="alert">@desktopCreditError</p>
@@ -1030,9 +1031,16 @@
                 {
                     <div class="ops-ds-card" style="margin-bottom:12px">
                         <strong>@note.Number · @Money(note.Amount, note.Currency)</strong>
-                        <p>Fiscal: @note.Status · SAP: @(note.SapDocNum.HasValue ? $"#{note.SapDocNum}" : "Pending credit posting")</p>
+                        @* Both halves, in words. "Deferred" is the API's word for a correct, ordinary
+                           state — the sale simply has not posted yet — and showing it raw would read
+                           to an operator as something having gone wrong. *@
+                        <p>Fiscal: @note.Status · SAP: @DesktopCreditSapLabel(note)</p>
                         <p>@note.Reason</p>
                         <p>@note.Message</p>
+                        @if (!string.IsNullOrWhiteSpace(note.SapError))
+                        {
+                            <p role="alert">@note.SapError</p>
+                        }
                         @if (!string.IsNullOrWhiteSpace(note.ReceiptGlobalNo))
                         {
                             <p>Credit receipt: @note.ReceiptGlobalNo</p>
@@ -1169,6 +1177,26 @@
         catch (Exception ex) { desktopCreditError = ex.Message; }
         finally { desktopCreditBusy = false; }
     }
+
+    /// <summary>
+    /// Where the back-office half of a credit stands, said in words rather than by status name.
+    /// </summary>
+    /// <remarks>
+    /// The SAP memo is raised on its own — at once when the sale is already in SAP, otherwise when it
+    /// posts — so most of these describe something happening rather than something owed. The two that
+    /// do not (a refusal, and a consolidated sale) are the ones an operator has to act on.
+    /// </remarks>
+    private static string DesktopCreditSapLabel(DesktopCreditNoteResult note) => note.SapDocNum.HasValue
+        ? $"credit memo #{note.SapDocNum}"
+        : note.SapStatus switch
+        {
+            DesktopCreditSapStatuses.Deferred => "follows once this sale posts",
+            DesktopCreditSapStatuses.NotRequired => "nothing owed — this sale is not posted to SAP",
+            DesktopCreditSapStatuses.ManualInSap => "raise by hand against the consolidated invoice",
+            DesktopCreditSapStatuses.Failed => "failed — will be retried",
+            // A status this build predates. Shown rather than swallowed.
+            _ => note.SapStatus
+        };
 
     private const string PeriodToday = "today";
     private const string PeriodWeek = "week";

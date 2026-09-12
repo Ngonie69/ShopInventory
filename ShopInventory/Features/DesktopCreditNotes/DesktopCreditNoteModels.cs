@@ -13,9 +13,16 @@ public sealed record DesktopCreditSource(string OriginalFiscalNumber, string Cur
     decimal ExternalCreditedAmount = 0, BuyerApiRequest? Buyer = null);
 public sealed record DesktopCreditPlan(DesktopCreditSource Source, List<DesktopCreditQuantity> Quantities,
     SubmitReceiptApiRequest Receipt, decimal Amount);
+/// <remarks>
+/// <paramref name="Status"/> is the fiscal half and <paramref name="SapStatus"/> the back-office half,
+/// reported separately because the ordinary outcome is that they differ: a credit taken before its
+/// sale posts is with ZIMRA at once and owes SAP a document until that evening. One verdict could not
+/// say that, and could not tell it from a fiscal filing that failed.
+/// </remarks>
 public sealed record DesktopCreditNoteResult(Guid Id, string Number, string Status, decimal Amount,
     string Currency, string Reason, string OriginalFiscalNumber, DateTime CreatedAtUtc,
-    string? Message, string? QrCode, string? ReceiptGlobalNo, int? SapDocNum);
+    string? Message, string? QrCode, string? ReceiptGlobalNo, int? SapDocNum,
+    string SapStatus = DesktopCreditSapStatuses.Deferred, string? SapError = null);
 public sealed record DesktopCreditForm(DesktopCreditSource Source, List<DesktopCreditNoteResult> CreditNotes,
     Dictionary<int, decimal> ReservedQuantities);
 
