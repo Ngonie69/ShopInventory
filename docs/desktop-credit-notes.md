@@ -15,9 +15,11 @@ device's own `receiptLineNo` identifies the line when the receipt numbers them u
 line's position does when it does not, so a receipt that repeats or omits those numbers is still
 creditable. Receipts filed before 2026-09-12 do repeat them: the device stores a line number below 1
 as 1, and invoices went out numbered from SAP's `LineNum`, which starts at 0 — receipt 216877
-(GRC-FAC-20260911-286EEC7389FD) holds its three lines as 1, 1, 2. New receipts are numbered from 1. A line the device recorded as something other than a sale - FDMS's other line type is
-`Discount` - or one with no quantity, no value or no tax id is listed as not offered, with its
-reason, instead of stopping the credit; the credit total is still capped at the original receipt's
+(GRC-FAC-20260911-286EEC7389FD) holds its three lines as 1, 1, 2. New receipts are numbered from 1.
+
+A line the device recorded as something other than a sale - FDMS's other line type is `Discount` -
+or one with no quantity, no value or no tax id is listed as not offered, with its reason, instead of
+stopping the credit; the credit total is still capped at the original receipt's
 total, so leaving a line out cannot credit more than the receipt carried. Preparation is refused
 only when no line can be credited, and the refusal names every line and its reason.
 
@@ -27,15 +29,43 @@ quantities and amount. **Check fiscal status** only reads REVMax; it never resub
 submission can be continued with **Continue fiscalisation**. An uncertain submission that is not found
 remains reserved for investigation rather than being treated as permission to file again.
 
-The saved result distinguishes fiscalisation from back-office processing. These desktop fiscal
-credits do **not** automatically post a SAP credit memo, refund cash or restock inventory. They show
-**Pending credit posting** until back-office reconciliation is performed. The existing sale continues
-through its original SAP posting/consolidation flow. Review the saved credit and its original receipt
-when recording that adjustment; do not fiscalise the same credit again under a SAP number.
+The saved result distinguishes fiscalisation from back-office processing, and reports both. A credit
+does **not** refund cash — that stays a counter action — but the SAP credit memo and the stock return
+now follow on their own.
+
+## The SAP credit memo
+
+Raised automatically, and only ever after ZIMRA has accepted the credit. When the sale is already in
+SAP the memo appears within seconds; when it is not — the ordinary case at a till, where a sale posts
+hours after it is rung up — the credit shows **follows once this sale posts**, and the posting pass
+raises the memo the moment the invoice exists. A sweep behind that catches what the pass cannot: a
+sale adopted rather than posted, a process that died between the two, and any memo SAP refused.
+
+The memo is based on the invoice, so SAP takes the batches from the document being credited; it
+credits only the lines and quantities the credit names, and carries the credit's `DCN-` number in
+`NumAtCard` so a retry finds a memo whose reply was lost rather than raising a second.
+
+Two cases are still a person's job, and say so rather than guessing. A sale that reached SAP inside an
+end-of-day **consolidated invoice** has no invoice of its own to credit — a standalone memo would have
+to choose batches with nothing to take them from — and a credited receipt line that cannot be tied
+back to an invoice line is refused outright, because a memo built on a guessed line credits the wrong
+item and moves the wrong stock. Both show **raise by hand against the consolidated invoice** with the
+reason beside them. The fiscal credit is filed either way; it is the half nothing else can do.
+
+The credited units go back on the shared stock ledger as soon as ZIMRA accepts the credit, not when
+SAP does — they never left the ledger through SAP, since the sale deducted them locally when it was
+rung up, and holding them until the evening would have a shop refusing sales for goods on its own
+counter. They are returned once, tracked on the credit's own row.
+
+Once the memo exists it reads as fiscalised wherever credit notes are listed, because the receipt was
+filed under the `DCN-` number rather than the SAP one. Do not fiscalise it again under its SAP number.
 
 ## Deployment
 
-Deploy ShopInventory API and Web together, including migration `20260911132801_AddDesktopCreditNotes`.
+Deploy ShopInventory API and Web together, including migrations `20260911132801_AddDesktopCreditNotes`
+and `20260912020300_AddDesktopCreditNoteSapPosting`. The second adds the back-office columns and
+backfills every existing credit as `Deferred`, so credits saved before it are picked up and posted
+rather than stranded.
 The migration creates a separate durable credit table and prevents deletion of a referenced sale.
 No change or deployment to the dormant Fiscalisation repository is needed. REVMax must be enabled
 and selected as the fiscal provider. The new endpoints use the existing authenticated API access and

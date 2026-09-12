@@ -195,6 +195,27 @@ public static class QuartzConfiguration
                         startDelay: TimeSpan.FromMinutes(1));
                 }
 
+                // Raises the SAP credit memos that fiscal credits are still owed. Its own job key
+                // rather than a second trigger on the posting job, because it is different work: that
+                // job's DisallowConcurrentExecution exists to stop two passes invoicing one sale, and
+                // sharing its key would make every credit wait behind a posting pass for no reason.
+                // The guard that matters here is its own — two passes must not raise one memo twice —
+                // and that is per key too.
+                //
+                // Registered unconditionally with SAP, like the posting job: a credit taken before its
+                // sale posts is owned by this and by nothing else, so an off switch would be a way to
+                // leave ZIMRA and SAP permanently disagreeing about a return.
+                if (desktopSalePosting.IntervalSeconds > 0)
+                {
+                    AddIntervalJob<DesktopCreditSapPostingJob>(
+                        q,
+                        "desktop-credit-sap-posting",
+                        TimeSpan.FromSeconds(desktopSalePosting.IntervalSeconds),
+                        // Behind the posting pass: the commonest thing a credit waits for is its sale
+                        // reaching SAP, so there is nothing to gain by asking first.
+                        startDelay: TimeSpan.FromMinutes(3));
+                }
+
                 AddCronJob<DesktopSalePostingJob>(
                     q, "desktop-sale-posting", BuildDailyCron(desktopSalePosting.SweepTimeCAT, "20:00"));
 

@@ -4,6 +4,7 @@ using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.DesktopCreditNotes;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 
@@ -32,6 +33,7 @@ public sealed class DesktopSalePostingService(
     SapCircuitBreakerState circuitState,
     IBatchInventoryValidationService batchValidation,
     IDesktopSalePostGuard postGuard,
+    DesktopCreditSapPoster creditPoster,
     IOptions<DesktopSalePostingSettings> settings,
     IOptions<SAPSettings> sapSettings,
     ILogger<DesktopSalePostingService> logger)
@@ -229,6 +231,7 @@ public sealed class DesktopSalePostingService(
         {
             var posted = await sapClient.GetInvoiceByDocEntryAsync(sale.SapDocEntry.Value, cancellationToken);
             await PostPaymentAsync(sale, posted);
+            await RaiseDeferredCreditsAsync(sale);
             return;
         }
 
@@ -240,6 +243,45 @@ public sealed class DesktopSalePostingService(
         // settlement never being attempted again. The payment has its own guards — the persisted
         // status, and what SAP says the invoice has been paid.
         await PostPaymentAsync(sale, invoice);
+
+        await RaiseDeferredCreditsAsync(sale);
+    }
+
+    /// <summary>
+    /// Raises the SAP credit memos for fiscal credits taken against this sale before it got here.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the moment a deferred credit becomes raisable at all, and doing it here rather than
+    /// leaving it to the sweep is what keeps the gap short: a sale credited at the counter at 11:00
+    /// gets its credit memo within seconds of the invoice it reverses, rather than on the next pass.
+    /// The sweep still covers what this cannot — a process that died between the two, and every retry.
+    /// </para>
+    /// <para>
+    /// Advisory, and never allowed to fail the post. The invoice is in SAP by the time this runs and
+    /// the payment may be too; turning a credit's failure into an error here would have the caller
+    /// press Post again over a document that already exists. A credit left owing is recorded on its
+    /// own row and picked up by the sweep.
+    /// </para>
+    /// </remarks>
+    private async Task RaiseDeferredCreditsAsync(DesktopSaleEntity sale)
+    {
+        if (sale.SapDocEntry is not > 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await creditPoster.SettleForSaleAsync(sale.Id, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Sale {ExternalReference} posted, but the fiscal credits against it could not be raised in SAP.",
+                sale.ExternalReferenceId);
+        }
     }
 
     /// <summary>

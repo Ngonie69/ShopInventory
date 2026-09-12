@@ -83,17 +83,71 @@ internal static class FiscalDocumentStatusProjector
             invoice is null ? null : new[] { invoice },
             cancellationToken);
 
-    public static Task EnrichCreditNotesAsync(
+    public static async Task EnrichCreditNotesAsync(
         ApplicationDbContext dbContext,
         IEnumerable<CreditNoteDto>? creditNotes,
         CancellationToken cancellationToken)
-        => EnrichAsync(
+    {
+        if (creditNotes is null)
+        {
+            return;
+        }
+
+        var creditNoteList = creditNotes as IReadOnlyList<CreditNoteDto> ?? creditNotes.ToList();
+
+        await EnrichAsync(
             dbContext,
             CreditNoteDocumentType,
-            creditNotes,
+            creditNoteList,
             creditNote => creditNote.SAPDocNum.GetValueOrDefault(),
             ApplyCreditNoteStatus,
             cancellationToken);
+
+        await ApplyPerSaleCreditNoteStatusAsync(dbContext, creditNoteList, cancellationToken);
+    }
+
+    /// <summary>
+    /// Marks a credit memo that reverses an already-fiscalised till sale as fiscalised.
+    /// </summary>
+    /// <remarks>
+    /// The same job as <see cref="ApplyPerSaleInvoiceStatusAsync"/>, on the other side of the
+    /// document. A sale credited at the counter is filed with ZIMRA under the credit's own number and
+    /// reaches SAP hours later, so a lookup by DocNum finds nothing and the memo reads as still owing
+    /// a receipt it already has. See <see cref="PerSaleCreditNoteRegistry"/>.
+    /// </remarks>
+    private static async Task ApplyPerSaleCreditNoteStatusAsync(
+        ApplicationDbContext dbContext,
+        IReadOnlyList<CreditNoteDto> creditNotes,
+        CancellationToken cancellationToken)
+    {
+        var unresolved = creditNotes
+            .Where(creditNote => creditNote.IsFiscalized != true)
+            .ToList();
+
+        if (unresolved.Count == 0)
+        {
+            return;
+        }
+
+        var perSaleDocNums = await PerSaleCreditNoteRegistry.FindPerSaleDocNumsAsync(
+            dbContext,
+            unresolved.Select(creditNote => creditNote.SAPDocNum.GetValueOrDefault()),
+            cancellationToken);
+
+        if (perSaleDocNums.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var creditNote in unresolved.Where(
+            creditNote => perSaleDocNums.Contains(creditNote.SAPDocNum.GetValueOrDefault())))
+        {
+            // Only the verdict. The receipt's own number and QR belong to the credit's row and are
+            // read from there rather than restated on the SAP document.
+            creditNote.IsFiscalized = true;
+            creditNote.FiscalizationStatus = FiscalisedStatus;
+        }
+    }
 
     public static Task EnrichCreditNoteAsync(
         ApplicationDbContext dbContext,

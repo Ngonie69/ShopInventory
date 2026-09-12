@@ -18,6 +18,32 @@ otherwise be surprised.
 
 ### Added
 
+- **Desktop fiscal credits now raise their SAP credit memo by themselves.**
+
+  `POST /api/DesktopIntegration/sales/{reference}/credit-notes` filed the ZIMRA credit and left the
+  back office to reconcile by hand. It no longer does: once ZIMRA accepts the credit, the SAP credit
+  memo follows automatically — at once if the sale is already in SAP, otherwise the moment that sale
+  posts, which for a till sale is that evening. A sweep behind it retries anything SAP refused.
+
+  Every saved credit therefore carries two new fields. `sapStatus` is `Deferred` (the sale has not
+  posted yet — the ordinary case at a counter), `Posted`, `Failed`, `NotRequired` (the sale was
+  excluded from posting) or `ManualInSap`; `sapError` says why when there is a reason. The existing
+  `status` is unchanged and still means the fiscal half alone, and existing clients can ignore both
+  new fields. **Nothing is raised in SAP against a credit whose `status` is not `Fiscalised`.**
+
+  Two cases stay a person's job and now say so explicitly rather than being silently pending: a sale
+  that reached SAP inside a consolidated invoice has no invoice of its own to credit, and a credited
+  receipt line that cannot be tied back to an invoice line is refused rather than guessed at. Both
+  report `ManualInSap` with the reason.
+
+  The credited units are also returned to the shared stock ledger now, as soon as ZIMRA accepts the
+  credit rather than when SAP sees it — they never left the ledger through SAP, so a shop that took a
+  return in the morning is no longer refused sales for it all afternoon. Cash refunds remain a counter
+  action and are unaffected.
+
+  Migration `20260912020300_AddDesktopCreditNoteSapPosting` backfills existing credits as `Deferred`,
+  so any raised before this deploy get their memo rather than being stranded.
+
 - **`GET /api/DesktopIntegration/sales/analysis`** (Admin, Manager, Cashier, ApiUser).
 
   A period's till takings broken down by how they were paid — and by day, hour, shop, source,

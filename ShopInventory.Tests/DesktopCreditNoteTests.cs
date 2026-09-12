@@ -36,7 +36,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
             FiscalDayNo = "525", FiscalReceiptNumber = "456", SourceSystem = "KefalosShopTill"
         });
         db.SaveChanges();
-        service = new DesktopCreditNoteService(db, gateway,
+        service = new DesktopCreditNoteService(db, gateway, DesktopCreditPosters.Idle(db),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
             NullLogger<DesktopCreditNoteService>.Instance);
     }

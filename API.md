@@ -2867,6 +2867,37 @@ per row as `postRefusal` (null when the sale may be posted) so a client offers a
 the command would accept one. Both routes are additionally scoped to the caller's own shop, so a
 shop-scoped account cannot post another shop's takings.
 
+**A credit is two documents, and ZIMRA comes first.** `POST .../credit-notes` files the fiscal credit
+against the original REVMax receipt and answers as soon as that is settled; the SAP credit memo
+follows on its own. That ordering is the opposite of every other document in this API, and it is
+inherited from the sale: a till sale is fiscalised the moment it is rung up and posts to SAP hours
+later, so between those two moments the receipt in the customer's hand is the only document that
+certainly exists — and that is exactly the window in which somebody walks back in with the goods.
+
+Each saved credit therefore reports both halves, and neither is inferred from the other. `status` is
+the fiscal one — `Prepared`, `Submitting`, `Fiscalised`, `Rejected` or `ReconciliationRequired`.
+`sapStatus` is the back-office one:
+
+| `sapStatus` | Meaning |
+|--------------|---------|
+| `Deferred` | The sale has not posted yet. The memo is raised automatically the moment it does. |
+| `Posted` | SAP holds the credit memo; `sapDocNum` names it. |
+| `Failed` | SAP refused it, or could not be asked. Retried by the sweep; `sapError` says why. |
+| `NotRequired` | The sale was excluded from posting, so SAP is owed nothing. |
+| `ManualInSap` | The sale reached SAP inside a consolidated invoice, or its credited lines cannot be tied to the invoice's own lines. A person raises it. |
+
+**Nothing is raised in SAP against a credit that is not `Fiscalised`.** A credit the device refused,
+or one whose outcome nobody has established, never becomes a SAP document — which is why
+`ReconciliationRequired` is worth resolving rather than leaving.
+
+The memo is always based on the invoice (`BaseType`/`BaseEntry`/`BaseLine`), never standalone, so SAP
+takes the batches from the document being credited; a batch-managed line with no batch selection is
+refused and the whole document with it. It carries the credit's own `DCN-` number in `NumAtCard`,
+which is what makes a retry find the memo a lost reply left behind rather than raise a second.
+The credited units are returned to the shared stock ledger as soon as ZIMRA accepts the credit —
+hours before SAP may see it — because those units never left the ledger through SAP in the first
+place.
+
 The vendor route takes **no business partner and accepts none**. It reads the code off the
 signed-in account through `SellingAccountResolver` — the same value `POST .../sales` resolves
 `vendorCode` against — so the list an operator picks from and the set the server will accept are one

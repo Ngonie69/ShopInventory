@@ -328,6 +328,7 @@ public sealed class SaleBatchSelectionTests : IDisposable
             new SapCircuitBreakerState(Options.Create(new SAPSettings())),
             RealAllocator(sap),
             SalePostGuards.Backed(_connection),
+            DesktopCreditPosters.Idle(_context),
             Options.Create(new DesktopSalePostingSettings()),
             Options.Create(new SAPSettings()),
             NullLogger<DesktopSalePostingService>.Instance);
@@ -444,6 +445,7 @@ public sealed class SaleBatchSelectionTests : IDisposable
             new SapCircuitBreakerState(Options.Create(new SAPSettings())),
             allocator ?? SaleBatchAllocators.Holding(),
             SalePostGuards.Backed(_connection),
+            DesktopCreditPosters.Idle(_context),
             Options.Create(new DesktopSalePostingSettings()),
             Options.Create(new SAPSettings()),
             NullLogger<DesktopSalePostingService>.Instance);
