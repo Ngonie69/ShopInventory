@@ -240,21 +240,19 @@ public sealed class GetFiscalisationWorkQueueHandler(
             _ => documents
         };
 
-        // Stamped Utc, unlike the sales filter above. That one compares against DocDate, which is a
-        // `date` and takes any Kind; this one compares against TimestampUtc, which is
-        // `timestamp with time zone` — and Npgsql refuses to compare that to a DateTime whose Kind is
-        // Unspecified, which is what a date bound from a query string always is. It throws rather than
-        // returning the wrong rows, so this filter was unusable until the Kind was set. The SQLite suite
-        // compares the two happily and cannot see it.
+        // These dates arrive from a query string, so their Kind is Unspecified, and TimestampUtc is
+        // `timestamp with time zone` — a pairing Npgsql refuses outright. It used to throw here, which
+        // the page reported as "the work queue could not be read". Nothing is stamped at this site
+        // because UtcDateTimeConvention now applies the conversion to the parameter as well as to the
+        // column; see that class for why Unspecified is read as UTC rather than as local.
         if (query.FromDate is not null)
         {
-            var inclusiveStart = DateTime.SpecifyKind(query.FromDate.Value.Date, DateTimeKind.Utc);
-            documents = documents.Where(transaction => transaction.TimestampUtc >= inclusiveStart);
+            documents = documents.Where(transaction => transaction.TimestampUtc >= query.FromDate.Value.Date);
         }
 
         if (query.ToDate is not null)
         {
-            var exclusiveEnd = DateTime.SpecifyKind(query.ToDate.Value.Date.AddDays(1), DateTimeKind.Utc);
+            var exclusiveEnd = query.ToDate.Value.Date.AddDays(1);
             documents = documents.Where(transaction => transaction.TimestampUtc < exclusiveEnd);
         }
 

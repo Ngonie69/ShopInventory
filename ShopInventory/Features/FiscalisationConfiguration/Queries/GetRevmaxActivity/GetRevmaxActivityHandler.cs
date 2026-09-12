@@ -56,10 +56,11 @@ public sealed class GetRevmaxActivityHandler(
         var revmax = revmaxSettings.CurrentValue;
         var fiscalisation = fiscalisationSettings.CurrentValue;
 
-        // Stamped Utc, and that is not decoration. TimestampUtc is `timestamp with time zone`, and a date
-        // bound from a query string arrives with Kind=Unspecified; Npgsql refuses to compare one against
-        // the other and throws rather than returning a wrong row set. The SQLite suite cannot see this —
-        // it compares the two happily — so the Kind has to be set here rather than relied on from a test.
+        // Stamped Utc here rather than left to UtcDateTimeConvention, which would also make the query
+        // work. These two values are not only query parameters: they are returned on the result and
+        // rendered as the window the figures cover, so they need a Kind of their own whatever EF does
+        // with them. The convention stamps what reaches the database; this stamps what reaches the
+        // reader, and the two agreeing is the point.
         var toUtc = query.ToDate is { } to
             ? DateTime.SpecifyKind(to.Date.AddDays(1), DateTimeKind.Utc)
             : DateTime.UtcNow.Date.AddDays(1);

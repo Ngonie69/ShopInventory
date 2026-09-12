@@ -706,6 +706,10 @@ public class WebAppDbContext : DbContext, IDataProtectionKeyContext
 
         // Seed default warehouses for fast initial load
         SeedDefaultWarehouses(modelBuilder);
+    
+        // Last, and it has to be last: it reads each property's configured column type to tell
+        // an instant from a calendar day, so every HasColumnType above must already have run.
+        UtcDateTimeConvention.Apply(modelBuilder);
     }
 
     private static void SeedDefaultWarehouses(ModelBuilder modelBuilder)

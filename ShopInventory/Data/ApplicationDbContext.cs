@@ -2079,5 +2079,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.ToTable("StockTransferAdjustments");
       entity.HasKey(e => e.Id);
     });
+
+    // Last, and it has to be last: it reads each property's configured column type to tell an instant
+    // from a calendar day, so every HasColumnType above must already have run.
+    UtcDateTimeConvention.Apply(modelBuilder);
   }
 }
