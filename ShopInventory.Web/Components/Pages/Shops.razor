@@ -5,12 +5,20 @@
 @using ShopInventory.Web.Services
 @inject IShopService ShopService
 @inject IMasterDataCacheService MasterDataCache
+@inject IReportExportService ExportService
+@inject IJSRuntime JS
+@inject ILogger<Shops> Logger
 
 <PageTitle>Shops - Shop Inventory</PageTitle>
 
 @* The retail shop master.
 
-   Carried by wwwroot/css/shops.css (linked from App.razor) in both schemes.
+   Carried by wwwroot/css/shops.css (linked from App.razor) in both schemes. That
+   sheet is generated from three others — see scripts/derive_shops_css.py — so a
+   class used here exists there under the same name it wears on the page it came
+   from: `shop-modal`, `shop-search-box` and `shop-form-grid` are User
+   Management's, `shop-table` and `shop-chip` are van sales', `shop-seg` is the
+   credit-note approvals queue's.
 
    Three fields that only make sense together: a shop's business partner draws
    from that shop's warehouse and books to that shop's cost centre. Set per
@@ -29,101 +37,70 @@
 
 <div class="shop">
 
-    <div class="shop-head">
-        <div>
-            <h2 class="shop-title">Shops</h2>
-            <p class="shop-subtitle">
-                The business partner, warehouse and cost centre each shop's tills sell on.
-                A till operator is put on a shop from their user account.
-            </p>
+    <div class="shop-header">
+        <div class="shop-header-left">
+            <div>
+                @* Not a link. Administration is where this page lives, not
+                   somewhere you can go — there is no index page behind it. *@
+                <div class="shop-crumb">
+                    <span>Administration</span>
+                    <i class="bi bi-chevron-right"></i>
+                    <span class="shop-crumb-here">Shops</span>
+                </div>
+                <h2 class="shop-title">Shops</h2>
+                <p class="shop-subtitle">
+                    The business partner, warehouse and cost centre each shop's tills sell on.
+                    A till operator is put on a shop from their user account.
+                </p>
+            </div>
         </div>
-        <div class="shop-actions">
-            <button class="shop-btn shop-btn-accent" @onclick="StartNew" disabled="@isSaving">Add shop</button>
+        <div class="shop-header-actions">
+            <button type="button" class="shop-btn shop-btn-ghost" @onclick="ExportAsync"
+                    disabled="@(isExporting || isLoading || shops.Count == 0)">
+                <i class="bi bi-download"></i>@(isExporting ? "Exporting…" : "Export")
+            </button>
+            <button type="button" class="shop-btn shop-btn-primary" @onclick="StartNew" disabled="@isSaving">
+                <i class="bi bi-plus-lg"></i>Add shop
+            </button>
         </div>
     </div>
 
-    @if (error is not null)
+    @* Only while no dialog is open. A dialog covers this band, and the failure an
+       administrator is most likely to hit — the server refusing to close a shop
+       that still has operators on it — happens with one open, so that one is
+       shown inside the dialog instead. *@
+    @if (error is not null && dialog is DialogMode.None)
     {
-        <div class="shop-notice">@error</div>
-    }
-
-    @if (editing is not null)
-    {
-        <div class="shop-filters">
-            <div class="row g-3">
-                <div class="col-md-2">
-                    <label class="shop-filter-label" for="shop-code">Code</label>
-                    @* Not editable once set: the code is what sales history and reporting group
-                       on, so changing it would silently re-parent a shop's past. *@
-                    <input id="shop-code" class="shop-field" @bind="editing.Code"
-                           placeholder="MACHIPISA" disabled="@(editing.Id > 0)" />
-                </div>
-                @* Two, not three. A shop name is a place name — "Machipisa", "Graniteside" — and the
-                   width it gave up goes to the pickers beside it. *@
-                <div class="col-md-2">
-                    <label class="shop-filter-label" for="shop-name">Name</label>
-                    <input id="shop-name" class="shop-field" @bind="editing.Name" placeholder="Machipisa" />
-                </div>
-                @* Pickers rather than <select>s, for all three of the fields that
-                   name an SAP record. The partner list runs to several thousand
-                   rows — one per currency per shop — and cannot be read by
-                   scrolling, which is what a native dropdown offers and all it
-                   offers. The other two are shorter, forty warehouses and eighty-nine
-                   cost centres, and no easier: the codes are alpha, not numbered
-                   — KEFGRS, CMTRANS, Centr_z4 — and the names they expand to were
-                   being clipped mid-word by a control the browser draws itself.
-                   Each opens on a search box and matches on code or name, so an
-                   operator who knows "KEFGRS" and one who knows "Graniteside" get
-                   there the same way. See Components/NocturnePicker.razor. *@
-                <div class="col-md-3">
-                    <label class="shop-filter-label" for="shop-bp">Business partner</label>
-                    <NocturnePicker Class="npick-block" Id="shop-bp"
-                                    Options="businessPartnerOptions"
-                                    @bind-Value="BusinessPartnerCode"
-                                    Loading="isLoadingMasterData"
-                                    Placeholder="Select business partner"
-                                    SearchPlaceholder="Search by code or name…"
-                                    EmptyText="No business partners loaded"
-                                    AriaLabel="Business partner" />
-                </div>
-                <div class="col-md-3">
-                    <label class="shop-filter-label" for="shop-wh">Warehouse</label>
-                    <NocturnePicker Class="npick-block" Id="shop-wh"
-                                    Options="warehouseOptions"
-                                    @bind-Value="WarehouseCode"
-                                    Loading="isLoadingMasterData"
-                                    Placeholder="Select warehouse"
-                                    SearchPlaceholder="Search by code or name…"
-                                    EmptyText="No warehouses loaded"
-                                    AriaLabel="Warehouse" />
-                </div>
-                @* Optional, unlike the two above: SAP defaults a missing cost centre, so
-                   requiring it would stop a correctly configured shop trading for nothing
-                   that affects the money. That is what AllowClear is for here — on the
-                   other two an emptied field is refused on save, on this one it is the
-                   answer, and clearing it is the only way back to it. *@
-                <div class="col-md-2">
-                    <label class="shop-filter-label" for="shop-cc">Cost centre</label>
-                    @* npick-end because this is the last control in the row: the menu is
-                       wider than the field and a left-anchored one ran off the page. *@
-                    <NocturnePicker Class="npick-block npick-end" Id="shop-cc"
-                                    Options="costCentreOptions"
-                                    @bind-Value="CostCentreCode"
-                                    Loading="isLoadingMasterData"
-                                    Placeholder="None"
-                                    SearchPlaceholder="Search by code or name…"
-                                    EmptyText="No cost centres loaded"
-                                    AriaLabel="Cost centre" />
-                </div>
-                <div class="col-12 shop-actions">
-                    <button class="shop-btn shop-btn-accent" @onclick="SaveAsync" disabled="@isSaving">
-                        @(isSaving ? "Saving…" : "Save")
-                    </button>
-                    <button class="shop-btn" @onclick="CancelEdit" disabled="@isSaving">Cancel</button>
-                </div>
-            </div>
+        <div class="shop-alert" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <span>@error</span>
         </div>
     }
+
+    <div class="shop-filter-bar">
+        <label class="shop-search-box">
+            <i class="bi bi-search"></i>
+            @* @oninput rather than @bind, so the table narrows as it is typed
+               rather than on blur — the list is short enough that it can. *@
+            <input type="search" placeholder="Filter shops" aria-label="Filter shops"
+                   value="@query" @oninput="OnQueryInput" />
+        </label>
+
+        @* A segmented control rather than a dropdown: three answers to one
+           question, all worth seeing at once, and the count on each is half of
+           what an administrator came to find out. *@
+        <div class="shop-seg" role="group" aria-label="Filter by status">
+            @foreach (var option in StatusOptions)
+            {
+                <button type="button" class="shop-seg-btn @(status == option ? "is-on" : null)"
+                        aria-pressed="@(status == option)" @onclick="() => SetStatus(option)">
+                    @StatusLabel(option)<span class="shop-seg-count">@CountFor(option)</span>
+                </button>
+            }
+        </div>
+
+        <span class="shop-result">@ResultLabel</span>
+    </div>
 
     @if (isLoading)
     {
@@ -132,66 +109,263 @@
             <span>Loading shops…</span>
         </div>
     }
-    else if (shops.Count == 0)
-    {
-        <div class="shop-empty">
-            <div class="shop-empty-title">No shops yet</div>
-            <div>Add one, then assign it to a till operator from their user account.</div>
-        </div>
-    }
     else
     {
         <div class="shop-table-wrap">
-            <table class="shop-table">
-                <thead>
-                    <tr>
-                        <th>Code</th>
-                        <th>Shop</th>
-                        <th>Business partner</th>
-                        <th>Warehouse</th>
-                        <th>Cost centre</th>
-                        <th>Operators</th>
-                        <th>Status</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var shop in shops)
+            @if (Visible.Count == 0)
+            {
+                @* Two empty states, because they are two different problems. With
+                   no shops at all the answer is to add one; with a filter on, the
+                   answer is to take it off, and offering "add a shop" there would
+                   be answering a question nobody asked. *@
+                <div class="shop-empty">
+                    <i class="bi bi-shop"></i>
+                    @if (shops.Count == 0)
                     {
-                        <tr>
-                            <td class="shop-primary">@shop.Code</td>
-                            <td>@shop.Name</td>
-                            <td>@shop.BusinessPartnerCode</td>
-                            <td>@shop.WarehouseCode</td>
-                            <td>@(string.IsNullOrWhiteSpace(shop.CostCentreCode) ? "—" : shop.CostCentreCode)</td>
-                            <td class="shop-num">@shop.AssignedOperatorCount</td>
-                            <td>
-                                <span class="shop-chip @(shop.IsActive ? "shop-chip-good" : "shop-chip-neutral")">
-                                    @(shop.IsActive ? "Trading" : "Closed")
-                                </span>
-                            </td>
-                            <td>
-                                <button class="shop-btn" @onclick="() => StartEdit(shop)" disabled="@isSaving">Edit</button>
-                                <button class="shop-btn" @onclick="() => ToggleActiveAsync(shop)" disabled="@isSaving">
-                                    @(shop.IsActive ? "Close" : "Reopen")
-                                </button>
-                            </td>
-                        </tr>
+                        <h3>No shops yet</h3>
+                        <p>Add one, then assign it to a till operator from their user account.</p>
                     }
-                </tbody>
-            </table>
+                    else
+                    {
+                        <h3>No shops match that filter</h3>
+                        <p>Clear the filter to see all @shops.Count @(shops.Count == 1 ? "shop" : "shops") again.</p>
+                        <button type="button" class="shop-btn shop-btn-ghost" @onclick="ClearFilters">Clear filters</button>
+                    }
+                </div>
+            }
+            else
+            {
+                <table class="shop-table">
+                    <thead>
+                        <tr>
+                            <th>Code</th>
+                            <th>Shop</th>
+                            <th>Business partner</th>
+                            <th>Warehouse</th>
+                            <th>Cost centre</th>
+                            <th>Operators</th>
+                            <th>Status</th>
+                            <th><span class="visually-hidden">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var shop in Visible)
+                        {
+                            <tr @key="shop.Id">
+                                <td><span class="shop-code">@shop.Code</span></td>
+                                <td>
+                                    @* The glyph says trading or closed a second time, in the
+                                       row's first readable column, because the chip that says
+                                       it first is at the far end of a wide row. *@
+                                    <div class="shop-cell-shop">
+                                        <i class="bi @(shop.IsActive ? "bi-shop" : "bi-lock-fill")"></i>
+                                        <span class="shop-primary">@shop.Name</span>
+                                    </div>
+                                </td>
+                                <td>@shop.BusinessPartnerCode</td>
+                                <td>@shop.WarehouseCode</td>
+                                <td>@(string.IsNullOrWhiteSpace(shop.CostCentreCode) ? "—" : shop.CostCentreCode)</td>
+                                <td class="shop-num">
+                                    <span class="shop-with-icon">
+                                        <i class="bi bi-person"></i>@shop.AssignedOperatorCount
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="shop-chip @(shop.IsActive ? "shop-chip-good" : "shop-chip-neutral")">
+                                        @(shop.IsActive ? "Trading" : "Closed")
+                                    </span>
+                                </td>
+                                <td>
+                                    @* Icon-only, and quiet until the row is under the pointer
+                                       or holds focus. Every one carries both a title and an
+                                       aria-label naming the shop, because a padlock on its own
+                                       says nothing about which shop it would close. *@
+                                    <div class="shop-row-act">
+                                        <button type="button" class="shop-action-btn"
+                                                title="Edit @shop.Name" aria-label="Edit @shop.Name"
+                                                @onclick="() => StartEdit(shop)" disabled="@isSaving">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button type="button" class="shop-action-btn"
+                                                title="@ToggleVerb(shop) @shop.Name" aria-label="@ToggleVerb(shop) @shop.Name"
+                                                @onclick="() => StartToggle(shop)" disabled="@isSaving">
+                                            <i class="bi @(shop.IsActive ? "bi-lock" : "bi-unlock")"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
         </div>
     }
 </div>
 
+@* A sibling of the page element, not a child: the app bar is painted by a
+   stacking context the page sits inside, so a scrim centred against the whole
+   window would be drawn under it. shops.css declares the token block on
+   `.shop-overlay` as well as `.shop` for the same reason. *@
+@if (dialog is not DialogMode.None)
+{
+    <div class="shop-overlay" @onclick="CloseDialog">
+        <div class="shop-modal" role="dialog" aria-modal="true" aria-labelledby="shop-dialog-title"
+             @onclick:stopPropagation="true">
+            <div class="shop-modal-header @(dialog is DialogMode.Close ? "shop-alert-head" : null)">
+                <h2 id="shop-dialog-title">@DialogTitle</h2>
+                <button type="button" class="shop-modal-close" @onclick="CloseDialog"
+                        aria-label="Close dialog" disabled="@isSaving">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <div class="shop-modal-body">
+                @if (error is not null)
+                {
+                    <div class="shop-alert" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>@error</span>
+                    </div>
+                }
+
+                @if (dialog is DialogMode.Close && closing is not null)
+                {
+                    <div class="shop-alert">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>
+                            @closing.Name will stop trading. Its tills can no longer sell, and open
+                            till sessions have to be settled first.
+                        </span>
+                    </div>
+                    <p class="shop-form-hint">
+                        @if (closing.AssignedOperatorCount > 0)
+                        {
+                            @* The count is the number that says how much reassignment this
+                               actually is, so it is said before the attempt rather than only
+                               in the refusal that comes back. *@
+                            <text>
+                                @closing.AssignedOperatorCount till
+                                @(closing.AssignedOperatorCount == 1 ? "operator is" : "operators are")
+                                still assigned to it, and the server will refuse to close a shop
+                                that has any. Move them to another shop from their user accounts first.
+                            </text>
+                        }
+                        else
+                        {
+                            <text>Nothing is lost: its sales history stays on it and you can reopen it here later.</text>
+                        }
+                    </p>
+                }
+                else if (editing is not null)
+                {
+                    <div class="shop-form-grid">
+                        <div class="shop-form-field">
+                            <label for="shop-code">Code <span class="required">*</span></label>
+                            @* Not editable once set: the code is what sales history and reporting
+                               group on, so changing it would silently re-parent a shop's past. *@
+                            <input id="shop-code" class="shop-input" @bind="editing.Code"
+                                   placeholder="MACHIPISA" disabled="@(editing.Id > 0)" />
+                        </div>
+                        <div class="shop-form-field">
+                            <label for="shop-name">Name <span class="required">*</span></label>
+                            <input id="shop-name" class="shop-input" @bind="editing.Name" placeholder="Machipisa" />
+                        </div>
+
+                        @* Pickers rather than <select>s, for all three of the fields that
+                           name an SAP record. The partner list runs to several thousand
+                           rows — one per currency per shop — and cannot be read by
+                           scrolling, which is what a native dropdown offers and all it
+                           offers. The other two are shorter, forty warehouses and eighty-nine
+                           cost centres, and no easier: the codes are alpha, not numbered
+                           — KEFGRS, CMTRANS, Centr_z4 — and the names they expand to were
+                           being clipped mid-word by a control the browser draws itself.
+                           Each opens on a search box and matches on code or name, so an
+                           operator who knows "KEFGRS" and one who knows "Graniteside" get
+                           there the same way. See Components/NocturnePicker.razor. *@
+                        <div class="shop-form-field shop-form-full">
+                            <label for="shop-bp">Business partner <span class="required">*</span></label>
+                            <NocturnePicker Class="npick-block" Id="shop-bp"
+                                            Options="businessPartnerOptions"
+                                            @bind-Value="BusinessPartnerCode"
+                                            Loading="isLoadingMasterData"
+                                            Placeholder="Select business partner"
+                                            SearchPlaceholder="Search by code or name…"
+                                            EmptyText="No business partners loaded"
+                                            AriaLabel="Business partner" />
+                        </div>
+
+                        <div class="shop-form-field">
+                            <label for="shop-wh">Warehouse <span class="required">*</span></label>
+                            <NocturnePicker Class="npick-block" Id="shop-wh"
+                                            Options="warehouseOptions"
+                                            @bind-Value="WarehouseCode"
+                                            Loading="isLoadingMasterData"
+                                            Placeholder="Select warehouse"
+                                            SearchPlaceholder="Search by code or name…"
+                                            EmptyText="No warehouses loaded"
+                                            AriaLabel="Warehouse" />
+                        </div>
+
+                        @* Optional, unlike the three above: SAP defaults a missing cost centre, so
+                           requiring it would stop a correctly configured shop trading for nothing
+                           that affects the money. That is what AllowClear is for here — on the
+                           others an emptied field is refused on save, on this one it is the
+                           answer, and clearing it is the only way back to it.
+
+                           npick-end because this is the last control in the row: the menu is
+                           wider than the field and a left-anchored one ran off the dialog. *@
+                        <div class="shop-form-field">
+                            <label for="shop-cc">Cost centre</label>
+                            <NocturnePicker Class="npick-block npick-end" Id="shop-cc"
+                                            Options="costCentreOptions"
+                                            @bind-Value="CostCentreCode"
+                                            Loading="isLoadingMasterData"
+                                            Placeholder="None"
+                                            SearchPlaceholder="Search by code or name…"
+                                            EmptyText="No cost centres loaded"
+                                            AriaLabel="Cost centre" />
+                        </div>
+                    </div>
+
+                    <p class="shop-form-hint">
+                        There is no operator field. A till operator is put on a shop from their own
+                        user account, and inherits all three of the above from it.
+                    </p>
+                }
+            </div>
+
+            <div class="shop-modal-footer">
+                <button type="button" class="shop-btn shop-btn-ghost" @onclick="CloseDialog" disabled="@isSaving">
+                    Cancel
+                </button>
+                <button type="button"
+                        class="shop-btn @(dialog is DialogMode.Close ? "shop-btn-danger" : "shop-btn-primary")"
+                        @onclick="ConfirmDialogAsync" disabled="@isSaving">
+                    @DialogAction
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private List<ShopDto> shops = [];
+
+    /// <summary>Which dialog is open, if any. Only one ever is.</summary>
+    private enum DialogMode { None, Add, Edit, Close }
+
+    private DialogMode dialog = DialogMode.None;
+
+    /// <summary>The copy being edited or created, live only while the form dialog is open.</summary>
     private ShopDto? editing;
+
+    /// <summary>The row the close dialog is about, live only while that dialog is open.</summary>
+    private ShopDto? closing;
 
     /// <summary>
     /// The partner list already shaped for the picker, built once when the cache
     /// lands rather than per render: it runs to several thousand rows and the
-    /// page re-renders on every keystroke in the form beside it.
+    /// dialog re-renders on every keystroke in the fields beside it.
     /// </summary>
     private List<NocturnePickerOption> businessPartnerOptions = [];
 
@@ -207,62 +381,103 @@
     private bool isLoading;
     private bool isLoadingMasterData;
     private bool isSaving;
+    private bool isExporting;
     private string? error;
 
+    // ── Filters ────────────────────────────────────────────────────────────
+
+    private static readonly string[] StatusOptions = ["All", "Trading", "Closed"];
+
+    private string status = "All";
+    private string query = string.Empty;
+
     /// <summary>
-    /// The optional cost centre. Blank is coerced to null on the way in because the
-    /// server treats "" and null alike — storing "" would put a value on the row that
-    /// never reaches a sale. Unlike the two required fields below, a null here is
-    /// saved rather than refused.
+    /// The rows the filters leave standing, in the order the server sent them.
+    /// Recomputed per render rather than cached: the list is a handful of shops,
+    /// and a cache here is one more thing that can be stale after a save.
     /// </summary>
-    private string? CostCentreCode
+    private List<ShopDto> Visible
     {
-        get => editing?.CostCentreCode;
-        set
+        get
         {
-            if (editing is not null)
-            {
-                editing.CostCentreCode = string.IsNullOrWhiteSpace(value) ? null : value;
-            }
+            var term = query.Trim();
+
+            return shops.Where(shop =>
+                    MatchesStatus(shop) &&
+                    (term.Length == 0 ||
+                     Contains(shop.Code, term) ||
+                     Contains(shop.Name, term) ||
+                     Contains(shop.BusinessPartnerCode, term) ||
+                     Contains(shop.WarehouseCode, term) ||
+                     Contains(shop.CostCentreCode, term)))
+                .ToList();
         }
     }
 
-    /// <summary>
-    /// Binds the required business partner through a nullable string, for the
-    /// mirror of the reason below: the picker's Clear hands back null, and the
-    /// DTO's field is a non-null string. Coerced rather than left null so an
-    /// emptied field reaches SaveAsync's check as "" and is refused there, with
-    /// a message, instead of being posted.
-    /// </summary>
-    private string? BusinessPartnerCode
+    private bool MatchesStatus(ShopDto shop) => status switch
     {
-        get => editing?.BusinessPartnerCode;
-        set
+        "Trading" => shop.IsActive,
+        "Closed" => !shop.IsActive,
+        _ => true
+    };
+
+    private static bool Contains(string? value, string term) =>
+        value is not null && value.Contains(term, StringComparison.OrdinalIgnoreCase);
+
+    private static string StatusLabel(string option) => option;
+
+    private int CountFor(string option) => option switch
+    {
+        "Trading" => shops.Count(shop => shop.IsActive),
+        "Closed" => shops.Count(shop => !shop.IsActive),
+        _ => shops.Count
+    };
+
+    /// <summary>
+    /// "7 shops" when nothing is filtered out, "3 of 7 shops" when something is —
+    /// the second number is what tells an administrator the rest are still there.
+    /// </summary>
+    private string ResultLabel
+    {
+        get
         {
-            if (editing is not null)
-            {
-                editing.BusinessPartnerCode = value ?? string.Empty;
-            }
+            var shown = Visible.Count;
+            var noun = shops.Count == 1 ? "shop" : "shops";
+            return shown == shops.Count ? $"{shops.Count} {noun}" : $"{shown} of {shops.Count} {noun}";
         }
     }
 
-    /// <summary>
-    /// The warehouse, bound the same way as the partner above and for the same
-    /// reason: the picker's Clear hands back null and the DTO's field is a
-    /// non-null string, so an emptied field reaches SaveAsync as "" and is
-    /// refused there with a message rather than posted.
-    /// </summary>
-    private string? WarehouseCode
+    private void OnQueryInput(ChangeEventArgs e) => query = e.Value?.ToString() ?? string.Empty;
+
+    private void SetStatus(string option) => status = option;
+
+    private void ClearFilters()
     {
-        get => editing?.WarehouseCode;
-        set
-        {
-            if (editing is not null)
-            {
-                editing.WarehouseCode = value ?? string.Empty;
-            }
-        }
+        query = string.Empty;
+        status = "All";
     }
+
+    private static string ToggleVerb(ShopDto shop) => shop.IsActive ? "Close" : "Reopen";
+
+    // ── Dialog ─────────────────────────────────────────────────────────────
+
+    private string DialogTitle => dialog switch
+    {
+        DialogMode.Add => "Add shop",
+        DialogMode.Edit => editing?.Name is { Length: > 0 } name ? $"Edit {name}" : "Edit shop",
+        DialogMode.Close => "Close this shop?",
+        _ => string.Empty
+    };
+
+    private string DialogAction => dialog switch
+    {
+        DialogMode.Add => "Create shop",
+        DialogMode.Edit => isSaving ? "Saving…" : "Save changes",
+        DialogMode.Close => isSaving ? "Closing…" : "Close shop",
+        _ => string.Empty
+    };
+
+    // ── Load ───────────────────────────────────────────────────────────────
 
     protected override async Task OnInitializedAsync()
     {
@@ -278,7 +493,7 @@
         try
         {
             // Closed shops included: this is the page that reopens them, so hiding them would leave
-            // no way back.
+            // no way back. The status filter above is what narrows to one or the other.
             shops = await ShopService.GetShopsAsync(includeInactive: true);
         }
         finally
@@ -319,16 +534,76 @@
         }
     }
 
+    // ── Editing ────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The optional cost centre. Blank is coerced to null on the way in because the
+    /// server treats "" and null alike — storing "" would put a value on the row that
+    /// never reaches a sale. Unlike the two required fields below, a null here is
+    /// saved rather than refused.
+    /// </summary>
+    private string? CostCentreCode
+    {
+        get => editing?.CostCentreCode;
+        set
+        {
+            if (editing is not null)
+            {
+                editing.CostCentreCode = string.IsNullOrWhiteSpace(value) ? null : value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Binds the required business partner through a nullable string, for the
+    /// mirror of the reason above: the picker's Clear hands back null, and the
+    /// DTO's field is a non-null string. Coerced rather than left null so an
+    /// emptied field reaches SaveAsync's check as "" and is refused there, with
+    /// a message, instead of being posted.
+    /// </summary>
+    private string? BusinessPartnerCode
+    {
+        get => editing?.BusinessPartnerCode;
+        set
+        {
+            if (editing is not null)
+            {
+                editing.BusinessPartnerCode = value ?? string.Empty;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The warehouse, bound the same way as the partner above and for the same
+    /// reason: the picker's Clear hands back null and the DTO's field is a
+    /// non-null string, so an emptied field reaches SaveAsync as "" and is
+    /// refused there with a message rather than posted.
+    /// </summary>
+    private string? WarehouseCode
+    {
+        get => editing?.WarehouseCode;
+        set
+        {
+            if (editing is not null)
+            {
+                editing.WarehouseCode = value ?? string.Empty;
+            }
+        }
+    }
+
     private void StartNew()
     {
         error = null;
+        closing = null;
         editing = new ShopDto { IsActive = true };
+        dialog = DialogMode.Add;
     }
 
     /// <summary>Edit a copy, so cancelling leaves the row on screen as it stands on the server.</summary>
     private void StartEdit(ShopDto shop)
     {
         error = null;
+        closing = null;
         editing = new ShopDto
         {
             Id = shop.Id,
@@ -340,12 +615,54 @@
             IsActive = shop.IsActive,
             AssignedOperatorCount = shop.AssignedOperatorCount
         };
+        dialog = DialogMode.Edit;
     }
 
-    private void CancelEdit()
+    /// <summary>
+    /// Closing is asked about first; reopening is not. One stops a counter selling
+    /// and has to be undone by hand, the other is the undo.
+    /// </summary>
+    private async Task StartToggle(ShopDto shop)
     {
-        editing = null;
         error = null;
+
+        if (!shop.IsActive)
+        {
+            await SetActiveAsync(shop, active: true);
+            return;
+        }
+
+        editing = null;
+        closing = shop;
+        dialog = DialogMode.Close;
+    }
+
+    private void CloseDialog()
+    {
+        if (isSaving)
+        {
+            return;
+        }
+
+        dialog = DialogMode.None;
+        editing = null;
+        closing = null;
+        error = null;
+    }
+
+    private async Task ConfirmDialogAsync()
+    {
+        if (dialog is DialogMode.Close)
+        {
+            if (closing is not null)
+            {
+                await SetActiveAsync(closing, active: false);
+            }
+
+            return;
+        }
+
+        await SaveAsync();
     }
 
     private async Task SaveAsync()
@@ -378,10 +695,13 @@
 
             if (saved is null)
             {
+                // Left on screen with the dialog still open, so the fields that were typed are
+                // still there to correct.
                 error = failure ?? "The shop could not be saved.";
                 return;
             }
 
+            dialog = DialogMode.None;
             editing = null;
             await LoadAsync();
         }
@@ -392,7 +712,7 @@
         }
     }
 
-    private async Task ToggleActiveAsync(ShopDto shop)
+    private async Task SetActiveAsync(ShopDto shop, bool active)
     {
         isSaving = true;
         error = null;
@@ -400,7 +720,7 @@
 
         try
         {
-            var (saved, failure) = await ShopService.SetShopActiveAsync(shop.Id, !shop.IsActive);
+            var (saved, failure) = await ShopService.SetShopActiveAsync(shop.Id, active);
 
             if (saved is null)
             {
@@ -410,6 +730,8 @@
                 return;
             }
 
+            dialog = DialogMode.None;
+            closing = null;
             await LoadAsync();
         }
         finally
@@ -419,4 +741,49 @@
         }
     }
 
+    // ── Export ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Exports what the filters left standing, not the whole master — the rows on
+    /// screen, in the order they are on screen. Filtering to Closed and exporting
+    /// should give the closed shops.
+    /// </summary>
+    private async Task ExportAsync()
+    {
+        if (isExporting)
+        {
+            return;
+        }
+
+        var rows = Visible;
+
+        if (rows.Count == 0)
+        {
+            error = "There are no shops to export.";
+            return;
+        }
+
+        isExporting = true;
+        error = null;
+        StateHasChanged();
+
+        try
+        {
+            var bytes = ExportService.ExportShopsToExcel(rows);
+            await JS.InvokeVoidAsync(
+                "downloadFile",
+                $"Shops_{DateTime.Now:yyyyMMdd_HHmm}.xlsx",
+                Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to export shops to Excel");
+            error = $"The export failed: {ex.Message}";
+        }
+        finally
+        {
+            isExporting = false;
+            StateHasChanged();
+        }
+    }
 }

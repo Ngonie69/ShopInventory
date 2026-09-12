@@ -58,6 +58,12 @@ public interface IReportExportService
     byte[] ExportItemVolumeSalesReportToExcel(GetItemVolumeSalesReportResult report, string title);
     byte[] ExportMerchandiserPurchaseOrderReportToExcel(GetMerchandiserPurchaseOrderReportResult report);
     byte[] ExportMobileOrdersToExcel(IReadOnlyCollection<SalesOrderDto> orders, string title);
+
+    /// <summary>
+    /// The retail shop master: what each shop's tills sell on, and how many operators are on it.
+    /// </summary>
+    byte[] ExportShopsToExcel(IReadOnlyCollection<ShopDto> shops);
+
     byte[] ExportRouteCustomerSalesToExcel(RouteCustomerSalesDetailModel detail, string routeLabel);
     byte[] ExportRouteSalesSummaryToExcel(
         RouteCustomerSalesSummaryModel summary,
@@ -9551,6 +9557,89 @@ public class ReportExportService : IReportExportService
 
         WriteFooter(ws, row - 1, cols);
         FinalizeSheet(ws, cols, headerRow, landscape: true);
+        return WorkbookToBytes(workbook);
+    }
+
+    /// <summary>
+    /// The retail shop master, as it stands.
+    ///
+    /// A configuration register rather than a report: there is no date range and no money on it,
+    /// so it takes the count KPIs and nothing else. What it is for is the three columns in the
+    /// middle — a shop's business partner, warehouse and cost centre are what its tills sell on,
+    /// and this is the sheet somebody reconciles against SAP.
+    /// </summary>
+    public byte[] ExportShopsToExcel(IReadOnlyCollection<ShopDto> shops)
+    {
+        const string title = "Shops";
+        using var workbook = NewWorkbook(title);
+        var ws = AddSheet(workbook, title);
+        const int cols = 9;
+
+        var row = WriteReportHeader(ws, title, cols, subtitle: $"Shops listed: {shops.Count:N0}");
+
+        WriteKpiCard(ws, row, 1, "Shops", shops.Count, FormatCount);
+        WriteKpiCard(ws, row, 2, "Trading", shops.Count(shop => shop.IsActive), FormatCount, SuccessGreen);
+        WriteKpiCard(ws, row, 3, "Closed", shops.Count(shop => !shop.IsActive), FormatCount, MutedText);
+        WriteKpiCard(ws, row, 4, "Till operators", shops.Sum(shop => shop.AssignedOperatorCount), FormatCount);
+        row += 3;
+
+        var headers = new[]
+        {
+            "Code", "Shop", "Business partner", "Warehouse", "Cost centre",
+            "Operators", "Status", "Created", "Last changed"
+        };
+
+        for (var i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(row, i + 1).Value = headers[i];
+        }
+
+        StyleTableHeader(ws, row, cols);
+        var headerRow = row;
+        row++;
+
+        var dataStart = row;
+        foreach (var shop in shops)
+        {
+            ws.Cell(row, 1).Value = shop.Code;
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 2).Value = shop.Name;
+            ws.Cell(row, 3).Value = shop.BusinessPartnerCode;
+            ws.Cell(row, 4).Value = shop.WarehouseCode;
+            // A shop with no cost centre is correctly configured — SAP defaults one — so this
+            // says "None" rather than leaving a blank that reads as missing data.
+            ws.Cell(row, 5).Value = string.IsNullOrWhiteSpace(shop.CostCentreCode) ? "None" : shop.CostCentreCode;
+            if (string.IsNullOrWhiteSpace(shop.CostCentreCode))
+            {
+                ws.Cell(row, 5).Style.Font.FontColor = MutedText;
+            }
+
+            ws.Cell(row, 6).Value = shop.AssignedOperatorCount;
+            ws.Cell(row, 6).Style.NumberFormat.Format = FormatCount;
+            ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+            ws.Cell(row, 7).Value = shop.IsActive ? "Trading" : "Closed";
+            ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 7).Style.Font.FontColor = shop.IsActive ? SuccessGreen : MutedText;
+
+            ws.Cell(row, 8).Value = IAuditService.ToCAT(EnsureUtc(shop.CreatedAt));
+            ws.Cell(row, 8).Style.NumberFormat.Format = FormatTimestamp;
+
+            // Left blank rather than dashed: a placeholder in a date column makes the whole
+            // column text and stops it sorting.
+            if (shop.UpdatedAt.HasValue)
+            {
+                ws.Cell(row, 9).Value = IAuditService.ToCAT(EnsureUtc(shop.UpdatedAt.Value));
+                ws.Cell(row, 9).Style.NumberFormat.Format = FormatTimestamp;
+            }
+
+            row++;
+        }
+
+        row = FinishTable(ws, headerRow, dataStart, row, cols, "No shops matched this page's filters.");
+
+        WriteFooter(ws, row - 1, cols);
+        FinalizeSheet(ws, cols, headerRow);
         return WorkbookToBytes(workbook);
     }
 

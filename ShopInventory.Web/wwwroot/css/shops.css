@@ -6,33 +6,47 @@
    takings book against, and every till operator assigned to it inherits all
    three. `shop-` is not shared with any other sheet.
 
-   Derived from van-sales.css, which already dresses this exact shape — a header,
-   an inline edit strip, a table and a chip per row — rather than written again by
-   eye, so the two stay visually identical without either importing the other.
    GENERATED FILE. Do not hand-edit: regenerate with
 
        python scripts/derive_shops_css.py
 
-   run from the repo root. A rule this page needs that van-sales.css does not have
-   goes in that script's footer, and a rule it should stop inheriting comes out of
-   its WANTED set — either way the change survives the next regeneration, which a
-   hand-edit here would not.
+   run from the repo root. A rule this page needs that no source sheet has goes
+   in that script's footer, and a rule it should stop inheriting comes out of the
+   relevant source's WANTED set — either way the change survives the next
+   regeneration, which a hand-edit here would not. (It has not before: the
+   `--npick-*` tuning block below and the removal of two dead `<select>` repairs
+   were both hand-edits that the generator would have reverted. Both are the
+   generator's now.)
+
+   Nothing here is new. It is three sheets' existing vocabulary under this page's
+   prefix — see the section notes below for what comes from where and why.
 
    Palette and spacing come from nocturne-tokens.css. The block below aliases
    them rather than restating them, so a colour is corrected in one place for the
    whole system, and there is no `.dark-theme .shop` block at all: these tokens
    flip at the root and every alias resolves against whichever scheme is in force.
 
-   The one rule that is not inherited from van-sales.css is the `<select>` option
-   block at the foot. A native select popup takes its background from the field's
-   own fill, and this sheet's fields are a translucent wash which the browser
-   composites onto white — so without an opaque colour there, the dark-theme
-   options render near-white on near-white and the list is invisible. `--surface`
-   rather than `--field-bg` because surface is the token that is opaque in both
-   schemes. See .claude/skills/nocturne-dropdowns-and-dates.
+   There are no native `<select>`s on this page and no rules for one. The three
+   fields that name an SAP record are NocturnePickers, which the page draws
+   itself — several thousand business partners cannot be read by scrolling, and
+   the shorter warehouse and cost-centre lists are alpha-coded (KEFGRS, CMTRANS,
+   Centr_z4) so they cannot either. Two repairs used to stand at the foot of this
+   sheet for the `<select>`s that used to be here — an opaque option fill and an
+   ellipsis — and neither has anything left to repair. Do not reintroduce a
+   `<select>` without them: see .claude/skills/nocturne-dropdowns-and-dates.
    ========================================================================== */
 
-.shop {
+/* ── From user-management.css ─────────────────────────────────────────────
+   The shell, the controls, the empty state and the modal. `.um-page` becomes
+   `.shop` and `.um-overlay` becomes `.shop-overlay`; the token block is declared
+   on both because the modal is a *sibling* of the page element, not a child, and
+   would otherwise inherit neither the palette nor the font context. Everything
+   that resolves a token here is two classes deep so it out-specifies app.css's
+   global `.dark-theme input/select/button` block regardless of load order.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.shop,
+.shop-overlay {
     --shop-bg: var(--noct-bg);
     --shop-surface: var(--noct-surface);
     --shop-wash: var(--noct-wash);
@@ -43,21 +57,10 @@
     --shop-mute-3: var(--noct-mute-3);
     --shop-faint: var(--noct-faint);
     --shop-placeholder: var(--noct-placeholder);
-
-    /* The business-partner picker's closed trigger, set to .shop-field's own
-       metrics so it lines up with the code and name inputs beside it. Only the
-       trigger is tunable — the menu is the same object on every page. See
-       nocturne-picker.css. */
-    --npick-h: 38px;
-    --npick-pad-y: 0;
-    --npick-pad-x: 11px;
-    --npick-fs: 0.88rem;
-    --npick-radius: var(--noct-r-md);
-    --npick-edge: var(--noct-field-edge);
-    --npick-edge-hi: var(--noct-field-edge-hi);
     --shop-divider: var(--noct-divider);
     --shop-rule: var(--noct-rule);
     --shop-hover: var(--noct-hover);
+    --shop-press: var(--noct-press);
     --shop-avatar-bg: var(--noct-avatar-bg);
     --shop-field-bg: var(--noct-field-bg);
     --shop-field-edge: var(--noct-field-edge);
@@ -65,165 +68,542 @@
     --shop-accent: var(--noct-accent);
     --shop-accent-rgb: var(--noct-accent-rgb);
     --shop-accent-text: var(--noct-accent-text);
-    --shop-on-accent: var(--noct-on-accent);
-    --shop-good: var(--noct-fam-good);
-    --shop-good-rgb: var(--noct-fam-good-rgb);
-    --shop-warn: var(--noct-fam-warn);
-    --shop-warn-rgb: var(--noct-fam-warn-rgb);
-    --shop-bad: var(--noct-fam-bad);
-    --shop-bad-rgb: var(--noct-fam-bad-rgb);
-    --shop-info: var(--noct-fam-info);
-    --shop-info-rgb: var(--noct-fam-info-rgb);
-    --shop-neutral: var(--noct-fam-neutral);
-    --shop-neutral-rgb: var(--noct-fam-neutral-rgb);
-    --shop-flag: var(--noct-fam-accent);
-    --shop-flag-rgb: var(--noct-fam-accent-rgb);
-    --shop-block: var(--noct-box);
-    --shop-on-block: var(--noct-on-box);
-    --shop-map-line: var(--noct-box);
+    --shop-box: var(--noct-box);
+    --shop-on-box: var(--noct-on-box);
+    --shop-dot-off: var(--noct-dot-off);
+    --shop-thumb: var(--noct-thumb);
+    --shop-scrim: var(--noct-scrim);
+    --shop-shadow-pop: var(--noct-shadow-pop);
+    --shop-caret: var(--noct-caret);
+    --shop-clear: var(--noct-clear);
+    --shop-scheme: var(--noct-scheme);
+    --shop-fam-neutral: var(--noct-fam-neutral);
+    --shop-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --shop-fam-accent: var(--noct-fam-accent);
+    --shop-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --shop-fam-info: var(--noct-fam-info);
+    --shop-fam-info-rgb: var(--noct-fam-info-rgb);
+    --shop-fam-good: var(--noct-fam-good);
+    --shop-fam-good-rgb: var(--noct-fam-good-rgb);
+    --shop-fam-warn: var(--noct-fam-warn);
+    --shop-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --shop-fam-bad: var(--noct-fam-bad);
+    --shop-fam-bad-rgb: var(--noct-fam-bad-rgb);
+    --shop-s1: var(--noct-s1);
+    --shop-s2: var(--noct-s2);
+    --shop-s3: var(--noct-s3);
+    --shop-s4: var(--noct-s4);
+    --shop-s6: var(--noct-s6);
+    --shop-s8: var(--noct-s8);
     --shop-r-sm: var(--noct-r-sm);
     --shop-r-md: var(--noct-r-md);
     --shop-r-lg: var(--noct-r-lg);
-    --ndf-h: 38px;
-    --ndf-fs: 0.88rem;
-    --ndf-pad-x: 11px;
-    --ndf-radius: var(--noct-r-md);
-    --ndf-fill: var(--noct-field-bg);
-    --ndf-edge: var(--noct-field-edge);
-    --nsel-h: 38px;
-    --nsel-fs: 0.88rem;
-    --nsel-pad-x: 11px;
-    --nsel-radius: var(--noct-r-md);
-    --nsel-fill: var(--noct-field-bg);
-    --nsel-edge: var(--noct-field-edge);
-    --nsel-edge-hi: var(--noct-field-edge-hi);
+    --shop-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+    color-scheme: var(--shop-scheme);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.shop {
+    min-height: 100vh;
+    padding: 30px 28px 64px;
     max-width: 1400px;
     margin: 0 auto;
-    padding: 24px;
+    background: var(--shop-bg);
     color: var(--shop-ink);
-    font-size: 14px;
-    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+    gap: var(--shop-s6);
 }
 
-.shop .shop-head {
+.shop *,
+.shop-overlay * {
+    box-sizing: border-box;
+}
+
+.shop,
+.shop *,
+.shop-overlay,
+.shop-overlay * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.shop :focus-visible,
+.shop-overlay :focus-visible {
+    outline: 2px solid var(--shop-accent);
+    outline-offset: 2px;
+}
+
+.shop ::selection,
+.shop-overlay ::selection {
+    background: rgba(var(--shop-accent-rgb), .3);
+}
+
+.shop h1,
+.shop h2,
+.shop h3,
+.shop-overlay h1,
+.shop-overlay h2,
+.shop-overlay h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+.shop-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.shop-header-left {
     display: flex;
     align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 20px;
+    gap: var(--shop-s4);
+    min-width: 0;
 }
 
-.shop .shop-title {
+.shop-title {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.shop-subtitle {
     margin: 0;
-    font-size: 1.6rem;
+    font-size: 13.5px;
+    color: var(--shop-mute-2);
+    max-width: 58ch;
+    text-wrap: pretty;
+}
+
+.shop-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--shop-s3);
+    flex-wrap: wrap;
+}
+
+.shop .shop-btn,
+.shop-overlay .shop-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--shop-s2) calc(var(--shop-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
     font-weight: 500;
-    letter-spacing: -0.01em;
+    line-height: 1.2;
+    color: var(--shop-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--shop-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.shop .shop-btn:disabled,
+.shop-overlay .shop-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.shop .shop-btn-primary,
+.shop-overlay .shop-btn-primary {
+    color: var(--shop-accent);
+    border-color: var(--shop-accent);
+    letter-spacing: .02em;
+}
+
+.shop .shop-btn-primary:hover:not(:disabled),
+.shop-overlay .shop-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--shop-accent-rgb), .12);
+}
+
+.shop .shop-btn-primary:active:not(:disabled),
+.shop-overlay .shop-btn-primary:active:not(:disabled) {
+    background: rgba(var(--shop-accent-rgb), .22);
+}
+
+.shop .shop-btn-ghost,
+.shop-overlay .shop-btn-ghost {
+    color: var(--shop-mute-2);
+    border-color: var(--shop-divider);
+}
+
+.shop .shop-btn-ghost:hover:not(:disabled),
+.shop-overlay .shop-btn-ghost:hover:not(:disabled) {
+    color: var(--shop-ink);
+    border-color: var(--shop-field-edge-hi);
+    background: var(--shop-hover);
+}
+
+.shop .shop-btn-danger,
+.shop-overlay .shop-btn-danger {
+    color: var(--shop-fam-bad);
+    border-color: rgba(var(--shop-fam-bad-rgb), .55);
+}
+
+.shop .shop-btn-danger:hover:not(:disabled),
+.shop-overlay .shop-btn-danger:hover:not(:disabled) {
+    background: rgba(var(--shop-fam-bad-rgb), .12);
+    border-color: var(--shop-fam-bad);
+}
+
+.shop .shop-action-btn,
+.shop-overlay .shop-action-btn {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--shop-r-sm);
+    background: transparent;
+    color: var(--shop-mute-2);
+    cursor: pointer;
+    font-size: 13px;
+    transition: background-color .13s, color .13s;
+}
+
+.shop .shop-action-btn:hover,
+.shop-overlay .shop-action-btn:hover {
+    background: var(--shop-press);
     color: var(--shop-ink);
 }
 
-.shop .shop-subtitle {
-    margin: 6px 0 0;
-    font-size: 0.85rem;
-    color: var(--shop-mute-2);
-    max-width: 68ch;
+.shop-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--shop-s3);
+    flex-wrap: wrap;
 }
 
-.shop .shop-filters {
-    background: var(--shop-surface);
+.shop-search-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 220px;
+    max-width: 420px;
+}
+
+.shop-search-box i {
+    position: absolute;
+    left: 12px;
+    pointer-events: none;
+    font-size: 13px;
+    color: var(--shop-mute-3);
+}
+
+.shop .shop-search-box input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px 8px 33px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--shop-ink);
+    caret-color: var(--shop-accent);
+    background: var(--shop-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.shop .shop-search-box input:hover {
+    border-color: var(--shop-field-edge);
+}
+
+.shop .shop-search-box input:focus-visible {
+    border-color: rgba(var(--shop-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.shop .shop-search-box input::placeholder {
+    color: var(--shop-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--shop-placeholder);
+}
+
+.shop .shop-search-box input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    background: var(--shop-clear) no-repeat center / contain;
+    opacity: .7;
+    cursor: pointer;
+}
+
+.shop .shop-input,
+.shop-overlay .shop-input,
+.shop-overlay textarea.shop-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--shop-ink);
+    caret-color: var(--shop-accent);
+    background: var(--shop-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--shop-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.shop-overlay textarea.shop-input {
+    min-height: 76px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.shop .shop-input option,
+.shop-overlay .shop-input option,
+.shop .shop-input optgroup,
+.shop-overlay .shop-input optgroup {
+    color: var(--shop-ink);
+    background-color: var(--shop-surface);
+}
+
+.shop .shop-input:hover,
+.shop-overlay .shop-input:hover {
+    border-color: var(--shop-field-edge);
+}
+
+.shop .shop-input:focus-visible,
+.shop-overlay .shop-input:focus-visible {
+    border-color: rgba(var(--shop-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.shop .shop-input::placeholder,
+.shop-overlay .shop-input::placeholder {
+    color: var(--shop-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--shop-placeholder);
+}
+
+.shop-overlay {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    min-height: 0;
+    background: var(--shop-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    overflow-y: auto;
+    padding: var(--shop-s6);
+    color: var(--shop-ink);
+    animation: shop-fade .18s ease;
+}
+
+.shop-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(560px, 100%);
+    margin: auto;
+    min-height: 0;
     border: 1px solid var(--shop-divider);
     border-radius: var(--shop-r-lg);
-    padding: 18px 20px;
-    margin-bottom: 22px;
+    background: var(--shop-bg);
+    box-shadow: var(--shop-shadow-pop);
+    animation: shop-rise .2s ease;
+    overflow: visible;
 }
 
-.shop .shop-filter-label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
+.shop-modal>form {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: visible;
+}
+
+.shop-modal-header {
+    display: flex;
+    align-items: center;
+    gap: var(--shop-s4);
+    padding: var(--shop-s6) var(--shop-s8);
+    border-bottom: 1px solid var(--shop-divider);
+    flex: none;
+}
+
+.shop-modal-header h2 {
+    font-size: 17px;
+    letter-spacing: -.01em;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.shop-overlay .shop-modal-close {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    border-radius: var(--shop-r-sm);
+    background: transparent;
+    color: var(--shop-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.shop-overlay .shop-modal-close:hover {
+    background: var(--shop-press);
+    color: var(--shop-ink);
+}
+
+.shop-modal-body {
+    flex: 1;
+    min-height: 0;
+    overflow: visible;
+    padding: var(--shop-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--shop-s6);
+}
+
+.shop-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--shop-s3);
+    padding: var(--shop-s4) var(--shop-s8);
+    border-top: 1px solid var(--shop-divider);
+    flex: none;
+}
+
+.shop-alert-head {
+    border-bottom-color: rgba(var(--shop-fam-bad-rgb), .35);
+}
+
+.shop-alert-head h2 {
+    color: var(--shop-fam-bad);
+}
+
+.shop-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--shop-s3);
+    padding: 11px 13px;
+    border-radius: var(--shop-r-md);
+    font-size: 12.5px;
+    color: var(--shop-fam-bad);
+    background: rgba(var(--shop-fam-bad-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--shop-fam-bad-rgb), .3);
+    text-wrap: pretty;
+}
+
+.shop-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--shop-s4);
+}
+
+.shop-form-full {
+    grid-column: 1 / -1;
+}
+
+.shop-form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.shop-form-field > label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
     text-transform: uppercase;
     color: var(--shop-mute-3);
 }
 
-.shop .shop-field {
-    width: 100%;
-    height: 38px;
-    padding: 0 11px;
-    border: 1px solid var(--shop-field-edge);
-    border-radius: var(--shop-r-md);
-    background: var(--shop-field-bg);
-    color: var(--shop-ink);
-    font-size: 0.88rem;
-    font-family: inherit;
+.shop-form-field .required {
+    color: var(--shop-fam-bad);
 }
 
-.shop .shop-field:hover {
-    border-color: var(--shop-field-edge-hi);
+.shop-form-hint {
+    font-size: 11.5px;
+    color: var(--shop-mute-3);
+    text-wrap: pretty;
 }
 
-.shop .shop-field:focus {
-    outline: none;
-    border-color: var(--shop-accent);
-    box-shadow: 0 0 0 3px rgba(var(--shop-accent-rgb), .16);
-}
-
-.shop .shop-field::placeholder {
-    color: var(--shop-placeholder);
-}
-
-.shop select.shop-field {
-    appearance: none;
-    background-image: var(--noct-caret);
-    background-repeat: no-repeat;
-    background-position: right 11px center;
-    padding-right: 30px;
-}
-
-.shop .shop-actions {
+.shop-empty {
     display: flex;
-    gap: 8px;
-    align-items: flex-end;
-    flex-wrap: wrap;
-}
-
-.shop .shop-btn {
-    height: 38px;
-    padding: 0 16px;
-    border-radius: var(--shop-r-md);
-    border: 1px solid var(--shop-field-edge);
-    background: var(--shop-surface);
-    color: var(--shop-ink);
-    font-size: 0.85rem;
-    font-weight: 500;
-    font-family: inherit;
-    cursor: pointer;
-    display: inline-flex;
+    flex-direction: column;
     align-items: center;
-    gap: 7px;
+    gap: var(--shop-s3);
+    padding: 64px var(--shop-s8);
+    font-size: 13px;
+    color: var(--shop-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+    border: 1px solid var(--shop-divider);
+    border-radius: var(--shop-r-lg);
 }
 
-.shop .shop-btn:hover:not(:disabled) {
-    background: var(--shop-hover);
-    border-color: var(--shop-field-edge-hi);
+.shop-empty i {
+    font-size: 26px;
+    color: var(--shop-accent);
+    opacity: .7;
 }
 
-.shop .shop-btn:disabled {
-    opacity: .55;
-    cursor: default;
+.shop-empty h3 {
+    font-size: 15px;
+    color: var(--shop-ink-2);
 }
 
-.shop .shop-btn-accent {
-    background: var(--shop-accent);
-    border-color: var(--shop-accent);
-    color: var(--shop-on-accent);
+.shop-empty p {
+    margin: 0;
+    max-width: 44ch;
 }
 
-.shop .shop-btn-accent:hover:not(:disabled) {
-    background: var(--shop-accent);
-    filter: brightness(1.08);
-    border-color: var(--shop-accent);
+.shop-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--shop-s4);
+    padding: 72px var(--shop-s8);
+    font-size: 13px;
+    color: var(--shop-mute-2);
 }
+
+.shop-loading p {
+    margin: 0;
+}
+
+/* ── From van-sales.css ───────────────────────────────────────────────────
+   The table and the status chips, which is all this sheet lends: User
+   Management draws a card list, and /shops is a table. The chips resolve
+   against the family tokens the sheet above declares, so `--vs-good` is
+   remapped to `--shop-fam-good` rather than left to dangle.
+   ────────────────────────────────────────────────────────────────────────── */
 
 .shop .shop-chip {
     display: inline-flex;
@@ -238,18 +618,18 @@
 }
 
 .shop .shop-chip-good {
-    background: rgba(var(--shop-good-rgb), .13);
-    color: var(--shop-good);
+    background: rgba(var(--shop-fam-good-rgb), .13);
+    color: var(--shop-fam-good);
 }
 
 .shop .shop-chip-bad {
-    background: rgba(var(--shop-bad-rgb), .13);
-    color: var(--shop-bad);
+    background: rgba(var(--shop-fam-bad-rgb), .13);
+    color: var(--shop-fam-bad);
 }
 
 .shop .shop-chip-neutral {
-    background: rgba(var(--shop-neutral-rgb), .12);
-    color: var(--shop-neutral);
+    background: rgba(var(--shop-fam-neutral-rgb), .12);
+    color: var(--shop-fam-neutral);
 }
 
 .shop .shop-table-wrap {
@@ -305,59 +685,296 @@
     font-weight: 500;
 }
 
-.shop .shop-empty {
-    padding: 56px 20px;
-    text-align: center;
-    color: var(--shop-mute-2);
-    background: var(--shop-surface);
-    border: 1px solid var(--shop-divider);
-    border-radius: var(--shop-r-lg);
+/* ── From credit-note-approvals.css ───────────────────────────────────────
+   The segmented status filter. Three choices, all of them worth seeing at
+   once, and the count of each is part of the answer — the same reason that
+   page gives for not using a dropdown. `.is-on` passes through unrenamed:
+   it is a state, not a name.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.shop-seg {
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    border-radius: var(--shop-r-md);
+    background: var(--shop-hover);
 }
 
-.shop .shop-empty-title {
-    font-size: 1rem;
+.shop .shop-seg-btn {
+    height: 28px;
+    padding: 0 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
     font-weight: 500;
-    color: var(--shop-ink-2);
-    margin-bottom: 6px;
+    color: var(--shop-mute);
+    background: transparent;
+    border: 0;
+    border-radius: calc(var(--shop-r-md) - 2px);
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.shop .shop-loading {
+.shop .shop-seg-btn:hover:not(.is-on) {
+    color: var(--shop-ink-2);
+}
+
+.shop .shop-seg-btn.is-on {
+    color: var(--shop-accent-text);
+    background: var(--shop-surface);
+    box-shadow: var(--shop-shadow-sm);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   This page's own — rules no source sheet has
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Tokens the sources above do not declare, added rather than overridden: a
+   later block of the same specificity wins for custom properties, so these
+   land on the same `.shop` / `.shop-overlay` root the alias block opened.
+
+   The `--npick-*` set tunes the three NocturnePickers' closed triggers to the
+   modal's own field metrics, so a picker does not sit two pixels off the text
+   input beside it. Only the trigger is tunable — the menu is the same object on
+   every page, deliberately. See nocturne-picker.css. */
+.shop,
+.shop-overlay {
+    --shop-shadow-sm: 0 0 0 1px var(--noct-rule);
+
+    --npick-h: 34px;
+    --npick-pad-y: 8px;
+    --npick-pad-x: 12px;
+    --npick-fs: 13px;
+    --npick-radius: var(--noct-r-md);
+    --npick-fill: transparent;
+    --npick-edge: transparent;
+    --npick-edge-hi: var(--noct-field-edge);
+}
+
+/* The picker's trigger takes the field wash the text inputs carry. Set here
+   rather than through `--npick-fill` because that fallback paints the trigger
+   only; this also gives a focused one the same accent edge `.shop-input` gets. */
+.shop .npick .npick-btn,
+.shop-overlay .npick .npick-btn {
+    background: var(--shop-field-bg);
+}
+
+.shop .npick .npick-btn:focus-visible,
+.shop-overlay .npick .npick-btn:focus-visible {
+    border-color: rgba(var(--shop-accent-rgb), .55);
+}
+
+/* The shop code is not editable once set — it is what sales history groups on —
+   so the field says so by looking unavailable rather than only refusing to take
+   a keystroke. */
+.shop .shop-input:disabled,
+.shop-overlay .shop-input:disabled {
+    opacity: .6;
+    cursor: not-allowed;
+}
+
+/* The breadcrumb. Administration is where this page lives and the design says
+   so above the title; it is not a link, because there is no Administration
+   index to link to. */
+.shop-crumb {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 12px;
-    padding: 44px;
-    color: var(--shop-mute-2);
+    gap: 6px;
+    margin-bottom: 7px;
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--shop-mute-3);
 }
 
-.shop .shop-notice {
-    padding: 13px 16px;
-    border-radius: var(--shop-r-md);
-    border: 1px solid rgba(var(--shop-bad-rgb), .3);
-    background: rgba(var(--shop-bad-rgb), .08);
-    color: var(--shop-bad);
-    font-size: 0.86rem;
-    margin-bottom: 18px;
+.shop-crumb-here {
+    color: var(--shop-accent-text);
 }
 
-/* No .shop-select rules any more, and that is the point: the form has no native
-   <select> left. Both of the rules that stood here were repairs to one — an opaque
-   option fill, because a dark-theme popup the browser paints is otherwise present,
-   focusable and invisible, and an ellipsis, because a closed <select> clips its
-   value mid-word. All three fields are NocturnePickers now, which the page draws
-   itself and nocturne-picker.css styles from the shared tokens, so neither repair
-   has anything to repair. Do not reintroduce one without them. */
+/* The count on a segment. The segmented control the filter is lifted from
+   carries no count, and the count is half of what this filter is for. */
+.shop .shop-seg-count {
+    margin-left: 6px;
+    font-variant-numeric: tabular-nums;
+    opacity: .65;
+}
 
-/* Narrow screens. Stated here rather than derived, because a rule lifted out of a
-   media query stops being conditional — see the generator's note. */
-@media (max-width: 768px) {
+/* How many rows the filters left standing, said once at the end of the row
+   rather than per segment. */
+.shop-result {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--shop-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* The code, as a chip rather than as text. It is the shop's identity — what
+   sales history and reporting group on — and the accent family is what this
+   system tints an identifier with. */
+.shop .shop-code {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 9px;
+    border-radius: var(--shop-r-sm);
+    background: rgba(var(--shop-fam-accent-rgb), .13);
+    color: var(--shop-fam-accent);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    white-space: nowrap;
+}
+
+/* The shop cell: the storefront or padlock glyph, then the name. The glyph
+   says trading or closed a second time, in the row's first readable column,
+   for the same reason the chip says it at the other end. */
+.shop .shop-cell-shop {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.shop .shop-cell-shop > i {
+    flex: none;
+    font-size: 15px;
+    color: var(--shop-mute-3);
+}
+
+/* A cell that pairs a glyph with its figure — the operator count. */
+.shop .shop-with-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.shop .shop-with-icon > i {
+    font-size: 13px;
+    color: var(--shop-faint);
+}
+
+/* Row actions: quiet until the row is under the pointer, which is the design's
+   own treatment. Quiet, not hidden — a control that appears out of nothing is
+   one nobody knows is there. Keyboard focus reveals them too, and a device with
+   no hover never dims them at all, or they would be unreachable. */
+.shop .shop-row-act {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 2px;
+    opacity: .4;
+    transition: opacity .12s ease;
+}
+
+.shop tbody tr:hover .shop-row-act,
+.shop tbody tr:focus-within .shop-row-act {
+    opacity: 1;
+}
+
+@media (hover: none) {
+    .shop .shop-row-act {
+        opacity: 1;
+    }
+}
+
+/* The empty state sits inside the table card, so it drops the border it
+   carries when it stands alone — two rings around one box reads as a mistake. */
+.shop .shop-table-wrap .shop-empty {
+    border: 0;
+}
+
+/* Nothing here about the dialog's scrolling or clipping any more, and that is
+   the point: it is user-management.css's problem and user-management.css solves
+   it. Its overlay is the scrollport, its dialog and body no longer clip, and all
+   of that is derived above — which is what lets the business-partner picker's
+   menu, 378px of it, hang past the dialog's lower edge instead of being cut off
+   at it. See that sheet's Modals section for the reasoning and for what the
+   change costs. This block used to restate the whole fix; the restatement went
+   away when the source sheet grew the real one.
+
+   One consequence worth naming here rather than there: the overlay scrolls, so a
+   picker menu opened near the bottom of the dialog extends the overlay's scroll
+   area rather than being clipped, and the overlay grows a scrollbar for as long
+   as the menu is open. That is the intended behaviour, not a glitch. */
+
+/* The overlay's scrollbar, which cannot be lifted: in the source it is grouped
+   with three lists this page does not have, and the generator keeps a rule only
+   when *every* class in its selector is one this page uses. Same declarations,
+   on the one selector that applies here. */
+.shop-overlay::-webkit-scrollbar {
+    width: 8px;
+}
+
+.shop-overlay::-webkit-scrollbar-thumb {
+    background: var(--shop-thumb);
+    border-radius: 8px;
+}
+
+.shop-overlay::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* Lifted out of their source sheets by hand because the generator drops every
+   at-rule whole — see its note on why a rule taken out of a media query stops
+   being conditional. */
+@keyframes shop-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes shop-rise {
+    from {
+        transform: translateY(8px);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .shop-overlay,
+    .shop-modal {
+        animation: none;
+    }
+}
+
+/* Narrow screens. Stated here rather than derived, for the same reason. */
+@media (max-width: 900px) {
+    .shop-form-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 700px) {
     .shop {
-        padding: 16px;
+        padding: var(--shop-s8) 18px 56px;
     }
 
-    .shop .shop-head {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 12px;
+    .shop-title {
+        font-size: 24px;
+    }
+
+    .shop-header-actions {
+        width: 100%;
+    }
+
+    .shop-header-actions .shop-btn {
+        flex: 1;
+    }
+
+    .shop-search-box {
+        max-width: none;
+    }
+
+    .shop-modal-header,
+    .shop-modal-body,
+    .shop-modal-footer {
+        padding-inline: var(--shop-s6);
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .shop .shop-input,
+    .shop .shop-search-box input,
+    .shop-overlay .shop-input {
+        font-size: 16px;
     }
 }
