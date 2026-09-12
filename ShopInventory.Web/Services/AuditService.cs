@@ -569,13 +569,44 @@ public class AuditService : IAuditService
 
     private async Task<List<AuditLog>> GetMergedAuditLogsAsync(DateTime? startDate = null, DateTime? endDate = null)
     {
-        var localTask = GetLocalAuditLogsAsync(startDate, endDate);
-        var apiTask = GetApiAuditLogsAsync(startDate, endDate);
+        // Normalised here, once, because this is the single point both readers pass through and every
+        // caller above reaches it. See ToUtcInstant for what was actually broken.
+        var from = ToUtcInstant(startDate);
+        var to = ToUtcInstant(endDate);
+
+        var localTask = GetLocalAuditLogsAsync(from, to);
+        var apiTask = GetApiAuditLogsAsync(from, to);
 
         await Task.WhenAll(localTask, apiTask);
 
         return DeduplicateLogs(localTask.Result.Concat(apiTask.Result));
     }
+
+    /// <summary>
+    /// The UTC instant a caller's date means.
+    /// </summary>
+    /// <remarks>
+    /// <c>AuditLogs.Timestamp</c> is written as <see cref="DateTime.UtcNow"/> and stored as
+    /// <c>timestamp with time zone</c>. Npgsql will not compare that column to a DateTime whose Kind is
+    /// anything but Utc — it throws rather than converting — and every caller here was handing it one
+    /// that was not: the dashboards pass <c>DateTime.Today</c>, which is Local, and the activity page's
+    /// pickers produce Unspecified. The whole activity log therefore failed at the database, and the
+    /// page showed only the rows the API returned.
+    ///
+    /// Local converts to the instant it names. Unspecified is read as local rather than as UTC, because
+    /// a person choosing a date on a picker means their own day, and treating it as UTC would silently
+    /// shift every boundary by the CAT offset.
+    ///
+    /// The same value goes to the API, so the two halves of the merged list now agree about the window.
+    /// They did not before: the API was sent an offset timestamp while the local query threw.
+    /// </remarks>
+    private static DateTime? ToUtcInstant(DateTime? value) => value?.Kind switch
+    {
+        null => null,
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.Value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value.Value, DateTimeKind.Local).ToUniversalTime()
+    };
 
     private async Task<List<AuditLog>> GetLocalAuditLogsAsync(DateTime? startDate, DateTime? endDate)
     {
