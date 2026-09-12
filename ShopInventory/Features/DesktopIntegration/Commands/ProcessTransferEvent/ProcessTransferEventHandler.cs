@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
@@ -19,7 +20,13 @@ public sealed class ProcessTransferEventHandler(
         ProcessTransferEventCommand command,
         CancellationToken cancellationToken)
     {
-        var today = DateTime.UtcNow.Date;
+        // The snapshot day in force, resolved the way the fetch that writes the snapshot, the till
+        // that reads it and the ledger that sells from it all resolve it. This was the last caller
+        // left on DateTime.UtcNow.Date, which rolls at 02:00 CAT — five hours before the 07:00 fetch
+        // produces the day it would then be writing to. A transfer landing in that window wrote its
+        // adjustment against a snapshot day that does not exist yet, so the row the till is actually
+        // selling from never moved and the stock arrived invisibly.
+        var today = StockLedgerDay.Today(settings.Value.StockFetchTimeCAT);
         var monitored = settings.Value.MonitoredWarehouses;
         var adjustments = new List<StockAdjustmentDetail>();
 
