@@ -40,6 +40,7 @@ public class ReportExportWorkbookTests
         { "Desktop Sales", s => s.ExportDesktopSalesToExcel([], null, From, To) },
         { "Local Stock", s => s.ExportLocalStockToExcel(new LocalStockResultDto { WarehouseCode = "01", SnapshotDate = To }) },
         { "Mobile Orders", s => s.ExportMobileOrdersToExcel([], "Mobile Orders") },
+        { "Shops", s => s.ExportShopsToExcel([]) },
         { "G/L Ledger", s => s.ExportGLAccountLedgerToExcel(new GLAccountLedgerResponse { AccountCode = "701421", FromDate = From, ToDate = To, IsReconciled = true }) },
     };
 
@@ -137,6 +138,58 @@ public class ReportExportWorkbookTests
 
         Assert.Equal(XLDataType.DateTime, firstDataCell.DataType);
         Assert.Equal(new DateTime(2026, 7, 2), firstDataCell.GetDateTime());
+    }
+
+    /// <summary>
+    /// The shop register's three judgement calls, read back out of the file.
+    /// </summary>
+    /// <remarks>
+    /// A shop with no cost centre is correctly configured — SAP defaults one — so the
+    /// cell says "None" rather than leaving a blank that reads as missing data. A shop
+    /// that has never been edited has no <c>UpdatedAt</c>, and that cell *is* left blank,
+    /// because a dash in a date column turns the whole column to text and stops it
+    /// sorting. The two look like the same decision made twice and they are opposite
+    /// ones, which is why both are pinned here.
+    /// </remarks>
+    [Fact]
+    public void The_shop_register_says_None_for_a_missing_cost_centre_but_leaves_a_never_edited_date_blank()
+    {
+        var created = new DateTime(2026, 3, 4, 8, 30, 0, DateTimeKind.Utc);
+
+        var shops = new List<ShopDto>
+        {
+            new()
+            {
+                Code = "MACHIPISA", Name = "Machipisa", BusinessPartnerCode = "SPA059 USD",
+                WarehouseCode = "KEFMCH", CostCentreCode = null, IsActive = true,
+                AssignedOperatorCount = 2, CreatedAt = created, UpdatedAt = null,
+            },
+            new()
+            {
+                Code = "KEFBYS", Name = "Bulawayo Sales Depot", BusinessPartnerCode = "CMT014",
+                WarehouseCode = "KEFBYS", CostCentreCode = "BYO220", IsActive = false,
+                AssignedOperatorCount = 0, CreatedAt = created, UpdatedAt = created.AddDays(9),
+            },
+        };
+
+        using var workbook = Open(_service.ExportShopsToExcel(shops));
+        var sheet = workbook.Worksheets.First();
+
+        var headerRow = sheet.CellsUsed().First(c => c.GetString() == "Cost centre").Address.RowNumber;
+        var first = headerRow + 1;
+
+        Assert.Equal("MACHIPISA", sheet.Cell(first, 1).GetString());
+        Assert.Equal("None", sheet.Cell(first, 5).GetString());
+        Assert.Equal("Trading", sheet.Cell(first, 7).GetString());
+        Assert.Equal(XLDataType.Number, sheet.Cell(first, 6).DataType);
+
+        // Created is a real instant, so the column sorts; last-changed is empty, not dashed.
+        Assert.Equal(XLDataType.DateTime, sheet.Cell(first, 8).DataType);
+        Assert.True(sheet.Cell(first, 9).IsEmpty());
+
+        Assert.Equal("BYO220", sheet.Cell(first + 1, 5).GetString());
+        Assert.Equal("Closed", sheet.Cell(first + 1, 7).GetString());
+        Assert.Equal(XLDataType.DateTime, sheet.Cell(first + 1, 9).DataType);
     }
 
     [Fact]

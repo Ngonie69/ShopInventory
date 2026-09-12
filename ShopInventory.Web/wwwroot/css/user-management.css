@@ -1370,6 +1370,35 @@
    top of this sheet, which is what puts the page's values in reach — it is a
    sibling of `.um-page`, not a child. */
 
+/* The overlay is the scrollport, and nothing inside it clips.
+
+   It used to be the other way round — the body scrolled inside a dialog that
+   clipped — and that is a scrollport with popups inside it, which cannot work.
+   A NocturnePicker's menu is `position: absolute`, so *any* ancestor with an
+   `overflow` other than `visible` cuts it off whatever its z-index, and there
+   were three of them between the menu and the screen: the body, the `<form>`
+   the EditForm renders, and the dialog. Opening the warehouse picker on a
+   Merchandiser cut 69px off a 378px menu, hid the "Showing 50 of 2,072" footer
+   that says the list is searchable, and grew a scrollbar on the body for
+   content it was refusing to show. The role `<select>` and the `um-dd` filter
+   menus have the same shape and the same exposure.
+
+   So the scrolling moves outward, to the one box that is already the size of
+   the screen. A menu is then only ever cut at the window edge, which is where
+   it should be cut, and every popup in every one of these dialogs is fixed at
+   once rather than the picker alone.
+
+   What it costs, stated plainly: the header and footer used to be pinned while
+   the body scrolled, and now the whole dialog scrolls, so on a long form —
+   ADR and Sales are the long ones — Create User is at the bottom of the form
+   rather than always on screen. That is the ordinary behaviour of a long form,
+   and it buys a control that is not silently truncated.
+
+   `align-items: flex-start` with `margin: auto` on the dialog rather than
+   `align-items: center`: a centred flex item taller than its container
+   overflows equally in both directions and its top becomes unreachable, which
+   is exactly the case this change introduces. `margin: auto` centres a dialog
+   that fits and top-aligns one that does not. */
 .um-overlay {
     position: fixed;
     inset: var(--kf-topbar-h, 74px) 0 0;
@@ -1380,8 +1409,9 @@
     backdrop-filter: blur(2px);
     -webkit-backdrop-filter: blur(2px);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
+    overflow-y: auto;
     padding: var(--um-s6);
     color: var(--um-ink);
     animation: um-fade .18s ease;
@@ -1391,30 +1421,32 @@
     display: flex;
     flex-direction: column;
     width: min(560px, 100%);
-    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--um-s8));
+    /* Centred when it fits, top-aligned and scrolled when it does not. */
+    margin: auto;
     min-height: 0;
     border: 1px solid var(--um-divider);
     border-radius: var(--um-r-lg);
     background: var(--um-bg);
     box-shadow: var(--um-shadow-pop);
     animation: um-rise .2s ease;
-    /* The body scrolls, the dialog does not: without this a body that outgrows
-       `max-height` spills past the rounded corners instead of being clipped. */
-    overflow: hidden;
+    /* Neither capped nor clipped: the overlay above does both jobs now, and a
+       dialog that clips is a dialog whose menus are cut off. Nothing here
+       paints to the rounded corners — the header rules its own underside and
+       the body and footer are unfilled — so there is nothing to spill. */
+    overflow: visible;
 }
 
 /* Two of these dialogs wrap their body and footer in an `EditForm`, which
    renders a plain `<form>` between `.um-modal` and them. Left unstyled it is a
-   block box with an auto min-height, so the body's `flex: 1; min-height: 0`
-   resolves against nothing, the body never becomes a scrollport, and the
-   footer — which is where Save Changes lives — is pushed below the fold with
-   no way to scroll to it. The form has to carry the column through. */
+   block box with an auto min-height, so the column the dialog sets up stops at
+   it and the footer lands somewhere the layout does not expect. The form has to
+   carry the column through — but not the clipping, for the reason above. */
 .um-modal>form {
     display: flex;
     flex-direction: column;
     flex: 1;
     min-height: 0;
-    overflow: hidden;
+    overflow: visible;
 }
 
 .um-modal-wide {
@@ -1460,10 +1492,13 @@
     color: var(--um-ink);
 }
 
+/* The body no longer scrolls — the overlay does. `overflow: visible` is the
+   load-bearing declaration here, not an omission: this is the innermost of the
+   three boxes that used to cut a picker's menu off. */
 .um-modal-body {
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
+    overflow: visible;
     padding: var(--um-s8);
     display: flex;
     flex-direction: column;
@@ -1957,15 +1992,18 @@
 }
 
 /* ── Scrollbars ────────────────────────────────────────────────────────── */
+/* `.um-overlay` rather than `.um-modal-body`: the dialog's scrollport moved
+   outward — see the Modals section. The two inner lists and the dropdown menu
+   still scroll in place and still want the same bar. */
 
-.um-modal-body::-webkit-scrollbar,
+.um-overlay::-webkit-scrollbar,
 .um-customer-list::-webkit-scrollbar,
 .um-checklist-wrap::-webkit-scrollbar,
 .um-dd-menu::-webkit-scrollbar {
     width: 8px;
 }
 
-.um-modal-body::-webkit-scrollbar-thumb,
+.um-overlay::-webkit-scrollbar-thumb,
 .um-customer-list::-webkit-scrollbar-thumb,
 .um-checklist-wrap::-webkit-scrollbar-thumb,
 .um-dd-menu::-webkit-scrollbar-thumb {
@@ -1973,7 +2011,7 @@
     border-radius: 8px;
 }
 
-.um-modal-body::-webkit-scrollbar-track,
+.um-overlay::-webkit-scrollbar-track,
 .um-customer-list::-webkit-scrollbar-track,
 .um-checklist-wrap::-webkit-scrollbar-track,
 .um-dd-menu::-webkit-scrollbar-track {
