@@ -1,5 +1,7 @@
 @page "/timesheets"
-@attribute [Authorize(Roles = "Admin,Manager,SalesRep,Merchandiser")]
+@* Not Manager. Merchandiser timesheets are the sales rep's to read (Permission.cs), and the API
+   refuses a manager timesheets.view; a manager's attendance screen is van sales. *@
+@attribute [Authorize(Roles = "Admin,SalesRep,Merchandiser")]
 @rendermode InteractiveServer
 @inject ITimesheetService TimesheetService
 @inject AuthenticationStateProvider AuthStateProvider
@@ -284,7 +286,7 @@
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = authState.User;
-        isAdmin = user.IsInRole("Admin") || user.IsInRole("Manager") || user.IsInRole("SalesRep");
+        isAdmin = user.IsInRole("Admin") || user.IsInRole("SalesRep");
 
         fromDate = DateTime.Today.AddDays(-30);
         toDate = DateTime.Today;

@@ -1371,13 +1371,7 @@ public class RevmaxFiscalizationService : IFiscalizationService
         => rate > 1m ? rate / 100m : rate;
 
     internal string BuildPreSapInvoiceNo(string externalReference)
-    {
-        var trimmed = externalReference.Trim();
-
-        return trimmed.All(char.IsAsciiDigit)
-            ? _fiscalisationSettings.PreSapInvoiceNoPrefix + trimmed
-            : trimmed;
-    }
+        => _fiscalisationSettings.BuildPreSapInvoiceNo(externalReference);
 
     private static FiscalizationResult Disabled(string invoiceNumber) => new()
     {

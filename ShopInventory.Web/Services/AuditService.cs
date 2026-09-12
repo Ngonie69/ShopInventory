@@ -47,6 +47,12 @@ public interface IAuditService
     Task<int> GetLogCountAsync(DateTime? fromDate = null, DateTime? toDate = null,
         string? username = null, string? action = null);
 
+    /// <summary>
+    /// The signed-in user's own recent activity: the API's rows from the caller-scoped
+    /// api/useractivity/me, merged with this app's legacy rows for the same username.
+    /// </summary>
+    Task<MyAuditActivity> GetMyRecentActivityAsync(string username, int count = 10);
+
     Task<List<string>> GetDistinctActionsAsync();
     Task<List<string>> GetDistinctUsersAsync();
     Task CleanupOldLogsAsync(int retentionDays);
@@ -133,6 +139,22 @@ internal sealed class ApiAuditFilterOptions
     public List<string> Users { get; set; } = new();
     public List<string> Actions { get; set; } = new();
 }
+
+/// <summary>
+/// The fields of the API's UserActivitySummary this app reads, from api/useractivity/me.
+/// </summary>
+internal sealed class ApiMyActivityResponse
+{
+    public int ActionsToday { get; set; }
+    public int ActionsThisWeek { get; set; }
+    public List<ApiAuditLogItem> RecentActivities { get; set; } = new();
+}
+
+/// <summary>
+/// A user's own recent audit rows, newest first, with the API's counts for today and this week. The
+/// counts are null when the API could not answer, so a caller can fall back instead of showing zero.
+/// </summary>
+public sealed record MyAuditActivity(List<AuditLog> Items, int? ActionsToday, int? ActionsThisWeek);
 
 public class AuditService : IAuditService
 {
@@ -644,6 +666,45 @@ public class AuditService : IAuditService
             _logger.LogWarning(ex, "Failed to load API audit filter options; falling back to legacy web audit logs only");
             return new ApiAuditFilterOptions();
         }
+    }
+
+    public async Task<MyAuditActivity> GetMyRecentActivityAsync(string username, int count = 10)
+    {
+        var take = Math.Max(1, count);
+
+        // Not GetLogPageAsync(username: ...). That reads api/useractivity, the whole audit log narrowed
+        // by whatever username the caller passes, and it needs audit.view. Only Admin holds that, and
+        // the API refuses everyone else now that it checks the signed-in user rather than this app's
+        // API key. The account's own history is api/useractivity/me, which takes the user from the token.
+        List<AuditLog> apiItems = [];
+        int? actionsToday = null;
+        int? actionsThisWeek = null;
+        try
+        {
+            var response = await _httpClient.GetFromJsonAsync<ApiMyActivityResponse>(
+                $"api/useractivity/me?recentCount={take}");
+
+            if (response is not null)
+            {
+                apiItems = response.RecentActivities.Select(MapToAuditLog).ToList();
+                actionsToday = response.ActionsToday;
+                actionsThisWeek = response.ActionsThisWeek;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load the user's own API activity; showing this app's audit rows only");
+        }
+
+        await using var db = await _dbContextFactory.CreateDbContextAsync();
+        var localItems = await BuildLocalAuditQuery(db, null, null, username, null)
+            .OrderByDescending(log => log.Timestamp)
+            .ThenByDescending(log => log.Id)
+            .Take(take)
+            .ToListAsync();
+
+        var items = DeduplicateLogs(localItems.Concat(apiItems)).Take(take).ToList();
+        return new MyAuditActivity(items, actionsToday, actionsThisWeek);
     }
 
     private static IQueryable<AuditLog> BuildLocalAuditQuery(

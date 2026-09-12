@@ -21,6 +21,10 @@ namespace ShopInventory.Controllers;
 /// actions could read a whole route's trading, record their own delivery, or push their order into
 /// the ERP — so the two surfaces are separate controllers with separate policies rather than one
 /// controller with per-action attributes, which is a mistake that only has to be made once.
+///
+/// Each action takes its sales-order permission or vansales.customer_orders.fulfil. The depot roles
+/// work this screen, because loading the van is what it is for, and must not need salesorders.* to do
+/// it: that would hand them every sales order endpoint as well.
 /// </remarks>
 [Route("api/van-sales-orders")]
 [Authorize(Policy = "ApiAccess")]
@@ -30,7 +34,7 @@ public class VanSalesOrdersController(ISender mediator) : ApiControllerBase
     /// What a van has been asked to carry: totals to load, and the orders behind them.
     /// </summary>
     [HttpGet("route-load")]
-    [RequirePermission(Permission.ViewSalesOrders)]
+    [RequirePermission(Permission.ViewSalesOrders, Permission.FulfilVanSalesCustomerOrders)]
     [ProducesResponseType(typeof(VanSalesRouteLoadResult), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetRouteLoad(
         [FromQuery] string? assignedBusinessPartnerCode = null,
@@ -48,7 +52,7 @@ public class VanSalesOrdersController(ISender mediator) : ApiControllerBase
 
     /// <summary>Record what was actually delivered against an order.</summary>
     [HttpPost("{orderId:int}/delivery")]
-    [RequirePermission(Permission.EditSalesOrders)]
+    [RequirePermission(Permission.EditSalesOrders, Permission.FulfilVanSalesCustomerOrders)]
     [ProducesResponseType(typeof(VanSalesOrderResult), StatusCodes.Status200OK)]
     public async Task<IActionResult> RecordDelivery(
         int orderId,
@@ -72,10 +76,11 @@ public class VanSalesOrdersController(ISender mediator) : ApiControllerBase
     /// </summary>
     /// <remarks>
     /// The only crossing between this intake and the tables that feed SAP. Requires the permission
-    /// to create sales orders, because that is exactly what it does.
+    /// to create sales orders, because that is exactly what it does, or the fulfilment permission the
+    /// depot roles hold for this screen alone.
     /// </remarks>
     [HttpPost("{orderId:int}/convert")]
-    [RequirePermission(Permission.CreateSalesOrders)]
+    [RequirePermission(Permission.CreateSalesOrders, Permission.FulfilVanSalesCustomerOrders)]
     [ProducesResponseType(typeof(VanSalesOrderConversionResult), StatusCodes.Status200OK)]
     public async Task<IActionResult> Convert(int orderId, CancellationToken cancellationToken)
     {

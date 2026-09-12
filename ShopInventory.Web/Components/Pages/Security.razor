@@ -904,6 +904,7 @@
 
     // Activity state
     private List<LoginActivityModel> recentActivity = new();
+    private MyAuditActivity? myActivity;
     private UserActivityMeResponse? activitySummary;
 
     private bool IsPasswordValid =>
@@ -1062,11 +1063,14 @@
         if (string.IsNullOrWhiteSpace(credUsername))
         {
             recentActivity = new();
+            myActivity = null;
             return;
         }
 
-        var logs = await AuditService.GetLogsAsync(username: credUsername, page: 1, pageSize: 10);
-        recentActivity = logs
+        // The account's own history. GetLogsAsync(username: ...) read the whole audit log filtered by
+        // name, which needs audit.view; every role but Admin is refused it.
+        myActivity = await AuditService.GetMyRecentActivityAsync(credUsername, 10);
+        recentActivity = myActivity.Items
             .Select(log => new LoginActivityModel
             {
                 Action = log.Action,
@@ -1084,8 +1088,10 @@
     {
         return new UserActivityMeResponse
         {
-            ActionsToday = recentActivity.Count(a => a.Timestamp.Date == DateTime.UtcNow.Date),
-            ActionsThisWeek = recentActivity.Count,
+            // The API's own counts for the account. Counting the ten rows on screen capped "this week"
+            // at ten, so that is only the fallback for when the API could not answer.
+            ActionsToday = myActivity?.ActionsToday ?? recentActivity.Count(a => a.Timestamp.Date == DateTime.UtcNow.Date),
+            ActionsThisWeek = myActivity?.ActionsThisWeek ?? recentActivity.Count,
             RecentActivities = recentActivity
         };
     }
