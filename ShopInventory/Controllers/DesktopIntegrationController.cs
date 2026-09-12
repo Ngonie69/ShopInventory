@@ -28,6 +28,7 @@ using ShopInventory.Features.DesktopIntegration.Queries.GetInvoicesByCustomer;
 using ShopInventory.Features.DesktopIntegration.Queries.GetInvoicesByDateRange;
 using ShopInventory.Features.DesktopIntegration.Queries.GetInvoicesRequiringReview;
 using ShopInventory.Features.DesktopIntegration.Queries.GetItemStock;
+using ShopInventory.Features.DesktopIntegration.Queries.GetItemTaxRates;
 using ShopInventory.Features.DesktopIntegration.Queries.GetPagedInvoices;
 using ShopInventory.Features.DesktopIntegration.Queries.GetPagedTransferRequests;
 using ShopInventory.Features.DesktopIntegration.Queries.GetPagedTransfers;
@@ -839,6 +840,29 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetLocalStockQuery(warehouseCode, snapshotDate), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// What every sellable item is taxed at, for a till that prices its own basket.
+    /// </summary>
+    /// <remarks>
+    /// The till shows a price with VAT on it and prints a receipt with VAT on it before the platform
+    /// has seen the sale, so it needs the answer <see cref="CreateDesktopSaleHandler"/> will reach —
+    /// and needs it offline. It held its own hard-coded list of exempt item codes until this existed,
+    /// and that list did not match the item master: items SAP rates at zero were charged 15.5% at the
+    /// counter and billed at zero on the invoice.
+    ///
+    /// <para>
+    /// The whole catalogue rather than one warehouse's, because the item master is not scoped to a
+    /// warehouse and a till sells from history as well as from stock — a receipt reprinted for an
+    /// item the shop no longer carries still has to say the VAT it charged that day.
+    /// </para>
+    /// </remarks>
+    [HttpGet("tax/item-rates")]
+    public async Task<IActionResult> GetItemTaxRates(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetItemTaxRatesQuery(), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
