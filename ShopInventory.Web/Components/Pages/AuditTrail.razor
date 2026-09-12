@@ -1018,20 +1018,8 @@ StringComparison.Ordinal))
         return csv.ToString();
     }
 
-    private static string EscapeCsv(string? value)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return string.Empty;
-        }
-
-        var normalized = value.Replace("\r\n", "\n").Replace('\r', '\n');
-        var escaped = normalized.Replace("\"", "\"\"");
-
-        return escaped.IndexOfAny(new[] { ',', '\"', '\n' }) >= 0
-            ? $"\"{escaped}\""
-            : escaped;
-    }
+    /// <summary>Kept as a name this file's many call sites already use; the rule itself is shared.</summary>
+    private static string EscapeCsv(string? value) => CsvFile.Escape(value);
 
     private async Task LogViewAudit()
     {
