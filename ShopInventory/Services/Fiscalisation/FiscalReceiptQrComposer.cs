@@ -73,6 +73,14 @@ public static class FiscalReceiptQrComposer
     /// Groups a verification code into blocks of four for display, e.g. "A1B2C3D4E5F60718"
     /// becomes "A1B2-C3D4-E5F6-0718". Display only — never send this form to ZIMRA.
     /// </summary>
+    /// <remarks>
+    /// The separators a device already put in are stripped before regrouping, because not every
+    /// device hands the code over unbroken: REVMax returns "60A7-4CD9-6120-2377", and grouping that
+    /// string as it stands counts its dashes as characters and prints "60A7--4CD-9-61-20-2-377" —
+    /// a code that no longer matches the one on the customer's receipt. This runs on the desktop
+    /// sale drawer, the invoice lookup and the SAP invoice remarks, so a mangled code is not only
+    /// on screen: it is written into a SAP document that cannot be re-stated afterwards.
+    /// </remarks>
     public static string FormatVerificationCode(string verificationCode)
     {
         if (string.IsNullOrWhiteSpace(verificationCode))
@@ -80,10 +88,11 @@ public static class FiscalReceiptQrComposer
             return string.Empty;
         }
 
+        var code = new string(verificationCode.Where(char.IsLetterOrDigit).ToArray());
         var groups = new List<string>();
-        for (var index = 0; index < verificationCode.Length; index += 4)
+        for (var index = 0; index < code.Length; index += 4)
         {
-            groups.Add(verificationCode.Substring(index, Math.Min(4, verificationCode.Length - index)));
+            groups.Add(code.Substring(index, Math.Min(4, code.Length - index)));
         }
 
         return string.Join("-", groups);

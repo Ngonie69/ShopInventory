@@ -812,7 +812,7 @@
                                     @* Grouped in fours, the way the receipt prints it and the way
                                        FiscalReceiptQrComposer.FormatVerificationCode renders it on
                                        the API side. Display only — ZIMRA is sent it unbroken. *@
-                                    <span class="ops-code">@GroupCode(selectedSale.FiscalVerificationCode)</span>
+                                    <span class="ops-code">@FiscalQrCode.FormatVerificationCode(selectedSale.FiscalVerificationCode)</span>
                                 </div>
                             }
                             @if (verifyUrl != null)
@@ -1527,25 +1527,6 @@
                 ? raw
                 : null;
         }
-    }
-
-    // Blocks of four, the way the receipt prints it and the way the API's
-    // FiscalReceiptQrComposer.FormatVerificationCode renders it. Display only —
-    // the code goes to ZIMRA unbroken, and nothing here sends it anywhere.
-    private static string GroupCode(string? code)
-    {
-        if (string.IsNullOrWhiteSpace(code))
-        {
-            return "";
-        }
-
-        var groups = new List<string>();
-        for (var i = 0; i < code.Length; i += 4)
-        {
-            groups.Add(code.Substring(i, Math.Min(4, code.Length - i)));
-        }
-
-        return string.Join("-", groups);
     }
 
     // ── The trail ────────────────────────────────────────────────────────

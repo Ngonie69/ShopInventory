@@ -199,10 +199,9 @@ public static class DesktopSaleInvoiceRemarks
 
         if (!string.IsNullOrWhiteSpace(sale.FiscalVerificationCode))
         {
-            // Stripped to its characters before grouping, so a code stored already hyphenated is not
-            // chopped into nonsense by grouping the hyphens too.
-            var raw = new string(sale.FiscalVerificationCode.Where(char.IsLetterOrDigit).ToArray());
-            details.Add($"code {FiscalReceiptQrComposer.FormatVerificationCode(raw)}");
+            // The formatter strips a code stored already hyphenated before regrouping it, so the
+            // separators a device supplied are never counted as characters.
+            details.Add($"code {FiscalReceiptQrComposer.FormatVerificationCode(sale.FiscalVerificationCode)}");
         }
 
         return details.Count == 0 ? null : "Fiscal " + string.Join(", ", details);

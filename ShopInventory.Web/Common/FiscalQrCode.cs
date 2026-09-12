@@ -54,4 +54,31 @@ public static class FiscalQrCode
             return null;
         }
     }
+
+    /// <summary>
+    /// The code in blocks of four, the way the receipt prints it: "60A7-4CD9-6120-2377".
+    /// </summary>
+    /// <remarks>
+    /// Hand-mirrors <c>FiscalReceiptQrComposer.FormatVerificationCode</c> on the API side, and like
+    /// it strips the separators a device already supplied before regrouping. REVMax returns the code
+    /// grouped; counting its dashes as characters renders "60A7--4CD-9-61-20-2-377", which reads as
+    /// a different code from the one on the customer's receipt. Display only — ZIMRA is sent the
+    /// code unbroken.
+    /// </remarks>
+    public static string FormatVerificationCode(string? verificationCode)
+    {
+        if (string.IsNullOrWhiteSpace(verificationCode))
+        {
+            return string.Empty;
+        }
+
+        var code = new string(verificationCode.Where(char.IsLetterOrDigit).ToArray());
+        var groups = new List<string>();
+        for (var index = 0; index < code.Length; index += 4)
+        {
+            groups.Add(code.Substring(index, Math.Min(4, code.Length - index)));
+        }
+
+        return string.Join("-", groups);
+    }
 }
