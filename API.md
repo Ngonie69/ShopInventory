@@ -3059,14 +3059,16 @@ unauthenticated fiscal device behind an authenticated one.
 Callers never touch it directly. Writes go through `IFiscalizationService` and read-back through
 `IFiscalReceiptReader`; both resolve by provider, so an invoice handler is identical under either.
 
-**Device routes this API uses**
+**Device operations this API calls.** These are the **device's** routes, not this service's — they are
+served by the REVMax box, and every one of them sits under `http://172.16.16.201:8001/api/RevmaxAPI/`.
+Nothing in the table below is reachable on this API.
 
-| Purpose | REVMax endpoint |
-|---------|-----------------|
-| File an invoice, or a credit note against a receipt **this** device filed | `POST /api/RevmaxAPI/TransactM` |
-| File a credit note whose original was filed on **another** device | `POST /api/RevmaxAPI/TransactMExt` |
-| Ask whether a document is already fiscalised, and read its receipt back | `GET /api/RevmaxAPI/GetInvoice/{invoiceNumber}` |
-| Device identity, licence and fiscal-day status | `GET /api/RevmaxAPI/GetCardDetails`, `GetLicense`, `GetDayStatus` |
+| Purpose | Method | Operation |
+|---------|--------|-----------|
+| File an invoice, or a credit note against a receipt **this** device filed | POST | `TransactM` |
+| File a credit note whose original was filed on **another** device | POST | `TransactMExt` |
+| Ask whether a document is already fiscalised, and read its receipt back | GET | `GetInvoice/{invoiceNumber}` |
+| Device identity, licence and fiscal-day status | GET | `GetCardDetails`, `GetLicense`, `GetDayStatus` |
 
 `ZReport` **closes the fiscal day** and is never called from this API — a separate Windows service owns
 the daily close. Do not call it to read anything.
@@ -4087,6 +4089,7 @@ reading three pages and a log. Backs `/fiscalisation` in the web app.
 | GET | `/api/fiscalisation-console/devices` | Per device: operating mode, certificate expiry, fiscal day and hours elapsed against the taxpayer's limit, last receipt numbers, offline-signing holder, receipts not yet handed to the platform |
 | GET | `/api/fiscalisation-console/work-queue` | Documents and van sales eligible for or failed at fiscalisation, filtered server-side |
 | GET | `/api/fiscalisation-console/fiscal-days` | Per device per day: how far the close-package-submit sequence got, and where it stopped |
+| GET | `/api/fiscalisation-console/revmax` | The REVMax device and what this system has filed on it over a window: device identity and fiscal day, receipts and documents filed, documents still unfiled, value and VAT per currency, recent transactions |
 
 The work queue is filtered in the query rather than after the fetch, unlike the fiscal-status filter
 on `/api/invoices` — a queue that only sees one page of results cannot tell an operator whether
