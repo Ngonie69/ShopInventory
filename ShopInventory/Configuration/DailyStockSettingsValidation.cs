@@ -43,11 +43,28 @@ public sealed class DailyStockSettingsValidation : IValidateOptions<DailyStockSe
             .Select(group => group.Key)
             .ToList();
 
-        return duplicates.Count > 0
-            ? ValidateOptionsResult.Fail(
+        if (duplicates.Count > 0)
+        {
+            return ValidateOptionsResult.Fail(
                 $"DailyStock:MonitoredWarehouses lists {string.Join(", ", duplicates)} more than once. "
                 + "The daily stock snapshot walks this list, so each repeat is a second pass over that "
-                + "warehouse and a second set of SAP reads.")
+                + "warehouse and a second set of SAP reads.");
+        }
+
+        // A warehouse the hourly reconcile may correct but the snapshot job never visits. The
+        // comparison loops over MonitoredWarehouses, so such an entry is not an error that shows up
+        // anywhere — it simply never happens, and the warehouse it names goes on diverging while the
+        // configuration says it is being looked after. Usually a typo, and a typo here is silent.
+        var unmonitored = options.ReconcileWarehouses
+            .Select(warehouse => warehouse.Trim())
+            .Where(warehouse => !options.MonitoredWarehouses.Contains(warehouse, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        return unmonitored.Count > 0
+            ? ValidateOptionsResult.Fail(
+                $"DailyStock:ReconcileWarehouses names {string.Join(", ", unmonitored)}, which "
+                + "DailyStock:MonitoredWarehouses does not list. The hourly comparison only visits "
+                + "monitored warehouses, so these would never be reconciled and nothing would say so.")
             : ValidateOptionsResult.Success;
     }
 }

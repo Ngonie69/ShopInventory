@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
@@ -27,6 +28,17 @@ public sealed class DailyStockAdjustmentTests : IDisposable
 
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
+
+    /// <summary>
+    /// One settings instance for the handler and for the rows the tests plant, so both date a
+    /// snapshot the same way. They used to disagree: the rows were dated <c>DateTime.UtcNow.Date</c>
+    /// while the handler resolves the day in force from the fetch time, and the two answers differ
+    /// between 02:00 and 07:00 CAT — so every assertion here would have failed for five hours a day.
+    /// </summary>
+    private DailyStockSettings _settings = new()
+    {
+        MonitoredWarehouses = [Source, Destination]
+    };
 
     public DailyStockAdjustmentTests()
     {
@@ -100,12 +112,80 @@ public sealed class DailyStockAdjustmentTests : IDisposable
         Assert.Equal(10m, await AvailableAsync("WH99", "ITEM-1"));
     }
 
+    /// <remarks>
+    /// The fetch time is the lever rather than the clock, the way <c>LocalStockLedgerDayTests</c>
+    /// pulls it: a fetch time of 23:59 puts any real test run before the morning boundary and 00:00
+    /// puts all of it after, so both sides of the roll are assertable at whatever hour the suite
+    /// happens to run. A test pinned to a literal date would instead start failing on its own — see
+    /// <c>CaptureClockTests</c>.
+    /// </remarks>
+    [Fact]
+    public async Task Before_the_fetch_time_a_transfer_adjusts_the_previous_days_snapshot()
+    {
+        _settings.StockFetchTimeCAT = "23:59";
+
+        await AddSnapshotItemAsync(Source, "ITEM-1", 10m);
+
+        var result = await Handler().Handle(Transfer("ITEM-1", 4m), default);
+
+        Assert.False(result.IsError);
+        Assert.True(result.Value.Adjusted);
+
+        var row = await _context.DailyStockSnapshotItems
+            .AsNoTracking()
+            .Include(item => item.Snapshot)
+            .FirstAsync(item => item.WarehouseCode == Source && item.ItemCode == "ITEM-1");
+
+        Assert.Equal(LedgerDay, row.Snapshot!.SnapshotDate);
+        Assert.Equal(6m, row.AvailableQuantity);
+    }
+
+    [Fact]
+    public async Task After_the_fetch_time_a_transfer_adjusts_todays_snapshot()
+    {
+        _settings.StockFetchTimeCAT = "00:00";
+
+        await AddSnapshotItemAsync(Source, "ITEM-1", 10m);
+
+        var result = await Handler().Handle(Transfer("ITEM-1", 4m), default);
+
+        Assert.False(result.IsError);
+        Assert.Equal(6m, await AvailableAsync(Source, "ITEM-1"));
+    }
+
+    /// <summary>
+    /// The negative control for the pair above: the handler must follow the configured boundary, not
+    /// the UTC date. Dating the rows by the day in force and the handler by <c>UtcNow.Date</c> is
+    /// precisely the bug, and it shows up as the adjustment landing on a day nothing reads.
+    /// </summary>
+    [Fact]
+    public async Task A_transfer_never_writes_to_a_snapshot_day_the_till_is_not_reading()
+    {
+        _settings.StockFetchTimeCAT = "23:59";
+
+        await AddSnapshotItemAsync(Source, "ITEM-1", 10m);
+
+        await Handler().Handle(Transfer("ITEM-1", 4m), default);
+
+        var strayDays = await _context.StockTransferAdjustments
+            .AsNoTracking()
+            .Where(adjustment => adjustment.SnapshotDate != LedgerDay)
+            .Select(adjustment => adjustment.SnapshotDate)
+            .Distinct()
+            .ToListAsync();
+
+        Assert.Empty(strayDays);
+    }
+
     // ── Helpers ─────────────────────────────────────────
 
     private ProcessTransferEventHandler Handler() => new(
         _context,
-        Options.Create(new DailyStockSettings { MonitoredWarehouses = [Source, Destination] }),
+        Options.Create(_settings),
         NullLogger<ProcessTransferEventHandler>.Instance);
+
+    /// <summary>The snapshot day the handler will resolve, given the fetch time under test.</summary>
+    private DateTime LedgerDay => StockLedgerDay.Today(_settings.StockFetchTimeCAT);
 
     private static ProcessTransferEventCommand Transfer(string itemCode, decimal quantity)
         => new(itemCode, Source, Destination, quantity, 4001, 4001);
@@ -122,7 +202,7 @@ public sealed class DailyStockAdjustmentTests : IDisposable
         decimal available,
         DateTime? expiryDate = null)
     {
-        var today = DateTime.UtcNow.Date;
+        var today = LedgerDay;
         var snapshot = await _context.DailyStockSnapshots
             .FirstOrDefaultAsync(item => item.SnapshotDate == today && item.WarehouseCode == warehouse);
         if (snapshot is null)

@@ -10,6 +10,7 @@ using ShopInventory.Features.VanSalesCompatibility.Commands.CreateVanSalesDirect
 using ShopInventory.Features.VanSalesCompatibility.Commands.ChangeVanSalesPassword;
 using ShopInventory.Features.VanSalesCompatibility.Commands.DeleteVanSalesCustomer;
 using ShopInventory.Features.VanSalesCompatibility.Commands.UpdateVanSalesCustomer;
+using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesStockPosition;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCustomerHistory;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesChannelCustomers;
 using ShopInventory.Features.VanSalesCompatibility.Queries.GetVanSalesCustomerInvoices;
@@ -840,6 +841,40 @@ public class VanSalesCompatibilityController(IMediator mediator) : ApiController
 
         var result = await mediator.Send(
             new ReportVanSalesStockPositionCommand(request, userId.Value), cancellationToken);
+
+        return result.Match<IActionResult>(Ok, errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// What this van is carrying now, as far as the platform can tell.
+    /// </summary>
+    /// <remarks>
+    /// The read half of the route above, and until now the van could only tell, never ask. The morning
+    /// count it filed, plus the loads the transfer listener has reported since, less every sale
+    /// received for it today — posted to SAP or still queued.
+    ///
+    /// <para>
+    /// The handset's own ledger is the better number while it has one, because it also knows about
+    /// sales it has not uploaded. This is for when it does not: a reinstall, a replacement device, or
+    /// a handover to the next rep, any of which leaves somebody in front of a customer with no product
+    /// list — and the obvious fallback, SAP's figure for a van warehouse, is a day of trading stale.
+    /// It refuses nothing and changes nothing.
+    /// </para>
+    /// </remarks>
+    [HttpGet("stock/position")]
+    [Authorize(Policy = "ApiAccess")]
+    [RequirePermission(Permission.TransferInventory)]
+    [ProducesResponseType(typeof(VanSalesStockPositionResult), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetStockPosition(CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(
+            new GetVanSalesStockPositionQuery(userId.Value), cancellationToken);
 
         return result.Match<IActionResult>(Ok, errors => Problem(errors));
     }
