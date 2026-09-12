@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Features.FiscalisationConfiguration.Queries.GetFiscalDayStates;
 using ShopInventory.Features.FiscalisationConfiguration.Queries.GetFiscalisationConsoleDevices;
 using ShopInventory.Features.FiscalisationConfiguration.Queries.GetFiscalisationWorkQueue;
+using ShopInventory.Features.FiscalisationConfiguration.Queries.GetRevmaxActivity;
 
 namespace ShopInventory.Controllers;
 
@@ -55,6 +56,30 @@ public class FiscalisationConsoleController(IMediator mediator) : ApiControllerB
     {
         var result = await mediator.Send(
             new GetFiscalisationWorkQueueQuery(status, deviceId, fromDate, toDate, search, page, pageSize),
+            cancellationToken);
+
+        return result.Match<IActionResult>(Ok, errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The REVMax device, and what this application has filed on it over a window.
+    /// </summary>
+    /// <remarks>
+    /// Reads the device's identity and fiscal day alongside our own fiscal transaction log. It never
+    /// calls <c>ZReport</c>: on this device that closes the fiscal day rather than reporting on it.
+    ///
+    /// Answers under either provider. Under the platform the figures describe what REVMax filed before
+    /// the switch, which is exactly the history someone checks after one.
+    /// </remarks>
+    [HttpGet("revmax")]
+    public async Task<IActionResult> GetRevmaxActivity(
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        [FromQuery] int recentCount = 25,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetRevmaxActivityQuery(fromDate, toDate, recentCount),
             cancellationToken);
 
         return result.Match<IActionResult>(Ok, errors => Problem(errors));

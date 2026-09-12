@@ -240,6 +240,11 @@ public sealed class GetFiscalisationWorkQueueHandler(
             _ => documents
         };
 
+        // These dates arrive from a query string, so their Kind is Unspecified, and TimestampUtc is
+        // `timestamp with time zone` — a pairing Npgsql refuses outright. It used to throw here, which
+        // the page reported as "the work queue could not be read". Nothing is stamped at this site
+        // because UtcDateTimeConvention now applies the conversion to the parameter as well as to the
+        // column; see that class for why Unspecified is read as UTC rather than as local.
         if (query.FromDate is not null)
         {
             documents = documents.Where(transaction => transaction.TimestampUtc >= query.FromDate.Value.Date);

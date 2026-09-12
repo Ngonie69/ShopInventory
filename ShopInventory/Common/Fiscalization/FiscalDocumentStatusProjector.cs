@@ -47,7 +47,15 @@ internal static class FiscalDocumentStatusProjector
             Expression.Not(HasFiscalEvidenceExpression.Body),
             HasFiscalEvidenceExpression.Parameters);
 
-    private static readonly Func<DesktopFiscalTransactionEntity, bool> HasFiscalEvidencePredicate =
+    /// <summary>
+    /// <see cref="HasFiscalEvidenceExpression"/> in memory, compiled from that same expression.
+    /// </summary>
+    /// <remarks>
+    /// Public so a caller that has already fetched its rows can label them without restating the rule.
+    /// Restating it is how the console and the list come to disagree about one document, and the whole
+    /// point of this expression is that they cannot.
+    /// </remarks>
+    public static readonly Func<DesktopFiscalTransactionEntity, bool> HasFiscalEvidencePredicate =
         HasFiscalEvidenceExpression.Compile();
 
     public static async Task EnrichInvoicesAsync(

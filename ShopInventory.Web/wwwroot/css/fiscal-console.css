@@ -91,6 +91,7 @@
        page. */
     --fcx-queue-min: 1120px;
     --fcx-days-min: 1040px;
+    --fcx-revmax-min: 1080px;
 
     color: var(--fcx-ink);
     font-family: 'Inter', system-ui, sans-serif;
@@ -720,6 +721,23 @@
 
 .fcx-table-days {
     min-width: var(--fcx-days-min);
+}
+
+.fcx-table-revmax {
+    min-width: var(--fcx-revmax-min);
+}
+
+/* The device strip carries one card, not a fleet: REVMax is a single box on the
+   LAN. Held to a readable measure rather than stretched across the section, so it
+   does not read as the first of several. */
+.fcx-revmax-device {
+    max-width: 640px;
+}
+
+/* A money column reads as a column only when its digits line up, and these are
+   totals a person compares down the page rather than across it. */
+.fcx-revmax-money {
+    font-variant-numeric: tabular-nums;
 }
 
 /* Sticky against the wrapper, which is its own scrollport — so `top: 0` here is

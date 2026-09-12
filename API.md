@@ -71,6 +71,7 @@ Examples:
   - [Desktop Integration](#30-desktop-integration)
   - [Customer Portal](#31-customer-portal)
   - [Fiscalisation](#32-fiscalisation)
+  - [REVMax](#32a-revmax)
   - [Health](#33-health)
   - [Van Sales](#34-van-sales)
   - [Timesheets](#35-timesheets)
@@ -2963,14 +2964,29 @@ by hand.
 
 ### 32. Fiscalisation
 
-**There is no fiscal proxy in this API.** REVMax was decommissioned and the `/api/revmax/*` routes were
-removed with it. Fiscalisation now runs against the ZIMRA FDMS platform at
-<https://fiscal.kefaloscheese.com/>, which this API calls as a client.
+**There is no fiscal proxy in this API.** Nothing under `/api/revmax/*` is exposed — those routes were
+removed on 2026-08-10 and were not restored when REVMax itself was. Device status, licences, Z-reports,
+fiscal-day open/close and the receipt archive are functions of the provider's own console or device,
+not of this API.
 
-Device status, licences, Z-reports, fiscal-day open/close and the receipt archive are functions of that
-platform's own console, behind its own login. They are not exposed through ShopInventory.
+**There are two providers, and only one is live.** `Fiscalisation:Provider` selects between them:
 
-**How this API uses it**
+| Provider | What it is | State |
+|----------|------------|-------|
+| `Revmax` (default) | The vendor device on the LAN at `Revmax:BaseUrl` | **Live.** Everything is filed here |
+| `Platform` | The in-house ZIMRA FDMS platform at <https://fiscal.kefaloscheese.com/> | Registered, wired, dormant |
+
+REVMax was decommissioned from this codebase on 2026-08-10 and restored on 2026-09-09. That reversal is
+not a verdict on the platform: ZIMRA has not issued it a production device, so it has nothing to file
+against. `Fiscalisation:Provider=Platform` is the whole switch once that device exists. An unset or
+unparseable value lands on REVMax deliberately.
+
+What follows describes the **platform**: how this API calls it, its `X-API-Key` and the settings
+endpoints that manage it have no effect while the provider is REVMax. The fiscal fields on an invoice
+and the fiscalise endpoint at the end are provider-agnostic and are marked where they differ. For the
+live path see [32a. REVMax](#32a-revmax).
+
+**How this API uses the platform**
 
 | Purpose | Platform endpoint |
 |---------|-------------------|
@@ -3047,9 +3063,11 @@ These come from the local projection in `DesktopFiscalTransactions`, not from a 
 PDF prints the verification code, fiscal day and device id beside the QR; when the projection has no QR,
 the PDF download asks the fiscal device and fills all of them from its answer.
 
-The QR code is **composed by this API**, not returned by the platform: the verification segment is the
-first 16 hex characters of `MD5(deviceSignatureValue)`, appended to the device's `qrUrl` along with the
-device id, receipt date and receipt global number. See `FiscalReceiptQrComposer`.
+**Who composes the QR code differs by provider.** Under the platform it is composed by this API, which
+returns neither the payload nor the verification code: the verification segment is the first 16 hex
+characters of `MD5(deviceSignatureValue)`, appended to the device's `qrUrl` along with the device id,
+receipt date and receipt global number. See `FiscalReceiptQrComposer`. Under REVMax the **device**
+composes both and returns them on the transaction response, so the composer is not used.
 
 **Triggering fiscalisation**
 
@@ -3059,6 +3077,83 @@ device id, receipt date and receipt global number. See `FiscalReceiptQrComposer`
 
 Fiscal status is also reconciled in the background by `InvoiceFiscalStatusBackfillService`; there is
 no longer an on-demand backfill endpoint.
+
+---
+
+### 32a. REVMax
+
+**The live fiscal path.** A vendor device on the LAN at `Revmax:BaseUrl` (`http://172.16.16.201:8001`),
+reached through `IRevmaxClient` and driven by `RevmaxFiscalizationService`. **No route on it carries any
+authentication**, which is one reason it is not proxied: exposing it through this API would put an
+unauthenticated fiscal device behind an authenticated one.
+
+Callers never touch it directly. Writes go through `IFiscalizationService` and read-back through
+`IFiscalReceiptReader`; both resolve by provider, so an invoice handler is identical under either.
+
+**Device operations this API calls.** These are the **device's** routes, not this service's — they are
+served by the REVMax box, and every one of them sits under `http://172.16.16.201:8001/api/RevmaxAPI/`.
+Nothing in the table below is reachable on this API.
+
+| Purpose | Method | Operation |
+|---------|--------|-----------|
+| File an invoice, or a credit note against a receipt **this** device filed | POST | `TransactM` |
+| File a credit note whose original was filed on **another** device | POST | `TransactMExt` |
+| Ask whether a document is already fiscalised, and read its receipt back | GET | `GetInvoice/{invoiceNumber}` |
+| Device identity, licence and fiscal-day status | GET | `GetCardDetails`, `GetLicense`, `GetDayStatus` |
+
+`ZReport` **closes the fiscal day** and is never called from this API — a separate Windows service owns
+the daily close. Do not call it to read anything.
+
+**Picking the endpoint is the routing decision that matters.** The request type is shared and both
+endpoints accept the `refDeviceId` / `refReceiptGlobalNo` / `refFiscalDayNo` back-reference, so only the
+endpoint distinguishes the two cases and choosing wrong is silent — it files the credit note as though it
+reversed some other device's receipt. Route on the original receipt's `DeviceID` against
+`Revmax:DefaultRefDeviceId`.
+
+**Every refusal is `HTTP 200` carrying `Code: "0"`.** There is no 4xx on this device, and a duplicate is
+refused only by the wording of the message. Treating the status code as the outcome reads every refusal
+as a success.
+
+**The device is the authority on whether a document is fiscalised — our log is not.** The device vendor's
+own SAP B1 add-on files invoices to this same box and writes nothing to our database, so a document ZIMRA
+already holds a receipt for can read as un-fiscalised here. `GetInvoice` is the only thing that can
+answer the question. It is **not scoped to our device**: the box serves several, every one of them reports
+the same `DeviceSerialNumber`, and invoices and credit notes share one number namespace with our SAP
+DocNums. Check `DeviceID` **and** `receiptType` before adopting any receipt as ours.
+
+**Reads, writes and what may be retried**
+
+A `TransactM` POST is attempted **once**. An indeterminate outcome — a timeout above all — is resolved by
+asking `GetInvoice`, never by resubmitting: the receipt may already exist, and a duplicate fiscal receipt
+can only be undone with a manual credit note. Only reads are retried.
+
+**Tax ids are REVMax's own, not FDMS's**
+
+`Revmax:TaxIdMappings` maps a SAP VAT group (`OVTG.Code`) to the id declared on the line, and those are
+**not** the FDMS ids in `Fiscalisation:TaxIdMappings` — REVMax sits in front of FDMS and maps its own on
+the way through. Do not copy one section into the other. The rate that accompanies an id comes from
+`Tax:RatesByTaxCode`, so the rate charged on the invoice and the rate declared on the receipt cannot
+drift apart, and `VerifyDeclaredTaxAsync` reads the filed receipt back and raises
+`TaxDeclarationMismatch` if they did. That never flips `Success` and never asks for a retry — the receipt
+exists, and resubmitting would only add a second.
+
+**Van sales are fiscalised server-side under this provider.** The device is on the LAN, not in the van,
+so no handset can sign for it: offline sales arrive unstamped and `DesktopSaleFiscalisationSweep`
+fiscalises them after the fact. `VanSalesSignedReceiptIngestService` no-ops, and
+`RefusesUnstampedVanSales` is false — enforcing a signature requirement here would refuse every van sale
+in the fleet for want of a signature that cannot exist.
+
+**Fields the device ignores.** `AMT` and `InvoiceAmount` are recomputed — each line as `QTY × PRICE` and
+the document as the sum of those — so `PRICE` is the only lever and cent-level drift against SAP is
+normal. `InvoiceComment` must be non-empty, and the customer fields must be present even when blank, or
+the device dereferences a null and answers with what looks like a fault on its side.
+
+**Verifying a change**
+
+`scripts/RevmaxProbe` drives the real service against the live device read-only and prints the exact
+payload it would send without sending it. `scripts/FiscaliseInvoice` dry-runs unless given `--post`.
+Unit-level equivalents are in `ShopInventory.Tests/RevmaxFiscalPayloadTests.cs`. Dry-run every new
+document shape before posting: a filed receipt cannot be withdrawn.
 
 ---
 
@@ -4026,6 +4121,7 @@ reading three pages and a log. Backs `/fiscalisation` in the web app.
 | GET | `/api/fiscalisation-console/devices` | Per device: operating mode, certificate expiry, fiscal day and hours elapsed against the taxpayer's limit, last receipt numbers, offline-signing holder, receipts not yet handed to the platform |
 | GET | `/api/fiscalisation-console/work-queue` | Documents and van sales eligible for or failed at fiscalisation, filtered server-side |
 | GET | `/api/fiscalisation-console/fiscal-days` | Per device per day: how far the close-package-submit sequence got, and where it stopped |
+| GET | `/api/fiscalisation-console/revmax` | The REVMax device and what this system has filed on it over a window: device identity and fiscal day, receipts and documents filed, documents still unfiled, value and VAT per currency, recent transactions |
 
 The work queue is filtered in the query rather than after the fetch, unlike the fiscal-status filter
 on `/api/invoices` — a queue that only sees one page of results cannot tell an operator whether

@@ -838,8 +838,9 @@ try
     builder.Services.AddScoped<IExchangeRateService, ExchangeRateService>();
 
     // Register the REVMax fiscal device client. REVMax is the ZIMRA-approved path; the Fiscalisation
-    // platform registered below is present but dormant while it waits on ZIMRA approval. Which one
-    // IFiscalizationService resolves to is decided by Fiscalisation:Provider, further down.
+    // platform registered below is present but dormant until ZIMRA issues it a production device --
+    // the blocker is a device, not approval of the software. Which one IFiscalizationService resolves
+    // to is decided by Fiscalisation:Provider, further down.
     builder.Services.Configure<RevmaxSettings>(
         builder.Configuration.GetSection(RevmaxSettings.SectionName));
 
@@ -885,9 +886,9 @@ try
     if (fiscalisationStartupSettings?.UsesPlatform == true)
     {
         Log.Warning(
-            "Fiscalisation is pointed at the in-house platform ({BaseUrl}), which is awaiting ZIMRA "
-            + "approval. Receipts filed through it are filed for real. Set Fiscalisation__Provider="
-            + "Revmax to use the approved device.",
+            "Fiscalisation is pointed at the in-house platform ({BaseUrl}), which ZIMRA has not yet "
+            + "issued a production device for. Receipts filed through it are filed for real. Set "
+            + "Fiscalisation__Provider=Revmax to use the approved device.",
             fiscalisationStartupSettings.BaseUrl);
     }
     else

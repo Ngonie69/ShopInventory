@@ -25,7 +25,10 @@ flowchart LR
     Web --> WebDb[(PostgreSQL\nWebAppDbContext)]
 
     Api --> SAP[SAP Business One\nService Layer]
-    Api --> REV[ZIMRA FDMS Fiscalisation]
+    Api --> REV[REVMax Device
+live fiscal path]
+    Api -.-> FDMS[ZIMRA FDMS Platform
+dormant]
     Api --> Pay[Payment Gateways\nPayNow / Innbucks / Ecocash]
     Api --> Push[Push / Notification Providers]
     Api --> OpenWA[OpenWA WhatsApp Gateway]
@@ -216,11 +219,35 @@ Architecturally, SAP sits behind client abstractions and queue-based workflows s
 
 ### Fiscalisation
 
-Fiscalisation runs against the ZIMRA FDMS platform at https://fiscal.kefaloscheese.com/, which replaced the decommissioned REVMax device gateway. Invoice and credit-note workflows may continue beyond initial document creation into fiscal processing handled by background services.
+There are **two fiscal providers, and only one of them is live**. `Fiscalisation:Provider` selects between them: `Revmax` is the default and the live path, and `Platform` is the in-house ZIMRA FDMS platform at https://fiscal.kefaloscheese.com/. An unset or unparseable value lands on REVMax deliberately — the fallback must be the device ZIMRA has actually issued, never the one waiting on one.
 
-The API is a client of that platform, authenticating with an `X-API-Key`. Documents already in SAP are fiscalised by DocEntry alone — the platform reads the document from SAP itself — while desktop/POS sales, which are fiscalised before they reach SAP, submit a full receipt payload. Fiscal status is read back into a local projection so pages never block on a live lookup.
+REVMax was decommissioned from this codebase on 2026-08-10 and restored on 2026-09-09. The reversal is not a verdict on the platform, which is finished and wired in: ZIMRA has not issued it a production device, so it has nothing to file against. When that device arrives, `Fiscalisation:Provider=Platform` is the whole switch. Everything under the `Fiscalisation` configuration section configures the platform and has no effect while the provider is REVMax.
 
-Note that the platform does not discover SAP documents on its own: its own SAP bridge only fires on a print event in the SAP client, so anything this application posts through the Service Layer must be fiscalised by this application.
+Two seams follow the provider, and callers touch only these: `IFiscalizationService` for writes and `IFiscalReceiptReader` for read-back — status syncs, invoice reads, PDFs. Never call a fiscal device directly from a controller or page. Code that must administer the platform specifically — the fiscalisation console, handset registration, signed-receipt ingest — may take `IFiscalisationApiClient` directly, but must guard on `FiscalisationSettings.UsesPlatform`.
+
+Common to both providers: invoice and credit-note workflows may continue beyond initial document creation into fiscal processing handled by background services, and fiscal status is read back into a local projection so pages never block on a live lookup. Neither provider discovers SAP documents on its own, so anything this application posts through the Service Layer must be fiscalised by this application.
+
+### REVMax
+
+The live fiscal path: a vendor-supplied device on the LAN at `Revmax:BaseUrl` (`http://172.16.16.201:8001`), reached through `IRevmaxClient` and driven by `RevmaxFiscalizationService`. There is no authentication on any of its routes and no fiscal proxy in this API — nothing under `/api/revmax/*` is exposed.
+
+Documents are filed with `TransactM` or `TransactMExt`, and the choice is the routing decision that matters. `TransactM` files what the apps on this API raise: invoices, and credit notes reversing a receipt this device filed. `TransactMExt` is for a credit note whose original was filed on **another** device. Both accept the back-reference fields, so only the endpoint distinguishes the two cases and picking the wrong one fails silently — route on the original receipt's `DeviceID` against `Revmax:DefaultRefDeviceId`.
+
+**The device, not our log, is the authority on whether a document is fiscalised.** `GET /api/RevmaxAPI/GetInvoice/{n}` is the only thing that can answer it, because the device vendor's own SAP B1 add-on files invoices to this same box and writes nothing to our database. That lookup is not scoped to our device and both invoices and credit notes share one number namespace, so `DeviceID` and `receiptType` must both be checked before adopting anything.
+
+Two behaviours differ from the platform and shape the code around them. Every refusal arrives as **HTTP 200 carrying `Code: "0"`**, never a 4xx. And the QR payload and verification code are **composed by the device** and returned on the response, where the platform returns neither and they are built here instead.
+
+Because the device sits on the LAN rather than in a van, no handset can sign for it. Offline van sales therefore arrive unstamped and are fiscalised server-side by `DesktopSaleFiscalisationSweep`; `VanSalesSignedReceiptIngestService` no-ops under this provider, and the unstamped-sale requirement is read through `RefusesUnstampedVanSales`, which is false here — enforcing it would refuse every van sale for want of a signature that cannot exist.
+
+`Revmax:TaxIdMappings` are REVMax's own tax ids and are **not** the FDMS ids in `Fiscalisation:TaxIdMappings`; the device maps its own on the way through to FDMS. The rate that accompanies an id comes from `Tax:RatesByTaxCode`, so the rate charged and the rate declared cannot drift apart, and `VerifyDeclaredTaxAsync` reads the filed receipt back to confirm it.
+
+`scripts/RevmaxProbe` drives the real service read-only against the live device and prints the payload it would send without sending it. Use it rather than posting: a filed receipt cannot be withdrawn, and a duplicate is undone only by a manual credit note.
+
+### Fiscalisation platform (dormant)
+
+The API is a client of the platform, authenticating with an `X-API-Key`. Documents already in SAP are fiscalised by DocEntry alone — the platform reads the document from SAP itself — while desktop/POS sales, which are fiscalised before they reach SAP, submit a full receipt payload.
+
+The reason it discovers nothing on its own is that its SAP bridge only fires on a print event in the SAP client. It also carries the whole van/handset offline signed-receipt subsystem — device registration, offline leases, fiscal day lifecycle — which has no REVMax equivalent and is dormant alongside it.
 
 ### Payment Gateways
 

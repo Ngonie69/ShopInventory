@@ -146,7 +146,8 @@ Other integrations:
 - Keep fiscalisation behind `IFiscalizationService` (writes) and `IFiscalReceiptReader` (read-back);
   never call a fiscal device directly from a controller or page. Both resolve by
   `Fiscalisation:Provider`: **REVMax is the ZIMRA-approved device and the live default**, while the
-  in-house platform (`IFiscalisationApiClient`) is registered but dormant pending ZIMRA approval.
+  in-house platform (`IFiscalisationApiClient`) is registered but dormant until ZIMRA issues it a
+  production device — the blocker is a device, not approval of the software.
   Code that must talk to the platform specifically — the fiscalisation console, handset
   registration, signed-receipt ingest — may take `IFiscalisationApiClient` directly, but must guard
   on `FiscalisationSettings.UsesPlatform`.

@@ -26,9 +26,10 @@ public enum FiscalisationProvider
 /// Configuration for the ZIMRA FDMS Fiscalisation platform.
 /// </summary>
 /// <remarks>
-/// The platform is present but dormant while it awaits ZIMRA approval — <see cref="Provider"/> decides
-/// which implementation <see cref="Services.IFiscalizationService"/> resolves to, and it defaults to
-/// REVMax. Everything below this line configures the platform and has no effect while that is so.
+/// The platform is present but dormant until ZIMRA issues it a production device — the blocker is a
+/// device, not approval of the software. <see cref="Provider"/> decides which implementation
+/// <see cref="Services.IFiscalizationService"/> resolves to, and it defaults to REVMax. Everything
+/// below this line configures the platform and has no effect while that is so.
 /// </remarks>
 public class FiscalisationSettings
 {
@@ -39,7 +40,7 @@ public class FiscalisationSettings
     /// </summary>
     /// <remarks>
     /// Defaults to <see cref="FiscalisationProvider.Revmax"/>, deliberately: an unset or unparseable
-    /// value must land on the approved device, never on the one waiting for approval.
+    /// value must land on the device ZIMRA has issued, never on the one still waiting for one.
     /// </remarks>
     public FiscalisationProvider Provider { get; set; } = FiscalisationProvider.Revmax;
 

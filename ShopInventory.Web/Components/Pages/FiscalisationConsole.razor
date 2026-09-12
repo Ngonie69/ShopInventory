@@ -104,6 +104,281 @@
         </div>
     }
 
+    @* ── REVMax ──────────────────────────────────────────────────────────── *@
+
+    <section class="fcx-section">
+        <div class="fcx-section-head">
+            <h2 class="fcx-section-title">REVMax</h2>
+            <span class="fcx-section-note">
+                The device documents are actually filed on. Its own counters, and what this system has
+                recorded filing against it.
+            </span>
+            @if (revmax is not null)
+            {
+                <span class="fcx-section-count">
+                    @revmax.Totals.DocumentsFiled filed · @revmax.Totals.DocumentsFailed unfiled ·
+                    @revmax.FromUtc.ToString("dd MMM") to @revmax.ToUtc.AddDays(-1).ToString("dd MMM yyyy")
+                </span>
+            }
+        </div>
+
+        @if (isLoadingRevmax)
+        {
+            <div class="fcx-loading"><span class="fcx-spin"></span><span>Asking the REVMax device…</span></div>
+        }
+        else if (revmax is null)
+        {
+            <div class="fcx-empty">
+                <div class="fcx-empty-title">REVMax could not be read</div>
+                <div class="fcx-empty-note">
+                    Neither the device nor this system's own filing log answered. Treat nothing in this
+                    section as current.
+                </div>
+            </div>
+        }
+        else
+        {
+            @if (!revmax.IsLiveProvider)
+            {
+                <div class="fcx-alert fcx-alert-warn" role="alert">
+                    <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    <div class="fcx-alert-body">
+                        <div class="fcx-alert-title">REVMax is not the current provider</div>
+                        <div class="fcx-alert-detail">
+                            Documents are being filed through the in-house platform (the provider is set to
+                            @revmax.Provider). What follows is REVMax history, not where today's receipts
+                            are going.
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(revmax.DeviceError))
+            {
+                <div class="fcx-alert fcx-alert-warn" role="alert">
+                    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                    <div class="fcx-alert-body">
+                        <div class="fcx-alert-title">@revmax.DeviceError</div>
+                        <div class="fcx-alert-detail">
+                            The counts below come from this system's own log and are unaffected. Because the
+                            device did not name its serial, they are not narrowed to it.
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @if (revmax.Device is not null)
+            {
+                <div class="fcx-devices fcx-revmax-device">
+                    <article class="fcx-device">
+                        <div class="fcx-device-head">
+                            <span class="fcx-device-id">Device @(revmax.Device.DeviceId ?? "—")</span>
+                            @if (!string.IsNullOrWhiteSpace(revmax.Device.SerialNumber))
+                            {
+                                <span class="fcx-device-serial">@revmax.Device.SerialNumber</span>
+                            }
+                            <span class="fcx-device-head-end">
+                                <span class="fcx-tag @(IsRevmaxDayOpen() ? "fcx-tag-good" : "fcx-tag-warn")">
+                                    @(string.IsNullOrWhiteSpace(revmax.Device.FiscalDayStatus)
+                                        ? "Day unknown"
+                                        : revmax.Device.FiscalDayStatus)
+                                </span>
+                            </span>
+                        </div>
+
+                        <div class="fcx-facts">
+                            <div class="fcx-fact">
+                                <div class="fcx-fact-label">Fiscal day</div>
+                                <div class="fcx-fact-value">@(revmax.Device.LastFiscalDayNo?.ToString(CultureInfo.InvariantCulture) ?? "—")</div>
+                            </div>
+                            <div class="fcx-fact">
+                                <div class="fcx-fact-label">Last receipt</div>
+                                <div class="fcx-fact-value">@(revmax.Device.LastReceiptGlobalNo?.ToString(CultureInfo.InvariantCulture) ?? "—")</div>
+                                <div class="fcx-fact-note">the box's own counter</div>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(revmax.Device.CompanyName))
+                            {
+                                <div class="fcx-fact">
+                                    <div class="fcx-fact-label">Taxpayer</div>
+                                    <div class="fcx-fact-value">@revmax.Device.CompanyName</div>
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(revmax.Device.Tin))
+                            {
+                                <div class="fcx-fact">
+                                    <div class="fcx-fact-label">TIN</div>
+                                    <div class="fcx-fact-value">@revmax.Device.Tin</div>
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(revmax.Device.Vat))
+                            {
+                                <div class="fcx-fact">
+                                    <div class="fcx-fact-label">VAT</div>
+                                    <div class="fcx-fact-value">@revmax.Device.Vat</div>
+                                </div>
+                            }
+                            @foreach (var fact in revmax.Device.Licence)
+                            {
+                                <div class="fcx-fact">
+                                    <div class="fcx-fact-label">@fact.Name</div>
+                                    <div class="fcx-fact-value">@fact.Value</div>
+                                </div>
+                            }
+                        </div>
+                    </article>
+                </div>
+            }
+
+            <div class="fcx-filters">
+                <div class="fcx-filter">
+                    <label class="fcx-filter-label" for="fcx-rev-from">From</label>
+                    <div class="fcx-filter-date">
+                        <NocturneDateField Id="fcx-rev-from" @bind-Date="revmaxFrom" AriaLabel="REVMax window start" />
+                    </div>
+                </div>
+                <div class="fcx-filter">
+                    <label class="fcx-filter-label" for="fcx-rev-to">To</label>
+                    <div class="fcx-filter-date">
+                        <NocturneDateField Id="fcx-rev-to" @bind-Date="revmaxTo" AriaLabel="REVMax window end" />
+                    </div>
+                </div>
+                <div class="fcx-filter-actions">
+                    <button type="button" class="fcx-btn fcx-btn-accent" disabled="@isLoadingRevmax" @onclick="LoadRevmaxAsync">
+                        <i class="bi bi-funnel" aria-hidden="true"></i> Apply
+                    </button>
+                    <button type="button" class="fcx-btn fcx-btn-quiet" disabled="@isLoadingRevmax" @onclick="ClearRevmaxWindowAsync">
+                        Last 30 days
+                    </button>
+                </div>
+            </div>
+
+            <div class="fcx-facts">
+                <div class="fcx-fact fcx-fact-good">
+                    <div class="fcx-fact-label">Receipts filed</div>
+                    <div class="fcx-fact-value">@revmax.Totals.ReceiptsFiled</div>
+                    <div class="fcx-fact-note">
+                        @(revmax.Totals.FirstReceiptGlobalNo is null
+                            ? "no receipt numbers in this window"
+                            : $"no. {revmax.Totals.FirstReceiptGlobalNo} to {revmax.Totals.LastReceiptGlobalNo}")
+                    </div>
+                </div>
+                <div class="fcx-fact">
+                    <div class="fcx-fact-label">Documents filed</div>
+                    <div class="fcx-fact-value">@revmax.Totals.DocumentsFiled</div>
+                    <div class="fcx-fact-note">counted once each, however many tries</div>
+                </div>
+                <div class="fcx-fact @(revmax.Totals.DocumentsFailed > 0 ? "fcx-fact-bad" : "")">
+                    <div class="fcx-fact-label">Still unfiled</div>
+                    <div class="fcx-fact-value">@revmax.Totals.DocumentsFailed</div>
+                    <div class="fcx-fact-note">no receipt, no QR, no verification code</div>
+                </div>
+                <div class="fcx-fact">
+                    <div class="fcx-fact-label">Fiscal days</div>
+                    <div class="fcx-fact-value">@revmax.Totals.FiscalDaysCovered</div>
+                    <div class="fcx-fact-note">distinct days touched</div>
+                </div>
+                <div class="fcx-fact">
+                    <div class="fcx-fact-label">Last filed</div>
+                    <div class="fcx-fact-value">
+                        @Moment(revmax.Totals.LastAtUtc)
+                    </div>
+                </div>
+            </div>
+
+            @if (revmax.ByCurrency.Count > 0)
+            {
+                <div class="fcx-table-wrap">
+                    <table class="fcx-table">
+                        <thead>
+                            <tr>
+                                <th>Currency</th>
+                                <th class="fcx-right">Documents</th>
+                                <th class="fcx-right">Value filed</th>
+                                <th class="fcx-right">VAT declared</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var total in revmax.ByCurrency)
+                            {
+                                <tr>
+                                    <td class="fcx-cell-strong">
+                                        @(string.IsNullOrWhiteSpace(total.Currency) ? "unstated" : total.Currency)
+                                    </td>
+                                    <td class="fcx-right fcx-revmax-money">@total.Documents</td>
+                                    <td class="fcx-right fcx-revmax-money">@total.DocTotal.ToString("N2", CultureInfo.InvariantCulture)</td>
+                                    <td class="fcx-right fcx-revmax-money">@total.VatSum.ToString("N2", CultureInfo.InvariantCulture)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            @if (revmax.Recent.Count == 0)
+            {
+                <div class="fcx-empty">
+                    <div class="fcx-empty-title">Nothing was filed in this window</div>
+                    <div class="fcx-empty-note">
+                        Widen the dates above. Receipts the device vendor's own SAP add-on files never reach
+                        this log, so the device counter above will run ahead of these figures.
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="fcx-table-wrap">
+                    <table class="fcx-table fcx-table-revmax">
+                        <thead>
+                            <tr>
+                                <th>Document</th>
+                                <th>Customer</th>
+                                <th class="fcx-right">Amount</th>
+                                <th class="fcx-right">VAT</th>
+                                <th>Receipt</th>
+                                <th>Day</th>
+                                <th>Status</th>
+                                <th>When</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in revmax.Recent)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="fcx-cell-strong">@row.DocumentType @row.DocNum</div>
+                                        @if (!string.IsNullOrWhiteSpace(row.VerificationCode))
+                                        {
+                                            <div class="fcx-cell-sub">@row.VerificationCode</div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div>@(string.IsNullOrWhiteSpace(row.CardName) ? "—" : row.CardName)</div>
+                                        @if (!string.IsNullOrWhiteSpace(row.CardCode))
+                                        {
+                                            <div class="fcx-cell-sub">@row.CardCode</div>
+                                        }
+                                    </td>
+                                    <td class="fcx-right fcx-revmax-money">
+                                        @row.DocTotal.ToString("N2", CultureInfo.InvariantCulture)
+                                        <div class="fcx-cell-sub">@row.Currency</div>
+                                    </td>
+                                    <td class="fcx-right fcx-revmax-money">@row.VatSum.ToString("N2", CultureInfo.InvariantCulture)</td>
+                                    <td>@(row.ReceiptGlobalNo?.ToString(CultureInfo.InvariantCulture) ?? "—")</td>
+                                    <td>@(string.IsNullOrWhiteSpace(row.FiscalDay) ? "—" : row.FiscalDay)</td>
+                                    <td class="fcx-cell-status">
+                                        <span class="fcx-dot @(row.Filed ? "fcx-dot-good" : "fcx-dot-bad")"></span>
+                                        <span>@(row.Filed ? "Filed" : row.Status)</span>
+                                    </td>
+                                    <td>@Moment(row.TimestampUtc)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+    </section>
+
     @* ── Devices ─────────────────────────────────────────────────────────── *@
 
     <section class="fcx-section">
@@ -644,13 +919,21 @@
     private const int QueuePageSize = 50;
     private const int DayPageSize = 50;
 
+    /// <summary>Rows the REVMax section lists. A recent-activity read, not a ledger.</summary>
+    private const int RevmaxRecentCount = 25;
+
     private List<FiscalConsoleDeviceResponse> devices = [];
     private FiscalWorkQueueResponse? queue;
     private FiscalDayStateListResponse? days;
+    private RevmaxActivityResponse? revmax;
 
     private bool isLoadingDevices = true;
     private bool isLoadingQueue = true;
     private bool isLoadingDays = true;
+    private bool isLoadingRevmax = true;
+
+    private DateTime? revmaxFrom;
+    private DateTime? revmaxTo;
     private string? loadError;
     private DateTime? lastLoadedAt;
 
@@ -683,7 +966,7 @@
     /// </remarks>
     private readonly HashSet<string> lockedOut = [];
 
-    private bool IsBusy => isLoadingDevices || isLoadingQueue || isLoadingDays || retryingKey is not null;
+    private bool IsBusy => isLoadingDevices || isLoadingQueue || isLoadingDays || isLoadingRevmax || retryingKey is not null;
 
     @* Both menus live in FiscalConsoleMenus, alongside the function that colours the dot on the rows
        they select. Inline they were a second switch over the same statuses, and one that had already
@@ -711,6 +994,13 @@
         await LoadDaysAsync();
         StateHasChanged();
 
+        // Both of these reach across the network and may wait on something that does not answer, so
+        // they come after the two sections that are read straight from SQL. REVMax is rendered first on
+        // the page and loaded last on purpose: where it sits is about what matters, when it loads is
+        // about what it costs, and a device that is silent must not hold up a queue that is not.
+        await LoadRevmaxAsync();
+        StateHasChanged();
+
         await LoadDevicesAsync();
     }
 
@@ -725,8 +1015,45 @@
         await LoadDaysAsync();
         StateHasChanged();
 
+        await LoadRevmaxAsync();
+        StateHasChanged();
+
         await LoadDevicesAsync();
     }
+
+    /// <summary>
+    /// Reads the REVMax device and its filing.
+    /// </summary>
+    /// <remarks>
+    /// Does not set <c>loadError</c>. That banner speaks for the whole page, and this section reports its
+    /// own trouble in place — a device that is briefly busy is not a reason to tell someone the work queue
+    /// they are reading is unreliable.
+    /// </remarks>
+    private async Task LoadRevmaxAsync()
+    {
+        isLoadingRevmax = true;
+
+        revmax = await FiscalConsole.GetRevmaxActivityAsync(revmaxFrom, revmaxTo, RevmaxRecentCount);
+
+        isLoadingRevmax = false;
+        lastLoadedAt = DateTime.UtcNow;
+    }
+
+    private async Task ClearRevmaxWindowAsync()
+    {
+        revmaxFrom = null;
+        revmaxTo = null;
+        await LoadRevmaxAsync();
+    }
+
+    /// <summary>Whether the device says its fiscal day is open.</summary>
+    /// <remarks>
+    /// Matched on the status text the device returns rather than an enum, because it is the device's
+    /// string and not ours. Anything that is not recognisably open is shown as not open — the amber that
+    /// results is a prompt to look, which is the right outcome for a status we do not recognise.
+    /// </remarks>
+    private bool IsRevmaxDayOpen()
+        => revmax?.Device?.FiscalDayStatus?.Contains("Open", StringComparison.OrdinalIgnoreCase) == true;
 
     private async Task LoadDevicesAsync()
     {
