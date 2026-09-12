@@ -38,17 +38,33 @@ public sealed class RevmaxDesktopCreditGateway(IRevmaxClient client, RevmaxFisca
             (!string.IsNullOrWhiteSpace(sale.FiscalReceiptNumber) &&
              (!long.TryParse(sale.FiscalReceiptNumber, out var recordedGlobal) || recordedGlobal != global)))
             throw new InvalidOperationException("The original sale's recorded fiscal day or receipt number is missing or does not match REVMax. Reconcile the original receipt first.");
-        if (data.ReceiptLines.Any(l => !string.Equals(l.ReceiptLineType, "Sale", StringComparison.OrdinalIgnoreCase)
-            || l.ReceiptLineQuantity <= 0 || l.ReceiptLineTotal <= 0 || l.TaxPercent < 0 || l.TaxID <= 0) ||
-            data.ReceiptLines.Select(l => l.ReceiptLineNo).Distinct().Count() != data.ReceiptLines.Count)
-            throw new InvalidOperationException("The original receipt has unsupported or invalid lines. Review it before crediting.");
-        var lines = data.ReceiptLines.Select(l => new DesktopCreditLine(l.ReceiptLineNo,
-            l.ReceiptLineName ?? $"Line {l.ReceiptLineNo}", l.ReceiptLineQuantity,
-            // The recorded line total already incorporates discounts and the device's rounding.
-            l.ReceiptLineTotal * (data.ReceiptLinesTaxInclusive ? 1m : 1m + l.TaxPercent / 100m) / l.ReceiptLineQuantity,
-            l.TaxID, l.TaxPercent, l.TaxCode, l.ReceiptLineHSCode)).ToList();
+        // A credit needs a quantity, a value and the tax the line was sold under; receiptLineNo and
+        // receiptLineType are the device's own bookkeeping and it does not have to echo either. Absent
+        // or repeated numbers only cost the line its identity, which its position gives back, so they
+        // are not a reason to refuse the receipt. A line that genuinely cannot be reversed as goods is
+        // left off the form with its reason rather than blocking the rest: the credit is still capped
+        // at the receipt total, so leaving one out can never credit more than the receipt carried.
+        var numbers = data.ReceiptLines.Select(l => l.ReceiptLineNo).ToList();
+        var byPosition = numbers.Any(n => n <= 0) || numbers.Distinct().Count() != numbers.Count;
+        var lines = new List<DesktopCreditLine>();
+        var excluded = new List<string>();
+        for (var index = 0; index < data.ReceiptLines.Count; index++)
+        {
+            var l = data.ReceiptLines[index];
+            var lineNo = byPosition ? index + 1 : l.ReceiptLineNo;
+            var name = string.IsNullOrWhiteSpace(l.ReceiptLineName) ? $"Line {lineNo}" : l.ReceiptLineName;
+            if (Uncreditable(l) is { } reason) { excluded.Add($"line {lineNo} ({name}) {reason}"); continue; }
+            lines.Add(new DesktopCreditLine(lineNo, name, l.ReceiptLineQuantity,
+                // The recorded line total already incorporates discounts and the device's rounding.
+                l.ReceiptLineTotal * (data.ReceiptLinesTaxInclusive ? 1m : 1m + l.TaxPercent / 100m) / l.ReceiptLineQuantity,
+                l.TaxID, l.TaxPercent, l.TaxCode, l.ReceiptLineHSCode));
+        }
+        if (lines.Count == 0)
+            throw new InvalidOperationException(
+                $"None of the original receipt's {data.ReceiptLines.Count} lines can be credited: {string.Join("; ", excluded)}.");
         return new DesktopCreditSource(number, data.ReceiptCurrency ?? sale.Currency, Math.Abs(data.ReceiptTotal),
-            device, day, checked((int)global), null, lines, Buyer: new BuyerApiRequest
+            device, day, checked((int)global), null, lines, ExcludedLines: excluded.Count == 0 ? null : excluded,
+            Buyer: new BuyerApiRequest
             {
                 RegisterName = ReadText(data.BuyerData, "buyerRegisterName") ?? sale.CardName ?? sale.CardCode,
                 Tin = ReadText(data.BuyerData, "buyerTIN"), VatNumber = ReadText(data.BuyerData, "buyerVATNumber"),
@@ -58,6 +74,22 @@ public sealed class RevmaxDesktopCreditGateway(IRevmaxClient client, RevmaxFisca
                 City = ReadNestedText(data.BuyerData, "buyerAddress", "city")
             });
     }
+
+    /// <summary>Why the device's record of a line cannot be reversed as goods, or null when it can.</summary>
+    /// <remarks>
+    /// A type the device did state and that is not a sale - FDMS's other line type is Discount - must
+    /// never be credited as goods. A type it did not state says nothing, and refusing on it would
+    /// refuse every receipt whose lines carry the fiscal content but not that field.
+    /// </remarks>
+    private static string? Uncreditable(ReceiptLine line) =>
+        !string.IsNullOrWhiteSpace(line.ReceiptLineType)
+            && !string.Equals(line.ReceiptLineType, "Sale", StringComparison.OrdinalIgnoreCase)
+                ? $"is recorded as {line.ReceiptLineType}, not a sale"
+        : line.ReceiptLineQuantity <= 0 ? "carries no quantity"
+        : line.ReceiptLineTotal <= 0 ? "carries no value"
+        : line.TaxID <= 0 ? "has no tax id on the receipt"
+        : line.TaxPercent < 0 ? $"has a negative tax rate ({line.TaxPercent}%)"
+        : null;
 
     private static string? ReadText(JsonElement? value, string property) =>
         value is { ValueKind: JsonValueKind.Object } obj && obj.TryGetProperty(property, out var item)

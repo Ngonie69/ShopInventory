@@ -1052,6 +1052,11 @@
                 {
                     <p>Original receipt: @desktopCreditForm.Source.ReceiptGlobalNo · Device @desktopCreditForm.Source.DeviceId ·
                         Fiscal day @desktopCreditForm.Source.FiscalDayNo</p>
+                    @if (desktopCreditForm.Source.ExcludedLines is { Count: > 0 } skipped)
+                    {
+                        <p role="note">Not offered for credit: @string.Join("; ", skipped). The credit is still
+                            capped at the original receipt's total.</p>
+                    }
                     <div class="ops-scroll">
                         <table class="ops-table">
                             <thead><tr><th>Receipt line</th><th>Available</th><th>Credit quantity</th><th>Credit amount</th></tr></thead>

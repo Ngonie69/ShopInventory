@@ -162,11 +162,12 @@ public class RevmaxFiscalPayloadTests
                 Data = new InvoiceData
                 {
                     ReceiptGlobalNo = 216204,
+                    // The device numbers receipt lines from 1, as receipt 216877 shows.
                     ReceiptLines =
                     [
-                        new ReceiptLine { ReceiptLineNo = 0, TaxID = 515, TaxPercent = 15.5m },
+                        new ReceiptLine { ReceiptLineNo = 1, TaxID = 515, TaxPercent = 15.5m },
                         // Declared zero-rated; the device recorded it standard-rated.
-                        new ReceiptLine { ReceiptLineNo = 1, TaxID = 515, TaxPercent = 15.5m }
+                        new ReceiptLine { ReceiptLineNo = 2, TaxID = 515, TaxPercent = 15.5m }
                     ]
                 }
             }
@@ -203,8 +204,8 @@ public class RevmaxFiscalPayloadTests
                     ReceiptGlobalNo = 216204,
                     ReceiptLines =
                     [
-                        new ReceiptLine { ReceiptLineNo = 0, TaxID = 515, TaxPercent = 15.5m },
-                        new ReceiptLine { ReceiptLineNo = 1, TaxID = 2, TaxPercent = 0m }
+                        new ReceiptLine { ReceiptLineNo = 1, TaxID = 515, TaxPercent = 15.5m },
+                        new ReceiptLine { ReceiptLineNo = 2, TaxID = 2, TaxPercent = 0m }
                     ]
                 }
             }
@@ -259,6 +260,23 @@ public class RevmaxFiscalPayloadTests
         await Service(client).FiscalizeInvoiceAsync(invoice);
 
         Assert.Equal("Counter sale", client.LastInvoice!.InvoiceComment);
+    }
+
+    [Fact]
+    public async Task Receipt_lines_are_numbered_from_one_because_the_device_floors_the_number_at_one()
+    {
+        // HH is the receipt's line number. SAP's LineNum starts at 0 and the device stores anything
+        // below 1 as 1, so lines 0 and 1 both landed on receiptLineNo 1: GetInvoice for till sale
+        // GRC-FAC-20260911-286EEC7389FD returns its three lines numbered 1, 1, 2. That numbering is
+        // on the customer's copy and on ZIMRA's, and the tax read-back below matches per line by it.
+        var client = new RecordingRevmaxClient();
+
+        await Service(client).FiscalizeInvoiceAsync(Invoice());
+
+        var lines = (List<RevmaxRequestItem>)client.LastInvoice!.ItemsXml!;
+
+        Assert.Equal(["1", "2"], lines.Select(l => l.HH));
+        Assert.Equal(["CHE011", "NRI049"], lines.Select(l => l.ItemCode));
     }
 
     [Fact]

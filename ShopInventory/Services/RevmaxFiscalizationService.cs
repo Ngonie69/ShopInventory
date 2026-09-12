@@ -1235,7 +1235,7 @@ public class RevmaxFiscalizationService : IFiscalizationService
             return new List<RevmaxRequestItem>();
         }
 
-        var items = document.Lines.Select(line =>
+        var items = document.Lines.Select((line, index) =>
         {
             var quantity = Math.Abs(line.Quantity);
 
@@ -1250,7 +1250,13 @@ public class RevmaxFiscalizationService : IFiscalizationService
 
             return new RevmaxRequestItem
             {
-                HH = line.LineNum.ToString(CultureInfo.InvariantCulture),
+                // HH is the receipt's line number and the device floors it at 1, so a SAP LineNum of 0
+                // lands on the same line as LineNum 1: till sale GRC-FAC-20260911-286EEC7389FD was
+                // filed with HH 0,1,2 and receipt 216877 records its three lines as 1,1,2. It is the
+                // customer's and ZIMRA's copy of the numbering, and the read-back below matches the
+                // tax it declared per line by it, so a collision reads the wrong line's rate. Numbered
+                // from 1 in document order, which is what the device stores anyway.
+                HH = (index + 1).ToString(CultureInfo.InvariantCulture),
                 ItemCode = line.ItemCode ?? string.Empty,
                 ItemName1 = description,
                 ItemName2 = description,

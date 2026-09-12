@@ -220,6 +220,193 @@ public sealed class DesktopCreditNoteTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(() => device.FindAsync(plan, default));
     }
 
+    [Fact]
+    public async Task Lines_the_device_numbered_neither_uniquely_nor_at_all_keep_their_order_as_their_identity()
+    {
+        // receiptLineNo and receiptLineType are the device's own bookkeeping, and a receipt that carries
+        // the fiscal content without them is still a receipt we can reverse.
+        var original = OriginalReceipt();
+        original.Data!.ReceiptLines =
+        [
+            Line(0, "First product", type: null), Line(0, "Second product", type: null)
+        ];
+
+        var source = await RealGateway(original).ReadOriginalAsync(db.DesktopSales.Single(), default);
+
+        Assert.Equal([1, 2], source.Lines.Select(l => l.LineNo));
+        Assert.Equal(["First product", "Second product"], source.Lines.Select(l => l.Name));
+        Assert.Null(source.ExcludedLines);
+    }
+
+    [Fact]
+    public async Task A_line_that_is_not_goods_is_left_off_the_form_with_its_reason_rather_than_stopping_the_credit()
+    {
+        var original = OriginalReceipt();
+        original.Data!.ReceiptLines =
+        [
+            Line(1, "Original product"),
+            Line(2, "Loyalty discount", total: -10m, type: "Discount"),
+            Line(3, "Untaxed line", taxId: 0)
+        ];
+
+        var source = await RealGateway(original).ReadOriginalAsync(db.DesktopSales.Single(), default);
+
+        Assert.Equal([1], source.Lines.Select(l => l.LineNo));
+        Assert.Equal(
+            ["line 2 (Loyalty discount) is recorded as Discount, not a sale", "line 3 (Untaxed line) has no tax id on the receipt"],
+            source.ExcludedLines);
+    }
+
+    [Fact]
+    public async Task A_receipt_with_nothing_to_credit_says_which_line_stopped_it_and_why()
+    {
+        var original = OriginalReceipt();
+        original.Data!.ReceiptLines = [Line(1, "Free sample", total: 0m)];
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => RealGateway(original).ReadOriginalAsync(db.DesktopSales.Single(), default));
+
+        Assert.Equal("None of the original receipt's 1 lines can be credited: line 1 (Free sample) carries no value.",
+            refusal.Message);
+    }
+
+    private static ReceiptLine Line(int no, string name, decimal quantity = 10m, decimal total = 100m,
+        int taxId = 7, string? type = "Sale") => new()
+        {
+            ReceiptLineNo = no, ReceiptLineName = name, ReceiptLineType = type, ReceiptLineQuantity = quantity,
+            ReceiptLinePrice = total / quantity, ReceiptLineTotal = total, TaxID = taxId, TaxPercent = 15.5m
+        };
+
+    /// <summary>
+    /// GET /api/RevmaxAPI/GetInvoice/GRC-FAC-20260911-286EEC7389FD as device 22862 answered it,
+    /// verbatim. Its three lines are numbered 1, 1 and 2: the receipt was filed with HH 0, 1, 2 and
+    /// the device stores anything below 1 as 1, so the first two share a number.
+    /// </summary>
+    private const string TillReceiptJson =
+        """
+        {
+          "Code": "1",
+          "Message": "Success",
+          "QRcode": "https://fdms.zimra.co.zw/000002286211092026000021687760A74CD961202377",
+          "VerificationCode": "60A7-4CD9-6120-2377",
+          "VerificationLink": "https://fdms.zimra.co.zw",
+          "DeviceID": "22862",
+          "DeviceSerialNumber": "8DE6996C0188",
+          "FiscalDay": "524",
+          "Data": {
+            "receiptType": "FiscalInvoice",
+            "receiptCurrency": "USD",
+            "receiptCounter": 985,
+            "receiptGlobalNo": 216877,
+            "invoiceNo": "22862-GRC-FAC-20260911-286EEC7389FD",
+            "buyerData": null,
+            "receiptNotes": "22862- Invoice GRC-FAC-20260911-286EEC7389FD",
+            "receiptDate": "2026-09-11T09:00:08",
+            "creditDebitNote": null,
+            "receiptLinesTaxInclusive": true,
+            "receiptLines": [
+              {
+                "receiptLineName": "5 Litre Shamiso Blueberry",
+                "receiptLineNo": 1,
+                "receiptLineQuantity": 17,
+                "receiptLineType": "Sale",
+                "receiptLineTotal": 122.74,
+                "taxID": 515,
+                "receiptLineHSCode": "99001000",
+                "receiptLinePrice": 7.22,
+                "taxCode": "A",
+                "taxPercent": 15.5
+              },
+              {
+                "receiptLineName": "5 Litre Shamiso Bubblegum",
+                "receiptLineNo": 1,
+                "receiptLineQuantity": 20,
+                "receiptLineType": "Sale",
+                "receiptLineTotal": 144.34,
+                "taxID": 515,
+                "receiptLineHSCode": "99001000",
+                "receiptLinePrice": 7.217,
+                "taxCode": "A",
+                "taxPercent": 15.5
+              },
+              {
+                "receiptLineName": "5 Litre Shamiso Banana",
+                "receiptLineNo": 2,
+                "receiptLineQuantity": 20,
+                "receiptLineType": "Sale",
+                "receiptLineTotal": 144.4,
+                "taxID": 515,
+                "receiptLineHSCode": "99001000",
+                "receiptLinePrice": 7.22,
+                "taxCode": "A",
+                "taxPercent": 15.5
+              }
+            ],
+            "receiptTaxes": [
+              { "salesAmountWithTax": 411.48, "taxAmount": 55.22, "taxID": 515, "taxCode": "A", "taxPercent": 15.5 }
+            ],
+            "receiptPayments": [ { "moneyTypeCode": "Cash", "paymentAmount": 411.48 } ],
+            "receiptTotal": 411.48,
+            "receiptPrintForm": "Receipt48",
+            "receiptDeviceSignature": {
+              "hash": "Fu4bWmQPKzhREZzKn3HrLJtMIrqjnWPqEbR/q1bNJGI=",
+              "signature": "FEp9Ss4FqlkhRoUVG+huRCPATv1DAu5aiGCn/9/zDyD77z+ebuqfc97fyOMkojpl30tYZYSX/wuZDgTVRMxXNRM/1as/8Xxd2lvzS9NhC9nv0Zkjgvz+0WOZT5b08IteqgjpwS+48TtdN0gfBgB4oxUs82TvXdBNB+FRKb5dEaSci5surcW/4dSeNxyVH57PKZiz2Z4SksewVSVzbMi3BWHD7C5LBKrYA/CmV4UmycvJsSNV9nWgc8ewH6tq0zjTBzcNDL6erDGWyHNszSHPTxdIGYDdbsu4hzEHv4innZnNmJIpLC7/zBY78PYkdjhI/nAsnw/9TaOEhIRq6I1/Xw=="
+            }
+          }
+        }
+        """;
+
+    [Fact]
+    public async Task The_real_till_receipt_whose_device_numbered_two_lines_alike_credits_every_line()
+    {
+        db.DesktopSales.Add(new DesktopSaleEntity
+        {
+            ExternalReferenceId = "GRC-FAC-20260911-286EEC7389FD", CardCode = "COR007", WarehouseCode = "KEFGRS",
+            Currency = "USD", FiscalizationStatus = DesktopSaleFiscalizationStatus.Success, TotalAmount = 411.48m,
+            FiscalDayNo = "525", FiscalReceiptNumber = "216877", SourceSystem = "KefalosShopTill"
+        });
+        db.SaveChanges();
+        var sale = db.DesktopSales.Single(s => s.ExternalReferenceId == "GRC-FAC-20260911-286EEC7389FD");
+        var settings = new RevmaxSettings { Enabled = true, BaseUrl = "https://revmax.invalid", DefaultRefDeviceId = 22862 };
+        var options = Options.Create(settings);
+        var selection = Options.Create(new FiscalisationSettings { Provider = FiscalisationProvider.Revmax });
+        using var http = new HttpClient(new BodyHandler(TillReceiptJson));
+        var client = new RevmaxClient(http, options, NullLogger<RevmaxClient>.Instance);
+        var gateway = new RevmaxDesktopCreditGateway(client, new RevmaxFiscalizationService(client, options,
+            Options.Create(new TaxSettings()), selection, NullLogger<RevmaxFiscalizationService>.Instance), options, selection);
+
+        var source = await gateway.ReadOriginalAsync(sale, default);
+
+        Assert.Equal([1, 2, 3], source.Lines.Select(l => l.LineNo));
+        Assert.Equal(["5 Litre Shamiso Blueberry", "5 Litre Shamiso Bubblegum", "5 Litre Shamiso Banana"],
+            source.Lines.Select(l => l.Name));
+        Assert.Equal([7.22m, 7.217m, 7.22m], source.Lines.Select(l => l.UnitPrice));
+        Assert.All(source.Lines, l => Assert.Equal(515, l.TaxId));
+        Assert.Null(source.ExcludedLines);
+        Assert.Equal(411.48m, source.OriginalTotal);
+        Assert.Equal(525, source.FiscalDayNo); // The recorded day, never the envelope's 524.
+        Assert.Equal(216877, source.ReceiptGlobalNo);
+
+        // The whole receipt credits to the cent, and each line keeps its own number on the wire.
+        var plan = DesktopCreditPlanner.Build(source,
+            new(Guid.NewGuid().ToString("N"), "Customer return", [new(1, 17m), new(2, 20m), new(3, 20m)]),
+            new Dictionary<int, decimal>(), 0m, DateTime.UtcNow);
+        var items = (List<RevmaxRequestItem>)RevmaxDesktopCreditGateway.BuildRequest(plan, settings).ItemsXml!;
+
+        Assert.Equal(411.48m, plan.Amount);
+        Assert.Equal(["1", "2", "3"], items.Select(i => i.HH));
+        Assert.Equal(["1", "2", "3"], items.Select(i => i.ItemCode));
+    }
+
+    private sealed class BodyHandler(string body) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json")
+            });
+    }
+
     private static InvoiceResponse OriginalReceipt() => new()
     {
         Code = "1", DeviceID = "22862", FiscalDay = "524", Data = new InvoiceData

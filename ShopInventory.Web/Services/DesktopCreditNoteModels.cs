@@ -5,7 +5,8 @@ public sealed record CreateDesktopCreditRequest(string RequestKey, string Reason
 public sealed record DesktopCreditLine(int LineNo, string Name, decimal Quantity, decimal UnitPrice,
     int TaxId, decimal? TaxPercent, string? TaxCode, string? HsCode);
 public sealed record DesktopCreditSource(string OriginalFiscalNumber, string Currency, decimal OriginalTotal,
-    int DeviceId, int FiscalDayNo, int ReceiptGlobalNo, long? ReceiptId, List<DesktopCreditLine> Lines);
+    int DeviceId, int FiscalDayNo, int ReceiptGlobalNo, long? ReceiptId, List<DesktopCreditLine> Lines,
+    List<string>? ExcludedLines = null);
 public sealed record DesktopCreditNoteResult(Guid Id, string Number, string Status, decimal Amount,
     string Currency, string Reason, string OriginalFiscalNumber, DateTime CreatedAtUtc,
     string? Message, string? QrCode, string? ReceiptGlobalNo, int? SapDocNum);
