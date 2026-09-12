@@ -736,7 +736,19 @@ public class DesktopSaleDto
     public string? PaymentMethod { get; set; }
     public string? PaymentReference { get; set; }
     public decimal AmountPaid { get; set; }
+
+    /// <summary>The account id the sale was captured under, as the column holds it.</summary>
     public string? CreatedBy { get; set; }
+
+    /// <summary>
+    /// Who that account belongs to, resolved by the API. Null when the id names no account any more.
+    /// </summary>
+    /// <remarks>
+    /// Kept alongside the id rather than replacing it: the id is what support matches against the
+    /// till's own logs, and an API that predates this field must still render the drawer.
+    /// </remarks>
+    public string? CreatedByName { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     // --- Where the sale got to on its way to SAP ---

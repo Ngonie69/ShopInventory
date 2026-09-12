@@ -351,34 +351,9 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
         return columns;
     }
 
-    private async Task<IReadOnlyDictionary<Guid, string>> OperatorNamesAsync(
-        List<Cell> cells, CancellationToken cancellationToken)
-    {
-        var ids = cells
-            .Select(c => Guid.TryParse(c.CreatedBy, out var id) ? id : Guid.Empty)
-            .Where(id => id != Guid.Empty)
-            .Distinct()
-            .ToList();
-
-        if (ids.Count == 0)
-        {
-            return new Dictionary<Guid, string>();
-        }
-
-        var users = await db.Users
-            .AsNoTracking()
-            .Where(user => ids.Contains(user.Id))
-            .Select(user => new { user.Id, user.Username, user.FirstName, user.LastName })
-            .ToListAsync(cancellationToken);
-
-        return users.ToDictionary(
-            user => user.Id,
-            user =>
-            {
-                var fullName = $"{user.FirstName} {user.LastName}".Trim();
-                return fullName.Length > 0 ? fullName : user.Username;
-            });
-    }
+    private Task<IReadOnlyDictionary<Guid, string>> OperatorNamesAsync(
+        List<Cell> cells, CancellationToken cancellationToken) =>
+        SaleOperatorNames.ResolveAsync(db, cells.Select(c => c.CreatedBy), cancellationToken);
 
     private static string OperatorLabel(string createdBy, IReadOnlyDictionary<Guid, string> operators)
     {
@@ -388,8 +363,8 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
         }
 
         // An account that has since been deleted keeps its id rather than being given a name it no
-        // longer has.
-        return Guid.TryParse(createdBy, out var id) && operators.TryGetValue(id, out var name) ? name : createdBy;
+        // longer has: this is a breakdown, and a row with no label at all could not be read.
+        return SaleOperatorNames.Label(createdBy, operators) ?? createdBy;
     }
 
     private static string SourceLabel(string source) => source switch

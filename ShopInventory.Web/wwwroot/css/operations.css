@@ -2942,6 +2942,40 @@
     font-size: 12px;
 }
 
+/* ── Credit notes against the open sale ────────────────────────────────── */
+/* Stacked rather than tabled: the drawer is 420px and a credit carries a
+   reason, which no column of that width would hold. Each one is ruled off the
+   next so a sale credited twice does not read as one long paragraph. */
+
+.ops-overlay .ops-ds-credits {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s3);
+}
+
+.ops-overlay .ops-ds-credit {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    padding: var(--ops-s3);
+    border: 1px solid var(--ops-rule);
+    border-radius: var(--ops-r-md);
+}
+
+.ops-overlay .ops-ds-credit-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--ops-s4);
+    font-size: 13px;
+}
+
+.ops-overlay .ops-ds-credit-amt {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
 /* ── The trail ─────────────────────────────────────────────────────────── */
 /* Four steps down a rail. The mark carries the family; the label stays ink so
    the column does not become four colours, except where the family is the

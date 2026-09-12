@@ -145,6 +145,8 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db, IAuditServic
                 s.PaymentReference,
                 s.AmountPaid,
                 s.CreatedBy,
+                // Filled in below, once the accounts on this page have been looked up.
+                null,
                 s.CreatedAt,
                 s.SapDocEntry,
                 s.SapDocNum,
@@ -169,9 +171,15 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db, IAuditServic
             })
             .ToListAsync(cancellationToken);
 
+        // One lookup for the page rather than a join per row: a page of a shop's takings is rung up by
+        // a handful of accounts, and CreatedBy is a plain string column with no navigation to join on.
+        var operators = await SaleOperatorNames.ResolveAsync(
+            db, rows.Select(row => row.Sale.CreatedBy), cancellationToken);
+
         var sales = rows
             .Select(row => row.Sale with
             {
+                CreatedByName = SaleOperatorNames.Label(row.Sale.CreatedBy, operators),
                 PostRefusal = DesktopSalePostEligibility.Refusal(
                     row.Sale.SourceSystem, row.ConsolidationStatus, row.FiscalizationStatus)
             })

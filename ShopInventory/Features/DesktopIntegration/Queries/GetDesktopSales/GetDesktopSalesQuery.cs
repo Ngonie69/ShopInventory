@@ -67,6 +67,13 @@ public sealed record DesktopSaleListItemDto(
     string? PaymentReference,
     decimal AmountPaid,
     string? CreatedBy,
+
+    // Who that account belongs to, resolved by SaleOperatorNames. CreatedBy above is an account id
+    // and nothing else — every writer of the column stores one — so a console that showed it raw
+    // showed a GUID where it meant to name a cashier. Null when the id names no account any more,
+    // which the reader states in words rather than falling back to the id.
+    string? CreatedByName,
+
     DateTime CreatedAt,
 
     // --- Where this sale got to on its way to SAP ---
