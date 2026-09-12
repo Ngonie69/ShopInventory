@@ -953,6 +953,9 @@ try
     // it waits for approval — but nothing fiscalises through it unless Fiscalisation:Provider says so.
     builder.Services.AddScoped<FiscalizationService>();
     builder.Services.AddScoped<RevmaxFiscalizationService>();
+    builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.IDesktopCreditFiscalGateway,
+        ShopInventory.Features.DesktopCreditNotes.RevmaxDesktopCreditGateway>();
+    builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.DesktopCreditNoteService>();
     builder.Services.AddScoped<IFiscalizationService>(serviceProvider =>
     {
         var provider = serviceProvider

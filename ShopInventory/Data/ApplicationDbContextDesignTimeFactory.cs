@@ -21,6 +21,14 @@ public sealed class ApplicationDbContextDesignTimeFactory : IDesignTimeDbContext
 {
     public ApplicationDbContext CreateDbContext(string[] args)
     {
+        // Generating or checking migration metadata needs the provider, never production credentials.
+        if (args.Contains("--metadata-only", StringComparer.Ordinal))
+        {
+            return new ApplicationDbContext(new DbContextOptionsBuilder<ApplicationDbContext>()
+                .UseNpgsql("Host=localhost;Database=ShopInventoryMigrationMetadata;Username=metadata")
+                .Options);
+        }
+
         var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Development";
 
         var configuration = new ConfigurationBuilder()

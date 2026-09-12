@@ -1332,6 +1332,23 @@ Modules = new List<ApiModule>
 {
 new ApiModule
 {
+Name = "Desktop Credit Notes",
+BasePath = "/api/DesktopIntegration/sales/{reference}/credit-notes",
+Description = "5 endpoints under /api/DesktopIntegration/sales/{reference}/credit-notes.",
+Icon = Icons.Material.Filled.Dns,
+Color = Color.Secondary,
+Methods = new[] { "GET", "POST" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/DesktopIntegration/sales/{reference}/credit-notes", "List"),
+new("GET", "/api/DesktopIntegration/sales/{reference}/credit-notes/prepare", "Prepare"),
+new("POST", "/api/DesktopIntegration/sales/{reference}/credit-notes", "Create"),
+new("POST", "/api/DesktopIntegration/sales/{reference}/credit-notes/{id}/continue", "Continue"),
+new("POST", "/api/DesktopIntegration/sales/{reference}/credit-notes/{id}/reconcile", "Reconcile")
+}
+},
+new ApiModule
+{
 Name = "Desktop Integration",
 BasePath = "/api/DesktopIntegration",
 Description = "65 endpoints under /api/DesktopIntegration.",

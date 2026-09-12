@@ -9,6 +9,11 @@ namespace ShopInventory.Web.Services;
 /// </summary>
 public interface IDesktopIntegrationService
 {
+    Task<DesktopCreditNoteResult> ContinueCreditNoteAsync(string reference, Guid id) => throw new NotSupportedException();
+    Task<DesktopCreditForm> PrepareCreditNoteAsync(string reference) => throw new NotSupportedException();
+    Task<List<DesktopCreditNoteResult>> GetCreditNotesAsync(string reference) => throw new NotSupportedException();
+    Task<DesktopCreditNoteResult> CreateCreditNoteAsync(string reference, CreateDesktopCreditRequest request) => throw new NotSupportedException();
+    Task<DesktopCreditNoteResult> ReconcileCreditNoteAsync(string reference, Guid id) => throw new NotSupportedException();
     // Invoice Queue
     Task<List<InvoiceQueueStatusDto>?> GetPendingQueueAsync(string? sourceSystem = null, int limit = 100);
     Task<List<InvoiceQueueStatusDto>?> GetInvoicesRequiringReviewAsync(int limit = 50);
@@ -56,6 +61,30 @@ public interface IDesktopIntegrationService
 
 public class DesktopIntegrationService : IDesktopIntegrationService
 {
+    private static string CreditNoteUrl(string reference) =>
+        $"api/DesktopIntegration/sales/{Uri.EscapeDataString(reference)}/credit-notes";
+
+    public Task<DesktopCreditForm> PrepareCreditNoteAsync(string reference) =>
+        CreditRequestAsync<DesktopCreditForm>(HttpMethod.Get, CreditNoteUrl(reference) + "/prepare");
+    public Task<List<DesktopCreditNoteResult>> GetCreditNotesAsync(string reference) =>
+        CreditRequestAsync<List<DesktopCreditNoteResult>>(HttpMethod.Get, CreditNoteUrl(reference));
+    public Task<DesktopCreditNoteResult> CreateCreditNoteAsync(string reference, CreateDesktopCreditRequest request) =>
+        CreditRequestAsync<DesktopCreditNoteResult>(HttpMethod.Post, CreditNoteUrl(reference), request);
+    public Task<DesktopCreditNoteResult> ReconcileCreditNoteAsync(string reference, Guid id) =>
+        CreditRequestAsync<DesktopCreditNoteResult>(HttpMethod.Post, CreditNoteUrl(reference) + $"/{id}/reconcile");
+    public Task<DesktopCreditNoteResult> ContinueCreditNoteAsync(string reference, Guid id) =>
+        CreditRequestAsync<DesktopCreditNoteResult>(HttpMethod.Post, CreditNoteUrl(reference) + $"/{id}/continue");
+
+    private async Task<T> CreditRequestAsync<T>(HttpMethod method, string url, object? body = null)
+    {
+        using var request = new HttpRequestMessage(method, url);
+        if (body is not null) request.Content = JsonContent.Create(body);
+        using var response = await _httpClient.SendAsync(request);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(await ReadProblemDetailAsync(response, CancellationToken.None));
+        return await response.Content.ReadFromJsonAsync<T>()
+            ?? throw new InvalidOperationException("No credit-note result was returned. Reload the saved notes.");
+    }
     private readonly HttpClient _httpClient;
     private readonly ILogger<DesktopIntegrationService> _logger;
 

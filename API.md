@@ -2813,6 +2813,11 @@ transfers is `transfer-queue`, separate from the invoice `queue`.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| GET | `/api/DesktopIntegration/sales/{reference}/credit-notes` | Saved fiscal credit notes for this sale, scoped to the caller's warehouse |
+| GET | `/api/DesktopIntegration/sales/{reference}/credit-notes/prepare` | Read the original REVMax receipt and remaining creditable quantities; no SAP document required |
+| POST | `/api/DesktopIntegration/sales/{reference}/credit-notes` | Persist and fiscalise a credit through REVMax using a permanent request key, reason and selected line quantities |
+| POST | `/api/DesktopIntegration/sales/{reference}/credit-notes/{id}/continue` | Continue a saved credit only if submission has not started |
+| POST | `/api/DesktopIntegration/sales/{reference}/credit-notes/{id}/reconcile` | Read back the saved credit's fiscal status without resubmitting |
 | POST | `/api/DesktopIntegration/sales` | Record a desktop sale |
 | GET | `/api/DesktopIntegration/sales` | The sales (`warehouseCode`, `cardCode`, `consolidationStatus`, `fromDate`, `toDate`, `page` 1, `pageSize` 50) |
 | GET | `/api/DesktopIntegration/sales/analysis` | Admin, Manager, Cashier, ApiUser. A period's takings, one section per currency, broken down by payment method (Cash, Swipe and Ecocash always listed; legacy spellings folded; `Not recorded` for none), day, hour in CAT, shop, source, operator and the 25 best-selling items (`fromDate`, `toDate` — business dates, inclusive, default today, at most 366 days; `warehouseCode`, scoped exactly like the list; `sourceSystem`) |
