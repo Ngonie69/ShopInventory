@@ -695,7 +695,7 @@ public class RevmaxFiscalizationService : IFiscalizationService
                     Message =
                         $"REVMax did not accept {invoiceNumber} and holds no receipt for it. {ex.Message}",
                     InvoiceNumber = invoiceNumber,
-                    ErrorCode = "REVMAX_UNAVAILABLE",
+                    ErrorCode = UnavailableErrorCode,
                     ErrorDetails = ex.ToString(),
                     RawRequestJson = rawRequestJson
                 };
@@ -1245,7 +1245,9 @@ public class RevmaxFiscalizationService : IFiscalizationService
             // decimals: 3 x 1.115 declared 3.35 against a receipt line the device stored as 3.36.
             var price = RoundCurrency(GetPriceAfterVat(line));
             var amount = GetLineAmount(line, quantity, price);
-            var description = line.ItemDescription ?? string.Empty;
+            // Never blank: the device refuses the whole document when either name is empty.
+            // See RevmaxRequestItem.Name.
+            var description = RevmaxRequestItem.Name(line.ItemDescription, line.ItemCode);
             var taxCode = NormalizeTaxCode(line);
 
             return new RevmaxRequestItem
@@ -1402,6 +1404,16 @@ public class RevmaxFiscalizationService : IFiscalizationService
 
     internal string BuildPreSapInvoiceNo(string externalReference)
         => _fiscalisationSettings.BuildPreSapInvoiceNo(externalReference);
+
+    /// <summary>
+    /// The call failed and the lookup afterwards answered that REVMax holds nothing for the number.
+    /// </summary>
+    /// <remarks>
+    /// Named because a caller has to be able to tell it from a refusal: the device never saw this
+    /// one, or saw it and did not say, so "holds nothing" is a lookup taken moments after a POST that
+    /// may yet have been processed - not the proof a refusal carries.
+    /// </remarks>
+    public const string UnavailableErrorCode = "REVMAX_UNAVAILABLE";
 
     private static FiscalizationResult Disabled(string invoiceNumber) => new()
     {

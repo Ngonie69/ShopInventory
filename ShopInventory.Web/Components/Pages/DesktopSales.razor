@@ -1171,6 +1171,7 @@
     {
         if (creditSale == null || desktopCreditBusy) return;
         desktopCreditBusy = true;
+        var released = false;
         try
         {
             var result = note.Status == "Prepared"
@@ -1178,9 +1179,13 @@
                 : await DesktopService.ReconcileCreditNoteAsync(creditSale.ExternalReferenceId, note.Id);
             var index = desktopCreditNotes.FindIndex(n => n.Id == note.Id);
             if (index >= 0) desktopCreditNotes[index] = result;
+            // A released credit hands its quantities back. The form below still has them reserved, so
+            // it is reloaded rather than left telling the operator the lines are unavailable.
+            released = result.Status == "Rejected" && note.Status != "Rejected";
         }
         catch (Exception ex) { desktopCreditError = ex.Message; }
         finally { desktopCreditBusy = false; }
+        if (released) await RefreshDesktopCredits();
     }
 
     /// <summary>

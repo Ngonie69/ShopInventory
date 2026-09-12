@@ -33,4 +33,16 @@ public sealed class RevmaxRequestItem
 
     [JsonPropertyName("TAXR")]
     public string? TaxR { get; set; }
+
+    /// <summary>A line name the device will accept, from the first candidate that carries one.</summary>
+    /// <remarks>
+    /// REVMax validates ITEMNAME1 and ITEMNAME2 separately and refuses the whole transaction when
+    /// either is blank: a credit note filed with ITEMNAME2 set to "" came back as "Invalid ITEMNAME2..
+    /// Item Name cannot be empty. An empty value was supplied. Verify if Item Names are supplied for
+    /// all line items", with nothing filed. Both names carry the same description, so the caller
+    /// passes what it has - the description first, then the code or line number - and a line that has
+    /// none of them still files a name rather than failing the document.
+    /// </remarks>
+    public static string Name(params string?[] candidates) =>
+        Array.Find(candidates, c => !string.IsNullOrWhiteSpace(c)) ?? "Item";
 }
