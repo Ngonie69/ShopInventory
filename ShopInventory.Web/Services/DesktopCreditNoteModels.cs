@@ -5,7 +5,8 @@ public sealed record CreateDesktopCreditRequest(string RequestKey, string Reason
 public sealed record DesktopCreditLine(int LineNo, string Name, decimal Quantity, decimal UnitPrice,
     int TaxId, decimal? TaxPercent, string? TaxCode, string? HsCode);
 public sealed record DesktopCreditSource(string OriginalFiscalNumber, string Currency, decimal OriginalTotal,
-    int DeviceId, int FiscalDayNo, int ReceiptGlobalNo, long? ReceiptId, List<DesktopCreditLine> Lines);
+    int DeviceId, int FiscalDayNo, int ReceiptGlobalNo, long? ReceiptId, List<DesktopCreditLine> Lines,
+    List<string>? ExcludedLines = null);
 /// <remarks>
 /// <c>Status</c> is the fiscal half and <c>SapStatus</c> the back-office half. Both are carried,
 /// because the ordinary outcome is that they differ: a credit taken before its sale posts is with

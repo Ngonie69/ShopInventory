@@ -10,6 +10,19 @@ receipt number and the fiscal day recorded when the sale was filed are retained.
 envelope's FiscalDay is deliberately not substituted for a missing recorded day. A missing or
 mismatched original reference stops preparation and requires reconciliation of that original receipt.
 
+A receipt line is offered for credit when it carries a quantity, a positive value and a tax id. The
+device's own `receiptLineNo` identifies the line when the receipt numbers them uniquely, and the
+line's position does when it does not, so a receipt that repeats or omits those numbers is still
+creditable. Receipts filed before 2026-09-12 do repeat them: the device stores a line number below 1
+as 1, and invoices went out numbered from SAP's `LineNum`, which starts at 0 — receipt 216877
+(GRC-FAC-20260911-286EEC7389FD) holds its three lines as 1, 1, 2. New receipts are numbered from 1.
+
+A line the device recorded as something other than a sale - FDMS's other line type is `Discount` -
+or one with no quantity, no value or no tax id is listed as not offered, with its reason, instead of
+stopping the credit; the credit total is still capped at the original receipt's
+total, so leaving a line out cannot credit more than the receipt carried. Preparation is refused
+only when no line can be credited, and the refusal names every line and its reason.
+
 Each credit has a permanent `DCN-` number, an immutable payload and a unique request key. A retry with
 different quantities under the same key is refused. Submitted or uncertain credits reserve their
 quantities and amount. **Check fiscal status** only reads REVMax; it never resubmits. A note saved before

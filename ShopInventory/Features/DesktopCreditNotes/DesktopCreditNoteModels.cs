@@ -10,7 +10,7 @@ public sealed record DesktopCreditLine(int LineNo, string Name, decimal Quantity
     int TaxId, decimal? TaxPercent, string? TaxCode, string? HsCode);
 public sealed record DesktopCreditSource(string OriginalFiscalNumber, string Currency, decimal OriginalTotal,
     int DeviceId, int FiscalDayNo, int ReceiptGlobalNo, long? ReceiptId, List<DesktopCreditLine> Lines,
-    decimal ExternalCreditedAmount = 0, BuyerApiRequest? Buyer = null);
+    decimal ExternalCreditedAmount = 0, BuyerApiRequest? Buyer = null, List<string>? ExcludedLines = null);
 public sealed record DesktopCreditPlan(DesktopCreditSource Source, List<DesktopCreditQuantity> Quantities,
     SubmitReceiptApiRequest Receipt, decimal Amount);
 /// <remarks>

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using ShopInventory.Services.Fiscalisation;
+using ShopInventory.Web.Common;
 
 namespace ShopInventory.Tests;
 
@@ -149,5 +150,18 @@ public class FiscalReceiptQrComposerTests
 
     [Fact]
     public void VerificationCodeIsGroupedInFoursForDisplay()
-        => Assert.Equal("A1B2-C3D4-E5F6-0718", FiscalReceiptQrComposer.FormatVerificationCode("A1B2C3D4E5F60718"));
+    {
+        Assert.Equal("A1B2-C3D4-E5F6-0718", FiscalReceiptQrComposer.FormatVerificationCode("A1B2C3D4E5F60718"));
+
+        // REVMax hands the code over already grouped - "60A7-4CD9-6120-2377" on receipt 216877 - and
+        // grouping its dashes as characters printed "60A7--4CD-9-61-20-2-377" on the desktop sale
+        // drawer, which reads as a different code from the one on the customer's receipt.
+        Assert.Equal("60A7-4CD9-6120-2377", FiscalReceiptQrComposer.FormatVerificationCode("60A7-4CD9-6120-2377"));
+
+        // The Web renders the same code beside the same QR from its own hand-mirrored copy, so the
+        // two have to agree character for character.
+        Assert.Equal("60A7-4CD9-6120-2377", FiscalQrCode.FormatVerificationCode("60A7-4CD9-6120-2377"));
+        Assert.Equal("A1B2-C3D4-E5F6-0718", FiscalQrCode.FormatVerificationCode("A1B2C3D4E5F60718"));
+        Assert.Equal(string.Empty, FiscalQrCode.FormatVerificationCode(null));
+    }
 }
