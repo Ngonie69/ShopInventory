@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ShopInventory.Data;
@@ -11,9 +12,11 @@ using ShopInventory.Data;
 namespace ShopInventory.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260910064336_AddSapItemTaxGroups")]
+    partial class AddSapItemTaxGroups
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1239,91 +1242,6 @@ namespace ShopInventory.Migrations
                         });
                 });
 
-            modelBuilder.Entity("ShopInventory.Models.Entities.DesktopCreditNoteEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("Amount")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CreatedBy")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Currency")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)");
-
-                    b.Property<string>("FiscalResultJson")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("FiscalisedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Message")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Number")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("OriginalFiscalNumber")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("PlanJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<string>("RequestHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("RequestKey")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<int>("SaleId")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("SapDocEntry")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("SapDocNum")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<DateTime?>("SubmitStartedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RequestKey")
-                        .IsUnique();
-
-                    b.HasIndex("SaleId", "Status");
-
-                    b.ToTable("DesktopCreditNotes");
-                });
-
             modelBuilder.Entity("ShopInventory.Models.Entities.DesktopFiscalTransactionEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -1614,10 +1532,6 @@ namespace ShopInventory.Migrations
 
                     b.Property<DateTime?>("ReceiptIngestedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("RequestHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("RouteCustomerCode")
                         .HasMaxLength(50)
@@ -7501,17 +7415,6 @@ namespace ShopInventory.Migrations
                         .IsRequired();
 
                     b.Navigation("Snapshot");
-                });
-
-            modelBuilder.Entity("ShopInventory.Models.Entities.DesktopCreditNoteEntity", b =>
-                {
-                    b.HasOne("ShopInventory.Models.Entities.DesktopSaleEntity", "Sale")
-                        .WithMany()
-                        .HasForeignKey("SaleId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Sale");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.DesktopSaleEntity", b =>

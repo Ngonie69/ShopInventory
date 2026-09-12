@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
@@ -3525,7 +3525,7 @@ ORDER BY T0.""ItemCode""";
             cancellationToken.ThrowIfCancellationRequested();
 
             var endpoint =
-                $"Items?$select=ItemCode,VatGroup&$filter=ItemType eq 'itItems' and Valid eq 'tYES'" +
+                $"Items?$select=ItemCode,SalesVATGroup&$filter=ItemType eq 'itItems' and Valid eq 'tYES'" +
                 $"&$orderby=ItemCode&$top={pageSize}&$skip={skip}";
 
             var requestSession = _sessionId;
