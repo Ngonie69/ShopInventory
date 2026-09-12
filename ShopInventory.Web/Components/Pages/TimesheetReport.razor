@@ -1,5 +1,6 @@
 @page "/timesheet-report"
-@attribute [Authorize(Roles = "Admin,Manager,SalesRep,Merchandiser")]
+@* Not Manager, as /timesheets: the API refuses a manager timesheets.view. *@
+@attribute [Authorize(Roles = "Admin,SalesRep,Merchandiser")]
 @rendermode InteractiveServer
 @inject ITimesheetService TimesheetService
 @inject IReportExportService ExportService
@@ -271,7 +272,7 @@
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = authState.User;
-        isAdmin = user.IsInRole("Admin") || user.IsInRole("Manager");
+        isAdmin = user.IsInRole("Admin");
 
         fromDate = DateTime.Today.AddDays(-30);
         toDate = DateTime.Today;

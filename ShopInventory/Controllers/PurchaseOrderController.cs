@@ -202,8 +202,14 @@ public class PurchaseOrderController(IMediator mediator) : ApiControllerBase
     /// <summary>
     /// Attached documents
     /// </summary>
+    /// <remarks>
+    /// Sales orders as well as purchasing: the uploaded files are the customer's purchase order behind
+    /// a merchandiser's sales order, and /mobile-drafts shows them in the order drawer to the cashiers
+    /// and sales reps who work those orders. DocumentAttachmentAccessService already lets both roles
+    /// open the files themselves.
+    /// </remarks>
     [HttpGet("documents")]
-    [RequirePermission(Permission.ViewPurchaseOrders)]
+    [RequirePermission(Permission.ViewPurchaseOrders, Permission.ViewSalesOrders)]
     public async Task<IActionResult> GetDocuments([FromQuery] string? poReferenceNumber, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetPurchaseOrderDocumentsQuery(poReferenceNumber), cancellationToken);

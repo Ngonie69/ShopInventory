@@ -252,19 +252,26 @@
                                             }
                                             @if (order.Status == SalesOrderStatus.Approved && order.InvoiceId == null)
                                             {
-                                                <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
-                                                        title="Convert to invoice" aria-label="Convert order @order.OrderNumber to invoice"
-                                                        disabled="@IsOrderActionBusy(order.Id)"
-                                                        @onclick="() => OpenConvertDialog(order)">
-                                                    @if (IsOrderActionBusy(order.Id, OrderActionType.ConvertToInvoice))
-                                                    {
-                                                        <span class="sox-spin" aria-hidden="true"></span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"></path><path d="M9 8h6M9 12h6"></path></svg>
-                                                    }
-                                                </button>
+                                                @* Invoicing roles only. A sales rep opens this page to raise and approve orders
+                                                   but holds no invoices.create, so the API refuses the conversion; somebody
+                                                   else invoices the order. /mobile-drafts gates the same action the same way. *@
+                                                <AuthorizeView Roles="Admin,Cashier" Context="convertAccess">
+                                                    <Authorized>
+                                                        <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
+                                                                title="Convert to invoice" aria-label="Convert order @order.OrderNumber to invoice"
+                                                                disabled="@IsOrderActionBusy(order.Id)"
+                                                                @onclick="() => OpenConvertDialog(order)">
+                                                            @if (IsOrderActionBusy(order.Id, OrderActionType.ConvertToInvoice))
+                                                            {
+                                                                <span class="sox-spin" aria-hidden="true"></span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"></path><path d="M9 8h6M9 12h6"></path></svg>
+                                                            }
+                                                        </button>
+                                                    </Authorized>
+                                                </AuthorizeView>
                                             }
                                             @if (!order.IsSynced)
                                             {

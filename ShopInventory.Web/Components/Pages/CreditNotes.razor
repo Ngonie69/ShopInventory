@@ -242,13 +242,19 @@
                                             }
                                             @if (note.Status == CreditNoteStatus.Draft || note.Status == CreditNoteStatus.Cancelled)
                                             {
-                                                <button type="button" class="cnx-btn cnx-btn-ghost cnx-btn-icon-sm"
-                                                        title="Delete" aria-label="Delete credit note"
-                                                        @onclick="() => DeleteCreditNote(note.Id)">
-                                                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
-                                                        <path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z" />
-                                                    </svg>
-                                                </button>
+                                                @* Deleting is invoices.delete, which only Admin holds; a cashier raises and
+                                                   approves credit notes here but would only meet a refusal. *@
+                                                <AuthorizeView Roles="Admin" Context="deleteCreditNoteAccess">
+                                                    <Authorized>
+                                                        <button type="button" class="cnx-btn cnx-btn-ghost cnx-btn-icon-sm"
+                                                                title="Delete" aria-label="Delete credit note"
+                                                                @onclick="() => DeleteCreditNote(note.Id)">
+                                                            <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                                                                <path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z" />
+                                                            </svg>
+                                                        </button>
+                                                    </Authorized>
+                                                </AuthorizeView>
                                             }
                                         </span>
                                     </td>

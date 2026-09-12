@@ -353,14 +353,20 @@
                                     @if (order.Status == PurchaseOrderStatus.Draft
                                         || order.Status == PurchaseOrderStatus.Cancelled)
                                     {
-                                        <button type="button" class="pdx-act pdx-act-bad" title="Delete"
-                                                aria-label="Delete" @onclick="() => DeleteOrder(order.Id)">
-                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-                                                 stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
-                                                 stroke-linejoin="round" aria-hidden="true">
-                                                <path d="M5 7h14M10 7V5h4v2M6.5 7l1 13h9l1-13"></path>
-                                            </svg>
-                                        </button>
+                                        @* Deleting is purchasing.delete, which only Admin holds. A manager raises,
+                                           approves and receives purchase orders but would only meet a refusal here. *@
+                                        <AuthorizeView Roles="Admin" Context="deletePurchaseOrderAccess">
+                                            <Authorized>
+                                                <button type="button" class="pdx-act pdx-act-bad" title="Delete"
+                                                        aria-label="Delete" @onclick="() => DeleteOrder(order.Id)">
+                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                                         stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+                                                         stroke-linejoin="round" aria-hidden="true">
+                                                        <path d="M5 7h14M10 7V5h4v2M6.5 7l1 13h9l1-13"></path>
+                                                    </svg>
+                                                </button>
+                                            </Authorized>
+                                        </AuthorizeView>
                                     }
                                 </span>
                             </div>

@@ -13,11 +13,13 @@ and lists every (role, page, endpoint, missing permission) the API would refuse.
 grants are ignored; Admin is skipped because it holds every permission.
 
 Blind spots, most common first:
-  * Role checks inside a page (IsInRole, a role flag around a button, a redirect) are not modelled,
-    so a row can be unreachable from the UI. Verified exceptions go in ROLE_CONDITIONAL_RENDERS
-    (a component rendered for some roles only) or ROLE_REDIRECTS (a role sent elsewhere). A redirect
-    names source patterns that must all still match its page, or the run reports it stale, ignores
-    it and exits 1.
+  * <AuthorizeView Roles="..."> is modelled: a page method referenced only from inside such views is
+    reached only by those roles, and so is everything it calls. Other role checks inside a page (an
+    @if on a role flag, a redirect, a modal opened from a gated button) are not, so a row can still
+    be unreachable from the UI. Verified exceptions go in ROLE_CONDITIONAL_RENDERS (a component
+    rendered for some roles), ROLE_REDIRECTS (a role sent elsewhere) or ROLE_HIDDEN_CALLS (one call
+    behind a role check). Redirects and hidden calls name source patterns that must all still match
+    the page, or the run reports them stale, ignores them and exits 1.
   * Services resolved outside constructor, @inject or [Inject] injection are invisible.
   * Calls resolve by method name, so overloads are merged.
 
@@ -623,11 +625,11 @@ def _handle_member(src, masked, lits, hs, he, path, cname, ctrl_token, cls_route
             for x in args:
                 if x[0] == "lit":
                     verbs.append((x[1].upper(), None))
-        elif base in ("RequirePermission", "RequirePermissionAttribute"):
-            perms.append(_perm_attr(args, perm_consts, rel(path), line_of(src, p)))
         elif base in ("Authorize", "AuthorizeAttribute", "AllowAnonymous", "AllowAnonymousAttribute"):
             # kept raw: scripts/inventory_role_gates.py resolves roles and policies from these spans
             authorize.append({"name": name, "a": a, "b": b, "pos": p, "path": path})
+        elif base in ("RequirePermission", "RequirePermissionAttribute"):
+            perms.append(_perm_attr(args, perm_consts, rel(path), line_of(src, p)))
     if not verbs:
         return
     sig = re.search(r"\b(\w+)\s*(<[^()]*>)?\s*\(", re.sub(r"\[[^\]]*\]", lambda m: " " * len(m.group(0)), header))
@@ -706,6 +708,7 @@ class CodeUnit:
         self.authorize = None    # list of attribute raw strings
         self.markup = ""         # razor markup (masked-ish) for component tag detection
         self.whole = None        # Member covering the whole unit (razor components)
+        self.wholes = []         # [(entry pseudo-member, roles or None)]: ungated, then one per AuthorizeView role set
 
 
 def walk_web_files():
@@ -1096,18 +1099,37 @@ def razor_code_regions(src, masked):
     return regions
 
 
-def find_component_tags(info, component_names, web_roles):
-    src = info.src
-    # AuthorizeView Roles spans (restrict whatever renders inside them)
+LIFECYCLE_MEMBERS = {
+    "OnInitialized", "OnInitializedAsync", "OnParametersSet", "OnParametersSetAsync",
+    "OnAfterRender", "OnAfterRenderAsync", "SetParametersAsync", "ShouldRender",
+    "BuildRenderTree", "Dispose", "DisposeAsync",
+}
+
+
+def authorize_view_spans(src, web_roles):
+    """(start, end, roles) for each <AuthorizeView Roles=...>. A span stops at the first closing tag
+    and at any <NotAuthorized>, whose content renders for everyone else; both errors are on the
+    side of treating markup as ungated."""
     spans = []
     for m in re.finditer(r'<AuthorizeView\b[^>]*\bRoles\s*=\s*"([^"]*)"[^>]*>', src):
         end = src.find("</AuthorizeView>", m.end())
+        end = end if end > 0 else len(src)
+        not_authorized = src.find("<NotAuthorized", m.end(), end)
+        if not_authorized > 0:
+            end = not_authorized
         roles_txt = m.group(1)
         if roles_txt.startswith("@"):
             roles = resolve_roles_expr(roles_txt, web_roles)
         else:
             roles = [r.strip() for r in roles_txt.split(",") if r.strip()]
-        spans.append((m.end(), end if end > 0 else len(src), roles))
+        spans.append((m.end(), end, roles))
+    return spans
+
+
+def find_component_tags(info, component_names, web_roles):
+    src = info.src
+    # AuthorizeView Roles spans (restrict whatever renders inside them)
+    spans = authorize_view_spans(src, web_roles)
     for m in re.finditer(r"(?<![\w.<>])<([A-Z]\w*)(?=[\s/>])", src):
         cname = m.group(1)
         if cname not in component_names or cname == info.name:
@@ -1208,20 +1230,104 @@ def build_model(web_roles):
                 else:
                     mem.urls = extract_urls(u, mem.path, mem.src, mem.masked, mem.lits, mem.start, mem.end)
                 mem.calls = _member_calls(u, span, known, request_types)
+                # A method group (OnClick = Save, EventCallback.Factory.Create(this, Save)) is a call too.
+                # Not out of an enum, which the type scan collects as a member: its value names can
+                # match a method's (OrderActionType.ConvertToInvoice) and are never calls.
+                if not re.search(r"\benum\b", span.split("{", 1)[0]):
+                    for ref in re.finditer(r"(?<![\w.])(\w+)\b(?!\s*(?:<[^()]*?>)?\s*\()", span):
+                        if ref.group(1) in u.members and ref.group(1) != mem.name:
+                            mem.calls.add(("self", u.name, ref.group(1), ""))
                 all_urls += mem.urls
-    # razor whole-unit members
+    # Razor entry points. A member is an entry restricted to an AuthorizeView's roles when every
+    # markup reference to it sits inside such a view. Lifecycle methods, members referenced from
+    # ungated markup or from code outside any member, and members never referenced at all stay
+    # ungated entries, as before. A member referenced only from other members' bodies is reached
+    # through those members' call edges, and so inherits whatever gates them.
     for name, info in razors.items():
         u = units[name]
+        spans = authorize_view_spans(info.src, web_roles)
+        code = [(a, b + 1) for a, b in razor_code_regions(info.src, info.masked)]
+        member_spans = defaultdict(list)
+        for mems in u.members.values():
+            for mm in mems:
+                member_spans[mm.path].append((mm.start, mm.end))
+        # An enum value can share a page method's name (OrderActionType.ConvertToInvoice); a mention
+        # inside an enum body is never a call, so it must not ungate the method.
+        enum_spans = defaultdict(list)
+        for (fpath, _fsrc, fmasked, _flits, _fa, _fb) in u.files:
+            for em in re.finditer(r"\benum\s+\w+[^{;]*\{", fmasked):
+                ob = em.end() - 1
+                enum_spans[fpath].append((ob, match_paren(fmasked, ob) + 1))
+
+        def restriction_at(pos, spans=spans):
+            roles = None
+            for a, b, rs in spans:
+                if a <= pos < b:
+                    roles = list(rs) if roles is None else [r for r in roles if r in rs]
+            return roles
+
+        def in_code(pos, code=code):
+            return any(a <= pos < b for a, b in code)
+
+        entry_roles = {}
+        for mname, mems in u.members.items():
+            if mname in LIFECYCLE_MEMBERS:
+                entry_roles[mname] = None
+                continue
+            pattern = re.compile(r"(?<![\w.])" + re.escape(mname) + r"\b")
+            own = [(mm.path, mm.start, mm.end) for mm in mems]
+            markup_refs, body_ref, loose_ref = [], False, False
+            for (fpath, fsrc, fmasked, _flits, _fa, _fb) in u.files:
+                is_razor = fpath.endswith(".razor")
+                for ref in pattern.finditer(fsrc if is_razor else fmasked):
+                    p = ref.start()
+                    if any(a <= p < b for a, b in enum_spans[fpath]):
+                        continue
+                    if is_razor and not in_code(p):
+                        markup_refs.append(p)
+                    elif any(op == fpath and os_ <= p < oe for op, os_, oe in own):
+                        continue
+                    elif any(a <= p < b for a, b in member_spans[fpath]):
+                        body_ref = True
+                    else:
+                        loose_ref = True
+            if loose_ref or (not markup_refs and not body_ref):
+                entry_roles[mname] = None
+            elif markup_refs:
+                gates = [restriction_at(p) for p in markup_refs]
+                entry_roles[mname] = None if any(g is None for g in gates) else set().union(*map(set, gates))
+
+        def blank(text, ranges):
+            # \x01, not a space: _member_calls' patterns put \s* on both sides of an optional
+            # generic, and across a run of thousands of spaces they backtrack quadratically.
+            chars = list(text)
+            for a, b in ranges:
+                for k in range(max(a, 0), min(b, len(chars))):
+                    if chars[k] != "\n":
+                        chars[k] = "\x01"
+            return "".join(chars)
+
+        ungated_markup = blank(info.src, code + [(a, b) for a, b, _ in spans])
         whole = Member(u, "<component>", 0, 0)
-        whole.path, whole.src = info.path, info.src
-        whole.urls = []
-        calls = _member_calls(u, info.src, known, request_types)
-        for mname in u.members:
-            calls.add(("self", u.name, mname, ""))
+        whole.path, whole.src, whole.urls = info.path, info.src, []
+        whole.calls = {c for c in _member_calls(u, ungated_markup, known, request_types) if c[0] != "self"}
+        whole.calls |= {("self", u.name, mname, "") for mname, r in entry_roles.items() if r is None}
         if info.inherits:
-            calls.add(("allof", info.inherits, "", ""))
-        whole.calls = calls
+            whole.calls.add(("allof", info.inherits, "", ""))
         u.whole = whole
+        u.wholes = [(whole, None)]
+        gated = defaultdict(set)
+        for a, b, _ in spans:
+            inside = blank(info.src, [(0, a), (b, len(info.src))] + code)
+            key = tuple(sorted(restriction_at(a) or []))
+            gated[key] |= {c for c in _member_calls(u, inside, known, request_types) if c[0] != "self"}
+        for mname, r in entry_roles.items():
+            if r is not None:
+                gated[tuple(sorted(r))].add(("self", u.name, mname, ""))
+        for key, calls in sorted(gated.items()):
+            entry = Member(u, "<component>", 0, 0)
+            entry.path, entry.src, entry.urls, entry.calls = info.path, info.src, [], calls
+            u.wholes.append((entry, list(key)))
 
     # Self-check: every api/ literal the lexer sees in a C# region must belong to a parsed member,
     # or a parser gap is silently dropping calls. Razor markup literals are listed but flagged.
@@ -1371,6 +1477,48 @@ ROLE_REDIRECTS = {
          r'if\s*\(\s*isSalesRepView\s*\)\s*\{\s*NavigationManager\.NavigateTo\(\s*"/merchandiser-account"'],
         "UserManagement.razor sends SalesRep to /merchandiser-account in OnAfterRenderAsync"),
 }
+
+# Calls a page makes only behind a role check the scan cannot read: an @if on a role flag, or a modal
+# opened from a gated button. Keyed (page component, role, "VERB route" as the controller declares
+# it); the value is the source patterns that must all still match the page (its .razor and its
+# code-behind together), and why.
+ROLE_HIDDEN_CALLS = {
+    ("UserManagement", "PodOperator", "PUT api/UserManagement/{id:guid}/permissions"): (
+        [r"isPodOperatorView\s*=>\s*string\.Equals\(\s*currentUserRole\s*,\s*UserRoles\.PodOperator",
+         r"@if\s*\(\s*!isPodOperatorView\s*\)\s*\{\s*<button[^\n]*ShowPermissionsModal"],
+        "UserManagement.razor shows Manage permissions only when !isPodOperatorView"),
+    ("Invoices", "Cashier", "POST api/Invoice/{docEntry:int}/cancel"): (
+        [r'<AuthorizeView Roles="Admin"[^>]*>\s*<button[^\n]*@onclick="OpenCancelInvoiceModal"',
+         r"(?s)Task OpenCancelInvoiceModal\(\).{0,1200}?showCancelInvoiceModal\s*=\s*true"],
+        "Invoices.razor opens the cancel modal only from an Admin-gated button"),
+    ("SalesOrders", "SalesRep", "POST api/SalesOrder/{id}/convert-to-invoice"): (
+        [r'(?s)<AuthorizeView Roles="Admin,Cashier"[^>]*>.{0,800}?OpenConvertDialog\(order\)',
+         r"(?s)void OpenConvertDialog\(SalesOrderDto order\).{0,300}?convertOrder\s*=\s*order;",
+         r"(?s)\A(?!(?:.*?\bOpenConvertDialog\b){3})"],
+        "SalesOrders.razor opens the convert dialog only from an Admin,Cashier-gated button"),
+    ("RouteCustomers", "Cashier", "DELETE api/route-customers/{id:int}"): (
+        [r'(?s)<AuthorizeView Roles="Admin"[^>]*>.{0,800}?PromptDelete\(customer\)',
+         r"(?s)void PromptDelete\(RouteCustomerModel customer\).{0,300}?customerPendingDelete\s*=\s*customer;",
+         r"(?s)\A(?!(?:.*?\bPromptDelete\b){3})"],
+        "RouteCustomers.razor opens the removal confirmation only from an Admin-gated button"),
+    ("RouteCustomers", "Manager", "DELETE api/route-customers/{id:int}"): (
+        [r'(?s)<AuthorizeView Roles="Admin"[^>]*>.{0,800}?PromptDelete\(customer\)',
+         r"(?s)void PromptDelete\(RouteCustomerModel customer\).{0,300}?customerPendingDelete\s*=\s*customer;",
+         r"(?s)\A(?!(?:.*?\bPromptDelete\b){3})"],
+        "RouteCustomers.razor opens the removal confirmation only from an Admin-gated button"),
+    ("CreditNoteApprovals", "WashBay", "POST api/credit-note-approvals/{code:int}/add"): (
+        [r'(?s)<AuthorizeView Roles="@UserRoles\.CreditNoteAddRoles"[^>]*>.{0,600}?@onclick="OpenAddConfirm"',
+         r"private void OpenAddConfirm\(\)\s*=>\s*showAddConfirm\s*=\s*true;",
+         r"(?s)\A(?!(?:.*?\bOpenAddConfirm\b){3})",
+         r"(?s)\A(?!(?:.*?\bshowAddConfirm\s*=\s*true){2})"],
+        "CreditNoteApprovals opens the add confirmation only from the CreditNoteAddRoles-gated button"),
+    ("MobileDrafts", "Merchandiser", "PUT api/SalesOrder/{id}"): (
+        [r"canSaveOrderPrices\s*=\s*user\.IsInRole\(UserRoles\.Admin\)\s*\|\|\s*user\.IsInRole\(UserRoles\.Cashier\)\s*\|\|\s*user\.IsInRole\(UserRoles\.SalesRep\);",
+         r"(?s)if\s*\(\s*!canSaveOrderPrices\s*\)\s*\{\s*ApplyLocalOrderPricing\(order,\s*updatedLines\);\s*return true;\s*\}.{0,3000}?SalesOrderService\.UpdateSalesOrderAsync\(order\.Id",
+         r"(?s)\A(?!(?:.*?\bUpdateSalesOrderAsync\(){2})"],
+        "MobileDrafts saves hydrated prices only for Admin, Cashier and SalesRep; a merchandiser's stay in memory"),
+}
+USED_HIDDEN_CALLS = set()
 STALE_EXCEPTIONS = []
 
 # Role gates — [Authorize(Roles = ...)] and the RequireRole policies — judged for the signed-in user, as
@@ -1473,6 +1621,11 @@ def main():
 
     units, razors, impls, request_types, all_urls = build_model(web_roles)
 
+    def component_source(page):
+        """A page's .razor and its code-behind, for exception patterns."""
+        unit = units.get(page)
+        return "\n".join(f[1] for f in unit.files) if unit else razors[page].src
+
     # URL statistics over every URL occurrence in the Web
     url_stats = {"matched": 0, "unmatched": 0, "generic": 0}
     unmatched = []
@@ -1535,7 +1688,7 @@ def main():
         for (page_name, role), (patterns, why) in ROLE_REDIRECTS.items():
             if page_name != name:
                 continue
-            unmatched_patterns = [p for p in patterns if not re.search(p, info.src)]
+            unmatched_patterns = [p for p in patterns if not re.search(p, component_source(name))]
             if unmatched_patterns:
                 STALE_EXCEPTIONS.append({"page": name, "role": role, "why": why, "unmatched": unmatched_patterns})
                 continue
@@ -1551,15 +1704,19 @@ def main():
         reached = []
         for cname, restrict, via in comps:
             u = units.get(cname)
-            if not u or not u.whole:
+            if not u or not u.wholes:
                 continue
             top = via[1].split(">")[0].lstrip("<") if len(via) > 1 else None
             override = ROLE_CONDITIONAL_RENDERS.get((name, top)) if top else None
             eff = restrict
             if override is not None:
                 eff = override if eff is None else [r for r in eff if r in override]
-            for url, chain in reachable_urls([u.whole], units, impls, request_types):
-                reached.append((url, via[:-1] + chain if len(via) > 1 else chain, eff))
+            for entry, entry_roles in u.wholes:
+                eff_entry = eff
+                if entry_roles is not None:
+                    eff_entry = list(entry_roles) if eff_entry is None else [r for r in eff_entry if r in entry_roles]
+                for url, chain in reachable_urls([entry], units, impls, request_types):
+                    reached.append((url, via[:-1] + chain if len(via) > 1 else chain, eff_entry))
         page_eps = set()
         for url, chain, eff in reached:
             status, hits = match_url(url, endpoints)
@@ -1601,6 +1758,16 @@ def main():
                     fails = evaluate_attrs(e["attrs"], perms_for(role))
                     if not fails:
                         continue
+                    hidden_key = (name, role, f"{e['verb']} {e['route']}")
+                    if hidden_key in ROLE_HIDDEN_CALLS:
+                        patterns, why = ROLE_HIDDEN_CALLS[hidden_key]
+                        unmatched_patterns = [p for p in patterns if not re.search(p, component_source(name))]
+                        if not unmatched_patterns:
+                            USED_HIDDEN_CALLS.add(hidden_key)
+                            continue
+                        stale = {"page": name, "role": role, "why": why, "unmatched": unmatched_patterns}
+                        if stale not in STALE_EXCEPTIONS:
+                            STALE_EXCEPTIONS.append(stale)
                     cal["refused"].add(role)
                     findings.append({
                         "role": role,
@@ -1729,6 +1896,13 @@ def write_outputs(findings, unmatched, generic, url_stats, perm_endpoints, endpo
     for s in STALE_EXCEPTIONS:
         L.append(f"- {s['page']} / {s['role']}: {s['why']}; no longer matches {s['unmatched']}")
     if not STALE_EXCEPTIONS:
+        L.append("None.")
+    unused = [k for k in ROLE_HIDDEN_CALLS if k not in USED_HIDDEN_CALLS]
+    L.append("\n## Hidden-call exceptions no finding needed\n")
+    L.append("Not an error: the call is no longer refused, so the entry can probably be deleted.\n")
+    for page, role, call in unused:
+        L.append(f"- {page} / {role} / `{call}`")
+    if not unused:
         L.append("None.")
     data["orphan_urls"] = ORPHAN_URLS
     with open(os.path.join(OUT, "impact.json"), "w", encoding="utf-8") as fh:

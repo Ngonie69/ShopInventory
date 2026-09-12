@@ -15,6 +15,7 @@
 @inject IAppSettingsProvider AppSettings
 @inject IPriceService PriceService
 @inject IReportExportService ExportService
+@inject AuthenticationStateProvider AuthStateProvider
 @rendermode InteractiveServer
 
 <PageTitle>@(IsVanSalesView ? "Van Sales Orders - Shop Inventory" : "Mobile Orders - Shop Inventory")</PageTitle>
@@ -131,19 +132,25 @@
                     {
                         <div class="mox-selbar">
                             <span class="mox-selcount">@SelectedOrderCount selected</span>
-                            <button type="button" class="mox-btn mox-btn-sm mox-btn-solid"
-                                    title="@BulkApproveTitle" disabled="@(!CanBulkApprove)"
-                                    @onclick="BulkApproveSelected">
-                                @if (isBulkApproving)
-                                {
-                                    <span class="mox-spin" aria-hidden="true"></span>
-                                    <span>Approving…</span>
-                                }
-                                else
-                                {
-                                    <span>Approve</span>
-                                }
-                            </button>
+                            @* The roles that approve one order at a time below; a merchandiser holds no
+                               salesorders.approve and would only meet a refusal per order. *@
+                            <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="bulkApproveAccess">
+                                <Authorized>
+                                    <button type="button" class="mox-btn mox-btn-sm mox-btn-solid"
+                                            title="@BulkApproveTitle" disabled="@(!CanBulkApprove)"
+                                            @onclick="BulkApproveSelected">
+                                        @if (isBulkApproving)
+                                        {
+                                            <span class="mox-spin" aria-hidden="true"></span>
+                                            <span>Approving…</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Approve</span>
+                                        }
+                                    </button>
+                                </Authorized>
+                            </AuthorizeView>
                             <button type="button" class="mox-btn mox-btn-sm mox-btn-ghost" @onclick="ClearSelection">
                                 Clear
                             </button>
@@ -353,11 +360,16 @@
                                             }
                                             @if (SalesOrderActions.CanEdit(order))
                                             {
-                                                <button type="button" class="mox-iconbtn" title="Edit"
-                                                        disabled="@IsOrderActionBusy(order.Id)"
-                                                        @onclick="() => NavigateToEdit(order.Id)">
-                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path></svg>
-                                                </button>
+                                                @* Editing saves the order, which is salesorders.edit; a merchandiser reads these. *@
+                                                <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="rowEditAccess">
+                                                    <Authorized>
+                                                        <button type="button" class="mox-iconbtn" title="Edit"
+                                                                disabled="@IsOrderActionBusy(order.Id)"
+                                                                @onclick="() => NavigateToEdit(order.Id)">
+                                                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path></svg>
+                                                        </button>
+                                                    </Authorized>
+                                                </AuthorizeView>
                                             }
                                             <AuthorizeView Roles="Admin,Cashier" Context="invoiceAccess">
                                                 <Authorized>
@@ -720,11 +732,15 @@
                 }
                 @if (CanEditSelectedOrder())
                 {
-                    <button type="button" class="mox-btn mox-btn-secondary"
-                            disabled="@IsOrderActionBusy(selectedOrder.Id)"
-                            @onclick="() => NavigateToEdit(selectedOrder.Id)">
-                        Edit
-                    </button>
+                    <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="drawerEditAccess">
+                        <Authorized>
+                            <button type="button" class="mox-btn mox-btn-secondary"
+                                    disabled="@IsOrderActionBusy(selectedOrder.Id)"
+                                    @onclick="() => NavigateToEdit(selectedOrder.Id)">
+                                Edit
+                            </button>
+                        </Authorized>
+                    </AuthorizeView>
                     <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="drawerApproveAccess">
                         <Authorized>
                             <button type="button" class="mox-btn mox-btn-primary"
@@ -900,8 +916,19 @@
     protected override async Task OnInitializedAsync()
     {
         _pageSize = ResolveInitialPageSize(AppSettings.PageSize);
+
+        // Before LoadOrders, which hydrates missing prices and saves them when this viewer may.
+        var user = (await AuthStateProvider.GetAuthenticationStateAsync()).User;
+        canSaveOrderPrices = user.IsInRole(UserRoles.Admin) || user.IsInRole(UserRoles.Cashier) || user.IsInRole(UserRoles.SalesRep);
+
         await LoadOrders();
     }
+
+    /// <summary>
+    /// Whether this viewer may save an order, which hydrating a mobile order's missing prices does. The
+    /// roles are the ones this page admits that hold salesorders.edit; a merchandiser does not.
+    /// </summary>
+    private bool canSaveOrderPrices;
 
     private void GoToPage(int page)
     {
@@ -1836,6 +1863,15 @@
             if (!pricesChanged)
                 return false;
 
+            // A merchandiser reads these orders but holds no salesorders.edit, so the save below would be
+            // refused. Show the catalogue prices on the order in hand and leave persisting them to a
+            // cashier or sales rep, whose next look at the order saves them.
+            if (!canSaveOrderPrices)
+            {
+                ApplyLocalOrderPricing(order, updatedLines);
+                return true;
+            }
+
             var updateRequest = new CreateSalesOrderRequest
             {
                 DeliveryDate = order.DeliveryDate,
@@ -1970,6 +2006,27 @@
         {
             backgroundPriceRefreshOrderIds.Remove(orderId);
         }
+    }
+
+    /// <summary>
+    /// Puts catalogue prices on an order in memory only, for a viewer who may not save it. The totals
+    /// follow SalesOrderEdit's, which mirror the API's CalculateSalesOrderTotals: each line is quantity
+    /// times price less its discount, and the document total is that subtotal plus VAT. The API works
+    /// them out again when somebody who may save the order does.
+    /// </summary>
+    private void ApplyLocalOrderPricing(SalesOrderDto order, IReadOnlyList<CreateSalesOrderLineRequest> pricedLines)
+    {
+        foreach (var (line, priced) in order.Lines!.Zip(pricedLines))
+        {
+            line.UnitPrice = priced.UnitPrice;
+            var gross = line.Quantity * line.UnitPrice;
+            line.LineTotal = line.DiscountPercent > 0 ? gross * (1 - line.DiscountPercent / 100) : gross;
+        }
+
+        order.SubTotal = order.Lines.Sum(line => line.LineTotal);
+        order.TaxAmount = order.Lines.Sum(line => line.LineTotal * line.TaxPercent / 100);
+        order.DocTotal = order.SubTotal + order.TaxAmount;
+        ApplyUpdatedOrderPricingState(order, order);
     }
 
     private void ApplyUpdatedOrderPricingState(SalesOrderDto currentOrder, SalesOrderDto updatedOrder)
