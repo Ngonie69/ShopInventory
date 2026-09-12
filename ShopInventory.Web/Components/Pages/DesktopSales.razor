@@ -10,6 +10,7 @@
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
 @inject IAuditService AuditService
+@inject ILogger<DesktopSales> Logger
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -662,7 +663,13 @@
                     </div>
                     <div>
                         <div class="ops-def-k">Captured by</div>
-                        <div class="ops-def-v">@Blank(selectedSale.CreatedBy)</div>
+                        <div class="ops-def-v">
+                            @CapturedBy(selectedSale)
+                            @if (UnresolvedAccount(selectedSale) is { Length: > 0 } account)
+                            {
+                                <div class="ops-sub ops-code">@account</div>
+                            }
+                        </div>
                     </div>
                     <div>
                         <div class="ops-def-k">Payment method</div>
@@ -779,6 +786,78 @@
                                 <span>@Money(selectedSale.TotalAmount, selectedSale.Currency)</span>
                             </div>
                         </div>
+                    </div>
+                }
+
+                @* What has been given back against this sale.
+
+                   Read when the drawer opens rather than carried on the list row: a credit is rare,
+                   the list is a page of fifty, and the endpoint that answers this is the same one
+                   the credit dialog reads. Only fiscalised sales are asked about — nothing else can
+                   have been credited, because a credit is raised against the original receipt.
+
+                   The dialog behind the footer button is where credits are raised and chased. This
+                   states that they exist, which is the thing somebody reading a sale needs to know
+                   before they read its total as money the business kept. *@
+                @if (selectedSale.FiscalizationStatus is "Success" && (drawerCreditsBusy || drawerCreditsError != null || drawerCredits.Count > 0))
+                {
+                    <div class="ops-ds-block">
+                        <div class="ops-def-k">Credit notes</div>
+
+                        @if (drawerCreditsBusy)
+                        {
+                            <div class="ops-sub"><span class="ops-spin"></span> Reading credit notes&hellip;</div>
+                        }
+                        else if (drawerCreditsError != null)
+                        {
+                            <div class="ops-sub">@drawerCreditsError</div>
+                            <div>
+                                <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm"
+                                        @onclick="LoadDrawerCredits">Try again</button>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="ops-ds-credits">
+                                @foreach (var note in drawerCredits)
+                                {
+                                    <div class="ops-ds-credit">
+                                        <div class="ops-ds-credit-top">
+                                            <span class="ops-code">@note.Number</span>
+                                            <span class="ops-ds-credit-amt">@Money(note.Amount, note.Currency)</span>
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(note.Reason))
+                                        {
+                                            <div class="ops-sub">@note.Reason</div>
+                                        }
+                                        <div class="ops-ds-state @DesktopCreditFamily(note.Status)">
+                                            <span class="ops-dot"></span>@DesktopCreditFiscalLabel(note.Status)
+                                        </div>
+                                        <div class="ops-sub">SAP: @DesktopCreditSapLabel(note) · raised @Full(note.CreatedAtUtc)</div>
+                                        @if (!string.IsNullOrWhiteSpace(note.SapError))
+                                        {
+                                            <div class="ops-sub">@note.SapError</div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+
+                            @* Only what ZIMRA holds is taken off the total. A credit that was refused
+                               gave nothing back, and one still being submitted has not yet. *@
+                            @if (CreditedAmount > 0)
+                            {
+                                <div class="ops-ds-sum">
+                                    <div>
+                                        <span>Credited</span>
+                                        <span>@Money(CreditedAmount, selectedSale.Currency)</span>
+                                    </div>
+                                    <div class="ops-ds-sum-total">
+                                        <span>Net of credits</span>
+                                        <span>@Money(selectedSale.TotalAmount - CreditedAmount, selectedSale.Currency)</span>
+                                    </div>
+                                </div>
+                            }
+                        }
                     </div>
                 }
 
@@ -1088,7 +1167,7 @@
                 }
             </div>
             <div class="ops-dialog-foot">
-                <button type="button" class="ops-btn ops-btn-ghost" disabled="@desktopCreditBusy" @onclick="() => creditSale = null">Close</button>
+                <button type="button" class="ops-btn ops-btn-ghost" disabled="@desktopCreditBusy" @onclick="CloseDesktopCredit">Close</button>
                 <button type="button" class="ops-btn ops-btn-ghost" disabled="@desktopCreditBusy" @onclick="RefreshDesktopCredits">Refresh</button>
                 @if (desktopCreditForm != null && !desktopCreditSubmitted)
                 {
@@ -1127,6 +1206,21 @@
         selectedSale = null;
         desktopCreditNotes = [];
         await RefreshDesktopCredits();
+    }
+
+    /// <summary>
+    /// Closes the credit dialog back to the sale it was opened from, with its credits re-read.
+    /// </summary>
+    /// <remarks>
+    /// The dialog is opened from the drawer and takes its place, so closing it returns there rather
+    /// than to the bare list — and a credit just raised has to show in the drawer's own block, which
+    /// was read before the dialog existed.
+    /// </remarks>
+    private async Task CloseDesktopCredit()
+    {
+        selectedSale = creditSale;
+        creditSale = null;
+        await LoadDrawerCredits();
     }
 
     private async Task RefreshDesktopCredits()
@@ -1196,6 +1290,30 @@
     /// posts — so most of these describe something happening rather than something owed. The two that
     /// do not (a refusal, and a consolidated sale) are the ones an operator has to act on.
     /// </remarks>
+    /// <summary>Where a credit stands with ZIMRA, in words rather than by status name.</summary>
+    /// <remarks>
+    /// The statuses are the API's and are matched case-blind and by name, so a value this build has
+    /// not heard of shows as itself instead of being reported as something it is not.
+    /// </remarks>
+    private static string DesktopCreditFiscalLabel(string? status) => status?.Trim().ToLowerInvariant() switch
+    {
+        "fiscalised" => "With ZIMRA",
+        "prepared" => "Saved, not yet submitted",
+        "submitting" => "Submission in progress",
+        "rejected" => "Refused by the device",
+        "reconciliationrequired" => "Outcome unknown — check it",
+        _ => Blank(status)
+    };
+
+    private static string DesktopCreditFamily(string? status) => status?.Trim().ToLowerInvariant() switch
+    {
+        "fiscalised" => "ops-fam-good",
+        "rejected" => "ops-fam-bad",
+        "reconciliationrequired" => "ops-fam-warn",
+        // Saved and submitting are both on their way; neither is a fault.
+        _ => "ops-fam-accent"
+    };
+
     private static string DesktopCreditSapLabel(DesktopCreditNoteResult note) => note.SapDocNum.HasValue
         ? $"credit memo #{note.SapDocNum}"
         : note.SapStatus switch
@@ -1457,9 +1575,84 @@
 
     // ── The detail drawer ────────────────────────────────────────────────
 
-    private void SelectSale(DesktopSaleDto sale) => selectedSale = sale;
+    private async Task SelectSale(DesktopSaleDto sale)
+    {
+        selectedSale = sale;
+        await LoadDrawerCredits();
+    }
 
-    private void CloseDrawer() => selectedSale = null;
+    private void CloseDrawer()
+    {
+        selectedSale = null;
+        drawerCredits = [];
+        drawerCreditsError = null;
+    }
+
+    // ── What has been credited back ──────────────────────────────────────
+    //
+    // The credits against the open sale, read when the drawer opens. They are not on the list row:
+    // a credit is rare, a page is fifty rows, and reading them per row would put fifty queries
+    // behind a list that is refreshed by every SignalR push.
+    //
+    // Keyed by reference so that a reply arriving after the operator has stepped to the next sale is
+    // dropped rather than shown against the wrong one — the drawer's up/down keys walk the page far
+    // faster than a round trip completes.
+
+    private List<DesktopCreditNoteResult> drawerCredits = [];
+    private string? drawerCreditsError;
+    private bool drawerCreditsBusy;
+
+    /// <summary>What ZIMRA holds against this sale — the only credits that gave anything back.</summary>
+    private decimal CreditedAmount => drawerCredits
+        .Where(note => string.Equals(note.Status, "Fiscalised", StringComparison.OrdinalIgnoreCase))
+        .Sum(note => note.Amount);
+
+    private async Task LoadDrawerCredits()
+    {
+        var sale = selectedSale;
+        drawerCredits = [];
+        drawerCreditsError = null;
+
+        // Only a fiscalised sale can have been credited: a credit is raised against the original
+        // receipt, and there is none to raise it against until the device has signed one.
+        if (sale is null || sale.FiscalizationStatus is not "Success")
+        {
+            drawerCreditsBusy = false;
+            return;
+        }
+
+        drawerCreditsBusy = true;
+        var reference = sale.ExternalReferenceId;
+        try
+        {
+            var notes = await DesktopService.GetCreditNotesAsync(reference);
+            if (selectedSale?.ExternalReferenceId != reference)
+            {
+                return;
+            }
+
+            drawerCredits = notes;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not read the credit notes for sale {Reference}", reference);
+            if (selectedSale?.ExternalReferenceId != reference)
+            {
+                return;
+            }
+
+            // Said rather than swallowed. A drawer that quietly showed no credit notes because the
+            // read failed would tell an operator this sale had never been credited.
+            drawerCreditsError = "The credit notes for this sale could not be read.";
+        }
+        finally
+        {
+            if (selectedSale?.ExternalReferenceId == reference)
+            {
+                drawerCreditsBusy = false;
+            }
+        }
+    }
 
     // Picked and open are different states and a row can be both: picked is
     // what the Post button will send, open is what the drawer is showing.
@@ -1473,7 +1666,7 @@
     // Up and down wrap within the loaded page. Falling off the end into the
     // next page would fetch behind the drawer and rewrite the list underneath
     // it; the pager is where changing page belongs.
-    private void StepSale(int direction)
+    private async Task StepSale(int direction)
     {
         if (selectedSale == null || sales.Count < 2)
         {
@@ -1487,6 +1680,7 @@
         }
 
         selectedSale = sales[((index + direction) % sales.Count + sales.Count) % sales.Count];
+        await LoadDrawerCredits();
     }
 
     // What the customer handed over, and what went back. A sale can carry no
@@ -1555,9 +1749,11 @@
             var sale = selectedSale!;
 
             var origin = new List<string> { Full(sale.CreatedAt) };
-            if (!string.IsNullOrWhiteSpace(sale.CreatedBy))
+            if (!string.IsNullOrWhiteSpace(sale.CreatedByName))
             {
-                origin.Add(sale.CreatedBy);
+                // The name only. A trail line is read at a glance, and the account id — which the
+                // "Captured by" fact above still shows when it is all there is — is not.
+                origin.Add(sale.CreatedByName);
             }
             if (!string.IsNullOrWhiteSpace(sale.SourceSystem))
             {
@@ -2055,6 +2251,40 @@
         string.Equals(status, value, StringComparison.OrdinalIgnoreCase);
 
     private static string Blank(string? text) => string.IsNullOrWhiteSpace(text) ? "—" : text;
+
+    // ── Who captured the sale ────────────────────────────────────────────
+    //
+    // The column behind this holds an account id and nothing else — every writer of it stores
+    // `account.UserId` — so the drawer used to state a GUID where it meant to name a cashier. The API
+    // resolves the id against the account (see SaleOperatorNames); these two say what to show when it
+    // could not.
+    //
+    // Rows written before accounts were ids carry the name itself, and those are shown as they stand.
+
+    private static string CapturedBy(DesktopSaleDto sale)
+    {
+        if (!string.IsNullOrWhiteSpace(sale.CreatedByName))
+        {
+            return sale.CreatedByName;
+        }
+
+        if (string.IsNullOrWhiteSpace(sale.CreatedBy))
+        {
+            return "—";
+        }
+
+        return Guid.TryParse(sale.CreatedBy.Trim(), out _) ? "Account no longer exists" : sale.CreatedBy;
+    }
+
+    /// <summary>The bare account id, in the one case where it is the only thing left to show.</summary>
+    /// <remarks>
+    /// A deleted account is still the account a support call is about, and the id is what matches the
+    /// sale to the till's own logs. It is stated under the sentence above rather than in place of it.
+    /// </remarks>
+    private static string? UnresolvedAccount(DesktopSaleDto sale) =>
+        string.IsNullOrWhiteSpace(sale.CreatedByName) && Guid.TryParse(sale.CreatedBy?.Trim(), out var id)
+            ? id.ToString()
+            : null;
 
     // A tender as the counter names it. Older rows carry the till's own casing, so the comparison is
     // case-blind; a sale nobody recorded a tender for says so rather than showing an empty cell.

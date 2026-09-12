@@ -2820,7 +2820,7 @@ transfers is `transfer-queue`, separate from the invoice `queue`.
 | POST | `/api/DesktopIntegration/sales/{reference}/credit-notes/{id}/continue` | Continue a saved credit only if submission has not started |
 | POST | `/api/DesktopIntegration/sales/{reference}/credit-notes/{id}/reconcile` | Read back the saved credit's fiscal status without resubmitting |
 | POST | `/api/DesktopIntegration/sales` | Record a desktop sale |
-| GET | `/api/DesktopIntegration/sales` | The sales (`warehouseCode`, `cardCode`, `consolidationStatus`, `fromDate`, `toDate`, `page` 1, `pageSize` 50) |
+| GET | `/api/DesktopIntegration/sales` | The sales (`warehouseCode`, `cardCode`, `consolidationStatus`, `fromDate`, `toDate`, `page` 1, `pageSize` 50). Each row carries `createdBy` (the account id the till captured it under) and `createdByName`, that account's holder, null when the id names no account |
 | GET | `/api/DesktopIntegration/sales/analysis` | Admin, Manager, Cashier, ApiUser. A period's takings, one section per currency, broken down by payment method (Cash, Swipe and Ecocash always listed; legacy spellings folded; `Not recorded` for none), day, hour in CAT, shop, source, operator and the 25 best-selling items (`fromDate`, `toDate` — business dates, inclusive, default today, at most 366 days; `warehouseCode`, scoped exactly like the list; `sourceSystem`) |
 | POST | `/api/DesktopIntegration/sales/{externalReference}/post` | Post one held sale to SAP now |
 | POST | `/api/DesktopIntegration/sales/post-batch` | Post a named set of held sales, one invoice each (`externalReferenceIds`, at most 50) |

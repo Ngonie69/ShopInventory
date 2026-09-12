@@ -112,7 +112,9 @@ public static class DesktopSaleInvoiceRemarks
 
                     // An account that no longer exists shows nothing, never the bare id: a GUID in a
                     // remark tells the reader less than a blank does.
-                    capturedBy = user is null ? null : DisplayName(user.FirstName, user.LastName, user.Username);
+                    capturedBy = user is null
+                        ? null
+                        : SaleOperatorNames.Format(user.FirstName, user.LastName, user.Username);
                 }
                 else
                 {
@@ -217,16 +219,5 @@ public static class DesktopSaleInvoiceRemarks
         return string.IsNullOrWhiteSpace(sale.PaymentReference)
             ? $"Paid {sale.PaymentMethod.Trim()}"
             : $"Paid {sale.PaymentMethod.Trim()} ({sale.PaymentReference.Trim()})";
-    }
-
-    private static string DisplayName(string? firstName, string? lastName, string username)
-    {
-        var full = string.Join(
-            " ",
-            new[] { firstName, lastName }
-                .Where(part => !string.IsNullOrWhiteSpace(part))
-                .Select(part => part!.Trim()));
-
-        return full.Length > 0 ? full : username;
     }
 }
