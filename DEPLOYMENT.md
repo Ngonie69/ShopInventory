@@ -176,13 +176,36 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 
-        # API endpoints
+        # API endpoints. The upgrade headers are not optional: NotificationHub is served at
+        # /api/hubs/notifications, and without them nginx proxies HTTP/1.0 and drops Upgrade, so
+        # the hub handshake hangs until the client times out. A till then sells all day without
+        # ever hearing that an invoice was cancelled.
         location /api {
             proxy_pass http://api;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # The hub itself: a connection that stays open for a shift, and a handshake that must not
+        # be buffered. proxy_buffering on (the default) holds the server's first frame back, which
+        # looks exactly like a server that never answered.
+        location /api/hubs/ {
+            proxy_pass http://api;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_buffering off;
+            proxy_read_timeout 1h;
+            proxy_send_timeout 1h;
         }
 
         # Swagger UI
