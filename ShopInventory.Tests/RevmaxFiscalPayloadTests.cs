@@ -1352,6 +1352,27 @@ public class RevmaxFiscalPayloadTests
             Options.Create(new FiscalisationSettings { Provider = FiscalisationProvider.Revmax }),
             NullLogger<RevmaxFiscalizationService>.Instance);
 
+    [Fact]
+    public async Task Every_line_carries_both_item_names_and_a_nameless_line_falls_back_to_its_code()
+    {
+        // REVMax validates ITEMNAME1 and ITEMNAME2 separately and refuses the whole transaction when
+        // either is blank - "Invalid ITEMNAME2.. Item Name cannot be empty. An empty value was
+        // supplied." - so a line the mapping left without a description files nothing at all.
+        var client = new RecordingRevmaxClient();
+        var invoice = Invoice();
+        invoice.Lines![1].ItemDescription = "   ";
+
+        await Service(client).FiscalizeInvoiceAsync(invoice);
+
+        var lines = Assert.IsType<List<RevmaxRequestItem>>(client.LastInvoice!.ItemsXml);
+        Assert.All(lines, line =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(line.ItemName1));
+            Assert.Equal(line.ItemName1, line.ItemName2);
+        });
+        Assert.Equal(["Feta 1kg", "NRI049"], lines.Select(line => line.ItemName1));
+    }
+
     private static InvoiceDto Invoice() => new()
     {
         DocEntry = 4242,

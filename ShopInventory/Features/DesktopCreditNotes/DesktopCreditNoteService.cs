@@ -103,8 +103,10 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
             if (refusal is not null) return await SaveOutcome(note.Id, DesktopCreditStatuses.Rejected, null, refusal);
             submitted = true;
             var outcome = await fiscal.SubmitAsync(plan, CancellationToken.None);
-            return await SaveOutcome(note.Id, outcome.Success && !outcome.Skipped ? DesktopCreditStatuses.Fiscalised : DesktopCreditStatuses.ReconciliationRequired,
-                outcome, outcome.Message ?? "The fiscal outcome needs to be checked.");
+            var status = Outcome(outcome);
+            return await SaveOutcome(note.Id, status, outcome, status == DesktopCreditStatuses.Rejected
+                ? $"{outcome.Message ?? "The device refused the credit."} Nothing was filed, so this credit can be created again."
+                : outcome.Message ?? "The fiscal outcome needs to be checked.");
         }
         catch (Exception ex)
         {
@@ -116,6 +118,34 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         }
     }
 
+    /// <summary>What a completed submission proved, which is not always "somebody must go and look".</summary>
+    /// <remarks>
+    /// A refusal the device itself answered with - see <see cref="DeviceRefused"/> - proves nothing
+    /// was filed. Recording that as <see cref="DesktopCreditStatuses.ReconciliationRequired"/>
+    /// stranded the credit: no path resubmits that status, and its reservation is held against the
+    /// original receipt for good, so a payload the device would never have accepted cost the customer
+    /// the credit as well. DCN-4c96c570 died exactly that way, on an ITEMNAME2 sent empty.
+    ///
+    /// Everything else still stays put. A second fiscal receipt cannot be withdrawn, and that is the
+    /// one mistake worth holding a reservation indefinitely to avoid.
+    /// </remarks>
+    private static string Outcome(FiscalizationResult outcome) =>
+        outcome.Success && !outcome.Skipped ? DesktopCreditStatuses.Fiscalised
+        : DeviceRefused(outcome) ? DesktopCreditStatuses.Rejected
+        : DesktopCreditStatuses.ReconciliationRequired;
+
+    /// <summary>The device answered, and its answer was no. Nothing was filed under this number.</summary>
+    /// <remarks>
+    /// Not the same thing as a call that failed. <see cref="RevmaxFiscalizationService.UnavailableErrorCode"/>
+    /// is the outcome where the POST never came back and a lookup then found nothing: REVMax's own
+    /// code calls that safe to retry, but a receipt filed a moment earlier that the lookup cannot yet
+    /// see would make it a lie, and the retry files its credit under a fresh number no duplicate
+    /// guard would catch. A refusal has no such window - the device read the request and declined it.
+    /// </remarks>
+    private static bool DeviceRefused(FiscalizationResult outcome) =>
+        !outcome.Success && !outcome.Skipped && !outcome.RequiresReconciliation
+        && outcome.ErrorCode != RevmaxFiscalizationService.UnavailableErrorCode;
+
     public async Task<DesktopCreditNoteResult> ReconcileAsync(Guid caller, string reference, Guid id, CancellationToken ct)
     {
         var sale = await ReadSale(caller, reference, ct);
@@ -126,6 +156,18 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         var result = await fiscal.FindAsync(plan, ct);
         if (result?.Success == true && !result.Skipped)
             return await SaveOutcome(note.Id, DesktopCreditStatuses.Fiscalised, result, "The existing fiscal receipt was found. No new receipt was submitted.");
+        // Releases a credit stranded before Outcome() above told a refusal from an unknown outcome.
+        // Its own stored result is the evidence and the only evidence used: a refusal the device
+        // answered with proves it filed nothing, whatever the lookup says now. Anything short of that
+        // is never released - a receipt filed a moment ago that the lookup cannot yet see would give
+        // back a reservation against a receipt that exists, and a second credit receipt cannot be
+        // withdrawn. Restricted to a note settled at ReconciliationRequired: Submitting may have a
+        // POST in flight, and Prepared was never sent.
+        if (result is null && note.Status == DesktopCreditStatuses.ReconciliationRequired
+            && Stored(note) is { } stored && DeviceRefused(stored))
+            return await SaveOutcome(note.Id, DesktopCreditStatuses.Rejected, null,
+                $"{stored.Message ?? "The device refused the credit."} REVMax holds no receipt under this number, "
+                + "so nothing was filed. The credit was released and can be created again.");
         return Map(note) with { Message = "No receipt was confirmed. The credit remains reserved for reconciliation; nothing was resubmitted." };
     }
 
@@ -143,7 +185,11 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         DateTime? fiscalisedAt = status == DesktopCreditStatuses.Fiscalised ? DateTime.UtcNow : null;
         await db.DesktopCreditNotes.Where(n => n.Id == id && n.Status != DesktopCreditStatuses.Fiscalised)
             .ExecuteUpdateAsync(s => s.SetProperty(n => n.Status, status).SetProperty(n => n.Message, message)
-                .SetProperty(n => n.FiscalResultJson, json).SetProperty(n => n.FiscalisedAtUtc, fiscalisedAt), CancellationToken.None);
+                // Kept when this outcome carries none of its own: a release records that the device
+                // holds nothing, and erasing the refusal it answered with would take the only record
+                // of why the credit failed with it.
+                .SetProperty(n => n.FiscalResultJson, n => json ?? n.FiscalResultJson)
+                .SetProperty(n => n.FiscalisedAtUtc, fiscalisedAt), CancellationToken.None);
         try { await audit.LogAsync("DesktopCreditNote", "DesktopCreditNote", id.ToString(), message, status == DesktopCreditStatuses.Fiscalised); }
         catch (Exception ex) { logger.LogWarning(ex, "Could not audit desktop credit {Id}", id); }
         // ZIMRA has it; now the back office. Deferred when the sale has not posted yet, which is the
@@ -172,9 +218,13 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         .SelectMany(n => JsonSerializer.Deserialize<DesktopCreditPlan>(n.PlanJson, Json)!.Quantities)
         .GroupBy(l => l.LineNo).ToDictionary(g => g.Key, g => g.Sum(l => l.Quantity));
 
+    /// <summary>What the device last answered for this credit, as it was recorded.</summary>
+    private static FiscalizationResult? Stored(DesktopCreditNoteEntity note) =>
+        note.FiscalResultJson is null ? null : JsonSerializer.Deserialize<FiscalizationResult>(note.FiscalResultJson, Json);
+
     private static DesktopCreditNoteResult Map(DesktopCreditNoteEntity note)
     {
-        var result = note.FiscalResultJson is null ? null : JsonSerializer.Deserialize<FiscalizationResult>(note.FiscalResultJson, Json);
+        var result = Stored(note);
         return new(note.Id, note.Number, note.Status, note.Amount, note.Currency, note.Reason,
             note.OriginalFiscalNumber, note.CreatedAtUtc, note.Message, result?.QRCode, result?.ReceiptGlobalNo,
             note.SapDocNum, note.SapStatus, note.SapError);

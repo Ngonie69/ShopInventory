@@ -91,6 +91,123 @@ public sealed class DesktopCreditNoteTests : IDisposable
     }
 
     [Fact]
+    public async Task A_device_refusal_gives_the_credit_back_instead_of_reserving_it_forever()
+    {
+        // A refusal the device answered with proves it filed nothing, so the quantities are free
+        // again. Recording it as ReconciliationRequired - which nothing resubmits - held them for
+        // good, and a payload the device would never accept cost the customer the credit too.
+        gateway.SubmitResult = new FiscalizationResult
+        {
+            Success = false, ErrorCode = "REVMAX_0",
+            Message = "Transaction error: Invalid ITEMNAME2.. Item Name cannot be empty."
+        };
+
+        var refused = await service.CreateAsync(caller, "TILL-123", Request(8m), default);
+
+        Assert.Equal("Rejected", refused.Status);
+        Assert.Contains("Invalid ITEMNAME2", refused.Message);
+        Assert.Contains("can be created again", refused.Message);
+        Assert.Empty((await service.PrepareAsync(caller, "TILL-123", default)).ReservedQuantities);
+
+        gateway.SubmitResult = null;
+        Assert.Equal("Fiscalised", (await service.CreateAsync(caller, "TILL-123", Request(8m), default)).Status);
+    }
+
+    [Fact]
+    public async Task An_unknown_outcome_still_reserves_the_credit_and_a_lookup_alone_never_releases_it()
+    {
+        // The device may have filed a receipt the lookup cannot see yet. A second credit receipt
+        // cannot be withdrawn, so this is the one case worth holding a reservation indefinitely for.
+        gateway.SubmitResult = new FiscalizationResult
+        {
+            Success = false, RequiresReconciliation = true, ErrorCode = "REVMAX_EMPTY_RESPONSE",
+            Message = "REVMax returned an empty body."
+        };
+
+        var unknown = await service.CreateAsync(caller, "TILL-123", Request(8m), default);
+
+        Assert.Equal("ReconciliationRequired", unknown.Status);
+        Assert.Equal(8m, (await service.PrepareAsync(caller, "TILL-123", default)).ReservedQuantities[1]);
+        Assert.Equal("ReconciliationRequired",
+            (await service.ReconcileAsync(caller, "TILL-123", unknown.Id, default)).Status);
+        Assert.Equal(1, gateway.Submissions);
+    }
+
+    [Fact]
+    public async Task A_credit_already_stranded_by_a_refusal_is_released_when_the_device_confirms_it_filed_nothing()
+    {
+        // The production row: DCN-4c96c57065694fc3b218a1a5a93073b4 was refused over an empty
+        // ITEMNAME2 and saved as ReconciliationRequired, holding USD 7.22 of its receipt for good.
+        // Checking its fiscal status is the release: the stored refusal is the proof, and the device
+        // is asked as well before anything is given back.
+        gateway.LoseReply = true;
+        var stranded = await service.CreateAsync(caller, "TILL-123", Request(8m), default);
+        Assert.Equal("ReconciliationRequired", stranded.Status);
+        Strand(stranded.Id, new FiscalizationResult
+        {
+            Success = false, ErrorCode = "REVMAX_0",
+            Message = "Transaction error: Invalid ITEMNAME2.. Item Name cannot be empty."
+        });
+
+        var released = await service.ReconcileAsync(caller, "TILL-123", stranded.Id, default);
+
+        Assert.Equal("Rejected", released.Status);
+        Assert.Contains("Invalid ITEMNAME2", released.Message);
+        Assert.Contains("can be created again", released.Message);
+        Assert.Empty((await service.PrepareAsync(caller, "TILL-123", default)).ReservedQuantities);
+        // Nothing was resubmitted to get there, and the device's own words are still on the row.
+        Assert.Equal(1, gateway.Submissions);
+        Assert.Contains("ITEMNAME2", db.DesktopCreditNotes.AsNoTracking().Single().FiscalResultJson!);
+    }
+
+    [Fact]
+    public async Task A_credit_stranded_by_an_unknown_outcome_is_not_released_by_the_same_check()
+    {
+        gateway.LoseReply = true;
+        var stranded = await service.CreateAsync(caller, "TILL-123", Request(8m), default);
+        Strand(stranded.Id, new FiscalizationResult
+        {
+            Success = false, RequiresReconciliation = true, ErrorCode = "REVMAX_INDETERMINATE",
+            Message = "The fiscal state is unknown."
+        });
+
+        var checked_ = await service.ReconcileAsync(caller, "TILL-123", stranded.Id, default);
+
+        Assert.Equal("ReconciliationRequired", checked_.Status);
+        Assert.Equal(8m, (await service.PrepareAsync(caller, "TILL-123", default)).ReservedQuantities[1]);
+    }
+
+    [Fact]
+    public async Task A_call_that_never_reached_the_device_is_not_treated_as_a_refusal()
+    {
+        // REVMax's own code calls this one safe to retry: the POST failed and the lookup afterwards
+        // found nothing. But "nothing" a moment after a POST that may have been processed is not the
+        // proof a refusal is, and the retry would file its credit under a fresh number that no
+        // duplicate guard catches. The reservation stands until a person has looked.
+        gateway.SubmitResult = new FiscalizationResult
+        {
+            Success = false, ErrorCode = RevmaxFiscalizationService.UnavailableErrorCode,
+            Message = "REVMax did not accept the credit and holds no receipt for it."
+        };
+
+        var unresolved = await service.CreateAsync(caller, "TILL-123", Request(8m), default);
+
+        Assert.Equal("ReconciliationRequired", unresolved.Status);
+        Assert.Equal(8m, (await service.PrepareAsync(caller, "TILL-123", default)).ReservedQuantities[1]);
+        Assert.Equal("ReconciliationRequired",
+            (await service.ReconcileAsync(caller, "TILL-123", unresolved.Id, default)).Status);
+    }
+
+    /// <summary>Puts the outcome a stranded note carries on its row, as the failed submission did.</summary>
+    private void Strand(Guid id, FiscalizationResult outcome)
+    {
+        db.DesktopCreditNotes.Single(n => n.Id == id).FiscalResultJson =
+            JsonSerializer.Serialize(outcome, DesktopCreditNoteService.Json);
+        db.SaveChanges();
+        db.ChangeTracker.Clear();
+    }
+
+    [Fact]
     public async Task A_saved_plan_exists_before_the_device_is_called()
     {
         gateway.BeforeSubmit = () => Assert.Equal("Submitting", db.DesktopCreditNotes.AsNoTracking().Single().Status);
@@ -151,6 +268,28 @@ public sealed class DesktopCreditNoteTests : IDisposable
         var plan = DesktopCreditPlanner.Build(source, request, new Dictionary<int, decimal>(), 0m, DateTime.UtcNow);
         var lines = Assert.IsType<List<RevmaxRequestItem>>(RevmaxDesktopCreditGateway.BuildRequest(plan, new()).ItemsXml);
         Assert.Equal(new[] { "7", "2" }, lines.Select(l => l.Tax));
+    }
+
+    [Fact]
+    public void Every_credited_line_carries_both_item_names()
+    {
+        // The device refuses the whole credit when either name is blank: DCN-4c96c570 came back as
+        // "Invalid ITEMNAME2.. Item Name cannot be empty" with nothing filed, because ITEMNAME2 was
+        // sent as "". A line the receipt named only by position keeps that name on the wire.
+        var source = Source() with { OriginalTotal = 200m, Lines = [
+            new(1, "Original product", 10m, 10m, 7, 15.5m, "O01", null),
+            new(2, "   ", 10m, 10m, 7, 15.5m, "O01", null)] };
+        var request = Request() with { Lines = [new(1, 1), new(2, 1)] };
+        var plan = DesktopCreditPlanner.Build(source, request, new Dictionary<int, decimal>(), 0m, DateTime.UtcNow);
+
+        var items = Assert.IsType<List<RevmaxRequestItem>>(RevmaxDesktopCreditGateway.BuildRequest(plan, new()).ItemsXml);
+
+        Assert.All(items, item =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(item.ItemName1));
+            Assert.Equal(item.ItemName1, item.ItemName2);
+        });
+        Assert.Equal(["Original product", "Line 2"], items.Select(item => item.ItemName1));
     }
 
     [Theory]
@@ -471,6 +610,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
         public string? Refusal;
         public Action? BeforeSubmit;
         public FiscalizationResult? Existing;
+        public FiscalizationResult? SubmitResult;
         public Task<DesktopCreditSource> ReadOriginalAsync(DesktopSaleEntity sale, CancellationToken ct) => Task.FromResult(Source());
         public Task<FiscalizationResult?> FindAsync(DesktopCreditPlan plan, CancellationToken ct) => Task.FromResult(Existing);
         public Task<string?> PreflightAsync(DesktopCreditPlan plan, CancellationToken ct) => Task.FromResult(Refusal);
@@ -479,7 +619,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
             BeforeSubmit?.Invoke();
             Submissions++;
             if (LoseReply) throw new HttpRequestException("Reply lost after submission");
-            return Task.FromResult(new FiscalizationResult { Success = true, ReceiptGlobalNo = "789" });
+            return Task.FromResult(SubmitResult ?? new FiscalizationResult { Success = true, ReceiptGlobalNo = "789" });
         }
     }
     public void Dispose() { db.Dispose(); connection.Dispose(); }

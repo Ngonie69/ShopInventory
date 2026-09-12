@@ -155,12 +155,20 @@ public sealed class RevmaxDesktopCreditGateway(IRevmaxClient client, RevmaxFisca
             CustomerBPN = plan.Receipt.Buyer?.Tin ?? "", Cashier = plan.Receipt.Username ?? "",
             refDeviceId = plan.Source.DeviceId, refFiscalDayNo = plan.Source.FiscalDayNo,
             refReceiptGlobalNo = plan.Source.ReceiptGlobalNo,
-            ItemsXml = plan.Receipt.Lines.Select((l, index) => new RevmaxRequestItem
+            ItemsXml = plan.Receipt.Lines.Select((l, index) =>
             {
-                HH = (index + 1).ToString(CultureInfo.InvariantCulture), ItemCode = plan.Quantities[index].LineNo.ToString(CultureInfo.InvariantCulture),
-                ItemName1 = l.Name, ItemName2 = "", Qty = Number(l.Quantity), Price = Number(Math.Abs(l.Price)),
-                Amt = Number(DesktopCreditPlanner.Round(Math.Abs(l.Price) * l.Quantity)),
-                Tax = l.TaxId.ToString(CultureInfo.InvariantCulture), TaxR = Number(l.TaxPercent ?? 0)
+                var lineNo = plan.Quantities[index].LineNo.ToString(CultureInfo.InvariantCulture);
+                // Both names carry it and neither may be blank: the device refuses the whole credit
+                // over an empty ITEMNAME2. See RevmaxRequestItem.Name.
+                var name = RevmaxRequestItem.Name(l.Name, $"Line {lineNo}");
+                return new RevmaxRequestItem
+                {
+                    HH = (index + 1).ToString(CultureInfo.InvariantCulture), ItemCode = lineNo,
+                    ItemName1 = name, ItemName2 = name,
+                    Qty = Number(l.Quantity), Price = Number(Math.Abs(l.Price)),
+                    Amt = Number(DesktopCreditPlanner.Round(Math.Abs(l.Price) * l.Quantity)),
+                    Tax = l.TaxId.ToString(CultureInfo.InvariantCulture), TaxR = Number(l.TaxPercent ?? 0)
+                };
             }).ToList(),
             CurrenciesXml = new List<RevmaxRequestCurrency> { new() { Name = plan.Source.Currency, Amount = Number(plan.Amount), Rate = "1" } }
         };
@@ -172,4 +180,5 @@ public sealed class RevmaxDesktopCreditGateway(IRevmaxClient client, RevmaxFisca
             throw new InvalidOperationException("The credit's line amounts cannot be represented exactly in the REVMax request. Review the original receipt's quantities and rounding.");
         return request;
     }
+
 }
