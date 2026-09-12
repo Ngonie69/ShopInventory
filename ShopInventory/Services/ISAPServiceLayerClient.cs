@@ -578,6 +578,13 @@ public interface ISAPServiceLayerClient
         CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesUpdatedSinceAsync(DateTime fromUpdateDate, DateTime toUpdateDate, CancellationToken cancellationToken = default);
     Task<DateTime?> GetEarliestCreditNoteDateAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Always returns an empty list.</summary>
+    /// <remarks>
+    /// Service Layer refuses the <c>DocumentLines/any()</c> filter this would need, so the implementation
+    /// is a stub. It is no record of what an invoice has been credited: SAP's is the invoice lines'
+    /// <c>RemainingOpenQuantity</c>, which the credit-note guard reads.
+    /// </remarks>
     Task<List<SAPCreditNote>> GetCreditNotesByInvoiceAsync(int invoiceDocEntry, CancellationToken cancellationToken = default);
     Task<int> GetCreditNotesCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
 

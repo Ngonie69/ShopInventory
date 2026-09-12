@@ -19,6 +19,9 @@ public class CreditNoteService : ICreditNoteService
 {
     private const decimal CreditAmountTolerance = 0.01m;
 
+    /// <summary>Decimal noise allowed between a requested quantity and what SAP holds open on the line.</summary>
+    private const decimal QuantityTolerance = 0.0001m;
+
     private readonly ApplicationDbContext _context;
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly IFiscalizationService _fiscalizationService;
@@ -711,35 +714,78 @@ public class CreditNoteService : ICreditNoteService
     }
 
     /// <summary>
-    /// What this invoice has already been credited, for the guard that decides whether more may be.
+    /// Refuses a credit note that would credit any line of the invoice past what SAP still holds open
+    /// on it.
     /// </summary>
     /// <remarks>
-    /// Deliberately not <see cref="GetByInvoiceIdAsync"/>, which falls back to the local database
-    /// when SAP cannot be reached. That fallback is right for a read — a list is better stale than
-    /// missing — and wrong here, because the local row is written after the SAP post: a credit note
-    /// whose reply was lost is in neither place the fallback can see, so the guard would conclude
-    /// nothing had been credited and allow a second full credit note against the invoice.
+    /// SAP keeps this ledger itself. A credit memo based on an invoice line lowers that line's
+    /// <c>RemainingOpenQuantity</c> and closes the line at zero — this app's credit notes, which always
+    /// carry BaseEntry and BaseLine, and one keyed in SAP with Copy From alike. So it counts a credit
+    /// note this side never recorded, including one whose reply was lost. Measured on production on
+    /// 2026-09-11 over eight invoices, partial credits among them: the quantity gone from each line was
+    /// exactly what the credit memos based on it held.
     ///
-    /// <para>So this one fails closed. An invoice whose credit history cannot be read is one nobody
-    /// can safely credit further until it can.</para>
+    /// <para>The guard used to ask SAP for the credit notes raised against the invoice and total them.
+    /// Service Layer cannot answer that — a <c>DocumentLines/any()</c> filter is a 400 — so the lookup
+    /// was a stub that always answered "none", and the guard never refused anything. Not the local
+    /// database either: its row is written after the SAP post, so a credit note whose reply was lost
+    /// is not there.</para>
+    ///
+    /// <para>What it cannot see. A credit memo keyed in SAP without Copy From names no base line and
+    /// moves nothing. And a cancelled credit memo was not seen to reopen its line (54134 against
+    /// invoice 668096, with no replacement under its reference), so such a line stays refused for as
+    /// long as SAP reports it closed.</para>
+    ///
+    /// <para>Fails closed. The invoice read already throws when SAP cannot be reached, and an invoice
+    /// that comes back without its lines or their open quantities is refused, never read as open.</para>
     /// </remarks>
-    private async Task<decimal> ReadCreditedAmountAsync(int invoiceId, CancellationToken cancellationToken)
+    private static void EnsureInvoiceLinesStillCreditable(Invoice sapInvoice, IEnumerable<CreateCreditNoteLineRequest> lines)
     {
-        List<SAPCreditNote> existing;
+        var invoiceLines = sapInvoice.DocumentLines ?? [];
 
-        try
+        if (invoiceLines.Count == 0 || invoiceLines.Any(line => line.RemainingOpenQuantity is null))
         {
-            existing = await _sapClient.GetCreditNotesByInvoiceAsync(invoiceId, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Could not read the credit notes already raised against invoice {InvoiceId}", invoiceId);
             throw new InvalidOperationException(
-                $"SAP could not be asked what invoice {invoiceId} has already been credited, so no further credit note "
-                + $"was raised against it. Try again shortly. ({ex.Message})", ex);
+                $"What invoice #{sapInvoice.DocNum} has already been credited could not be read from SAP, so no further "
+                + "credit note was raised against it. Try again shortly.");
         }
 
-        return CalculateActiveCreditedAmount(existing.Select(MapFromSAP).ToList());
+        var stillOpen = invoiceLines.ToDictionary(
+            line => line.LineNum,
+            line => line.LineStatus == "bost_Close" ? 0m : line.RemainingOpenQuantity!.Value);
+
+        if (stillOpen.Values.All(open => open <= QuantityTolerance))
+        {
+            throw new InvalidOperationException(
+                $"Invoice #{sapInvoice.DocNum} has already been fully credited. No additional credit note can be created.");
+        }
+
+        // Summed per invoice line: two credit lines against one invoice line draw on the same balance.
+        var requested = new Dictionary<int, decimal>();
+        foreach (var line in lines)
+        {
+            if (line.OriginalInvoiceLineId is not int lineNum || !stillOpen.ContainsKey(lineNum))
+            {
+                throw new InvalidOperationException(
+                    $"Invoice #{sapInvoice.DocNum} has no line for item {line.ItemCode}, so it cannot be credited against it.");
+            }
+
+            requested[lineNum] = requested.GetValueOrDefault(lineNum) + line.Quantity;
+        }
+
+        foreach (var (lineNum, quantity) in requested)
+        {
+            var open = stillOpen[lineNum];
+            if (quantity <= open + QuantityTolerance)
+            {
+                continue;
+            }
+
+            var itemCode = invoiceLines.First(line => line.LineNum == lineNum).ItemCode;
+            throw new InvalidOperationException(open <= QuantityTolerance
+                ? $"Invoice #{sapInvoice.DocNum} line {lineNum} ({itemCode}) has already been fully credited."
+                : $"Requested quantity {quantity:0.####} of {itemCode} exceeds the {open:0.####} still creditable on invoice #{sapInvoice.DocNum} line {lineNum}.");
+        }
     }
 
     /// <summary>
@@ -851,23 +897,6 @@ public class CreditNoteService : ICreditNoteService
         _logger.LogInformation("Found invoice {InvoiceId} in SAP with CardCode {CardCode}, Lines: {LineCount}",
             invoiceId, sapInvoice.CardCode, sapInvoice.DocumentLines?.Count ?? 0);
 
-        var activeCreditedAmount = await ReadCreditedAmountAsync(invoiceId, cancellationToken);
-        var requestedCreditAmount = CalculateCreditNoteRequestTotal(lines);
-        var remainingCreditableAmount = Math.Max(0m, sapInvoice.DocTotal - activeCreditedAmount);
-        var currency = string.IsNullOrWhiteSpace(sapInvoice.DocCurrency) ? "USD" : sapInvoice.DocCurrency;
-
-        if (remainingCreditableAmount <= CreditAmountTolerance)
-        {
-            throw new InvalidOperationException(
-                $"Invoice #{sapInvoice.DocNum} has already been fully credited. No additional credit note can be created.");
-        }
-
-        if (requestedCreditAmount > remainingCreditableAmount + CreditAmountTolerance)
-        {
-            throw new InvalidOperationException(
-                $"Requested credit amount {requestedCreditAmount:N2} {currency} exceeds the remaining creditable amount {remainingCreditableAmount:N2} {currency} for invoice #{sapInvoice.DocNum}.");
-        }
-
         // Log invoice lines for debugging
         if (sapInvoice.DocumentLines != null)
         {
@@ -975,6 +1004,19 @@ public class CreditNoteService : ICreditNoteService
             }
 
             enrichedLines.Add(enrichedLine);
+        }
+
+        // After the matching above, which settles the invoice line each credit line is based on.
+        EnsureInvoiceLinesStillCreditable(sapInvoice, enrichedLines);
+
+        var requestedCreditAmount = CalculateCreditNoteRequestTotal(enrichedLines);
+        var currency = string.IsNullOrWhiteSpace(sapInvoice.DocCurrency) ? "USD" : sapInvoice.DocCurrency;
+
+        // A ceiling on value alone. What has already been credited is counted per line, just above.
+        if (requestedCreditAmount > sapInvoice.DocTotal + CreditAmountTolerance)
+        {
+            throw new InvalidOperationException(
+                $"Requested credit amount {requestedCreditAmount:N2} {currency} exceeds the {sapInvoice.DocTotal:N2} {currency} total of invoice #{sapInvoice.DocNum}.");
         }
 
         var request = new CreateCreditNoteRequest
@@ -1231,18 +1273,6 @@ public class CreditNoteService : ICreditNoteService
             var lineTax = lineTotal * line.TaxPercent / 100;
             return lineTotal + lineTax;
         });
-    }
-
-    private static decimal CalculateActiveCreditedAmount(IEnumerable<CreditNoteDto> creditNotes)
-    {
-        return creditNotes
-            .Where(IsActiveCreditNote)
-            .Sum(note => note.DocTotal);
-    }
-
-    private static bool IsActiveCreditNote(CreditNoteDto creditNote)
-    {
-        return creditNote.Status != CreditNoteStatus.Cancelled;
     }
 
     private Task CaptureCreditNoteFiscalizationIncidentAsync(

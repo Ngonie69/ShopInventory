@@ -15555,9 +15555,14 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
     public async Task<List<SAPCreditNote>> GetCreditNotesByInvoiceAsync(int invoiceDocEntry, CancellationToken cancellationToken = default)
     {
-        // SAP Service Layer doesn't provide an easy way to query credit notes by their base invoice
-        // The relationship is stored in DocumentLines.BaseEntry/BaseType which can't be filtered directly
-        // Return empty list - the local database tracks this relationship via OriginalInvoiceDocEntry
+        // Always empty. Service Layer cannot be asked which credit notes are based on an invoice:
+        // BaseEntry and BaseType live on the lines, and
+        // CreditNotes?$filter=DocumentLines/any(d: d/BaseEntry eq N and d/BaseType eq 13) answers 400,
+        // code 201 "Invalid symbol in the filter condition" (KEFALOS_USD_NEW2, 2026-09-11). Callers fall
+        // back to the local database, which holds only credit notes raised through this app.
+        //
+        // So never use this to decide what an invoice has already been credited. SAP's own record of
+        // that is each invoice line's RemainingOpenQuantity, which CreateFromInvoiceAsync reads.
         _logger.LogDebug("GetCreditNotesByInvoiceAsync called for invoice {DocEntry} - returning empty list (relationship tracked locally)", invoiceDocEntry);
         return new List<SAPCreditNote>();
     }
