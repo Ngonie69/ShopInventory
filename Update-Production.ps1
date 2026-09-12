@@ -5,6 +5,16 @@
 param(
     [string]$ProductionServer = "10.10.10.9",
     [string[]]$AdditionalProductionServers = @(),
+    # Treat every additional node as critical, so the run fails if any of them fails.
+    #
+    # Off by default, because the additional nodes are backups: 10.10.10.58 has failed on every
+    # pipeline deployment since the runner was registered, which made "Deploy to production" red
+    # whatever happened to the node actually serving traffic. A pipeline that is always red is one
+    # nobody reads, and that is how a genuine failure on the primary gets waved through.
+    #
+    # This does not make a backup failure quiet - see the summary at the end of the fan-out, which
+    # names every node that did not take the deployment and is printed on success as well.
+    [switch]$RequireAllProductionServers,
     [string[]]$AdditionalSerializedCredentialPaths = @(),
     [string]$ApiAppPoolName = "ShopInventoryAPI",
     [string]$WebAppPoolName = "ShopInventoryWeb",
@@ -26,6 +36,13 @@ param(
     [int]$WebEmailSmtpPort = 587,
     [string]$WebEmailSmtpUsername = "alerts@kefaloscheese.com",
     [string]$WebEmailSmtpPassword = $env:SHOPINVENTORY_WEB_SMTP_PASSWORD,
+    # Only ever needed to bring a node up for the first time. Every later deployment carries the
+    # value forward inside the active slot's web.config, so leaving this unset is the normal case.
+    #
+    # It MUST be the same value on every node serving the portal. The secret signs the customer
+    # portal's JWTs, so a token issued by one node has to verify on the next; a freshly generated
+    # value silently signs every portal user out the moment traffic reaches that node.
+    [string]$CustomerPortalJwtSecret = $env:SHOPINVENTORY_CUSTOMERPORTAL_JWTSECRET,
     [string]$WebEmailFromEmail = "alerts@kefaloscheese.com",
     [string]$WebEmailFromName = "Kefalos Cheese - POD Reports",
     [string]$WebEmailApplicationUrl = "https://sis.kefaloscheese.com",
@@ -115,6 +132,49 @@ function Get-DeploymentCredential {
     }
 
     return Get-Credential -Message "Enter credentials with administrator access to \\$Server\C`$ and PowerShell remoting."
+}
+
+# What a multi-server run amounts to, once every node has been attempted.
+#
+# A function, and a pure one, because it is the part that decides whether a deployment counts as a
+# failure - and inline in the fan-out it could only be checked by running a real deployment against
+# real servers. Given the two lists it returns the headline, whether the run failed, and the exit
+# code, so the fan-out prints and exits on the answer rather than working it out as it goes.
+#
+# The rule: the primary node failing is always a failure. Backups failing is a failure only when the
+# caller declared them critical with -RequireAllProductionServers, because the alternative - which is
+# what shipped until now - is a pipeline that goes red on a backup nobody has fixed in months and
+# therefore tells nobody anything when the node serving traffic finally breaks.
+function Resolve-MultiServerOutcome {
+    param(
+        [string[]]$DeployedServers = @(),
+        [object[]]$FailedServers = @(),
+        [switch]$RequireAll
+    )
+
+    $failures = @($FailedServers)
+    $degraded = $failures.Count -gt 0
+    $primaryFailed = @($failures | Where-Object { $_.IsPrimary }).Count -gt 0
+    $isFailure = $primaryFailed -or ($degraded -and $RequireAll)
+
+    $headline = if (-not $degraded) {
+        "Multi-server deployment completed!"
+    }
+    elseif ($isFailure) {
+        "Multi-server deployment FAILED"
+    }
+    else {
+        "Multi-server deployment completed with $($failures.Count) backup node(s) NOT updated"
+    }
+
+    return [pscustomobject]@{
+        Headline  = $headline
+        Degraded  = $degraded
+        IsFailure = $isFailure
+        # The first failure's code, so the run exits with something a caller can act on rather than a
+        # generic 1. Zero when the deployment did its job, degraded or not.
+        ExitCode  = if ($isFailure) { @($failures)[0].ExitCode } else { 0 }
+    }
 }
 
 function Get-TargetProductionServers {
@@ -652,7 +712,19 @@ if ($targetServers.Count -gt 1) {
         Write-Host ""
     }
 
+    # Which nodes took the deployment and which did not. Collected rather than acted on immediately,
+    # because a failure on a backup must not stop the nodes behind it in the list from being tried -
+    # the old code exited on the first failure, so with three servers a failing second one meant the
+    # third was never attempted and nothing said so.
+    $deployedServers = [System.Collections.Generic.List[string]]::new()
+    $failedServers = [System.Collections.Generic.List[object]]::new()
+
     foreach ($targetServer in $targetServers) {
+        # The primary is the node serving traffic; the rest are backups. That distinction is the
+        # whole point of the exit code below, so it is read from the same list that decides the
+        # deployment order rather than re-derived from $ProductionServer.
+        $isPrimaryServer = $targetServer -eq $targetServers[0]
+
         Write-Host "Deploying to $targetServer..." -ForegroundColor Yellow
 
         $serializedCredentialForTarget = $null
@@ -757,21 +829,67 @@ if ($targetServers.Count -gt 1) {
         }
 
         if ($childExitCode -ne 0) {
+            $failedServers.Add([pscustomobject]@{
+                    Server    = $targetServer
+                    ExitCode  = $childExitCode
+                    IsPrimary = $isPrimaryServer
+                })
+
+            # The primary is the node serving traffic. Nothing behind it is worth attempting once it
+            # has failed, and the run is a failure whatever the backups do.
+            if ($isPrimaryServer) {
+                Write-Host "ERROR: Deployment failed for $targetServer with exit code $childExitCode." -ForegroundColor Red
+                Write-Host "       This is the primary node, so the remaining servers were not attempted." -ForegroundColor Red
+                Wait-ForExitPrompt
+                exit $childExitCode
+            }
+
             Write-Host "ERROR: Deployment failed for $targetServer with exit code $childExitCode." -ForegroundColor Red
-            Wait-ForExitPrompt
-            exit $childExitCode
+            if ($RequireAllProductionServers) {
+                Write-Host "       -RequireAllProductionServers is set, so this fails the deployment." -ForegroundColor Red
+            }
+            else {
+                Write-Host "       This is a backup node. The deployment continues; see the summary below." -ForegroundColor Yellow
+            }
+            Write-Host ""
+            continue
         }
 
+        $deployedServers.Add($targetServer)
         Write-Host "Completed deployment for $targetServer." -ForegroundColor Green
         Write-Host ""
     }
 
-    Write-Host "========================================" -ForegroundColor Green
-    Write-Host "Multi-server deployment completed!" -ForegroundColor Green
-    Write-Host "========================================" -ForegroundColor Green
+    # Printed whatever happened, and it names the nodes rather than counting them. A backup that has
+    # quietly not taken a deployment for months is the thing this is here to make impossible.
+    $outcome = Resolve-MultiServerOutcome `
+        -DeployedServers $deployedServers `
+        -FailedServers $failedServers `
+        -RequireAll:$RequireAllProductionServers
+
+    $summaryColour = if ($outcome.IsFailure) { 'Red' } elseif ($outcome.Degraded) { 'Yellow' } else { 'Green' }
+
+    Write-Host "========================================" -ForegroundColor $summaryColour
+    Write-Host $outcome.Headline -ForegroundColor $summaryColour
+    Write-Host "========================================" -ForegroundColor $summaryColour
+
+    foreach ($deployedServer in $deployedServers) {
+        Write-Host "  UPDATED     $deployedServer" -ForegroundColor Green
+    }
+    foreach ($failure in $failedServers) {
+        Write-Host "  NOT UPDATED $($failure.Server) (exit code $($failure.ExitCode))" -ForegroundColor Red
+    }
+
+    if ($outcome.Degraded -and -not $outcome.IsFailure) {
+        Write-Host ""
+        Write-Host "The node serving traffic is up to date. The backup(s) above are running whatever" -ForegroundColor Yellow
+        Write-Host "they had before and will keep drifting until they are fixed. Re-run with" -ForegroundColor Yellow
+        Write-Host "-RequireAllProductionServers to make this fail the deployment instead." -ForegroundColor Yellow
+    }
+
     Write-Host ""
     Wait-ForExitPrompt
-    exit 0
+    exit $outcome.ExitCode
 }
 
 # First-time IIS bootstrap needs local elevation for the remote setup workflow.
@@ -871,6 +989,12 @@ $webEmailConfigOverrides = @{
 
 if (-not [string]::IsNullOrWhiteSpace($WebEmailSmtpPassword)) {
     $webEmailConfigOverrides['Email__SmtpPassword'] = $WebEmailSmtpPassword
+}
+
+# Carried in the same hashtable as the SMTP settings because it goes to the same place by the same
+# route - the Web slot's web.config - not because it has anything to do with email.
+if (-not [string]::IsNullOrWhiteSpace($CustomerPortalJwtSecret)) {
+    $webEmailConfigOverrides['CustomerPortal__JwtSecret'] = $CustomerPortalJwtSecret
 }
 
 # Test connection to production server
@@ -2004,6 +2128,53 @@ try {
                 Write-Host "  Applied Web SMTP web.config settings" -ForegroundColor Green
             }
 
+            # The Web app refuses to start without this, by design - see ShopInventory.Web/Program.cs.
+            # Checked here, before the slot is cut over, because the alternative is what 10.10.10.58
+            # showed on 2026-09-12: the app crash-looped on startup, the warm-up probe returned 502 for
+            # four minutes, and the reason was only visible to somebody who went and read the slot's
+            # stdout log. A deployment that cannot succeed should say so in the deployment output.
+            #
+            # It is normally carried forward inside the active slot's web.config by
+            # Initialize-SlotWebConfig, so this only fires on a node that has never had the value -
+            # a first-time bring-up, or a node so far behind that it predates the setting.
+            function Assert-CustomerPortalJwtSecret {
+                param([string]$WebConfigPath)
+
+                $secret = Get-WebConfigEnvironmentVariableValue -WebConfigPath $WebConfigPath -Name 'CustomerPortal__JwtSecret'
+
+                if ((Test-UsableConfigValue -Value $secret) -and $secret.Trim().Length -ge 32) {
+                    Write-Host "  CustomerPortal__JwtSecret is present" -ForegroundColor Green
+                    return
+                }
+
+                $reason = if ([string]::IsNullOrWhiteSpace($secret)) {
+                    'is not set on this node'
+                }
+                elseif (-not (Test-UsableConfigValue -Value $secret)) {
+                    'is still a placeholder'
+                }
+                else {
+                    "is only $($secret.Trim().Length) characters; it must be at least 32"
+                }
+
+                throw @"
+CustomerPortal__JwtSecret $reason, so ShopInventory.Web will not start on this server.
+
+It signs the customer portal's JWTs and MUST be byte-identical on every node that serves the
+portal - a token issued by one node has to verify on the next. Copy the value from a node that
+already works rather than generating a new one, or every portal session breaks the moment
+traffic reaches this server.
+
+Read it from the live node:
+  [xml]`$c = Get-Content C:\inetpub\ShopInventory-Web\web.config
+  `$c.SelectNodes("//environmentVariable[@name='CustomerPortal__JwtSecret']") | Select -Expand value
+
+Then redeploy with:
+  .\Update-Production.ps1 -CustomerPortalJwtSecret '<the value from the live node>'
+  (or set SHOPINVENTORY_CUSTOMERPORTAL_JWTSECRET and rerun)
+"@
+            }
+
             function Wait-ForHealthyEndpoint {
                 param(
                     [string]$Url,
@@ -2254,6 +2425,9 @@ try {
 
                 if ($Plan.Name -eq 'Web') {
                     Set-ShopInventoryWebEmailConfig -WebConfigPath "$($Plan.TargetPath)\web.config" -EmailConfig $WebEmailConfigOverrides
+                    # After the overrides, so a value supplied on the command line counts, and before
+                    # the cutover, so a node that cannot start is refused rather than swapped in.
+                    Assert-CustomerPortalJwtSecret -WebConfigPath "$($Plan.TargetPath)\web.config"
                 }
 
                 $managedEnvironmentVariablesByApp = @{

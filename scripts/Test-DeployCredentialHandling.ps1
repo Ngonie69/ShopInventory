@@ -24,7 +24,8 @@ if ($parseErrors.Count -gt 0) {
 }
 
 $wanted = 'Import-PersistentCredential', 'Get-DeploymentCredential',
-          'Export-SerializedCredential', 'Import-SerializedCredential'
+          'Export-SerializedCredential', 'Import-SerializedCredential',
+          'Resolve-MultiServerOutcome'
 $source = ($ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -in $wanted
@@ -170,6 +171,112 @@ Check "the workflow's parameters are all still bindable" {
     $parameters = (Get-Command $ScriptPath).Parameters
     foreach ($name in 'CredentialPath', 'NonInteractive', 'SuppressExitPrompt', 'FailOnVerificationError', 'DeployTarget', 'WebEmailSmtpPassword', 'AdditionalProductionServers') {
         if (-not $parameters.ContainsKey($name)) { throw "-$name is gone; .github/workflows/deploy-production.yml passes it" }
+    }
+}
+
+# The only way to bring up a node that has never held the customer portal's signing secret. Without
+# it that server has to be configured by hand before it can be deployed to at all.
+Check "a first-time node can still be given the customer portal secret" {
+    if (-not (Get-Command $ScriptPath).Parameters.ContainsKey('CustomerPortalJwtSecret')) {
+        throw "-CustomerPortalJwtSecret is gone; a node without the secret cannot be deployed to"
+    }
+}
+
+Write-Host ""
+Write-Host "Startup secrets are checked before cutover" -ForegroundColor Cyan
+
+# ShopInventory.Web refuses to start without CustomerPortal:JwtSecret, so a slot missing it is a
+# slot that cannot serve. 10.10.10.58 proved on 2026-09-12 what happens when the deployment finds
+# that out afterwards: the app crash-looped, the warm-up probe returned 502 for four minutes, and
+# the reason was only in the slot's stdout log. The check has to run before the cutover, and after
+# the overrides, or a value passed on the command line would not count.
+Check "the Web slot's portal secret is asserted before it is cut over" {
+    $assertion = $ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq 'Assert-CustomerPortalJwtSecret'
+        }, $true) | Select-Object -First 1
+
+    if (-not $assertion) { throw "Assert-CustomerPortalJwtSecret is gone; a node missing the secret would cut over and crash-loop" }
+
+    $callSite = $ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst] -and
+            $node.GetCommandName() -eq 'Assert-CustomerPortalJwtSecret'
+        }, $true) | Select-Object -First 1
+
+    if (-not $callSite) { throw "Assert-CustomerPortalJwtSecret is defined but never called" }
+    if ($callSite.Extent.Text -notmatch 'TargetPath') {
+        throw "the assertion must read the target slot's web.config, not the live one"
+    }
+}
+
+Write-Host ""
+Write-Host "What a multi-server run counts as" -ForegroundColor Cyan
+
+# 10.10.10.58 is a backup and has failed every pipeline deployment since the runner was registered,
+# which made "Deploy to production" red whatever happened to the node actually serving traffic. The
+# rule below is what makes red mean something again, so it is worth pinning in both directions: a
+# backup must not fail the run, and the primary must always fail it.
+function New-ServerFailure {
+    param([string]$Server, [int]$ExitCode, [bool]$IsPrimary)
+    [pscustomobject]@{ Server = $Server; ExitCode = $ExitCode; IsPrimary = $IsPrimary }
+}
+
+Check "every node succeeding is a clean run" {
+    $outcome = Resolve-MultiServerOutcome -DeployedServers @('10.10.10.9', '10.10.10.58') -FailedServers @()
+    if ($outcome.IsFailure) { throw "a run with no failures reported a failure" }
+    if ($outcome.Degraded) { throw "a run with no failures reported as degraded" }
+    if ($outcome.ExitCode -ne 0) { throw "expected exit code 0, got $($outcome.ExitCode)" }
+}
+
+Check "a backup node failing does not fail the deployment" {
+    $outcome = Resolve-MultiServerOutcome -DeployedServers @('10.10.10.9') -FailedServers @((New-ServerFailure '10.10.10.58' 1 $false))
+    if ($outcome.IsFailure) { throw "a backup failure failed the run; the pipeline is red again" }
+    if ($outcome.ExitCode -ne 0) { throw "expected exit code 0, got $($outcome.ExitCode)" }
+}
+
+# Non-fatal must never mean invisible. The headline is what an operator reads, and a backup that has
+# silently not taken a deployment for months is the thing this whole change exists to prevent.
+Check "a backup node failing is still said out loud" {
+    $outcome = Resolve-MultiServerOutcome -DeployedServers @('10.10.10.9') -FailedServers @((New-ServerFailure '10.10.10.58' 1 $false))
+    if (-not $outcome.Degraded) { throw "a failed backup was not reported as degraded" }
+    if ($outcome.Headline -notmatch 'NOT updated') { throw "the headline does not say a node was not updated: $($outcome.Headline)" }
+}
+
+Check "the primary node failing always fails the deployment" {
+    foreach ($requireAll in $false, $true) {
+        $outcome = Resolve-MultiServerOutcome -DeployedServers @() -FailedServers @((New-ServerFailure '10.10.10.9' 3 $true)) -RequireAll:$requireAll
+        if (-not $outcome.IsFailure) { throw "the primary failed and the run passed (RequireAll=$requireAll)" }
+        if ($outcome.ExitCode -ne 3) { throw "expected the child's exit code 3, got $($outcome.ExitCode)" }
+    }
+}
+
+Check "-RequireAllProductionServers makes a backup failure fatal again" {
+    $outcome = Resolve-MultiServerOutcome -DeployedServers @('10.10.10.9') -FailedServers @((New-ServerFailure '10.10.10.58' 9 $false)) -RequireAll
+    if (-not $outcome.IsFailure) { throw "-RequireAll did not make a backup failure fatal" }
+    if ($outcome.ExitCode -ne 9) { throw "expected the child's exit code 9, got $($outcome.ExitCode)" }
+}
+
+Check "-RequireAllProductionServers is bindable" {
+    if (-not (Get-Command $ScriptPath).Parameters.ContainsKey('RequireAllProductionServers')) {
+        throw "-RequireAllProductionServers is gone; there is no way to make backups critical"
+    }
+}
+
+# The old code exited on the first failure, so with three servers a failing second one meant the
+# third was never attempted and nothing said so.
+Check "a failing backup does not stop the nodes behind it" {
+    $fanOut = $ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.IfStatementAst] -and
+            $node.Clauses[0].Item1.Extent.Text -match 'targetServers\.Count\s+-gt\s+1' -and
+            $node.Extent.Text -match '\$argumentList'
+        }, $true) | Select-Object -First 1
+
+    if (-not $fanOut) { throw "could not find the multi-server fan-out block" }
+    if ($fanOut.Extent.Text -notmatch '(?m)^\s*continue\s*$') {
+        throw "the fan-out has no 'continue', so a failed backup still stops every node behind it"
     }
 }
 

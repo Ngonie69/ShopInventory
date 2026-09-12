@@ -43,6 +43,25 @@ by `-ValidateOnly` before anything is installed:
 
 `10.10.10.58` needs nothing installed. It is deployed *to*, over WinRM, like today.
 
+### A backup node failing does not fail the deployment
+
+`10.10.10.9` is the primary — the node serving traffic — and `10.10.10.58` is a backup. They are not
+treated alike, and the difference is the exit code:
+
+- **The primary failing fails the run**, and the servers behind it are not attempted.
+- **A backup failing does not.** The run continues to the remaining nodes, the summary names every
+  node that did not take the deployment, and the run exits 0.
+
+That asymmetry is deliberate. `10.10.10.58` failed on every pipeline deployment from the runner's
+registration onwards — WinRM `0x8009030e`, because Negotiate cannot use Kerberos against an IP and
+the runner did not trust the address — so "Deploy to production" was red whatever happened to the
+node actually serving traffic. A pipeline that is always red is one nobody reads, and that is how a
+genuine failure on the primary gets waved through.
+
+Non-fatal is not silent. The closing summary lists `UPDATED` and `NOT UPDATED` per node on every
+multi-server run, and a degraded run says so in its headline. Pass `-RequireAllProductionServers` to
+make any node's failure fail the deployment again.
+
 ## Prerequisites
 
 - Windows with PowerShell 5.1 or later.
