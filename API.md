@@ -2890,6 +2890,23 @@ A second price surface for the desktop, separate from [Prices](#9-prices).
 Note the spelling: this controller uses `prices/business-partner/{cardCode}` with a hyphen, where
 [Prices](#9-prices) uses `businesspartner/{cardCode}` without one.
 
+#### Tax
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/DesktopIntegration/tax/item-rates` | Every item's SAP VAT group and the rate charged for it, plus the rate an item this does not name falls to |
+
+The till prices its own basket — it adds VAT on screen and prints VAT on a receipt before a sale has
+been posted, and it does that offline — so it needs the answer `CreateDesktopSaleHandler` will reach.
+This serves it from `SapItemTaxGroups`, the same table that stamps a sale line's tax code, mapped
+through `Tax:RatesByTaxCode`: one source, so the basket and the invoice cannot disagree about an item.
+
+The whole catalogue, not one warehouse's — the item master is not warehouse-scoped, and a receipt
+reprinted for an item the shop no longer carries still has to state the VAT charged that day. An
+empty `items` list means `SapItemTaxGroupWarmJob` has not completed a pass; it is answered rather than
+refused, and a client should keep whatever rates it already holds rather than fall back to the
+standard rate for everything.
+
 ---
 
 ### 31. Customer Portal
