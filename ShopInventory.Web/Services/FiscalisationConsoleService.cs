@@ -26,6 +26,20 @@ public interface IFiscalisationConsoleService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The REVMax device and what this system has filed on it.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="GetDevicesAsync"/> because that one asks the in-house platform and this
+    /// one asks the device. Under the live provider the platform has nothing to say, and a section that
+    /// reported the dormant system's silence as the fiscal position would be worse than no section.
+    /// </remarks>
+    Task<RevmaxActivityResponse?> GetRevmaxActivityAsync(
+        DateTime? fromDate,
+        DateTime? toDate,
+        int recentCount,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Fiscalises a SAP invoice from the work queue and says what actually happened to it.
     /// </summary>
     /// <remarks>
@@ -143,6 +157,39 @@ public class FiscalisationConsoleService(
         catch (Exception ex)
         {
             logger.LogError(ex, "Error reading fiscal days for the fiscalisation console");
+            return null;
+        }
+    }
+
+    public async Task<RevmaxActivityResponse?> GetRevmaxActivityAsync(
+        DateTime? fromDate,
+        DateTime? toDate,
+        int recentCount,
+        CancellationToken cancellationToken = default)
+    {
+        var parameters = new List<string>
+        {
+            $"recentCount={recentCount.ToString(CultureInfo.InvariantCulture)}"
+        };
+
+        if (fromDate is not null)
+        {
+            parameters.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+        }
+
+        if (toDate is not null)
+        {
+            parameters.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+        }
+
+        try
+        {
+            return await httpClient.GetFromJsonAsync<RevmaxActivityResponse>(
+                $"api/fiscalisation-console/revmax?{string.Join("&", parameters)}", cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error reading REVMax activity for the fiscalisation console");
             return null;
         }
     }
@@ -613,4 +660,149 @@ public class FiscalDayStateResponse
     public bool NeedsAttention { get; set; }
 
     public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// The REVMax device and the filing this system has recorded against it.
+/// </summary>
+/// <remarks>
+/// Mirrors <c>RevmaxActivityResult</c> in the API by hand, and the nullability has to match it exactly:
+/// a non-nullable property here against a null on the wire throws during deserialisation, and the page
+/// reports "could not be read" for what is actually a shape mismatch.
+///
+/// <see cref="AttributedToSerial"/> null means the device did not answer, so the figures were not
+/// narrowed to it. The page says so rather than presenting them as REVMax's alone.
+/// </remarks>
+public class RevmaxActivityResponse
+{
+    public string Provider { get; set; } = string.Empty;
+
+    /// <summary>Whether REVMax is the provider documents are actually filed with right now.</summary>
+    public bool IsLiveProvider { get; set; }
+
+    public bool Enabled { get; set; }
+
+    public string BaseUrl { get; set; } = string.Empty;
+
+    public int ConfiguredDeviceId { get; set; }
+
+    public RevmaxDeviceResponse? Device { get; set; }
+
+    public string? DeviceError { get; set; }
+
+    public string? AttributedToSerial { get; set; }
+
+    public DateTime FromUtc { get; set; }
+
+    public DateTime ToUtc { get; set; }
+
+    public RevmaxTotalsResponse Totals { get; set; } = new();
+
+    public List<RevmaxCurrencyTotalResponse> ByCurrency { get; set; } = [];
+
+    public List<RevmaxTransactionResponse> Recent { get; set; } = [];
+}
+
+/// <summary>
+/// What the device says about itself.
+/// </summary>
+/// <remarks>
+/// <see cref="LastReceiptGlobalNo"/> is the box's own counter and includes receipts filed by the device
+/// vendor's SAP add-on, which never reach this system's log. It will normally exceed the receipts counted
+/// below, and that gap is expected rather than a discrepancy to chase.
+/// </remarks>
+public class RevmaxDeviceResponse
+{
+    public string? DeviceId { get; set; }
+
+    public string? SerialNumber { get; set; }
+
+    public string? CompanyName { get; set; }
+
+    public string? Tin { get; set; }
+
+    public string? Vat { get; set; }
+
+    public string? Bpn { get; set; }
+
+    public string? FiscalDayStatus { get; set; }
+
+    public int? LastFiscalDayNo { get; set; }
+
+    public int? LastReceiptGlobalNo { get; set; }
+
+    public List<RevmaxFactResponse> Licence { get; set; } = [];
+}
+
+public class RevmaxFactResponse
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string Value { get; set; } = string.Empty;
+}
+
+public class RevmaxTotalsResponse
+{
+    public int ReceiptsFiled { get; set; }
+
+    public int DocumentsFiled { get; set; }
+
+    public int DocumentsFailed { get; set; }
+
+    public int FiscalDaysCovered { get; set; }
+
+    public int? FirstReceiptGlobalNo { get; set; }
+
+    public int? LastReceiptGlobalNo { get; set; }
+
+    public DateTime? FirstAtUtc { get; set; }
+
+    public DateTime? LastAtUtc { get; set; }
+}
+
+public class RevmaxCurrencyTotalResponse
+{
+    public string Currency { get; set; } = string.Empty;
+
+    public int Documents { get; set; }
+
+    public decimal DocTotal { get; set; }
+
+    public decimal VatSum { get; set; }
+}
+
+public class RevmaxTransactionResponse
+{
+    public int Id { get; set; }
+
+    public string DocumentType { get; set; } = string.Empty;
+
+    public int DocNum { get; set; }
+
+    public string Status { get; set; } = string.Empty;
+
+    public int? ReceiptGlobalNo { get; set; }
+
+    public string? FiscalDay { get; set; }
+
+    public string? DeviceSerialNumber { get; set; }
+
+    public string? CardCode { get; set; }
+
+    public string? CardName { get; set; }
+
+    public decimal DocTotal { get; set; }
+
+    public decimal VatSum { get; set; }
+
+    public string? Currency { get; set; }
+
+    public string? VerificationCode { get; set; }
+
+    public string? Message { get; set; }
+
+    public DateTime TimestampUtc { get; set; }
+
+    /// <summary>Whether this document carries fiscal evidence — decided by the API, not re-derived here.</summary>
+    public bool Filed { get; set; }
 }
