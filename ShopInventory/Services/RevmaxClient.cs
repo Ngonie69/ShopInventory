@@ -132,7 +132,11 @@ public class RevmaxClient : IRevmaxClient
             throw new ArgumentNullException(nameof(request));
         }
 
-        return await PostWithRetryAsync<TransactMRequest, TransactMResponse>("api/RevmaxAPI/TransactM", request, cancellationToken);
+        // Credits on this device still use TransactM, but carry the original receipt's reference
+        // fields. Serializing through the base type silently drops those fields from the wire.
+        return request is TransactMExtRequest linkedCredit
+            ? await PostWithRetryAsync<TransactMExtRequest, TransactMResponse>("api/RevmaxAPI/TransactM", linkedCredit, cancellationToken)
+            : await PostWithRetryAsync<TransactMRequest, TransactMResponse>("api/RevmaxAPI/TransactM", request, cancellationToken);
     }
 
     public async Task<TransactMExtResponse?> TransactMExtAsync(TransactMExtRequest request, CancellationToken cancellationToken = default)

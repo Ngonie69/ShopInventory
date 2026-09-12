@@ -184,7 +184,7 @@ $categoryOf = @{
 
     'WebhookController'='Integrations'; 'NotificationController'='Integrations'
     'PushNotificationController'='Integrations'; 'EmailController'='Integrations'
-    'WhatsAppController'='Integrations'; 'DesktopIntegrationController'='Integrations'
+    'WhatsAppController'='Integrations'; 'DesktopIntegrationController'='Integrations'; 'DesktopCreditNotesController'='Integrations'
     'FiscalisationSettingsController'='Integrations'; 'FiscalDeviceOfflineLeaseController'='Integrations'
 }
 

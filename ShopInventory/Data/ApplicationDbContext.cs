@@ -219,6 +219,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<DailyStockSnapshotEntity> DailyStockSnapshots { get; set; }
   public DbSet<DailyStockSnapshotItemEntity> DailyStockSnapshotItems { get; set; }
   public DbSet<DesktopSaleEntity> DesktopSales { get; set; }
+  public DbSet<DesktopCreditNoteEntity> DesktopCreditNotes { get; set; }
   public DbSet<DesktopSaleLineEntity> DesktopSaleLines { get; set; }
   public DbSet<SaleConsolidationEntity> SaleConsolidations { get; set; }
   public DbSet<StockTransferAdjustmentEntity> StockTransferAdjustments { get; set; }
@@ -1986,6 +1987,10 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         t.HasCheckConstraint("CK_SnapshotItems_AvailableQuantity_NonNegative", "\"AvailableQuantity\" >= 0");
       });
     });
+
+    modelBuilder.Entity<DesktopCreditNoteEntity>()
+        .HasOne(n => n.Sale).WithMany().HasForeignKey(n => n.SaleId)
+        .OnDelete(DeleteBehavior.Restrict);
 
     // Desktop Sale
     modelBuilder.Entity<DesktopSaleEntity>(entity =>

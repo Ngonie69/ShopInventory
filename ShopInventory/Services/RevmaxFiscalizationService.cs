@@ -288,6 +288,30 @@ public class RevmaxFiscalizationService : IFiscalizationService
         }
     }
 
+    /// <summary>Submits a persisted desktop credit with an explicit fiscal identity, before SAP exists.</summary>
+    public async Task<FiscalizationResult> SubmitDesktopCreditAsync(
+        TransactMExtRequest request, CancellationToken cancellationToken = default)
+    {
+        var number = request.InvoiceNumber ?? throw new ArgumentException("Credit-note number is required.");
+        if (!_settings.Enabled) return Disabled(number);
+        var raw = Serialize(request);
+        try
+        {
+            var response = request.refDeviceId != _settings.DefaultRefDeviceId
+                ? await _client.TransactMExtAsync(request, cancellationToken)
+                : await _client.TransactMAsync(request, cancellationToken);
+            var mapped = MapResponse(response, number, raw);
+            if (IsDuplicateInvoiceRefusal(mapped))
+                return await AdoptDuplicateReceiptAsync(mapped, number, CreditNoteReceiptType, cancellationToken);
+            return await StampFiscalDayAsync(
+                await ReadBackFiledReceiptAsync(mapped, request, CreditNoteReceiptType, cancellationToken), cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            return await ReconcileIndeterminateAsync(ex, number, CreditNoteReceiptType, raw, cancellationToken);
+        }
+    }
+
     public async Task<bool> IsInvoiceFiscalizedAsync(
         string invoiceNumber,
         CancellationToken cancellationToken = default)

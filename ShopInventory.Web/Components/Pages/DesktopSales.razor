@@ -854,6 +854,13 @@
                excludes a sale from the close, and no receipt PDF is kept for one. *@
             <div class="ops-drawer-foot">
                 <button type="button" class="ops-btn ops-btn-ghost" @onclick="CloseDrawer">Close</button>
+                @if (string.Equals(selectedSale.FiscalizationStatus, "Success", StringComparison.OrdinalIgnoreCase))
+                {
+                    <button type="button" class="ops-btn ops-btn-primary" @onclick="OpenDesktopCredit">
+                        <i class="ph ph-arrow-u-up-left" aria-hidden="true"></i>
+                        Credit notes
+                    </button>
+                }
                 @if (selectedSale.CanPostToSap)
                 {
                     <button type="button" class="ops-btn ops-btn-primary"
@@ -1000,7 +1007,169 @@
     </div>
 }
 
+@if (creditSale != null)
+{
+    <div class="ops-overlay ops-overlay-center">
+        <div class="ops-dialog" role="dialog" aria-modal="true" aria-labelledby="desktop-credit-title"
+             style="width:min(960px,95vw);max-height:90vh;overflow:auto">
+            <div class="ops-dialog-head">
+                <h2 id="desktop-credit-title">Credit notes · @creditSale.ExternalReferenceId</h2>
+            </div>
+            <div class="ops-dialog-body">
+                <p>Create a fiscal credit against the original REVMax receipt, including before SAP posting.
+                    SAP credit posting and any stock return remain separate back-office actions.</p>
+                @if (!string.IsNullOrWhiteSpace(desktopCreditError))
+                {
+                    <p role="alert">@desktopCreditError</p>
+                }
+                @if (desktopCreditBusy)
+                {
+                    <p role="status"><span class="ops-spin"></span> Reading or submitting the saved credit note…</p>
+                }
+                @foreach (var note in desktopCreditNotes)
+                {
+                    <div class="ops-ds-card" style="margin-bottom:12px">
+                        <strong>@note.Number · @Money(note.Amount, note.Currency)</strong>
+                        <p>Fiscal: @note.Status · SAP: @(note.SapDocNum.HasValue ? $"#{note.SapDocNum}" : "Pending credit posting")</p>
+                        <p>@note.Reason</p>
+                        <p>@note.Message</p>
+                        @if (!string.IsNullOrWhiteSpace(note.ReceiptGlobalNo))
+                        {
+                            <p>Credit receipt: @note.ReceiptGlobalNo</p>
+                        }
+                        @if (FiscalQrCode.ToImageSource(note.QrCode) is { Length: > 0 } qr)
+                        {
+                            <img src="@qr" alt="Credit note verification QR code" width="160" height="160" />
+                        }
+                        @if (note.Status is "Submitting" or "ReconciliationRequired" or "Prepared")
+                        {
+                            <button type="button" class="ops-btn ops-btn-ghost" disabled="@desktopCreditBusy"
+                                    @onclick="() => CheckDesktopCredit(note)">@(note.Status == "Prepared" ? "Continue fiscalisation" : "Check fiscal status")</button>
+                        }
+                    </div>
+                }
+                @if (desktopCreditForm != null && !desktopCreditSubmitted)
+                {
+                    <p>Original receipt: @desktopCreditForm.Source.ReceiptGlobalNo · Device @desktopCreditForm.Source.DeviceId ·
+                        Fiscal day @desktopCreditForm.Source.FiscalDayNo</p>
+                    <div class="ops-scroll">
+                        <table class="ops-table">
+                            <thead><tr><th>Receipt line</th><th>Available</th><th>Credit quantity</th><th>Credit amount</th></tr></thead>
+                            <tbody>
+                                @foreach (var line in desktopCreditLines)
+                                {
+                                    <tr>
+                                        <td>@line.Source.Name</td><td>@line.Available</td>
+                                        <td><input type="number" class="ops-input" aria-label="Credit quantity for @line.Source.Name"
+                                                   min="0" max="@line.Available" step="0.000001" @bind="line.Quantity" disabled="@desktopCreditBusy" /></td>
+                                        <td>@Money(decimal.Round(line.Quantity * line.Source.UnitPrice, 2, MidpointRounding.AwayFromZero), desktopCreditForm.Source.Currency)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <label class="ops-label" for="desktop-credit-reason">Reason for credit</label>
+                    <textarea id="desktop-credit-reason" class="ops-input" maxlength="500" @bind="desktopCreditReason"
+                              disabled="@desktopCreditBusy"></textarea>
+                    <p>Total credit: <strong>@Money(DesktopCreditAmount, desktopCreditForm.Source.Currency)</strong></p>
+                }
+            </div>
+            <div class="ops-dialog-foot">
+                <button type="button" class="ops-btn ops-btn-ghost" disabled="@desktopCreditBusy" @onclick="() => creditSale = null">Close</button>
+                <button type="button" class="ops-btn ops-btn-ghost" disabled="@desktopCreditBusy" @onclick="RefreshDesktopCredits">Refresh</button>
+                @if (desktopCreditForm != null && !desktopCreditSubmitted)
+                {
+                    <button type="button" class="ops-btn ops-btn-primary" disabled="@(!CanCreateDesktopCredit)"
+                            @onclick="CreateDesktopCredit">Create and fiscalise with REVMax</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
 @code {
+    private DesktopSaleDto? creditSale;
+    private DesktopCreditForm? desktopCreditForm;
+    private List<DesktopCreditNoteResult> desktopCreditNotes = [];
+    private List<DesktopCreditSelection> desktopCreditLines = [];
+    private bool desktopCreditBusy;
+    private bool desktopCreditSubmitted;
+    private string? desktopCreditError;
+    private string desktopCreditReason = "";
+    private string desktopCreditKey = "";
+    private decimal DesktopCreditAmount => desktopCreditLines.Sum(l => decimal.Round(l.Quantity * l.Source.UnitPrice, 2, MidpointRounding.AwayFromZero));
+    private bool CanCreateDesktopCredit => !desktopCreditBusy && !desktopCreditSubmitted &&
+        !string.IsNullOrWhiteSpace(desktopCreditReason) && desktopCreditLines.Any(l => l.Quantity > 0) &&
+        desktopCreditLines.All(l => l.Quantity >= 0 && l.Quantity <= l.Available);
+    private sealed class DesktopCreditSelection(DesktopCreditLine source, decimal available)
+    {
+        public DesktopCreditLine Source { get; } = source;
+        public decimal Available { get; } = Math.Max(0, available);
+        public decimal Quantity { get; set; }
+    }
+
+    private async Task OpenDesktopCredit()
+    {
+        creditSale = selectedSale;
+        selectedSale = null;
+        desktopCreditNotes = [];
+        await RefreshDesktopCredits();
+    }
+
+    private async Task RefreshDesktopCredits()
+    {
+        if (creditSale == null || desktopCreditBusy) return;
+        desktopCreditBusy = true;
+        desktopCreditForm = null;
+        desktopCreditError = null;
+        try
+        {
+            // Load saved results even when REVMax is unavailable or the original cannot be prepared.
+            desktopCreditNotes = await DesktopService.GetCreditNotesAsync(creditSale.ExternalReferenceId);
+            desktopCreditForm = await DesktopService.PrepareCreditNoteAsync(creditSale.ExternalReferenceId);
+            desktopCreditLines = desktopCreditForm.Source.Lines.Select(l => new DesktopCreditSelection(l,
+                l.Quantity - desktopCreditForm.ReservedQuantities.GetValueOrDefault(l.LineNo))).ToList();
+            desktopCreditKey = Guid.NewGuid().ToString("N");
+            desktopCreditReason = "";
+            desktopCreditSubmitted = false;
+        }
+        catch (Exception ex) { desktopCreditError = ex.Message; }
+        finally { desktopCreditBusy = false; }
+    }
+
+    private async Task CreateDesktopCredit()
+    {
+        if (creditSale == null || !CanCreateDesktopCredit) return;
+        desktopCreditBusy = true;
+        desktopCreditSubmitted = true;
+        desktopCreditError = null;
+        try
+        {
+            var result = await DesktopService.CreateCreditNoteAsync(creditSale.ExternalReferenceId,
+                new CreateDesktopCreditRequest(desktopCreditKey, desktopCreditReason,
+                    desktopCreditLines.Where(l => l.Quantity > 0).Select(l => new DesktopCreditQuantity(l.Source.LineNo, l.Quantity)).ToList()));
+            desktopCreditNotes.Insert(0, result);
+        }
+        catch (Exception ex) { desktopCreditError = ex.Message + " Refresh to check the saved notes before creating another credit."; }
+        finally { desktopCreditBusy = false; }
+    }
+
+    private async Task CheckDesktopCredit(DesktopCreditNoteResult note)
+    {
+        if (creditSale == null || desktopCreditBusy) return;
+        desktopCreditBusy = true;
+        try
+        {
+            var result = note.Status == "Prepared"
+                ? await DesktopService.ContinueCreditNoteAsync(creditSale.ExternalReferenceId, note.Id)
+                : await DesktopService.ReconcileCreditNoteAsync(creditSale.ExternalReferenceId, note.Id);
+            var index = desktopCreditNotes.FindIndex(n => n.Id == note.Id);
+            if (index >= 0) desktopCreditNotes[index] = result;
+        }
+        catch (Exception ex) { desktopCreditError = ex.Message; }
+        finally { desktopCreditBusy = false; }
+    }
+
     private const string PeriodToday = "today";
     private const string PeriodWeek = "week";
     private const string PeriodCustom = "custom";

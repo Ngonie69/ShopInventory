@@ -660,6 +660,12 @@
                                   disabled="@isCreatingCreditNote"></textarea>
                     </div>
 
+                    <div class="ivx-note">
+                        Select the items and quantities to return. Submitting creates a credit note
+                        against invoice #@selectedInvoice.DocNum in SAP, returns the selected stock,
+                        and attempts fiscalisation. The result will confirm whether fiscalisation succeeded.
+                    </div>
+
                     <div>
                         <div class="ivx-sect"><i class="ph ph-list-checks" aria-hidden="true"></i>Select items to credit</div>
                         <div class="ivx-linescroll">
@@ -730,7 +736,7 @@
                         }
                         else
                         {
-                            <span>Create credit note</span>
+                            <span>Create and fiscalise credit note</span>
                         }
                     </button>
                 </div>
