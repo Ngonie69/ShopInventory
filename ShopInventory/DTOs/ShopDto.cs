@@ -14,6 +14,7 @@ public sealed record ShopDto(
     string BusinessPartnerCode,
     string WarehouseCode,
     string? CostCentreCode,
+    string? SupplyingWarehouseCode,
     bool IsActive,
     int AssignedOperatorCount,
     DateTime CreatedAt,

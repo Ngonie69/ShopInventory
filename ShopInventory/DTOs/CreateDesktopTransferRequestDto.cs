@@ -4,8 +4,11 @@ namespace ShopInventory.DTOs;
 
 public class CreateDesktopTransferRequestDto
 {
-    [Required(ErrorMessage = "Source warehouse is required")]
-    public string FromWarehouse { get; set; } = string.Empty;
+    /// <summary>
+    /// The warehouse being asked for the stock. Optional for an account on a shop, whose shop decides
+    /// it and overrides this; required of everyone else. See <c>ShopSupplyingWarehouse.ResolveForRequest</c>.
+    /// </summary>
+    public string? FromWarehouse { get; set; }
 
     [Required(ErrorMessage = "Destination warehouse is required")]
     public string ToWarehouse { get; set; } = string.Empty;

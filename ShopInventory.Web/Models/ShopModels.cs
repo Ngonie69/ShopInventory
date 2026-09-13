@@ -21,6 +21,9 @@ public class ShopDto
 
     public string? CostCentreCode { get; set; }
 
+    /// <summary>The warehouse the shop's tills request stock from, when one is set.</summary>
+    public string? SupplyingWarehouseCode { get; set; }
+
     public bool IsActive { get; set; }
 
     /// <summary>Active accounts working this shop's till.</summary>

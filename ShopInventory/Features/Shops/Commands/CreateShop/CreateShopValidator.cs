@@ -31,5 +31,8 @@ public sealed class CreateShopValidator : AbstractValidator<CreateShopCommand>
 
         RuleFor(x => x.Request.CostCentreCode)
             .MaximumLength(50).WithMessage("Cost centre code must be 50 characters or fewer.");
+
+        RuleFor(x => x.Request.SupplyingWarehouseCode)
+            .MaximumLength(50).WithMessage("Supplying warehouse code must be 50 characters or fewer.");
     }
 }

@@ -191,6 +191,60 @@ public sealed class ShopManagementTests : IDisposable
         Assert.Equal("Shops.NotFound", result.FirstError.Code);
     }
 
+    // ---- Supplying warehouse ---------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_shop_opens_with_the_warehouse_its_tills_request_stock_from()
+    {
+        var result = await Create(Request(supplyingWarehouse: " KEFGRC "));
+
+        Assert.False(result.IsError);
+        Assert.Equal("KEFGRC", result.Value.SupplyingWarehouseCode);
+    }
+
+    [Fact]
+    public async Task A_shop_may_open_without_a_supplying_warehouse()
+    {
+        var result = await Create(Request(supplyingWarehouse: "   "));
+
+        Assert.False(result.IsError);
+        Assert.Null(result.Value.SupplyingWarehouseCode);
+    }
+
+    [Fact]
+    public async Task A_shop_cannot_be_supplied_from_its_own_warehouse()
+    {
+        var result = await Create(Request(supplyingWarehouse: "cormach2"));
+
+        Assert.True(result.IsError);
+        Assert.Equal("Shops.SuppliedFromItself", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task Editing_sets_and_clears_the_supplying_warehouse()
+    {
+        var shop = await Create(Request());
+
+        var set = await Update(shop.Value.Id, UpdateRequest(supplyingWarehouse: "KEFGRC"));
+        Assert.False(set.IsError);
+        Assert.Equal("KEFGRC", (await Shop(shop.Value.Id)).Value.SupplyingWarehouseCode);
+
+        var cleared = await Update(shop.Value.Id, UpdateRequest(supplyingWarehouse: null));
+        Assert.False(cleared.IsError);
+        Assert.Null((await Shop(shop.Value.Id)).Value.SupplyingWarehouseCode);
+    }
+
+    [Fact]
+    public async Task Moving_a_shop_onto_its_supplying_warehouse_is_refused()
+    {
+        var shop = await Create(Request(supplyingWarehouse: "KEFGRC"));
+
+        var result = await Update(shop.Value.Id, UpdateRequest(warehouse: "KEFGRC", supplyingWarehouse: "KEFGRC"));
+
+        Assert.True(result.IsError);
+        Assert.Equal("Shops.SuppliedFromItself", result.FirstError.Code);
+    }
+
     // ---- Closing and reopening ------------------------------------------------------------------
 
     [Fact]
@@ -321,25 +375,29 @@ public sealed class ShopManagementTests : IDisposable
         string name = "Machipisa",
         string businessPartner = "SHOP-BP",
         string warehouse = "CORMACH2",
-        string? costCentre = "CC-SHOP") => new()
+        string? costCentre = "CC-SHOP",
+        string? supplyingWarehouse = null) => new()
         {
             Code = code,
             Name = name,
             BusinessPartnerCode = businessPartner,
             WarehouseCode = warehouse,
             CostCentreCode = costCentre,
+            SupplyingWarehouseCode = supplyingWarehouse,
         };
 
     private static UpdateShopRequest UpdateRequest(
         string name = "Machipisa",
         string businessPartner = "SHOP-BP",
         string warehouse = "CORMACH2",
-        string? costCentre = "CC-SHOP") => new()
+        string? costCentre = "CC-SHOP",
+        string? supplyingWarehouse = null) => new()
         {
             Name = name,
             BusinessPartnerCode = businessPartner,
             WarehouseCode = warehouse,
             CostCentreCode = costCentre,
+            SupplyingWarehouseCode = supplyingWarehouse,
         };
 
     private Task<ErrorOr.ErrorOr<ShopDto>> Create(CreateShopRequest request) =>

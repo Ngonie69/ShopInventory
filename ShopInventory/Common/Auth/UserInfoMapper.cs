@@ -56,6 +56,11 @@ public static class UserInfoMapper
             AssignedBusinessPartnerCode = shop?.BusinessPartnerCode ?? user.AssignedBusinessPartnerCode,
             AssignedCostCentreCode = shop?.CostCentreCode ?? user.AssignedCostCentreCode,
             AssignedCustomerCodes = user.GetCustomerCodes(),
+            // Not merged either: an account on a shop whose supplying warehouse is unset is told so,
+            // rather than handed an account-level value the request handler would then refuse.
+            TransferSourceWarehouseCode = shop is not null
+                ? shop.SupplyingWarehouseCode
+                : user.SupplyingWarehouseCode,
             ShopCode = shop?.Code,
             ShopName = shop?.Name
         };

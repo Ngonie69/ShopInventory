@@ -76,6 +76,22 @@ public class ShopEntity
     public string? CostCentreCode { get; set; }
 
     /// <summary>
+    /// The warehouse this shop asks for stock: the source of the transfer requests its tills raise.
+    /// </summary>
+    /// <remarks>
+    /// The other end from <see cref="WarehouseCode"/>, which is where requested stock arrives. The
+    /// shop's counterpart of <see cref="User.SupplyingWarehouseCode"/> on a van, and held here rather
+    /// than on the account for the same reason the other three codes are: every operator at one counter
+    /// is supplied from the same place, and a till operator account is refused one of its own.
+    ///
+    /// Optional, so an existing shop keeps trading before it is set. A till cannot raise a stock
+    /// request until it is — <c>CreateTransferRequestHandler</c> refuses one with a message naming
+    /// the shop, rather than guessing.
+    /// </remarks>
+    [MaxLength(50)]
+    public string? SupplyingWarehouseCode { get; set; }
+
+    /// <summary>
     /// Whether the shop is trading. A closed shop is deactivated rather than deleted, so its sales
     /// history keeps a shop to belong to.
     /// </summary>
