@@ -30,6 +30,7 @@
     <button type="button" id="@Id"
             class="npick-btn @(HasValue ? "npick-set" : "") @(Invalid ? "npick-bad" : "")"
             disabled="@(Disabled || Loading)" @onclick="Toggle"
+            title="@(_current is null ? null : $"{_current.Value} — {_current.Label}")"
             aria-haspopup="listbox" aria-expanded="@_open" aria-label="@AriaLabel">
         <span class="npick-value">
             @if (Loading)

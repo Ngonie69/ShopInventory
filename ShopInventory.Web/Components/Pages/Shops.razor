@@ -260,7 +260,14 @@
                 {
                     <div class="shop-form-grid">
                         <div class="shop-form-field">
-                            <label for="shop-code">Code <span class="required">*</span></label>
+                            <label for="shop-code">
+                                Code <span class="required">*</span>
+                                @if (editing.Id > 0)
+                                {
+                                    <i class="bi bi-lock-fill shop-label-lock" aria-hidden="true"
+                                       title="A shop's code cannot be changed once it is created"></i>
+                                }
+                            </label>
                             @* Not editable once set: the code is what sales history and reporting
                                group on, so changing it would silently re-parent a shop's past. *@
                             <input id="shop-code" class="shop-input" @bind="editing.Code"
@@ -327,10 +334,13 @@
                         </div>
                     </div>
 
-                    <p class="shop-form-hint">
-                        There is no operator field. A till operator is put on a shop from their own
-                        user account, and inherits all three of the above from it.
-                    </p>
+                    <div class="shop-form-note">
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                        <span>
+                            There is no operator field. A till operator is put on a shop from their own
+                            user account, and inherits all three of the above from it.
+                        </span>
+                    </div>
                 }
             </div>
 
