@@ -9,7 +9,7 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetTransferRequestIt
 /// <remarks>
 /// Not the warehouse's stock. The daily snapshot lists only what a shop holds, so a request screen
 /// built from it could never ask for the item a request is most often for — one the shop has run out
-/// of. Which items can be asked for is an item-master decision (<c>OITM.U_SalesItem = 'Yes'</c>), the
+/// of. Which items can be asked for is an item-master decision (<c>OITM.U_SalesItem = 'Yes'</c> and <c>OITM.U_VanSale = 'Yes'</c>), the
 /// same in every shop; the till joins its own stock and prices onto this list.
 /// </remarks>
 public sealed record GetTransferRequestItemsQuery : IRequest<ErrorOr<TransferRequestItemsResult>>;

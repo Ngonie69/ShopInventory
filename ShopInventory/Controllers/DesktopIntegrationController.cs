@@ -631,7 +631,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// The items a till may put on a transfer request
     /// </summary>
     /// <remarks>
-    /// Every item the item master flags <c>U_SalesItem = 'Yes'</c>, whether or not the asking shop holds
+    /// Every item the item master flags both <c>U_SalesItem = 'Yes'</c> and <c>U_VanSale = 'Yes'</c>, whether or not the asking shop holds
     /// any. A shop that has run out of an item is the shop that needs to ask for it, and the stock
     /// snapshot the till sells from does not list items it holds none of.
     /// </remarks>

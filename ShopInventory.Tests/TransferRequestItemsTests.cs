@@ -40,6 +40,7 @@ public class TransferRequestItemsTests
             result.Value.Items);
         Assert.Equal([GetTransferRequestItemsHandler.SqlText], _statements);
         Assert.Contains("T0.\"U_SalesItem\" ='Yes'", GetTransferRequestItemsHandler.SqlText);
+        Assert.Contains("T0.\"U_VanSale\" ='Yes'", GetTransferRequestItemsHandler.SqlText);
     }
 
     [Fact]
