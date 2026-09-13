@@ -165,8 +165,16 @@ Proof standards for this app:
 - For a data-dependent page, confirm the row you expect is on screen with
   `c.text(...)` rather than trusting that the page rendered.
 
-**Two things a headless screenshot lies about**, both inherited from
+**Things a headless screenshot lies about**, most inherited from
 `.claude/skills/nocturne-dropdowns-and-dates/references/verifying.md`:
+
+- **Icon glyphs that have not arrived.** Bootstrap Icons is a webfont from
+  jsDelivr (`App.razor`), so a shot taken before it lands renders every
+  `<i class="bi …">` as an empty box — indistinguishable from an icon name that
+  does not exist. Do not go hunting for the wrong class name: ask the page with
+  `document.fonts.check('16px "bootstrap-icons"')`, and wait on
+  `document.fonts.status === 'loaded'` before shooting.
+  `scripts/drive_fiscal_console.py` has the helper.
 
 - **Type size in dark mode.** An anti-zoom rule in `app.css` keys on
   `max-device-width: 1024px`, which reads the screen rather than the window, and

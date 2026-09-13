@@ -557,6 +557,26 @@ public static class FiscalWorkQueueDisposition
 
     /// <summary>No scheduled run owns this row, and this page cannot send it either.</summary>
     public const string Stalled = "stalled";
+
+    /// <summary>
+    /// Whether the console may send this document to FDMS.
+    /// </summary>
+    /// <param name="item">The queue row.</param>
+    /// <param name="lockedOut">
+    /// Keys this session has learned must never be sent again, because a send came back with an outcome
+    /// nobody could establish. The queue does not know about these until it is refetched.
+    /// </param>
+    /// <remarks>
+    /// The one rule, out of the page so it can be tested. It gates the row's own button, its checkbox and
+    /// every bulk run built from the page alike — a run therefore cannot contain something the single-row
+    /// path would have refused, and "select all" cannot arm a document that must be reconciled by hand.
+    /// A fiscal receipt cannot be withdrawn, so the cost of these three drifting apart is a duplicate
+    /// nobody can take back.
+    /// </remarks>
+    public static bool CanSend(FiscalConsoleWorkItemResponse item, IReadOnlySet<string> lockedOut) =>
+        item.Disposition == Retry
+        && item.DocNum is > 0
+        && !lockedOut.Contains(item.Key);
 }
 
 /// <summary>The API's work queue filter keys, restated for the filter control.</summary>

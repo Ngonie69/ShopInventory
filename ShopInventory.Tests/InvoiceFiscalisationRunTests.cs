@@ -72,7 +72,7 @@ public sealed class InvoiceFiscalisationRunTests
         Assert.Equal([1, 2, 3, 4], service.Sent);
         Assert.Equal(2, summary.Fiscalised);
         Assert.Equal(1, summary.AlreadyFiscalised);
-        Assert.Equal(3, Assert.Single(summary.NotFiscalised).Invoice.DocEntry);
+        Assert.Equal(3, Assert.Single(summary.NotFiscalised).Item.DocEntry);
         Assert.Null(summary.Unresolved);
         Assert.Equal(0, summary.NotSent);
     }
@@ -88,7 +88,7 @@ public sealed class InvoiceFiscalisationRunTests
             service, [Invoice(1), Invoice(2), Invoice(3), Invoice(4)], stopRequested: () => false);
 
         Assert.Equal([1, 2], service.Sent);
-        Assert.Equal(2, summary.Unresolved?.Invoice.DocEntry);
+        Assert.Equal(2, summary.Unresolved?.Item.DocEntry);
         Assert.Equal(2, summary.NotSent);
     }
 

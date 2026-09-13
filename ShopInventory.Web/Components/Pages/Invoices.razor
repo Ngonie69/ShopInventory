@@ -1373,7 +1373,7 @@
         bulkDone = 0;
         bulkStopRequested = false;
 
-        InvoiceFiscalisationSummary summary;
+        FiscalisationRunSummary<InvoiceDto> summary;
         try
         {
             summary = await InvoiceFiscalisationRun.RunAsync(
@@ -1482,59 +1482,14 @@
         }
     }
 
-    private void ToastBulkSummary(InvoiceFiscalisationSummary summary)
-    {
-        var parts = new List<string>
-        {
-            summary.Fiscalised == summary.Requested
-                ? $"Fiscalised {Invoices(summary.Requested)}."
-                : $"Fiscalised {summary.Fiscalised:N0} of {Invoices(summary.Requested)}."
-        };
+    /// <summary>
+    /// Reported by the shared summariser, so the console's bulk run and this one cannot drift on the
+    /// rule that matters: an unresolved outcome gets an error toast that will not dismiss itself.
+    /// </summary>
+    private void ToastBulkSummary(FiscalisationRunSummary<InvoiceDto> summary) =>
+        FiscalisationRunReport.Announce(Snackbar, summary, invoice => $"#{invoice.DocNum}", "invoice", "invoices");
 
-        if (summary.AlreadyFiscalised > 0)
-        {
-            parts.Add($"{summary.AlreadyFiscalised:N0} already fiscalised.");
-        }
-
-        var notFiscalised = summary.NotFiscalised;
-        var reasons = notFiscalised.Select(item => item.Result.Message).Distinct().ToList();
-        if (notFiscalised.Count > 0)
-        {
-            var numbers = string.Join(", ", notFiscalised.Take(5).Select(item => $"#{item.Invoice.DocNum}"))
-                          + (notFiscalised.Count > 5 ? ", …" : string.Empty);
-
-            parts.Add(reasons.Count == 1
-                ? $"{numbers} not fiscalised: {reasons[0]}"
-                : $"{numbers} not fiscalised, and still selected.");
-        }
-
-        if (summary.StoppedByUser && summary.NotSent > 0)
-        {
-            parts.Add($"Stopped with {Invoices(summary.NotSent)} not sent.");
-        }
-
-        var allSettled = summary.Fiscalised + summary.AlreadyFiscalised == summary.Requested;
-        Snackbar.Add(
-            string.Join(" ", parts),
-            allSettled ? Severity.Success : Severity.Warning,
-            allSettled ? null : config => config.RequireInteraction = true);
-
-        if (summary.Unresolved is { } unresolved)
-        {
-            var notSent = summary.NotSent > 0 ? $" The run stopped there: {Invoices(summary.NotSent)} not sent." : string.Empty;
-            Snackbar.Add(
-                WithDetail(unresolved.Result) + notSent,
-                Severity.Error,
-                config => config.RequireInteraction = true);
-        }
-
-        static string Invoices(int count) => count == 1 ? "1 invoice" : $"{count:N0} invoices";
-    }
-
-    private static string WithDetail(FiscalRetryResult result)
-        => string.IsNullOrWhiteSpace(result.Detail) || result.Message.Contains(result.Detail, StringComparison.Ordinal)
-            ? result.Message
-            : $"{result.Message} ({result.Detail.TrimEnd('.')})";
+    private static string WithDetail(FiscalRetryResult result) => FiscalisationRunReport.WithDetail(result);
 
     public void Dispose()
     {
