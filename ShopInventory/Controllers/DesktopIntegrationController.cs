@@ -1259,12 +1259,23 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// <summary>
     /// Get item prices for a business partner — uses BP's default price list with special price overrides.
     /// </summary>
+    /// <remarks>
+    /// Answered from the local price catalogue, never from SAP. Only tills call this route, whole
+    /// catalogue at a time, every time the products screen opens. Asked live, SAP's whole-list read
+    /// ran past the 3-second live budget on 120 of 164 till calls logged 2026-09-08 to 09-13, so the
+    /// till waited three seconds and was then answered from the catalogue anyway. The catalogue is
+    /// also where <c>CreateInvoiceHandler</c> takes the price it charges, so this is the figure the
+    /// invoice will carry rather than a live one that can disagree with it. A price change reaches
+    /// the till with the next catalogue sync (<c>SAP:SyncIntervalHours</c>) or <c>prices/sync</c>.
+    /// </remarks>
     [HttpGet("prices/business-partner/{cardCode}")]
     public async Task<IActionResult> GetPricesByBusinessPartner(
         string cardCode,
         CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetPricesByBusinessPartnerQuery(cardCode, false), cancellationToken);
+        var result = await mediator.Send(
+            new GetPricesByBusinessPartnerQuery(cardCode, ForceRefresh: false, UseLivePricing: false),
+            cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
