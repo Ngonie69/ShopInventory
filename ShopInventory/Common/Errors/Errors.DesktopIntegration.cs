@@ -43,6 +43,14 @@ public static partial class Errors
                 "DesktopIntegration.TransferRequestPostUncertain",
                 "The transfer request was sent to SAP but the reply was lost. Check SAP for the document before creating it again.");
 
+        /// <summary>
+        /// A stock request from an account with no shop that named no source warehouse. The same
+        /// sentence the request's model validation used to answer with, now the handler's to give,
+        /// because an account on a shop no longer has to send one.
+        /// </summary>
+        public static Error SourceWarehouseRequired =>
+            Error.Validation("DesktopIntegration.SourceWarehouseRequired", "Source warehouse is required");
+
         public static Error ValidationFailed(string message) =>
             Error.Failure("DesktopIntegration.ValidationFailed", message);
 

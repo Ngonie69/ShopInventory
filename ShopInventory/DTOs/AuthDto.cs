@@ -75,6 +75,16 @@ public class UserInfo
     public List<string> AssignedCustomerCodes { get; set; } = new();
 
     /// <summary>
+    /// The warehouse this account's stock requests are raised against — who it asks for stock.
+    /// </summary>
+    /// <remarks>
+    /// The shop's supplying warehouse for an account on a shop, set under Administration › Shops;
+    /// otherwise the account's own, which only a van has. The till shows it on the stock request screen
+    /// and the platform applies the same value when the request arrives, so the till never chooses it.
+    /// </remarks>
+    public string? TransferSourceWarehouseCode { get; set; }
+
+    /// <summary>
     /// The shop this account works the till at, when it has one.
     /// </summary>
     /// <remarks>

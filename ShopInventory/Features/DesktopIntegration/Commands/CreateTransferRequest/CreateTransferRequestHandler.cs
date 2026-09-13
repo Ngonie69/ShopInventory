@@ -5,6 +5,7 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Shops;
 using ShopInventory.Mappings;
 using ShopInventory.Services;
 using Microsoft.Extensions.Options;
@@ -42,15 +43,34 @@ public sealed class CreateTransferRequestHandler(
             {
                 requestingUser = await context.Users
                     .AsNoTracking()
+                    .Include(user => user.Shop)
                     .FirstOrDefaultAsync(user => user.Id == requestingUserId && user.IsActive, cancellationToken);
             }
 
+            // A till on a shop sends no source, or the one it was handed at sign-in; either way the
+            // shop's setting is what the request is raised against.
+            var shop = requestingUser?.Shop;
+            var source = ShopSupplyingWarehouse.ResolveForRequest(shop, request.FromWarehouse);
+            if (source.IsError)
+                return source.Errors;
+
+            var fromWarehouse = source.Value;
+
+            if (shop is not null &&
+                !string.IsNullOrWhiteSpace(request.FromWarehouse) &&
+                !string.Equals(request.FromWarehouse.Trim(), fromWarehouse, StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogWarning(
+                    "Transfer request from shop {ShopCode} named source {SentWarehouse}; raising it against the shop's supplying warehouse {SupplyingWarehouse}",
+                    shop.Code, request.FromWarehouse, fromWarehouse);
+            }
+
             logger.LogInformation("Desktop app creating transfer request: From={From}, To={To}, CreatedBy={CreatedBy}",
-                request.FromWarehouse, request.ToWarehouse, command.CreatedBy);
+                fromWarehouse, request.ToWarehouse, command.CreatedBy);
 
             var sapRequest = new CreateTransferRequestDto
             {
-                FromWarehouse = request.FromWarehouse,
+                FromWarehouse = fromWarehouse,
                 ToWarehouse = request.ToWarehouse,
                 DocDate = request.DocDate,
                 DueDate = request.DueDate,
@@ -67,7 +87,11 @@ public sealed class CreateTransferRequestHandler(
                     ItemCode = l.ItemCode,
                     Quantity = l.Quantity,
                     UoMCode = l.UoMCode,
-                    FromWarehouseCode = l.FromWarehouseCode ?? request.FromWarehouse,
+                    // A shop's lines all come from its supplying warehouse; a line naming another
+                    // would split one request across two sources the shop never chose.
+                    FromWarehouseCode = shop is not null || string.IsNullOrWhiteSpace(l.FromWarehouseCode)
+                        ? fromWarehouse
+                        : l.FromWarehouseCode,
                     ToWarehouseCode = l.ToWarehouseCode ?? request.ToWarehouse
                 }).ToList()
             };
@@ -109,7 +133,7 @@ public sealed class CreateTransferRequestHandler(
                     AuditActions.CreateTransferRequest,
                     "TransferRequest",
                     transferRequest.DocEntry.ToString(),
-                    $"Transfer request #{transferRequest.DocNum} from {request.FromWarehouse} to {request.ToWarehouse}",
+                    $"Transfer request #{transferRequest.DocNum} from {fromWarehouse} to {request.ToWarehouse}",
                     true);
             }
             catch

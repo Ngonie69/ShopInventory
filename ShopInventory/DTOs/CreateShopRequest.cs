@@ -21,4 +21,7 @@ public class CreateShopRequest
     public string WarehouseCode { get; set; } = string.Empty;
 
     public string? CostCentreCode { get; set; }
+
+    /// <summary>The warehouse the shop's tills request stock from. Optional.</summary>
+    public string? SupplyingWarehouseCode { get; set; }
 }

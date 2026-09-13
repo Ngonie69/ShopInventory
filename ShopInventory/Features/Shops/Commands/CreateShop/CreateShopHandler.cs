@@ -45,6 +45,13 @@ public sealed class CreateShopHandler(
             return Errors.Shops.WarehouseAlreadyAssigned(warehouseCode, warehouseOwner.Name);
         }
 
+        var supplyingWarehouseCode = ShopSupplyingWarehouse.Normalise(request.SupplyingWarehouseCode);
+
+        if (ShopSupplyingWarehouse.IsOwnWarehouse(supplyingWarehouseCode, warehouseCode))
+        {
+            return Errors.Shops.SuppliedFromItself(warehouseCode);
+        }
+
         var entity = new ShopEntity
         {
             Code = code,
@@ -54,6 +61,7 @@ public sealed class CreateShopHandler(
             CostCentreCode = string.IsNullOrWhiteSpace(request.CostCentreCode)
                 ? null
                 : request.CostCentreCode.Trim(),
+            SupplyingWarehouseCode = supplyingWarehouseCode,
             IsActive = true,
             CreatedByUserId = command.UserId,
             CreatedAt = DateTime.UtcNow

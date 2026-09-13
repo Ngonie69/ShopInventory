@@ -39,6 +39,21 @@ public sealed class UpdateShopHandler(
             return Errors.Shops.WarehouseAlreadyAssigned(warehouseCode, warehouseOwner.Name);
         }
 
+        var supplyingWarehouseCode = ShopSupplyingWarehouse.Normalise(request.SupplyingWarehouseCode);
+
+        if (ShopSupplyingWarehouse.IsOwnWarehouse(supplyingWarehouseCode, warehouseCode))
+        {
+            return Errors.Shops.SuppliedFromItself(warehouseCode);
+        }
+
+        // Every till at the counter requests from the new one on its operators' next sign-in.
+        if (!string.Equals(shop.SupplyingWarehouseCode, supplyingWarehouseCode, StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogWarning(
+                "Shop {ShopCode} supplying warehouse changed by {UserId}: {OldSupplyingWarehouse} -> {NewSupplyingWarehouse}",
+                shop.Code, command.UserId, shop.SupplyingWarehouseCode, supplyingWarehouseCode);
+        }
+
         // Logged before the change so the previous values survive in the audit trail. Moving a shop's
         // warehouse or business partner redirects every till at that counter on the operators' next
         // sale, without any of them doing anything, so it is worth being able to reconstruct.
@@ -58,6 +73,7 @@ public sealed class UpdateShopHandler(
         shop.CostCentreCode = string.IsNullOrWhiteSpace(request.CostCentreCode)
             ? null
             : request.CostCentreCode.Trim();
+        shop.SupplyingWarehouseCode = supplyingWarehouseCode;
         shop.UpdatedByUserId = command.UserId;
         shop.UpdatedAt = DateTime.UtcNow;
 

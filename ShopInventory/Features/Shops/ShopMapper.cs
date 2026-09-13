@@ -27,6 +27,7 @@ public static class ShopMapper
             shop.BusinessPartnerCode,
             shop.WarehouseCode,
             shop.CostCentreCode,
+            shop.SupplyingWarehouseCode,
             shop.IsActive,
             shop.Users.Count(user => user.IsActive),
             shop.CreatedAt,

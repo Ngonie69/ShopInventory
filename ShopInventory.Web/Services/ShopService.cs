@@ -64,7 +64,8 @@ public class ShopService(HttpClient httpClient, ILogger<ShopService> logger) : I
                         name = shop.Name,
                         businessPartnerCode = shop.BusinessPartnerCode,
                         warehouseCode = shop.WarehouseCode,
-                        costCentreCode = shop.CostCentreCode
+                        costCentreCode = shop.CostCentreCode,
+                        supplyingWarehouseCode = shop.SupplyingWarehouseCode
                     },
                     cancellationToken);
             }
@@ -78,7 +79,8 @@ public class ShopService(HttpClient httpClient, ILogger<ShopService> logger) : I
                         name = shop.Name,
                         businessPartnerCode = shop.BusinessPartnerCode,
                         warehouseCode = shop.WarehouseCode,
-                        costCentreCode = shop.CostCentreCode
+                        costCentreCode = shop.CostCentreCode,
+                        supplyingWarehouseCode = shop.SupplyingWarehouseCode
                     },
                     cancellationToken);
             }

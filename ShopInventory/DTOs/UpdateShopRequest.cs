@@ -20,4 +20,7 @@ public class UpdateShopRequest
     public string WarehouseCode { get; set; } = string.Empty;
 
     public string? CostCentreCode { get; set; }
+
+    /// <summary>The warehouse the shop's tills request stock from. Null clears it.</summary>
+    public string? SupplyingWarehouseCode { get; set; }
 }

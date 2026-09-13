@@ -41,6 +41,22 @@ public static partial class Errors
             Error.Conflict("Shops.HasAssignedOperators",
                 $"{shopName} still has {operatorCount} active till operator(s) assigned. Reassign them before closing it.");
 
+        /// <summary>A shop set to request stock from its own warehouse.</summary>
+        public static Error SuppliedFromItself(string warehouseCode) =>
+            Error.Validation("Shops.SuppliedFromItself",
+                $"A shop cannot request stock from its own warehouse ('{warehouseCode}'). Choose the warehouse that supplies it.");
+
+        /// <summary>
+        /// A till raising a stock request for a shop that has no supplying warehouse set.
+        /// </summary>
+        /// <remarks>
+        /// Worded for the till operator who will read it, and names the fix, because nothing they can
+        /// do at the till will change the answer.
+        /// </remarks>
+        public static Error NoSupplyingWarehouse(string shopName) =>
+            Error.Validation("Shops.NoSupplyingWarehouse",
+                $"{shopName} has no warehouse to request stock from. An administrator sets it on the shop under Administration › Shops.");
+
         public static Error CodeRequired =>
             Error.Validation("Shops.CodeRequired", "A shop code is required");
 

@@ -143,6 +143,7 @@
                             <th>Business partner</th>
                             <th>Warehouse</th>
                             <th>Cost centre</th>
+                            <th>Requests from</th>
                             <th>Operators</th>
                             <th>Status</th>
                             <th><span class="visually-hidden">Actions</span></th>
@@ -165,6 +166,7 @@
                                 <td>@shop.BusinessPartnerCode</td>
                                 <td>@shop.WarehouseCode</td>
                                 <td>@(string.IsNullOrWhiteSpace(shop.CostCentreCode) ? "—" : shop.CostCentreCode)</td>
+                                <td>@(string.IsNullOrWhiteSpace(shop.SupplyingWarehouseCode) ? "Not set" : shop.SupplyingWarehouseCode)</td>
                                 <td class="shop-num">
                                     <span class="shop-with-icon">
                                         <i class="bi bi-person"></i>@shop.AssignedOperatorCount
@@ -332,13 +334,33 @@
                                             EmptyText="No cost centres loaded"
                                             AriaLabel="Cost centre" />
                         </div>
+
+                        @* The other end of a stock request from the warehouse above: that is
+                           where requested stock arrives, this is who is asked for it. The till
+                           shows it on its review screen and the API raises the request against
+                           it, so it is set here and nowhere else — the till has no picker.
+
+                           Optional, so a shop can be opened before its supply route is known,
+                           but a till cannot raise a stock request until it is set. *@
+                        <div class="shop-form-field shop-form-full">
+                            <label for="shop-supply">Request stock from</label>
+                            <NocturnePicker Class="npick-block" Id="shop-supply"
+                                            Options="warehouseOptions"
+                                            @bind-Value="SupplyingWarehouseCode"
+                                            Loading="isLoadingMasterData"
+                                            Placeholder="Not set — tills cannot request stock"
+                                            SearchPlaceholder="Search by code or name…"
+                                            EmptyText="No warehouses loaded"
+                                            AriaLabel="Request stock from" />
+                        </div>
                     </div>
 
                     <div class="shop-form-note">
                         <i class="bi bi-info-circle" aria-hidden="true"></i>
                         <span>
                             There is no operator field. A till operator is put on a shop from their own
-                            user account, and inherits all three of the above from it.
+                            user account, and inherits all of the above from it — including the
+                            warehouse its stock requests go to.
                         </span>
                     </div>
                 }
@@ -419,7 +441,8 @@
                      Contains(shop.Name, term) ||
                      Contains(shop.BusinessPartnerCode, term) ||
                      Contains(shop.WarehouseCode, term) ||
-                     Contains(shop.CostCentreCode, term)))
+                     Contains(shop.CostCentreCode, term) ||
+                     Contains(shop.SupplyingWarehouseCode, term)))
                 .ToList();
         }
     }
@@ -565,6 +588,22 @@
     }
 
     /// <summary>
+    /// The optional warehouse the shop's tills request stock from, coerced the same
+    /// way as the cost centre above and for the same reason.
+    /// </summary>
+    private string? SupplyingWarehouseCode
+    {
+        get => editing?.SupplyingWarehouseCode;
+        set
+        {
+            if (editing is not null)
+            {
+                editing.SupplyingWarehouseCode = string.IsNullOrWhiteSpace(value) ? null : value;
+            }
+        }
+    }
+
+    /// <summary>
     /// Binds the required business partner through a nullable string, for the
     /// mirror of the reason above: the picker's Clear hands back null, and the
     /// DTO's field is a non-null string. Coerced rather than left null so an
@@ -622,6 +661,7 @@
             BusinessPartnerCode = shop.BusinessPartnerCode,
             WarehouseCode = shop.WarehouseCode,
             CostCentreCode = shop.CostCentreCode,
+            SupplyingWarehouseCode = shop.SupplyingWarehouseCode,
             IsActive = shop.IsActive,
             AssignedOperatorCount = shop.AssignedOperatorCount
         };
@@ -692,6 +732,13 @@
             string.IsNullOrWhiteSpace(editing.WarehouseCode))
         {
             error = "A shop needs a business partner and a warehouse — they are what its tills sell on.";
+            return;
+        }
+
+        // Also refused by the server; said here first so the dialog does not round-trip for it.
+        if (string.Equals(editing.SupplyingWarehouseCode, editing.WarehouseCode, StringComparison.OrdinalIgnoreCase))
+        {
+            error = "A shop cannot request stock from its own warehouse. Choose the warehouse that supplies it.";
             return;
         }
 
