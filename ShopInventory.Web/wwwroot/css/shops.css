@@ -772,6 +772,45 @@
     cursor: not-allowed;
 }
 
+/* The padlock beside a locked code's label: the dimmed field says it cannot be
+   typed in, this says why, on hover. */
+.shop-overlay .shop-label-lock {
+    margin-left: 4px;
+    font-size: 9px;
+    vertical-align: 1px;
+    color: var(--shop-faint);
+    cursor: help;
+}
+
+/* Wider than User Management's dialog it is lifted from. Warehouse and cost
+   centre share a row, and at 560px both names were clipped to a word. */
+.shop-modal {
+    width: min(640px, 100%);
+}
+
+/* The note under the form: a boxed aside rather than loose small print, so it
+   reads as belonging to the form instead of floating above the footer. */
+.shop-form-note {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--shop-s3);
+    padding: 10px 12px;
+    border-radius: var(--shop-r-md);
+    background: var(--shop-wash);
+    box-shadow: inset 0 0 0 1px var(--shop-rule);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--shop-mute-2);
+    text-wrap: pretty;
+}
+
+.shop-form-note > i {
+    flex: none;
+    margin-top: 1px;
+    font-size: 13px;
+    color: var(--shop-accent-text);
+}
+
 /* The breadcrumb. Administration is where this page lives and the design says
    so above the title; it is not a link, because there is no Administration
    index to link to. */
