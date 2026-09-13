@@ -14,7 +14,7 @@ public sealed class GetTransferRequestItemsHandler(
 {
     /// <summary>The statement as given for this list, unchanged.</summary>
     internal const string SqlText =
-        "SELECT T0.\"ItemCode\", T0.\"ItemName\", T0.\"U_SalesItem\" FROM OITM T0 WHERE T0.\"U_SalesItem\" ='Yes' ORDER BY T0.\"ItemCode\"";
+        "SELECT T0.\"ItemCode\", T0.\"ItemName\", T0.\"ItmsGrpCod\", T0.\"U_SalesItem\", T0.\"U_VanSale\" FROM OITM T0 WHERE T0.\"U_SalesItem\" ='Yes' and  T0.\"U_VanSale\" ='Yes' ORDER BY T0.\"ItemCode\"";
 
     private const string QueryCode = "TillTransferRequestItems";
     internal const string FreshKey = "desktop.transfer-request-items";
