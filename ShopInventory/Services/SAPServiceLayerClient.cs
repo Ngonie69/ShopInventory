@@ -924,18 +924,56 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         return allTransfers;
     }
 
-    public async Task<List<InventoryTransfer>> GetInventoryTransfersByDateRangeAsync(
+    public Task<List<InventoryTransfer>> GetInventoryTransfersByDateRangeAsync(
         string warehouseCode,
         DateTime fromDate,
         DateTime toDate,
         CancellationToken cancellationToken = default)
     {
+        var safeWarehouse = SanitizeODataValue(warehouseCode);
+
+        return ReadStockTransfersAsync(
+            $"(ToWarehouse eq '{safeWarehouse}' or FromWarehouse eq '{safeWarehouse}') and DocDate ge '{fromDate:yyyy-MM-dd}' and DocDate le '{toDate:yyyy-MM-dd}'",
+            cancellationToken);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// The header-filtered read above misses a transfer whose header names two other warehouses but
+    /// one of whose lines moves stock into or out of <paramref name="warehouseCode"/>. SAP lets a line
+    /// carry its own <c>FromWarehouseCode</c> and <c>WarehouseCode</c>, and TransferEventListener
+    /// already reads lines that way when it adjusts a shop's stock ledger — so the ledger could move
+    /// for a document the shop's own transfer list did not show.
+    /// </para>
+    /// <para>
+    /// The filter cannot reach the lines: this Service Layer refuses lambda operators on document
+    /// collections (<c>DocumentLines/any(...)</c> answers 400, code 201, as recorded beside the credit
+    /// note lookup in this class). So SAP is asked by date alone — the same query the listener runs
+    /// every five minutes over three days — and the documents are matched here, line by line.
+    /// </para>
+    /// </remarks>
+    public async Task<List<InventoryTransfer>> GetInventoryTransfersTouchingWarehouseAsync(
+        string warehouseCode,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default)
+    {
+        var transfers = await ReadStockTransfersAsync(
+            $"DocDate ge '{fromDate:yyyy-MM-dd}' and DocDate le '{toDate:yyyy-MM-dd}'",
+            cancellationToken);
+
+        return transfers
+            .Where(transfer => InventoryTransferWarehouses.Touches(transfer, warehouseCode))
+            .ToList();
+    }
+
+    /// <summary>Every stock transfer answering <paramref name="filter"/>, page by page.</summary>
+    private async Task<List<InventoryTransfer>> ReadStockTransfersAsync(string filter, CancellationToken cancellationToken)
+    {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var fromDateStr = fromDate.ToString("yyyy-MM-dd");
-        var toDateStr = toDate.ToString("yyyy-MM-dd");
-        var safeWarehouse = SanitizeODataValue(warehouseCode);
         var allTransfers = new List<InventoryTransfer>();
         int skip = 0;
         const int pageSize = 500;
@@ -943,7 +981,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         while (hasMore)
         {
-            var url = $"StockTransfers?$filter=(ToWarehouse eq '{safeWarehouse}' or FromWarehouse eq '{safeWarehouse}') and DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&{StockTransferSelect}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+            var url = $"StockTransfers?$filter={filter}&{StockTransferSelect}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");

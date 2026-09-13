@@ -44,6 +44,7 @@ using ShopInventory.Features.DesktopIntegration.Queries.GetTransfer;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferQueueStats;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferQueueStatus;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferRequest;
+using ShopInventory.Features.DesktopIntegration.Queries.GetTransferAdjustments;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferRequestItems;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferRequestsByWarehouse;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransfersByDateRange;
@@ -856,6 +857,26 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetLocalStockQuery(warehouseCode, snapshotDate), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The transfers the stock ledger applied to a warehouse between two snapshot days, one row per
+    /// transfer line, with the document and the time each was applied.
+    /// </summary>
+    /// <remarks>
+    /// The literal segment outranks <c>stock/{warehouseCode}/{itemCode}</c>, as <c>local</c> does.
+    /// </remarks>
+    [HttpGet("stock/{warehouseCode}/transfer-adjustments")]
+    public async Task<IActionResult> GetTransferAdjustments(
+        string warehouseCode,
+        [FromQuery] DateTime fromDate,
+        [FromQuery] DateTime toDate,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new GetTransferAdjustmentsQuery(warehouseCode, fromDate, toDate),
+            cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
