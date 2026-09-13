@@ -44,6 +44,7 @@ using ShopInventory.Features.DesktopIntegration.Queries.GetTransfer;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferQueueStats;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferQueueStatus;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferRequest;
+using ShopInventory.Features.DesktopIntegration.Queries.GetTransferRequestItems;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransferRequestsByWarehouse;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransfersByDateRange;
 using ShopInventory.Features.DesktopIntegration.Queries.GetTransfersByWarehouse;
@@ -623,6 +624,21 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(
             value => CreatedAtAction(nameof(GetTransferRequest), new { docEntry = value.DocEntry }, value),
             errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The items a till may put on a transfer request
+    /// </summary>
+    /// <remarks>
+    /// Every item the item master flags <c>U_SalesItem = 'Yes'</c>, whether or not the asking shop holds
+    /// any. A shop that has run out of an item is the shop that needs to ask for it, and the stock
+    /// snapshot the till sells from does not list items it holds none of.
+    /// </remarks>
+    [HttpGet("transfer-requests/items")]
+    public async Task<IActionResult> GetTransferRequestItems(CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetTransferRequestItemsQuery(), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>
