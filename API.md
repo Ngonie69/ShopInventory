@@ -2795,6 +2795,7 @@ transfers is `transfer-queue`, separate from the invoice `queue`.
 | GET | `/api/DesktopIntegration/transfers/warehouse/{warehouseCode}/paged` | (class) | The same, paginated |
 | GET | `/api/DesktopIntegration/transfers/warehouse/{warehouseCode}/date-range` | (class) | The same, between two dates |
 | POST | `/api/DesktopIntegration/transfer-requests` | (class) | Raise a transfer request |
+| GET | `/api/DesktopIntegration/transfer-requests/items` | (class) | Items a till may request (SAP sales items, `OITM.U_SalesItem = 'Yes'`) |
 | GET | `/api/DesktopIntegration/transfer-requests/{docEntry}` | (class) | One request |
 | GET | `/api/DesktopIntegration/transfer-requests/warehouse/{warehouseCode}` | (class) | A warehouse's requests |
 | GET | `/api/DesktopIntegration/transfer-requests/paged` | (class) | Requests, paginated |
