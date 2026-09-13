@@ -2777,6 +2777,7 @@ already holds the fiscalised receipt and passes what it was given.
 | GET | `/api/DesktopIntegration/stock/{warehouseCode}/{itemCode}` | One item's stock |
 | GET | `/api/DesktopIntegration/stock/{warehouseCode}/{itemCode}/batches` | Its batches |
 | GET | `/api/DesktopIntegration/stock/{warehouseCode}/local` | The local snapshot (`snapshotDate`) |
+| GET | `/api/DesktopIntegration/stock/{warehouseCode}/transfer-adjustments` | Transfers the stock ledger applied, one row per line with the document and time applied (`fromDate`, `toDate`: snapshot days, at most 92) |
 | GET | `/api/DesktopIntegration/stock/monitored-warehouses` | Which warehouses are snapshotted |
 | POST | `/api/DesktopIntegration/stock/fetch-daily` | Take today's snapshot now |
 
@@ -2793,7 +2794,7 @@ transfers is `transfer-queue`, separate from the invoice `queue`.
 | GET | `/api/DesktopIntegration/transfers/{docEntry}` | (class) | One transfer |
 | GET | `/api/DesktopIntegration/transfers/warehouse/{warehouseCode}` | (class) | A warehouse's transfers |
 | GET | `/api/DesktopIntegration/transfers/warehouse/{warehouseCode}/paged` | (class) | The same, paginated |
-| GET | `/api/DesktopIntegration/transfers/warehouse/{warehouseCode}/date-range` | (class) | The same, between two dates |
+| GET | `/api/DesktopIntegration/transfers/warehouse/{warehouseCode}/date-range` | (class) | Transfers between two dates where the warehouse is either end of the header or of any line |
 | POST | `/api/DesktopIntegration/transfer-requests` | (class) | Raise a transfer request |
 | GET | `/api/DesktopIntegration/transfer-requests/items` | (class) | Items a till may request (SAP sales items, `OITM.U_SalesItem = 'Yes'`) |
 | GET | `/api/DesktopIntegration/transfer-requests/{docEntry}` | (class) | One request |

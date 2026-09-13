@@ -24,7 +24,9 @@ public sealed class GetTransfersByDateRangeHandler(
         if (query.FromDate > query.ToDate)
             return Errors.DesktopIntegration.ValidationFailed("fromDate must be before or equal to toDate");
 
-        var transfers = await sapClient.GetInventoryTransfersByDateRangeAsync(
+        // By line, not by header: a till reconciles its stock against these, and the stock ledger is
+        // moved by line. See GetInventoryTransfersTouchingWarehouseAsync.
+        var transfers = await sapClient.GetInventoryTransfersTouchingWarehouseAsync(
             query.WarehouseCode, query.FromDate, query.ToDate, cancellationToken);
 
         return transfers.ToDto();

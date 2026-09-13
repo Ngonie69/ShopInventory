@@ -12,6 +12,11 @@ public interface ISAPServiceLayerClient
     Task<List<InventoryTransfer>> GetPagedInventoryTransfersByOffsetAsync(string warehouseCode, int skip, int pageSize, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
     Task<List<InventoryTransfer>> GetInventoryTransfersByDateAsync(string warehouseCode, DateTime date, CancellationToken cancellationToken = default);
     Task<List<InventoryTransfer>> GetInventoryTransfersByDateRangeAsync(string warehouseCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Transfers dated in the range where the warehouse is either end of the header or of any line.
+    /// </summary>
+    Task<List<InventoryTransfer>> GetInventoryTransfersTouchingWarehouseAsync(string warehouseCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<int> GetInventoryTransfersCountAsync(string warehouseCode, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
     Task<InventoryTransfer?> GetInventoryTransferByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
 
