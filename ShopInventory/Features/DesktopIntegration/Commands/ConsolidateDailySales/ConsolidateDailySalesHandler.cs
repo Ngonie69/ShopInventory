@@ -216,14 +216,13 @@ public sealed class ConsolidateDailySalesHandler(
         var vanSaleOrderKey = $"CONSOL-{consolidationDate:yyyyMMdd}-{cardCode}";
 
         // Build the SAP invoice request
-        var saleRefs = string.Join(",", sales.Select(s => s.ExternalReferenceId));
         var invoiceRequest = new CreateInvoiceRequest
         {
             CardCode = cardCode,
             DocDate = consolidationDate.ToString("yyyy-MM-dd"),
             DocDueDate = consolidationDate.ToString("yyyy-MM-dd"),
             NumAtCard = vanSaleOrderKey,
-            Comments = $"Consolidated {sales.Count} desktop sale(s): {saleRefs}",
+            Comments = ConsolidatedInvoiceRemarks.Build(sales.Count, sales.Select(s => s.ExternalReferenceId)),
             DocCurrency = sales.First().Currency,
             U_Van_saleorder = vanSaleOrderKey,
             Lines = mergedLines
