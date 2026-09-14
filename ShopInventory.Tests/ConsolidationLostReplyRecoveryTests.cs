@@ -416,8 +416,6 @@ public sealed class ConsolidationLostReplyRecoveryTests : IDisposable
     private ISAPServiceLayerClient BuildSapClient() =>
         StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
-            nameof(ISAPServiceLayerClient.ValidateStockAvailabilityAsync) =>
-                Task.FromResult(new List<StockValidationError>()),
             nameof(ISAPServiceLayerClient.CreateInvoiceAsync) => PostAndLoseTheReply(),
             nameof(ISAPServiceLayerClient.GetInvoiceByVanSaleOrderAsync) => KeyLookup(args),
             _ => throw new InvalidOperationException(
