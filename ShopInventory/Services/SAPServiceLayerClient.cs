@@ -2052,9 +2052,28 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             .ToList();
     }
 
-    public async Task<List<Invoice>> GetInvoiceHeadersByDocEntriesAsync(
+    public Task<List<Invoice>> GetInvoiceHeadersByDocEntriesAsync(
         IEnumerable<int> docEntries,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        GetInvoicesByDocEntriesAsync(
+            docEntries,
+            "$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency,UserSign,DocumentStatus,Cancelled,DocumentLines",
+            cancellationToken);
+
+    public Task<List<Invoice>> GetInvoiceBalancesByDocEntriesAsync(
+        IEnumerable<int> docEntries,
+        CancellationToken cancellationToken = default) =>
+        // No DocumentLines. A day's payment reads every invoice it settles, and the lines are most of
+        // what each one weighs.
+        GetInvoicesByDocEntriesAsync(
+            docEntries,
+            "$select=DocEntry,DocNum,CardCode,DocTotal,PaidToDate,DocCurrency,DocumentStatus,Cancelled",
+            cancellationToken);
+
+    private async Task<List<Invoice>> GetInvoicesByDocEntriesAsync(
+        IEnumerable<int> docEntries,
+        string selectClause,
+        CancellationToken cancellationToken)
     {
         var distinctDocEntries = docEntries
             .Where(docEntry => docEntry > 0)
@@ -2066,7 +2085,6 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         await EnsureAuthenticatedAsync(cancellationToken);
         var allInvoices = new List<Invoice>();
-        const string selectClause = "$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency,UserSign,DocumentStatus,Cancelled,DocumentLines";
 
         foreach (var chunk in GetDocEntryQueryChunks(distinctDocEntries, selectClause))
         {
@@ -12287,12 +12305,27 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                 response.StatusCode, responseContent);
 
             var sapError = ExtractSAPErrorMessage(responseContent);
+
+            // A SAP error body shows SAP itself answered and refused, so no payment exists. The daily
+            // payment job relies on that to send again rather than wait on an unknown outcome. Anything
+            // else, such as a gateway's HTML in front of the nodes, stays a bare Exception: the payment
+            // may have committed behind it.
+            var sapAnswered = sapError is not null;
+
             if (IsBusinessPartnerDataError(responseContent))
             {
-                throw new Exception($"Failed to create incoming payment: Customer '{request.CardCode}' has corrupted or invalid data in SAP (e.g., broken Discount Group, Payment Terms, addresses, or contacts). " +
-                    $"Please check and repair this Business Partner's master data in SAP B1. SAP error: {sapError ?? responseContent}");
+                var businessPartnerMessage =
+                    $"Customer '{request.CardCode}' has corrupted or invalid data in SAP (e.g., broken Discount Group, Payment Terms, addresses, or contacts). " +
+                    $"Please check and repair this Business Partner's master data in SAP B1. SAP error: {sapError ?? responseContent}";
+
+                throw sapAnswered
+                    ? new SapRequestRejectedException("create the incoming payment", response.StatusCode, businessPartnerMessage)
+                    : new Exception($"Failed to create incoming payment: {businessPartnerMessage}");
             }
-            throw new Exception(sapError ?? $"Failed to create incoming payment: {response.StatusCode} - {responseContent}");
+
+            throw sapAnswered
+                ? new SapRequestRejectedException("create the incoming payment", response.StatusCode, sapError!)
+                : new Exception($"Failed to create incoming payment: {response.StatusCode} - {responseContent}");
         }
 
         var createdPayment = JsonSerializer.Deserialize<IncomingPayment>(responseContent);

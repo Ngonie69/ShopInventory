@@ -15,7 +15,7 @@ public static class QuartzConfiguration
 {
     private const string SchedulerName = "ShopInventoryApi";
 
-    private static readonly TimeZoneInfo CatTimeZone = ResolveCatTimeZone();
+    internal static readonly TimeZoneInfo CatTimeZone = ResolveCatTimeZone();
 
     public static IServiceCollection AddShopInventoryQuartz(
         this IServiceCollection services,
@@ -128,7 +128,7 @@ public static class QuartzConfiguration
 
             if (dailyStock.EnableAutoConsolidation)
             {
-                AddCronJob<EndOfDayConsolidationJob>(q, "end-of-day-consolidation", BuildDailyCron(dailyStock.EndOfDayTimeCAT, "18:00"));
+                AddCronJob<EndOfDayConsolidationJob>(q, "end-of-day-consolidation", BuildDailyCron(dailyStock.EndOfDayTimeCAT, "16:45"));
             }
 
             // Van sales post one invoice per ZIMRA receipt rather than being consolidated, so they run as
@@ -232,6 +232,26 @@ public static class QuartzConfiguration
                         "desktop-sale-interval-posting",
                         TimeSpan.FromSeconds(desktopSalePosting.IntervalSeconds),
                         startDelay: TimeSpan.FromMinutes(2));
+                }
+
+                // One incoming payment per business partner per day, settling every till, vending and
+                // consolidated invoice posted before the cut-off. Registered with SAP and no flag of its
+                // own, for the reason given above: nothing else settles these invoices any more, so an
+                // off switch would leave every one of them open.
+                AddCronJob<DailyIncomingPaymentJob>(
+                    q, "daily-incoming-payment", BuildDailyCron(desktopSalePosting.DailyPaymentTimeCAT, "17:00"));
+
+                if (desktopSalePosting.DailyPaymentRetryMinutes > 0)
+                {
+                    // Same key as the 17:00 trigger, so a retry and the 17:00 pass never run together.
+                    // It also covers a 17:00 firing a node restart swallowed, since the cron trigger's
+                    // misfire policy is to do nothing.
+                    AddIntervalTriggerForJob<DailyIncomingPaymentJob>(
+                        q,
+                        "daily-incoming-payment",
+                        "daily-incoming-payment-retry",
+                        TimeSpan.FromMinutes(desktopSalePosting.DailyPaymentRetryMinutes),
+                        startDelay: TimeSpan.FromMinutes(5));
                 }
             }
 

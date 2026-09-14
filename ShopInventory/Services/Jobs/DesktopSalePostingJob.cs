@@ -3,7 +3,8 @@ using Quartz;
 namespace ShopInventory.Services;
 
 /// <summary>
-/// Carries shop till and vending sales to SAP, one invoice and one payment each.
+/// Carries shop till and vending sales to SAP, one invoice each. The payment is the day's; see
+/// <see cref="DailyIncomingPaymentJob"/>.
 ///
 /// A till cannot wait for SAP at the counter, so it fiscalises, prints and hands over the receipt while
 /// the sale is still only in this system. This job is what closes that gap, which is why it runs on a

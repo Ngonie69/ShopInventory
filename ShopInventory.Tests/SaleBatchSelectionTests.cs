@@ -337,7 +337,6 @@ public sealed class SaleBatchSelectionTests : IDisposable
             SalePostGuards.Backed(_connection),
             DesktopCreditPosters.Idle(_context),
             Options.Create(new DesktopSalePostingSettings()),
-            Options.Create(new SAPSettings()),
             NullLogger<DesktopSalePostingService>.Instance);
 
     private BatchInventoryValidationService RealAllocator(CountingWarehouse sap)
@@ -454,7 +453,6 @@ public sealed class SaleBatchSelectionTests : IDisposable
             SalePostGuards.Backed(_connection),
             DesktopCreditPosters.Idle(_context),
             Options.Create(new DesktopSalePostingSettings()),
-            Options.Create(new SAPSettings()),
             NullLogger<DesktopSalePostingService>.Instance);
 
     private VanSalesEndOfDayPostingService VanService(IBatchInventoryValidationService? allocator = null)
