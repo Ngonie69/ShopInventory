@@ -85,6 +85,12 @@ public interface ISAPServiceLayerClient
     Task<Invoice?> GetInvoiceByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByDocNumAsync(int docNum, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoiceHeadersByDocEntriesAsync(IEnumerable<int> docEntries, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// DocTotal, PaidToDate, status and cancellation for each invoice, without lines. What a payment
+    /// needs to know it is not settling an invoice twice.
+    /// </summary>
+    Task<List<Invoice>> GetInvoiceBalancesByDocEntriesAsync(IEnumerable<int> docEntries, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByDocNumsAsync(IEnumerable<int> docNums, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByVanSaleOrdersAsync(IEnumerable<string> vanSaleOrders, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByVanSaleOrderAsync(string vanSaleOrder, CancellationToken cancellationToken = default);

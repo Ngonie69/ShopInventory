@@ -243,6 +243,10 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // How far each device's fiscal day has got towards ZIMRA: drained, closed, packaged, submitted.
   public DbSet<FiscalDayStateEntity> FiscalDayStates { get; set; }
 
+  // One incoming payment per business partner per day, and the invoices each one settles.
+  public DbSet<DailyIncomingPaymentEntity> DailyIncomingPayments { get; set; }
+  public DbSet<DailyIncomingPaymentLineEntity> DailyIncomingPaymentLines { get; set; }
+
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
     base.OnModelCreating(modelBuilder);
@@ -2071,6 +2075,19 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         t.HasCheckConstraint("CK_SaleConsolidations_TotalVat_NonNegative", "\"TotalVat\" >= 0");
         t.HasCheckConstraint("CK_SaleConsolidations_SaleCount_Positive", "\"SaleCount\" > 0");
       });
+    });
+
+    modelBuilder.Entity<DailyIncomingPaymentEntity>(entity =>
+    {
+      // Stored by name so a person reading the table can tell a stuck payment from a finished one.
+      entity.Property(e => e.Status)
+            .HasConversion<string>()
+            .HasMaxLength(20);
+
+      entity.HasMany(e => e.Lines)
+            .WithOne(l => l.DailyIncomingPayment)
+            .HasForeignKey(l => l.DailyIncomingPaymentId)
+            .OnDelete(DeleteBehavior.Cascade);
     });
 
     // Stock Transfer Adjustment

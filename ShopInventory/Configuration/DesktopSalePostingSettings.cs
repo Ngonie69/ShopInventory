@@ -73,4 +73,30 @@ public class DesktopSalePostingSettings
     /// <para>Set to zero to restore the old behaviour of reposting immediately.</para>
     /// </remarks>
     public int UnresolvedPostGraceMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// When (CAT) each business partner's daily incoming payment is posted.
+    /// </summary>
+    /// <remarks>
+    /// Invoices posted to SAP before this time are settled on that day's payment. Anything posted after
+    /// it, whether a late sale or one held up by an SAP outage, goes on the next day's payment. No
+    /// invoice gets a payment of its own.
+    /// </remarks>
+    public string DailyPaymentTimeCAT { get; set; } = "17:00";
+
+    /// <summary>
+    /// How often to come back for a daily payment that did not post, such as when SAP was down at
+    /// 17:00. Zero turns the retries off, leaving only the 17:00 run.
+    /// </summary>
+    /// <remarks>
+    /// A retry never starts a second payment for a customer who already has one that day. It finishes
+    /// the day's payments and creates any that the 17:00 run missed, still counting only invoices posted
+    /// before the cut-off.
+    /// </remarks>
+    public int DailyPaymentRetryMinutes { get; set; } = 10;
+
+    /// <summary>
+    /// How far back the daily payment looks for invoices still waiting to be settled.
+    /// </summary>
+    public int DailyPaymentLookbackDays { get; set; } = 7;
 }

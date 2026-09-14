@@ -692,9 +692,13 @@ try
     // each other rather than each only excluding itself.
     builder.Services.AddScoped<IDesktopSalePostGuard, DesktopSalePostGuard>();
 
-    // Carries shop till and vending sales to SAP, one invoice and one payment each, shortly after the
-    // till has already fiscalised and printed them.
+    // Carries shop till and vending sales to SAP, one invoice each, shortly after the till has already
+    // fiscalised and printed them.
     builder.Services.AddScoped<DesktopSalePostingService>();
+
+    // Settles those invoices, and the older desktop app's consolidated ones, with one incoming payment
+    // per business partner per day.
+    builder.Services.AddScoped<DailyIncomingPaymentService>();
 
     // Signing a till or vending sale, and the sweep that signs the ones left for later. Shared so the
     // inline path and the background path cannot drift on how a result is recorded.

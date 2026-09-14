@@ -13,8 +13,7 @@ namespace ShopInventory.Tests;
 /// only by a manual credit note. A sale claimed by neither is fiscalised and never invoiced at all,
 /// which is quieter and worse.
 ///
-/// The payment assertions matter for a different reason: the tender decides which SAP account real
-/// money lands in, and getting it wrong is invisible until someone reconciles by hand.
+/// The payment is not here: no sale gets its own. See <c>DailyIncomingPaymentBuilderTests</c>.
 /// </summary>
 public sealed class DesktopSalePostingTests
 {
@@ -139,88 +138,5 @@ public sealed class DesktopSalePostingTests
         // The cost centre comes from the header: the line's own is not mapped, so a re-read sale
         // always has it null there.
         Assert.All(lines, l => Assert.Equal("CC-01", l.CostCentreCode));
-    }
-
-    // ---- The payment ------------------------------------------------------------------------------
-
-    [Fact]
-    public void Cash_settles_into_the_cash_sum()
-    {
-        var built = SaleIncomingPaymentRequestBuilder.Build(Sale(TenderTypes.Cash), invoiceDocEntry: 42, swipeCreditCardCode: null);
-
-        Assert.True(built.CanPost);
-        Assert.Equal(25m, built.Request!.CashSum);
-        Assert.Equal(0m, built.Request.TransferSum);
-        Assert.Equal(0m, built.Request.CreditSum);
-        var applied = Assert.Single(built.Request.PaymentInvoices!);
-        Assert.Equal(42, applied.DocEntry);
-        Assert.Equal(25m, applied.SumApplied);
-    }
-
-    [Theory]
-    [InlineData(TenderTypes.Ecocash)]
-    [InlineData(TenderTypes.Innbucks)]
-    public void A_wallet_settles_as_a_transfer_carrying_its_reference(string tender)
-    {
-        var built = SaleIncomingPaymentRequestBuilder.Build(
-            Sale(tender, paymentReference: "EC-99887766"), invoiceDocEntry: 42, swipeCreditCardCode: null);
-
-        Assert.True(built.CanPost);
-        Assert.Equal(25m, built.Request!.TransferSum);
-        Assert.Equal(0m, built.Request.CashSum);
-        // The reference is the only thing tying this settlement to money that actually arrived.
-        Assert.Equal("EC-99887766", built.Request.TransferReference);
-        Assert.Equal("2026-08-13", built.Request.TransferDate);
-    }
-
-    [Fact]
-    public void A_swipe_is_left_unsettled_until_a_card_code_is_configured()
-    {
-        // SAP wants a card line with a CreditSum and no code has been confirmed yet. Inventing one
-        // would book real money against the wrong card; folding it into cash would hide it in the
-        // till. Neither is recoverable without reconciling by hand, so the sale waits instead.
-        var built = SaleIncomingPaymentRequestBuilder.Build(Sale(TenderTypes.Swipe), invoiceDocEntry: 42, swipeCreditCardCode: null);
-
-        Assert.False(built.CanPost);
-        Assert.Contains("SwipeCreditCardCode", built.Reason);
-    }
-
-    [Fact]
-    public void A_swipe_settles_once_a_card_code_is_configured()
-    {
-        var built = SaleIncomingPaymentRequestBuilder.Build(
-            Sale(TenderTypes.Swipe, paymentReference: "SLIP-4471"), invoiceDocEntry: 42, swipeCreditCardCode: 7);
-
-        Assert.True(built.CanPost);
-        Assert.Equal(25m, built.Request!.CreditSum);
-        Assert.Equal(0m, built.Request.CashSum);
-
-        var card = Assert.Single(built.Request.PaymentCreditCards!);
-        Assert.Equal(7, card.CreditCard);
-        Assert.Equal(25m, card.CreditSum);
-        Assert.Equal("SLIP-4471", card.VoucherNum);
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("Bitcoin")]
-    public void An_unmappable_tender_is_never_guessed_into_cash(string? tender)
-    {
-        // The bug this replaced: an unrecognised tender fell through to cash and the money was booked
-        // to the till, silently and unrecoverably.
-        var built = SaleIncomingPaymentRequestBuilder.Build(Sale(tender), invoiceDocEntry: 42, swipeCreditCardCode: 7);
-
-        Assert.False(built.CanPost);
-        Assert.NotNull(built.Reason);
-    }
-
-    [Fact]
-    public void The_payment_carries_a_reference_a_human_can_search_for()
-    {
-        var built = SaleIncomingPaymentRequestBuilder.Build(Sale(), invoiceDocEntry: 42, swipeCreditCardCode: null);
-
-        Assert.Contains("KEFSHOP-01-20260813-000123", built.Request!.Remarks);
-        Assert.Equal("KEFSHOP-01-20260813-000123", built.Request.ClientRequestId);
     }
 }

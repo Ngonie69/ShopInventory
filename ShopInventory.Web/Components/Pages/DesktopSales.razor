@@ -2609,9 +2609,11 @@
         // already paid, so nothing was sent — and an operator reading "PostedUnconfirmed" would
         // reasonably go looking for a payment this system never made.
         DesktopSalePaymentStatuses.PostedUnconfirmed => "Already settled in SAP",
-        DesktopSalePaymentStatuses.Failed => "Payment failed",
+        // Both are picked up again by the customer's next daily payment, rather than retried alone.
+        DesktopSalePaymentStatuses.Failed => "Payment failed · on the next daily payment",
         DesktopSalePaymentStatuses.Unmapped => "Tender not mapped",
-        _ => "Not settled yet"
+        // No sale is settled on its own. The invoice stays open until the customer's 17:00 payment.
+        _ => "Awaiting the 17:00 daily payment"
     };
 
     private static string PostOutcomeFamily(string? outcome) => outcome switch

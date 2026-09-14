@@ -227,7 +227,6 @@ public sealed class DesktopSaleInvoiceRemarksTests : IDisposable
             SalePostGuards.Backed(_connection),
             DesktopCreditPosters.Idle(_context),
             Options.Create(new DesktopSalePostingSettings()),
-            Options.Create(new SAPSettings()),
             NullLogger<DesktopSalePostingService>.Instance).PostPendingSalesAsync();
 
         Assert.Equal(1, result.Posted);

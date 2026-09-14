@@ -170,7 +170,6 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
             SalePostGuards.Backed(_connection),
             DesktopCreditPosters.Idle(_context),
             Options.Create(new DesktopSalePostingSettings()),
-            Options.Create(new SAPSettings()),
             NullLogger<DesktopSalePostingService>.Instance);
 
     private sealed class RecordingSapClient
