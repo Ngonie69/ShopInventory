@@ -2231,22 +2231,26 @@
         {
             var (result, error) = await DesktopService.PostSaleToSapAsync(sale.ExternalReferenceId);
 
+            if (error is null)
+            {
+                selected.Remove(sale.ExternalReferenceId);
+                selectedSale = null;
+            }
+
+            // Reloaded before the outcome is said, not after: a successful reload clears a red notice,
+            // and SAP's refusal is the one thing the operator pressed Post to read.
+            await LoadData();
+
             if (error is not null)
             {
                 SayError(error);
-                await LoadData();
                 return;
             }
-
-            selected.Remove(sale.ExternalReferenceId);
-            selectedSale = null;
 
             Say(
                 result!.Message ?? $"{sale.ExternalReferenceId} reached SAP.",
                 result.Outcome == DesktopSalePostOutcomes.Posted ? "ops-fam-good" : "ops-fam-info",
                 result.Outcome == DesktopSalePostOutcomes.Posted ? "ph-check-circle" : "ph-info");
-
-            await LoadData();
         }
         catch (Exception ex)
         {
@@ -2278,31 +2282,36 @@
             var (result, error) = await DesktopService.PostSalesToSapAsync(references);
             showBulkPost = false;
 
+            if (error is null)
+            {
+                bulkResult = result;
+
+                // Only the ones SAP now holds leave the selection. Whatever failed or was refused stays
+                // ticked, so pressing the button again retries exactly those rather than making the
+                // operator find them in the list a second time.
+                foreach (var row in result!.Results.Where(InSap))
+                {
+                    selected.Remove(row.ExternalReferenceId);
+                }
+            }
+
+            // Reloaded before the outcome is said: a successful reload clears a red notice, and both
+            // the API's refusal and a summary with SAP refusals in it are red.
+            await LoadData();
+
             if (error is not null)
             {
                 SayError(error);
-                await LoadData();
                 return;
             }
 
-            bulkResult = result;
-
-            // Only the ones SAP now holds leave the selection. Whatever failed or was refused stays
-            // ticked, so pressing the button again retries exactly those rather than making the
-            // operator find them in the list a second time.
-            foreach (var row in result!.Results.Where(InSap))
-            {
-                selected.Remove(row.ExternalReferenceId);
-            }
-
-            Say(Summarise(result), SummaryFamily(result), SummaryIcon(result));
-            await LoadData();
+            Say(Summarise(result!), SummaryFamily(result!), SummaryIcon(result!));
         }
         catch (Exception ex)
         {
             showBulkPost = false;
-            SayError($"The batch could not be completed: {ex.Message}");
             await LoadData();
+            SayError($"The batch could not be completed: {ex.Message}");
         }
         finally
         {
