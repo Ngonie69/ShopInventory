@@ -1,0 +1,704 @@
+@page "/vending"
+@attribute [Authorize(Roles = UserRoles.VendingRoles)]
+@rendermode InteractiveServer
+@inject IVendingService VendingService
+@inject IMasterDataCacheService MasterDataCache
+@inject NavigationManager Navigation
+
+<PageTitle>Depots &amp; Vendors - Shop Inventory</PageTitle>
+
+@* The vending operation: four depots, the cashier accounts that sell at each, and the
+   vendors those cashiers invoice from the desktop till.
+
+   Styled by shops.css, whose shell, table, chips, filters and modal this page wears
+   under the same `shop-` names, plus vending.css for the depot cards alone.
+
+   A depot is not a record of its own. It is the business partner its cashiers sell
+   on, and each cashier carries that partner, the warehouse it draws stock from and
+   the cost centre on their own account — set on the user management page. So this
+   page reads depots, and the only thing it writes is vendors, through the route
+   customer endpoints that have always held them. Removing a vendor is the API's soft
+   delete: its sales stay on it, and the till refuses it from then on. *@
+
+<div class="shop vend">
+
+    <div class="shop-header">
+        <div class="shop-header-left">
+            <div>
+                <div class="shop-crumb">
+                    <span>Vending</span>
+                    <i class="bi bi-chevron-right"></i>
+                    <span class="shop-crumb-here">Depots &amp; vendors</span>
+                </div>
+                <h2 class="shop-title">Depots &amp; vendors</h2>
+                <p class="shop-subtitle">
+                    Each depot's cashiers, the warehouse they draw stock from, and the vendors they invoice.
+                    A cashier is put on a depot from their user account.
+                </p>
+            </div>
+        </div>
+        <div class="shop-header-actions">
+            <AuthorizeView Roles="Admin">
+                <Authorized>
+                    <a class="shop-btn shop-btn-ghost" href="/user-management">
+                        <i class="bi bi-person-gear"></i>Cashier accounts
+                    </a>
+                </Authorized>
+            </AuthorizeView>
+            <button type="button" class="shop-btn shop-btn-primary" @onclick="StartNew"
+                    disabled="@(isSaving || overview is null || overview.Depots.Count == 0)">
+                <i class="bi bi-plus-lg"></i>Add vendor
+            </button>
+        </div>
+    </div>
+
+    @if (error is not null && dialog is DialogMode.None)
+    {
+        <div class="shop-alert" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <span>@error</span>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="shop-loading">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <span>Loading depots…</span>
+        </div>
+    }
+    else if (overview is not null)
+    {
+        @if (overview.Depots.Count == 0)
+        {
+            <div class="shop-table-wrap">
+                <div class="shop-empty">
+                    <i class="bi bi-shop"></i>
+                    <h3>No vending depots yet</h3>
+                    <p>
+                        A depot appears here once a cashier account is created on the CartVendor role, with the
+                        depot's business partner, warehouse and cost centre.
+                    </p>
+                </div>
+            </div>
+        }
+        else
+        {
+            @* The cards double as the depot filter: the question someone opening this page
+               most often has is "who is at this depot", and the card is where they are
+               already looking. *@
+            <div class="vend-depots">
+                @foreach (var depot in overview.Depots)
+                {
+                    var isOn = string.Equals(depotFilter, depot.BusinessPartnerCode, StringComparison.OrdinalIgnoreCase);
+                    <button type="button" @key="depot.BusinessPartnerCode"
+                            class="vend-depot @(isOn ? "is-on" : null) @(depot.SetupProblem is null ? null : "has-problem")"
+                            aria-pressed="@isOn" @onclick="() => ToggleDepot(depot.BusinessPartnerCode)">
+                        <span class="vend-depot-name">@DepotName(depot.BusinessPartnerCode)</span>
+                        <span class="vend-depot-code">@depot.BusinessPartnerCode</span>
+                        <span class="vend-depot-facts">
+                            <span><i class="bi bi-box-seam"></i>@CodesOrDash(depot.WarehouseCodes)</span>
+                            <span><i class="bi bi-diagram-3"></i>@CodesOrDash(depot.CostCentreCodes)</span>
+                        </span>
+                        <span class="vend-depot-counts">
+                            <span><strong>@depot.ActiveCashierCount</strong> @(depot.ActiveCashierCount == 1 ? "cashier" : "cashiers")</span>
+                            <span><strong>@depot.ActiveVendorCount</strong> @(depot.ActiveVendorCount == 1 ? "vendor" : "vendors")</span>
+                        </span>
+                        @if (depot.SetupProblem is not null)
+                        {
+                            <span class="vend-depot-problem"><i class="bi bi-exclamation-triangle-fill"></i>@depot.SetupProblem</span>
+                        }
+                    </button>
+                }
+            </div>
+
+            <div class="shop-filter-bar">
+                <div class="shop-seg" role="group" aria-label="Show">
+                    <button type="button" class="shop-seg-btn @(tab == Tab.Vendors ? "is-on" : null)"
+                            aria-pressed="@(tab == Tab.Vendors)" @onclick="() => tab = Tab.Vendors">
+                        Vendors<span class="shop-seg-count">@VendorsInDepot.Count(v => v.IsActive)</span>
+                    </button>
+                    <button type="button" class="shop-seg-btn @(tab == Tab.Cashiers ? "is-on" : null)"
+                            aria-pressed="@(tab == Tab.Cashiers)" @onclick="() => tab = Tab.Cashiers">
+                        Cashiers<span class="shop-seg-count">@AccountsInDepot.Count</span>
+                    </button>
+                </div>
+
+                <label class="shop-search-box">
+                    <i class="bi bi-search"></i>
+                    <input type="search" placeholder="@(tab == Tab.Vendors ? "Filter vendors" : "Filter cashiers")"
+                           aria-label="Filter" value="@query" @oninput="e => query = e.Value?.ToString() ?? string.Empty" />
+                </label>
+
+                <NocturneSelect Class="nsel-auto" TValue="string" Options="DepotFilterOptions"
+                                @bind-Value="depotFilter" Caption="Depot" AriaLabel="Filter by depot"
+                                Placeholder="All depots" />
+
+                @if (tab == Tab.Vendors)
+                {
+                    <div class="shop-seg" role="group" aria-label="Filter by status">
+                        @foreach (var option in StatusOptions)
+                        {
+                            <button type="button" class="shop-seg-btn @(status == option ? "is-on" : null)"
+                                    aria-pressed="@(status == option)" @onclick="() => status = option">
+                                @option<span class="shop-seg-count">@CountFor(option)</span>
+                            </button>
+                        }
+                    </div>
+                }
+
+                <span class="shop-result">@ResultLabel</span>
+            </div>
+
+            <div class="shop-table-wrap">
+                @if (tab == Tab.Vendors)
+                {
+                    @if (VisibleVendors.Count == 0)
+                    {
+                        <div class="shop-empty">
+                            <i class="bi bi-people"></i>
+                            @if (VendorsInDepot.Count == 0)
+                            {
+                                <h3>No vendors at @(string.IsNullOrEmpty(depotFilter) ? "any depot" : DepotName(depotFilter)) yet</h3>
+                                <p>Add one, and the depot's cashiers can invoice them once the till refreshes its list.</p>
+                                <button type="button" class="shop-btn shop-btn-primary" @onclick="StartNew">
+                                    <i class="bi bi-plus-lg"></i>Add vendor
+                                </button>
+                            }
+                            else
+                            {
+                                <h3>No vendors match that filter</h3>
+                                <button type="button" class="shop-btn shop-btn-ghost" @onclick="ClearFilters">Clear filters</button>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <table class="shop-table">
+                            <thead>
+                                <tr>
+                                    <th>Code</th>
+                                    <th>Vendor</th>
+                                    <th>Depot</th>
+                                    <th>Phone</th>
+                                    <th>VAT number</th>
+                                    <th>Status</th>
+                                    <th><span class="visually-hidden">Actions</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var vendor in VisibleVendors)
+                                {
+                                    <tr @key="vendor.Id">
+                                        <td><span class="shop-code">@vendor.Code</span></td>
+                                        <td>
+                                            <div class="shop-cell-shop">
+                                                <i class="bi @(vendor.IsActive ? "bi-person" : "bi-person-slash")"></i>
+                                                <span class="shop-primary">@VendorName(vendor)</span>
+                                            </div>
+                                        </td>
+                                        <td>@DepotName(vendor.AssignedBusinessPartnerCode)</td>
+                                        <td>@Dash(vendor.Phone)</td>
+                                        <td>@Dash(vendor.VatNumber)</td>
+                                        <td>
+                                            <span class="shop-chip @(vendor.IsActive ? "shop-chip-good" : "shop-chip-neutral")">
+                                                @(vendor.IsActive ? "Active" : "Removed")
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <div class="shop-row-act">
+                                                <button type="button" class="shop-action-btn"
+                                                        title="Sales for @VendorName(vendor)" aria-label="Sales for @VendorName(vendor)"
+                                                        @onclick="@(() => Navigation.NavigateTo($"/route-customers/{vendor.Id}/sales"))">
+                                                    <i class="bi bi-graph-up"></i>
+                                                </button>
+                                                <button type="button" class="shop-action-btn"
+                                                        title="Edit @VendorName(vendor)" aria-label="Edit @VendorName(vendor)"
+                                                        @onclick="() => StartEdit(vendor)" disabled="@isSaving">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
+                                                <button type="button" class="shop-action-btn"
+                                                        title="@(vendor.IsActive ? "Remove" : "Restore") @VendorName(vendor)"
+                                                        aria-label="@(vendor.IsActive ? "Remove" : "Restore") @VendorName(vendor)"
+                                                        @onclick="() => StartToggle(vendor)" disabled="@isSaving">
+                                                    <i class="bi @(vendor.IsActive ? "bi-person-dash" : "bi-arrow-counterclockwise")"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                }
+                else
+                {
+                    @if (VisibleAccounts.Count == 0)
+                    {
+                        <div class="shop-empty">
+                            <i class="bi bi-person-badge"></i>
+                            <h3>No cashiers match that filter</h3>
+                            <button type="button" class="shop-btn shop-btn-ghost" @onclick="ClearFilters">Clear filters</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <table class="shop-table">
+                            <thead>
+                                <tr>
+                                    <th>Username</th>
+                                    <th>Name</th>
+                                    <th>Depot</th>
+                                    <th>Draws stock from</th>
+                                    <th>Cost centre</th>
+                                    <th class="shop-num">Vendors</th>
+                                    <th>Last sign-in</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var account in VisibleAccounts)
+                                {
+                                    <tr @key="account.UserId">
+                                        <td><span class="shop-code">@account.Username</span></td>
+                                        <td>@Dash(account.FullName)</td>
+                                        <td>@(account.BusinessPartnerCode is null ? "Not set" : DepotName(account.BusinessPartnerCode))</td>
+                                        <td>@(account.WarehouseCode ?? "Not set")</td>
+                                        <td>@(account.CostCentreCode ?? "Not set")</td>
+                                        <td class="shop-num">@account.ActiveVendorCount</td>
+                                        <td>@(account.LastLoginAt is { } seen ? IAuditService.ToCAT(seen).ToString("dd MMM yyyy HH:mm") : "Never")</td>
+                                        <td>
+                                            @if (!account.IsActive)
+                                            {
+                                                <span class="shop-chip shop-chip-neutral">Inactive</span>
+                                            }
+                                            else if (account.SetupProblem is not null)
+                                            {
+                                                <span class="shop-chip shop-chip-bad" title="@account.SetupProblem">Cannot sell</span>
+                                                <div class="shop-form-hint">@account.SetupProblem</div>
+                                            }
+                                            else
+                                            {
+                                                <span class="shop-chip shop-chip-good">Ready</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                }
+            </div>
+        }
+    }
+</div>
+
+@if (dialog is not DialogMode.None)
+{
+    <div class="shop-overlay" @onclick="CloseDialog">
+        <div class="shop-modal" role="dialog" aria-modal="true" aria-labelledby="vend-dialog-title"
+             @onclick:stopPropagation="true">
+            <div class="shop-modal-header @(dialog is DialogMode.Remove ? "shop-alert-head" : null)">
+                <h2 id="vend-dialog-title">@DialogTitle</h2>
+                <button type="button" class="shop-modal-close" @onclick="CloseDialog"
+                        aria-label="Close dialog" disabled="@isSaving">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <div class="shop-modal-body">
+                @if (error is not null)
+                {
+                    <div class="shop-alert" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>@error</span>
+                    </div>
+                }
+
+                @if (dialog is DialogMode.Remove && removing is not null)
+                {
+                    <p class="shop-form-hint">
+                        @VendorName(removing) will no longer be offered at @DepotName(removing.AssignedBusinessPartnerCode),
+                        and a till still holding the old list will be refused if it tries to invoice them. Their sales
+                        history stays, and you can restore them here later.
+                    </p>
+                }
+                else if (editing is not null)
+                {
+                    <div class="shop-form-grid">
+                        <div class="shop-form-field shop-form-full">
+                            <label for="vend-depot">Depot <span class="required">*</span></label>
+                            <NocturneSelect Class="nsel-block" TValue="string" Id="vend-depot"
+                                            Options="DepotChoiceOptions" @bind-Value="editing.AssignedBusinessPartnerCode"
+                                            AriaLabel="Depot" Placeholder="Select depot" />
+                            @if (editing.Id > 0 && !string.Equals(editing.AssignedBusinessPartnerCode, originalDepot, StringComparison.OrdinalIgnoreCase))
+                            {
+                                <small class="shop-form-hint">
+                                    Moving this vendor takes them off @DepotName(originalDepot)'s tills. Their past sales stay
+                                    where they were made.
+                                </small>
+                            }
+                        </div>
+
+                        <div class="shop-form-field">
+                            <label for="vend-name">First name <span class="required">*</span></label>
+                            <input id="vend-name" class="shop-input" @bind="editing.Name" placeholder="Tendai" />
+                        </div>
+                        <div class="shop-form-field">
+                            <label for="vend-surname">Surname</label>
+                            <input id="vend-surname" class="shop-input" @bind="editing.Surname" placeholder="Moyo" />
+                        </div>
+
+                        <div class="shop-form-field">
+                            <label for="vend-code">
+                                Vendor code
+                                @if (editing.Id > 0)
+                                {
+                                    <i class="bi bi-lock-fill shop-label-lock" aria-hidden="true"
+                                       title="A vendor's code cannot be changed once it is created"></i>
+                                }
+                            </label>
+                            @* Locked once set: the till invoices a vendor by this code and keeps a
+                               cached copy of the list, so renaming it would have those tills refused
+                               until they next refresh. *@
+                            <input id="vend-code" class="shop-input" @bind="editing.Code"
+                                   placeholder="Made from the name if left blank" disabled="@(editing.Id > 0)" />
+                        </div>
+                        <div class="shop-form-field">
+                            <label for="vend-phone">Phone</label>
+                            <input id="vend-phone" class="shop-input" @bind="editing.Phone" placeholder="0771 234 567" />
+                        </div>
+
+                        <div class="shop-form-field">
+                            <label for="vend-vat">VAT number</label>
+                            <input id="vend-vat" class="shop-input" @bind="editing.VatNumber" />
+                        </div>
+                        <div class="shop-form-field">
+                            <label for="vend-email">Email</label>
+                            <input id="vend-email" class="shop-input" type="email" @bind="editing.Email" />
+                        </div>
+
+                        <div class="shop-form-field shop-form-full">
+                            <label for="vend-address">Address</label>
+                            <textarea id="vend-address" class="shop-input" rows="2" @bind="editing.Address"></textarea>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="shop-modal-footer">
+                <button type="button" class="shop-btn shop-btn-ghost" @onclick="CloseDialog" disabled="@isSaving">Cancel</button>
+                <button type="button"
+                        class="shop-btn @(dialog is DialogMode.Remove ? "shop-btn-danger" : "shop-btn-primary")"
+                        @onclick="ConfirmDialogAsync" disabled="@isSaving">
+                    @DialogAction
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private enum Tab { Vendors, Cashiers }
+    private enum DialogMode { None, Add, Edit, Remove }
+
+    private VendingOverviewModel? overview;
+    private Dictionary<string, string> partnerNames = new(StringComparer.OrdinalIgnoreCase);
+
+    private Tab tab = Tab.Vendors;
+    private DialogMode dialog = DialogMode.None;
+    private RouteCustomerModel? editing;
+    private RouteCustomerModel? removing;
+    private string? originalDepot;
+
+    private bool isLoading = true;
+    private bool isSaving;
+    private string? error;
+
+    private static readonly string[] StatusOptions = ["Active", "Removed", "All"];
+    private string status = "Active";
+    private string query = string.Empty;
+    private string? depotFilter;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+
+        try
+        {
+            // Names only, for the depot labels. A failed lookup leaves the codes showing, which is
+            // still correct, so it is not worth an error on the page.
+            var codes = overview?.Depots.Select(depot => depot.BusinessPartnerCode).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+            partnerNames = (await MasterDataCache.GetBusinessPartnersAsync())
+                .Where(partner => partner.CardCode is not null && codes.Contains(partner.CardCode) && !string.IsNullOrWhiteSpace(partner.CardName))
+                .GroupBy(partner => partner.CardCode!, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First().CardName!, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        try
+        {
+            overview = await VendingService.GetOverviewAsync();
+            error = null;
+        }
+        catch (InvalidOperationException ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    // ── Reading ────────────────────────────────────────────────────────────
+
+    private string DepotName(string? code) =>
+        code is null ? "—" : partnerNames.TryGetValue(code, out var name) ? name : code;
+
+    private static string VendorName(RouteCustomerModel vendor) =>
+        string.IsNullOrWhiteSpace(vendor.Surname) ? vendor.Name : $"{vendor.Name} {vendor.Surname}";
+
+    private static string Dash(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
+
+    private static string CodesOrDash(List<string> codes) => codes.Count == 0 ? "Not set" : string.Join(", ", codes);
+
+    private bool InDepot(string? code) =>
+        string.IsNullOrEmpty(depotFilter) || string.Equals(code, depotFilter, StringComparison.OrdinalIgnoreCase);
+
+    private List<RouteCustomerModel> VendorsInDepot =>
+        overview?.Vendors.Where(vendor => InDepot(vendor.AssignedBusinessPartnerCode)).ToList() ?? [];
+
+    private List<VendingAccountModel> AccountsInDepot =>
+        overview?.Accounts.Where(account => InDepot(account.BusinessPartnerCode)).ToList() ?? [];
+
+    private List<RouteCustomerModel> VisibleVendors
+    {
+        get
+        {
+            var term = query.Trim();
+            return VendorsInDepot
+                .Where(vendor => status switch
+                {
+                    "Active" => vendor.IsActive,
+                    "Removed" => !vendor.IsActive,
+                    _ => true
+                })
+                .Where(vendor => term.Length == 0 ||
+                    Has(vendor.Code, term) || Has(VendorName(vendor), term) ||
+                    Has(vendor.Phone, term) || Has(vendor.VatNumber, term) ||
+                    Has(DepotName(vendor.AssignedBusinessPartnerCode), term))
+                .ToList();
+        }
+    }
+
+    private List<VendingAccountModel> VisibleAccounts
+    {
+        get
+        {
+            var term = query.Trim();
+            return AccountsInDepot
+                .Where(account => term.Length == 0 ||
+                    Has(account.Username, term) || Has(account.FullName, term) ||
+                    Has(account.WarehouseCode, term) || Has(account.CostCentreCode, term))
+                .ToList();
+        }
+    }
+
+    private static bool Has(string? value, string term) =>
+        value is not null && value.Contains(term, StringComparison.OrdinalIgnoreCase);
+
+    private int CountFor(string option) => option switch
+    {
+        "Active" => VendorsInDepot.Count(vendor => vendor.IsActive),
+        "Removed" => VendorsInDepot.Count(vendor => !vendor.IsActive),
+        _ => VendorsInDepot.Count
+    };
+
+    private string ResultLabel => tab == Tab.Vendors
+        ? $"{VisibleVendors.Count} of {VendorsInDepot.Count} vendors"
+        : $"{VisibleAccounts.Count} of {AccountsInDepot.Count} cashiers";
+
+    private List<NocturneSelectOption<string>> DepotFilterOptions =>
+    [
+        new(string.Empty, "All depots") { IsUnset = true, RuleAfter = true },
+        .. (overview?.Depots ?? []).Select(depot =>
+            new NocturneSelectOption<string>(depot.BusinessPartnerCode, DepotName(depot.BusinessPartnerCode))
+            {
+                Hint = depot.BusinessPartnerCode
+            })
+    ];
+
+    private List<NocturneSelectOption<string>> DepotChoiceOptions =>
+        (overview?.Depots ?? [])
+            .Select(depot => new NocturneSelectOption<string>(depot.BusinessPartnerCode, DepotName(depot.BusinessPartnerCode))
+            {
+                Hint = string.Join(", ", depot.WarehouseCodes)
+            })
+            .ToList();
+
+    private void ToggleDepot(string code) =>
+        depotFilter = string.Equals(depotFilter, code, StringComparison.OrdinalIgnoreCase) ? null : code;
+
+    private void ClearFilters()
+    {
+        query = string.Empty;
+        status = "Active";
+        depotFilter = null;
+    }
+
+    // ── Dialog ─────────────────────────────────────────────────────────────
+
+    private string DialogTitle => dialog switch
+    {
+        DialogMode.Add => "Add vendor",
+        DialogMode.Edit => editing is null ? "Edit vendor" : $"Edit {VendorName(editing)}",
+        DialogMode.Remove => "Remove this vendor?",
+        _ => string.Empty
+    };
+
+    private string DialogAction => dialog switch
+    {
+        DialogMode.Add => isSaving ? "Adding…" : "Add vendor",
+        DialogMode.Edit => isSaving ? "Saving…" : "Save changes",
+        DialogMode.Remove => isSaving ? "Removing…" : "Remove vendor",
+        _ => string.Empty
+    };
+
+    private void StartNew()
+    {
+        error = null;
+        removing = null;
+        originalDepot = null;
+        // Opened on the depot being looked at, which is almost always the one being added to.
+        editing = new RouteCustomerModel
+        {
+            IsActive = true,
+            AssignedBusinessPartnerCode = !string.IsNullOrEmpty(depotFilter)
+                ? depotFilter
+                : overview?.Depots.Count == 1 ? overview.Depots[0].BusinessPartnerCode : string.Empty
+        };
+        dialog = DialogMode.Add;
+    }
+
+    private void StartEdit(RouteCustomerModel vendor)
+    {
+        error = null;
+        removing = null;
+        editing = ShopInventory.Web.Services.VendingService.Copy(vendor);
+        originalDepot = vendor.AssignedBusinessPartnerCode;
+        dialog = DialogMode.Edit;
+    }
+
+    /// <summary>Removing asks first; restoring does not, because it is the undo.</summary>
+    private async Task StartToggle(RouteCustomerModel vendor)
+    {
+        error = null;
+        if (!vendor.IsActive)
+        {
+            await SetActiveAsync(vendor, active: true);
+            return;
+        }
+
+        editing = null;
+        removing = vendor;
+        dialog = DialogMode.Remove;
+    }
+
+    private void CloseDialog()
+    {
+        if (isSaving)
+        {
+            return;
+        }
+
+        dialog = DialogMode.None;
+        editing = null;
+        removing = null;
+        error = null;
+    }
+
+    private async Task ConfirmDialogAsync()
+    {
+        if (dialog is DialogMode.Remove)
+        {
+            if (removing is not null)
+            {
+                await SetActiveAsync(removing, active: false);
+            }
+
+            return;
+        }
+
+        await SaveAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (editing is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(editing.AssignedBusinessPartnerCode))
+        {
+            error = "Choose the depot this vendor buys from.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(editing.Name))
+        {
+            error = "A vendor needs at least a first name.";
+            return;
+        }
+
+        isSaving = true;
+        error = null;
+        try
+        {
+            var (saved, failure) = await VendingService.SaveVendorAsync(editing);
+            if (saved is null)
+            {
+                error = failure ?? "The vendor could not be saved.";
+                return;
+            }
+
+            dialog = DialogMode.None;
+            editing = null;
+            await LoadAsync();
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task SetActiveAsync(RouteCustomerModel vendor, bool active)
+    {
+        isSaving = true;
+        error = null;
+        try
+        {
+            var failure = await VendingService.SetVendorActiveAsync(vendor, active);
+            if (failure is not null)
+            {
+                error = failure;
+                return;
+            }
+
+            dialog = DialogMode.None;
+            removing = null;
+            await LoadAsync();
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

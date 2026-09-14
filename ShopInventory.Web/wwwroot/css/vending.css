@@ -1,0 +1,95 @@
+/* ==========================================================================
+   Vending — Nocturne
+
+   /vending: depots, their cashiers and the vendors they invoice. The page wears
+   shops.css for its shell, table, chips, filters and modal (it sits inside
+   `.shop`), so this sheet holds only what that one has no vocabulary for: the
+   depot cards. Every colour resolves a `--shop-*` alias, which in turn resolves a
+   nocturne-tokens.css token that flips at the root — so there is no dark-theme
+   block here, the same as there is none in shops.css.
+   ========================================================================== */
+
+.vend .vend-depots {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: var(--shop-s3);
+}
+
+.vend .vend-depot {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: var(--shop-s4);
+    text-align: left;
+    font: inherit;
+    color: var(--shop-ink);
+    background: var(--shop-surface);
+    border: 1px solid var(--shop-divider);
+    border-radius: var(--shop-r-lg);
+    cursor: pointer;
+    transition: border-color .15s ease, background-color .15s ease;
+}
+
+.vend .vend-depot:hover {
+    background: var(--shop-hover);
+}
+
+.vend .vend-depot:focus-visible {
+    outline: 2px solid var(--shop-accent);
+    outline-offset: 2px;
+}
+
+.vend .vend-depot.is-on {
+    border-color: var(--shop-accent);
+    box-shadow: inset 0 0 0 1px var(--shop-accent);
+}
+
+.vend .vend-depot.has-problem {
+    border-color: rgba(var(--shop-fam-warn-rgb), .55);
+}
+
+.vend .vend-depot-name {
+    font-weight: 600;
+    font-size: 15px;
+    line-height: 1.3;
+}
+
+.vend .vend-depot-code {
+    font-family: var(--shop-mono);
+    font-size: 12px;
+    color: var(--shop-mute);
+}
+
+.vend .vend-depot-facts,
+.vend .vend-depot-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    font-size: 13px;
+    color: var(--shop-ink-2);
+}
+
+.vend .vend-depot-facts i {
+    margin-right: 5px;
+    color: var(--shop-mute);
+}
+
+.vend .vend-depot-counts strong {
+    color: var(--shop-ink);
+    font-weight: 600;
+}
+
+.vend .vend-depot-problem {
+    display: flex;
+    gap: 6px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--shop-fam-warn);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vend .vend-depot {
+        transition: none;
+    }
+}
