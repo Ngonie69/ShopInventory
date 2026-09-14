@@ -43,6 +43,12 @@ public interface IDesktopIntegrationService
     Task<LocalStockResultDto?> GetLocalStockAsync(string warehouseCode, DateTime? snapshotDate = null);
     Task<List<string>?> GetMonitoredWarehousesAsync();
     Task<bool> TriggerStockFetchAsync();
+
+    // Returns the API's refusal verbatim — "a van cannot be refreshed", "fetch today's stock first",
+    // "SAP could not be read" each tell the operator something different to do.
+    Task<(WarehouseStockRefreshResultDto? Result, string? Error)> RefreshWarehouseStockAsync(
+        string warehouseCode, CancellationToken cancellationToken = default);
+
     Task<bool> TriggerConsolidationAsync();
 
     // Posting held sales to SAP by hand. Both return the API's own refusal rather than a bool: every
@@ -407,6 +413,33 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         {
             _logger.LogError(ex, "Error triggering stock fetch");
             return false;
+        }
+    }
+
+    public async Task<(WarehouseStockRefreshResultDto? Result, string? Error)> RefreshWarehouseStockAsync(
+        string warehouseCode, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync(
+                $"api/DesktopIntegration/stock/{Uri.EscapeDataString(warehouseCode)}/refresh",
+                null,
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return (null, await ReadProblemDetailAsync(response, cancellationToken));
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<WarehouseStockRefreshResultDto>(cancellationToken);
+            return result is null
+                ? (null, "The API refreshed the warehouse but returned nothing to show for it.")
+                : (result, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error refreshing stock for {WarehouseCode} from SAP", warehouseCode);
+            return (null, $"The refresh could not be completed from here: {ex.Message}");
         }
     }
 
@@ -923,6 +956,18 @@ public class UnpostedSaleDto
 }
 
 // Local Stock DTOs
+
+/// <summary>Mirrors the API's <c>RefreshWarehouseStockResult</c>.</summary>
+public class WarehouseStockRefreshResultDto
+{
+    public string WarehouseCode { get; set; } = string.Empty;
+    public DateTime LedgerDay { get; set; }
+    public int ItemsChecked { get; set; }
+    public int ItemsCorrected { get; set; }
+    public int ItemsAdded { get; set; }
+    public DateTime RefreshedAt { get; set; }
+}
+
 public class LocalStockResultDto
 {
     public string WarehouseCode { get; set; } = string.Empty;

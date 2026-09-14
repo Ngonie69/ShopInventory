@@ -571,12 +571,12 @@
 
 /* ── Filters ───────────────────────────────────────────────────────────── */
 
-/* Capped rather than fractional: there are only three controls, and stretched
+/* Capped rather than fractional: there are only four controls, and stretched
    across a 1400px panel a warehouse name and a date read as though the page
    expected far more typing than it does. */
 .lst-filters {
     display: grid;
-    grid-template-columns: minmax(190px, 340px) minmax(150px, 200px) auto;
+    grid-template-columns: minmax(190px, 340px) minmax(150px, 200px) auto auto;
     justify-content: start;
     gap: var(--lst-s4);
     padding: 0 var(--lst-s8) var(--lst-s4);

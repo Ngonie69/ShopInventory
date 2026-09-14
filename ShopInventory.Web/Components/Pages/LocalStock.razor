@@ -256,6 +256,26 @@
                         Load
                     </button>
                 </div>
+                @* Today's ledger only, and one warehouse at a time: it re-reads every item in
+                   the warehouse from SAP, which is what a goods receipt PO needs and what the
+                   hourly pass deliberately does not do. *@
+                <div class="lst-field">
+                    <span class="lst-label">&nbsp;</span>
+                    <button type="button" class="lst-btn lst-btn-quiet"
+                            title="Re-read this warehouse's quantities from SAP now, less till sales SAP has not received yet"
+                            disabled="@(isRefreshing || isLoading || string.IsNullOrEmpty(selectedWarehouse))"
+                            @onclick="RefreshFromSap">
+                        @if (isRefreshing)
+                        {
+                            <span class="lst-spin" aria-hidden="true"></span>
+                            <span>Refreshing&#8230;</span>
+                        }
+                        else
+                        {
+                            <span>Refresh quantities from SAP</span>
+                        }
+                    </button>
+                </div>
             </div>
 
             @if (errorMessage != null)
@@ -407,6 +427,7 @@
 
     private bool isLoading = false;
     private bool isFetching = false;
+    private bool isRefreshing = false;
     private bool isExporting = false;
     private string? errorMessage;
 
@@ -545,6 +566,42 @@
         finally
         {
             isLoading = false;
+        }
+    }
+
+    private async Task RefreshFromSap()
+    {
+        if (string.IsNullOrEmpty(selectedWarehouse)) return;
+
+        isRefreshing = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var (result, error) = await DesktopService.RefreshWarehouseStockAsync(selectedWarehouse);
+            if (result == null)
+            {
+                Snackbar.Add(error ?? "The refresh failed.", Severity.Error);
+                return;
+            }
+
+            var changed = result.ItemsCorrected + result.ItemsAdded;
+            Snackbar.Add(
+                changed == 0
+                    ? $"{result.WarehouseCode} already matches SAP ({result.ItemsChecked:N0} items checked)"
+                    : $"{result.WarehouseCode} refreshed from SAP: {result.ItemsCorrected:N0} updated, "
+                      + $"{result.ItemsAdded:N0} added",
+                Severity.Success);
+
+            // The refresh acts on today's ledger, whatever date the page was showing.
+            snapshotDate = result.LedgerDay;
+            await LoadStock();
+        }
+        finally
+        {
+            isRefreshing = false;
+            StateHasChanged();
         }
     }
 
