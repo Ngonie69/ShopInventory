@@ -5,7 +5,16 @@ using ShopInventory.Services.Fiscalisation;
 namespace ShopInventory.Features.DesktopCreditNotes;
 
 public sealed record DesktopCreditQuantity(int LineNo, decimal Quantity);
-public sealed record CreateDesktopCreditRequest(string RequestKey, string Reason, List<DesktopCreditQuantity> Lines);
+/// <remarks>
+/// <c>Note</c> is optional and printed on the fiscal credit after the reason.
+///
+/// <c>PostToSap</c> is which of the dialog's two actions was taken: <c>false</c> is "Fiscalise only",
+/// offered while the sale has no SAP invoice, and <c>true</c> is "Fiscalise and post to SAP", offered
+/// once it has one. Checked against the sale, so a form left open while the sale posted cannot take the
+/// wrong one. Null, from a caller that predates the choice, is not checked.
+/// </remarks>
+public sealed record CreateDesktopCreditRequest(string RequestKey, string Reason, List<DesktopCreditQuantity> Lines,
+    string? Note = null, bool? PostToSap = null);
 public sealed record DesktopCreditLine(int LineNo, string Name, decimal Quantity, decimal UnitPrice,
     int TaxId, decimal? TaxPercent, string? TaxCode, string? HsCode);
 public sealed record DesktopCreditSource(string OriginalFiscalNumber, string Currency, decimal OriginalTotal,
@@ -23,8 +32,9 @@ public sealed record DesktopCreditNoteResult(Guid Id, string Number, string Stat
     string Currency, string Reason, string OriginalFiscalNumber, DateTime CreatedAtUtc,
     string? Message, string? QrCode, string? ReceiptGlobalNo, int? SapDocNum,
     string SapStatus = DesktopCreditSapStatuses.Deferred, string? SapError = null);
+/// <remarks><c>SaleInSap</c>: the sale has its own SAP invoice, which decides the action the form offers.</remarks>
 public sealed record DesktopCreditForm(DesktopCreditSource Source, List<DesktopCreditNoteResult> CreditNotes,
-    Dictionary<int, decimal> ReservedQuantities);
+    Dictionary<int, decimal> ReservedQuantities, bool SaleInSap = false, int? SaleSapDocNum = null);
 
 public interface IDesktopCreditFiscalGateway
 {

@@ -1,7 +1,12 @@
 namespace ShopInventory.Web.Services;
 
 public sealed record DesktopCreditQuantity(int LineNo, decimal Quantity);
-public sealed record CreateDesktopCreditRequest(string RequestKey, string Reason, List<DesktopCreditQuantity> Lines);
+/// <remarks>
+/// <c>PostToSap</c> is the dialog's button: false for "Fiscalise only", true for "Fiscalise and post to
+/// SAP". The API refuses the one the sale's SAP state does not allow.
+/// </remarks>
+public sealed record CreateDesktopCreditRequest(string RequestKey, string Reason, List<DesktopCreditQuantity> Lines,
+    string? Note = null, bool? PostToSap = null);
 public sealed record DesktopCreditLine(int LineNo, string Name, decimal Quantity, decimal UnitPrice,
     int TaxId, decimal? TaxPercent, string? TaxCode, string? HsCode);
 public sealed record DesktopCreditSource(string OriginalFiscalNumber, string Currency, decimal OriginalTotal,
@@ -31,4 +36,4 @@ public static class DesktopCreditSapStatuses
     public const string ManualInSap = "ManualInSap";
 }
 public sealed record DesktopCreditForm(DesktopCreditSource Source, List<DesktopCreditNoteResult> CreditNotes,
-    Dictionary<int, decimal> ReservedQuantities);
+    Dictionary<int, decimal> ReservedQuantities, bool SaleInSap = false, int? SaleSapDocNum = null);
