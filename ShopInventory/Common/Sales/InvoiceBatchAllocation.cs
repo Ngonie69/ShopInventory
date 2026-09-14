@@ -22,6 +22,12 @@ public static class InvoiceBatchAllocation
     /// failure means for its own document — the wording differs between a queue that will retry and
     /// an operator waiting on an answer.
     /// </summary>
+    /// <remarks>
+    /// Only batch- and serial-managed lines are read. Both callers post a sale that has already
+    /// happened — paid for, fiscalised, the goods gone — so a line with nothing to select has nothing
+    /// to ask the warehouse either. Checking its stock could not un-sell it; it could only hold the
+    /// whole invoice back when the read hung, which is what a till sale of CON020 did.
+    /// </remarks>
     public static async Task<BatchAllocationResult> AllocateAsync(
         IBatchInventoryValidationService batchValidation,
         CreateInvoiceRequest request,
@@ -29,7 +35,7 @@ public static class InvoiceBatchAllocation
         CancellationToken cancellationToken = default)
     {
         var result = await batchValidation.ValidateAndAllocateBatchesAsync(
-            request, autoAllocate: true, strategy, cancellationToken);
+            request, autoAllocate: true, strategy, cancellationToken, checkNonBatchStock: false);
 
         if (result.IsValid)
         {

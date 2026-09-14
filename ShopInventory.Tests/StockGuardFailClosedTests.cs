@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -96,6 +97,68 @@ public sealed class StockGuardFailClosedTests
         // The caller hung up. That is not an outage and must not be recorded as one.
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => service.ValidateAndAllocateBatchesAsync(OneLineInvoice(), cancellationToken: cancellation.Token));
+    }
+
+    // ---------------------------------------------------------------
+    // A sale that has already happened
+    // ---------------------------------------------------------------
+
+    [Fact]
+    public async Task A_settled_sale_does_not_read_stock_for_a_line_with_nothing_to_select()
+    {
+        await using var context = InMemoryContext();
+
+        // Answers the item read and nothing else: any stock read is an unexpected call, which the
+        // guard would catch and report as unreadable stock.
+        var service = CreateService(context, NonBatchItemOnly());
+
+        var result = await InvoiceBatchAllocation.AllocateAsync(service, OneLineInvoice());
+
+        // A till sale of CON020 sat unposted behind a stock read that hung, for an item SAP needs
+        // no batch for. The sale was paid for and fiscalised; there was nothing left to prevent.
+        Assert.True(result.IsValid, string.Join("; ", result.ValidationErrors.Select(e => e.Message)));
+        var line = Assert.Single(result.AllocatedLines);
+        Assert.False(line.IsBatchManaged);
+        Assert.Equal(12m, line.TotalQuantityAllocated);
+        Assert.Empty(line.Batches);
+    }
+
+    [Fact]
+    public async Task A_settled_sale_whose_non_batch_stock_is_unreadable_still_posts()
+    {
+        await using var context = InMemoryContext();
+        var service = CreateService(context, StockReadThrows());
+
+        var result = await InvoiceBatchAllocation.AllocateAsync(service, OneLineInvoice());
+
+        Assert.True(result.IsValid);
+        Assert.DoesNotContain(result.ValidationErrors, e => e.ErrorCode == BatchValidationErrorCode.StockUnknown);
+    }
+
+    [Fact]
+    public async Task A_settled_sale_still_needs_its_batch_lines_read()
+    {
+        await using var context = InMemoryContext();
+        var service = CreateService(context, BatchManagedItemWhoseBatchReadThrows());
+
+        var result = await InvoiceBatchAllocation.AllocateAsync(service, OneLineInvoice());
+
+        // The reading is the selection here, and SAP refuses the whole document without it.
+        Assert.False(result.IsValid);
+        Assert.Contains(result.ValidationErrors, e => e.ErrorCode == BatchValidationErrorCode.StockUnknown);
+    }
+
+    [Fact]
+    public async Task A_settled_sale_allocates_its_batch_lines_from_the_warehouse()
+    {
+        await using var context = InMemoryContext();
+        var service = CreateService(context, BatchManagedItemHolding(("B-EARLY", 5m), ("B-LATE", 20m)));
+        var request = OneLineInvoice();
+
+        var result = await InvoiceBatchAllocation.AllocateAsync(service, request);
+
+        Assert.True(result.IsValid);
+        Assert.Equal(["B-EARLY", "B-LATE"], request.Lines![0].BatchNumbers!.Select(b => b.BatchNumber));
     }
 
     // ---------------------------------------------------------------
@@ -429,6 +492,19 @@ public sealed class StockGuardFailClosedTests
             }
         ]
     };
+
+    /// <summary>A SAP client that answers the item read for a non-batch item and nothing else.</summary>
+    private static ISAPServiceLayerClient NonBatchItemOnly() =>
+        StubProxy.For<ISAPServiceLayerClient>((method, _) => method.Name switch
+        {
+            nameof(ISAPServiceLayerClient.GetItemByCodeAsync) => Task.FromResult<Item?>(new Item
+            {
+                ItemCode = Item,
+                ManageBatchNumbers = "tNO",
+                ManageSerialNumbers = "tNO"
+            }),
+            _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
+        });
 
     /// <summary>A SAP client whose stock read fails, and whose item read works.</summary>
     private static ISAPServiceLayerClient StockReadThrows(Exception? failure = null) =>
