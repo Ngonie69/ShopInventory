@@ -1,17 +1,20 @@
 @page "/vending"
+@page "/vending/vendors/{VendorId:int}"
 @attribute [Authorize(Roles = UserRoles.VendingRoles)]
 @rendermode InteractiveServer
 @inject IVendingService VendingService
+@inject IRouteCustomerService RouteCustomerService
 @inject IMasterDataCacheService MasterDataCache
 @inject NavigationManager Navigation
 @inject IMediator Mediator
 @inject IJSRuntime JS
 @using MediatR
+@using ShopInventory.Web.Features.Vending
 @using ShopInventory.Web.Features.Vending.Commands.ImportVendors
 @using ShopInventory.Web.Features.Vending.Queries.GetVendorImportTemplate
 @using ShopInventory.Web.Features.Vending.Queries.ReadVendorImportFile
 
-<PageTitle>Depots &amp; Vendors - Shop Inventory</PageTitle>
+<PageTitle>@(SelectedVendor is { } titled ? $"{VendorName(titled)} - Vending" : "Depots & Vendors - Shop Inventory")</PageTitle>
 
 @* The vending operation: four depots, the cashier accounts that sell at each, and the
    vendors those cashiers invoice from the desktop till.
@@ -24,47 +27,15 @@
    the cost centre on their own account — set on the user management page. So this
    page reads depots, and the only thing it writes is vendors, through the route
    customer endpoints that have always held them. Removing a vendor is the API's soft
-   delete: its sales stay on it, and the till refuses it from then on. *@
+   delete: its sales stay on it, and the till refuses it from then on.
+
+   Sales figures are the route-customer reports', read once per depot for the month so far
+   (/api/route-customers/sales-summary). They load after the depots and vendors, so a slow or
+   failed report leaves the page usable and says so, rather than holding the list back or
+   showing a vendor who sold as one who did not. /vending/vendors/{id} is the same component
+   showing VendingVendorDetail, so the dialogs below serve both views. *@
 
 <div class="shop vend">
-
-    <div class="shop-header">
-        <div class="shop-header-left">
-            <div>
-                <div class="shop-crumb">
-                    <span>Vending</span>
-                    <i class="bi bi-chevron-right"></i>
-                    <span class="shop-crumb-here">Depots &amp; vendors</span>
-                </div>
-                <h2 class="shop-title">Depots &amp; vendors</h2>
-                <p class="shop-subtitle">
-                    Each depot's cashiers, the warehouse they draw stock from, and the vendors they invoice.
-                    A cashier is put on a depot from their user account.
-                </p>
-            </div>
-        </div>
-        <div class="shop-header-actions">
-            <AuthorizeView Roles="Admin">
-                <Authorized>
-                    <a class="shop-btn shop-btn-ghost" href="/user-management">
-                        <i class="bi bi-person-gear"></i>Cashier accounts
-                    </a>
-                </Authorized>
-            </AuthorizeView>
-            <button type="button" class="shop-btn shop-btn-ghost" @onclick="DownloadTemplateAsync"
-                    disabled="@(isDownloadingTemplate || overview is null || overview.Depots.Count == 0)">
-                <i class="bi bi-file-earmark-arrow-down"></i>@(isDownloadingTemplate ? "Preparing…" : "Download template")
-            </button>
-            <button type="button" class="shop-btn shop-btn-ghost" @onclick="StartImport"
-                    disabled="@(isSaving || overview is null || overview.Depots.Count == 0)">
-                <i class="bi bi-file-earmark-arrow-up"></i>Upload vendors
-            </button>
-            <button type="button" class="shop-btn shop-btn-primary" @onclick="StartNew"
-                    disabled="@(isSaving || overview is null || overview.Depots.Count == 0)">
-                <i class="bi bi-plus-lg"></i>Add vendor
-            </button>
-        </div>
-    </div>
 
     @if (error is not null && dialog is DialogMode.None)
     {
@@ -85,243 +56,360 @@
         </div>
     }
 
-    @if (isLoading)
+    @if (VendorId is not null)
     {
-        <div class="shop-loading">
-            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
-            <span>Loading depots…</span>
-        </div>
-    }
-    else if (overview is not null)
-    {
-        @if (overview.Depots.Count == 0)
+        @* A reload after an edit keeps the vendor on screen: only the first load, with nothing to show
+           yet, puts up the spinner — otherwise the detail would be torn down and read again. *@
+        @if (isLoading && overview is null)
+        {
+            <div class="shop-loading">
+                <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                <span>Loading vendor…</span>
+            </div>
+        }
+        else if (SelectedVendor is { } selected)
+        {
+            <VendingVendorDetail Vendor="selected"
+                                 DepotName="@DepotName(selected.AssignedBusinessPartnerCode)"
+                                 Depot="DepotFor(selected.AssignedBusinessPartnerCode)"
+                                 Cashiers="CashiersFor(selected.AssignedBusinessPartnerCode)"
+                                 ListRow="SalesRowFor(selected)"
+                                 IsSaving="isSaving"
+                                 OnEdit="StartEdit"
+                                 OnToggle="StartToggle" />
+        }
+        else if (overview is not null)
         {
             <div class="shop-table-wrap">
                 <div class="shop-empty">
-                    <i class="bi bi-shop"></i>
-                    <h3>No vending depots yet</h3>
-                    <p>
-                        A depot appears here once a cashier account is created on the CartVendor role, with the
-                        depot's business partner, warehouse and cost centre.
-                    </p>
+                    <i class="bi bi-person-x"></i>
+                    <h3>No vending vendor with that id</h3>
+                    <p>They may be on a van route rather than at a depot. Every depot's vendors are on the list.</p>
+                    <a class="shop-btn shop-btn-ghost" href="/vending">Back to depots &amp; vendors</a>
                 </div>
             </div>
         }
-        else
-        {
-            @* The cards double as the depot filter: the question someone opening this page
-               most often has is "who is at this depot", and the card is where they are
-               already looking. *@
-            <div class="vend-depots">
-                @foreach (var depot in overview.Depots)
-                {
-                    var isOn = string.Equals(depotFilter, depot.BusinessPartnerCode, StringComparison.OrdinalIgnoreCase);
-                    <button type="button" @key="depot.BusinessPartnerCode"
-                            class="vend-depot @(isOn ? "is-on" : null) @(depot.SetupProblem is null ? null : "has-problem")"
-                            aria-pressed="@isOn" @onclick="() => ToggleDepot(depot.BusinessPartnerCode)">
-                        <span class="vend-depot-name">@DepotName(depot.BusinessPartnerCode)</span>
-                        <span class="vend-depot-code">@depot.BusinessPartnerCode</span>
-                        <span class="vend-depot-facts">
-                            <span><i class="bi bi-box-seam"></i>@CodesOrDash(depot.WarehouseCodes)</span>
-                            <span><i class="bi bi-diagram-3"></i>@CodesOrDash(depot.CostCentreCodes)</span>
-                            @if (depot.VendorCodePrefix is not null)
-                            {
-                                <span title="@PrefixTitle(depot)"><i class="bi bi-hash"></i>@PrefixPattern(depot.VendorCodePrefix)</span>
-                            }
-                        </span>
-                        <span class="vend-depot-counts">
-                            <span><strong>@depot.ActiveCashierCount</strong> @(depot.ActiveCashierCount == 1 ? "cashier" : "cashiers")</span>
-                            <span><strong>@depot.ActiveVendorCount</strong> @(depot.ActiveVendorCount == 1 ? "vendor" : "vendors")</span>
-                        </span>
-                        @if (depot.SetupProblem is not null)
-                        {
-                            <span class="vend-depot-problem"><i class="bi bi-exclamation-triangle-fill"></i>@depot.SetupProblem</span>
-                        }
-                        else if (depot.VendorCodeProblem is not null)
-                        {
-                            <span class="vend-depot-problem"><i class="bi bi-exclamation-triangle-fill"></i>No vendor code prefix: @depot.VendorCodeProblem.</span>
-                        }
-                    </button>
-                }
+    }
+    else
+    {
+        <div class="shop-header">
+            <div class="shop-header-left">
+                <div>
+                    <div class="shop-crumb">
+                        <span>Vending</span>
+                        <i class="bi bi-chevron-right"></i>
+                        <span class="shop-crumb-here">Depots &amp; vendors</span>
+                    </div>
+                    <h2 class="shop-title">Depots &amp; vendors</h2>
+                    <p class="shop-subtitle">
+                        Cashiers, the warehouse each depot draws from, and the vendors they invoice.
+                        A cashier is put on a depot from their user account.
+                    </p>
+                </div>
             </div>
+            <div class="shop-header-actions">
+                <AuthorizeView Roles="Admin">
+                    <Authorized>
+                        <a class="shop-btn shop-btn-ghost" href="/user-management">
+                            <i class="bi bi-person-gear"></i>Cashier accounts
+                        </a>
+                    </Authorized>
+                </AuthorizeView>
+                <button type="button" class="shop-btn shop-btn-ghost" @onclick="DownloadTemplateAsync"
+                        disabled="@(isDownloadingTemplate || overview is null || overview.Depots.Count == 0)">
+                    <i class="bi bi-file-earmark-arrow-down"></i>@(isDownloadingTemplate ? "Preparing…" : "Download template")
+                </button>
+                <button type="button" class="shop-btn shop-btn-ghost" @onclick="StartImport"
+                        disabled="@(isSaving || overview is null || overview.Depots.Count == 0)">
+                    <i class="bi bi-file-earmark-arrow-up"></i>Upload vendors
+                </button>
+                <button type="button" class="shop-btn shop-btn-primary" @onclick="StartNew"
+                        disabled="@(isSaving || overview is null || overview.Depots.Count == 0)">
+                    <i class="bi bi-plus-lg"></i>Add vendor
+                </button>
+            </div>
+        </div>
 
-            <div class="shop-filter-bar">
-                <div class="shop-seg" role="group" aria-label="Show">
-                    <button type="button" class="shop-seg-btn @(tab == Tab.Vendors ? "is-on" : null)"
-                            aria-pressed="@(tab == Tab.Vendors)" @onclick="() => tab = Tab.Vendors">
-                        Vendors<span class="shop-seg-count">@VendorsInDepot.Count(v => v.IsActive)</span>
-                    </button>
-                    <button type="button" class="shop-seg-btn @(tab == Tab.Cashiers ? "is-on" : null)"
-                            aria-pressed="@(tab == Tab.Cashiers)" @onclick="() => tab = Tab.Cashiers">
-                        Cashiers<span class="shop-seg-count">@AccountsInDepot.Count</span>
-                    </button>
+        @if (isLoading)
+        {
+            <div class="shop-loading">
+                <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+                <span>Loading depots…</span>
+            </div>
+        }
+        else if (overview is not null)
+        {
+            @if (overview.Depots.Count == 0)
+            {
+                <div class="shop-table-wrap">
+                    <div class="shop-empty">
+                        <i class="bi bi-shop"></i>
+                        <h3>No vending depots yet</h3>
+                        <p>
+                            A depot appears here once a cashier account is created on the CartVendor role, with the
+                            depot's business partner, warehouse and cost centre.
+                        </p>
+                    </div>
+                </div>
+            }
+            else
+            {
+                @* The cards double as the depot filter: the question someone opening this page
+                   most often has is "who is at this depot", and the card is where they are
+                   already looking. *@
+                <div class="vend-depots">
+                    @foreach (var depot in overview.Depots)
+                    {
+                        var isOn = string.Equals(depotFilter, depot.BusinessPartnerCode, StringComparison.OrdinalIgnoreCase);
+                        <button type="button" @key="depot.BusinessPartnerCode"
+                                class="vend-depot @(isOn ? "is-on" : null) @(depot.SetupProblem is null ? null : "has-problem")"
+                                aria-pressed="@isOn" @onclick="() => ToggleDepot(depot.BusinessPartnerCode)">
+                            <span class="vend-depot-top">
+                                <span class="vend-depot-id">
+                                    <span class="vend-depot-name">@DepotName(depot.BusinessPartnerCode)</span>
+                                    <span class="vend-depot-meta">@DepotMeta(depot)</span>
+                                </span>
+                                @if (depot.VendorCodePrefix is not null)
+                                {
+                                    <span class="vend-depot-tag" title="@PrefixTitle(depot)">@PrefixPattern(depot.VendorCodePrefix)</span>
+                                }
+                            </span>
+                            <span class="vend-depot-figures">
+                                <span class="vend-fig">
+                                    <span class="vend-fig-value">@depot.ActiveVendorCount</span>
+                                    <span class="vend-fig-label">@(depot.ActiveVendorCount == 1 ? "Vendor" : "Vendors")</span>
+                                </span>
+                                <span class="vend-fig">
+                                    <span class="vend-fig-value">@depot.ActiveCashierCount</span>
+                                    <span class="vend-fig-label">@(depot.ActiveCashierCount == 1 ? "Cashier" : "Cashiers")</span>
+                                </span>
+                                <span class="vend-fig vend-fig-end">
+                                    @if (salesLoading)
+                                    {
+                                        <span class="vend-skel vend-skel-fig" aria-label="Loading sales"></span>
+                                    }
+                                    else
+                                    {
+                                        <span class="vend-fig-value is-accent">@DepotSalesLabel(depot.BusinessPartnerCode)</span>
+                                    }
+                                    <span class="vend-fig-label">Sales MTD</span>
+                                </span>
+                            </span>
+                            @if (depot.SetupProblem is not null)
+                            {
+                                <span class="vend-depot-problem"><i class="bi bi-exclamation-triangle-fill"></i>@depot.SetupProblem</span>
+                            }
+                            else if (depot.VendorCodeProblem is not null)
+                            {
+                                <span class="vend-depot-problem"><i class="bi bi-exclamation-triangle-fill"></i>No vendor code prefix: @depot.VendorCodeProblem.</span>
+                            }
+                        </button>
+                    }
                 </div>
 
-                <label class="shop-search-box">
-                    <i class="bi bi-search"></i>
-                    <input type="search" placeholder="@(tab == Tab.Vendors ? "Filter vendors" : "Filter cashiers")"
-                           aria-label="Filter" value="@query" @oninput="e => query = e.Value?.ToString() ?? string.Empty" />
-                </label>
-
-                <NocturneSelect Class="nsel-auto" TValue="string" Options="DepotFilterOptions"
-                                @bind-Value="depotFilter" Caption="Depot" AriaLabel="Filter by depot"
-                                Placeholder="All depots" />
-
-                @if (tab == Tab.Vendors)
+                @if (salesError is not null)
                 {
-                    <div class="shop-seg" role="group" aria-label="Filter by status">
-                        @foreach (var option in StatusOptions)
-                        {
-                            <button type="button" class="shop-seg-btn @(status == option ? "is-on" : null)"
-                                    aria-pressed="@(status == option)" @onclick="() => status = option">
-                                @option<span class="shop-seg-count">@CountFor(option)</span>
-                            </button>
-                        }
+                    <div class="vend-sales-warning" role="status">
+                        <i class="bi bi-exclamation-circle"></i>
+                        <span>@salesError The depots and vendors below are current; only the sales figures are missing.</span>
+                        <button type="button" class="shop-btn shop-btn-ghost" @onclick="LoadSalesAsync">Try again</button>
                     </div>
                 }
 
-                <span class="shop-result">@ResultLabel</span>
-            </div>
+                <div class="shop-filter-bar">
+                    <div class="shop-seg" role="group" aria-label="Show">
+                        <button type="button" class="shop-seg-btn @(tab == Tab.Vendors ? "is-on" : null)"
+                                aria-pressed="@(tab == Tab.Vendors)" @onclick="() => tab = Tab.Vendors">
+                            Vendors<span class="shop-seg-count">@VendorsInDepot.Count(v => v.IsActive)</span>
+                        </button>
+                        <button type="button" class="shop-seg-btn @(tab == Tab.Cashiers ? "is-on" : null)"
+                                aria-pressed="@(tab == Tab.Cashiers)" @onclick="() => tab = Tab.Cashiers">
+                            Cashiers<span class="shop-seg-count">@AccountsInDepot.Count</span>
+                        </button>
+                    </div>
 
-            <div class="shop-table-wrap">
-                @if (tab == Tab.Vendors)
-                {
-                    @if (VisibleVendors.Count == 0)
+                    <label class="shop-search-box">
+                        <i class="bi bi-search"></i>
+                        <input type="search" placeholder="@(tab == Tab.Vendors ? "Filter by name, code, VAT…" : "Filter cashiers")"
+                               aria-label="Filter" value="@query" @oninput="e => query = e.Value?.ToString() ?? string.Empty" />
+                    </label>
+
+                    <NocturneSelect Class="nsel-auto" TValue="string" Options="DepotFilterOptions"
+                                    @bind-Value="depotFilter" Caption="Depot" AriaLabel="Filter by depot"
+                                    Placeholder="All depots" />
+
+                    @if (tab == Tab.Vendors)
                     {
-                        <div class="shop-empty">
-                            <i class="bi bi-people"></i>
-                            @if (VendorsInDepot.Count == 0)
+                        <div class="shop-seg" role="group" aria-label="Filter by status">
+                            @foreach (var option in StatusOptions)
                             {
-                                <h3>No vendors at @(string.IsNullOrEmpty(depotFilter) ? "any depot" : DepotName(depotFilter)) yet</h3>
-                                <p>Add one, and the depot's cashiers can invoice them once the till refreshes its list.</p>
-                                <button type="button" class="shop-btn shop-btn-primary" @onclick="StartNew">
-                                    <i class="bi bi-plus-lg"></i>Add vendor
+                                <button type="button" class="shop-seg-btn @(status == option ? "is-on" : null)"
+                                        aria-pressed="@(status == option)" @onclick="() => status = option">
+                                    @option<span class="shop-seg-count">@CountFor(option)</span>
                                 </button>
                             }
-                            else
-                            {
-                                <h3>No vendors match that filter</h3>
+                        </div>
+                    }
+
+                    <span class="shop-result">@ResultLabel</span>
+                </div>
+
+                <div class="shop-table-wrap">
+                    @if (tab == Tab.Vendors)
+                    {
+                        @if (VisibleVendors.Count == 0)
+                        {
+                            <div class="shop-empty">
+                                <i class="bi bi-people"></i>
+                                @if (VendorsInDepot.Count == 0)
+                                {
+                                    <h3>No vendors at @(string.IsNullOrEmpty(depotFilter) ? "any depot" : DepotName(depotFilter)) yet</h3>
+                                    <p>Add one, and the depot's cashiers can invoice them once the till refreshes its list.</p>
+                                    <button type="button" class="shop-btn shop-btn-primary" @onclick="StartNew">
+                                        <i class="bi bi-plus-lg"></i>Add vendor
+                                    </button>
+                                }
+                                else
+                                {
+                                    <h3>No vendors match</h3>
+                                    <p>Clear the filter, or add a vendor to this depot.</p>
+                                    <button type="button" class="shop-btn shop-btn-ghost" @onclick="ClearFilters">Clear filters</button>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            @* The whole row opens the vendor, as the design has it; the name is also a real
+                               link so the row can be reached from the keyboard and opened in a new tab. The
+                               action cell stops the click, or each button would open the vendor as well. *@
+                            <table class="shop-table vend-table">
+                                <thead>
+                                    <tr>
+                                        <th>Vendor</th>
+                                        <th>Depot</th>
+                                        <th>Phone</th>
+                                        <th class="vend-num">Sales MTD</th>
+                                        <th class="vend-num">Invoices MTD</th>
+                                        <th>Last sale</th>
+                                        <th>Status</th>
+                                        <th><span class="visually-hidden">Actions</span></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var vendor in VisibleVendors)
+                                    {
+                                        var sales = SalesRowFor(vendor);
+                                        <tr @key="vendor.Id" class="vend-row" @onclick="() => OpenVendor(vendor)">
+                                            <td>
+                                                <div class="vend-person">
+                                                    <span class="vend-avatar" aria-hidden="true">@VendorSalesDigest.Initials(vendor.Name, vendor.Surname)</span>
+                                                    <span class="vend-person-text">
+                                                        <a class="vend-person-name" href="@VendorHref(vendor)" @onclick:stopPropagation="true">@VendorName(vendor)</a>
+                                                        <span class="vend-person-sub">@vendor.Code</span>
+                                                    </span>
+                                                </div>
+                                            </td>
+                                            <td class="vend-cell-soft">@DepotName(vendor.AssignedBusinessPartnerCode)</td>
+                                            <td class="vend-cell-mute vend-nowrap">@Dash(vendor.Phone)</td>
+                                            <td class="vend-num">@SalesCell(sales, row => VendorSalesDigest.MoneyLabel(row.TotalsByCurrency))</td>
+                                            <td class="vend-num vend-cell-soft">@SalesCell(sales, row => row.SaleCount == 0 ? "—" : row.SaleCount.ToString("N0"))</td>
+                                            <td class="vend-cell-mute vend-nowrap">@SalesCell(sales, row => VendorSalesDigest.LastSaleLabel(row.LastSaleAt, today))</td>
+                                            <td>
+                                                <span class="shop-chip @(vendor.IsActive ? "shop-chip-good" : "shop-chip-neutral")">
+                                                    @(vendor.IsActive ? "Active" : "Removed")
+                                                </span>
+                                            </td>
+                                            <td @onclick:stopPropagation="true">
+                                                <div class="shop-row-act">
+                                                    <button type="button" class="shop-action-btn"
+                                                            title="Sales for @VendorName(vendor)" aria-label="Sales for @VendorName(vendor)"
+                                                            @onclick="@(() => Navigation.NavigateTo($"/route-customers/{vendor.Id}/sales"))">
+                                                        <i class="bi bi-graph-up"></i>
+                                                    </button>
+                                                    <button type="button" class="shop-action-btn"
+                                                            title="Edit @VendorName(vendor)" aria-label="Edit @VendorName(vendor)"
+                                                            @onclick="() => StartEdit(vendor)" disabled="@isSaving">
+                                                        <i class="bi bi-pencil"></i>
+                                                    </button>
+                                                    <button type="button" class="shop-action-btn"
+                                                            title="@(vendor.IsActive ? "Remove" : "Restore") @VendorName(vendor)"
+                                                            aria-label="@(vendor.IsActive ? "Remove" : "Restore") @VendorName(vendor)"
+                                                            @onclick="() => StartToggle(vendor)" disabled="@isSaving">
+                                                        <i class="bi @(vendor.IsActive ? "bi-person-dash" : "bi-arrow-counterclockwise")"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    }
+                    else
+                    {
+                        @if (VisibleAccounts.Count == 0)
+                        {
+                            <div class="shop-empty">
+                                <i class="bi bi-person-badge"></i>
+                                <h3>No cashiers match that filter</h3>
                                 <button type="button" class="shop-btn shop-btn-ghost" @onclick="ClearFilters">Clear filters</button>
-                            }
-                        </div>
-                    }
-                    else
-                    {
-                        <table class="shop-table">
-                            <thead>
-                                <tr>
-                                    <th>Code</th>
-                                    <th>Vendor</th>
-                                    <th>Depot</th>
-                                    <th>Phone</th>
-                                    <th>VAT number</th>
-                                    <th>Status</th>
-                                    <th><span class="visually-hidden">Actions</span></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var vendor in VisibleVendors)
-                                {
-                                    <tr @key="vendor.Id">
-                                        <td><span class="shop-code">@vendor.Code</span></td>
-                                        <td>
-                                            <div class="shop-cell-shop">
-                                                <i class="bi @(vendor.IsActive ? "bi-person" : "bi-person-slash")"></i>
-                                                <span class="shop-primary">@VendorName(vendor)</span>
-                                            </div>
-                                        </td>
-                                        <td>@DepotName(vendor.AssignedBusinessPartnerCode)</td>
-                                        <td>@Dash(vendor.Phone)</td>
-                                        <td>@Dash(vendor.VatNumber)</td>
-                                        <td>
-                                            <span class="shop-chip @(vendor.IsActive ? "shop-chip-good" : "shop-chip-neutral")">
-                                                @(vendor.IsActive ? "Active" : "Removed")
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <div class="shop-row-act">
-                                                <button type="button" class="shop-action-btn"
-                                                        title="Sales for @VendorName(vendor)" aria-label="Sales for @VendorName(vendor)"
-                                                        @onclick="@(() => Navigation.NavigateTo($"/route-customers/{vendor.Id}/sales"))">
-                                                    <i class="bi bi-graph-up"></i>
-                                                </button>
-                                                <button type="button" class="shop-action-btn"
-                                                        title="Edit @VendorName(vendor)" aria-label="Edit @VendorName(vendor)"
-                                                        @onclick="() => StartEdit(vendor)" disabled="@isSaving">
-                                                    <i class="bi bi-pencil"></i>
-                                                </button>
-                                                <button type="button" class="shop-action-btn"
-                                                        title="@(vendor.IsActive ? "Remove" : "Restore") @VendorName(vendor)"
-                                                        aria-label="@(vendor.IsActive ? "Remove" : "Restore") @VendorName(vendor)"
-                                                        @onclick="() => StartToggle(vendor)" disabled="@isSaving">
-                                                    <i class="bi @(vendor.IsActive ? "bi-person-dash" : "bi-arrow-counterclockwise")"></i>
-                                                </button>
-                                            </div>
-                                        </td>
+                            </div>
+                        }
+                        else
+                        {
+                            <table class="shop-table vend-table">
+                                <thead>
+                                    <tr>
+                                        <th>Cashier</th>
+                                        <th>Depot</th>
+                                        <th>Draws stock from</th>
+                                        <th>Cost centre</th>
+                                        <th class="vend-num">Vendors served</th>
+                                        <th>Last sign-in</th>
+                                        <th>Status</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    @foreach (var account in VisibleAccounts)
+                                    {
+                                        <tr @key="account.UserId">
+                                            <td>
+                                                <div class="vend-person">
+                                                    <span class="vend-avatar" aria-hidden="true">@VendorSalesDigest.Initials(account.FullName ?? account.Username)</span>
+                                                    <span class="vend-person-text">
+                                                        <span class="vend-person-name">@(string.IsNullOrWhiteSpace(account.FullName) ? account.Username : account.FullName)</span>
+                                                        <span class="vend-person-sub">@account.Username</span>
+                                                    </span>
+                                                </div>
+                                            </td>
+                                            <td class="vend-cell-soft">@(account.BusinessPartnerCode is null ? "Not set" : DepotName(account.BusinessPartnerCode))</td>
+                                            <td class="vend-cell-mute">@(account.WarehouseCode ?? "Not set")</td>
+                                            <td class="vend-cell-mute">@(account.CostCentreCode ?? "Not set")</td>
+                                            <td class="vend-num">@account.ActiveVendorCount</td>
+                                            <td class="vend-cell-mute vend-nowrap">@(account.LastLoginAt is { } seen ? IAuditService.ToCAT(seen).ToString("dd MMM yyyy HH:mm") : "Never")</td>
+                                            <td>
+                                                @if (!account.IsActive)
+                                                {
+                                                    <span class="shop-chip shop-chip-neutral">Inactive</span>
+                                                }
+                                                else if (account.SetupProblem is not null)
+                                                {
+                                                    <span class="shop-chip shop-chip-bad" title="@account.SetupProblem">Cannot sell</span>
+                                                    <div class="shop-form-hint">@account.SetupProblem</div>
+                                                }
+                                                else
+                                                {
+                                                    <span class="shop-chip shop-chip-good">Ready</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
                     }
-                }
-                else
-                {
-                    @if (VisibleAccounts.Count == 0)
-                    {
-                        <div class="shop-empty">
-                            <i class="bi bi-person-badge"></i>
-                            <h3>No cashiers match that filter</h3>
-                            <button type="button" class="shop-btn shop-btn-ghost" @onclick="ClearFilters">Clear filters</button>
-                        </div>
-                    }
-                    else
-                    {
-                        <table class="shop-table">
-                            <thead>
-                                <tr>
-                                    <th>Username</th>
-                                    <th>Name</th>
-                                    <th>Depot</th>
-                                    <th>Draws stock from</th>
-                                    <th>Cost centre</th>
-                                    <th class="shop-num">Vendors</th>
-                                    <th>Last sign-in</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var account in VisibleAccounts)
-                                {
-                                    <tr @key="account.UserId">
-                                        <td><span class="shop-code">@account.Username</span></td>
-                                        <td>@Dash(account.FullName)</td>
-                                        <td>@(account.BusinessPartnerCode is null ? "Not set" : DepotName(account.BusinessPartnerCode))</td>
-                                        <td>@(account.WarehouseCode ?? "Not set")</td>
-                                        <td>@(account.CostCentreCode ?? "Not set")</td>
-                                        <td class="shop-num">@account.ActiveVendorCount</td>
-                                        <td>@(account.LastLoginAt is { } seen ? IAuditService.ToCAT(seen).ToString("dd MMM yyyy HH:mm") : "Never")</td>
-                                        <td>
-                                            @if (!account.IsActive)
-                                            {
-                                                <span class="shop-chip shop-chip-neutral">Inactive</span>
-                                            }
-                                            else if (account.SetupProblem is not null)
-                                            {
-                                                <span class="shop-chip shop-chip-bad" title="@account.SetupProblem">Cannot sell</span>
-                                                <div class="shop-form-hint">@account.SetupProblem</div>
-                                            }
-                                            else
-                                            {
-                                                <span class="shop-chip shop-chip-good">Ready</span>
-                                            }
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    }
-                }
-            </div>
+                </div>
+            }
         }
     }
 </div>
@@ -597,6 +685,9 @@ else if (dialog is not DialogMode.None)
 
     private const long MaxImportFileBytes = 5 * 1024 * 1024;
 
+    /// <summary>Set on /vending/vendors/{id}, where the page shows that one vendor instead of the list.</summary>
+    [Parameter] public int? VendorId { get; set; }
+
     private VendingOverviewModel? overview;
     private Dictionary<string, string> partnerNames = new(StringComparer.OrdinalIgnoreCase);
 
@@ -623,6 +714,13 @@ else if (dialog is not DialogMode.None)
     private string query = string.Empty;
     private string? depotFilter;
 
+    // Month to date, from the route-customer sales summary: one read per depot, keyed back by vendor id.
+    private readonly DateTime today = IAuditService.ToCAT(DateTime.UtcNow).Date;
+    private Dictionary<int, RouteCustomerSalesRowModel> vendorSales = [];
+    private Dictionary<string, List<RouteCustomerSalesTotalsModel>> depotSales = new(StringComparer.OrdinalIgnoreCase);
+    private bool salesLoading;
+    private string? salesError;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
@@ -639,6 +737,59 @@ else if (dialog is not DialogMode.None)
         }
         catch (Exception)
         {
+        }
+
+        // The list is usable without the sales figures, so it goes on screen before they are asked for.
+        StateHasChanged();
+        await LoadSalesAsync();
+    }
+
+    private async Task LoadSalesAsync()
+    {
+        if (overview is null || overview.Depots.Count == 0)
+        {
+            return;
+        }
+
+        salesLoading = true;
+        salesError = null;
+        try
+        {
+            var rows = new Dictionary<int, RouteCustomerSalesRowModel>();
+            var totals = new Dictionary<string, List<RouteCustomerSalesTotalsModel>>(StringComparer.OrdinalIgnoreCase);
+
+            // One depot at a time rather than all at once: the reads share this circuit's HttpClient and
+            // its token refresh, and there are only ever a handful of depots.
+            foreach (var depot in overview.Depots)
+            {
+                var summary = await RouteCustomerService.GetSalesSummaryAsync(
+                    depot.BusinessPartnerCode, VendorSalesDigest.MonthStart(today), today, includeInactive: true);
+
+                foreach (var route in summary.Routes)
+                {
+                    totals[route.AssignedBusinessPartnerCode] = route.TotalsByCurrency;
+                    foreach (var row in route.Customers)
+                    {
+                        if (row.RouteCustomerId is { } id)
+                        {
+                            rows[id] = row;
+                        }
+                    }
+                }
+
+                totals.TryAdd(depot.BusinessPartnerCode, []);
+            }
+
+            vendorSales = rows;
+            depotSales = totals;
+        }
+        catch (InvalidOperationException ex)
+        {
+            salesError = $"Sales figures could not be loaded: {ex.Message}";
+        }
+        finally
+        {
+            salesLoading = false;
         }
     }
 
@@ -673,6 +824,53 @@ else if (dialog is not DialogMode.None)
     private static string CodesOrDash(List<string> codes) => codes.Count == 0 ? "Not set" : string.Join(", ", codes);
 
     private static string PrefixPattern(string? prefix) => $"{prefix}###";
+
+    private static string DepotMeta(VendingDepotModel depot) =>
+        string.Join(" · ", new[] { depot.BusinessPartnerCode }
+            .Concat(depot.WarehouseCodes.Count == 0 ? ["no warehouse"] : depot.WarehouseCodes)
+            .Concat(depot.CostCentreCodes));
+
+    private RouteCustomerModel? SelectedVendor =>
+        VendorId is { } id ? overview?.Vendors.FirstOrDefault(vendor => vendor.Id == id) : null;
+
+    private VendingDepotModel? DepotFor(string? code) =>
+        overview?.Depots.FirstOrDefault(depot => string.Equals(depot.BusinessPartnerCode, code, StringComparison.OrdinalIgnoreCase));
+
+    private IReadOnlyList<VendingAccountModel> CashiersFor(string? code) =>
+        overview?.Accounts
+            .Where(account => account.IsActive && string.Equals(account.BusinessPartnerCode, code, StringComparison.OrdinalIgnoreCase))
+            .ToList() ?? [];
+
+    private RouteCustomerSalesRowModel? SalesRowFor(RouteCustomerModel vendor) =>
+        vendorSales.GetValueOrDefault(vendor.Id);
+
+    /// <summary>
+    /// A figure from the summary. Blank while it loads and a dash once it has failed — never a zero, which
+    /// would say a vendor sold nothing. A vendor the summary has no row for sold nothing this month.
+    /// </summary>
+    private MarkupString SalesCell(RouteCustomerSalesRowModel? row, Func<RouteCustomerSalesRowModel, string> figure)
+    {
+        if (salesLoading)
+        {
+            return new MarkupString("<span class=\"vend-skel\" aria-label=\"Loading\"></span>");
+        }
+
+        if (salesError is not null)
+        {
+            return new MarkupString("—");
+        }
+
+        return new MarkupString(System.Net.WebUtility.HtmlEncode(figure(row ?? new RouteCustomerSalesRowModel())));
+    }
+
+    private string DepotSalesLabel(string code) =>
+        salesError is not null
+            ? "—"
+            : VendorSalesDigest.MoneyLabel(depotSales.GetValueOrDefault(code), decimals: 0);
+
+    private static string VendorHref(RouteCustomerModel vendor) => $"/vending/vendors/{vendor.Id}";
+
+    private void OpenVendor(RouteCustomerModel vendor) => Navigation.NavigateTo(VendorHref(vendor));
 
     private static string PrefixTitle(VendingDepotModel depot) =>
         depot.NextVendorCode is null

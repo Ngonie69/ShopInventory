@@ -1,38 +1,51 @@
 /* ==========================================================================
    Vending — Nocturne
 
-   /vending: depots, their cashiers and the vendors they invoice. The page wears
-   shops.css for its shell, table, chips, filters and modal (it sits inside
-   `.shop`), so this sheet holds only what that one has no vocabulary for: the
-   depot cards. Every colour resolves a `--shop-*` alias, which in turn resolves a
-   nocturne-tokens.css token that flips at the root — so there is no dark-theme
-   block here, the same as there is none in shops.css.
+   /vending and /vending/vendors/{id}: depots, their cashiers, the vendors they
+   invoice, and one vendor's month. Built from `Kefalos Vending.dc.html`. The
+   page wears shops.css for its shell, table, chips, filters and modal (it sits
+   inside `.shop`), so this sheet holds only what that one has no vocabulary
+   for: the depot cards, the person cells, the sales skeletons, and the vendor
+   page's figures, chart, mix and fact list. Every colour resolves a `--shop-*`
+   alias, which in turn resolves a nocturne-tokens.css token that flips at the
+   root — so there is no dark-theme block here, the same as there is none in
+   shops.css.
+
+   Text rules are rooted on `.vend` so they reach two classes deep: app.css
+   paints `.dark-theme h2/h3/p` at (0,1,1), which beats a lone page class on
+   those elements in dark only.
    ========================================================================== */
+
+/* ── Depot cards ─────────────────────────────────────────────────────────────
+   Name, codes and the vendor-code prefix across the top; vendors, cashiers
+   and sales this month along the bottom. The card is also the depot filter,
+   so the pressed state is the accent ring the design gives its hover.
+   ────────────────────────────────────────────────────────────────────────── */
 
 .vend .vend-depots {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: var(--shop-s3);
 }
 
 .vend .vend-depot {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-    padding: var(--shop-s4);
+    align-items: stretch;
+    gap: var(--shop-s4);
+    padding: var(--shop-s4) calc(var(--shop-s4) + 3px);
     text-align: left;
     font: inherit;
     color: var(--shop-ink);
     background: var(--shop-surface);
     border: 1px solid var(--shop-divider);
-    border-radius: var(--shop-r-lg);
+    border-radius: var(--shop-r-md);
     cursor: pointer;
-    transition: border-color .15s ease, background-color .15s ease;
+    transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
 }
 
 .vend .vend-depot:hover {
-    background: var(--shop-hover);
+    border-color: rgba(var(--shop-accent-rgb), .45);
 }
 
 .vend .vend-depot:focus-visible {
@@ -49,35 +62,79 @@
     border-color: rgba(var(--shop-fam-warn-rgb), .55);
 }
 
-.vend .vend-depot-name {
-    font-weight: 600;
-    font-size: 15px;
-    line-height: 1.3;
-}
-
-.vend .vend-depot-code {
-    font-family: var(--shop-mono);
-    font-size: 12px;
-    color: var(--shop-mute);
-}
-
-.vend .vend-depot-facts,
-.vend .vend-depot-counts {
+.vend .vend-depot-top {
     display: flex;
-    flex-wrap: wrap;
-    gap: 4px 14px;
-    font-size: 13px;
+    align-items: flex-start;
+    gap: var(--shop-s3);
+}
+
+.vend .vend-depot-id {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.vend .vend-depot-name {
+    font-weight: 500;
+    font-size: 15px;
+    line-height: 1.2;
+}
+
+.vend .vend-depot-meta {
+    font-size: 11px;
+    color: var(--shop-mute-3);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.vend .vend-depot-tag {
+    flex: none;
+    margin-left: auto;
+    padding: 3px 9px;
+    border-radius: 6px;
+    font-family: var(--shop-mono);
+    font-size: 11px;
     color: var(--shop-ink-2);
+    background: rgba(var(--shop-fam-neutral-rgb), .14);
 }
 
-.vend .vend-depot-facts i {
-    margin-right: 5px;
-    color: var(--shop-mute);
+.vend .vend-depot-figures {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--shop-s6);
 }
 
-.vend .vend-depot-counts strong {
-    color: var(--shop-ink);
-    font-weight: 600;
+.vend .vend-fig {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.vend .vend-fig-end {
+    margin-left: auto;
+    align-items: flex-end;
+    text-align: right;
+}
+
+.vend .vend-fig-value {
+    font-size: 19px;
+    line-height: 1;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.vend .vend-fig-value.is-accent {
+    color: var(--shop-accent-text);
+}
+
+.vend .vend-fig-label {
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--shop-mute-3);
 }
 
 .vend .vend-depot-problem {
@@ -86,6 +143,593 @@
     font-size: 12px;
     line-height: 1.4;
     color: var(--shop-fam-warn);
+}
+
+/* ── Tables ──────────────────────────────────────────────────────────────────
+   A person cell is an initials disc over a name and its code, as the design
+   draws both the vendor and the cashier. The vendor row opens the vendor.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.vend .vend-row {
+    cursor: pointer;
+}
+
+.vend .vend-person {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.vend .vend-avatar {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    border-radius: 50%;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .02em;
+    color: var(--shop-ink-2);
+    background: rgba(var(--shop-fam-neutral-rgb), .16);
+}
+
+.vend .vend-avatar-lg {
+    width: 44px;
+    height: 44px;
+    font-size: 15px;
+    color: var(--shop-accent-text);
+    background: rgba(var(--shop-accent-rgb), .2);
+}
+
+.vend .vend-person-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.3;
+}
+
+.vend .vend-person-name {
+    font-size: 14px;
+    color: var(--shop-ink);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.vend a.vend-person-name:hover {
+    color: var(--shop-accent-text);
+}
+
+.vend .vend-person-sub {
+    font-size: 11px;
+    color: var(--shop-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.vend .shop-table .vend-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.vend .shop-table .vend-cell-soft {
+    font-size: 13px;
+    color: var(--shop-ink-2);
+}
+
+.vend .shop-table .vend-cell-mute {
+    font-size: 12.5px;
+    color: var(--shop-mute-2);
+}
+
+.vend .vend-nowrap {
+    white-space: nowrap;
+}
+
+/* A figure still on its way. A zero would be a claim; a blank bar is not. */
+.vend .vend-skel {
+    display: inline-block;
+    width: 64px;
+    max-width: 100%;
+    height: 10px;
+    vertical-align: middle;
+    border-radius: 999px;
+    background: var(--shop-rule);
+    animation: vend-pulse 1.2s ease-in-out infinite alternate;
+}
+
+.vend .vend-skel-fig {
+    width: 72px;
+    height: 19px;
+    border-radius: var(--shop-r-sm);
+}
+
+.vend .vend-skel-wide {
+    width: 60%;
+    height: 26px;
+    border-radius: var(--shop-r-sm);
+}
+
+@keyframes vend-pulse {
+    from { opacity: .45; }
+    to { opacity: 1; }
+}
+
+/* The list stands without its sales figures; this says which half is missing. */
+.vend .vend-sales-warning {
+    display: flex;
+    align-items: center;
+    gap: var(--shop-s3);
+    padding: 6px 8px 6px 13px;
+    border-radius: var(--shop-r-md);
+    font-size: 12.5px;
+    color: var(--shop-fam-warn);
+    background: rgba(var(--shop-fam-warn-rgb), .09);
+    box-shadow: inset 0 0 0 1px rgba(var(--shop-fam-warn-rgb), .28);
+}
+
+.vend .vend-sales-warning span {
+    flex: 1;
+}
+
+/* ── One vendor ──────────────────────────────────────────────────────────────
+   Breadcrumb, the vendor's heading and actions, five figures, then two
+   columns: the month (chart, mix, invoices) on the left, the record and the
+   posting card on the right.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.vend .vend-detail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--shop-s6);
+}
+
+.vend .vend-detail > .shop-crumb {
+    margin-bottom: calc(var(--shop-s2) * -1);
+}
+
+.vend .vend-crumb-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.vend .vend-crumb-link:hover {
+    color: var(--shop-accent-text);
+}
+
+.vend .vend-hero {
+    display: flex;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: var(--shop-s4);
+}
+
+.vend .vend-hero-text {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+    flex: 1 1 260px;
+}
+
+.vend .vend-hero-line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--shop-s3);
+}
+
+.vend .vend-hero-name {
+    margin: 0;
+    font-size: 25px;
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: -.015em;
+    color: var(--shop-ink);
+}
+
+.vend .vend-hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 7px;
+    font-size: 12.5px;
+    color: var(--shop-mute-2);
+}
+
+.vend .vend-hero-meta > span + span::before {
+    content: "·";
+    margin-right: 7px;
+    color: var(--shop-faint);
+}
+
+.vend .vend-hero .shop-header-actions {
+    margin-left: auto;
+}
+
+.vend .vend-mono {
+    font-family: var(--shop-mono);
+    font-size: .92em;
+}
+
+.vend .vend-alert-retry {
+    margin-left: auto;
+}
+
+.vend .vend-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: var(--shop-s3);
+}
+
+.vend .vend-kpi,
+.vend .vend-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--shop-surface);
+    border: 1px solid var(--shop-divider);
+    border-radius: var(--shop-r-md);
+}
+
+.vend .vend-kpi {
+    gap: var(--shop-s1);
+    padding: var(--shop-s4) calc(var(--shop-s4) + 3px);
+}
+
+.vend .vend-kpi-label {
+    font-size: 10px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--shop-mute-3);
+}
+
+.vend .vend-kpi-value {
+    font-size: 23px;
+    font-weight: 500;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+    color: var(--shop-ink);
+    overflow-wrap: anywhere;
+}
+
+.vend .vend-kpi-value.is-bad {
+    color: var(--shop-fam-bad);
+}
+
+.vend .vend-kpi-note {
+    font-size: 11.5px;
+    color: var(--shop-mute-2);
+}
+
+.vend .vend-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
+    gap: var(--shop-s4);
+    align-items: start;
+}
+
+.vend .vend-column {
+    display: flex;
+    flex-direction: column;
+    gap: var(--shop-s4);
+    min-width: 0;
+}
+
+.vend .vend-card {
+    gap: var(--shop-s4);
+    padding: var(--shop-s4) calc(var(--shop-s4) + 3px);
+}
+
+.vend .vend-card-flush {
+    gap: var(--shop-s2);
+    padding: var(--shop-s4) 0 0;
+    overflow: hidden;
+}
+
+.vend .vend-card-flush > .vend-card-head,
+.vend .vend-card-pad {
+    padding-inline: calc(var(--shop-s4) + 3px);
+}
+
+.vend .vend-card-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px var(--shop-s3);
+}
+
+.vend .vend-card-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--shop-ink);
+}
+
+.vend .vend-card-sub {
+    font-size: 11.5px;
+    color: var(--shop-mute-3);
+}
+
+.vend .vend-card-aside {
+    margin-left: auto;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--shop-accent-text);
+}
+
+.vend .vend-card-aside.is-mute {
+    color: var(--shop-mute-3);
+}
+
+.vend .vend-card-head > .shop-chip {
+    margin-left: auto;
+    align-self: center;
+}
+
+.vend .vend-card-link {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--shop-accent-text);
+    text-decoration: none;
+}
+
+.vend .vend-card-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.vend .vend-card-empty,
+.vend .vend-card-foot {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--shop-mute-2);
+}
+
+.vend .vend-card-flush > .vend-card-empty {
+    padding-bottom: var(--shop-s6);
+}
+
+.vend .vend-card-loading {
+    padding: var(--shop-s6);
+}
+
+/* Fourteen days, today in solid accent, the rest at half strength. A quiet
+   day keeps a 2px stub so the gap reads as a day with no sales, not a hole. */
+.vend .vend-bars {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    height: 132px;
+}
+
+.vend .vend-bar {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    justify-items: stretch;
+    row-gap: 6px;
+}
+
+.vend .vend-bar-fill {
+    align-self: end;
+    min-height: 2px;
+    border-radius: 3px 3px 0 0;
+    background: rgba(var(--shop-accent-rgb), .5);
+    transition: height .2s ease;
+}
+
+.vend .vend-bar.is-today .vend-bar-fill {
+    background: var(--shop-accent);
+}
+
+/* Four classes deep so a quiet today stays a stub rather than taking the today accent. */
+.vend .vend-bar .vend-bar-fill.is-empty {
+    background: var(--shop-rule);
+}
+
+.vend .vend-bars.is-loading .vend-bar-fill {
+    background: var(--shop-rule);
+    animation: vend-pulse 1.2s ease-in-out infinite alternate;
+}
+
+.vend .vend-bar-day {
+    font-size: 9.5px;
+    line-height: 1;
+    text-align: center;
+    color: var(--shop-faint);
+}
+
+.vend .vend-bar.is-today .vend-bar-day {
+    color: var(--shop-accent-text);
+}
+
+.vend .vend-mix {
+    display: flex;
+    flex-direction: column;
+    gap: var(--shop-s4);
+}
+
+.vend .vend-mix-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.vend .vend-mix-line {
+    display: flex;
+    align-items: baseline;
+    gap: var(--shop-s3);
+    font-size: 13px;
+}
+
+.vend .vend-mix-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vend .vend-mix-units {
+    margin-left: auto;
+    flex: none;
+    font-variant-numeric: tabular-nums;
+    color: var(--shop-mute-2);
+}
+
+.vend .vend-mix-value {
+    width: 84px;
+    flex: none;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.vend .vend-mix-track {
+    display: block;
+    height: 5px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--shop-rule);
+}
+
+.vend .vend-mix-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--shop-accent);
+}
+
+.vend .vend-table-scroll {
+    overflow-x: auto;
+}
+
+.vend .vend-invoices thead th {
+    position: static;
+}
+
+/* Cells keep their line and the card scrolls sideways instead: a date broken over
+   three lines at phone width reads as three rows. */
+.vend .vend-invoices td {
+    white-space: nowrap;
+}
+
+.vend .vend-invoice-no {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.vend .vend-facts {
+    display: flex;
+    flex-direction: column;
+    gap: var(--shop-s2);
+    margin: 0;
+}
+
+.vend .vend-facts > div {
+    display: flex;
+    gap: var(--shop-s3);
+    padding-bottom: var(--shop-s2);
+    font-size: 13px;
+    border-bottom: 1px solid var(--shop-rule);
+}
+
+.vend .vend-facts > div:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+.vend .vend-facts dt {
+    flex: none;
+    font-weight: 400;
+    color: var(--shop-mute-2);
+}
+
+.vend .vend-facts dd {
+    margin: 0 0 0 auto;
+    min-width: 0;
+    text-align: right;
+    color: var(--shop-ink);
+    overflow-wrap: anywhere;
+}
+
+.vend .vend-settle-figure {
+    font-size: 26px;
+    font-weight: 500;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--shop-ink);
+}
+
+.vend .vend-settle-of {
+    font-size: 15px;
+    color: var(--shop-mute-2);
+}
+
+.vend .vend-settle-note {
+    margin-top: 5px;
+    font-size: 11px;
+    color: var(--shop-mute-3);
+}
+
+.vend .vend-posting {
+    display: flex;
+    flex-direction: column;
+    gap: var(--shop-s2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.vend .vend-posting li {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 13px;
+    color: var(--shop-ink-2);
+}
+
+.vend .vend-posting li.is-bad {
+    color: var(--shop-fam-bad);
+}
+
+.vend .vend-posting strong {
+    margin-left: auto;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.vend .vend-dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--shop-dot-off);
+}
+
+.vend .vend-dot.is-good {
+    background: var(--shop-fam-good);
+}
+
+.vend .vend-dot.is-bad {
+    background: var(--shop-fam-bad);
+}
+
+@media (max-width: 1100px) {
+    .vend .vend-columns {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 600px) {
+    .vend .vend-hero .shop-header-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .vend .vend-bars {
+        gap: 3px;
+    }
 }
 
 /* ── Upload ──────────────────────────────────────────────────────────────────
@@ -340,7 +984,13 @@
 
 @media (prefers-reduced-motion: reduce) {
     .vend .vend-depot,
+    .vend .vend-bar-fill,
     .shop-overlay .vend-import-drop {
         transition: none;
+    }
+
+    .vend .vend-skel,
+    .vend .vend-bars.is-loading .vend-bar-fill {
+        animation: none;
     }
 }

@@ -648,7 +648,7 @@
             <AuthorizeView Roles="@UserRoles.VendingRoles" Context="vendingCtx">
                 <Authorized>
                     <NavSection Title="Vending">
-                        <NavLink class="snav-link" href="/vending" Match="NavLinkMatch.All">
+                        <NavLink class="snav-link" href="/vending" Match="NavLinkMatch.Prefix">
                             <span class="snav-icon">
                                 <i class="ph ph-storefront" aria-hidden="true"></i>
                             </span>
