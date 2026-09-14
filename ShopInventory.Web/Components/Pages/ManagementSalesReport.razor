@@ -1,0 +1,965 @@
+@page "/reports/management-sales"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport
+@attribute [Authorize(Roles = "Admin,Manager,Cashier")]
+@rendermode InteractiveServer
+
+<PageTitle>Management Sales Report - Shop Inventory</PageTitle>
+
+@* The management sales report. Built on the /reports/desktop-sales vocabulary — `ops-ds` for the hero,
+   filters, segments and cards, `ops-dsa` for the table and share-bar marks — with `ops-msr` in
+   management-sales.css for what that page has no need of: a change beside every figure, a day drawn
+   against the same day of the previous period, and the posting and fiscal health strip.
+
+   Two series only, this period and the previous, in the analysis page's first two categorical hues
+   (--dsa-t1 blue, --dsa-t2 orange), validated in both themes for CVD and normal-vision separation. Every
+   pair of bars sits in a table row that states both figures, and the legend names both.
+
+   A change is an arrow, a signed number and a family together, never colour alone. Margin is SAP's
+   booked gross profit and is only stated where SAP holds the cost, so a blank is "not costed", never 0. *@
+
+<div class="ops ops-ds ops-dsa ops-msr">
+
+    <div class="ops-hero">
+        <div class="ops-hero-text">
+            <span class="ops-kicker">Insights · Management</span>
+            <h1>Management sales report</h1>
+            <p>
+                What the tills, vending depots and vans sold, set against the same number of days just before —
+                by shop and depot, vendor, channel, cost centre, operator and product — with the gross margin SAP
+                booked, and what has not yet reached ZIMRA or SAP.
+            </p>
+        </div>
+
+        <div class="ops-hero-actions">
+            <button type="button" class="ops-btn ops-btn-ghost" @onclick="ExportAsync"
+                    disabled="@(isExporting || isLoading || !HasSales)">
+                @if (isExporting)
+                {
+                    <span class="ops-spin"></span>
+                    <span>Exporting&hellip;</span>
+                }
+                else
+                {
+                    <i class="ph ph-file-xls" aria-hidden="true"></i>
+                    <span>Export</span>
+                }
+            </button>
+            <button type="button" class="ops-icon-btn" title="Refresh" aria-label="Refresh"
+                    @onclick="LoadAsync" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="ops-spin"></span>
+                }
+                else
+                {
+                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                }
+            </button>
+        </div>
+    </div>
+
+    <div class="ops-rule-fade"></div>
+
+    <div class="ops-ds-filters">
+        <div class="ops-field">
+            <label class="ops-label" for="msr-warehouse">Shop / depot</label>
+            <NocturneSelect Id="msr-warehouse" Class="nsel-block" Options="WarehouseOptions"
+                            @bind-Value="warehouse" OnChanged="LoadAsync"
+                            Caption="Filter by shop or depot" AriaLabel="Filter by shop or depot" Placeholder="All shops & depots" />
+        </div>
+
+        <div class="ops-field">
+            <label class="ops-label" for="msr-channel">Channel</label>
+            <NocturneSelect Id="msr-channel" Class="nsel-block" TValue="string" Options="ChannelOptions"
+                            @bind-Value="channel" OnChanged="LoadAsync"
+                            Caption="Filter by channel" AriaLabel="Filter by channel" Placeholder="All channels" />
+        </div>
+
+        <div class="ops-field ops-ds-seg-field">
+            <span class="ops-label" id="msr-period-label">Period</span>
+            <div class="ops-ds-seg" role="group" aria-labelledby="msr-period-label">
+                @foreach (var option in PeriodOptions)
+                {
+                    <button type="button" class="ops-ds-seg-opt @(period == option.Key ? "is-on" : "")"
+                            aria-pressed="@(period == option.Key)"
+                            @onclick="() => SetPeriodAsync(option.Key)">@option.Label</button>
+                }
+            </div>
+        </div>
+
+        @if (period == PeriodCustom)
+        {
+            <div class="ops-ds-dates">
+                <div class="ops-field">
+                    <span class="ops-label">From</span>
+                    <NocturneDateField Id="msr-from" Date="fromDate" DateChanged="OnFromDateChanged" AriaLabel="From date" />
+                </div>
+                <div class="ops-field">
+                    <span class="ops-label">To</span>
+                    <NocturneDateField Id="msr-to" Date="toDate" DateChanged="OnToDateChanged" AriaLabel="To date" />
+                </div>
+            </div>
+        }
+
+        @if (result is { Currencies.Count: > 1 })
+        {
+            <div class="ops-field ops-ds-seg-field">
+                <span class="ops-label" id="msr-currency-label">Currency</span>
+                <div class="ops-ds-seg" role="group" aria-labelledby="msr-currency-label">
+                    @foreach (var option in result.Currencies)
+                    {
+                        <button type="button" class="ops-ds-seg-opt @(Current?.Currency == option.Currency ? "is-on" : "")"
+                                aria-pressed="@(Current?.Currency == option.Currency)"
+                                @onclick="() => currency = option.Currency">@option.Currency</button>
+                    }
+                </div>
+            </div>
+        }
+
+        <div class="ops-ds-filter-tail">
+            <span class="ops-ds-shown">@PeriodText</span>
+            <span class="ops-ds-shown">@ComparedText</span>
+        </div>
+    </div>
+
+    @if (error != null)
+    {
+        <div class="ops-msg ops-fam-bad" role="alert">
+            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+            <div class="ops-msg-body">@error</div>
+            <button type="button" class="ops-msg-x" aria-label="Dismiss" @onclick="() => error = null">
+                <i class="ph ph-x" aria-hidden="true"></i>
+            </button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="ops-loading">
+            <span class="ops-spin ops-spin-lg"></span>
+            <p>Comparing the periods and reading margin from SAP&hellip;</p>
+        </div>
+    }
+    else if (Current is not { } sales)
+    {
+        @if (error == null)
+        {
+            <div class="ops-empty">
+                <i class="ph ph-receipt" aria-hidden="true"></i>
+                <h3>No sales in this period or the one before it</h3>
+                <p>Widen the period, or clear the shop and channel filters.</p>
+            </div>
+        }
+    }
+    else
+    {
+        var summary = sales.Summary;
+
+        @* ── Headline figures ─────────────────────────────────────────────── *@
+        <div class="ops-figures ops-msr-figures">
+            @{
+                var takingsChange = Change(summary.TotalChangePercent);
+                var countChange = Change(summary.SalesCountChangePercent);
+                var averageChange = Change(summary.AverageSaleChangePercent);
+            }
+            <div class="ops-figure ops-fam-accent">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Takings</div>
+                <div class="ops-figure-num">@Money(summary.TotalAmount)</div>
+                <div class="ops-figure-sub">
+                    <span class="ops-msr-change @takingsChange.Family"><i class="ph @takingsChange.Icon" aria-hidden="true"></i>@takingsChange.Text</span>
+                    from @Money(summary.PreviousTotalAmount)
+                </div>
+            </div>
+            <div class="ops-figure ops-fam-info">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Sales</div>
+                <div class="ops-figure-num">@summary.SalesCount.ToString("N0")</div>
+                <div class="ops-figure-sub">
+                    <span class="ops-msr-change @countChange.Family"><i class="ph @countChange.Icon" aria-hidden="true"></i>@countChange.Text</span>
+                    from @summary.PreviousSalesCount.ToString("N0") · @Plural(summary.DaysTraded, "day") traded
+                </div>
+            </div>
+            <div class="ops-figure ops-fam-neutral">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Average sale</div>
+                <div class="ops-figure-num">@Money(summary.AverageSale)</div>
+                <div class="ops-figure-sub">
+                    <span class="ops-msr-change @averageChange.Family"><i class="ph @averageChange.Icon" aria-hidden="true"></i>@averageChange.Text</span>
+                    from @Money(summary.PreviousAverageSale)
+                </div>
+            </div>
+            <div class="ops-figure @(summary.MarginPercent is < 0 ? "ops-fam-bad" : "ops-fam-good")">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Gross margin</div>
+                @if (summary.GrossProfit is { } profit)
+                {
+                    <div class="ops-figure-num">@Pct(summary.MarginPercent)</div>
+                    <div class="ops-figure-sub">
+                        @Money(profit) profit on @Money(summary.CostedNetAmount) SAP costed
+                        · @summary.CostedSalesCount.ToString("N0") of @summary.SalesCount.ToString("N0") sales
+                    </div>
+                }
+                else
+                {
+                    <div class="ops-figure-num">—</div>
+                    <div class="ops-figure-sub">@(result!.Margin.Available ? "No sale in this currency has reached SAP yet" : "SAP could not be reached")</div>
+                }
+            </div>
+            <div class="ops-figure ops-fam-neutral">
+                <div class="ops-figure-head"><span class="ops-figure-rule"></span>Vendors served</div>
+                <div class="ops-figure-num">@summary.VendorsServed.ToString("N0")</div>
+                <div class="ops-figure-sub">
+                    from @summary.PreviousVendorsServed.ToString("N0")
+                    @if (sales.LapsedVendors.Count > 0)
+                    {
+                        <span class="ops-msr-change ops-fam-warn"><i class="ph ph-warning" aria-hidden="true"></i>@sales.LapsedVendors.Count stopped buying</span>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @if (!result!.Margin.Available)
+        {
+            <div class="ops-msg ops-fam-warn" role="status">
+                <i class="ph ph-warning" aria-hidden="true"></i>
+                <div class="ops-msg-body">@result.Margin.Detail</div>
+            </div>
+        }
+
+        @* ── Posting & fiscal health ──────────────────────────────────────── *@
+        var health = result.Health;
+
+        <section class="ops-ds-card ops-dsa-card" aria-labelledby="msr-health-title">
+            <div class="ops-ds-card-head">
+                <i class="ph ph-seal-check" aria-hidden="true"></i>
+                <span class="ops-ds-card-label" id="msr-health-title">Reached ZIMRA and SAP?</span>
+                <span class="ops-ds-card-tally">
+                    <b>@health.SalesCount.ToString("N0")</b>
+                    <span>sales in the period, every currency</span>
+                </span>
+            </div>
+
+            <div class="ops-msr-health">
+                <div class="ops-msr-health-group">
+                    <span class="ops-label">Fiscalisation (ZIMRA)</span>
+                    <div class="ops-msr-health-row">
+                        <div class="ops-msr-stat ops-fam-good">
+                            <i class="ph ph-seal-check" aria-hidden="true"></i>
+                            <b>@health.FiscalSucceeded.SalesCount.ToString("N0")</b><span>fiscalised</span>
+                        </div>
+                        <div class="ops-msr-stat @HealthFamily(health.FiscalPending, "ops-fam-warn")" title="@BucketValue(health.FiscalPending)">
+                            <i class="ph ph-clock" aria-hidden="true"></i>
+                            <b>@health.FiscalPending.SalesCount.ToString("N0")</b><span>waiting</span>
+                            <small>@BucketValue(health.FiscalPending)</small>
+                        </div>
+                        <div class="ops-msr-stat @HealthFamily(health.FiscalFailed, "ops-fam-bad")" title="@BucketValue(health.FiscalFailed)">
+                            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                            <b>@health.FiscalFailed.SalesCount.ToString("N0")</b><span>failed</span>
+                            <small>@BucketValue(health.FiscalFailed)</small>
+                        </div>
+                        <div class="ops-msr-stat @HealthFamily(health.NeedsReconciliation, "ops-fam-bad")" title="@BucketValue(health.NeedsReconciliation)">
+                            <i class="ph ph-warning" aria-hidden="true"></i>
+                            <b>@health.NeedsReconciliation.SalesCount.ToString("N0")</b><span>to reconcile</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ops-msr-health-group">
+                    <span class="ops-label">SAP posting (tills &amp; vending, @health.PostingSalesCount.ToString("N0") sales)</span>
+                    <div class="ops-msr-health-row">
+                        <div class="ops-msr-stat ops-fam-good">
+                            <i class="ph ph-seal-check" aria-hidden="true"></i>
+                            <b>@health.Posted.SalesCount.ToString("N0")</b><span>posted</span>
+                        </div>
+                        <div class="ops-msr-stat @HealthFamily(health.PostingWaiting, "ops-fam-warn")" title="@BucketValue(health.PostingWaiting)">
+                            <i class="ph ph-clock" aria-hidden="true"></i>
+                            <b>@health.PostingWaiting.SalesCount.ToString("N0")</b><span>waiting</span>
+                            <small>@BucketValue(health.PostingWaiting)</small>
+                        </div>
+                        <div class="ops-msr-stat @HealthFamily(health.PostingFailing, "ops-fam-bad")" title="@BucketValue(health.PostingFailing)">
+                            <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                            <b>@health.PostingFailing.SalesCount.ToString("N0")</b><span>failing</span>
+                            <small>@BucketValue(health.PostingFailing)</small>
+                        </div>
+                        <div class="ops-msr-stat @HealthFamily(health.PaymentFailed, "ops-fam-bad")" title="@BucketValue(health.PaymentFailed)">
+                            <i class="ph ph-coins" aria-hidden="true"></i>
+                            <b>@health.PaymentFailed.SalesCount.ToString("N0")</b><span>payments failed</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            @if (health.OldestUnpostedDate is { } oldest || !string.IsNullOrWhiteSpace(health.LatestPostingError))
+            {
+                <div class="ops-ds-aside">
+                    @if (health.OldestUnpostedDate is { } oldestDate)
+                    {
+                        <span>Oldest sale SAP does not have yet: <b>@oldestDate.ToString("ddd dd MMM yyyy")</b>.</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(health.LatestPostingError))
+                    {
+                        <span>Latest SAP refusal: @health.LatestPostingError</span>
+                    }
+                </div>
+            }
+        </section>
+
+        @* ── Trend ────────────────────────────────────────────────────────── *@
+        <section class="ops-ds-card ops-dsa-card" aria-labelledby="msr-days-title">
+            <div class="ops-ds-card-head">
+                <i class="ph ph-calendar-blank" aria-hidden="true"></i>
+                <span class="ops-ds-card-label" id="msr-days-title">Day by day</span>
+                <span class="ops-dsa-legend">
+                    <span class="ops-dsa-key"><span class="ops-dsa-swatch ops-dsa-t1"></span>This period</span>
+                    <span class="ops-dsa-key"><span class="ops-dsa-swatch ops-dsa-t2"></span>Same day, previous period</span>
+                </span>
+            </div>
+
+            @{
+                var busiestDay = sales.ByDay.Count == 0 ? 0m : sales.ByDay.Max(d => Math.Max(d.TotalAmount, d.ComparedTotalAmount));
+            }
+            <div class="ops-scroll">
+                <table class="ops-table ops-dsa-table">
+                    <thead>
+                        <tr>
+                            <th>Day</th>
+                            <th class="ops-num">Sales</th>
+                            <th class="ops-num">Takings</th>
+                            <th>Compared with</th>
+                            <th class="ops-num">Takings</th>
+                            <th class="ops-num">Change</th>
+                            <th class="ops-dsa-barcell"><span class="visually-hidden">This period against the previous one</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var day in sales.ByDay)
+                        {
+                            var dayChange = Change(day.ComparedTotalAmount == 0 ? null : Math.Round((day.TotalAmount - day.ComparedTotalAmount) / day.ComparedTotalAmount * 100m, 1));
+                            <tr class="@(day.SalesCount == 0 && day.ComparedSalesCount == 0 ? "ops-dsa-idle" : "")">
+                                <td class="ops-dsa-when">@day.Date.ToString("ddd dd MMM")</td>
+                                <td class="ops-num">@(day.SalesCount == 0 ? "—" : day.SalesCount.ToString("N0"))</td>
+                                <td class="ops-num ops-dsa-strong">@Amount(day.TotalAmount)</td>
+                                <td class="ops-dsa-when">@day.ComparedDate.ToString("ddd dd MMM")</td>
+                                <td class="ops-num">@Amount(day.ComparedTotalAmount)</td>
+                                <td class="ops-num">
+                                    @if (day.TotalAmount != 0 || day.ComparedTotalAmount != 0)
+                                    {
+                                        <span class="ops-msr-change @dayChange.Family"><i class="ph @dayChange.Icon" aria-hidden="true"></i>@dayChange.Text</span>
+                                    }
+                                </td>
+                                <td class="ops-dsa-barcell">
+                                    <span class="ops-msr-pair" title="@($"{day.Date:dd MMM} {Money(day.TotalAmount)} · {day.ComparedDate:dd MMM} {Money(day.ComparedTotalAmount)}")">
+                                        <span class="ops-msr-bar ops-dsa-t1" style="width:@Percent(day.TotalAmount, busiestDay)"></span>
+                                        <span class="ops-msr-bar ops-dsa-t2" style="width:@Percent(day.ComparedTotalAmount, busiestDay)"></span>
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        @* ── Breakdown ────────────────────────────────────────────────────── *@
+        <section class="ops-ds-card ops-dsa-card" aria-labelledby="msr-breakdown-title">
+            <div class="ops-ds-card-head ops-msr-wrap">
+                <i class="ph ph-storefront" aria-hidden="true"></i>
+                <span class="ops-ds-card-label" id="msr-breakdown-title">Where it came from</span>
+                <div class="ops-ds-seg ops-dsa-seg-end" role="group" aria-label="Break the sales down by">
+                    @foreach (var option in BreakdownOptions)
+                    {
+                        <button type="button" class="ops-ds-seg-opt @(breakdown == option.Key ? "is-on" : "")"
+                                aria-pressed="@(breakdown == option.Key)"
+                                @onclick="() => breakdown = option.Key">@option.Label</button>
+                    }
+                </div>
+            </div>
+
+            @{
+                var breakdownRows = BreakdownRows(sales);
+                var topRow = breakdownRows.Count == 0 ? 0m : breakdownRows.Max(r => r.TotalAmount);
+            }
+            @if (breakdownRows.Count == 0)
+            {
+                <p class="ops-dsa-none">
+                    @(breakdown == ByVendor ? "No sale in either period was invoiced to a vendor." : "Nothing to break down.")
+                </p>
+            }
+            else
+            {
+                <div class="ops-scroll">
+                    <table class="ops-table ops-dsa-table">
+                        <thead>
+                            <tr>
+                                <th>@BreakdownHeading</th>
+                                <th class="ops-num">Sales</th>
+                                <th class="ops-num">Takings</th>
+                                <th class="ops-num">Share</th>
+                                <th class="ops-num">Previous</th>
+                                <th class="ops-num">Change</th>
+                                @if (BreakdownCarriesMargin)
+                                {
+                                    <th class="ops-num">Gross profit</th>
+                                    <th class="ops-num">Margin</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in breakdownRows)
+                            {
+                                var (label, hint) = RowName(row);
+                                var rowChange = Change(row.ChangePercent);
+                                <tr class="@(row.SalesCount == 0 ? "ops-dsa-idle" : "")">
+                                    <td class="ops-name">
+                                        @label
+                                        @if (!string.IsNullOrWhiteSpace(hint))
+                                        {
+                                            <div class="ops-sub">@hint</div>
+                                        }
+                                    </td>
+                                    <td class="ops-num">@row.SalesCount.ToString("N0")</td>
+                                    <td class="ops-num ops-dsa-strong">@Amount(row.TotalAmount)</td>
+                                    <td class="ops-num">
+                                        @Pct(row.ShareOfValuePercent)
+                                        <span class="ops-dsa-share">
+                                            <span class="ops-ds-break-track">
+                                                <span class="ops-ds-break-fill" style="width:@Percent(row.TotalAmount, topRow)"></span>
+                                            </span>
+                                        </span>
+                                    </td>
+                                    <td class="ops-num">@Amount(row.PreviousTotalAmount)</td>
+                                    <td class="ops-num">
+                                        <span class="ops-msr-change @rowChange.Family"><i class="ph @rowChange.Icon" aria-hidden="true"></i>@rowChange.Text</span>
+                                    </td>
+                                    @if (BreakdownCarriesMargin)
+                                    {
+                                        <td class="ops-num">@OptionalAmount(row.GrossProfit)</td>
+                                        <td class="ops-num"><span class="ops-msr-margin @MarginFamily(row.MarginPercent)">@Pct(row.MarginPercent)</span></td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            <div class="ops-ds-aside">
+                <span>Previous is the same number of days just before. Gross profit and margin are SAP's, on the sales SAP holds — a dash is "not costed yet", not zero.</span>
+            </div>
+        </section>
+
+        @* ── Vendors who stopped buying ───────────────────────────────────── *@
+        @if (sales.LapsedVendors.Count > 0)
+        {
+            <section class="ops-ds-card ops-dsa-card" aria-labelledby="msr-lapsed-title">
+                <div class="ops-ds-card-head">
+                    <i class="ph ph-users" aria-hidden="true"></i>
+                    <span class="ops-ds-card-label" id="msr-lapsed-title">Vendors who stopped buying</span>
+                    <span class="ops-ds-card-tally">
+                        <b>@sales.LapsedVendors.Count</b>
+                        <span>@Money(sales.LapsedVendors.Sum(v => v.PreviousTotalAmount)) last period</span>
+                    </span>
+                </div>
+                <div class="ops-scroll">
+                    <table class="ops-table ops-dsa-table">
+                        <thead>
+                            <tr>
+                                <th>Vendor</th>
+                                <th class="ops-num">Sales last period</th>
+                                <th class="ops-num">Takings last period</th>
+                                <th class="ops-num">Last sale</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var vendor in sales.LapsedVendors)
+                            {
+                                <tr>
+                                    <td class="ops-name">
+                                        @vendor.Label
+                                        @if (!string.IsNullOrWhiteSpace(vendor.Hint))
+                                        {
+                                            <div class="ops-sub">@vendor.Hint</div>
+                                        }
+                                    </td>
+                                    <td class="ops-num">@vendor.PreviousSalesCount.ToString("N0")</td>
+                                    <td class="ops-num ops-dsa-strong">@Amount(vendor.PreviousTotalAmount)</td>
+                                    <td class="ops-num">@vendor.LastSaleDate.ToString("ddd dd MMM")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+
+        @* ── Products: items, item groups, and the item × depot grid ─────────── *@
+        <section class="ops-ds-card ops-dsa-card" aria-labelledby="msr-items-title">
+            <div class="ops-ds-card-head ops-msr-wrap">
+                <i class="ph ph-package" aria-hidden="true"></i>
+                <span class="ops-ds-card-label" id="msr-items-title">Products</span>
+                <div class="ops-ds-seg" role="group" aria-label="Show products as">
+                    @foreach (var option in ItemViewOptions)
+                    {
+                        <button type="button" class="ops-ds-seg-opt @(itemView == option.Key ? "is-on" : "")"
+                                aria-pressed="@(itemView == option.Key)"
+                                @onclick="() => itemView = option.Key">@option.Label</button>
+                    }
+                </div>
+                @if (itemView != ItemViewGroups)
+                {
+                    <input type="search" class="ops-msr-search" placeholder="Find an item" aria-label="Find an item"
+                           value="@itemQuery" @oninput="e => { itemQuery = e.Value?.ToString() ?? string.Empty; showAllItems = false; showAllMatrix = false; }" />
+                }
+                @if (itemView == ItemViewItems)
+                {
+                    <div class="ops-ds-seg ops-dsa-seg-end" role="group" aria-label="Order products by">
+                        @foreach (var option in ItemOrderOptions)
+                        {
+                            <button type="button" class="ops-ds-seg-opt @(itemOrder == option.Key ? "is-on" : "")"
+                                    aria-pressed="@(itemOrder == option.Key)"
+                                    @onclick="() => { itemOrder = option.Key; showAllItems = false; }">@option.Label</button>
+                        }
+                    </div>
+                }
+                else if (itemView == ItemViewMatrix)
+                {
+                    <div class="ops-ds-seg ops-dsa-seg-end" role="group" aria-label="Measure the grid in">
+                        <button type="button" class="ops-ds-seg-opt @(matrixMeasure == MeasureValue ? "is-on" : "")"
+                                aria-pressed="@(matrixMeasure == MeasureValue)" @onclick="() => matrixMeasure = MeasureValue">Value</button>
+                        <button type="button" class="ops-ds-seg-opt @(matrixMeasure == MeasureQuantity ? "is-on" : "")"
+                                aria-pressed="@(matrixMeasure == MeasureQuantity)" @onclick="() => matrixMeasure = MeasureQuantity">Quantity</button>
+                    </div>
+                }
+            </div>
+
+            @if (groupFilterSet && itemView != ItemViewGroups)
+            {
+                <div class="ops-ds-aside">
+                    <span>Showing <b>@GroupName(itemGroupFilter)</b> only.</span>
+                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearGroupFilter">Show every group</button>
+                </div>
+            }
+
+            @if (itemView == ItemViewGroups)
+            {
+                var topGroup = sales.ByItemGroup.Count == 0 ? 0m : sales.ByItemGroup.Max(g => g.NetAmount);
+                @if (sales.ByItemGroup.Count == 0)
+                {
+                    <p class="ops-dsa-none">No lines were recorded on these sales.</p>
+                }
+                else
+                {
+                    <div class="ops-scroll">
+                        <table class="ops-table ops-dsa-table">
+                            <thead>
+                                <tr>
+                                    <th>Item group</th>
+                                    <th class="ops-num">Items</th>
+                                    <th class="ops-num">Qty</th>
+                                    <th class="ops-num">Value before VAT</th>
+                                    <th class="ops-num">Previous</th>
+                                    <th class="ops-num">Change</th>
+                                    <th class="ops-num">Gross profit</th>
+                                    <th class="ops-num">Margin</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var group in sales.ByItemGroup)
+                                {
+                                    var groupChange = Change(group.ChangePercent);
+                                    <tr class="ops-msr-clickable @(group.NetAmount == 0 ? "ops-dsa-idle" : "")"
+                                        tabindex="0" title="Show the items in @GroupName(group.ItemsGroupCode)"
+                                        @onclick="() => ShowGroupItems(group.ItemsGroupCode)"
+                                        @onkeydown="@(e => { if (IsActivate(e)) ShowGroupItems(group.ItemsGroupCode); })">
+                                        <td class="ops-name">
+                                            @GroupName(group.ItemsGroupCode)
+                                            @if (group.ItemsGroupCode is { } groupCode)
+                                            {
+                                                <div class="ops-sub">Group @groupCode</div>
+                                            }
+                                        </td>
+                                        <td class="ops-num">@group.ItemCount.ToString("N0")</td>
+                                        <td class="ops-num">@Qty(group.Quantity)</td>
+                                        <td class="ops-num">
+                                            @Amount(group.NetAmount)
+                                            <span class="ops-dsa-share" title="@($"{Pct(group.ShareOfNetPercent)} of line value")">
+                                                <span class="ops-ds-break-track">
+                                                    <span class="ops-ds-break-fill" style="width:@Percent(group.NetAmount, topGroup)"></span>
+                                                </span>
+                                            </span>
+                                        </td>
+                                        <td class="ops-num">@Amount(group.PreviousNetAmount)</td>
+                                        <td class="ops-num"><span class="ops-msr-change @groupChange.Family"><i class="ph @groupChange.Icon" aria-hidden="true"></i>@groupChange.Text</span></td>
+                                        <td class="ops-num">@OptionalAmount(group.GrossProfit)</td>
+                                        <td class="ops-num"><span class="ops-msr-margin @MarginFamily(group.MarginPercent)">@Pct(group.MarginPercent)</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="ops-ds-aside"><span>Choose a group to see its items. Groups come from SAP's item groups in the product master.</span></div>
+                }
+            }
+            else if (itemView == ItemViewMatrix)
+            {
+                var columns = MatrixColumns(sales);
+                var matrixRows = MatrixRows(sales);
+                var matrixCount = VisibleItems(sales).Count(item => item.NetAmount != 0 || item.Quantity != 0);
+
+                @if (matrixRows.Count == 0 || columns.Count == 0)
+                {
+                    <p class="ops-dsa-none">No item sold in this period@(itemQuery.Length > 0 ? " that matches the search" : "").</p>
+                }
+                else
+                {
+                    <div class="ops-scroll">
+                        <table class="ops-table ops-dsa-table ops-msr-matrix">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    @foreach (var column in columns)
+                                    {
+                                        <th class="ops-num" title="@column.Warehouse">@column.Label</th>
+                                    }
+                                    <th class="ops-num">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in matrixRows)
+                                {
+                                    var values = columns.Select(column => MatrixValue(sales, item.ItemCode, column.Warehouse)).ToList();
+                                    var rowMax = values.Count == 0 ? 0m : values.Max();
+                                    <tr class="ops-msr-clickable" tabindex="0" title="Take @item.ItemCode apart"
+                                        @onclick="() => OpenItemAsync(item.ItemCode)"
+                                        @onkeydown="@(async e => { if (IsActivate(e)) await OpenItemAsync(item.ItemCode); })">
+                                        <td>
+                                            <span class="ops-code">@item.ItemCode</span>
+                                            @if (!string.IsNullOrWhiteSpace(item.ItemDescription) && item.ItemDescription != item.ItemCode)
+                                            {
+                                                <div class="ops-sub">@item.ItemDescription</div>
+                                            }
+                                        </td>
+                                        @for (var i = 0; i < columns.Count; i++)
+                                        {
+                                            <td class="ops-num ops-msr-cell" style="@CellWash(values[i], rowMax)">@Measure(values[i])</td>
+                                        }
+                                        <td class="ops-num ops-dsa-strong">@Measure(values.Sum())</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="ops-ds-aside">
+                        <span>@(matrixMeasure == MeasureQuantity ? "Units" : $"{sales.Currency} before VAT") this period. The shading is each item against its own busiest shop or depot.</span>
+                        @if (!showAllMatrix && matrixCount > MatrixPageSize)
+                        {
+                            <button type="button" class="ops-btn ops-btn-ghost" @onclick="() => showAllMatrix = true">Show all @matrixCount</button>
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                var items = VisibleItems(sales);
+                var shownItems = showAllItems ? items : items.Take(ItemPageSize).ToList();
+                var topItem = sales.ByItem.Count == 0 ? 0m : sales.ByItem.Max(i => i.NetAmount);
+
+                @if (items.Count == 0)
+                {
+                    <p class="ops-dsa-none">@(sales.ByItem.Count == 0 ? "No lines were recorded on these sales." : "No item matches that search.")</p>
+                }
+                else
+                {
+                    <div class="ops-scroll">
+                        <table class="ops-table ops-dsa-table">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th class="ops-num">Qty</th>
+                                    <th class="ops-num">Avg price</th>
+                                    <th class="ops-num">Per sale</th>
+                                    <th class="ops-num">Discount</th>
+                                    <th class="ops-num">Value before VAT</th>
+                                    <th class="ops-num">Previous</th>
+                                    <th class="ops-num">Change</th>
+                                    <th class="ops-num">Gross profit</th>
+                                    <th class="ops-num">Margin</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in shownItems)
+                                {
+                                    var itemChange = Change(item.ChangePercent);
+                                    var quantityChange = Change(item.QuantityChangePercent);
+                                    var priceChange = Change(item.PriceChangePercent);
+                                    <tr class="ops-msr-clickable @(item.SalesCount == 0 ? "ops-dsa-idle" : "")" tabindex="0"
+                                        title="Take @item.ItemCode apart"
+                                        @onclick="() => OpenItemAsync(item.ItemCode)"
+                                        @onkeydown="@(async e => { if (IsActivate(e)) await OpenItemAsync(item.ItemCode); })">
+                                        <td>
+                                            <span class="ops-code">@item.ItemCode</span>
+                                            @if (!string.IsNullOrWhiteSpace(item.ItemDescription) && item.ItemDescription != item.ItemCode)
+                                            {
+                                                <div class="ops-sub">@item.ItemDescription</div>
+                                            }
+                                        </td>
+                                        <td class="ops-num">
+                                            @Qty(item.Quantity)
+                                            @if (item.Quantity != 0 || item.PreviousQuantity != 0)
+                                            {
+                                                <div class="ops-sub"><span class="ops-msr-change @quantityChange.Family"><i class="ph @quantityChange.Icon" aria-hidden="true"></i>@quantityChange.Text</span></div>
+                                            }
+                                        </td>
+                                        <td class="ops-num">
+                                            @UnitPrice(item.AverageUnitPrice)
+                                            @if (item.PriceChangePercent is not null && item.PriceChangePercent != 0)
+                                            {
+                                                <div class="ops-sub" title="@($"was {UnitPrice(item.PreviousAverageUnitPrice)}")"><span class="ops-msr-change @priceChange.Family"><i class="ph @priceChange.Icon" aria-hidden="true"></i>@priceChange.Text</span></div>
+                                            }
+                                        </td>
+                                        <td class="ops-num">@(item.UnitsPerSale == 0 ? "—" : item.UnitsPerSale.ToString("#,##0.##"))</td>
+                                        <td class="ops-num">@Amount(item.DiscountAmount)</td>
+                                        <td class="ops-num">
+                                            @Amount(item.NetAmount)
+                                            <span class="ops-dsa-share" title="@($"{Pct(item.ShareOfNetPercent)} of line value")">
+                                                <span class="ops-ds-break-track">
+                                                    <span class="ops-ds-break-fill" style="width:@Percent(item.NetAmount, topItem)"></span>
+                                                </span>
+                                            </span>
+                                        </td>
+                                        <td class="ops-num">@Amount(item.PreviousNetAmount)</td>
+                                        <td class="ops-num">
+                                            <span class="ops-msr-change @itemChange.Family"><i class="ph @itemChange.Icon" aria-hidden="true"></i>@itemChange.Text</span>
+                                        </td>
+                                        <td class="ops-num">@OptionalAmount(item.GrossProfit)</td>
+                                        <td class="ops-num"><span class="ops-msr-margin @MarginFamily(item.MarginPercent)">@Pct(item.MarginPercent)</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="ops-ds-aside">
+                        <span>Choose an item to take it apart by shop, vendor, channel and day. Avg price is after discount, before VAT; discount is list value less what was charged.</span>
+                        @if (!showAllItems && items.Count > ItemPageSize)
+                        {
+                            <button type="button" class="ops-btn ops-btn-ghost" @onclick="() => showAllItems = true">Show all @items.Count</button>
+                        }
+                    </div>
+                }
+            }
+        </section>
+        <div class="ops-ds-foot">
+            <span class="ops-ds-foot-info">
+                Generated @result.GeneratedAtUtc.AddHours(2).ToString("dd MMM yyyy, HH:mm") · amounts in @sales.Currency, VAT included unless stated · @result.Margin.Detail
+            </span>
+        </div>
+    }
+</div>
+
+@* ── Item drill-down ──────────────────────────────────────────────────────
+   A sibling of the page, as the dialogs elsewhere are, so the scrim covers the
+   app bar. The drawer wears `ops ops-ds ops-dsa ops-msr` itself because it sits outside
+   the page element and would otherwise inherit none of the tokens; the scrim does not,
+   or it would take the page root's width cap and centring with it. *@
+@if (drillItemCode is not null)
+{
+    <div class="ops-msr-overlay" @onclick="CloseItem">
+        <aside class="ops ops-ds ops-dsa ops-msr ops-msr-drawer" role="dialog" aria-modal="true" aria-labelledby="msr-drill-title" @onclick:stopPropagation="true">
+            <div class="ops-msr-drawer-head">
+                <div>
+                    <span class="ops-kicker">Item analysis · @(result is null ? "" : $"{result.FromDate:dd MMM} – {result.ToDate:dd MMM yyyy}")</span>
+                    <h2 id="msr-drill-title"><span class="ops-code">@drillItemCode</span> @drill?.ItemDescription</h2>
+                    @if (drill is not null)
+                    {
+                        <span class="ops-sub">@GroupName(drill.ItemsGroupCode) · compared with @drill.PreviousFromDate.ToString("dd MMM") – @drill.PreviousToDate.ToString("dd MMM")</span>
+                    }
+                </div>
+                <button type="button" class="ops-icon-btn" aria-label="Close item analysis" @onclick="CloseItem">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+            </div>
+
+            @if (isDrillLoading)
+            {
+                <div class="ops-loading">
+                    <span class="ops-spin ops-spin-lg"></span>
+                    <p>Taking @drillItemCode apart&hellip;</p>
+                </div>
+            }
+            else if (drillError is not null)
+            {
+                <div class="ops-msg ops-fam-bad" role="alert">
+                    <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                    <div class="ops-msg-body">@drillError</div>
+                </div>
+            }
+            else if (DrillSection is not { } item)
+            {
+                <div class="ops-empty">
+                    <i class="ph ph-package" aria-hidden="true"></i>
+                    <h3>@drillItemCode did not sell in either period</h3>
+                </div>
+            }
+            else
+            {
+                var s = item.Summary;
+                var qtyChange = Change(s.QuantityChangePercent);
+                var netChange = Change(s.NetChangePercent);
+                var priceChange = Change(s.PriceChangePercent);
+
+                <div class="ops-figures ops-msr-figures">
+                    <div class="ops-figure ops-fam-accent">
+                        <div class="ops-figure-head"><span class="ops-figure-rule"></span>Quantity</div>
+                        <div class="ops-figure-num">@Qty(s.Quantity)</div>
+                        <div class="ops-figure-sub"><span class="ops-msr-change @qtyChange.Family"><i class="ph @qtyChange.Icon" aria-hidden="true"></i>@qtyChange.Text</span> from @Qty(s.PreviousQuantity)</div>
+                    </div>
+                    <div class="ops-figure ops-fam-info">
+                        <div class="ops-figure-head"><span class="ops-figure-rule"></span>Value before VAT</div>
+                        <div class="ops-figure-num">@item.Currency @s.NetAmount.ToString("N2")</div>
+                        <div class="ops-figure-sub"><span class="ops-msr-change @netChange.Family"><i class="ph @netChange.Icon" aria-hidden="true"></i>@netChange.Text</span> from @s.PreviousNetAmount.ToString("N2")</div>
+                    </div>
+                    <div class="ops-figure ops-fam-neutral">
+                        <div class="ops-figure-head"><span class="ops-figure-rule"></span>Average price</div>
+                        <div class="ops-figure-num">@UnitPrice(s.AverageUnitPrice)</div>
+                        <div class="ops-figure-sub">
+                            @if (s.PriceChangePercent is not null)
+                            {
+                                <span class="ops-msr-change @priceChange.Family"><i class="ph @priceChange.Icon" aria-hidden="true"></i>@priceChange.Text</span>
+                            }
+                            from @UnitPrice(s.PreviousAverageUnitPrice) · discount @Amount(s.DiscountAmount)
+                        </div>
+                    </div>
+                    <div class="ops-figure ops-fam-neutral">
+                        <div class="ops-figure-head"><span class="ops-figure-rule"></span>Sales</div>
+                        <div class="ops-figure-num">@s.SalesCount.ToString("N0")</div>
+                        <div class="ops-figure-sub">@(s.UnitsPerSale == 0 ? "—" : s.UnitsPerSale.ToString("#,##0.##")) per sale · from @s.PreviousSalesCount.ToString("N0")</div>
+                    </div>
+                    <div class="ops-figure @(s.MarginPercent is < 0 ? "ops-fam-bad" : "ops-fam-good")">
+                        <div class="ops-figure-head"><span class="ops-figure-rule"></span>Gross margin</div>
+                        <div class="ops-figure-num">@Pct(s.MarginPercent)</div>
+                        <div class="ops-figure-sub">@(s.GrossProfit is { } profit ? $"{profit:N2} profit on the sales SAP holds" : "Not costed yet")</div>
+                    </div>
+                </div>
+
+                <section class="ops-ds-card ops-dsa-card" aria-labelledby="msr-drill-where">
+                    <div class="ops-ds-card-head ops-msr-wrap">
+                        <i class="ph ph-storefront" aria-hidden="true"></i>
+                        <span class="ops-ds-card-label" id="msr-drill-where">Where it sold</span>
+                        <div class="ops-ds-seg ops-dsa-seg-end" role="group" aria-label="Break the item down by">
+                            @foreach (var option in DrillOptions)
+                            {
+                                <button type="button" class="ops-ds-seg-opt @(drillBreakdown == option.Key ? "is-on" : "")"
+                                        aria-pressed="@(drillBreakdown == option.Key)"
+                                        @onclick="() => drillBreakdown = option.Key">@option.Label</button>
+                            }
+                        </div>
+                    </div>
+                    @{
+                        var drillRows = DrillRows(item);
+                        var topDrill = drillRows.Count == 0 ? 0m : drillRows.Max(r => r.NetAmount);
+                    }
+                    @if (drillRows.Count == 0)
+                    {
+                        <p class="ops-dsa-none">@(drillBreakdown == DrillVendor ? "No vendor took this item in either period." : "Nothing to break down.")</p>
+                    }
+                    else
+                    {
+                        <div class="ops-scroll">
+                            <table class="ops-table ops-dsa-table">
+                                <thead>
+                                    <tr>
+                                        <th>@DrillOptions.First(o => o.Key == drillBreakdown).Label</th>
+                                        <th class="ops-num">Qty</th>
+                                        <th class="ops-num">Avg price</th>
+                                        <th class="ops-num">Value</th>
+                                        <th class="ops-num">Previous</th>
+                                        <th class="ops-num">Change</th>
+                                        <th class="ops-num">Margin</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in drillRows)
+                                    {
+                                        var (label, hint) = DrillRowName(row);
+                                        var rowChange = Change(row.ChangePercent);
+                                        <tr class="@(row.NetAmount == 0 ? "ops-dsa-idle" : "")">
+                                            <td class="ops-name">
+                                                @label
+                                                @if (!string.IsNullOrWhiteSpace(hint))
+                                                {
+                                                    <div class="ops-sub">@hint</div>
+                                                }
+                                            </td>
+                                            <td class="ops-num">@Qty(row.Quantity)</td>
+                                            <td class="ops-num">@UnitPrice(row.AverageUnitPrice)</td>
+                                            <td class="ops-num">
+                                                @Amount(row.NetAmount)
+                                                <span class="ops-dsa-share" title="@($"{Pct(row.ShareOfNetPercent)} of the item's value")">
+                                                    <span class="ops-ds-break-track">
+                                                        <span class="ops-ds-break-fill" style="width:@Percent(row.NetAmount, topDrill)"></span>
+                                                    </span>
+                                                </span>
+                                            </td>
+                                            <td class="ops-num">@Amount(row.PreviousNetAmount)</td>
+                                            <td class="ops-num"><span class="ops-msr-change @rowChange.Family"><i class="ph @rowChange.Icon" aria-hidden="true"></i>@rowChange.Text</span></td>
+                                            <td class="ops-num"><span class="ops-msr-margin @MarginFamily(row.MarginPercent)">@Pct(row.MarginPercent)</span></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </section>
+
+                <section class="ops-ds-card ops-dsa-card" aria-labelledby="msr-drill-days">
+                    <div class="ops-ds-card-head">
+                        <i class="ph ph-calendar-blank" aria-hidden="true"></i>
+                        <span class="ops-ds-card-label" id="msr-drill-days">Units day by day</span>
+                        <span class="ops-dsa-legend">
+                            <span class="ops-dsa-key"><span class="ops-dsa-swatch ops-dsa-t1"></span>This period</span>
+                            <span class="ops-dsa-key"><span class="ops-dsa-swatch ops-dsa-t2"></span>Same day, previous period</span>
+                        </span>
+                    </div>
+                    @{
+                        var busiest = item.ByDay.Count == 0 ? 0m : item.ByDay.Max(d => Math.Max(d.Quantity, d.ComparedQuantity));
+                    }
+                    <div class="ops-scroll">
+                        <table class="ops-table ops-dsa-table">
+                            <thead>
+                                <tr>
+                                    <th>Day</th>
+                                    <th class="ops-num">Qty</th>
+                                    <th>Compared with</th>
+                                    <th class="ops-num">Qty</th>
+                                    <th class="ops-dsa-barcell"><span class="visually-hidden">This period against the previous one</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var day in item.ByDay)
+                                {
+                                    <tr class="@(day.Quantity == 0 && day.ComparedQuantity == 0 ? "ops-dsa-idle" : "")">
+                                        <td class="ops-dsa-when">@day.Date.ToString("ddd dd MMM")</td>
+                                        <td class="ops-num ops-dsa-strong">@Qty(day.Quantity)</td>
+                                        <td class="ops-dsa-when">@day.ComparedDate.ToString("ddd dd MMM")</td>
+                                        <td class="ops-num">@Qty(day.ComparedQuantity)</td>
+                                        <td class="ops-dsa-barcell">
+                                            <span class="ops-msr-pair" title="@($"{day.Date:dd MMM} {Qty(day.Quantity)} · {day.ComparedDate:dd MMM} {Qty(day.ComparedQuantity)}")">
+                                                <span class="ops-msr-bar ops-dsa-t1" style="width:@Percent(day.Quantity, busiest)"></span>
+                                                <span class="ops-msr-bar ops-dsa-t2" style="width:@Percent(day.ComparedQuantity, busiest)"></span>
+                                            </span>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                @if (!drill!.Margin.Available)
+                {
+                    <div class="ops-msg ops-fam-warn" role="status">
+                        <i class="ph ph-warning" aria-hidden="true"></i>
+                        <div class="ops-msg-body">@drill.Margin.Detail</div>
+                    </div>
+                }
+            }
+        </aside>
+    </div>
+}

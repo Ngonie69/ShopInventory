@@ -340,6 +340,12 @@ public interface ISAPServiceLayerClient
 
     // Sales Quantity Operations
     Task<List<SalesQuantityDto>> GetSalesQuantitiesByWarehouseAsync(string warehouseCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The non-cancelled invoice lines out of one warehouse in a date range, with the gross profit SAP
+    /// booked on each, in the invoice's own currency. Read by the management sales report's margin.
+    /// </summary>
+    Task<List<ShopInventory.Common.Sales.SaleInvoiceLineCost>> GetInvoiceLineCostsAsync(string warehouseCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByWarehouseAndDateRangeAsync(string warehouseCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
 
     // Warehouse Operations

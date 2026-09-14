@@ -9000,6 +9000,83 @@ ORDER BY T1."ItemCode"
             .ToList();
     }
 
+    private const string InvoiceLineCostQueryCode = "DSK_INV_COST";
+
+    /// <summary>
+    /// Invoice lines with SAP's booked gross profit, for the management sales report's margin.
+    /// </summary>
+    /// <remarks>
+    /// Both currencies' columns are returned and the choice made on read. <c>LineTotal</c> and
+    /// <c>GrssProfit</c> are in the company's local currency; <c>TotalFrgn</c> and <c>GrssProfFC</c> are in
+    /// the document's, and are zero on a local-currency document. Reading the document-currency pair when
+    /// it is non-zero gives every line in the currency the sale was made in, without this code needing to
+    /// know which currency the company books in.
+    ///
+    /// Parameterised, with no values in the text, for the reason <see cref="SalesQuantitiesSql"/> is: a
+    /// statement per range leaves an undeletable OUQR row per range. No ORDER BY on an aggregate and no
+    /// trailing whitespace, for the reasons given there.
+    /// </remarks>
+    internal const string InvoiceLineCostSql = """
+SELECT
+    T0."DocEntry",
+    T0."DocCur",
+    T1."ItemCode",
+    T1."WhsCode",
+    T1."Quantity",
+    T1."LineTotal",
+    T1."TotalFrgn",
+    T1."GrssProfit",
+    T1."GrssProfFC"
+FROM OINV T0
+INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
+WHERE T1."WhsCode" = :whsCode
+  AND T0."DocDate" >= :fromDate
+  AND T0."DocDate" <= :toDate
+  AND T0."CANCELED" = 'N'
+ORDER BY T0."DocEntry", T1."LineNum"
+""";
+
+    public async Task<List<ShopInventory.Common.Sales.SaleInvoiceLineCost>> GetInvoiceLineCostsAsync(
+        string warehouseCode,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default)
+    {
+        var rows = await ExecuteRawSqlQueryAsync(
+            InvoiceLineCostQueryCode,
+            "Desktop sale invoice line costs",
+            InvoiceLineCostSql,
+            BuildSalesQuantityParameters(warehouseCode, fromDate, toDate),
+            cancellationToken);
+
+        return rows.Select(ReadInvoiceLineCost).ToList();
+    }
+
+    /// <summary>One row of <see cref="InvoiceLineCostSql"/>, in the document's own currency.</summary>
+    internal static ShopInventory.Common.Sales.SaleInvoiceLineCost ReadInvoiceLineCost(IReadOnlyDictionary<string, object?> row)
+    {
+        var foreignRevenue = SqlDecimal(row, "TotalFrgn");
+        var inDocumentCurrency = foreignRevenue != 0m;
+
+        return new ShopInventory.Common.Sales.SaleInvoiceLineCost(
+            (int)SqlDecimal(row, "DocEntry"),
+            (row.GetValueOrDefault("DocCur") as string ?? string.Empty).Trim().ToUpperInvariant(),
+            row.GetValueOrDefault("ItemCode") as string ?? string.Empty,
+            row.GetValueOrDefault("WhsCode") as string ?? string.Empty,
+            SqlDecimal(row, "Quantity"),
+            inDocumentCurrency ? foreignRevenue : SqlDecimal(row, "LineTotal"),
+            inDocumentCurrency ? SqlDecimal(row, "GrssProfFC") : SqlDecimal(row, "GrssProfit"));
+    }
+
+    private static decimal SqlDecimal(IReadOnlyDictionary<string, object?> row, string column) =>
+        row.GetValueOrDefault(column) switch
+        {
+            long whole => whole,
+            decimal fraction => fraction,
+            string text when decimal.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed) => parsed,
+            _ => 0m
+        };
+
     private async Task<List<SalesQuantityDto>> ExecuteSalesQueryAsync(
         string queryCode,
         string parameterQuery,

@@ -447,6 +447,14 @@
                                     </span>
                                     <span class="snav-text">Desktop Sales Analysis</span>
                                 </NavLink>
+                                @* Same three roles as the analysis above, for the same reason: the
+                                   API's management-report endpoint reads the same sales. *@
+                                <NavLink class="snav-link sub-link" href="/reports/management-sales" Match="NavLinkMatch.All">
+                                    <span class="snav-icon">
+                                        <i class="ph ph-trend-up" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="snav-text">Management Sales Report</span>
+                                </NavLink>
                             </Authorized>
                         </AuthorizeView>
                         @* The item volume pair and the factors behind it. These two are
