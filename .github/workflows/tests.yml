@@ -27,18 +27,21 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # Scoped to the test project and what it references. The whole solution is already compiled
-      # by the CodeQL workflow, so building it again here would only slow the run down.
-      - name: Restore test project
-        run: dotnet restore ShopInventory.Tests/ShopInventory.Tests.csproj
+      # The whole solution, not just the test project: CodeQL no longer compiles anything, so this is
+      # the only CI job that proves scripts/ and ShopInventory.IntegrationTests still build.
+      - name: Restore solution
+        run: dotnet restore ShopInventory.sln
 
-      # ShopInventory.IntegrationTests is deliberately left out: every test in it is gated on a
-      # reachable SAP Service Layer, so on a runner the whole project reports green by skipping.
+      - name: Build solution
+        run: dotnet build ShopInventory.sln --configuration Release --no-restore
+
+      # ShopInventory.IntegrationTests is compiled above but deliberately not run: every test in it is
+      # gated on a reachable SAP Service Layer, so on a runner the whole project reports green by skipping.
       - name: Run tests
         run: >-
           dotnet test ShopInventory.Tests/ShopInventory.Tests.csproj
           --configuration Release
-          --no-restore
+          --no-build
           --logger "trx;LogFileName=test-results.trx"
           --results-directory ${{ runner.temp }}/test-results
 

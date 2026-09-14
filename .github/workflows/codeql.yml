@@ -17,6 +17,12 @@ permissions:
   contents: read
   security-events: write
 
+# A newer push to the same PR or branch supersedes the scan still running, so cancel it: a burst of
+# merges to main otherwise queues a full scan per merge, and only the last one matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     name: Analyze C#
@@ -32,22 +38,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # Buildless extraction still restores NuGet dependencies to resolve types, so it needs the SDK.
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: 10.0.x
 
+      # build-mode none reads the sources directly instead of tracing a compile. A traced build took
+      # 7m38s against 2m20s for the same projects untraced, almost all of it spent extracting the
+      # EF migration designer files (over half of the repository's C#). The whole solution is now
+      # compiled by the Tests workflow instead.
       - name: Initialize CodeQL
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           languages: ${{ matrix.language }}
-          build-mode: manual
-
-      - name: Restore solution
-        run: dotnet restore ShopInventory.sln
-
-      - name: Build solution
-        run: dotnet build ShopInventory.sln --configuration Release --no-restore
+          build-mode: none
 
       - name: Analyze
         uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
