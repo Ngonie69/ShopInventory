@@ -4,6 +4,12 @@
 @inject IVendingService VendingService
 @inject IMasterDataCacheService MasterDataCache
 @inject NavigationManager Navigation
+@inject IMediator Mediator
+@inject IJSRuntime JS
+@using MediatR
+@using ShopInventory.Web.Features.Vending.Commands.ImportVendors
+@using ShopInventory.Web.Features.Vending.Queries.GetVendorImportTemplate
+@using ShopInventory.Web.Features.Vending.Queries.ReadVendorImportFile
 
 <PageTitle>Depots &amp; Vendors - Shop Inventory</PageTitle>
 
@@ -45,6 +51,14 @@
                     </a>
                 </Authorized>
             </AuthorizeView>
+            <button type="button" class="shop-btn shop-btn-ghost" @onclick="DownloadTemplateAsync"
+                    disabled="@(isDownloadingTemplate || overview is null || overview.Depots.Count == 0)">
+                <i class="bi bi-file-earmark-arrow-down"></i>@(isDownloadingTemplate ? "Preparing…" : "Download template")
+            </button>
+            <button type="button" class="shop-btn shop-btn-ghost" @onclick="StartImport"
+                    disabled="@(isSaving || overview is null || overview.Depots.Count == 0)">
+                <i class="bi bi-file-earmark-arrow-up"></i>Upload vendors
+            </button>
             <button type="button" class="shop-btn shop-btn-primary" @onclick="StartNew"
                     disabled="@(isSaving || overview is null || overview.Depots.Count == 0)">
                 <i class="bi bi-plus-lg"></i>Add vendor
@@ -57,6 +71,17 @@
         <div class="shop-alert" role="alert">
             <i class="bi bi-exclamation-triangle-fill"></i>
             <span>@error</span>
+        </div>
+    }
+
+    @if (notice is not null)
+    {
+        <div class="vend-notice" role="status">
+            <i class="bi bi-check-circle-fill"></i>
+            <span>@notice</span>
+            <button type="button" class="shop-action-btn" aria-label="Dismiss" @onclick="() => notice = null">
+                <i class="bi bi-x-lg"></i>
+            </button>
         </div>
     }
 
@@ -99,6 +124,10 @@
                         <span class="vend-depot-facts">
                             <span><i class="bi bi-box-seam"></i>@CodesOrDash(depot.WarehouseCodes)</span>
                             <span><i class="bi bi-diagram-3"></i>@CodesOrDash(depot.CostCentreCodes)</span>
+                            @if (depot.VendorCodePrefix is not null)
+                            {
+                                <span title="@PrefixTitle(depot)"><i class="bi bi-hash"></i>@PrefixPattern(depot.VendorCodePrefix)</span>
+                            }
                         </span>
                         <span class="vend-depot-counts">
                             <span><strong>@depot.ActiveCashierCount</strong> @(depot.ActiveCashierCount == 1 ? "cashier" : "cashiers")</span>
@@ -107,6 +136,10 @@
                         @if (depot.SetupProblem is not null)
                         {
                             <span class="vend-depot-problem"><i class="bi bi-exclamation-triangle-fill"></i>@depot.SetupProblem</span>
+                        }
+                        else if (depot.VendorCodeProblem is not null)
+                        {
+                            <span class="vend-depot-problem"><i class="bi bi-exclamation-triangle-fill"></i>No vendor code prefix: @depot.VendorCodeProblem.</span>
                         }
                     </button>
                 }
@@ -293,7 +326,159 @@
     }
 </div>
 
-@if (dialog is not DialogMode.None)
+@if (dialog is DialogMode.Import)
+{
+    @* The upload: pick a file, see every row checked by the API, then import. Nothing is saved
+       until the button in the footer, and the button stays off while any row has a problem —
+       the API refuses a file with a bad row outright, so offering it would only be a refusal. *@
+    <div class="shop-overlay" @onclick="CloseDialog">
+        <div class="shop-modal vend-import-modal" role="dialog" aria-modal="true" aria-labelledby="vend-import-title"
+             @onclick:stopPropagation="true">
+            <div class="shop-modal-header">
+                <h2 id="vend-import-title">Upload vendors</h2>
+                <button type="button" class="shop-modal-close" @onclick="CloseDialog"
+                        aria-label="Close dialog" disabled="@(isSaving || isReadingFile)">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <div class="shop-modal-body">
+                @if (error is not null)
+                {
+                    <div class="shop-alert" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>@error</span>
+                    </div>
+                }
+
+                <div class="vend-import-steps">
+                    <div class="vend-import-step">
+                        <span class="vend-import-step-num">1</span>
+                        <div>
+                            <strong>Fill in the template</strong>
+                            <p>
+                                One vendor per row. Codes are the depot's prefix and three digits —
+                                @PrefixSummary. Leave a code blank to take the depot's next number.
+                            </p>
+                            <button type="button" class="shop-btn shop-btn-ghost" @onclick="DownloadTemplateAsync" disabled="@isDownloadingTemplate">
+                                <i class="bi bi-file-earmark-arrow-down"></i>@(isDownloadingTemplate ? "Preparing…" : "Download template")
+                            </button>
+                        </div>
+                    </div>
+                    <div class="vend-import-step">
+                        <span class="vend-import-step-num">2</span>
+                        <div>
+                            <strong>Upload it to check</strong>
+                            <p>Every row is checked first. Nothing is added until you import.</p>
+                            <label class="vend-import-drop @(isReadingFile ? "is-busy" : null)">
+                                <InputFile @key="importFileKey" OnChange="OnImportFileSelected" accept=".xlsx"
+                                           disabled="@(isReadingFile || isSaving)" />
+                                <i class="bi @(isReadingFile ? "bi-hourglass-split" : "bi-cloud-arrow-up")"></i>
+                                <span>
+                                    @if (isReadingFile)
+                                    {
+                                        <text>Checking @importFileName…</text>
+                                    }
+                                    else if (importFileName is not null)
+                                    {
+                                        <strong>@importFileName</strong><text> — choose another file</text>
+                                    }
+                                    else
+                                    {
+                                        <text>Choose the filled-in .xlsx, or drop it here</text>
+                                    }
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                @if (importResult is not null)
+                {
+                    <div class="vend-import-summary">
+                        <span class="vend-import-chip is-good">@importResult.CreateCount to add</span>
+                        @if (importResult.RestoreCount > 0)
+                        {
+                            <span class="vend-import-chip is-info">@importResult.RestoreCount to restore</span>
+                        }
+                        @if (importResult.ErrorCount > 0)
+                        {
+                            <span class="vend-import-chip is-bad">@importResult.ErrorCount with problems</span>
+                            <span class="shop-form-hint">Fix these rows in the file and upload it again.</span>
+                        }
+                    </div>
+
+                    <div class="vend-import-table-wrap">
+                        <table class="vend-import-table">
+                            <thead>
+                                <tr>
+                                    <th class="vend-num">Row</th>
+                                    <th>Code</th>
+                                    <th>Depot</th>
+                                    <th>Vendor</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in ImportRowsInView)
+                                {
+                                    <tr @key="row.RowNumber" class="@(row.Action == "Error" ? "has-error" : null)">
+                                        <td class="vend-num">@row.RowNumber</td>
+                                        <td>
+                                            @if (row.Code is not null)
+                                            {
+                                                <span class="vend-import-code">@row.Code</span>
+                                                @if (row.CodeIssued)
+                                                {
+                                                    <span class="vend-import-issued" title="Left blank in the file; this is the depot's next number">new</span>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <span class="vend-import-mute">—</span>
+                                            }
+                                        </td>
+                                        <td>@(row.Depot is null ? "—" : DepotName(row.Depot))</td>
+                                        <td>@ImportRowName(row)</td>
+                                        <td>
+                                            @switch (row.Action)
+                                            {
+                                                case "Create":
+                                                    <span class="vend-import-chip is-good">Add</span>
+                                                    break;
+                                                case "Restore":
+                                                    <span class="vend-import-chip is-info">Restore</span>
+                                                    break;
+                                                default:
+                                                    <span class="vend-import-chip is-bad">Problem</span>
+                                                    <ul class="vend-import-errors">
+                                                        @foreach (var problem in row.Errors)
+                                                        {
+                                                            <li>@problem</li>
+                                                        }
+                                                    </ul>
+                                                    break;
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+
+            <div class="shop-modal-footer">
+                <button type="button" class="shop-btn shop-btn-ghost" @onclick="CloseDialog" disabled="@(isSaving || isReadingFile)">Cancel</button>
+                <button type="button" class="shop-btn shop-btn-primary" @onclick="ConfirmImportAsync"
+                        disabled="@(isSaving || isReadingFile || importResult is null || importResult.ErrorCount > 0 || importRows.Count == 0)">
+                    @ImportAction
+                </button>
+            </div>
+        </div>
+    </div>
+}
+else if (dialog is not DialogMode.None)
 {
     <div class="shop-overlay" @onclick="CloseDialog">
         <div class="shop-modal" role="dialog" aria-modal="true" aria-labelledby="vend-dialog-title"
@@ -362,7 +547,15 @@
                                cached copy of the list, so renaming it would have those tills refused
                                until they next refresh. *@
                             <input id="vend-code" class="shop-input" @bind="editing.Code"
-                                   placeholder="Made from the name if left blank" disabled="@(editing.Id > 0)" />
+                                   placeholder="@CodePlaceholder" disabled="@(editing.Id > 0)" />
+                            @if (editing.Id == 0 && EditingDepot is { } codeDepot)
+                            {
+                                <small class="shop-form-hint">
+                                    @(codeDepot.VendorCodePrefix is null
+                                        ? $"Vendors cannot be added here: {codeDepot.VendorCodeProblem}."
+                                        : $"{codeDepot.VendorCodePrefix} and three digits, like {codeDepot.VendorCodePrefix}001.")
+                                </small>
+                            }
                         </div>
                         <div class="shop-form-field">
                             <label for="vend-phone">Phone</label>
@@ -400,7 +593,9 @@
 
 @code {
     private enum Tab { Vendors, Cashiers }
-    private enum DialogMode { None, Add, Edit, Remove }
+    private enum DialogMode { None, Add, Edit, Remove, Import }
+
+    private const long MaxImportFileBytes = 5 * 1024 * 1024;
 
     private VendingOverviewModel? overview;
     private Dictionary<string, string> partnerNames = new(StringComparer.OrdinalIgnoreCase);
@@ -414,6 +609,14 @@
     private bool isLoading = true;
     private bool isSaving;
     private string? error;
+    private string? notice;
+
+    private bool isDownloadingTemplate;
+    private bool isReadingFile;
+    private Guid importFileKey = Guid.NewGuid();
+    private string? importFileName;
+    private List<ImportVendorRowModel> importRows = [];
+    private ImportVendorsResultModel? importResult;
 
     private static readonly string[] StatusOptions = ["Active", "Removed", "All"];
     private string status = "Active";
@@ -468,6 +671,23 @@
     private static string Dash(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
 
     private static string CodesOrDash(List<string> codes) => codes.Count == 0 ? "Not set" : string.Join(", ", codes);
+
+    private static string PrefixPattern(string? prefix) => $"{prefix}###";
+
+    private static string PrefixTitle(VendingDepotModel depot) =>
+        depot.NextVendorCode is null
+            ? $"Vendor codes at this depot are {depot.VendorCodePrefix} and three digits"
+            : $"Vendor codes at this depot are {depot.VendorCodePrefix} and three digits; the next is {depot.NextVendorCode}";
+
+    private VendingDepotModel? EditingDepot =>
+        editing is null || string.IsNullOrEmpty(editing.AssignedBusinessPartnerCode)
+            ? null
+            : overview?.Depots.FirstOrDefault(depot =>
+                string.Equals(depot.BusinessPartnerCode, editing.AssignedBusinessPartnerCode, StringComparison.OrdinalIgnoreCase));
+
+    private string CodePlaceholder => EditingDepot?.NextVendorCode is { } next
+        ? $"{next} if left blank"
+        : "Given the depot's next number if left blank";
 
     private bool InDepot(string? code) =>
         string.IsNullOrEmpty(depotFilter) || string.Equals(code, depotFilter, StringComparison.OrdinalIgnoreCase);
@@ -613,7 +833,7 @@
 
     private void CloseDialog()
     {
-        if (isSaving)
+        if (isSaving || isReadingFile)
         {
             return;
         }
@@ -622,6 +842,7 @@
         editing = null;
         removing = null;
         error = null;
+        ResetImport();
     }
 
     private async Task ConfirmDialogAsync()
@@ -678,6 +899,196 @@
             isSaving = false;
         }
     }
+
+    // ── Upload ─────────────────────────────────────────────────────────────
+
+    private string PrefixSummary
+    {
+        get
+        {
+            var prefixes = (overview?.Depots ?? [])
+                .Where(depot => depot.VendorCodePrefix is not null)
+                .Select(depot => $"{depot.VendorCodePrefix} for {string.Join(", ", depot.WarehouseCodes)}")
+                .Distinct()
+                .ToList();
+
+            return prefixes.Count == 0 ? "no depot has a prefix yet" : string.Join(", ", prefixes);
+        }
+    }
+
+    /// <summary>Problems first: in a long file they are the rows someone has to go and find.</summary>
+    private IEnumerable<ImportVendorRowResultModel> ImportRowsInView =>
+        (importResult?.Rows ?? [])
+            .OrderBy(row => row.Action == "Error" ? 0 : 1)
+            .ThenBy(row => row.RowNumber);
+
+    private static string ImportRowName(ImportVendorRowResultModel row)
+    {
+        var name = $"{row.Name} {row.Surname}".Trim();
+        return name.Length == 0 ? "—" : name;
+    }
+
+    private string ImportAction
+    {
+        get
+        {
+            if (isSaving)
+            {
+                return "Importing…";
+            }
+
+            var count = (importResult?.CreateCount ?? 0) + (importResult?.RestoreCount ?? 0);
+            return count == 0 ? "Import vendors" : count == 1 ? "Import 1 vendor" : $"Import {count} vendors";
+        }
+    }
+
+    private void StartImport()
+    {
+        error = null;
+        notice = null;
+        editing = null;
+        removing = null;
+        ResetImport();
+        dialog = DialogMode.Import;
+    }
+
+    private void ResetImport()
+    {
+        importFileName = null;
+        importRows = [];
+        importResult = null;
+        importFileKey = Guid.NewGuid();
+    }
+
+    private async Task DownloadTemplateAsync()
+    {
+        isDownloadingTemplate = true;
+        error = null;
+        try
+        {
+            var template = await Mediator.Send(new GetVendorImportTemplateQuery());
+            if (template.IsError)
+            {
+                error = template.FirstError.Description;
+                return;
+            }
+
+            await JS.InvokeVoidAsync("downloadFile", template.Value.FileName,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                Convert.ToBase64String(template.Value.Content));
+        }
+        finally
+        {
+            isDownloadingTemplate = false;
+        }
+    }
+
+    /// <summary>Reads the file, then has the API check every row without saving anything.</summary>
+    private async Task OnImportFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        error = null;
+        importResult = null;
+        importRows = [];
+        importFileName = file.Name;
+
+        if (!file.Name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+        {
+            error = "Upload the template as an .xlsx file.";
+            importFileKey = Guid.NewGuid();
+            return;
+        }
+
+        if (file.Size > MaxImportFileBytes)
+        {
+            error = "That file is larger than 5 MB. A vendor sheet should be a fraction of that — check it is the template.";
+            importFileKey = Guid.NewGuid();
+            return;
+        }
+
+        isReadingFile = true;
+        try
+        {
+            using var buffer = new MemoryStream();
+            await using (var stream = file.OpenReadStream(MaxImportFileBytes))
+            {
+                await stream.CopyToAsync(buffer);
+            }
+
+            var rows = await Mediator.Send(new ReadVendorImportFileQuery(buffer.ToArray()));
+            if (rows.IsError)
+            {
+                error = rows.FirstError.Description;
+                return;
+            }
+
+            var checkedRows = await Mediator.Send(new ImportVendorsCommand(rows.Value, ValidateOnly: true));
+            if (checkedRows.IsError)
+            {
+                error = checkedRows.FirstError.Description;
+                return;
+            }
+
+            importRows = rows.Value;
+            importResult = checkedRows.Value;
+        }
+        catch (IOException ex)
+        {
+            error = $"The file could not be read: {ex.Message}";
+        }
+        finally
+        {
+            isReadingFile = false;
+            // A fresh input, so choosing the same file again after fixing it still raises OnChange.
+            importFileKey = Guid.NewGuid();
+        }
+    }
+
+    private async Task ConfirmImportAsync()
+    {
+        if (importResult is null || importResult.ErrorCount > 0 || importRows.Count == 0)
+        {
+            return;
+        }
+
+        isSaving = true;
+        error = null;
+        try
+        {
+            var imported = await Mediator.Send(new ImportVendorsCommand(importRows, ValidateOnly: false));
+            if (imported.IsError)
+            {
+                error = imported.FirstError.Description;
+                return;
+            }
+
+            if (!imported.Value.Imported)
+            {
+                // Something changed between the check and the import — a code taken meanwhile. Show
+                // the fresh verdict rather than a bare refusal.
+                importResult = imported.Value;
+                error = "Nothing was imported: the rows below changed since the file was checked.";
+                return;
+            }
+
+            var added = imported.Value.CreateCount;
+            var restored = imported.Value.RestoreCount;
+            notice = restored == 0
+                ? $"Imported {Plural(added, "vendor")}."
+                : $"Imported {Plural(added, "new vendor")} and restored {Plural(restored, "removed one")}.";
+
+            isSaving = false;
+            dialog = DialogMode.None;
+            ResetImport();
+            await LoadAsync();
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
 
     private async Task SetActiveAsync(RouteCustomerModel vendor, bool active)
     {

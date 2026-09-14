@@ -97,12 +97,29 @@ public sealed class GetVendingOverviewHandler(ApplicationDbContext context)
             .ThenBy(account => account.Username, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        var highestVendorNumbers = await VendingDepots.HighestNumbersAsync(context, cancellationToken);
+
         var depots = accounts
             .Where(account => account.BusinessPartnerCode is not null)
             .GroupBy(account => account.BusinessPartnerCode!, StringComparer.OrdinalIgnoreCase)
             .Select(group => Depot(group.Key, group.ToList(), vendors))
             .OrderBy(depot => depot.BusinessPartnerCode, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        foreach (var depot in depots)
+        {
+            // The same rule adding a vendor applies, so the prefix shown is the one the save enforces.
+            var rule = VendingDepots.Rule(
+                depot.BusinessPartnerCode,
+                users
+                    .Where(user => string.Equals(user.AssignedBusinessPartnerCode?.Trim(), depot.BusinessPartnerCode, StringComparison.OrdinalIgnoreCase))
+                    .Select(user => new VendingDepots.CashierAssignment(depot.BusinessPartnerCode, user.AssignedWarehouseCodes, user.IsActive))
+                    .ToList());
+
+            depot.VendorCodePrefix = rule.Prefix;
+            depot.VendorCodeProblem = rule.Problem;
+            depot.NextVendorCode = rule.Prefix is null ? null : VendingDepots.NextCode(rule.Prefix, highestVendorNumbers);
+        }
 
         return new VendingOverviewDto { Depots = depots, Accounts = accounts, Vendors = vendors };
     }

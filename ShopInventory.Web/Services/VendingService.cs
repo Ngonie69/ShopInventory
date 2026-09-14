@@ -25,6 +25,14 @@ public interface IVendingService
         RouteCustomerModel vendor,
         bool isActive,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Checks or adds a sheet of vendors. A refused row comes back inside the result, not as the error;
+    /// the error is for a request the API would not look at at all.
+    /// </summary>
+    Task<(ImportVendorsResultModel? Result, string? Error)> ImportVendorsAsync(
+        ImportVendorsRequestModel request,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -138,6 +146,35 @@ public class VendingService(
         {
             logger.LogError(ex, "Error removing vendor {Code}", vendor.Code);
             return $"The vendor could not be removed: {ex.Message}";
+        }
+    }
+
+    public async Task<(ImportVendorsResultModel? Result, string? Error)> ImportVendorsAsync(
+        ImportVendorsRequestModel request,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var response = await SendAuthenticatedAsync(() =>
+                httpClient.PostAsJsonAsync("api/vending/vendors/import", request, cancellationToken));
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<ImportVendorsResultModel>(cancellationToken);
+                return result is null
+                    ? (null, "The server returned an empty import result.")
+                    : (result, null);
+            }
+
+            var problem = await ReadProblemDetailAsync(response, cancellationToken);
+            logger.LogWarning("Importing {RowCount} vendors failed with {Status}: {Detail}",
+                request.Rows.Count, (int)response.StatusCode, problem);
+            return (null, problem);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Error importing {RowCount} vendors", request.Rows.Count);
+            return (null, $"The vendors could not be imported: {ex.Message}");
         }
     }
 

@@ -3848,16 +3848,32 @@ customer — see [Van Sales](#34-van-sales).
 **Auth:** Bearer + `ApiAccess`, roles Admin, Manager, Cashier
 
 The vending depots are route customers seen from the other side: a depot is the business partner a
-`CartVendor` account sells on, and its vendors are the route customers under that partner. Vendors
-are still written through `/api/route-customers` above; this is the read that puts depots, their
-cashier accounts and their vendors on one page.
+`CartVendor` account sells on, and its vendors are the route customers under that partner. One vendor
+at a time is still written through `/api/route-customers` above; this is the read that puts depots,
+their cashier accounts and their vendors on one page, and the bulk upload that spans depots.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/vending/overview` | `depots` (per business partner: `warehouseCodes`, `costCentreCodes`, cashier and vendor counts, `setupProblem` when active cashiers disagree on warehouse or cost centre), `accounts` (every CartVendor account with its business partner, cost centre, single warehouse, active vendor count, `lastLoginAt` and `setupProblem` from the same resolver a sale runs) and `vendors` (every vendor under those partners, removed ones included) |
+| GET | `/api/vending/overview` | `depots` (per business partner: `warehouseCodes`, `costCentreCodes`, cashier and vendor counts, `setupProblem` when active cashiers disagree on warehouse or cost centre, `vendorCodePrefix`, `nextVendorCode` and `vendorCodeProblem`), `accounts` (every CartVendor account with its business partner, cost centre, single warehouse, active vendor count, `lastLoginAt` and `setupProblem` from the same resolver a sale runs) and `vendors` (every vendor under those partners, removed ones included) |
+| POST | `/api/vending/vendors/import` | Checks (`validateOnly: true`, the default) or adds a sheet of vendors. Also needs `customers.create`. Body `{ validateOnly, rows: [{ rowNumber, depot, code, name, surname, phone, email, address, vatNumber }] }`, at most 1000 rows. Answers 200 with `imported`, `createCount`, `restoreCount`, `errorCount` and a result per row (`code`, `codeIssued`, `depot`, `action` = `Create` / `Restore` / `Error`, `vendorId`, `errors`). Any row with a problem saves nothing |
 
 Role-gated rather than on `customers.view`: the overview names every vending account and the warehouse
 it draws from, and a cart vendor holds that permission to read its own vendor list, not every depot's staff.
+
+**Vendor codes.** A vendor at a vending depot is coded with its depot's warehouse prefix and three
+digits: `VMB` for KEFBYC, `VMP` for KEFGRC, `VMM` for CORMACH — `VMB001`, `VMP014`. A code is unique
+across every depot. `POST /api/route-customers` and the upload both hold vendors to it: a blank code
+takes the prefix's next number (after the highest ever issued, removed vendors included), and any other
+code is refused with `Vending.VendorCodeDoesNotFitDepot`. A depot whose warehouse has no prefix, or
+whose cashiers draw on warehouses with different ones, cannot add vendors
+(`Vending.DepotCannotNumberVendors`). `PUT /api/route-customers/{id}` applies the rule only when the
+code or the depot changes, so a vendor under an older code can still be edited where it is; a move to a
+depot on another warehouse is refused. Van routes' shops are not affected.
+
+In an upload, `depot` is the business partner code or the warehouse, and may be blank when `code` is
+given, because the prefix names the depot. Blank codes are numbered after every code the file names.
+A code matching a removed vendor at the same depot restores that vendor; one matching a live vendor is
+a row error, not an update.
 
 ---
 

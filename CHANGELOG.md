@@ -121,6 +121,21 @@ otherwise be surprised.
 
 ### Changed
 
+- **Vendors at a vending depot must be coded VMB, VMP or VMM and three digits.**
+
+  `POST /api/route-customers` under a business partner a `CartVendor` account sells on now holds the
+  code to the depot's warehouse prefix — `VMB` for KEFBYC, `VMP` for KEFGRC, `VMM` for CORMACH — such as
+  `VMB001`. A blank code used to be made from the vendor's name (`TENDAI`); it now takes the prefix's
+  next number. Any other code is refused with `400 Vending.VendorCodeDoesNotFitDepot`, and a code held
+  at another depot with `409 Vending.VendorCodeTaken`. A depot on a warehouse with no prefix (CORMACH2,
+  say) refuses new vendors with `Vending.DepotCannotNumberVendors` until its cashiers are moved to one
+  that has. `PUT /api/route-customers/{id}` checks the rule only when the code or depot changes, so
+  existing vendors under older codes keep working and can still be edited. Van routes are unaffected.
+
+  New alongside it: `POST /api/vending/vendors/import`, the bulk upload behind the Depots & vendors
+  page, and `vendorCodePrefix`, `nextVendorCode` and `vendorCodeProblem` on each depot in
+  `GET /api/vending/overview`.
+
 - **Reading the van sales portal is now written to the audit trail.** Every write on `/api/van-sales`
   was already audited; none of the reads were, so a supervisor could pull any rep's takings, coverage
   or compliance for any period and nothing recorded who looked. All nine reads — the five reports,

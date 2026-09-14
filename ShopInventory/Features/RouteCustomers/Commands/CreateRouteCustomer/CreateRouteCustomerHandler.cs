@@ -6,6 +6,7 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Notifications;
+using ShopInventory.Features.Vending;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -72,6 +73,21 @@ public sealed class CreateRouteCustomerHandler(
             .ToListAsync(cancellationToken);
 
         var requestedCode = NormalizeCode(command.Request.Code);
+
+        // A vending depot numbers its vendors by its warehouse's prefix — VMB001, VMP014 — and a code
+        // is unique across every depot. Van routes keep the name-derived codes below.
+        var depot = await VendingDepots.FindAsync(context, assignedBusinessPartnerCode, cancellationToken);
+        if (depot is not null)
+        {
+            var vendorCode = await VendorCodeAsync(depot, requestedCode, cancellationToken);
+            if (vendorCode.IsError)
+            {
+                return vendorCode.Errors;
+            }
+
+            requestedCode = vendorCode.Value;
+        }
+
         var baseCode = requestedCode ?? NormalizeCode(name) ?? DefaultCode;
 
         // A shop that was removed and is being captured again. Reactivating its row is what keeps
@@ -84,6 +100,22 @@ public sealed class CreateRouteCustomerHandler(
         if (removed is not null)
         {
             return await RestoreAsync(removed, command, name, cancellationToken);
+        }
+
+        // A vendor code is unique across depots, so one held under another business partner — which
+        // this route's list cannot see — is refused too.
+        if (depot is not null)
+        {
+            var heldElsewhere = await context.RouteCustomers
+                .AsNoTracking()
+                .Where(customer => customer.Code == baseCode && customer.AssignedBusinessPartnerCode != assignedBusinessPartnerCode)
+                .Select(customer => customer.AssignedBusinessPartnerCode)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (heldElsewhere is not null)
+            {
+                return Errors.Vending.VendorCodeTaken(baseCode, heldElsewhere);
+            }
         }
 
         var existingCodes = routeCustomers.Select(customer => customer.Code).ToList();
@@ -118,6 +150,34 @@ public sealed class CreateRouteCustomerHandler(
         await NotifyRouteUsersAsync(entity, cancellationToken);
 
         return Map(entity, user.Username);
+    }
+
+    /// <summary>
+    /// The code a new vendor at a vending depot takes: the one asked for, if it is the depot's prefix
+    /// and three digits, otherwise the next one in the prefix's sequence.
+    /// </summary>
+    private async Task<ErrorOr<string>> VendorCodeAsync(
+        VendingDepotCodeRule depot,
+        string? requestedCode,
+        CancellationToken cancellationToken)
+    {
+        if (depot.Prefix is null)
+        {
+            return Errors.Vending.DepotCannotNumberVendors(depot.BusinessPartnerCode, depot.Problem!);
+        }
+
+        if (requestedCode is not null)
+        {
+            return VendorCodeConvention.TryParse(requestedCode, out var prefix, out _) &&
+                   string.Equals(prefix, depot.Prefix, StringComparison.OrdinalIgnoreCase)
+                ? requestedCode
+                : Errors.Vending.VendorCodeDoesNotFitDepot(requestedCode, depot.BusinessPartnerCode, depot.Prefix);
+        }
+
+        var highest = await VendingDepots.HighestNumbersAsync(context, cancellationToken);
+        return VendingDepots.NextCode(depot.Prefix, highest) is { } next
+            ? next
+            : Errors.Vending.VendorCodesExhausted(depot.Prefix);
     }
 
     /// <summary>

@@ -88,8 +88,259 @@
     color: var(--shop-fam-warn);
 }
 
+/* ── Upload ──────────────────────────────────────────────────────────────────
+   The success line after an import, and the upload dialog. The dialog is a
+   sibling of `.vend`, not a child, so its rules root on `.shop-overlay`; the
+   table's header is two classes and two elements deep because app.css paints
+   every `.dark-theme table thead th` navy at (0,1,2), and background is stated
+   rather than left off so that rule has nothing to show through. The file input
+   is hidden inside its drop label for the same reason: app.css's dark
+   `.dark-theme input` fill would otherwise paint it slate.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.vend .vend-notice {
+    display: flex;
+    align-items: center;
+    gap: var(--shop-s3);
+    padding: 8px 8px 8px 13px;
+    border-radius: var(--shop-r-md);
+    font-size: 13px;
+    color: var(--shop-fam-good);
+    background: rgba(var(--shop-fam-good-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--shop-fam-good-rgb), .3);
+}
+
+.vend .vend-notice span {
+    flex: 1;
+}
+
+.shop-overlay .shop-modal.vend-import-modal {
+    width: min(920px, 100%);
+}
+
+.shop-overlay .vend-import-steps {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--shop-s4);
+}
+
+.shop-overlay .vend-import-step {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--shop-s3);
+    padding: var(--shop-s4);
+    border-radius: var(--shop-r-md);
+    background: var(--shop-wash);
+    box-shadow: inset 0 0 0 1px var(--shop-rule);
+}
+
+.shop-overlay .vend-import-step > div {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    min-width: 0;
+    flex: 1;
+}
+
+.shop-overlay .vend-import-step strong {
+    font-weight: 600;
+    font-size: 13.5px;
+}
+
+.shop-overlay .vend-import-step div > p {
+    margin: 0 0 4px;
+    font-size: 12.5px;
+    color: var(--shop-mute-2);
+    text-wrap: pretty;
+}
+
+.shop-overlay .vend-import-step-num {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--shop-accent-text);
+    background: rgba(var(--shop-accent-rgb), .14);
+}
+
+.shop-overlay .vend-import-drop {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--shop-s3);
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px dashed var(--shop-field-edge-hi);
+    border-radius: var(--shop-r-md);
+    font-size: 12.5px;
+    color: var(--shop-ink-2);
+    background: var(--shop-field-bg);
+    cursor: pointer;
+    transition: border-color .13s, background-color .13s;
+}
+
+.shop-overlay .vend-import-drop:hover,
+.shop-overlay .vend-import-drop:focus-within {
+    border-color: var(--shop-accent);
+    background: var(--shop-hover);
+}
+
+.shop-overlay .vend-import-drop.is-busy {
+    cursor: progress;
+    opacity: .75;
+}
+
+.shop-overlay .vend-import-drop i {
+    font-size: 18px;
+    color: var(--shop-accent);
+}
+
+.shop-overlay .vend-import-drop span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.shop-overlay .vend-import-drop input[type="file"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: inherit;
+}
+
+.shop-overlay .vend-import-summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--shop-s3);
+}
+
+.shop-overlay .vend-import-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.71rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.shop-overlay .vend-import-chip.is-good {
+    background: rgba(var(--shop-fam-good-rgb), .13);
+    color: var(--shop-fam-good);
+}
+
+.shop-overlay .vend-import-chip.is-info {
+    background: rgba(var(--shop-fam-info-rgb), .13);
+    color: var(--shop-fam-info);
+}
+
+.shop-overlay .vend-import-chip.is-bad {
+    background: rgba(var(--shop-fam-bad-rgb), .13);
+    color: var(--shop-fam-bad);
+}
+
+.shop-overlay .vend-import-table-wrap {
+    max-height: 46vh;
+    overflow: auto;
+    border: 1px solid var(--shop-divider);
+    border-radius: var(--shop-r-md);
+    background: var(--shop-surface);
+}
+
+.shop-overlay .vend-import-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0;
+}
+
+.shop-overlay .vend-import-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 9px 12px;
+    text-align: left;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--shop-mute-3);
+    background: var(--shop-surface);
+    border-bottom: 1px solid var(--shop-divider);
+    white-space: nowrap;
+}
+
+.shop-overlay .vend-import-table tbody td {
+    padding: 9px 12px;
+    font-size: 0.82rem;
+    color: var(--shop-ink);
+    background: transparent;
+    border-bottom: 1px solid var(--shop-rule);
+    vertical-align: top;
+}
+
+/* Depot and vendor names keep their line; the problems column is the one that wraps. */
+.shop-overlay .vend-import-table tbody td:nth-child(3),
+.shop-overlay .vend-import-table tbody td:nth-child(4) {
+    min-width: 150px;
+}
+
+.shop-overlay .vend-import-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.shop-overlay .vend-import-table tbody tr.has-error td {
+    background: rgba(var(--shop-fam-bad-rgb), .05);
+}
+
+.shop-overlay .vend-import-table .vend-num {
+    width: 1%;
+    font-variant-numeric: tabular-nums;
+    color: var(--shop-mute-2);
+    white-space: nowrap;
+}
+
+.shop-overlay .vend-import-code {
+    font-family: var(--shop-mono);
+    font-size: 12px;
+}
+
+.shop-overlay .vend-import-issued {
+    margin-left: 6px;
+    font-size: 10px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--shop-accent-text);
+}
+
+.shop-overlay .vend-import-mute {
+    color: var(--shop-faint);
+}
+
+.shop-overlay .vend-import-errors {
+    margin: 6px 0 0;
+    padding-left: 16px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--shop-fam-bad);
+}
+
+@media (max-width: 720px) {
+    .shop-overlay .vend-import-steps {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
-    .vend .vend-depot {
+    .vend .vend-depot,
+    .shop-overlay .vend-import-drop {
         transition: none;
     }
 }

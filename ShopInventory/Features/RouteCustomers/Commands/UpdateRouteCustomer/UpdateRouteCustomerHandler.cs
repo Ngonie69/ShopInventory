@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Vending;
 
 namespace ShopInventory.Features.RouteCustomers.Commands.UpdateRouteCustomer;
 
@@ -38,6 +39,44 @@ public sealed class UpdateRouteCustomerHandler(
         }
 
         var code = NormalizeCode(command.Request.Code) ?? routeCustomer.Code;
+
+        // Held to the vending code convention only when the code or the depot changes, so a vendor
+        // saved under an older code can still have its phone number corrected where it is. A move
+        // between depots on different warehouses is refused rather than re-coded: the till invoices by
+        // the code, and the code names the depot.
+        var codeChanged = !string.Equals(code, routeCustomer.Code, StringComparison.OrdinalIgnoreCase);
+        var depotChanged = !string.Equals(assignedBusinessPartnerCode, routeCustomer.AssignedBusinessPartnerCode, StringComparison.OrdinalIgnoreCase);
+        if (codeChanged || depotChanged)
+        {
+            var depot = await VendingDepots.FindAsync(context, assignedBusinessPartnerCode, cancellationToken);
+            if (depot is not null)
+            {
+                if (depot.Prefix is null)
+                {
+                    return Errors.Vending.DepotCannotNumberVendors(depot.BusinessPartnerCode, depot.Problem!);
+                }
+
+                if (!VendorCodeConvention.TryParse(code, out var prefix, out _) ||
+                    !string.Equals(prefix, depot.Prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Errors.Vending.VendorCodeDoesNotFitDepot(code, depot.BusinessPartnerCode, depot.Prefix);
+                }
+
+                var heldElsewhere = await context.RouteCustomers
+                    .AsNoTracking()
+                    .Where(customer => customer.Id != command.Id
+                        && customer.Code == code
+                        && customer.AssignedBusinessPartnerCode != assignedBusinessPartnerCode)
+                    .Select(customer => customer.AssignedBusinessPartnerCode)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (heldElsewhere is not null)
+                {
+                    return Errors.Vending.VendorCodeTaken(code, heldElsewhere);
+                }
+            }
+        }
+
         var existingCodes = await context.RouteCustomers
             .AsNoTracking()
             .Where(customer => customer.Id != command.Id
