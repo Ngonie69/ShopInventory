@@ -1,9 +1,21 @@
 # Desktop fiscal credit notes (REVMax)
 
 From **Desktop Sales**, open a fiscalised sale and choose **Credit notes**. The form reads the original
-REVMax receipt, shows quantities remaining after saved credits, and accepts quantities and a reason.
-**Create and fiscalise with REVMax** persists the credit before submitting it. A SAP DocEntry is not
-required, and a later SAP invoice number does not replace the original fiscal reference.
+REVMax receipt, shows quantities remaining after saved credits, and accepts quantities, a reason and an
+optional note. The reason is picked from SAP's own return-reason list, because it becomes each memo
+line's return reason and SAP refuses a value the list does not define; free text is offered only when
+that list cannot be read. The note is printed on the credit receipt after the reason.
+
+The form has two actions, and the sale's SAP state enables exactly one:
+
+- **Fiscalise only** — while the sale has no SAP invoice of its own. The credit is filed with REVMax;
+  the SAP credit memo follows on its own once the sale posts (see below).
+- **Fiscalise and post to SAP** — once the sale is in SAP. The credit is filed with REVMax and the
+  credit memo is raised against the invoice in the same request.
+
+The API checks the choice against the sale, so a form left open while the sale posts is refused
+rather than taking the wrong action; **Refresh** re-reads the state. Either action persists the credit
+before submitting it, and a later SAP invoice number does not replace the original fiscal reference.
 
 The form uses the original receipt's prices, discounts and tax IDs/rates. The original device, global
 receipt number and the fiscal day recorded when the sale was filed are retained. The REVMax lookup

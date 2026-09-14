@@ -3090,6 +3090,344 @@
     text-wrap: pretty;
 }
 
+/* ── The credit note dialog ────────────────────────────────────────────── */
+/* Credit Note Dialog.dc.html: the lines on the left, the reason and the total
+   beside them, and the two actions in a foot that says which one applies.
+   The design's filled surface and soft shadow become the shared dialog's
+   bordered ground; everything inside is the design's layout. */
+
+.ops-overlay .ops-dcn {
+    width: min(960px, 100%);
+}
+
+.ops-overlay .ops-dcn-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ops-s6);
+    padding: var(--ops-s8) var(--ops-s8) var(--ops-s6);
+    flex: none;
+}
+
+.ops-overlay .ops-dcn-id {
+    flex: 1;
+    min-width: 0;
+}
+
+.ops-overlay .ops-dcn-eyebrow {
+    margin-bottom: 6px;
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ops-accent-text);
+}
+
+/* Wraps rather than truncates, like the drawer's reference: it is matched
+   against a paper receipt, and half of one matches nothing. */
+.ops-overlay h2.ops-dcn-ref {
+    margin: 0 0 var(--ops-s3);
+    font-family: var(--ops-mono);
+    font-size: 19px;
+    letter-spacing: -.01em;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
+.ops-overlay .ops-dcn-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ops-s2) var(--ops-s4);
+    font-size: 12px;
+    color: var(--ops-mute-3);
+}
+
+.ops-overlay .ops-dcn-meta b {
+    font-family: var(--ops-mono);
+    font-weight: 400;
+    color: var(--ops-ink);
+}
+
+.ops-overlay .ops-dcn-head .ops-x {
+    margin-left: 0;
+}
+
+/* The head carries no rule, so the body starts flush under it. */
+.ops-overlay .ops-dcn-body {
+    padding-top: 0;
+}
+
+.ops-overlay .ops-dcn-alert {
+    padding: var(--ops-s3) var(--ops-s4);
+    border-radius: var(--ops-r-md);
+    border: 1px solid rgba(var(--ops-fam-rgb), .4);
+    background: rgba(var(--ops-fam-rgb), .08);
+    font-size: 13px;
+    color: var(--ops-fam);
+    text-wrap: pretty;
+}
+
+.ops-overlay .ops-dcn-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 288px;
+    gap: var(--ops-s8);
+    align-items: start;
+}
+
+.ops-overlay .ops-dcn-lines {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s2);
+    min-width: 0;
+}
+
+.ops-overlay .ops-dcn-lines-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ops-s4);
+}
+
+/* Scrolls inside itself so the reason and the total stay beside the lines on
+   a long receipt. The head pins with an opaque ground of its own — the rows
+   would otherwise scroll visibly through it. */
+.ops-overlay .ops-dcn-scroll {
+    max-height: 320px;
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--ops-thumb) transparent;
+}
+
+.ops-overlay .ops-dcn-scroll .ops-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--ops-bg);
+}
+
+.ops-overlay .ops-dcn-scroll .ops-table thead th:first-child,
+.ops-overlay .ops-dcn-scroll .ops-table tbody td:first-child {
+    padding-left: 0;
+}
+
+.ops-overlay .ops-dcn-scroll .ops-table thead th:last-child,
+.ops-overlay .ops-dcn-scroll .ops-table tbody td:last-child {
+    padding-right: 0;
+}
+
+.ops-overlay .ops-dcn-item {
+    font-size: 13.5px;
+    line-height: 1.3;
+    color: var(--ops-ink);
+}
+
+.ops-overlay .ops-dcn-avail {
+    color: var(--ops-mute-2);
+}
+
+.ops-overlay .ops-dcn-stepper {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ops-overlay .ops-dcn-step {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 30px;
+    flex: none;
+    padding: 0;
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-sm);
+    background: transparent;
+    color: var(--ops-mute-2);
+    font-size: 11px;
+    cursor: pointer;
+    transition: background-color .13s, color .13s, border-color .13s;
+}
+
+.ops-overlay .ops-dcn-step:hover:not(:disabled) {
+    color: var(--ops-ink);
+    border-color: var(--ops-field-edge-hi);
+    background: var(--ops-hover);
+}
+
+.ops-overlay .ops-dcn-step:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.ops-overlay .ops-input.ops-dcn-qty {
+    width: 64px;
+    min-height: 30px;
+    padding: 4px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-overlay .ops-dcn-amt-on {
+    color: var(--ops-accent-text);
+}
+
+.ops-overlay .ops-dcn-amt-off {
+    color: var(--ops-mute-3);
+}
+
+.ops-overlay .ops-dcn-side {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s6);
+}
+
+.ops-overlay .ops-dcn-opt {
+    letter-spacing: 0;
+    text-transform: none;
+    opacity: .8;
+}
+
+.ops-overlay textarea.ops-input.ops-dcn-note {
+    min-height: 64px;
+}
+
+.ops-overlay .ops-dcn-total {
+    padding: var(--ops-s4);
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-md);
+    background: var(--ops-hover);
+}
+
+.ops-overlay .ops-dcn-total .ops-ds-sum {
+    margin: 0 0 var(--ops-s4);
+    padding-bottom: var(--ops-s4);
+    border-bottom: 1px solid var(--ops-divider);
+    font-size: 12px;
+}
+
+.ops-overlay .ops-dcn-total .ops-ds-sum>div span:last-child {
+    color: var(--ops-ink);
+}
+
+.ops-overlay .ops-dcn-total-label {
+    font-size: 10px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ops-mute-3);
+}
+
+.ops-overlay .ops-dcn-total-num {
+    margin-top: 2px;
+    font-size: 26px;
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-ink);
+}
+
+/* The foot takes the design's ground so the two actions read as the end of
+   the form; the explanation holds the left and the buttons keep the right. */
+.ops-overlay .ops-dcn-foot {
+    flex-wrap: wrap;
+    padding: var(--ops-s6) var(--ops-s8);
+    background: var(--ops-hover);
+}
+
+.ops-overlay .ops-dcn-foot .ops-ds-foot-why {
+    flex-basis: 260px;
+    max-width: 46ch;
+    margin-right: auto;
+}
+
+.ops-overlay .ops-dcn-working {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ops-s2);
+    color: var(--ops-accent-text);
+}
+
+/* The outcome, in the family its fiscal status carries — a refusal must not
+   arrive under a tick. */
+.ops-overlay .ops-dcn-done {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ops-s4);
+    padding: var(--ops-s6);
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-md);
+    background: var(--ops-hover);
+    animation: ops-rise .2s ease;
+}
+
+.ops-overlay .ops-dcn-done-mark {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    border: 1px solid var(--ops-fam);
+    border-radius: 50%;
+    color: var(--ops-fam);
+    font-size: 14px;
+}
+
+.ops-overlay .ops-dcn-done-copy {
+    flex: 1;
+    min-width: 0;
+}
+
+.ops-overlay .ops-dcn-done-title {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--ops-ink);
+}
+
+.ops-overlay .ops-dcn-done-copy p {
+    margin: 2px 0 0;
+    font-size: 13px;
+    color: var(--ops-mute-2);
+    text-wrap: pretty;
+}
+
+.ops-overlay .ops-dcn-facts {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--ops-s2) var(--ops-s6);
+    margin: var(--ops-s6) 0 0;
+    font-size: 13px;
+}
+
+.ops-overlay .ops-dcn-facts dt {
+    margin: 0;
+    font-weight: 400;
+    color: var(--ops-mute-3);
+}
+
+.ops-overlay .ops-dcn-facts dd {
+    margin: 0;
+    text-align: right;
+    color: var(--ops-ink-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-overlay .ops-dcn-sapsaid {
+    color: var(--ops-fam-bad);
+}
+
+@media (max-width: 900px) {
+    .ops-overlay .ops-dcn-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .ops-overlay .ops-dcn-head,
+    .ops-overlay .ops-dcn-foot {
+        padding-inline: var(--ops-s4);
+    }
+
+    .ops-overlay .ops-dcn-done {
+        flex-wrap: wrap;
+    }
+}
+
 /* ── Tabs ──────────────────────────────────────────────────────────────── */
 /* Underlined rather than filled — a tab strip is navigation, and Nocturne
    spends fills on nothing that only says where you are. */

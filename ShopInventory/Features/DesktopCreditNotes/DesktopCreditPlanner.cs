@@ -12,6 +12,9 @@ public static class DesktopCreditPlanner
             throw new InvalidOperationException("A stable request key is required.");
         if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Length > 500)
             throw new InvalidOperationException("Enter a reason of at most 500 characters.");
+        var notes = ReceiptNotes(request);
+        if (notes.Length > 500)
+            throw new InvalidOperationException("The reason and note together must be at most 500 characters.");
         if (request.Lines is not { Count: > 0 } ||
             request.Lines.Select(l => l.LineNo).Distinct().Count() != request.Lines.Count)
             throw new InvalidOperationException("Select each original receipt line at most once.");
@@ -42,7 +45,7 @@ public static class DesktopCreditPlanner
                 InvoiceNo = $"DCN-{request.RequestKey}", ReceiptType = ReceiptType.CreditNote,
                 Currency = source.Currency, ReceiptDate = now, TaxInclusive = true,
                 PaymentType = MoneyType.Credit, PaymentAmount = -amount, Lines = lines,
-                ReceiptNotes = request.Reason.Trim(), ReceiptPrintForm = ReceiptPrintForm.InvoiceA4,
+                ReceiptNotes = notes, ReceiptPrintForm = ReceiptPrintForm.InvoiceA4,
                 Buyer = source.Buyer,
                 CreditDebitNote = new CreditDebitNoteApiRequest
                 {
@@ -51,6 +54,16 @@ public static class DesktopCreditPlanner
                 }
             }, amount);
     }
+
+    /// <summary>What the credit receipt prints: the reason, then the operator's note when there is one.</summary>
+    /// <remarks>
+    /// The reason stays on its own in the credit's <c>Reason</c>, because SAP takes it as the line's
+    /// return reason and refuses a value its list does not define. The note only ever travels here.
+    /// </remarks>
+    public static string ReceiptNotes(CreateDesktopCreditRequest request) =>
+        string.IsNullOrWhiteSpace(request.Note)
+            ? request.Reason.Trim()
+            : $"{request.Reason.Trim()} — {request.Note.Trim()}";
 
     public static decimal Round(decimal value) => Math.Round(value, 2, MidpointRounding.AwayFromZero);
 }

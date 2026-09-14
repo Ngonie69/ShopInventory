@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.DTOs;
 using ShopInventory.Features.DesktopCreditNotes;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -57,6 +58,158 @@ public sealed class DesktopCreditNoteTests : IDisposable
         Assert.Null(result.SapDocNum);
         Assert.Equal(1, gateway.Submissions);
         Assert.Single(db.DesktopCreditNotes);
+    }
+
+    [Fact]
+    public async Task Fiscalise_and_post_to_SAP_is_refused_while_the_sale_has_no_SAP_invoice()
+    {
+        var form = await service.PrepareAsync(caller, "TILL-123", default);
+        Assert.False(form.SaleInSap);
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAsync(caller, "TILL-123", Request() with { PostToSap = true }, default));
+
+        Assert.Contains("not in SAP yet", refusal.Message);
+        Assert.Equal(0, gateway.Submissions);
+        Assert.Empty(db.DesktopCreditNotes);
+        Assert.Equal("Fiscalised",
+            (await service.CreateAsync(caller, "TILL-123", Request() with { PostToSap = false }, default)).Status);
+    }
+
+    [Fact]
+    public async Task Fiscalise_only_is_refused_once_the_sale_is_in_SAP()
+    {
+        var sale = db.DesktopSales.Single();
+        sale.SapDocEntry = 7001;
+        sale.SapDocNum = 48213;
+        db.SaveChanges();
+
+        var form = await service.PrepareAsync(caller, "TILL-123", default);
+        Assert.True(form.SaleInSap);
+        Assert.Equal(48213, form.SaleSapDocNum);
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAsync(caller, "TILL-123", Request() with { PostToSap = false }, default));
+
+        Assert.Contains("already in SAP as invoice 48213", refusal.Message);
+        Assert.Equal(0, gateway.Submissions);
+        Assert.Equal("Fiscalised",
+            (await service.CreateAsync(caller, "TILL-123", Request() with { PostToSap = true }, default)).Status);
+    }
+
+    [Fact]
+    public async Task Fiscalise_and_post_to_SAP_raises_the_memo_in_the_same_request()
+    {
+        // The credit row is still tracked from its insert when the fiscal outcome is written with
+        // ExecuteUpdate, so a poster that trusted the tracked copy read it as Prepared, did nothing,
+        // and left the memo and the stock return to the sweep. Nothing detaches it here.
+        var sale = db.DesktopSales.Single();
+        sale.SapDocEntry = 7001;
+        sale.SapDocNum = 48213;
+        sale.ConsolidationStatus = DesktopSaleConsolidationStatus.Consolidated;
+        sale.Lines.Add(new DesktopSaleLineEntity
+        {
+            LineNum = 1, ItemCode = "ICS025", ItemDescription = "Original product",
+            Quantity = 10, UnitPrice = 10m, LineTotal = 100m, WarehouseCode = "W1"
+        });
+        db.SaveChanges();
+
+        var memos = new List<CreateCreditNoteRequest>();
+        var returned = new List<StockLedgerLine>();
+        var posting = new DesktopCreditNoteService(db, gateway,
+            new DesktopCreditSapPoster(db,
+                StubProxy.For<ISAPServiceLayerClient>((m, args) => m.Name switch
+                {
+                    nameof(ISAPServiceLayerClient.GetCreditNoteByReferenceAsync) => (object)Task.FromResult<SAPCreditNote?>(null),
+                    nameof(ISAPServiceLayerClient.CreateCreditNoteAsync) => Record((CreateCreditNoteRequest)args![0]!),
+                    _ => throw new NotSupportedException(m.Name)
+                }),
+                StubProxy.For<IStockLedger>((m, args) => m.Name == nameof(IStockLedger.ReleaseAsync)
+                    ? ReturnUnits((IReadOnlyList<StockLedgerLine>)args![0]!) : throw new NotSupportedException(m.Name)),
+                StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+                NullLogger<DesktopCreditSapPoster>.Instance),
+            StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+            NullLogger<DesktopCreditNoteService>.Instance);
+
+        var result = await posting.CreateAsync(caller, "TILL-123", Request() with { PostToSap = true }, default);
+
+        Assert.Equal("Fiscalised", result.Status);
+        Assert.Equal(DesktopCreditSapStatuses.Posted, result.SapStatus);
+        Assert.Equal(88001, result.SapDocNum);
+        Assert.Equal(7001, Assert.Single(memos).OriginalInvoiceDocEntry);
+        Assert.Equal(2m, Assert.Single(returned).Quantity);
+
+        Task<SAPCreditNote> Record(CreateCreditNoteRequest request)
+        {
+            memos.Add(request);
+            return Task.FromResult(new SAPCreditNote { DocEntry = 88001, DocNum = 88001, NumAtCard = request.SapReference });
+        }
+
+        Task ReturnUnits(IReadOnlyList<StockLedgerLine> lines)
+        {
+            returned.AddRange(lines);
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task A_credit_saved_before_its_sale_posted_still_replays_after_it_has()
+    {
+        var request = Request() with { PostToSap = false };
+        var first = await service.CreateAsync(caller, "TILL-123", request, default);
+        var sale = db.DesktopSales.Single();
+        sale.SapDocEntry = 7001;
+        db.SaveChanges();
+
+        var again = await service.CreateAsync(caller, "TILL-123", request, default);
+
+        Assert.Equal(first.Id, again.Id);
+        Assert.Equal(1, gateway.Submissions);
+    }
+
+    [Fact]
+    public async Task A_request_key_saved_before_notes_and_actions_existed_still_replays()
+    {
+        // The hash an earlier build stored: the request serialized with only its three fields.
+        var key = Guid.NewGuid().ToString("N");
+        var saleId = db.DesktopSales.Single().Id;
+        db.DesktopCreditNotes.Add(new DesktopCreditNoteEntity
+        {
+            Id = Guid.NewGuid(), SaleId = saleId, RequestKey = key, Number = $"DCN-{key}",
+            RequestHash = ShopInventory.Common.Idempotency.IdempotencyRequestHash.Of(
+                $$$"""{"saleId":{{{saleId}}},"request":{"requestKey":"{{{key}}}","reason":"Customer return","lines":[{"lineNo":1,"quantity":2}]}}"""),
+            Reason = "Customer return", Currency = "USD", Amount = 20m, PlanJson = "{}",
+            Status = DesktopCreditStatuses.Fiscalised, CreatedAtUtc = DateTime.UtcNow
+        });
+        db.SaveChanges();
+
+        var replayed = await service.CreateAsync(caller, "TILL-123", Request(key: key) with { PostToSap = false }, default);
+
+        Assert.Equal($"DCN-{key}", replayed.Number);
+        Assert.Equal(0, gateway.Submissions);
+    }
+
+    [Fact]
+    public void The_note_is_printed_after_the_reason_and_the_reason_stays_alone()
+    {
+        var plan = DesktopCreditPlanner.Build(Source(), Request() with { Note = "  Claim 4471  " },
+            new Dictionary<int, decimal>(), 0m, DateTime.UtcNow);
+
+        Assert.Equal("Customer return — Claim 4471", plan.Receipt.ReceiptNotes);
+        Assert.Equal("Customer return — Claim 4471",
+            RevmaxDesktopCreditGateway.BuildRequest(plan, new RevmaxSettings()).InvoiceComment);
+        Assert.Throws<InvalidOperationException>(() => DesktopCreditPlanner.Build(Source(),
+            Request() with { Note = new string('x', 490) }, new Dictionary<int, decimal>(), 0m, DateTime.UtcNow));
+    }
+
+    [Fact]
+    public async Task The_same_key_with_a_different_note_is_a_different_credit()
+    {
+        var request = Request() with { Note = "Claim 1" };
+        await service.CreateAsync(caller, "TILL-123", request, default);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAsync(caller, "TILL-123", request with { Note = "Claim 2" }, default));
     }
 
     [Fact]

@@ -40,8 +40,37 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         RequireFiscalised(sale);
         var source = await fiscal.ReadOriginalAsync(sale, ct);
         var notes = await db.DesktopCreditNotes.AsNoTracking().Where(n => n.SaleId == sale.Id).ToListAsync(ct);
-        return new DesktopCreditForm(source, notes.Select(Map).ToList(), Reserved(notes));
+        return new DesktopCreditForm(source, notes.Select(Map).ToList(), Reserved(notes),
+            InSap(sale), InSap(sale) ? sale.SapDocNum : null);
     }
+
+    /// <summary>The sale has its own SAP invoice, so a credit memo can be raised against it now.</summary>
+    /// <remarks>
+    /// The same test <see cref="DesktopCreditSapPoster"/> posts on. A sale inside a consolidated invoice
+    /// has none of its own, so it is not "in SAP" here: there is nothing to post a memo against.
+    /// </remarks>
+    private static bool InSap(DesktopSaleEntity sale) => sale.SapDocEntry is > 0;
+
+    /// <summary>Refuses the action the sale's SAP state does not allow.</summary>
+    private static void RequireAction(DesktopSaleEntity sale, bool? postToSap)
+    {
+        if (postToSap == true && !InSap(sale))
+            throw new InvalidOperationException("This sale is not in SAP yet, so there is no invoice to post a credit "
+                + "memo against. Use Fiscalise only; the SAP credit memo follows on its own once the sale posts.");
+        if (postToSap == false && InSap(sale))
+            throw new InvalidOperationException($"This sale is already in SAP as invoice {sale.SapDocNum}, so the "
+                + "credit has to be posted there too. Use Fiscalise and post to SAP.");
+    }
+
+    /// <remarks>
+    /// Hashed in the shape the request had before it carried a note or an action, whenever it carries no
+    /// note, so a key saved by an earlier build still replays. The action is left out entirely: it is
+    /// checked against the sale, not part of what the credit is.
+    /// </remarks>
+    private static string Hash(int saleId, CreateDesktopCreditRequest request) =>
+        string.IsNullOrWhiteSpace(request.Note)
+            ? IdempotencyRequestHash.Of(new { SaleId = saleId, Request = new { request.RequestKey, request.Reason, request.Lines } })
+            : IdempotencyRequestHash.Of(new { SaleId = saleId, Request = new { request.RequestKey, request.Reason, request.Lines, Note = request.Note.Trim() } });
 
     public async Task<DesktopCreditNoteResult> CreateAsync(Guid caller, string reference,
         CreateDesktopCreditRequest request, CancellationToken ct)
@@ -51,7 +80,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         if (!Guid.TryParseExact(request.RequestKey, "N", out _) || request.Lines is null)
             throw new InvalidOperationException("A valid request key and selected lines are required.");
         request = request with { Lines = request.Lines.OrderBy(l => l.LineNo).ToList() };
-        var hash = IdempotencyRequestHash.Of(new { SaleId = sale.Id, Request = request });
+        var hash = Hash(sale.Id, request);
         var previous = await db.DesktopCreditNotes.AsNoTracking().SingleOrDefaultAsync(n => n.RequestKey == request.RequestKey, ct);
         if (previous is not null)
         {
@@ -59,6 +88,9 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
                 throw new InvalidOperationException("This request key belongs to a different credit note. Reopen the form for a new credit.");
             return previous.Status == DesktopCreditStatuses.Prepared ? await IssueAsync(previous, ct) : Map(previous);
         }
+        // After the replay above, not before: a credit saved by "Fiscalise only" whose sale has since
+        // posted is the same credit, and its retry must return it rather than be refused.
+        RequireAction(sale, request.PostToSap);
         var source = await fiscal.ReadOriginalAsync(sale, ct);
         DesktopCreditNoteEntity note;
         // The reservation of quantities and amount is serializable across app instances. No HTTP
