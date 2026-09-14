@@ -20,4 +20,12 @@ public sealed class DesktopSalesAnalysisResult
     public List<string> PaymentMethods { get; set; } = [];
 
     public List<DesktopSalesCurrencyAnalysis> Currencies { get; set; } = [];
+
+    /// <summary>The payment method every figure was confined to, or null for all of them.</summary>
+    public string? PaymentMethod { get; set; }
+
+    /// <summary>The start of the same number of days just before the period.</summary>
+    public DateTime PreviousFromDate { get; set; }
+
+    public DateTime PreviousToDate { get; set; }
 }

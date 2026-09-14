@@ -39,4 +39,10 @@ public sealed class DesktopSalesCurrencyAnalysis
     public List<DesktopSalesBreakdownRow> ByOperator { get; set; } = [];
 
     public List<DesktopSalesItemRow> TopItems { get; set; } = [];
+
+    /// <summary>Sales in the same number of days just before, under the same filters.</summary>
+    public int PreviousSalesCount { get; set; }
+
+    /// <summary>What those came to; zero means none, which is not a change to state.</summary>
+    public decimal PreviousTotalAmount { get; set; }
 }

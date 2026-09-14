@@ -84,22 +84,44 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
 
         var warehouse = readScope.Value.WarehouseCode;
         var (from, to) = Period(request);
+        var (previousFrom, previousTo) = PreviousPeriod(from, to);
         var source = string.IsNullOrWhiteSpace(request.SourceSystem) ? null : request.SourceSystem.Trim();
+        var paymentMethod = string.IsNullOrWhiteSpace(request.PaymentMethod)
+            ? null
+            : TenderTypes.ReportingName(request.PaymentMethod);
 
-        var sales = db.DesktopSales
-            .AsNoTracking()
-            .Where(s => s.DocDate >= from && s.DocDate <= to);
-
-        // The same default source scope as the list. An online van sale's row carries a receipt for a sale
-        // already counted as its SAP invoice, so adding it to takings would count that money twice.
-        sales = source is null
-            ? sales.Where(s => s.SourceSystem != SaleSourceSystems.VanSalesOnline)
-            : sales.Where(s => s.SourceSystem == source);
-
-        if (warehouse is not null)
+        IQueryable<DesktopSaleEntity> Scope(DateTime windowFrom, DateTime windowTo)
         {
-            sales = sales.Where(s => s.WarehouseCode == warehouse);
+            var scoped = db.DesktopSales
+                .AsNoTracking()
+                .Where(s => s.DocDate >= windowFrom && s.DocDate <= windowTo);
+
+            // The same default source scope as the list. An online van sale's row carries a receipt for a sale
+            // already counted as its SAP invoice, so adding it to takings would count that money twice.
+            scoped = source is null
+                ? scoped.Where(s => s.SourceSystem != SaleSourceSystems.VanSalesOnline)
+                : scoped.Where(s => s.SourceSystem == source);
+
+            return warehouse is null ? scoped : scoped.Where(s => s.WarehouseCode == warehouse);
         }
+
+        (List<string> Spellings, bool IncludesAbsent)? tenderFilter = paymentMethod is null
+            ? null
+            : await StoredSpellingsAsync(Scope(previousFrom, to), paymentMethod, cancellationToken);
+
+        IQueryable<DesktopSaleEntity> Filtered(DateTime windowFrom, DateTime windowTo)
+        {
+            var scoped = Scope(windowFrom, windowTo);
+            if (tenderFilter is null)
+            {
+                return scoped;
+            }
+
+            var (spellings, includesAbsent) = tenderFilter.Value;
+            return scoped.Where(s => spellings.Contains(s.PaymentMethod!) || (includesAbsent && s.PaymentMethod == null));
+        }
+
+        var sales = Filtered(from, to);
 
         // Every breakdown except the hour and the item is a roll-up of this one grouping, so it is read
         // once. Its rows number days × shops × sources × operators × tenders at most, which stays small.
@@ -179,6 +201,15 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                 CurrencyKey(i.Currency), i.ItemCode, i.ItemDescription, i.Quantity, i.NetAmount, i.SalesCount))
             .ToList();
 
+        // The same number of days just before, under the same filters, so a period can say whether it was
+        // up or down on the one before without the page asking twice.
+        var previous = (await Filtered(previousFrom, previousTo)
+                .GroupBy(s => s.Currency)
+                .Select(g => new { Currency = g.Key, SalesCount = g.Count(), TotalAmount = g.Sum(s => s.TotalAmount) })
+                .ToListAsync(cancellationToken))
+            .GroupBy(p => CurrencyKey(p.Currency))
+            .ToDictionary(g => g.Key, g => (SalesCount: g.Sum(p => p.SalesCount), TotalAmount: g.Sum(p => p.TotalAmount)));
+
         var operators = await OperatorNamesAsync(cells, cancellationToken);
         var paymentMethods = PaymentMethodColumns(cells.Select(c => c.PaymentMethod));
 
@@ -190,7 +221,8 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
                 hours.Where(h => h.Currency == group.Key).ToList(),
                 items.Where(i => i.Currency == group.Key).ToList(),
                 paymentMethods,
-                operators))
+                operators,
+                previous.GetValueOrDefault(group.Key)))
             // US dollars first — the currency the tills price in — then the rest by name. Not by
             // value: 370 ZWG and 106 USD are not comparable numbers, and ranking on them put ZiG on top.
             .OrderBy(c => c.Currency == "USD" ? 0 : 1)
@@ -204,7 +236,10 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             source,
             DateTime.UtcNow,
             paymentMethods,
-            currencies);
+            currencies,
+            paymentMethod,
+            previousFrom,
+            previousTo);
     }
 
     private static DesktopSalesCurrencyAnalysis Analyse(
@@ -213,7 +248,8 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
         List<HourCell> hours,
         List<ItemCell> items,
         IReadOnlyList<string> paymentMethods,
-        IReadOnlyDictionary<Guid, string> operators)
+        IReadOnlyDictionary<Guid, string> operators,
+        (int SalesCount, decimal TotalAmount) previous)
     {
         var salesCount = cells.Sum(c => c.SalesCount);
         var total = cells.Sum(c => c.TotalAmount);
@@ -285,7 +321,9 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
             Breakdown(cells, c => c.WarehouseCode, code => string.IsNullOrEmpty(code) ? "Not recorded" : code, total, paymentMethods),
             Breakdown(cells, c => c.SourceSystem, SourceLabel, total, paymentMethods),
             Breakdown(cells, c => c.CreatedBy, id => OperatorLabel(id, operators), total, paymentMethods),
-            topItems);
+            topItems,
+            previous.SalesCount,
+            previous.TotalAmount);
     }
 
     private static List<DesktopSalesBreakdownRow> Breakdown(
@@ -351,6 +389,32 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
         return columns;
     }
 
+    /// <summary>
+    /// Every stored spelling of a tender in the window, so the filter can be applied in SQL.
+    /// </summary>
+    /// <remarks>
+    /// Tills have stored the same tender in several spellings, and <see cref="TenderTypes.ReportingName"/> is
+    /// not something a query can restate. So the few distinct values the window holds are read first and folded
+    /// here, and the query then filters on the raw values that fold to the one asked for. A sale with no tender
+    /// at all is null or blank in the column, and matches only "Not recorded".
+    /// </remarks>
+    private static async Task<(List<string> Spellings, bool IncludesAbsent)> StoredSpellingsAsync(
+        IQueryable<DesktopSaleEntity> window, string paymentMethod, CancellationToken cancellationToken)
+    {
+        var stored = await window
+            .Select(s => s.PaymentMethod)
+            .Where(method => method != null)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var spellings = stored
+            .Where(method => TenderTypes.ReportingName(method) == paymentMethod)
+            .Select(method => method!)
+            .ToList();
+
+        return (spellings, paymentMethod == TenderTypes.NotRecorded);
+    }
+
     private Task<IReadOnlyDictionary<Guid, string>> OperatorNamesAsync(
         List<Cell> cells, CancellationToken cancellationToken) =>
         SaleOperatorNames.ResolveAsync(db, cells.Select(c => c.CreatedBy), cancellationToken);
@@ -388,6 +452,15 @@ public sealed class GetDesktopSalesAnalysisHandler(ApplicationDbContext db, IAud
         var to = (request.ToDate ?? (from > today ? from : today)).Date;
 
         return (from, to);
+    }
+
+    /// <summary>
+    /// The same number of days immediately before the period.
+    /// </summary>
+    private static (DateTime From, DateTime To) PreviousPeriod(DateTime from, DateTime to)
+    {
+        var days = (to - from).Days + 1;
+        return (from.AddDays(-days), from.AddDays(-1));
     }
 
     /// <summary>

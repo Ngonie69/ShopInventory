@@ -116,6 +116,20 @@ public sealed class DesktopSalesAnalysisExportTests
         }
     }
 
+    [Fact]
+    public void A_workbook_confined_to_one_payment_method_says_so_on_every_sheet()
+    {
+        var report = Report();
+        report.PaymentMethod = "Ecocash";
+
+        using var workbook = Export(report);
+
+        foreach (var sheet in workbook.Worksheets)
+        {
+            Assert.Contains(sheet.CellsUsed(), cell => cell.GetString().Contains("Paid by EcoCash only", StringComparison.Ordinal));
+        }
+    }
+
     // ---- Harness ----------------------------------------------------------------------------------
 
     private static XLWorkbook Export(DesktopSalesAnalysisResult report) =>

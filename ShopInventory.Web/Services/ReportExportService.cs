@@ -9051,7 +9051,11 @@ public partial class ReportExportService : IReportExportService
             report.FromDate.Date == report.ToDate.Date
                 ? report.FromDate.ToString("dd MMM yyyy")
                 : $"{report.FromDate:dd MMM yyyy} to {report.ToDate:dd MMM yyyy}",
-            string.IsNullOrWhiteSpace(report.WarehouseCode) ? "All shops" : $"Shop: {report.WarehouseCode}",
+            (string.IsNullOrWhiteSpace(report.WarehouseCode) ? "All shops" : $"Shop: {report.WarehouseCode}")
+                // A workbook confined to one tender says so, or its takings read as the whole period's.
+                + (string.IsNullOrWhiteSpace(report.PaymentMethod)
+                    ? ""
+                    : $" · Paid by {DesktopAnalysisTenderName(report.PaymentMethod)} only"),
             report.GeneratedAtUtc == default ? CurrentCatNow() : IAuditService.ToCAT(EnsureUtc(report.GeneratedAtUtc)));
 
         WriteDesktopAnalysisPaymentMethods(workbook, context);

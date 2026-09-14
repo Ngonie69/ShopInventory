@@ -1,0 +1,953 @@
+/* ==========================================================================
+   Sales breakdown — Nocturne
+
+   /reports/desktop-sales, imported from `Sales Breakdown.dc.html` in the
+   "Nocturne Dark Ops Redesign" design project. The page wears
+   `ops ops-ds ops-dsa` from operations.css for its tokens, segments, cards,
+   tables, swatches and the payment-method hues, and this sheet adds only
+   `ops-sbd`: the pinned head, the scope chips, the headline figure against the
+   period before, the things-to-check row, the trading-pattern columns with
+   their readout, the hour strip, the payment rows and the split bars.
+
+   Colours are tokens only, so there is no dark-theme block: every value
+   resolves against whichever scheme nocturne-tokens.css has in force. The
+   payment-method hues come through `--dsa-series`, which the `.ops-dsa-t*`
+   classes set and which already carries a dark step. The design's own four
+   violet steps are not used — in light Nocturne's accent ramp has nowhere to
+   spread, and two of the four land within a few hex of each other.
+
+   Every rule is two classes deep (`.ops-sbd .ops-sbd-x`), and the sheet loads
+   after operations.css, so where it restates an operations.css property at the
+   same specificity — the table's first and last cell padding — order decides.
+   ========================================================================== */
+
+.ops.ops-sbd {
+    gap: var(--ops-s6);
+}
+
+/* ── The head ──────────────────────────────────────────────────────────── */
+/* Pinned under the app bar with the controls, the way the design pins it.
+   Opaque, not frosted: a sticky bar's job is to hide what passes under it, and
+   a blur the compositor may skip lets the headline read through. The negative
+   inline margin carries the ground out over the page's own padding, so a card
+   scrolling beneath does not show at either edge. */
+
+.ops-sbd .ops-sbd-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 6;
+    margin: -12px -28px 0;
+    padding: 12px 28px 0;
+    background: var(--ops-bg);
+}
+
+.ops-sbd .ops-sbd-head-row {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--ops-s4);
+    flex-wrap: wrap;
+    padding-bottom: var(--ops-s4);
+}
+
+.ops-sbd .ops-sbd-title {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.ops-sbd .ops-sbd-title .ops-kicker {
+    display: block;
+    margin-bottom: 3px;
+    font-size: 10px;
+    letter-spacing: .1em;
+}
+
+.ops-sbd .ops-sbd-title h1 {
+    font-size: 27px;
+    letter-spacing: -.02em;
+    line-height: 1.15;
+}
+
+.ops-sbd .ops-sbd-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--ops-s3);
+    flex-wrap: wrap;
+}
+
+.ops-sbd .ops-sbd-shop {
+    width: 190px;
+}
+
+.ops-sbd .ops-sbd-dates {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--ops-s2);
+}
+
+.ops-sbd .ops-sbd-dates .ops-field {
+    width: 150px;
+}
+
+.ops-sbd .ops-sbd-vrule {
+    align-self: flex-end;
+    width: 1px;
+    height: 34px;
+    margin: 0 var(--ops-s1);
+    background: var(--ops-divider);
+}
+
+.ops-sbd .ops-sbd-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    height: 34px;
+}
+
+/* ── What the page is showing ──────────────────────────────────────────── */
+
+.ops-sbd .ops-sbd-scope {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--ops-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .ops-sbd-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 9px;
+    border: 0;
+    border-radius: 999px;
+    font: inherit;
+    font-size: 11px;
+    color: var(--ops-accent-text);
+    background: rgba(var(--ops-accent-rgb), .16);
+    cursor: pointer;
+    transition: background-color .14s;
+}
+
+.ops-sbd .ops-sbd-chip:hover {
+    background: rgba(var(--ops-accent-rgb), .26);
+}
+
+.ops-sbd .ops-sbd-chip i {
+    font-size: 10px;
+}
+
+/* A text button: "Clear all", and the best sellers' show-more. */
+.ops-sbd .ops-sbd-clear {
+    padding: 2px 6px;
+    border: 0;
+    border-radius: var(--ops-r-sm);
+    font: inherit;
+    font-size: 12px;
+    color: var(--ops-mute);
+    background: transparent;
+    cursor: pointer;
+}
+
+.ops-sbd .ops-sbd-clear:hover {
+    color: var(--ops-ink);
+    background: var(--ops-hover);
+}
+
+/* Held on screen while the next answer loads, dimmed so a click that is
+   still being answered does not read as one that did nothing. */
+.ops-sbd .ops-sbd-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s6);
+    transition: opacity .16s;
+}
+
+.ops-sbd .ops-sbd-body.is-busy {
+    opacity: .6;
+}
+
+/* ── The headline ──────────────────────────────────────────────────────── */
+
+.ops-sbd .ops-sbd-headline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ops-s4);
+}
+
+.ops-sbd .ops-sbd-headline > .ops-sbd-kpi {
+    flex: 1 1 260px;
+}
+
+.ops-sbd .ops-sbd-figures {
+    flex: 2 1 420px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: var(--ops-s4);
+}
+
+.ops-sbd .ops-sbd-kpi {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ops-s2);
+    min-width: 0;
+    padding: var(--ops-s6);
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-lg);
+    background: var(--ops-surface);
+}
+
+.ops-sbd .ops-sbd-kpi-head {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    font-size: 10.5px;
+    line-height: 1.4;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ops-mute-2);
+}
+
+.ops-sbd .ops-sbd-kpi-rule {
+    flex: none;
+    width: 16px;
+    height: 2px;
+    background: var(--ops-mute-3);
+}
+
+.ops-sbd .ops-sbd-kpi-rule.is-accent {
+    background: var(--ops-accent);
+}
+
+.ops-sbd .ops-sbd-kpi-num {
+    font-size: 42px;
+    font-weight: 500;
+    line-height: 1.05;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-ink);
+}
+
+.ops-sbd .ops-sbd-kpi-change {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    flex-wrap: wrap;
+    font-size: 12.5px;
+    color: var(--ops-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+/* An arrow, a sign and a number together, never the hue alone. A fall is not
+   painted as an alarm: a quiet week is information, not a fault. */
+.ops-sbd .ops-sbd-delta {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 500;
+}
+
+.ops-sbd .ops-sbd-delta.is-up {
+    color: var(--ops-accent-text);
+}
+
+.ops-sbd .ops-sbd-delta.is-down {
+    color: var(--ops-mute);
+}
+
+.ops-sbd .ops-sbd-kpi-sub {
+    margin-top: auto;
+    padding-top: var(--ops-s4);
+    font-size: 12.5px;
+    color: var(--ops-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .ops-sbd-fig-num {
+    font-size: 25px;
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: -.01em;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-ink);
+}
+
+.ops-sbd .ops-sbd-fig-sub {
+    margin-top: auto;
+    font-size: 12px;
+    color: var(--ops-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Things to check ───────────────────────────────────────────────────── */
+
+.ops-sbd .ops-sbd-alerts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ops-s3);
+}
+
+.ops-sbd .ops-sbd-alert {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    padding: var(--ops-s3) var(--ops-s4);
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-md);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    color: var(--ops-ink);
+    background: var(--ops-surface);
+    cursor: pointer;
+    transition: border-color .14s;
+}
+
+.ops-sbd .ops-sbd-alert:hover {
+    border-color: var(--ops-field-edge-hi);
+}
+
+.ops-sbd .ops-sbd-alert i {
+    font-size: 16px;
+    color: var(--ops-accent-text);
+}
+
+.ops-sbd .ops-sbd-alert-cta {
+    font-size: 11.5px;
+    white-space: nowrap;
+    color: var(--ops-accent-text);
+}
+
+/* ── Card heads ────────────────────────────────────────────────────────── */
+
+.ops-sbd .ops-sbd-hint {
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .ops-sbd-head-end {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s4);
+    flex-wrap: wrap;
+    margin-left: auto;
+}
+
+.ops-sbd .ops-sbd-tally {
+    margin-left: auto;
+    font-size: 15px;
+    font-weight: 500;
+    white-space: nowrap;
+    color: var(--ops-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .ops-sbd-legend {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s4);
+    flex-wrap: wrap;
+}
+
+.ops-sbd .ops-sbd-legend-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+    border: 0;
+    font: inherit;
+    font-size: 12px;
+    color: var(--ops-ink-2);
+    background: transparent;
+    cursor: pointer;
+    transition: opacity .14s;
+}
+
+.ops-sbd .ops-sbd-legend-key.is-dim,
+.ops-sbd .ops-sbd-method.is-dim {
+    opacity: .4;
+}
+
+.ops-sbd .ops-sbd-legend-key:hover,
+.ops-sbd .ops-sbd-method.is-dim:hover:not(:disabled) {
+    opacity: 1;
+}
+
+/* ── The trading pattern ───────────────────────────────────────────────── */
+/* The readout sits above the columns and each column carries its own copy,
+   absolutely placed over it; CSS shows the hovered or focused column's and
+   hides the page's. The columns are not positioned, so every copy lands on
+   the plot's top-left corner. */
+
+.ops-sbd .ops-sbd-plot {
+    position: relative;
+}
+
+.ops-sbd .ops-sbd-readout,
+.ops-sbd .ops-sbd-col-readout {
+    display: flex;
+    align-items: baseline;
+    gap: var(--ops-s4);
+    flex-wrap: wrap;
+    min-height: 26px;
+    margin-bottom: var(--ops-s3);
+}
+
+.ops-sbd .ops-sbd-readout b,
+.ops-sbd .ops-sbd-col-readout b {
+    font-size: 17px;
+    font-weight: 500;
+    color: var(--ops-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .ops-sbd-readout span,
+.ops-sbd .ops-sbd-col-readout span {
+    font-size: 12.5px;
+    color: var(--ops-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .ops-sbd-col-readout {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: none;
+    text-align: left;
+    pointer-events: none;
+}
+
+.ops-sbd .ops-sbd-col:hover .ops-sbd-col-readout,
+.ops-sbd .ops-sbd-col:focus-visible .ops-sbd-col-readout {
+    display: flex;
+}
+
+.ops-sbd .ops-sbd-plot:has(.ops-sbd-col:hover, .ops-sbd-col:focus-visible) .ops-sbd-readout {
+    visibility: hidden;
+}
+
+.ops-sbd .ops-sbd-cols {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 180px;
+    padding-bottom: 1px;
+    border-bottom: 1px solid var(--ops-divider);
+}
+
+.ops-sbd .ops-sbd-plot.is-dense .ops-sbd-cols,
+.ops-sbd .ops-sbd-plot.is-dense .ops-sbd-axis {
+    gap: 1px;
+}
+
+.ops-sbd .ops-sbd-col {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    transition: opacity .14s;
+}
+
+.ops-sbd .ops-sbd-cols.has-pick .ops-sbd-col:not(.is-picked) {
+    opacity: .35;
+}
+
+.ops-sbd .ops-sbd-cols.has-pick .ops-sbd-col:hover {
+    opacity: .7;
+}
+
+.ops-sbd .ops-sbd-col:focus-visible {
+    outline-offset: 0;
+}
+
+/* The first payment method sits on the baseline, so a day's cash is always
+   measured from the same line. The 1px gap is the card showing between
+   methods, so two neighbouring hues never touch. */
+.ops-sbd .ops-sbd-col-bar {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 1px;
+    width: 100%;
+    min-height: 2px;
+    overflow: hidden;
+    border-radius: 3px 3px 0 0;
+}
+
+.ops-sbd .ops-sbd-col-bar.is-zero {
+    height: 2px;
+    background: var(--ops-press);
+}
+
+.ops-sbd .ops-sbd-col.is-picked .ops-sbd-col-bar {
+    box-shadow: 0 0 0 1px var(--ops-accent);
+}
+
+.ops-sbd .ops-sbd-col-seg {
+    flex: 1 1 0;
+    min-height: 0;
+    background: var(--dsa-series, var(--ops-mute-3));
+}
+
+/* Each label is centred on its column and allowed to spill: only every nth
+   is printed, so there is room beside it that a clipped cell would waste. */
+.ops-sbd .ops-sbd-axis {
+    display: flex;
+    gap: 2px;
+    margin-top: var(--ops-s2);
+}
+
+.ops-sbd .ops-sbd-axis span {
+    display: flex;
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
+    font-size: 11px;
+    white-space: nowrap;
+    color: var(--ops-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .ops-sbd-axis span.is-picked {
+    color: var(--ops-accent-text);
+}
+
+/* ── By hour of day ────────────────────────────────────────────────────── */
+
+.ops-sbd .ops-sbd-hours {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: var(--ops-s6);
+    margin-top: var(--ops-s2);
+    padding-top: var(--ops-s6);
+    border-top: 1px solid var(--ops-divider);
+}
+
+.ops-sbd .ops-sbd-hours-main .ops-ds-card-head {
+    margin-bottom: var(--ops-s4);
+}
+
+.ops-sbd .ops-sbd-hour-cols,
+.ops-sbd .ops-sbd-hour-axis {
+    display: flex;
+    gap: 4px;
+}
+
+.ops-sbd .ops-sbd-hour-cols {
+    align-items: flex-end;
+    height: 72px;
+}
+
+.ops-sbd .ops-sbd-hour {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-width: 0;
+    height: 100%;
+}
+
+/* One hue — magnitude, not identity — and the busiest hour at full strength
+   so the answer to "when" is found first. */
+.ops-sbd .ops-sbd-hour-bar {
+    display: block;
+    width: 100%;
+    min-height: 2px;
+    border-radius: 3px 3px 0 0;
+    background: rgba(var(--ops-accent-rgb), .45);
+}
+
+.ops-sbd .ops-sbd-hour-bar.is-zero {
+    background: var(--ops-press);
+}
+
+.ops-sbd .ops-sbd-hour-bar.is-peak,
+.ops-sbd .ops-sbd-hour:hover .ops-sbd-hour-bar:not(.is-zero) {
+    background: var(--ops-accent);
+}
+
+.ops-sbd .ops-sbd-hour-axis {
+    margin-top: 4px;
+}
+
+.ops-sbd .ops-sbd-hour-axis span {
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 11px;
+    text-align: center;
+    color: var(--ops-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .ops-sbd-peak {
+    padding-bottom: var(--ops-s8);
+    text-align: right;
+}
+
+.ops-sbd .ops-sbd-peak-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ops-mute-3);
+}
+
+.ops-sbd .ops-sbd-peak-num {
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--ops-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .ops-sbd-peak-sub {
+    font-size: 12px;
+    color: var(--ops-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .ops-sbd-peak-note {
+    margin-top: var(--ops-s2);
+    font-size: 11px;
+    color: var(--ops-mute-3);
+}
+
+/* ── How it was paid, and who took it ──────────────────────────────────── */
+
+.ops-sbd .ops-sbd-pair {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--ops-s4);
+}
+
+.ops-sbd .ops-sbd-paid {
+    flex: 1 1 320px;
+    gap: var(--ops-s4);
+}
+
+.ops-sbd .ops-sbd-who {
+    flex: 1.3 1 400px;
+    gap: var(--ops-s4);
+}
+
+.ops-sbd .ops-sbd-strip {
+    display: flex;
+    gap: 2px;
+    height: 8px;
+    overflow: hidden;
+    border-radius: 4px;
+    background: var(--ops-press);
+}
+
+.ops-sbd .ops-sbd-methods {
+    display: flex;
+    flex-direction: column;
+}
+
+.ops-sbd .ops-sbd-method {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 2px var(--ops-s4);
+    padding: 9px 2px;
+    border: 0;
+    border-bottom: 1px solid var(--ops-rule);
+    font: inherit;
+    text-align: left;
+    color: var(--ops-ink);
+    background: transparent;
+    cursor: pointer;
+    transition: opacity .14s, background-color .14s;
+}
+
+.ops-sbd .ops-sbd-method:hover:not(:disabled) {
+    background: var(--ops-hover);
+}
+
+.ops-sbd .ops-sbd-method:disabled {
+    cursor: default;
+}
+
+.ops-sbd .ops-sbd-method .ops-dsa-key {
+    font-size: 13.5px;
+}
+
+.ops-sbd .ops-sbd-method.is-idle {
+    color: var(--ops-mute-3);
+}
+
+.ops-sbd .ops-sbd-method-total {
+    font-size: 13.5px;
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Indented past the swatch, so the sub-line reads under the name. */
+.ops-sbd .ops-sbd-method-sub {
+    grid-column: 1;
+    padding-left: 18px;
+    font-size: 11.5px;
+    line-height: 1.35;
+    color: var(--ops-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-sbd .ops-sbd-method-share {
+    font-size: 11.5px;
+    text-align: right;
+    white-space: nowrap;
+    color: var(--ops-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Status, so an icon and words as well as the warning hue. */
+.ops-sbd .ops-sbd-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: 6px;
+    color: var(--ops-fam-warn);
+}
+
+.ops-sbd .ops-sbd-paid-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--ops-s4);
+    flex-wrap: wrap;
+    padding-top: var(--ops-s1);
+    font-size: 12px;
+    color: var(--ops-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────── */
+/* Inside a card the card is the gutter, so the first and last cells lose the
+   page-edge padding operations.css gives a table sitting on the ground. */
+
+.ops-sbd .ops-sbd-table thead th:first-child,
+.ops-sbd .ops-sbd-table tbody td:first-child {
+    padding-left: 0;
+}
+
+.ops-sbd .ops-sbd-table thead th:last-child,
+.ops-sbd .ops-sbd-table tbody td:last-child {
+    padding-right: 0;
+}
+
+/* app.css fills every `.dark-theme table thead th` navy at (0,1,3). operations.css
+   out-specifies its colour and border but never states a background, so the
+   fill leaks into the card as a band the design does not have. */
+.ops-sbd .ops-sbd-table thead th {
+    background: transparent;
+}
+
+.ops-sbd .ops-sbd-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0;
+    border: 0;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+}
+
+.ops-sbd .ops-sbd-sort:hover {
+    color: var(--ops-ink);
+}
+
+.ops-sbd .ops-sbd-split-head {
+    width: 34%;
+}
+
+.ops-sbd .ops-sbd-item-head {
+    width: 36%;
+}
+
+.ops-sbd .ops-sbd-share-head {
+    width: 26%;
+}
+
+.ops-sbd .ops-sbd-row-name {
+    font-size: 13.5px;
+    color: var(--ops-ink);
+}
+
+.ops-sbd .ops-sbd-split {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+}
+
+.ops-sbd .ops-sbd-track {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 40px;
+    height: 6px;
+    overflow: hidden;
+    border-radius: 3px;
+    background: var(--ops-press);
+}
+
+/* `display: flex` is load-bearing twice: the fill is a <span>, which ignores
+   width as an inline box, and its method segments share it by flex-grow. */
+.ops-sbd .ops-sbd-track-fill {
+    display: flex;
+    gap: 1px;
+    height: 100%;
+}
+
+.ops-sbd .ops-sbd-track-fill .ops-dsa-seg {
+    min-width: 0;
+}
+
+.ops-sbd .ops-sbd-track-fill.is-accent {
+    background: rgba(var(--ops-accent-rgb), .75);
+}
+
+.ops-sbd .ops-sbd-share {
+    flex: none;
+    width: 44px;
+    font-size: 11.5px;
+    text-align: right;
+    color: var(--ops-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Foot and toast ────────────────────────────────────────────────────── */
+
+.ops-sbd .ops-sbd-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--ops-s6);
+    flex-wrap: wrap;
+    padding-top: var(--ops-s2);
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+}
+
+.ops-sbd .ops-sbd-toast {
+    position: fixed;
+    right: var(--ops-s8);
+    bottom: var(--ops-s8);
+    z-index: 1300;
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    padding: var(--ops-s4) var(--ops-s6);
+    border-radius: var(--ops-r-md);
+    font-size: 13px;
+    color: var(--ops-ink);
+    background: var(--ops-surface);
+    box-shadow: var(--ops-shadow-pop);
+}
+
+.ops-sbd .ops-sbd-toast i {
+    font-size: 16px;
+    color: var(--ops-accent-text);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .ops-sbd .ops-sbd-toast {
+        animation: sbd-toast-in .18s ease-out;
+    }
+
+    @keyframes sbd-toast-in {
+        from { transform: translateY(8px); opacity: 0; }
+        to { transform: none; opacity: 1; }
+    }
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+    /* Follows the page padding operations.css drops to at this width. */
+    .ops-sbd .ops-sbd-head {
+        margin-inline: -16px;
+        padding-inline: 16px;
+    }
+
+    .ops-sbd .ops-sbd-title h1 {
+        font-size: 23px;
+    }
+
+    .ops-sbd .ops-sbd-controls,
+    .ops-sbd .ops-sbd-controls > .ops-field,
+    .ops-sbd .ops-sbd-dates {
+        flex: 1 1 100%;
+    }
+
+    .ops-sbd .ops-sbd-shop,
+    .ops-sbd .ops-sbd-dates .ops-field {
+        width: auto;
+        flex: 1 1 0;
+    }
+
+    .ops-sbd .ops-sbd-controls .ops-ds-seg {
+        display: flex;
+    }
+
+    .ops-sbd .ops-sbd-controls .ops-ds-seg-opt {
+        padding: 0 6px;
+    }
+
+    .ops-sbd .ops-sbd-vrule {
+        display: none;
+    }
+
+    .ops-sbd .ops-sbd-actions {
+        flex: 1 1 100%;
+        justify-content: flex-end;
+    }
+
+    .ops-sbd .ops-sbd-headline > .ops-sbd-kpi,
+    .ops-sbd .ops-sbd-figures,
+    .ops-sbd .ops-sbd-paid,
+    .ops-sbd .ops-sbd-who {
+        flex-basis: 100%;
+    }
+
+    .ops-sbd .ops-sbd-kpi-num {
+        font-size: 34px;
+    }
+
+    .ops-sbd .ops-sbd-head-end {
+        flex: 1 1 100%;
+        margin-left: 0;
+    }
+
+    .ops-sbd .ops-sbd-cols {
+        height: 140px;
+    }
+
+    .ops-sbd .ops-sbd-axis span,
+    .ops-sbd .ops-sbd-hour-axis span {
+        font-size: 9.5px;
+    }
+
+    .ops-sbd .ops-sbd-hour-cols,
+    .ops-sbd .ops-sbd-hour-axis {
+        gap: 2px;
+    }
+
+    .ops-sbd .ops-sbd-hours {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .ops-sbd .ops-sbd-peak {
+        padding-bottom: 0;
+        text-align: left;
+    }
+}

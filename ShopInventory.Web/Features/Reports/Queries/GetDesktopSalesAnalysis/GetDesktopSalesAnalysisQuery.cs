@@ -8,10 +8,12 @@ namespace ShopInventory.Web.Features.Reports.Queries.GetDesktopSalesAnalysis;
 /// </summary>
 /// <remarks>
 /// The API decides whose shops the signed-in account may read, so the warehouse is a filter and a
-/// shop-confined account naming another shop is refused rather than rescoped.
+/// shop-confined account naming another shop is refused rather than rescoped. The payment method, when
+/// given, confines every figure to that tender.
 /// </remarks>
 public sealed record GetDesktopSalesAnalysisQuery(
     DateTime? FromDate,
     DateTime? ToDate,
-    string? WarehouseCode
+    string? WarehouseCode,
+    string? PaymentMethod = null
 ) : IRequest<ErrorOr<DesktopSalesAnalysisResult>>;
