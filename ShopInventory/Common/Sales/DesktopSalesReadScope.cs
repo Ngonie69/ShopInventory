@@ -79,7 +79,7 @@ public static class DesktopSalesReadScopeResolver
     /// Deliberately much narrower than the "ApiAccess" role list this endpoint used to rely on. The
     /// three consumers are the two web pages — <c>/desktop-sales</c> is Admin and Cashier,
     /// <c>/desktop-transactions</c> is Admin — and the till itself, which is shop-scoped. No handset
-    /// role reads this at all.
+    /// role reads this at all; a cart vendor reads it confined to its one warehouse, further down.
     ///
     /// Cashier is here and also shop-scopable, which is the case that matters: the accounts working
     /// tills today hold this role, and pointing one at a shop is what confines it.
@@ -141,6 +141,20 @@ public static class DesktopSalesReadScopeResolver
         if (UnrestrictedWithoutShopRoles.Contains(user.Role, StringComparer.OrdinalIgnoreCase))
         {
             return DesktopSalesReadScope.Unrestricted;
+        }
+
+        // A cart vendor has no shop — the admin handlers refuse it one — but it does sell out of exactly
+        // one warehouse, and it is confined to that warehouse's takings the way a till is to its shop's.
+        // Without this its dashboard, stock ledger and sales-and-stock screens all stopped at a 403: the
+        // stock ledger cannot explain a balance without the sales that moved it. The warehouse comes from
+        // the same resolver the sale is made on, and an account with none or several is refused rather
+        // than widened.
+        if (string.Equals(user.Role, ApplicationRoles.CartVendor, StringComparison.OrdinalIgnoreCase))
+        {
+            var warehouseCode = SellingAccountResolver.ResolveAssignedWarehouse(user);
+            return warehouseCode.IsError
+                ? warehouseCode.Errors
+                : new DesktopSalesReadScope(warehouseCode.Value);
         }
 
         return Errors.Errors.DesktopSales.SalesReadNotPermitted;

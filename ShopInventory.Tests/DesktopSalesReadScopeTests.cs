@@ -165,7 +165,6 @@ public sealed class DesktopSalesReadScopeTests : IDisposable
     [InlineData(ApplicationRoles.PodOperator)]
     [InlineData(ApplicationRoles.Adr)]
     [InlineData(ApplicationRoles.Sales)]
-    [InlineData(ApplicationRoles.CartVendor)]
     [InlineData(ApplicationRoles.Lab)]
     [InlineData(ApplicationRoles.StockController)]
     [InlineData(ApplicationRoles.DepotController)]
@@ -176,6 +175,80 @@ public sealed class DesktopSalesReadScopeTests : IDisposable
         var userId = await AddUser(role, shopId: null);
 
         var result = await List(userId, warehouseCode: null);
+
+        Assert.True(result.IsError);
+        Assert.Equal("DesktopSales.SalesReadNotPermitted", result.FirstError.Code);
+    }
+
+    // ---- A cart vendor sees the warehouse it sells from, and only that ---------------------------
+
+    [Fact]
+    public async Task A_cart_vendor_omitting_the_warehouse_sees_only_the_warehouse_it_sells_from()
+    {
+        // It has no shop to be scoped by, so the quiet half of the hole is the one to pin here too:
+        // omitting the parameter must narrow to its own warehouse, never fall through to every shop.
+        var vendorId = await AddUser(ApplicationRoles.CartVendor, shopId: null, warehouses: ["CORMACH2"]);
+
+        var result = await List(vendorId, warehouseCode: null);
+
+        Assert.False(result.IsError);
+        Assert.Equal("MACH-001", Assert.Single(result.Value.Sales).ExternalReferenceId);
+        Assert.Equal(1, result.Value.TotalCount);
+    }
+
+    [Fact]
+    public async Task A_cart_vendor_naming_its_own_warehouse_is_allowed()
+    {
+        // What the till actually sends: the account's own warehouse, off its sign-in.
+        var vendorId = await AddUser(ApplicationRoles.CartVendor, shopId: null, warehouses: ["CORMACH2"]);
+
+        var result = await List(vendorId, warehouseCode: "cormach2");
+
+        Assert.False(result.IsError);
+        Assert.Equal("MACH-001", Assert.Single(result.Value.Sales).ExternalReferenceId);
+    }
+
+    [Fact]
+    public async Task A_cart_vendor_naming_another_warehouse_is_refused()
+    {
+        var vendorId = await AddUser(ApplicationRoles.CartVendor, shopId: null, warehouses: ["CORMACH2"]);
+
+        var result = await List(vendorId, warehouseCode: "KEFSHOP");
+
+        Assert.True(result.IsError);
+        Assert.Equal("DesktopSales.SalesReadOutsideScope", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task A_cart_vendor_with_no_warehouse_is_refused_rather_than_widened()
+    {
+        var vendorId = await AddUser(ApplicationRoles.CartVendor, shopId: null);
+
+        var result = await List(vendorId, warehouseCode: null);
+
+        Assert.True(result.IsError);
+        Assert.Equal("DesktopSales.MissingWarehouseAssignment", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task A_cart_vendor_with_two_warehouses_is_refused_rather_than_given_either()
+    {
+        // The same rule its sales are made on: exactly one warehouse, or a configuration error.
+        var vendorId = await AddUser(ApplicationRoles.CartVendor, shopId: null, warehouses: ["CORMACH2", "KEFSHOP"]);
+
+        var result = await List(vendorId, warehouseCode: null);
+
+        Assert.True(result.IsError);
+        Assert.Equal("DesktopSales.AmbiguousWarehouseAssignment", result.FirstError.Code);
+    }
+
+    [Fact]
+    public async Task A_van_rep_holding_a_warehouse_still_cannot_read_till_takings()
+    {
+        // The warehouse is not what opens this. A van rep carries one too, and it stays refused.
+        var repId = await AddUser(ApplicationRoles.Adr, shopId: null, warehouses: ["CORMACH2"]);
+
+        var result = await List(repId, warehouseCode: null);
 
         Assert.True(result.IsError);
         Assert.Equal("DesktopSales.SalesReadNotPermitted", result.FirstError.Code);
@@ -295,10 +368,10 @@ public sealed class DesktopSalesReadScopeTests : IDisposable
         CreatedAt = new DateTime(2026, 9, 1, 10, 0, 0, DateTimeKind.Utc),
     };
 
-    private async Task<Guid> AddUser(string role, int? shopId, bool isActive = true)
+    private async Task<Guid> AddUser(string role, int? shopId, bool isActive = true, List<string>? warehouses = null)
     {
         var id = Guid.NewGuid();
-        _context.Users.Add(new User
+        var user = new User
         {
             Id = id,
             Username = $"u{id:N}"[..12],
@@ -306,7 +379,9 @@ public sealed class DesktopSalesReadScopeTests : IDisposable
             Role = role,
             IsActive = isActive,
             ShopId = shopId,
-        });
+        };
+        user.SetWarehouseCodes(warehouses);
+        _context.Users.Add(user);
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
         return id;
