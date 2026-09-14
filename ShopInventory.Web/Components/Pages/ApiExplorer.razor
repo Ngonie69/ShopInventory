@@ -768,6 +768,19 @@ new("GET", "/api/Statement/{cardCode}", "Get customer statement"),
 new("GET", "/api/Statement/{cardCode}/pdf", "Download statement as PDF"),
 new("GET", "/api/Statement/generate/{cardCode}", "Generate statement PDF")
 }
+},
+new ApiModule
+{
+Name = "Vending",
+BasePath = "/api/vending",
+Description = "Vending depots, their cashier accounts and the vendors they serve.",
+Icon = Icons.Material.Filled.Api,
+Color = Color.Secondary,
+Methods = new[] { "GET" },
+Endpoints = new List<ApiEndpoint>
+{
+new("GET", "/api/vending/overview", "Depots, cashier accounts and vendors")
+}
 }
 }
 },

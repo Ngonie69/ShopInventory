@@ -163,6 +163,7 @@ $categoryOf = @{
 
     'BusinessPartnerController'='Partners & Customers'; 'CustomerPortalController'='Partners & Customers'
     'StatementController'='Partners & Customers'; 'RouteCustomersController'='Partners & Customers'
+    'VendingController'='Partners & Customers'
     'CreditControlController'='Partners & Customers'
 
     'ExchangeRateController'='Finance'; 'GLAccountController'='Finance'; 'CostCentreController'='Finance'
