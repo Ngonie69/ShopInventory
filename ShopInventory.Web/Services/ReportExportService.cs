@@ -53,6 +53,7 @@ public interface IReportExportService
     byte[] ExportVanStockToExcel(VanStockReportResponse report);
     byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportDesktopSalesAnalysisToExcel(DesktopSalesAnalysisResult report);
+    byte[] ExportManagementSalesReportToExcel(ShopInventory.Web.Features.Reports.Queries.GetManagementSalesReport.ManagementSalesReportResult report, IReadOnlyDictionary<int, string>? itemGroupNames = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     byte[] ExportAccountSalesPaymentReportToExcel(GetAccountSalesPaymentReportResult report);
     byte[] ExportItemVolumeSalesReportToExcel(GetItemVolumeSalesReportResult report, string title);
@@ -72,7 +73,7 @@ public interface IReportExportService
     string GeneratePrintableHtml(string title, string content, DateTime? fromDate = null, DateTime? toDate = null);
 }
 
-public class ReportExportService : IReportExportService
+public partial class ReportExportService : IReportExportService
 {
     private const string CompanyName = "KEFALOS CHEESE (PVT) LTD";
     private const string SystemName = "Shop Inventory Management System";

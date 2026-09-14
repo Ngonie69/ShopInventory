@@ -65,6 +65,7 @@ using ShopInventory.Features.DesktopIntegration.Queries.GetTransferListenerStatu
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnalysis;
+using ShopInventory.Features.DesktopIntegration.Queries.GetManagementSalesReport;
 using ShopInventory.Middleware;
 using ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
 using ShopInventory.Features.DesktopIntegration.Queries.GetMonitoredWarehouses;
@@ -1122,6 +1123,59 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
         var result = await mediator.Send(
             new GetDesktopSalesAnalysisQuery(userId.Value, fromDate, toDate, warehouseCode, sourceSystem),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// The management sales report: a period against the one before it by channel, depot, vendor, cost
+    /// centre, operator, payment method and item, with SAP's booked margin and posting and fiscal health.
+    /// </summary>
+    /// <remarks>
+    /// Scoped exactly as the analysis above is, so the two reports read the same sales. Not ApiUser: this
+    /// report reads SAP for cost, and nothing machine-to-machine needs a management summary.
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager,Cashier")]
+    [HttpGet("sales/management-report")]
+    public async Task<IActionResult> GetManagementSalesReport(
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        [FromQuery] string? warehouseCode,
+        [FromQuery] string? sourceSystem,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new GetManagementSalesReportQuery(userId.Value, fromDate, toDate, warehouseCode, sourceSystem),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// One item from the management sales report, taken apart by shop or depot, vendor, channel, operator
+    /// and day, with its price and SAP margin. Same scope, period and channel filter as the report.
+    /// </summary>
+    [Authorize(Roles = "Admin,Manager,Cashier")]
+    [HttpGet("sales/management-report/item")]
+    public async Task<IActionResult> GetManagementItemAnalysis(
+        [FromQuery] string itemCode,
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        [FromQuery] string? warehouseCode,
+        [FromQuery] string? sourceSystem,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new GetManagementItemAnalysisQuery(userId.Value, itemCode, fromDate, toDate, warehouseCode, sourceSystem),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));

@@ -1,0 +1,266 @@
+/* ==========================================================================
+   Management sales report — Nocturne
+
+   /reports/management-sales. The page wears `ops ops-ds ops-dsa` from
+   operations.css for its hero, filters, cards, tables, legend and swatches,
+   and this sheet adds only `ops-msr`: the change marker, the paired
+   this-period / previous-period bars, and the posting and fiscal strip.
+
+   Colours are tokens only. The two series take the analysis page's
+   --dsa-t1 / --dsa-t2 through `--dsa-series` (set by .ops-dsa-t1/.ops-dsa-t2,
+   which already carry a dark-theme step), and every state reads the family
+   pair `--ops-fam` / `--ops-fam-rgb` set by the .ops-fam-* classes — so there
+   is no dark-theme block here: both resolve against whichever scheme is on.
+   ========================================================================== */
+
+/* A change: arrow, signed number and family together, never colour alone.
+   The text wears the family ink, which is text-contrast safe in both themes. */
+.ops-msr .ops-msr-change {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--ops-fam, var(--ops-mute));
+    background: rgba(var(--ops-fam-rgb, 128, 128, 128), .12);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-msr .ops-msr-change i {
+    font-size: 12px;
+}
+
+.ops-msr .ops-figure-sub .ops-msr-change {
+    margin-right: 4px;
+}
+
+.ops-msr .ops-msr-margin {
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-msr .ops-msr-margin.ops-fam-warn,
+.ops-msr .ops-msr-margin.ops-fam-bad {
+    color: var(--ops-fam);
+    font-weight: 600;
+}
+
+.ops-msr .ops-msr-figures {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+/* Two thin bars per day, this period over the previous one, from one
+   baseline and on one scale — the busiest of either. The 2px gap is the
+   card showing through, so the pair never reads as one stacked bar. */
+.ops-msr .ops-msr-pair {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+}
+
+.ops-msr .ops-msr-bar {
+    display: block;
+    height: 6px;
+    min-width: 2px;
+    border-radius: 0 4px 4px 0;
+    background: var(--dsa-series, var(--ops-mute-3));
+}
+
+/* The health strip: two groups of state tiles, each an icon, a count and a
+   word, with the value underneath when there is money waiting. */
+.ops-msr .ops-msr-health {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px 24px;
+}
+
+.ops-msr .ops-msr-health-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ops-msr .ops-msr-health-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 8px;
+}
+
+.ops-msr .ops-msr-stat {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    column-gap: 6px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(var(--ops-fam-rgb, 128, 128, 128), .28);
+    background: rgba(var(--ops-fam-rgb, 128, 128, 128), .07);
+    color: var(--ops-ink);
+}
+
+/* Placed explicitly: auto-placement put the count in the icon's column and
+   pushed the icon under it. */
+.ops-msr .ops-msr-stat i {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    align-self: center;
+    font-size: 18px;
+    color: var(--ops-fam, var(--ops-mute));
+}
+
+.ops-msr .ops-msr-stat b {
+    grid-column: 2;
+    grid-row: 1;
+    font-size: 18px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-msr .ops-msr-stat span {
+    grid-column: 2;
+    grid-row: 2;
+    font-size: 12px;
+    color: var(--ops-mute);
+}
+
+.ops-msr .ops-msr-stat small {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--ops-mute);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Card heads that carry a search box and a segment wrap on a narrow card
+   rather than pushing the segment out of it. */
+.ops-msr .ops-msr-wrap {
+    flex-wrap: wrap;
+    row-gap: 8px;
+}
+
+.ops-msr .ops-msr-search {
+    min-width: 180px;
+    height: 30px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 1px solid var(--ops-divider);
+    background: var(--ops-surface);
+    color: var(--ops-ink);
+    font: inherit;
+    font-size: 13px;
+}
+
+.ops-msr .ops-msr-search:focus-visible {
+    outline: 2px solid var(--ops-accent);
+    outline-offset: 1px;
+}
+
+.ops-msr .ops-msr-search::placeholder {
+    color: var(--ops-mute);
+}
+
+/* Rows that open something: the item drill-down, or a group's items. */
+.ops-msr .ops-msr-clickable {
+    cursor: pointer;
+}
+
+.ops-msr .ops-msr-clickable:focus-visible {
+    outline: 2px solid var(--ops-accent);
+    outline-offset: -2px;
+}
+
+/* The item × depot grid. One hue — the accent — at an alpha set per cell by
+   the page from the item's own busiest depot, so the wash is magnitude, not
+   identity, and the figure on top stays in ink. */
+.ops-msr .ops-msr-matrix th:not(:first-child) {
+    max-width: 140px;
+    white-space: normal;
+}
+
+.ops-msr .ops-msr-cell {
+    background: rgba(var(--ops-accent-rgb), var(--msr-wash, 0));
+    font-variant-numeric: tabular-nums;
+}
+
+/* The item drill-down: a right-hand drawer over a scrim. */
+.ops-msr-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: flex;
+    justify-content: flex-end;
+    background: var(--ops-scrim, rgba(10, 12, 20, .45));
+}
+
+/* The drawer is also a page root (.ops), so the root's width cap, centring and
+   full-viewport minimum are undone here, two classes deep to outrank them. */
+.ops-msr-overlay > .ops-msr-drawer.ops {
+    margin: 0;
+    max-width: none;
+    min-height: 0;
+    border-radius: 0;
+}
+
+.ops-msr-overlay .ops-msr-drawer .ops-msr-figures {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+/* Five figures across a drawer leave each card ~170px, where the page-size
+   figure wrapped "USD 650.50" onto two lines. */
+.ops-msr-overlay .ops-msr-drawer .ops-figure-num {
+    font-size: 26px;
+    white-space: nowrap;
+}
+
+.ops-msr-overlay .ops-msr-drawer {
+    width: min(980px, 100%);
+    height: 100%;
+    overflow-y: auto;
+    padding: 24px 24px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    background: var(--ops-bg, var(--ops-surface));
+    color: var(--ops-ink);
+    box-shadow: var(--ops-shadow-pop, 0 0 40px rgba(0, 0, 0, .25));
+}
+
+.ops-msr .ops-msr-drawer-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.ops-msr .ops-msr-drawer-head h2 {
+    margin: 4px 0 2px;
+    font-size: 20px;
+    font-weight: 650;
+    color: var(--ops-ink);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .ops-msr-overlay .ops-msr-drawer {
+        animation: msr-drawer-in .18s ease-out;
+    }
+
+    @keyframes msr-drawer-in {
+        from { transform: translateX(24px); opacity: 0; }
+        to { transform: none; opacity: 1; }
+    }
+}
+
+@media (max-width: 700px) {
+    .ops-msr .ops-msr-search {
+        flex: 1 1 100%;
+    }
+}
+
+/* A zero is no bar at all, not a 2px sliver that reads as a small sale. */
+.ops-msr .ops-msr-bar[style*="width:0%"] {
+    min-width: 0;
+}
