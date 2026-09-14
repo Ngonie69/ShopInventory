@@ -217,4 +217,29 @@ public sealed class UserRoleCatalogueTests
             ApplicationRoles.RequiresSupplyingWarehouseCode(ApplicationRoles.CartVendor),
             "a cart vendor loads from no depot");
     }
+
+    /// <summary>
+    /// The user form decides which assignment fields to show and keep from the web copies of these
+    /// predicates. When it named ADR and Sales by hand, a cart vendor was offered none of the three
+    /// fields the API requires of it, had them blanked on save anyway, and could not be created.
+    /// </summary>
+    [Fact]
+    public void The_user_form_asks_every_role_for_what_the_api_requires_of_it()
+    {
+        foreach (var role in ApplicationRoles.AssignableRoles)
+        {
+            Assert.True(
+                ApplicationRoles.RequiresAssignedBusinessPartnerCode(role) == UserRoles.SellsUnderOwnBusinessPartner(role),
+                $"{role}: business partner");
+            Assert.True(
+                ApplicationRoles.RequiresAssignedCostCentreCode(role) == UserRoles.SellsUnderOwnBusinessPartner(role),
+                $"{role}: cost centre");
+            Assert.True(
+                ApplicationRoles.RequiresSupplyingWarehouseCode(role) == UserRoles.IsDepotLoadedVan(role),
+                $"{role}: supplying warehouse");
+            Assert.True(
+                ApplicationRoles.SupportsFiscalDevice(role) == UserRoles.IsDepotLoadedVan(role),
+                $"{role}: fiscal device");
+        }
+    }
 }
