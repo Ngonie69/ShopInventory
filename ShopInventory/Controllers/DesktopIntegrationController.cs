@@ -56,6 +56,7 @@ using ShopInventory.Features.DesktopIntegration.Queries.ValidateStockAvailabilit
 using ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
 using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
+using ShopInventory.Features.DesktopIntegration.Commands.RefreshWarehouseStock;
 using ShopInventory.Features.DesktopIntegration.Commands.PostDesktopSaleToSap;
 using ShopInventory.Features.DesktopIntegration.Commands.PostDesktopSalesToSap;
 using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
@@ -846,6 +847,26 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         });
 
         return Accepted(new { Message = "Stock fetch started", StartedAt = DateTime.UtcNow });
+    }
+
+    /// <summary>
+    /// Bring one shop warehouse's stock back in step with SAP now — for stock received in SAP, such
+    /// as a goods receipt PO, that the ledger was never told about.
+    /// </summary>
+    /// <remarks>
+    /// Waits for the answer rather than returning 202: it is one warehouse, and the person who
+    /// pressed the button needs to know whether anything changed. No movement or divergence row is
+    /// written. Vans and warehouses without a finished snapshot today are refused with 409.
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager,StockController,DepotController,WashBay")]
+    [HttpPost("stock/{warehouseCode}/refresh")]
+    [SapBackgroundWork]
+    public async Task<IActionResult> RefreshWarehouseStock(
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new RefreshWarehouseStockCommand(warehouseCode), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     /// <summary>

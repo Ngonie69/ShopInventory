@@ -1438,6 +1438,7 @@ new("POST", "/api/DesktopIntegration/sales-orders/convert-to-invoice", "Convert 
 new("POST", "/api/DesktopIntegration/sales/{externalReference}/post", "Post desktop sale to SAP"),
 new("POST", "/api/DesktopIntegration/sales/post-batch", "Post desktop sales to SAP"),
 new("POST", "/api/DesktopIntegration/stock/fetch-daily", "Fetch daily stock"),
+new("POST", "/api/DesktopIntegration/stock/{warehouseCode}/refresh", "Refresh warehouse stock from SAP"),
 new("POST", "/api/DesktopIntegration/stock/validate", "Validate stock availability"),
 new("POST", "/api/DesktopIntegration/transfer-listener/check-now", "Trigger transfer listener check"),
 new("DELETE", "/api/DesktopIntegration/transfer-queue/{externalReference}", "Cancel queued transfer"),
