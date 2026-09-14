@@ -122,12 +122,20 @@ public interface IBatchInventoryValidationService
     /// <param name="autoAllocate">Whether to auto-allocate batches using FIFO/FEFO</param>
     /// <param name="strategy">Allocation strategy (FEFO or FIFO)</param>
     /// <param name="cancellationToken">Cancellation token</param>
+    /// <param name="checkNonBatchStock">
+    /// Whether a line that is neither batch- nor serial-managed is checked against the warehouse's
+    /// stock. Off only for a sale that has already happened — a till, vending or van sale, paid for
+    /// and fiscalised — where the check cannot prevent anything and a hung read only holds the
+    /// invoice back. Batch and serial lines are read either way: there the reading is the selection
+    /// SAP requires.
+    /// </param>
     /// <returns>Validation result with allocated batches</returns>
     Task<BatchAllocationResult> ValidateAndAllocateBatchesAsync(
         CreateInvoiceRequest request,
         bool autoAllocate = true,
         BatchAllocationStrategy strategy = BatchAllocationStrategy.FEFO,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        bool checkNonBatchStock = true);
 
     /// <summary>
     /// Validates that batch allocations match line quantities (with UoM conversion).
@@ -274,7 +282,8 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         CreateInvoiceRequest request,
         bool autoAllocate = true,
         BatchAllocationStrategy strategy = BatchAllocationStrategy.FEFO,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool checkNonBatchStock = true)
     {
         var result = new BatchAllocationResult
         {
@@ -305,7 +314,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         for (int i = 0; i < request.Lines.Count; i++)
         {
             var lineResult = await ValidateLineAsync(
-                request.Lines[i], i + 1, autoAllocate, strategy, claimedSerials, cancellationToken);
+                request.Lines[i], i + 1, autoAllocate, strategy, claimedSerials, checkNonBatchStock, cancellationToken);
             lineResults.Add(lineResult);
         }
 
@@ -331,6 +340,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 allocatedLines,
                 autoAllocate,
                 strategy,
+                checkNonBatchStock,
                 cancellationToken);
 
             allocatedLines = aggregateResult.AllocatedLines;
@@ -361,6 +371,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         bool autoAllocate,
         BatchAllocationStrategy strategy,
         HashSet<string> claimedSerials,
+        bool checkNonBatchStock,
         CancellationToken cancellationToken)
     {
         var result = new LineValidationResult { LineNumber = lineNumber };
@@ -391,6 +402,33 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
         // Check if item is batch-managed
         var isBatchManaged = await IsBatchManagedItemAsync(line.ItemCode ?? "", cancellationToken);
+
+        if (!isBatchManaged && !checkNonBatchStock)
+        {
+            // A sale that has already happened. There is no selection to make for this line, and a
+            // stock reading could only hold back the invoice for goods that have left the shop —
+            // CON020 sat unposted behind a stock read that hung, for an item SAP needs nothing
+            // chosen for. What SAP does with a line that takes stock below zero is SAP's own call.
+            var uomInfo = await GetUoMConversionAsync(
+                line.ItemCode ?? "",
+                line.UoMCode,
+                null,
+                cancellationToken);
+            var conversionFactor = uomInfo?.ConversionFactor ?? 1.0m;
+
+            result.AllocatedLine = new AllocatedBatchLine
+            {
+                LineNumber = lineNumber,
+                ItemCode = line.ItemCode ?? "",
+                WarehouseCode = line.WarehouseCode,
+                IsBatchManaged = false,
+                OriginalRequestedQuantity = line.Quantity,
+                TotalQuantityAllocated = line.Quantity * conversionFactor,
+                UoMConversionFactor = conversionFactor,
+                Batches = new List<AllocatedBatch>()
+            };
+            return result;
+        }
 
         if (!isBatchManaged)
         {
@@ -696,6 +734,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         List<AllocatedBatchLine> allocatedLines,
         bool autoAllocate,
         BatchAllocationStrategy strategy,
+        bool checkNonBatchStock,
         CancellationToken cancellationToken)
     {
         var result = new AggregateAllocationResult
@@ -710,7 +749,10 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             .Select((line, index) => new { LineNumber = index + 1, Line = line })
             .ToDictionary(item => item.LineNumber, item => item.Line);
 
-        await ValidateAggregateNonBatchStockAsync(result, cancellationToken);
+        if (checkNonBatchStock)
+        {
+            await ValidateAggregateNonBatchStockAsync(result, cancellationToken);
+        }
         await ValidateAndNormalizeAggregateBatchAllocationsAsync(
             result,
             requestLinesByNumber,
