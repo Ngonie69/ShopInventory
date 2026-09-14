@@ -715,6 +715,63 @@
     background: var(--shop-fam-bad);
 }
 
+/* ── Vending sales ───────────────────────────────────────────────────────────
+   /vending/sales wears the vendor page's figures, bars and mix rows; this adds
+   the two cards side by side, the tender split under the depots, and the row
+   under the invoice list that loads the next page.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.vend .vend-sales-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+    gap: var(--shop-s4);
+    align-items: start;
+}
+
+.vend .vend-tenders {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--shop-s3) var(--shop-s6);
+    padding-top: var(--shop-s3);
+    border-top: 1px solid var(--shop-rule);
+}
+
+.vend .vend-tender {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.vend .vend-tender-value {
+    font-size: 17px;
+    font-weight: 500;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    color: var(--shop-ink);
+}
+
+.vend .vend-tender-label {
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--shop-mute-3);
+}
+
+.vend .vend-sales-table td {
+    white-space: nowrap;
+}
+
+.vend .vend-more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: var(--shop-s3);
+    padding: var(--shop-s3) var(--shop-s4);
+    font-size: 12.5px;
+    border-top: 1px solid var(--shop-divider);
+}
+
 @media (max-width: 1100px) {
     .vend .vend-columns {
         grid-template-columns: minmax(0, 1fr);

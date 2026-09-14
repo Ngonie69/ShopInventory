@@ -17,6 +17,10 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 /// came off the query string and was checked against nobody, so any authenticated staff account could
 /// read any shop's takings. Making it the first parameter means a new call site cannot compile without
 /// supplying one.
+///
+/// <c>Search</c> narrows to sales whose till reference, fiscal receipt number or route customer's code or
+/// name contains the text, ignoring case, or whose SAP document number is that number. It finds; it does
+/// not widen — every other filter and the caller's scope still apply.
 /// </remarks>
 public sealed record GetDesktopSalesQuery(
     Guid CallerUserId,
@@ -27,7 +31,8 @@ public sealed record GetDesktopSalesQuery(
     DateTime? ToDate = null,
     int Page = 1,
     int PageSize = 50,
-    string? SourceSystem = null
+    string? SourceSystem = null,
+    string? Search = null
 ) : IRequest<ErrorOr<DesktopSalesListResult>>;
 
 public sealed record DesktopSalesListResult(
@@ -75,6 +80,14 @@ public sealed record DesktopSaleListItemDto(
     string? CreatedByName,
 
     DateTime CreatedAt,
+
+    // Who bought, when the buyer is a route customer: a van's shop or a vending depot's vendor. CardCode
+    // above is then the van or the depot, not the buyer. Code and name are the snapshots the sale was
+    // made under, so a renamed or deleted customer does not rewrite history; the id is null once the
+    // customer is gone, and all three are null on a sale to a real SAP business partner.
+    int? RouteCustomerId,
+    string? RouteCustomerCode,
+    string? RouteCustomerName,
 
     // --- Where this sale got to on its way to SAP ---
     //

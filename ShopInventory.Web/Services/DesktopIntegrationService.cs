@@ -36,7 +36,7 @@ public interface IDesktopIntegrationService
     Task<bool> CancelReservationAsync(string reservationId, string? reason = null);
 
     // Desktop Sales (offline invoicing)
-    Task<DesktopSalesListResponse?> GetDesktopSalesAsync(string? warehouseCode = null, string? cardCode = null, string? consolidationStatus = null, DateTime? fromDate = null, DateTime? toDate = null, int page = 1, int pageSize = 50);
+    Task<DesktopSalesListResponse?> GetDesktopSalesAsync(string? warehouseCode = null, string? cardCode = null, string? consolidationStatus = null, DateTime? fromDate = null, DateTime? toDate = null, int page = 1, int pageSize = 50, string? sourceSystem = null, string? search = null);
     Task<EndOfDayReportDto?> GetEndOfDayReportAsync(DateTime? reportDate = null);
 
     // Local Stock Snapshots
@@ -321,7 +321,7 @@ public class DesktopIntegrationService : IDesktopIntegrationService
 
     #region Desktop Sales & Local Stock
 
-    public async Task<DesktopSalesListResponse?> GetDesktopSalesAsync(string? warehouseCode = null, string? cardCode = null, string? consolidationStatus = null, DateTime? fromDate = null, DateTime? toDate = null, int page = 1, int pageSize = 50)
+    public async Task<DesktopSalesListResponse?> GetDesktopSalesAsync(string? warehouseCode = null, string? cardCode = null, string? consolidationStatus = null, DateTime? fromDate = null, DateTime? toDate = null, int page = 1, int pageSize = 50, string? sourceSystem = null, string? search = null)
     {
         try
         {
@@ -336,6 +336,10 @@ public class DesktopIntegrationService : IDesktopIntegrationService
                 queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
             if (toDate.HasValue)
                 queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+            if (!string.IsNullOrWhiteSpace(sourceSystem))
+                queryParams.Add($"sourceSystem={Uri.EscapeDataString(sourceSystem.Trim())}");
+            if (!string.IsNullOrWhiteSpace(search))
+                queryParams.Add($"search={Uri.EscapeDataString(search.Trim())}");
 
             var url = $"api/DesktopIntegration/sales?{string.Join("&", queryParams)}";
             return await _httpClient.GetFromJsonAsync<DesktopSalesListResponse>(url);
@@ -750,6 +754,14 @@ public class DesktopSaleDto
     public string? CreatedByName { get; set; }
 
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// The van shop or vending vendor who bought, as the sale recorded them. The id is null once the
+    /// customer has been deleted; all three are null on a sale to an SAP business partner.
+    /// </summary>
+    public int? RouteCustomerId { get; set; }
+    public string? RouteCustomerCode { get; set; }
+    public string? RouteCustomerName { get; set; }
 
     // --- Where the sale got to on its way to SAP ---
 

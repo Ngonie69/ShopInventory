@@ -990,6 +990,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
         [FromQuery] string? sourceSystem = null,
+        [FromQuery] string? search = null,
         CancellationToken cancellationToken = default)
     {
         var userId = UserClaimReader.GetUserId(User);
@@ -998,7 +999,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
         var result = await mediator.Send(
             new GetDesktopSalesQuery(
-                userId.Value, warehouseCode, cardCode, consolidationStatus, fromDate, toDate, page, pageSize, sourceSystem),
+                userId.Value, warehouseCode, cardCode, consolidationStatus, fromDate, toDate, page, pageSize, sourceSystem, search),
             cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }

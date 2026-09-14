@@ -169,6 +169,21 @@ public static class VendorSalesDigest
             : PostingState.Awaiting;
     }
 
+    public static string StateChip(PostingState state) => state switch
+    {
+        PostingState.Posted => "shop-chip-good",
+        PostingState.Failed => "shop-chip-bad",
+        _ => "shop-chip-neutral"
+    };
+
+    public static string StateLabel(PostingState state) => state switch
+    {
+        PostingState.Posted => "Posted",
+        PostingState.Failed => "Needs attention",
+        PostingState.Excluded => "Excluded",
+        _ => "Awaiting"
+    };
+
     public static Posting PostingSince(IEnumerable<RouteCustomerSaleModel> sales, DateTime from)
     {
         var states = sales.Where(sale => sale.SoldAt.Date >= from.Date).Select(sale => PostingOf(sale.Status)).ToList();

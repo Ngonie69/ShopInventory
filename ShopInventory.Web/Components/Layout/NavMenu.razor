@@ -648,11 +648,17 @@
             <AuthorizeView Roles="@UserRoles.VendingRoles" Context="vendingCtx">
                 <Authorized>
                     <NavSection Title="Vending">
-                        <NavLink class="snav-link" href="/vending" Match="NavLinkMatch.Prefix">
+                        <VendingDepotsNavLink class="snav-link" href="/vending" Match="NavLinkMatch.Prefix">
                             <span class="snav-icon">
                                 <i class="ph ph-storefront" aria-hidden="true"></i>
                             </span>
                             <span class="snav-text">Depots &amp; Vendors</span>
+                        </VendingDepotsNavLink>
+                        <NavLink class="snav-link" href="/vending/sales" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <i class="ph ph-receipt" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Vending Sales</span>
                         </NavLink>
                     </NavSection>
                 </Authorized>
