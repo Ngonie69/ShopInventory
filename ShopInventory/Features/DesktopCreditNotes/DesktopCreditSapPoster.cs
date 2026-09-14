@@ -53,6 +53,13 @@ public sealed class DesktopCreditSapPoster(
             return;
         }
 
+        // Re-read, never trusted from the tracker. DesktopCreditNoteService calls this with the same
+        // context that inserted the row as Prepared and then wrote Fiscalised with ExecuteUpdate, which
+        // the tracker never sees — so the tracked copy still said Prepared, this returned at the ZIMRA
+        // check below, and "Fiscalise and post to SAP" left both the memo and the stock return to the
+        // sweep.
+        await db.Entry(note).ReloadAsync(cancellationToken);
+
         await SettleAsync(note, cancellationToken);
     }
 
