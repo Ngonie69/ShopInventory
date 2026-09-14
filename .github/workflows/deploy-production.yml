@@ -36,9 +36,17 @@ jobs:
     # workflow_run fires for failed and cancelled runs too, so the conclusion is checked rather
     # than assumed. Without this a red test run would still reach the approval gate, and the whole
     # point of the gate is that what reaches it is already known good.
+    #
+    # Success alone is not enough on a public repository. The `branches: [main]` filter above
+    # matches the triggering run's branch NAME, and a pull request from a fork whose branch is
+    # also called `main` runs Tests under that name - so without the two checks below, a
+    # stranger's PR that passed Tests would check out their own commit on the production runner,
+    # with the deploy credential and secrets in reach. Only a push to this repository deploys.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     # Windows PowerShell (5.1), not pwsh: the runner is a production IIS box, and the
     # runbook asks only for "PowerShell 5.1 or later" - PowerShell 7 is not installed and
     # putting it there is a real change to a machine serving traffic. Update-Production.ps1
@@ -51,7 +59,7 @@ jobs:
 
     steps:
       - name: Checkout the commit that passed
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # workflow_run identifies the run that passed, not a branch ref, and the two drift apart
           # the moment a second merge lands while this one waits for approval. Naming the sha is
