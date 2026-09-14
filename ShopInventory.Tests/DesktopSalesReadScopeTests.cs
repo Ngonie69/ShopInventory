@@ -388,6 +388,6 @@ public sealed class DesktopSalesReadScopeTests : IDisposable
     }
 
     private Task<ErrorOr.ErrorOr<DesktopSalesListResult>> List(Guid callerId, string? warehouseCode) =>
-        new GetDesktopSalesHandler(_context, new RecordingAuditService())
+        new GetDesktopSalesHandler(_context, new RecordingAuditService(), Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.FiscalisationSettings()))
             .Handle(new GetDesktopSalesQuery(callerId, warehouseCode), CancellationToken.None);
 }

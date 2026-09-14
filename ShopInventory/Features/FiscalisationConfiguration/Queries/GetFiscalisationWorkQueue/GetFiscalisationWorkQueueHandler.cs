@@ -26,7 +26,8 @@ namespace ShopInventory.Features.FiscalisationConfiguration.Queries.GetFiscalisa
 /// </remarks>
 public sealed class GetFiscalisationWorkQueueHandler(
     ApplicationDbContext db,
-    IOptions<DesktopSalePostingSettings> sweepSettings)
+    IOptions<DesktopSalePostingSettings> sweepSettings,
+    IOptions<FiscalisationSettings> fiscalisationSettings)
     : IRequestHandler<GetFiscalisationWorkQueueQuery, ErrorOr<FiscalWorkQueueResult>>
 {
     private const string NotFiscalisedStatus = "Not Fiscalised";
@@ -88,7 +89,7 @@ public sealed class GetFiscalisationWorkQueueHandler(
                 transaction.Message))
             .ToListAsync(cancellationToken);
 
-        var sweep = SweepReach.From(sweepSettings.Value);
+        var sweep = SweepReach.From(sweepSettings.Value, fiscalisationSettings.Value);
 
         var items = saleRows.Select(sale => MapSale(sale, sweep))
             .Concat(documentRows.Select(MapDocument))
@@ -550,35 +551,35 @@ public sealed class GetFiscalisationWorkQueueHandler(
     /// Exactly what <c>DesktopSaleFiscalisationSweep</c> will select on its next pass.
     /// </summary>
     /// <remarks>
-    /// The console used to tell every failed sale it was "handled automatically". The sweep takes vending
-    /// sales only, inside a lookback window, under an attempt budget — so for a shop-till sale, a van
-    /// sale, a sale older than the window or one out of attempts, that cell named an owner who does not
-    /// exist and the row sat there being ignored by everybody.
+    /// The console used to tell every failed sale it was "handled automatically". The sweep takes only
+    /// the sources <c>DesktopSaleFiscalisationRetry.RetriedSources</c> names, inside a lookback window,
+    /// under an attempt budget — so for any other source, a sale older than the window or one out of
+    /// attempts, that cell named an owner who does not exist and the row sat there being ignored by
+    /// everybody.
     ///
-    /// The three conditions are restated here from the sweep's own query rather than shared with it,
-    /// because the sweep is a write path and this is a read: the two must agree, and this type exists so
-    /// that when they stop agreeing it is one obvious place, not a sentence in a tooltip. The settings
-    /// come from the same <see cref="DesktopSalePostingSettings"/> the sweep is configured by, so the
-    /// numbers at least can never drift.
+    /// The source list is shared with the sweep; the window and budget are restated from its query. The
+    /// settings come from the same <see cref="DesktopSalePostingSettings"/> the sweep is configured by, so
+    /// the numbers at least can never drift.
     /// </remarks>
-    private sealed record SweepReach(DateTime Cutoff, int LookbackDays, int MaxAttempts)
+    private sealed record SweepReach(DateTime Cutoff, int LookbackDays, int MaxAttempts, bool UsesPlatform)
     {
-        public static SweepReach From(DesktopSalePostingSettings settings) => new(
+        public static SweepReach From(DesktopSalePostingSettings settings, FiscalisationSettings fiscalisation) => new(
             DateTime.UtcNow.Date.AddDays(-settings.LookbackDays),
             settings.LookbackDays,
-            settings.MaxFiscalisationAttempts);
+            settings.MaxFiscalisationAttempts,
+            fiscalisation.UsesPlatform);
 
         /// <summary>Whether the sweep will pick this sale up, and if not, what to tell the operator.</summary>
         public bool Owns(SaleRow sale, out string reason)
         {
-            if (!string.Equals(sale.SourceSystem, SaleSourceSystems.Vending, StringComparison.Ordinal))
+            if (sale.SourceSystem is null ||
+                !DesktopSaleFiscalisationRetry.RetriedSources(UsesPlatform).Contains(sale.SourceSystem))
             {
-                reason = $"Nothing will pick this up on its own. The fiscalisation sweep reads vending "
-                    + $"sales only — a {DescribeSource(sale.SourceSystem).ToLowerInvariant()} is fiscalised "
-                    + "as it is made — so this row stays here until it is resolved at the source.";
+                reason = $"Nothing will pick this up on its own. The fiscalisation sweep does not read "
+                    + $"{DescribeSource(sale.SourceSystem).ToLowerInvariant()} sales, so this row stays here "
+                    + "until it is resolved at the source.";
                 return false;
             }
-
             if (sale.FiscalizationAttempts >= MaxAttempts)
             {
                 reason = $"The sweep has already offered this to the platform {sale.FiscalizationAttempts} "

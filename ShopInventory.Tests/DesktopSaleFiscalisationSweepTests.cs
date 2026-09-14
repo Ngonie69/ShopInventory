@@ -74,18 +74,15 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
         return sale;
     }
 
-    private DesktopSaleFiscalisationSweep BuildSweep(
+    private static DesktopSaleFiscaliser BuildFiscaliser(
         Func<FiscalizationResult> respond,
         int callBudget = 50,
-        Func<FiscalizationResult?>? existingReceipt = null,
-        FiscalisationProvider provider = FiscalisationProvider.Revmax)
+        Func<FiscalizationResult?>? existingReceipt = null)
     {
         var calls = 0;
 
         var fiscalisation = StubProxy.For<IFiscalizationService>((method, _) => method.Name switch
         {
-            // The pre-submission lookup. Answering null means "the platform positively has no receipt
-            // for this sale", which is what lets the submission proceed.
             nameof(IFiscalizationService.FindPreSapReceiptAsync) =>
                 (object)Task.FromResult<FiscalizationResult?>(existingReceipt?.Invoke()),
 
@@ -103,15 +100,24 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
             _ => throw new InvalidOperationException($"INotificationService.{method.Name} was not expected.")
         });
 
-        var fiscaliser = new DesktopSaleFiscaliser(
+        return new DesktopSaleFiscaliser(
             fiscalisation,
             notifications,
             Options.Create(new TaxSettings()),
             NullLogger<DesktopSaleFiscaliser>.Instance);
+    }
 
+    private DesktopSaleFiscalisationSweep BuildSweep(
+        Func<FiscalizationResult> respond,
+        int callBudget = 50,
+        Func<FiscalizationResult?>? existingReceipt = null,
+        FiscalisationProvider provider = FiscalisationProvider.Revmax)
+    {
+        // The pre-submission lookup answering null means "the platform positively has no receipt for
+        // this sale", which is what lets the submission proceed.
         return new DesktopSaleFiscalisationSweep(
             _context,
-            fiscaliser,
+            BuildFiscaliser(respond, callBudget, existingReceipt),
             Options.Create(new DesktopSalePostingSettings()),
             Options.Create(new FiscalisationSettings { Provider = provider }),
             NullLogger<DesktopSaleFiscalisationSweep>.Instance);
@@ -223,18 +229,77 @@ public sealed class DesktopSaleFiscalisationSweepTests : IDisposable
     }
 
     [Fact]
-    public async Task A_shop_till_sale_is_never_swept()
+    public async Task A_shop_till_sale_its_own_request_is_still_fiscalising_is_not_swept()
     {
         // The one that matters most. A till sale is committed Pending and stays Pending for the whole
-        // ZIMRA round trip it is making inline, so if the sweep claimed it too a tick landing in that
-        // window would submit the same receipt while the request still had it in flight — two fiscal
-        // receipts for one sale, and a duplicate cannot be withdrawn.
+        // ZIMRA round trip it is making inline, so if the sweep claimed it in that window it would submit
+        // the same receipt while the request still had it in flight.
         Seed("TILL-20260813-0001", sourceSystem: SaleSourceSystems.ShopTill);
         await _context.SaveChangesAsync();
 
         var result = await BuildSweep(Signed, callBudget: 0).FiscalisePendingSalesAsync(CancellationToken.None);
 
         Assert.Equal(0, result.Total);
+    }
+
+    [Theory]
+    [InlineData(FiscalisationProvider.Revmax)]
+    [InlineData(FiscalisationProvider.Platform)]
+    public async Task A_shop_till_sale_that_failed_at_the_counter_is_recovered(FiscalisationProvider provider)
+    {
+        // The reported case: KEF-FAC-20260914-8DFB97306920 failed inline and sat "Fiscal Failed" with
+        // nothing to retry it and nothing to invoice it, because the posting job takes fiscalised sales only.
+        var sale = Seed("TILL-20260914-0002", sourceSystem: SaleSourceSystems.ShopTill,
+            status: DesktopSaleFiscalizationStatus.Failed, attempts: 1);
+        sale.FiscalError = "Init error -1";
+        await _context.SaveChangesAsync();
+
+        var lookups = 0;
+        var result = await BuildSweep(Signed, existingReceipt: () => { lookups++; return null; }, provider: provider)
+            .FiscalisePendingSalesAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.Fiscalised);
+        Assert.Equal(1, lookups); // the device was asked before anything was sent
+
+        _context.ChangeTracker.Clear();
+        var stored = await _context.DesktopSales.SingleAsync();
+        Assert.Equal(DesktopSaleFiscalizationStatus.Success, stored.FiscalizationStatus);
+        Assert.Equal("771", stored.FiscalReceiptNumber);
+        Assert.Equal("qr", stored.FiscalQRCode);
+        Assert.Null(stored.FiscalError);
+        Assert.Null(DesktopSalePostEligibility.Refusal(stored)); // and it can now reach SAP
+    }
+
+    [Fact]
+    public async Task A_shop_till_sale_whose_request_died_is_finished_by_asking_the_device_first()
+    {
+        // Pending well past the request window, and the attempt counter reads zero because the request
+        // never saved it. The counter cannot be trusted to say no attempt reached the device.
+        var sale = Seed("TILL-20260914-0003", sourceSystem: SaleSourceSystems.ShopTill);
+        sale.CreatedAt = DateTime.UtcNow - DesktopSaleFiscalisationRetry.InlineRequestWindow - TimeSpan.FromMinutes(1);
+        await _context.SaveChangesAsync();
+
+        var sweep = BuildSweep(
+            Signed,
+            callBudget: 0, // any submission fails the test
+            existingReceipt: () => new FiscalizationResult
+            {
+                Success = true,
+                ReceiptGlobalNo = "216500",
+                QRCode = "https://fdms.zimra.co.zw/0000022862",
+                VerificationCode = "ABCD1234",
+                DeviceSerial = "8DE6996C0188"
+            });
+
+        var result = await sweep.FiscalisePendingSalesAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.Fiscalised);
+        var stored = await _context.DesktopSales.SingleAsync();
+        Assert.Equal("216500", stored.FiscalReceiptNumber);
+        // Adopted with what a reprint needs, not just the number.
+        Assert.Equal("https://fdms.zimra.co.zw/0000022862", stored.FiscalQRCode);
+        Assert.Equal("ABCD1234", stored.FiscalVerificationCode);
+        Assert.Equal("8DE6996C0188", stored.FiscalDeviceNumber);
     }
 
     [Fact]

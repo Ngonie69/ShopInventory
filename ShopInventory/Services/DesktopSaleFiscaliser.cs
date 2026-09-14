@@ -56,9 +56,21 @@ public sealed class DesktopSaleFiscaliser(
                 sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Success;
                 sale.FiscalReceiptNumber = existing.ReceiptGlobalNo;
                 sale.FiscalDayNo = existing.FiscalDayNo;
+                // REVMax's lookup carries the device's QR and verification code, and a recovered till
+                // sale needs them: they are what a reprint puts on the customer's copy. The platform's
+                // lookup does not, so a value already on the row is never blanked by one that is absent.
+                sale.FiscalQRCode = existing.QRCode ?? sale.FiscalQRCode;
+                sale.FiscalVerificationCode = existing.VerificationCode ?? sale.FiscalVerificationCode;
+                sale.FiscalDeviceNumber = existing.DeviceSerial ?? sale.FiscalDeviceNumber;
+                sale.FiscalizationRequiresReconciliation = false;
                 sale.FiscalError = null;
                 return;
             }
+
+            // A positive "holds nothing". Whatever an earlier attempt left unresolved has now been
+            // answered, so the flag no longer describes the sale; this attempt sets it again if it too
+            // ends without an answer.
+            sale.FiscalizationRequiresReconciliation = false;
         }
 
         sale.FiscalizationAttempts++;
@@ -117,6 +129,7 @@ public sealed class DesktopSaleFiscaliser(
             if (result.Success && !result.Skipped)
             {
                 sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Success;
+                sale.FiscalizationRequiresReconciliation = false;
                 sale.FiscalReceiptNumber = result.ReceiptGlobalNo;
                 sale.FiscalDeviceNumber = result.DeviceSerial;
                 sale.FiscalQRCode = result.QRCode;

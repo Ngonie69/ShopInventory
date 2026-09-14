@@ -424,20 +424,38 @@ public sealed class FiscalisationConsoleTests : IDisposable
     [Theory]
     [InlineData(SaleSourceSystems.ShopTill)]
     [InlineData(SaleSourceSystems.VanSales)]
-    public async Task A_failed_sale_the_sweep_does_not_read_is_not_called_automatic(string sourceSystem)
+    public async Task A_failed_till_or_van_sale_is_handled_automatically_under_revmax(string sourceSystem)
     {
-        // DesktopSaleFiscalisationSweep selects vending only. Telling a shop-till or van sale it is
-        // "handled automatically" names an owner that does not exist, and the row then sits in the queue
-        // being ignored by the operator as well as by every scheduled run.
+        // A shop-till sale that failed at the counter used to be terminal. The sweep now retries it, and
+        // under REVMax it fiscalises offline van sales too, so the queue must say so.
         await SeedSaleAsync(
-            "STRANDED-1",
+            "RETRIED-1",
             fiscal: DesktopSaleFiscalizationStatus.Failed,
             sourceSystem: sourceSystem);
 
         var item = Assert.Single((await RunQueueAsync(new GetFiscalisationWorkQueueQuery())).Items);
 
+        Assert.Equal(FiscalWorkQueueDispositions.Automatic, item.Disposition);
+    }
+
+    [Theory]
+    [InlineData(SaleSourceSystems.VanSales, FiscalisationProvider.Platform)]
+    [InlineData(SaleSourceSystems.VanSalesOnline, FiscalisationProvider.Revmax)]
+    public async Task A_failed_sale_the_sweep_does_not_read_is_not_called_automatic(
+        string sourceSystem, FiscalisationProvider provider)
+    {
+        // Telling a sale it is "handled automatically" when the sweep does not read its source names an
+        // owner that does not exist, and the row then sits in the queue being ignored by the operator as
+        // well as by every scheduled run.
+        await SeedSaleAsync(
+            "STRANDED-1",
+            fiscal: DesktopSaleFiscalizationStatus.Failed,
+            sourceSystem: sourceSystem);
+
+        var item = Assert.Single((await RunQueueAsync(new GetFiscalisationWorkQueueQuery(), provider)).Items);
+
         Assert.Equal(FiscalWorkQueueDispositions.Stalled, item.Disposition);
-        Assert.Contains("vending", item.DispositionNote, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("does not read", item.DispositionNote, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -472,10 +490,10 @@ public sealed class FiscalisationConsoleTests : IDisposable
     }
 
     [Fact]
-    public async Task A_pending_shop_till_sale_is_not_called_automatic_either()
+    public async Task A_stuck_pending_shop_till_sale_is_handled_automatically()
     {
-        // Nothing sweeps Pending outside vending. A till sale stuck here is a request that never
-        // finished, and no scheduled run will finish it.
+        // A till sale still Pending long after it was rung up is a request that never finished. The
+        // sweep now finishes it, asking the device first in case the request got as far as filing.
         await SeedSaleAsync(
             "TILL-1",
             fiscal: DesktopSaleFiscalizationStatus.Pending,
@@ -484,7 +502,7 @@ public sealed class FiscalisationConsoleTests : IDisposable
         var item = Assert.Single((await RunQueueAsync(new GetFiscalisationWorkQueueQuery())).Items);
 
         Assert.Equal("Awaiting fiscalisation", item.Status);
-        Assert.Equal(FiscalWorkQueueDispositions.Stalled, item.Disposition);
+        Assert.Equal(FiscalWorkQueueDispositions.Automatic, item.Disposition);
     }
 
     // ── Colour, and paging ──────────────────────────────────────────────────
@@ -705,11 +723,14 @@ public sealed class FiscalisationConsoleTests : IDisposable
         MaxFiscalisationAttempts = 5
     };
 
-    private async Task<FiscalWorkQueueResult> RunQueueAsync(GetFiscalisationWorkQueueQuery query)
+    private async Task<FiscalWorkQueueResult> RunQueueAsync(
+        GetFiscalisationWorkQueueQuery query,
+        FiscalisationProvider provider = FiscalisationProvider.Revmax)
     {
         var handler = new GetFiscalisationWorkQueueHandler(
             _context,
-            Options.Create(SweepSettings));
+            Options.Create(SweepSettings),
+            Options.Create(new FiscalisationSettings { Provider = provider }));
 
         var result = await handler.Handle(query, CancellationToken.None);
 

@@ -65,6 +65,12 @@ public sealed record DesktopSaleListItemDto(
     string? FiscalDeviceNumber,
     string? FiscalDayNo,
 
+    // What the device said when it did not sign, and how many times it has been asked. Without these a
+    // failed sale could only be described as "the device could not sign this receipt", which is equally
+    // true of a busy card that will sign in a minute and a line the device will refuse forever.
+    string? FiscalError,
+    int FiscalizationAttempts,
+
     string ConsolidationStatus,
     int? ConsolidationId,
     string WarehouseCode,
@@ -116,9 +122,16 @@ public sealed record DesktopSaleListItemDto(
     // the console offers a button for is a row the command accepts.
     string? PostRefusal,
 
+    // Why this sale may not be fiscalised again on request, or null when it may. From
+    // DesktopSaleFiscalisationRetry, the rule the retry command refuses on.
+    string? FiscaliseRefusal,
+
     List<DesktopSaleLineItemDto> Lines
 )
 {
+    /// <summary>Whether the console should offer this sale a "Retry fiscalisation" button.</summary>
+    public bool CanRetryFiscalisation => FiscaliseRefusal is null;
+
     /// <summary>
     /// Whether the console should offer this sale a "Post to SAP" button.
     /// </summary>

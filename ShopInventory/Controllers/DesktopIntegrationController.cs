@@ -58,6 +58,7 @@ using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
 using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
 using ShopInventory.Features.DesktopIntegration.Commands.PostDesktopSaleToSap;
 using ShopInventory.Features.DesktopIntegration.Commands.PostDesktopSalesToSap;
+using ShopInventory.Features.DesktopIntegration.Commands.RetryDesktopSaleFiscalisation;
 using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Features.DesktopIntegration.Commands.TriggerTransferListenerCheck;
@@ -1034,6 +1035,30 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
         var result = await mediator.Send(
             new PostDesktopSaleToSapCommand(userId.Value, externalReference), cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Ask the fiscal device to sign a sale whose fiscalisation failed, now, instead of waiting for the sweep.
+    /// </summary>
+    /// <remarks>
+    /// Gated and shop-scoped like the post above. Safe to send twice: the device is asked for an existing
+    /// receipt before anything is submitted, and the submission carries the sale's one invoice number, so
+    /// a repeat adopts the receipt the first created rather than signing a second.
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager,Cashier,ApiUser")]
+    [HttpPost("sales/{externalReference}/fiscalise")]
+    public async Task<IActionResult> RetryDesktopSaleFiscalisation(
+        string externalReference,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new RetryDesktopSaleFiscalisationCommand(userId.Value, externalReference), cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));
     }

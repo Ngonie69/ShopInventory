@@ -61,6 +61,12 @@ public static class AuditActions
     public const string PostDesktopSaleToSAP = "PostDesktopSaleToSAP";
 
     /// <summary>
+    /// A person asked the fiscal device to sign a sale whose fiscalisation had failed. Audited whatever
+    /// the outcome, because every attempt is a submission to ZIMRA.
+    /// </summary>
+    public const string RetryDesktopSaleFiscalisation = "RetryDesktopSaleFiscalisation";
+
+    /// <summary>
     /// The back-office half of a desktop credit note reached SAP — or was refused, or was handed to a
     /// person. Audited whatever the outcome, and usually raised by no user at all: a credit taken at
     /// the counter is posted by the pass that posts the sale it reverses, hours later.
