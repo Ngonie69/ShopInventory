@@ -31,7 +31,14 @@ namespace ShopInventory.Tests;
 /// </remarks>
 public sealed class SaleBatchSelectionTests : IDisposable
 {
-    private static readonly DateTime TradingDate = new(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc);
+    // Relative to today, never a literal. The till pass only takes sales DocDate'd within
+    // DesktopSalePostingSettings.LookbackDays of the clock, so a fixed 2026-09-10 fell outside that
+    // window on 2026-09-14 and five tests failed with nothing in the code changed. The batch expiries
+    // below are relative for the same reason: a literal one eventually expires.
+    private static readonly DateTime TradingDate = DateTime.UtcNow.Date;
+
+    private static readonly string EarlyExpiry = TradingDate.AddDays(21).ToString("yyyy-MM-dd");
+    private static readonly string LateExpiry = TradingDate.AddDays(82).ToString("yyyy-MM-dd");
 
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
@@ -149,7 +156,7 @@ public sealed class SaleBatchSelectionTests : IDisposable
         await GivenSaleAsync(reference: "KEFSHOP-01-20260910-000001", quantity: 2m);
         await GivenSaleAsync(reference: "KEFSHOP-01-20260910-000002", quantity: 2m);
 
-        var sap = new CountingWarehouse(("B-EARLY", 3m, "2026-10-01"), ("B-LATE", 10m, "2026-12-01"));
+        var sap = new CountingWarehouse(("B-EARLY", 3m, EarlyExpiry), ("B-LATE", 10m, LateExpiry));
 
         var result = await TillServiceOver(sap).PostPendingSalesAsync();
 
@@ -178,7 +185,7 @@ public sealed class SaleBatchSelectionTests : IDisposable
         await GivenSaleAsync(reference: "KEFSHOP-01-20260910-000001", quantity: 2m);
         await GivenSaleAsync(reference: "KEFSHOP-01-20260910-000002", quantity: 2m);
 
-        var sap = new CountingWarehouse(("B-EARLY", 3m, "2026-10-01"), ("B-LATE", 10m, "2026-12-01"))
+        var sap = new CountingWarehouse(("B-EARLY", 3m, EarlyExpiry), ("B-LATE", 10m, LateExpiry))
         {
             RefuseFirstPost = true
         };
@@ -211,7 +218,7 @@ public sealed class SaleBatchSelectionTests : IDisposable
     [Fact]
     public async Task Readings_do_not_outlive_the_window()
     {
-        var sap = new CountingWarehouse(("B-EARLY", 3m, "2026-10-01"));
+        var sap = new CountingWarehouse(("B-EARLY", 3m, EarlyExpiry));
         var service = RealAllocator(sap);
 
         using (service.BeginSharedReadWindow())
