@@ -175,7 +175,6 @@ public sealed class ConsolidateDailySalesHandler(
     {
         var totalAmount = sales.Sum(s => s.TotalAmount);
         var totalVat = sales.Sum(s => s.VatAmount);
-        var totalPaid = sales.Sum(s => s.AmountPaid);
 
         // Create consolidation record
         var consolidation = new SaleConsolidationEntity
@@ -301,33 +300,13 @@ public sealed class ConsolidateDailySalesHandler(
                 "Posted consolidated invoice for {CardCode}: SapDocNum={DocNum}, {SaleCount} sales, total={Total}",
                 cardCode, sapInvoice.DocNum, sales.Count, totalAmount);
 
-            // Post incoming payment if any amount was paid
-            int? paymentDocNum = null;
-            if (totalPaid > 0)
-            {
-                try
-                {
-                    paymentDocNum = await PostIncomingPaymentAsync(
-                        cardCode, consolidationDate, totalPaid, sapInvoice.DocEntry, sales, CancellationToken.None);
-
-                    consolidation.PaymentSapDocNum = paymentDocNum;
-                    consolidation.PaymentPostedAt = DateTime.UtcNow;
-                    consolidation.PaymentStatus = "Posted";
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "Failed to post payment for {CardCode}", cardCode);
-                    consolidation.PaymentStatus = "Failed";
-                    consolidation.Status = ConsolidationStatus.PartiallyCompleted;
-                    consolidation.LastError = $"Payment failed: {ex.Message}";
-                }
-            }
-
+            // No payment here. The invoice is left open and DailyIncomingPaymentService settles it on
+            // the customer's one payment for the day, together with their till and vending invoices.
             await context.SaveChangesAsync(CancellationToken.None);
 
             return new ConsolidationGroupResult(
                 cardCode, cardName, sales.Count, totalAmount,
-                sapInvoice.DocNum, paymentDocNum,
+                sapInvoice.DocNum, null,
                 consolidation.Status.ToString(), null);
         }
         catch (Exception ex)
@@ -464,12 +443,10 @@ public sealed class ConsolidateDailySalesHandler(
     /// </summary>
     /// <remarks>
     /// Reported as PartiallyCompleted for the same reason the post-failure recovery is: the invoice
-    /// is real and is now marked, but no run has ever reported posting an incoming payment against
-    /// it, so it is left for an operator. The sales are still Pending precisely because the earlier
-    /// run never reached the SaveChanges that both marks the consolidation and consolidates them —
-    /// and the payment is only attempted after that point. A payment is deliberately not attempted
-    /// here either: settling a document this run cannot vouch for is a second correction rather than
-    /// a recovery.
+    /// is real and is now marked, but this run did not post it. The sales are still Pending precisely
+    /// because the earlier run never reached the SaveChanges that both marks the consolidation and
+    /// consolidates them. Once marked, the invoice is settled by the customer's daily incoming payment
+    /// like any other; <c>DailyIncomingPaymentService</c> reads SAP's balance before paying it.
     /// </remarks>
     private async Task<ConsolidationGroupResult> AdoptInvoiceFromEarlierRunAsync(
         SaleConsolidationEntity consolidation,
@@ -493,8 +470,8 @@ public sealed class ConsolidateDailySalesHandler(
             totalAmount,
             existing,
             $"Invoice {existing.DocNum} for this customer and date was already in SAP, posted by an earlier run "
-            + "that could not record it. Adopted instead of posting a second invoice; any incoming payment for "
-            + "this consolidation still needs to be posted.");
+            + "that could not record it. Adopted instead of posting a second invoice; it is settled by the "
+            + "customer's daily incoming payment.");
     }
 
     /// <summary>
@@ -552,8 +529,7 @@ public sealed class ConsolidateDailySalesHandler(
     /// </summary>
     /// <remarks>
     /// Reported as PartiallyCompleted rather than Posted: the invoice is real and is now marked, but
-    /// this run never saw a reply, so anything the success path does after the post — the incoming
-    /// payment above all — did not run and is left for an operator. See
+    /// this run never saw a reply. The daily incoming payment settles it once it is marked. See
     /// <see cref="AdoptInvoiceAsync"/>, which both adoptions share.
     /// </remarks>
     private async Task<ConsolidationGroupResult> AdoptRecoveredInvoiceAsync(
@@ -580,7 +556,7 @@ public sealed class ConsolidateDailySalesHandler(
             totalAmount,
             recovered,
             $"Invoice posted to SAP but the reply was lost ({postFailure.Message}). Recovered by U_Van_saleorder; "
-            + "any incoming payment for this consolidation still needs to be posted.");
+            + "it is settled by the customer's daily incoming payment.");
     }
 
     /// <summary>
@@ -590,7 +566,7 @@ public sealed class ConsolidateDailySalesHandler(
     /// <remarks>
     /// Shared by both adoptions — the one after a lost reply and the one that finds the invoice
     /// before posting — so the two reach the same verdict on the same evidence: the invoice is
-    /// accounted for, the payment is not vouched for by anyone. Only the explanation differs.
+    /// accounted for and this run did not post it. Only the explanation differs.
     ///
     /// PartiallyCompleted is not a problem for the fiscalisation guard: ConsolidatedInvoiceRegistry
     /// looks the marker up without filtering on ConsolidationStatus, precisely so a consolidation
@@ -769,62 +745,6 @@ public sealed class ConsolidateDailySalesHandler(
         return user is null
             ? (null, normalizedCreatedBy)
             : (user.Id, user.Username);
-    }
-
-    private async Task<int?> PostIncomingPaymentAsync(
-        string cardCode, DateTime date, decimal amount, int invoiceDocEntry,
-        List<DesktopSaleEntity> sales, CancellationToken ct)
-    {
-        // Determine payment method from the majority of sales
-        var primaryMethod = sales
-            .Where(s => !string.IsNullOrEmpty(s.PaymentMethod))
-            .GroupBy(s => s.PaymentMethod)
-            .OrderByDescending(g => g.Count())
-            .FirstOrDefault()?.Key ?? "Cash";
-
-        var paymentRequest = new CreateIncomingPaymentRequest
-        {
-            CardCode = cardCode,
-            DocDate = date.ToString("yyyy-MM-dd"),
-            Remarks = $"Consolidated payment for {sales.Count} desktop sale(s) on {date:yyyy-MM-dd}",
-            PaymentInvoices = new List<PaymentInvoiceRequest>
-            {
-                new()
-                {
-                    DocEntry = invoiceDocEntry,
-                    SumApplied = amount
-                }
-            }
-        };
-
-        // Set the appropriate payment sum based on method
-        switch (primaryMethod.ToLowerInvariant())
-        {
-            case "cash":
-                paymentRequest.CashSum = amount;
-                break;
-            case "transfer":
-            case "ecocash":
-            case "innbucks":
-            case "paynow":
-                paymentRequest.TransferSum = amount;
-                paymentRequest.TransferReference = string.Join(",",
-                    sales.Where(s => !string.IsNullOrEmpty(s.PaymentReference))
-                         .Select(s => s.PaymentReference));
-                paymentRequest.TransferDate = date.ToString("yyyy-MM-dd");
-                break;
-            default:
-                paymentRequest.CashSum = amount;
-                break;
-        }
-
-        var payment = await sapClient.CreateIncomingPaymentAsync(paymentRequest, ct);
-
-        logger.LogInformation(
-            "Posted incoming payment for {CardCode}: DocNum={DocNum}, Amount={Amount}",
-            cardCode, payment.DocNum, amount);
-
-        return payment.DocNum;
     }
 
     /// <summary>

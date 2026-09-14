@@ -13,9 +13,15 @@ public class DailyStockSettings
     public string StockFetchTimeCAT { get; set; } = "07:00";
 
     /// <summary>
-    /// Time (CAT) to run end-of-day consolidation. Default: 18:00.
+    /// Time (CAT) to run end-of-day consolidation. Default: 16:45.
     /// </summary>
-    public string EndOfDayTimeCAT { get; set; } = "18:00";
+    /// <remarks>
+    /// Before <see cref="DesktopSalePostingSettings.DailyPaymentTimeCAT"/> on purpose. The consolidated
+    /// invoice has to exist in SAP by the 17:00 cut-off to be settled on that day's payment; one that
+    /// posts later goes on the next day's. Sales captured after this run stay Pending, as sales after
+    /// 18:00 always did.
+    /// </remarks>
+    public string EndOfDayTimeCAT { get; set; } = "16:45";
 
     /// <summary>
     /// Warehouses to include in daily snapshot. Supplied entirely by <c>DailyStock:MonitoredWarehouses</c>

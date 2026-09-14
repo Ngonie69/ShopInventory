@@ -125,7 +125,7 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
     [Fact]
     public async Task A_paid_sale_is_invoiced_and_its_invoice_left_open()
     {
-        // The incoming payment is posted directly in SAP, and that is what closes the invoice. A
+        // No sale is settled on its own: the customer's daily incoming payment closes the invoice. A
         // payment sent from here would close it the moment it arrived.
         var sale = await GivenSaleAsync(amountPaid: 25m);
 
@@ -141,29 +141,10 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
     }
 
     [Fact]
-    public async Task Settling_the_invoice_can_still_be_switched_back_on()
+    public async Task A_payment_that_failed_earlier_is_left_to_the_daily_payment()
     {
-        // The control for the test above: the same sale with the setting on does send a payment, so
-        // an empty payment list there is the setting at work and not a sale that could never settle.
-        var sale = await GivenSaleAsync(amountPaid: 25m);
-
-        await Service(settings: new DesktopSalePostingSettings { PostIncomingPayments = true })
-            .PostSaleAsync(sale.Id);
-
-        Assert.Single(_sap.Payments);
-
-        var posted = await _context.DesktopSales.AsNoTracking().FirstAsync(s => s.Id == sale.Id);
-        Assert.Equal(DesktopSalePaymentStatuses.Posted, posted.PaymentStatus);
-    }
-
-    [Theory]
-    [InlineData(false, 0)]
-    // The control: with settlement on, the same row is picked up. The pass then fails on the invoice
-    // read-back this fake does not answer, which still counts it — so zero above is the gate at work.
-    [InlineData(true, 1)]
-    public async Task A_payment_that_failed_earlier_is_retried_only_while_settlement_is_on(
-        bool postIncomingPayments, int expectedTotal)
-    {
+        // The posting pass used to come back for these. The daily payment picks them up instead, so a
+        // pass here would only risk a second payment for the same invoice.
         var sale = await GivenSaleAsync(amountPaid: 25m);
         // Inside the pass's lookback window, or the row is skipped for its date alone.
         sale.DocDate = DateTime.UtcNow.Date;
@@ -173,10 +154,9 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
         sale.PaymentStatus = DesktopSalePaymentStatuses.Failed;
         await _context.SaveChangesAsync();
 
-        var result = await Service(settings: new DesktopSalePostingSettings { PostIncomingPayments = postIncomingPayments })
-            .PostPendingSalesAsync();
+        var result = await Service().PostPendingSalesAsync();
 
-        Assert.Equal(expectedTotal, result.Total);
+        Assert.Equal(0, result.Total);
         Assert.Empty(_sap.Payments);
     }
 
@@ -232,7 +212,6 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
             SalePostGuards.Backed(_connection),
             DesktopCreditPosters.Idle(_context),
             Options.Create(settings ?? new DesktopSalePostingSettings()),
-            Options.Create(new SAPSettings()),
             NullLogger<DesktopSalePostingService>.Instance);
 
     private sealed class RecordingSapClient

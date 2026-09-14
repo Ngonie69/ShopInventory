@@ -158,11 +158,11 @@ public sealed class ConsolidationDuplicatePostGuardTests : IDisposable
     /// <summary>
     /// Reported as PartiallyCompleted rather than Posted, matching what the post-failure recovery
     /// reports on the same evidence. The sales are only still Pending because the earlier run never
-    /// reached the SaveChanges that consolidates them — and the payment is only ever attempted after
-    /// that point, so no run has posted one. Saying Posted would assert a settlement nobody made.
+    /// reached the SaveChanges that consolidates them. The invoice is settled by the customer's daily
+    /// payment, like every consolidated invoice.
     /// </summary>
     [Fact]
-    public async Task An_adopted_invoice_says_the_payment_is_still_outstanding()
+    public async Task An_adopted_invoice_is_left_for_the_daily_payment()
     {
         await GivenAPendingSaleAsync();
 
@@ -170,10 +170,10 @@ public sealed class ConsolidationDuplicatePostGuardTests : IDisposable
 
         var consolidation = await _context.SaleConsolidations.SingleAsync();
         Assert.Equal(ConsolidationStatus.PartiallyCompleted, consolidation.Status);
-        Assert.Contains("payment", consolidation.LastError, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("daily incoming payment", consolidation.LastError, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(consolidation.PostedAt);
 
-        // Not attempted here: settling a document this run cannot vouch for is a second correction
-        // rather than a recovery.
+        // The daily payment settles it. Nothing is posted here.
         Assert.False(_paymentPosted);
         Assert.Null(result.Groups.Single().PaymentSapDocNum);
 
@@ -294,8 +294,11 @@ public sealed class ConsolidationDuplicatePostGuardTests : IDisposable
         Assert.Equal(ConsolidationStatus.Posted, consolidation.Status);
         Assert.Equal(FreshInvoice.DocNum, consolidation.SapDocNum);
 
-        // A fresh post is a whole post: the payment runs, which is what separates it from an adoption.
-        Assert.True(_paymentPosted);
+        // No payment even on a fresh post. The invoice is left open for the customer's daily payment,
+        // so it is never settled on its own.
+        Assert.False(_paymentPosted);
+        Assert.Null(result.Groups.Single().PaymentSapDocNum);
+        Assert.Null(consolidation.PaymentStatus);
         Assert.Equal(1, result.SuccessfulPostings);
     }
 

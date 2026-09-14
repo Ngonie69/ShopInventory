@@ -11,9 +11,10 @@ using ShopInventory.Models.Entities;
 namespace ShopInventory.Services;
 
 /// <summary>
-/// Posts shop till and vending sales to SAP, one A/R invoice per sale. The invoice is left open: the
-/// incoming payment is posted directly in SAP, unless <see cref="DesktopSalePostingSettings.PostIncomingPayments"/>
-/// turns this service's own settlement back on.
+/// Posts shop till and vending sales to SAP, one A/R invoice per sale.
+///
+/// The invoice is left open. No sale gets a payment of its own: <see cref="DailyIncomingPaymentService"/>
+/// settles every invoice a customer had posted by 17:00 with one incoming payment for the day.
 ///
 /// A till fiscalises the moment the customer pays, so the receipt is printed and handed over long
 /// before SAP hears about it. That is deliberate: a SAP round trip takes seconds the queue at the
@@ -37,7 +38,6 @@ public sealed class DesktopSalePostingService(
     IDesktopSalePostGuard postGuard,
     DesktopCreditSapPoster creditPoster,
     IOptions<DesktopSalePostingSettings> settings,
-    IOptions<SAPSettings> sapSettings,
     ILogger<DesktopSalePostingService> logger)
 {
     public async Task<DesktopSalePostingRunResult> PostPendingSalesAsync(
@@ -59,7 +59,6 @@ public sealed class DesktopSalePostingService(
         // A window rather than a single trading date. A till sale should reach SAP within minutes, and
         // one that failed at 23:55 must not be stranded when the date rolls over.
         var cutoff = DateTime.UtcNow.Date.AddDays(-options.LookbackDays);
-        var retryFailedPayments = options.PostIncomingPayments;
 
         var pending = await context.DesktopSales
             .Include(s => s.Lines)
@@ -67,24 +66,15 @@ public sealed class DesktopSalePostingService(
                         s.SourceSystem != null &&
                         SaleSourceSystems.PostedByDesktopSaleJob.Contains(s.SourceSystem) &&
                         s.PostingAttempts < options.MaxPostingAttempts &&
-                        // Either the invoice has not been posted yet, or it has and its payment
-                        // failed. Without the second case a failed payment would never be retried:
-                        // posting the invoice sets Consolidated, which takes the sale out of the
-                        // first case forever, leaving a real open A/R document nobody comes back to.
-                        // Only while this job settles invoices at all: with payments left to SAP, an
-                        // open invoice is the intended outcome and there is nothing to come back for.
-                        ((s.ConsolidationStatus == DesktopSaleConsolidationStatus.Pending &&
-                          // Ready to be invoiced. Pending means vending has not fiscalised it yet, and
-                          // Failed means it needs a human — posting either would put an invoice in SAP
-                          // for a sale that has no receipt. Skipped is not the same thing: it is what a
-                          // sale gets when fiscalisation was not asked for or is switched off, so it
-                          // will never become Success and must still reach SAP, as it did before this
-                          // route existed.
-                          (s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Success ||
-                           s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Skipped)) ||
-                         (retryFailedPayments &&
-                          s.ConsolidationStatus == DesktopSaleConsolidationStatus.Consolidated &&
-                          s.PaymentStatus == DesktopSalePaymentStatuses.Failed)))
+                        s.ConsolidationStatus == DesktopSaleConsolidationStatus.Pending &&
+                        // Ready to be invoiced. Pending means vending has not fiscalised it yet, and
+                        // Failed means it needs a human — posting either would put an invoice in SAP
+                        // for a sale that has no receipt. Skipped is not the same thing: it is what a
+                        // sale gets when fiscalisation was not asked for or is switched off, so it
+                        // will never become Success and must still reach SAP, as it did before this
+                        // route existed.
+                        (s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Success ||
+                         s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Skipped))
             .OrderBy(s => s.Id)
             .Take(options.BatchSize)
             .ToListAsync(cancellationToken);
@@ -229,30 +219,15 @@ public sealed class DesktopSalePostingService(
         IStockReadWindow readWindow,
         CancellationToken cancellationToken)
     {
-        // A sale already invoiced, back only because its payment failed. Re-read the invoice — it is
-        // what the duplicate-payment guard is decided on — and go straight to settling it. Falling
-        // through to the posting path would ask SAP to invoice it a second time.
+        // A sale already invoiced has nothing left to post here. Its payment is the day's, not its own.
         if (sale.ConsolidationStatus == DesktopSaleConsolidationStatus.Consolidated &&
             sale.SapDocEntry.HasValue)
         {
-            if (settings.Value.PostIncomingPayments)
-            {
-                var posted = await sapClient.GetInvoiceByDocEntryAsync(sale.SapDocEntry.Value, cancellationToken);
-                await PostPaymentAsync(sale, posted);
-            }
-
             await RaiseDeferredCreditsAsync(sale);
             return;
         }
 
-        var invoice = await PostInvoiceAsync(sale, result, readWindow, cancellationToken);
-
-        // Outside the claim, deliberately. The claim guards the creation of one A/R document; a
-        // payment that failed is retried on later passes long after the invoice's claim completed,
-        // and holding it here would mean a completed claim replaying the invoice away and the
-        // settlement never being attempted again. The payment has its own guards — the persisted
-        // status, and what SAP says the invoice has been paid.
-        await PostPaymentAsync(sale, invoice);
+        await PostInvoiceAsync(sale, result, readWindow, cancellationToken);
 
         await RaiseDeferredCreditsAsync(sale);
     }
@@ -328,8 +303,7 @@ public sealed class DesktopSalePostingService(
         if (claim.Receipt is { } receipt)
         {
             // An earlier post completed and this pass had not seen it yet. Take the document from
-            // the claim rather than posting, then read the invoice back so the payment step still
-            // has something to decide against.
+            // the claim rather than posting.
             //
             // Whoever posted it did so outside this pass, so whether the shared reading was taken
             // before or after their invoice is not knowable from here. Thrown away rather than
@@ -344,27 +318,7 @@ public sealed class DesktopSalePostingService(
                 "Till sale {ExternalReference} was posted by another attempt as invoice {DocNum}; adopted it.",
                 sale.ExternalReferenceId, receipt.SapDocNum);
 
-            if (!settings.Value.PostIncomingPayments)
-            {
-                return null;
-            }
-
-            try
-            {
-                return await sapClient.GetInvoiceByDocEntryAsync(receipt.SapDocEntry, cancellationToken);
-            }
-            catch (Exception exception)
-            {
-                // The invoice is adopted and saved; only the settlement needs this read, and it is
-                // retried on its own. Letting the failure out would report the whole sale as failed
-                // and spend an attempt on it, having just established that SAP holds its invoice.
-                logger.LogWarning(
-                    exception,
-                    "Adopted till sale {ExternalReference} as invoice {DocNum} but could not read it back "
-                    + "to settle it. The payment is retried on a later pass.",
-                    sale.ExternalReferenceId, receipt.SapDocNum);
-                return null;
-            }
+            return null;
         }
 
         var postIssued = false;
@@ -604,100 +558,6 @@ public sealed class DesktopSalePostingService(
         sale.ConsolidationStatus = DesktopSaleConsolidationStatus.Consolidated;
     }
 
-    /// <summary>
-    /// Settles the invoice with the tender the customer actually paid with.
-    /// </summary>
-    /// <remarks>
-    /// Failing here leaves a real, open A/R invoice rather than an inconsistency: the sale stays
-    /// Consolidated so the invoice is never posted again, and the payment is retried on its own.
-    ///
-    /// There is no SAP-side idempotency for payments — ClientRequestId is not forwarded to the Service
-    /// Layer and there is no lookup by reference — so the only defences are the persisted status and
-    /// what the invoice says it has been paid.
-    /// </remarks>
-    private async Task PostPaymentAsync(DesktopSaleEntity sale, Invoice? invoice)
-    {
-        // The incoming payment is posted directly in SAP, and it is what closes the invoice. Settling
-        // here would close it the moment it arrived. Nothing is written to the sale: the Web reads a
-        // null status as an invoice left open.
-        if (!settings.Value.PostIncomingPayments)
-        {
-            return;
-        }
-
-        if (invoice is null || sale.SapDocEntry is null)
-        {
-            return;
-        }
-
-        // Only null or a previous failure is retryable. Anything else means a payment was already sent
-        // or deliberately withheld.
-        if (sale.PaymentStatus is not (null or DesktopSalePaymentStatuses.Failed))
-        {
-            return;
-        }
-
-        if (sale.AmountPaid <= 0)
-        {
-            return;
-        }
-
-        if (invoice.PaidToDate >= sale.AmountPaid)
-        {
-            // SAP already shows this invoice settled. Without a business key to probe on, this is the
-            // only thing standing between a lost reply and a duplicate payment.
-            sale.PaymentStatus = DesktopSalePaymentStatuses.PostedUnconfirmed;
-            sale.PaymentPostedAt = DateTime.UtcNow;
-            sale.LastPaymentError = null;
-
-            logger.LogWarning(
-                "Till sale {ExternalReference}: SAP invoice {DocNum} is already settled, so no payment was sent.",
-                sale.ExternalReferenceId, invoice.DocNum);
-            return;
-        }
-
-        var built = SaleIncomingPaymentRequestBuilder.Build(
-            sale, sale.SapDocEntry.Value, sapSettings.Value.SwipeCreditCardCode);
-
-        if (!built.CanPost)
-        {
-            // Not a failure to retry — nothing about waiting makes an unmappable tender mappable. It
-            // sits visible until a human maps it or the card code is configured.
-            sale.PaymentStatus = DesktopSalePaymentStatuses.Unmapped;
-            sale.LastPaymentError = Truncate(built.Reason, 2000);
-
-            logger.LogWarning(
-                "Till sale {ExternalReference} was invoiced but not settled: {Reason}",
-                sale.ExternalReferenceId, built.Reason);
-            return;
-        }
-
-        try
-        {
-            var payment = await sapClient.CreateIncomingPaymentAsync(built.Request!, CancellationToken.None);
-
-            sale.PaymentSapDocEntry = payment.DocEntry;
-            sale.PaymentSapDocNum = payment.DocNum;
-            sale.PaymentPostedAt = DateTime.UtcNow;
-            sale.PaymentStatus = DesktopSalePaymentStatuses.Posted;
-            sale.LastPaymentError = null;
-
-            logger.LogInformation(
-                "Settled till sale {ExternalReference} with SAP payment {DocNum}.",
-                sale.ExternalReferenceId, payment.DocNum);
-        }
-        catch (Exception ex)
-        {
-            sale.PaymentStatus = DesktopSalePaymentStatuses.Failed;
-            sale.LastPaymentError = Truncate(ex.Message, 2000);
-
-            logger.LogError(
-                ex,
-                "Till sale {ExternalReference} posted as invoice {DocNum} but its payment failed.",
-                sale.ExternalReferenceId, sale.SapDocNum);
-        }
-    }
-
     /// <remarks>
     /// A transient failure does not spend an attempt. This job runs every minute, so counting a SAP
     /// outage against the budget would exhaust it on every sale within minutes and turn a network blip
@@ -743,6 +603,12 @@ public static class DesktopSalePaymentStatuses
 
     /// <summary>The tender has no SAP payment means, or a swipe has no configured card code.</summary>
     public const string Unmapped = "Unmapped";
+
+    /// <summary>
+    /// A consolidated invoice already partly settled in SAP. The daily payment cannot tell which tender
+    /// that settlement covered, so a person settles the rest.
+    /// </summary>
+    public const string NeedsReview = "NeedsReview";
 }
 
 /// <summary>
