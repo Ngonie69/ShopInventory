@@ -59,6 +59,63 @@ public sealed class DesktopSalesAnalysisExportTests
         Assert.Equal(308.70m, sheet.Cell(header + 1, takingsColumn).GetValue<decimal>());
     }
 
+    [Fact]
+    public void Each_currency_is_totalled_on_its_own_row_and_never_across_currencies()
+    {
+        var report = Report();
+        var zwg = Report().Currencies[0];
+        zwg.Currency = "ZWG";
+        zwg.TotalAmount = 5000m;
+        zwg.SalesCount = 40;
+        report.Currencies.Add(zwg);
+
+        using var workbook = Export(report);
+
+        foreach (var sheetName in new[] { "By Day", "By Shop", "By Hour" })
+        {
+            var sheet = workbook.Worksheet(sheetName);
+            var header = RowWhere(sheet, column: 1, "Currency");
+            var takingsColumn = ColumnWhere(sheet, header, "Takings");
+
+            var totals = sheet.RowsUsed()
+                .Where(row => row.Cell(2).GetString().StartsWith("TOTAL", StringComparison.Ordinal))
+                .ToDictionary(row => row.Cell(1).GetString(), row => row.Cell(takingsColumn).GetValue<decimal>());
+
+            Assert.Equal(new Dictionary<string, decimal> { ["USD"] = 308.70m, ["ZWG"] = 5000m }, totals);
+        }
+    }
+
+    [Fact]
+    public void Counts_in_the_kpi_strip_are_numbers_and_money_is_stated_per_currency()
+    {
+        using var workbook = Export(Report());
+        var sheet = workbook.Worksheet("Payment Methods");
+
+        // The strip's value row sits directly above its label row.
+        var salesLabel = sheet.CellsUsed().First(cell => cell.GetString() == "Sales" && cell.Address.RowNumber < 6);
+        var salesValue = sheet.Cell(salesLabel.Address.RowNumber - 1, salesLabel.Address.ColumnNumber);
+        Assert.Equal(XLDataType.Number, salesValue.DataType);
+        Assert.Equal(11, salesValue.GetValue<int>());
+
+        var takingsLabel = sheet.CellsUsed().First(cell => cell.GetString() == "Takings" && cell.Address.RowNumber < 6);
+        Assert.Equal("USD 308.70", sheet.Cell(takingsLabel.Address.RowNumber - 1, takingsLabel.Address.ColumnNumber).GetString());
+    }
+
+    [Fact]
+    public void A_period_with_no_sales_still_produces_every_sheet_with_a_message()
+    {
+        var report = Report();
+        report.Currencies.Clear();
+
+        using var workbook = Export(report);
+
+        Assert.Equal(7, workbook.Worksheets.Count);
+        foreach (var sheet in workbook.Worksheets)
+        {
+            Assert.Contains(sheet.CellsUsed(), cell => cell.GetString().StartsWith("No ", StringComparison.Ordinal));
+        }
+    }
+
     // ---- Harness ----------------------------------------------------------------------------------
 
     private static XLWorkbook Export(DesktopSalesAnalysisResult report) =>
