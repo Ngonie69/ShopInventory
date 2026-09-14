@@ -61,10 +61,34 @@ public static class SellingAccountResolver
             return Errors.Errors.DesktopSales.MissingCustomerAssignment;
         }
 
-        // Not VanSalesCompatibilityMapper.ResolveAssignedWarehouseCode: that takes the first entry of
-        // the list, which for an account holding two would pick one on JSON array order and sell from
-        // it silently. A business partner draws from exactly one warehouse, so more than one assigned
-        // is a configuration error worth surfacing rather than resolving.
+        var warehouseCode = ResolveAssignedWarehouse(user);
+        if (warehouseCode.IsError)
+        {
+            return warehouseCode.Errors;
+        }
+
+        // Carried when the account has one, not required. The cost centre is a reporting dimension
+        // that SAP will default if it is absent, so demanding it would stop an otherwise correctly
+        // configured till from selling in exchange for nothing that affects the money.
+        var costCentreCode = VanSalesCompatibilityMapper.ResolveAssignedCostCentreCode(user);
+
+        return new SellingAccountAssignments(user.Id, cardCode, warehouseCode.Value, costCentreCode);
+    }
+
+    /// <summary>
+    /// The one warehouse assigned on the account's own columns, or why there is not exactly one.
+    /// </summary>
+    /// <remarks>
+    /// Not VanSalesCompatibilityMapper.ResolveAssignedWarehouseCode: that takes the first entry of
+    /// the list, which for an account holding two would pick one on JSON array order and sell from
+    /// it silently. A business partner draws from exactly one warehouse, so more than one assigned
+    /// is a configuration error worth surfacing rather than resolving.
+    ///
+    /// Shared with <see cref="DesktopSalesReadScopeResolver"/>, so an account reads its takings from
+    /// the same warehouse it sells from and the two cannot come to disagree.
+    /// </remarks>
+    internal static ErrorOr<string> ResolveAssignedWarehouse(User user)
+    {
         var warehouseCodes = user.GetWarehouseCodes()
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .Select(code => code.Trim())
@@ -81,12 +105,7 @@ public static class SellingAccountResolver
             return Errors.Errors.DesktopSales.AmbiguousWarehouseAssignment(warehouseCodes.Count);
         }
 
-        // Carried when the account has one, not required. The cost centre is a reporting dimension
-        // that SAP will default if it is absent, so demanding it would stop an otherwise correctly
-        // configured till from selling in exchange for nothing that affects the money.
-        var costCentreCode = VanSalesCompatibilityMapper.ResolveAssignedCostCentreCode(user);
-
-        return new SellingAccountAssignments(user.Id, cardCode, warehouseCodes[0], costCentreCode);
+        return warehouseCodes[0];
     }
 
     /// <summary>

@@ -33,6 +33,11 @@ public sealed class GetDesktopSalesAnalysisHandler(
             queryParts.Add($"warehouseCode={Uri.EscapeDataString(request.WarehouseCode.Trim())}");
         }
 
+        if (!string.IsNullOrWhiteSpace(request.PaymentMethod))
+        {
+            queryParts.Add($"paymentMethod={Uri.EscapeDataString(request.PaymentMethod.Trim())}");
+        }
+
         var url = queryParts.Count == 0
             ? "api/DesktopIntegration/sales/analysis"
             : $"api/DesktopIntegration/sales/analysis?{string.Join("&", queryParts)}";

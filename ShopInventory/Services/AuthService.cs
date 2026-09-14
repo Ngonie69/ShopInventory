@@ -271,7 +271,7 @@ public class AuthService : IAuthService
         }
 
         // Generate new tokens
-        var newAccessToken = GenerateAccessToken(user);
+        var newAccessToken = GenerateAccessToken(user, await UserInfoMapper.ResolveWarehouseCodesAsync(user, _dbContext));
         var newRefreshTokenValue = GenerateRefreshTokenValue();
         var newRefreshTokenHash = HashRefreshToken(newRefreshTokenValue);
         var expiresAt = DateTime.UtcNow.AddMinutes(_jwtSettings.AccessTokenExpirationMinutes);
@@ -597,7 +597,12 @@ public class AuthService : IAuthService
         return false;
     }
 
-    private string GenerateAccessToken(User user)
+    /// <param name="user">The account the token is for.</param>
+    /// <param name="warehouseCodes">
+    /// From <see cref="UserInfoMapper.ResolveWarehouseCodesAsync"/>, so a shop account's token names
+    /// its shop's warehouse — the one its notification connection is addressed by.
+    /// </param>
+    private string GenerateAccessToken(User user, IReadOnlyList<string> warehouseCodes)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.SecretKey));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -613,12 +618,9 @@ public class AuthService : IAuthService
             new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)
         };
 
-        if (!string.IsNullOrEmpty(user.AssignedWarehouseCodes))
+        foreach (var wh in warehouseCodes.Where(code => !string.IsNullOrWhiteSpace(code)))
         {
-            foreach (var wh in user.GetWarehouseCodes())
-            {
-                claims.Add(new Claim("warehouse", wh));
-            }
+            claims.Add(new Claim("warehouse", wh));
         }
 
         var token = new JwtSecurityToken(
@@ -634,7 +636,9 @@ public class AuthService : IAuthService
 
     private async Task<AuthLoginResponse> IssueLoginResponseAsync(User user, string ipAddress, CancellationToken cancellationToken)
     {
-        var accessToken = GenerateAccessToken(user);
+        var accessToken = GenerateAccessToken(
+            user,
+            await UserInfoMapper.ResolveWarehouseCodesAsync(user, _dbContext, cancellationToken));
         var refreshTokenValue = GenerateRefreshTokenValue();
         var refreshTokenHash = HashRefreshToken(refreshTokenValue);
         var expiresAt = DateTime.UtcNow.AddMinutes(_jwtSettings.AccessTokenExpirationMinutes);
