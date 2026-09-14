@@ -82,7 +82,7 @@ public static class DesktopSalePostEligibility
         {
             return fiscalizationStatus == DesktopSaleFiscalizationStatus.Pending
                 ? "This sale has not been fiscalised yet. Posting it now would invoice a sale that has no receipt."
-                : "This sale's fiscalisation failed, so it needs a person before it can be invoiced.";
+                : "This sale's fiscalisation failed, so it cannot be invoiced until the device signs it. Retry fiscalisation to try again now.";
         }
 
         return null;

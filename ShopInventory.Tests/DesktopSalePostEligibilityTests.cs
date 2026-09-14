@@ -72,10 +72,15 @@ public sealed class DesktopSalePostEligibilityTests
     [Fact]
     public void A_till_sale_whose_fiscalisation_failed_is_refused()
     {
-        Assert.Contains("needs a person", Refusal(
+        // Still refused — it has no receipt — but no longer a dead end: the sweep retries it and the
+        // refusal points the operator at retrying it now, rather than saying it needs a person.
+        var refusal = Refusal(
             SaleSourceSystems.ShopTill,
             DesktopSaleConsolidationStatus.Pending,
-            DesktopSaleFiscalizationStatus.Failed));
+            DesktopSaleFiscalizationStatus.Failed);
+
+        Assert.Contains("fiscalisation failed", refusal);
+        Assert.Contains("Retry fiscalisation", refusal);
     }
 
     [Fact]

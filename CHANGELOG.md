@@ -18,6 +18,22 @@ otherwise be surprised.
 
 ### Added
 
+- **A shop-till sale that fails to fiscalise is now recovered, automatically and on request.**
+
+  A `KefalosShopTill` sale fiscalises inline, and one failed attempt used to be final: the fiscalisation
+  sweep read vending (and, under REVMax, offline van) sales only, and the posting job takes fiscalised
+  sales only, so the sale was never retried and never invoiced. The sweep now also takes a till sale
+  that is `Failed`, or still `Pending` ten minutes after it was rung up (a request that died). Every
+  such retry asks the device for an existing receipt under the sale's invoice number before sending
+  anything, so a receipt an earlier attempt did file is adopted, QR and verification code included.
+
+  New `POST /api/DesktopIntegration/sales/{externalReference}/fiscalise` retries one sale now, ignoring
+  the attempt budget and lookback. Refused (400) for a sale already fiscalised or skipped, a source this
+  system does not fiscalise, a till sale whose own request may still be in flight, and — under the
+  platform only — a sale marked for reconciliation. `GET /api/DesktopIntegration/sales` rows gain
+  `fiscalError`, `fiscalizationAttempts`, `fiscaliseRefusal` and `canRetryFiscalisation`. The desktop
+  sales drawer shows the device's error and a **Retry fiscalisation** button.
+
 - **Desktop fiscal credits: fiscal-only credits on posted sales, and credits filed elsewhere count.**
 
   `POST /api/DesktopIntegration/sales/{reference}/credit-notes` with `postToSap: false` was refused once

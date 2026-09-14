@@ -199,6 +199,31 @@ public static partial class Errors
         public static Error SalePostFailed(string externalRef, string detail) =>
             Error.Failure("DesktopSales.SalePostFailed", $"{externalRef}: {detail}");
 
+        // --- Retrying a sale's fiscalisation on request ---
+
+        /// <summary>
+        /// This sale may not be offered to the fiscal device again — see
+        /// <see cref="Common.Sales.DesktopSaleFiscalisationRetry"/> for the rule and
+        /// <paramref name="reason"/> for which clause of it refused.
+        /// </summary>
+        public static Error SaleNotFiscalisable(string externalRef, string reason) =>
+            Error.Validation("DesktopSales.SaleNotFiscalisable", $"{externalRef}: {reason}");
+
+        /// <summary>
+        /// Nothing was sent: the device could not be asked whether it already holds this receipt.
+        /// </summary>
+        /// <remarks>
+        /// Kept apart from <see cref="SaleFiscalisationFailed"/> because the sale was left exactly as it
+        /// was — no attempt spent, no status changed — and pressing Retry again once the device answers
+        /// is the whole remedy.
+        /// </remarks>
+        public static Error SaleFiscalisationUncheckable(string externalRef, string detail) =>
+            Error.Failure("DesktopSales.SaleFiscalisationUncheckable", $"{externalRef}: {detail}");
+
+        /// <summary>The device was asked to sign the receipt and did not.</summary>
+        public static Error SaleFiscalisationFailed(string externalRef, string detail) =>
+            Error.Failure("DesktopSales.SaleFiscalisationFailed", $"{externalRef}: {detail}");
+
         /// <summary>A bulk post that named nothing, or more references than one request may carry.</summary>
         public static Error BulkPostReferencesRequired =>
             Error.Validation("DesktopSales.BulkPostReferencesRequired",

@@ -941,6 +941,25 @@
                         Credit notes
                     </button>
                 }
+                @if (selectedSale.CanRetryFiscalisation)
+                {
+                    @* Offered only where the API says a retry is allowed. The API asks the device for an
+                       existing receipt before sending anything, so pressing it twice cannot sign twice. *@
+                    <button type="button" class="ops-btn ops-btn-primary"
+                            @onclick="() => RetryFiscalisation(selectedSale)"
+                            disabled="@(isRetryingFiscal || isPosting || isLoading)">
+                        @if (isRetryingFiscal)
+                        {
+                            <span class="ops-spin"></span>
+                            <span>Fiscalising&hellip;</span>
+                        }
+                        else
+                        {
+                            <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>
+                            <span>Retry fiscalisation</span>
+                        }
+                    </button>
+                }
                 @if (selectedSale.CanPostToSap)
                 {
                     <button type="button" class="ops-btn ops-btn-primary"
@@ -958,7 +977,7 @@
                         }
                     </button>
                 }
-                else if (!string.IsNullOrWhiteSpace(selectedSale.PostRefusal))
+                else if (!string.IsNullOrWhiteSpace(selectedSale.PostRefusal) && !selectedSale.CanRetryFiscalisation)
                 {
                     @* The reason stands in the button's place rather than a disabled button
                        standing there greyed out with nothing to explain it. *@
@@ -1644,6 +1663,9 @@
     /// <summary>The one sale a single post is in flight for, so only its button spins.</summary>
     private string? postingReference;
 
+    /// <summary>A fiscalisation retry is in flight for the sale open in the drawer.</summary>
+    private bool isRetryingFiscal;
+
     private bool showBulkPost;
     private DesktopSalesBulkPostResultDto? bulkResult;
 
@@ -2047,9 +2069,17 @@
                         ? "the authority accepted the receipt"
                         : $"receipt {sale.FiscalReceiptNumber} accepted",
                     "ops-fam-good"),
+                // The device's own words where it gave any. "Could not sign" alone reads the same for a
+                // card that was busy for a second and a line the device will refuse every time.
                 "failed" => new TrailStep(
                     "Fiscalization failed",
-                    "the device could not sign this receipt",
+                    string.Join(" · ", new[]
+                    {
+                        string.IsNullOrWhiteSpace(sale.FiscalError)
+                            ? "the device could not sign this receipt"
+                            : sale.FiscalError,
+                        sale.FiscalizationAttempts > 1 ? $"{sale.FiscalizationAttempts} attempts" : null
+                    }.Where(part => part is not null)),
                     "ops-fam-bad"),
                 "skipped" => new TrailStep(
                     "Fiscalization skipped",
@@ -2260,6 +2290,57 @@
         {
             isPosting = false;
             postingReference = null;
+        }
+    }
+
+    /// <summary>
+    /// Asks the device to sign the sale open in the drawer.
+    /// </summary>
+    /// <remarks>
+    /// The drawer stays open either way. A sale that now has a receipt can be posted from the same
+    /// footer, and one the device refused needs its reason on screen.
+    /// </remarks>
+    private async Task RetryFiscalisation(DesktopSaleDto sale)
+    {
+        if (isRetryingFiscal)
+        {
+            return;
+        }
+
+        isRetryingFiscal = true;
+        StateHasChanged();
+
+        try
+        {
+            var (result, error) = await DesktopService.RetrySaleFiscalisationAsync(sale.ExternalReferenceId);
+
+            // Reloaded before the outcome is said, not after: a successful reload clears a red notice,
+            // and the device's refusal is the one thing the operator pressed Retry to read.
+            await LoadData();
+
+            // Re-pointed at the reloaded row so the drawer shows the new status, receipt and buttons.
+            selectedSale = sales.FirstOrDefault(s => s.ExternalReferenceId == sale.ExternalReferenceId)
+                ?? selectedSale;
+
+            if (error is not null)
+            {
+                SayError(error);
+            }
+            else
+            {
+                Say(
+                    result!.Message ?? $"{sale.ExternalReferenceId} is fiscalised.",
+                    "ops-fam-good",
+                    "ph-check-circle");
+            }
+        }
+        catch (Exception ex)
+        {
+            SayError($"The retry could not be sent: {ex.Message}");
+        }
+        finally
+        {
+            isRetryingFiscal = false;
         }
     }
 
