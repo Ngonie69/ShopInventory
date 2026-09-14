@@ -9,9 +9,13 @@ using ShopInventory.Services.Fiscalisation;
 
 namespace ShopInventory.Features.DesktopCreditNotes;
 
-/// <summary>Credits the receipt REVMax already holds. No SAP or dormant platform endpoint is called.</summary>
+/// <summary>
+/// Credits the receipt REVMax already holds. No dormant platform endpoint is called; SAP is read only to
+/// find credits already filed against the receipt — see <see cref="DesktopCreditExternalCredits"/>.
+/// </summary>
 public sealed class RevmaxDesktopCreditGateway(IRevmaxClient client, RevmaxFiscalizationService fiscal,
-    IOptions<RevmaxSettings> settings, IOptions<FiscalisationSettings> selection) : IDesktopCreditFiscalGateway
+    IOptions<RevmaxSettings> settings, IOptions<FiscalisationSettings> selection,
+    IDesktopCreditExternalCredits externalCredits) : IDesktopCreditFiscalGateway
 {
     private void RequireEnabled()
     {
@@ -62,8 +66,12 @@ public sealed class RevmaxDesktopCreditGateway(IRevmaxClient client, RevmaxFisca
         if (lines.Count == 0)
             throw new InvalidOperationException(
                 $"None of the original receipt's {data.ReceiptLines.Count} lines can be credited: {string.Join("; ", excluded)}.");
+        // Read on every preparation and again when the credit is created, so a credit filed elsewhere
+        // while the form was open still counts against the receipt's balance in the planner.
+        var history = await externalCredits.FindAsync(sale, device, checked((int)global), ct);
         return new DesktopCreditSource(number, data.ReceiptCurrency ?? sale.Currency, Math.Abs(data.ReceiptTotal),
             device, day, checked((int)global), null, lines, ExcludedLines: excluded.Count == 0 ? null : excluded,
+            ExternalCreditedAmount: history.Amount, ExternalCredits: history.Credits.Count == 0 ? null : history.Credits,
             Buyer: new BuyerApiRequest
             {
                 RegisterName = ReadText(data.BuyerData, "buyerRegisterName") ?? sale.CardName ?? sale.CardCode,

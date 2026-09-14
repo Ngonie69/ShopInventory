@@ -36,7 +36,16 @@ public static class DesktopCreditPlanner
         }
         var amount = lines.Sum(l => Round(Math.Abs(l.Price) * l.Quantity));
         if (amount <= 0 || amount + reservedAmount + source.ExternalCreditedAmount > source.OriginalTotal)
-            throw new InvalidOperationException("The credit exceeds the original receipt's remaining balance.");
+        {
+            var remaining = Math.Max(0m, source.OriginalTotal - reservedAmount - source.ExternalCreditedAmount);
+            var elsewhere = source.ExternalCredits is { Count: > 0 } credits
+                ? $" ZIMRA already holds credits against it from {string.Join("; ", credits)}."
+                : "";
+            throw new InvalidOperationException(remaining <= 0
+                ? $"The original receipt has already been fully credited.{elsewhere}"
+                : $"The credit exceeds the original receipt's remaining balance of {source.Currency} "
+                  + $"{remaining.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}.{elsewhere}");
+        }
         if (source.DeviceId <= 0 || source.FiscalDayNo <= 0 || source.ReceiptGlobalNo <= 0)
             throw new InvalidOperationException("The original device, fiscal day and receipt number are required.");
         return new DesktopCreditPlan(source, request.Lines.OrderBy(l => l.LineNo).ToList(),

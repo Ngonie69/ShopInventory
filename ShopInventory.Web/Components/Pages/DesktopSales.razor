@@ -1214,8 +1214,17 @@
                         <div class="ops-dcn-lines">
                             <div class="ops-dcn-lines-head">
                                 <span class="ops-label">Lines to credit</span>
-                                <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" disabled="@desktopCreditBusy"
-                                        @onclick="CreditEverything">Credit everything</button>
+                                @if (DesktopCreditAllAtMax)
+                                {
+                                    <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" disabled="@desktopCreditBusy"
+                                            @onclick="ClearDesktopCredit">Clear all</button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm"
+                                            disabled="@(desktopCreditBusy || desktopCreditLines.All(l => l.Available <= 0))"
+                                            @onclick="CreditEverything">Credit everything</button>
+                                }
                             </div>
                             <div class="ops-dcn-scroll">
                                 <table class="ops-table">
@@ -1249,6 +1258,8 @@
                                                                 disabled="@(desktopCreditBusy || line.Quantity >= line.Available)" @onclick="() => line.Quantity += 1">
                                                             <i class="ph ph-plus" aria-hidden="true"></i>
                                                         </button>
+                                                        <button type="button" class="ops-dcn-step ops-dcn-max" aria-label="Credit all @QuantityDisplay.Format(line.Available) of @line.Source.Name"
+                                                                disabled="@(desktopCreditBusy || line.Quantity >= line.Available)" @onclick="() => line.Quantity = line.Available">Max</button>
                                                     </div>
                                                 </td>
                                                 <td class="ops-num @(line.Quantity > 0 ? "ops-dcn-amt-on" : "ops-dcn-amt-off")">@Money(line.Amount, creditCurrency)</td>
@@ -1257,6 +1268,11 @@
                                     </tbody>
                                 </table>
                             </div>
+                            @if (desktopCreditForm.Source.ExternalCredits is { Count: > 0 } elsewhere)
+                            {
+                                <div class="ops-hint" role="note">ZIMRA already holds credits against this receipt that were
+                                    not raised here: @string.Join("; ", elsewhere). They count against what can still be credited.</div>
+                            }
                             @if (desktopCreditForm.Source.ExcludedLines is { Count: > 0 } skipped)
                             {
                                 <div class="ops-hint" role="note">Not offered for credit: @string.Join("; ", skipped). The credit is
@@ -1295,6 +1311,11 @@
                             </div>
                             <div class="ops-dcn-total">
                                 <div class="ops-ds-sum">
+                                    @if (desktopCreditForm.RemainingAmount is { } remaining)
+                                    {
+                                        <div><span>Receipt total</span><span>@Money(desktopCreditForm.Source.OriginalTotal, creditCurrency)</span></div>
+                                        <div><span>Still creditable</span><span>@Money(remaining, creditCurrency)</span></div>
+                                    }
                                     <div><span>Lines credited</span><span>@desktopCreditLines.Count(l => l.Quantity > 0) of @desktopCreditLines.Count</span></div>
                                     <div><span>Excl. VAT</span><span>@Money(DesktopCreditAmount - DesktopCreditVat, creditCurrency)</span></div>
                                     <div><span>VAT</span><span>@Money(DesktopCreditVat, creditCurrency)</span></div>
@@ -1329,11 +1350,13 @@
                     <button type="button" class="ops-btn ops-btn-ghost" disabled="@desktopCreditBusy" @onclick="RefreshDesktopCredits">Refresh</button>
                     @if (desktopCreditForm != null && !desktopCreditSubmitted)
                     {
-                        @* Both actions are always shown, and the sale's SAP state enables exactly one.
-                           The API checks the same thing, so a form left open while the sale posts
-                           cannot take the wrong one — Refresh re-reads the state. *@
+                        @* Fiscalise only is always offered; posting needs the sale's own invoice. On a
+                           sale in SAP, Fiscalise only means SAP gets nothing — no memo, no stock back —
+                           for a fiscal correction such as a sale ZIMRA was sent twice. The API refuses it
+                           when the sale posted after this form was read; Refresh re-reads the state. *@
                         <button type="button" class="ops-btn ops-btn-ghost"
-                                disabled="@(!CanCreateDesktopCredit || desktopCreditForm.SaleInSap)"
+                                disabled="@(!CanCreateDesktopCredit)"
+                                title="@(desktopCreditForm.SaleInSap ? "File the credit with ZIMRA only. No SAP credit memo is raised and no stock is returned." : null)"
                                 @onclick="() => CreateDesktopCredit(postToSap: false)">Fiscalise only</button>
                         <button type="button" class="ops-btn ops-btn-primary"
                                 disabled="@(!CanCreateDesktopCredit || !desktopCreditForm.SaleInSap)"
@@ -1371,7 +1394,11 @@
         : 0m);
 
     private bool CanCreateDesktopCredit => !desktopCreditBusy && !desktopCreditSubmitted &&
-        !string.IsNullOrWhiteSpace(desktopCreditReason) && desktopCreditLines.Any(l => l.Quantity > 0);
+        !string.IsNullOrWhiteSpace(desktopCreditReason) && desktopCreditLines.Any(l => l.Quantity > 0) &&
+        !DesktopCreditOverBalance;
+
+    /// <summary>The selection is worth more than ZIMRA will still accept against the receipt.</summary>
+    private bool DesktopCreditOverBalance => desktopCreditForm?.RemainingAmount is { } remaining && DesktopCreditAmount > remaining;
 
     private sealed class DesktopCreditSelection(DesktopCreditLine source, decimal available)
     {
@@ -1403,13 +1430,24 @@
         foreach (var line in desktopCreditLines) line.Quantity = line.Available;
     }
 
+    private void ClearDesktopCredit()
+    {
+        foreach (var line in desktopCreditLines) line.Quantity = 0;
+    }
+
+    /// <summary>Every creditable line is already at its maximum, so the header offers to undo it.</summary>
+    private bool DesktopCreditAllAtMax =>
+        desktopCreditLines.Any(l => l.Available > 0) && desktopCreditLines.All(l => l.Quantity >= l.Available);
+
     /// <summary>What stands between the operator and the button, or what the button will do.</summary>
     private string DesktopCreditHint =>
-        desktopCreditLines.All(l => l.Available <= 0) ? "Every line of this receipt has already been credited."
+        desktopCreditForm?.RemainingAmount is <= 0 ? "This receipt has already been fully credited with ZIMRA, so no further credit can be filed against it."
+        : desktopCreditLines.All(l => l.Available <= 0) ? "Every line of this receipt has already been credited."
+        : DesktopCreditOverBalance ? $"This credit is more than the {Money(desktopCreditForm!.RemainingAmount!.Value, desktopCreditForm.Source.Currency)} still creditable on this receipt. Reduce the quantities."
         : !desktopCreditLines.Any(l => l.Quantity > 0) ? "Enter a credit quantity on at least one line to continue."
         : string.IsNullOrWhiteSpace(desktopCreditReason) ? "Pick a reason for credit to continue."
         : desktopCreditForm!.SaleInSap
-            ? $"This sale is in SAP{(desktopCreditForm.SaleSapDocNum is { } docNum ? $" as invoice #{docNum}" : "")}, so the credit is fiscalised and then posted to SAP as a credit memo, with the stock returned."
+            ? $"This sale is in SAP{(desktopCreditForm.SaleSapDocNum is { } docNum ? $" as invoice #{docNum}" : "")}. Post to SAP raises the credit memo and returns the stock; Fiscalise only files the credit with ZIMRA and leaves SAP and stock untouched."
         : creditSale?.ConsolidationId is not null
             ? "This sale went to SAP inside a consolidated invoice, so it is fiscalised only. The SAP credit memo has to be raised by hand."
             : "This sale is not in SAP yet, so it is fiscalised only. The SAP credit memo and stock return follow on their own once the sale posts.";
@@ -1462,8 +1500,11 @@
             // Load saved results even when REVMax is unavailable or the original cannot be prepared.
             desktopCreditNotes = await DesktopService.GetCreditNotesAsync(creditSale.ExternalReferenceId);
             desktopCreditForm = await DesktopService.PrepareCreditNoteAsync(creditSale.ExternalReferenceId);
+            // A receipt with nothing left to credit offers no quantities, whatever its lines say: credits
+            // filed outside this dialog are known only as an amount, not per line.
+            var exhausted = desktopCreditForm.RemainingAmount is <= 0;
             desktopCreditLines = desktopCreditForm.Source.Lines.Select(l => new DesktopCreditSelection(l,
-                l.Quantity - desktopCreditForm.ReservedQuantities.GetValueOrDefault(l.LineNo))).ToList();
+                exhausted ? 0 : l.Quantity - desktopCreditForm.ReservedQuantities.GetValueOrDefault(l.LineNo))).ToList();
             desktopCreditKey = Guid.NewGuid().ToString("N");
             desktopCreditReason = "";
             desktopCreditNote = "";
@@ -1484,7 +1525,8 @@
             var result = await DesktopService.CreateCreditNoteAsync(creditSale.ExternalReferenceId,
                 new CreateDesktopCreditRequest(desktopCreditKey, desktopCreditReason,
                     desktopCreditLines.Where(l => l.Quantity > 0).Select(l => new DesktopCreditQuantity(l.Source.LineNo, l.Quantity)).ToList(),
-                    string.IsNullOrWhiteSpace(desktopCreditNote) ? null : desktopCreditNote.Trim(), postToSap));
+                    string.IsNullOrWhiteSpace(desktopCreditNote) ? null : desktopCreditNote.Trim(), postToSap,
+                    desktopCreditForm?.SaleInSap));
             desktopCreditNotes.Insert(0, result);
             desktopCreditResult = result;
         }
@@ -1552,6 +1594,7 @@
             DesktopCreditSapStatuses.Deferred => "follows once this sale posts",
             DesktopCreditSapStatuses.NotRequired => "nothing owed — this sale is not posted to SAP",
             DesktopCreditSapStatuses.ManualInSap => "raise by hand against the consolidated invoice",
+            DesktopCreditSapStatuses.FiscalOnly => "not raised — fiscalised only, no stock returned",
             DesktopCreditSapStatuses.Failed => "failed — will be retried",
             // A status this build predates. Shown rather than swallowed.
             _ => note.SapStatus

@@ -77,24 +77,64 @@ public sealed class DesktopCreditNoteTests : IDisposable
     }
 
     [Fact]
-    public async Task Fiscalise_only_is_refused_once_the_sale_is_in_SAP()
+    public async Task Fiscalise_only_from_a_form_read_before_the_sale_posted_is_refused()
     {
+        // Pressed on a form that said "not in SAP", it meant "the memo follows once the sale posts".
+        // Taken against a sale that has since posted it would mean "SAP never hears of this".
         var sale = db.DesktopSales.Single();
         sale.SapDocEntry = 7001;
         sale.SapDocNum = 48213;
         db.SaveChanges();
 
-        var form = await service.PrepareAsync(caller, "TILL-123", default);
-        Assert.True(form.SaleInSap);
-        Assert.Equal(48213, form.SaleSapDocNum);
-
         var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.CreateAsync(caller, "TILL-123", Request() with { PostToSap = false }, default));
+            service.CreateAsync(caller, "TILL-123", Request() with { PostToSap = false, SaleInSap = false }, default));
 
-        Assert.Contains("already in SAP as invoice 48213", refusal.Message);
+        Assert.Contains("posted to SAP as invoice 48213 since the form was opened", refusal.Message);
         Assert.Equal(0, gateway.Submissions);
-        Assert.Equal("Fiscalised",
-            (await service.CreateAsync(caller, "TILL-123", Request() with { PostToSap = true }, default)).Status);
+        Assert.Empty(db.DesktopCreditNotes);
+    }
+
+    [Fact]
+    public async Task Fiscalise_only_on_a_sale_in_SAP_files_with_ZIMRA_and_never_touches_SAP_or_stock()
+    {
+        // The production case: GRC-FAC-20260911-286EEC7389FD was fiscalised twice and SAP holds the
+        // one invoice it should, so the second receipt needs a fiscal credit and nothing else.
+        var sale = db.DesktopSales.Single();
+        sale.SapDocEntry = 7001;
+        sale.SapDocNum = 48213;
+        sale.ConsolidationStatus = DesktopSaleConsolidationStatus.Consolidated;
+        sale.Lines.Add(new DesktopSaleLineEntity
+        {
+            LineNum = 1, ItemCode = "ICS025", ItemDescription = "Original product",
+            Quantity = 10, UnitPrice = 10m, LineTotal = 100m, WarehouseCode = "W1"
+        });
+        db.SaveChanges();
+        var untouched = new DesktopCreditSapPoster(db, StubProxy.Unused<ISAPServiceLayerClient>(),
+            StubProxy.For<IStockLedger>((m, _) => throw new InvalidOperationException($"IStockLedger.{m.Name} was called")),
+            StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+            NullLogger<DesktopCreditSapPoster>.Instance);
+        var fiscalOnly = new DesktopCreditNoteService(db, gateway, untouched,
+            StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+            NullLogger<DesktopCreditNoteService>.Instance);
+
+        var result = await fiscalOnly.CreateAsync(caller, "TILL-123",
+            Request() with { PostToSap = false, SaleInSap = true }, default);
+
+        Assert.Equal("Fiscalised", result.Status);
+        Assert.Equal(DesktopCreditSapStatuses.FiscalOnly, result.SapStatus);
+        Assert.Null(result.SapDocNum);
+        Assert.Equal(1, gateway.Submissions);
+
+        // Nothing later decides SAP is owed it after all: not the posting hook, not the sweep.
+        await untouched.SettleForSaleAsync(sale.Id, default);
+        await untouched.SettleAsync(result.Id, default);
+        var sweep = new DesktopCreditSapSweep(db, untouched, Options.Create(new DesktopSalePostingSettings()),
+            NullLogger<DesktopCreditSapSweep>.Instance);
+        Assert.Equal(0, (await sweep.SettleOutstandingAsync()).Total);
+        var saved = db.DesktopCreditNotes.AsNoTracking().Single();
+        Assert.Equal(DesktopCreditSapStatuses.FiscalOnly, saved.SapStatus);
+        Assert.False(saved.UnitsReturnedToLedger);
+        Assert.Null(saved.SapPostIssuedAtUtc);
     }
 
     [Fact]
@@ -665,7 +705,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
         using var http = new HttpClient(new BodyHandler(TillReceiptJson));
         var client = new RevmaxClient(http, options, NullLogger<RevmaxClient>.Instance);
         var gateway = new RevmaxDesktopCreditGateway(client, new RevmaxFiscalizationService(client, options,
-            Options.Create(new TaxSettings()), selection, NullLogger<RevmaxFiscalizationService>.Instance), options, selection);
+            Options.Create(new TaxSettings()), selection, NullLogger<RevmaxFiscalizationService>.Instance), options, selection, NoExternalCredits);
 
         var source = await gateway.ReadOriginalAsync(sale, default);
 
@@ -710,7 +750,24 @@ public sealed class DesktopCreditNoteTests : IDisposable
         }
     };
 
-    private static RevmaxDesktopCreditGateway RealGateway(InvoiceResponse original)
+    [Fact]
+    public async Task The_gateway_carries_credits_filed_elsewhere_into_the_balance_the_planner_checks()
+    {
+        var history = new DesktopCreditExternalHistory(100m, ["SAP credit memo 91001 (receipt 217001, USD 100.00)"]);
+        var gateway = RealGateway(OriginalReceipt(),
+            StubProxy.For<IDesktopCreditExternalCredits>((_, args) => (int)args![1]! == 22862 && (int)args[2]! == 456
+                ? Task.FromResult(history) : throw new InvalidOperationException("Asked about the wrong receipt")));
+
+        var source = await gateway.ReadOriginalAsync(db.DesktopSales.Single(), default);
+
+        Assert.Equal(100m, source.ExternalCreditedAmount);
+        Assert.Equal(history.Credits, source.ExternalCredits);
+        Assert.Throws<InvalidOperationException>(() => DesktopCreditPlanner.Build(source, Request(1m),
+            new Dictionary<int, decimal>(), 0m, DateTime.UtcNow));
+    }
+
+    private static RevmaxDesktopCreditGateway RealGateway(InvoiceResponse original,
+        IDesktopCreditExternalCredits? externalCredits = null)
     {
         var client = StubProxy.For<IRevmaxClient>((m, _) => m.Name == "GetInvoiceAsync"
             ? Task.FromResult<InvoiceResponse?>(original) : throw new InvalidOperationException("Unexpected device write"));
@@ -718,7 +775,39 @@ public sealed class DesktopCreditNoteTests : IDisposable
         var selection = Options.Create(new FiscalisationSettings { Provider = FiscalisationProvider.Revmax });
         var device = new RevmaxFiscalizationService(client, settings, Options.Create(new TaxSettings()), selection,
             NullLogger<RevmaxFiscalizationService>.Instance);
-        return new RevmaxDesktopCreditGateway(client, device, settings, selection);
+        return new RevmaxDesktopCreditGateway(client, device, settings, selection, externalCredits ?? NoExternalCredits);
+    }
+
+    private static readonly IDesktopCreditExternalCredits NoExternalCredits =
+        StubProxy.For<IDesktopCreditExternalCredits>((_, _) => Task.FromResult(DesktopCreditExternalHistory.None));
+
+    [Fact]
+    public async Task A_receipt_already_fully_credited_elsewhere_is_refused_before_anything_is_filed()
+    {
+        gateway.External = new DesktopCreditExternalHistory(100m, ["SAP credit memo 91001 (receipt 217001, USD 100.00)"]);
+
+        var form = await service.PrepareAsync(caller, "TILL-123", default);
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAsync(caller, "TILL-123", Request(1m), default));
+
+        Assert.Equal(0m, form.RemainingAmount);
+        Assert.Contains("already been fully credited", refusal.Message);
+        Assert.Contains("SAP credit memo 91001", refusal.Message);
+        Assert.Equal(0, gateway.Submissions);
+        Assert.Empty(db.DesktopCreditNotes);
+    }
+
+    [Fact]
+    public async Task A_credit_elsewhere_and_one_saved_here_both_count_against_the_balance()
+    {
+        gateway.External = new DesktopCreditExternalHistory(50m, ["SAP credit memo 91001 (receipt 217001, USD 50.00)"]);
+        Assert.Equal("Fiscalised", (await service.CreateAsync(caller, "TILL-123", Request(3m), default)).Status);
+
+        Assert.Equal(20m, (await service.PrepareAsync(caller, "TILL-123", default)).RemainingAmount);
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAsync(caller, "TILL-123", Request(3m), default));
+        Assert.Contains("remaining balance of USD 20.00", refusal.Message);
+        Assert.Equal("Fiscalised", (await service.CreateAsync(caller, "TILL-123", Request(2m), default)).Status);
     }
 
     [Theory]
@@ -764,7 +853,13 @@ public sealed class DesktopCreditNoteTests : IDisposable
         public Action? BeforeSubmit;
         public FiscalizationResult? Existing;
         public FiscalizationResult? SubmitResult;
-        public Task<DesktopCreditSource> ReadOriginalAsync(DesktopSaleEntity sale, CancellationToken ct) => Task.FromResult(Source());
+        public DesktopCreditExternalHistory External = DesktopCreditExternalHistory.None;
+        public Task<DesktopCreditSource> ReadOriginalAsync(DesktopSaleEntity sale, CancellationToken ct) =>
+            Task.FromResult(Source() with
+            {
+                ExternalCreditedAmount = External.Amount,
+                ExternalCredits = External.Credits.Count == 0 ? null : External.Credits
+            });
         public Task<FiscalizationResult?> FindAsync(DesktopCreditPlan plan, CancellationToken ct) => Task.FromResult(Existing);
         public Task<string?> PreflightAsync(DesktopCreditPlan plan, CancellationToken ct) => Task.FromResult(Refusal);
         public Task<FiscalizationResult> SubmitAsync(DesktopCreditPlan plan, CancellationToken ct)

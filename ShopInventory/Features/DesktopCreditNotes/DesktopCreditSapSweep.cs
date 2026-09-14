@@ -50,8 +50,9 @@ public sealed class DesktopCreditSapSweep(
                     || (note.SapStatus == DesktopCreditSapStatuses.Failed
                         && note.SapAttempts < options.MaxPostingAttempts)
                     // Fiscalised but never carried forward at all — the units are still owed to the
-                    // ledger even where SAP turns out to be owed nothing.
-                    || !note.UnitsReturnedToLedger))
+                    // ledger even where SAP turns out to be owed nothing. Not a fiscal-only credit,
+                    // which owes neither and would otherwise fill every batch from here on.
+                    || (!note.UnitsReturnedToLedger && note.SapStatus != DesktopCreditSapStatuses.FiscalOnly)))
             .OrderBy(note => note.CreatedAtUtc)
             .Take(options.BatchSize)
             .Select(note => note.Id)

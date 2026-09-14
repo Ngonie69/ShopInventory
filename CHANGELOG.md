@@ -18,6 +18,20 @@ otherwise be surprised.
 
 ### Added
 
+- **Desktop fiscal credits: fiscal-only credits on posted sales, and credits filed elsewhere count.**
+
+  `POST /api/DesktopIntegration/sales/{reference}/credit-notes` with `postToSap: false` was refused once
+  the sale was in SAP. It is now accepted when the request also sends `saleInSap: true` (what the form
+  showed), and saves `sapStatus` `FiscalOnly`: ZIMRA gets the credit, SAP gets no memo and no units go
+  back on the ledger. Without `saleInSap: true` it is still refused, so a form read before the sale
+  posted cannot silently skip the memo.
+
+  Both `prepare` and the create call now subtract credits ZIMRA already holds against the receipt
+  under the customer's SAP credit memo numbers (`source.externalCreditedAmount`,
+  `source.externalCredits`), and `prepare` answers `remainingAmount`. A credit worth more is refused.
+  **For a sale in SAP, a SAP or REVMax lookup that cannot answer now refuses the credit** where it
+  previously went ahead; a sale with no SAP invoice is not checked.
+
 - **Desktop fiscal credits now raise their SAP credit memo by themselves.**
 
   `POST /api/DesktopIntegration/sales/{reference}/credit-notes` filed the ZIMRA credit and left the

@@ -41,7 +41,8 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         var source = await fiscal.ReadOriginalAsync(sale, ct);
         var notes = await db.DesktopCreditNotes.AsNoTracking().Where(n => n.SaleId == sale.Id).ToListAsync(ct);
         return new DesktopCreditForm(source, notes.Select(Map).ToList(), Reserved(notes),
-            InSap(sale), InSap(sale) ? sale.SapDocNum : null);
+            InSap(sale), InSap(sale) ? sale.SapDocNum : null,
+            Math.Max(0m, source.OriginalTotal - source.ExternalCreditedAmount - ReservedAmount(notes)));
     }
 
     /// <summary>The sale has its own SAP invoice, so a credit memo can be raised against it now.</summary>
@@ -51,15 +52,20 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
     /// </remarks>
     private static bool InSap(DesktopSaleEntity sale) => sale.SapDocEntry is > 0;
 
-    /// <summary>Refuses the action the sale's SAP state does not allow.</summary>
-    private static void RequireAction(DesktopSaleEntity sale, bool? postToSap)
+    /// <summary>Refuses the action the sale's SAP state does not allow, or that the form did not offer.</summary>
+    /// <returns>Whether this is a fiscal-only credit against a sale already in SAP.</returns>
+    private static bool RequireAction(DesktopSaleEntity sale, CreateDesktopCreditRequest request)
     {
-        if (postToSap == true && !InSap(sale))
+        if (request.PostToSap == true && !InSap(sale))
             throw new InvalidOperationException("This sale is not in SAP yet, so there is no invoice to post a credit "
                 + "memo against. Use Fiscalise only; the SAP credit memo follows on its own once the sale posts.");
-        if (postToSap == false && InSap(sale))
-            throw new InvalidOperationException($"This sale is already in SAP as invoice {sale.SapDocNum}, so the "
-                + "credit has to be posted there too. Use Fiscalise and post to SAP.");
+        if (request.PostToSap != false || !InSap(sale)) return false;
+        // "Fiscalise only" on a form opened before the sale posted meant "the memo follows later". Taken
+        // now it would mean "SAP never hears of this", which nobody chose.
+        if (request.SaleInSap != true)
+            throw new InvalidOperationException($"This sale has posted to SAP as invoice {sale.SapDocNum} since the "
+                + "form was opened. Refresh, then choose again.");
+        return true;
     }
 
     /// <remarks>
@@ -90,7 +96,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         }
         // After the replay above, not before: a credit saved by "Fiscalise only" whose sale has since
         // posted is the same credit, and its retry must return it rather than be refused.
-        RequireAction(sale, request.PostToSap);
+        var fiscalOnly = RequireAction(sale, request);
         var source = await fiscal.ReadOriginalAsync(sale, ct);
         DesktopCreditNoteEntity note;
         // The reservation of quantities and amount is serializable across app instances. No HTTP
@@ -98,8 +104,7 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         await using (var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct))
         {
             var notes = await db.DesktopCreditNotes.AsNoTracking().Where(n => n.SaleId == sale.Id).ToListAsync(ct);
-            var plan = DesktopCreditPlanner.Build(source, request, Reserved(notes),
-                notes.Where(n => n.Status != DesktopCreditStatuses.Rejected).Sum(n => n.Amount), DateTime.UtcNow);
+            var plan = DesktopCreditPlanner.Build(source, request, Reserved(notes), ReservedAmount(notes), DateTime.UtcNow);
             plan.Receipt.Username = caller.ToString();
             note = new DesktopCreditNoteEntity
             {
@@ -107,7 +112,8 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
                 Number = plan.Receipt.InvoiceNo!, OriginalFiscalNumber = source.OriginalFiscalNumber,
                 Reason = request.Reason.Trim(), Currency = source.Currency, Amount = plan.Amount,
                 PlanJson = JsonSerializer.Serialize(plan, Json), CreatedAtUtc = DateTime.UtcNow, CreatedBy = caller,
-                Message = "Saved; fiscalisation has not yet been submitted."
+                Message = "Saved; fiscalisation has not yet been submitted.",
+                SapStatus = fiscalOnly ? DesktopCreditSapStatuses.FiscalOnly : DesktopCreditSapStatuses.Deferred
             };
             db.DesktopCreditNotes.Add(note);
             await db.SaveChangesAsync(ct);
@@ -249,6 +255,9 @@ public sealed class DesktopCreditNoteService(ApplicationDbContext db, IDesktopCr
         .Where(n => n.Status != DesktopCreditStatuses.Rejected)
         .SelectMany(n => JsonSerializer.Deserialize<DesktopCreditPlan>(n.PlanJson, Json)!.Quantities)
         .GroupBy(l => l.LineNo).ToDictionary(g => g.Key, g => g.Sum(l => l.Quantity));
+
+    private static decimal ReservedAmount(IEnumerable<DesktopCreditNoteEntity> notes) =>
+        notes.Where(n => n.Status != DesktopCreditStatuses.Rejected).Sum(n => n.Amount);
 
     /// <summary>What the device last answered for this credit, as it was recorded.</summary>
     private static FiscalizationResult? Stored(DesktopCreditNoteEntity note) =>

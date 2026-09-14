@@ -92,9 +92,12 @@ public sealed class DesktopCreditSapPoster(
             return;
         }
 
+        // FiscalOnly stops here, before the ledger return below: it reverses a receipt, not a sale, so
+        // no goods came back to put on the ledger either.
         if (note.SapStatus is DesktopCreditSapStatuses.Posted
             or DesktopCreditSapStatuses.NotRequired
-            or DesktopCreditSapStatuses.ManualInSap)
+            or DesktopCreditSapStatuses.ManualInSap
+            or DesktopCreditSapStatuses.FiscalOnly)
         {
             return;
         }
