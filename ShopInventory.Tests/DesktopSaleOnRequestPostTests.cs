@@ -122,9 +122,68 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
         Assert.Equal(0, untouched.PostingAttempts);
     }
 
+    [Fact]
+    public async Task A_paid_sale_is_invoiced_and_its_invoice_left_open()
+    {
+        // The incoming payment is posted directly in SAP, and that is what closes the invoice. A
+        // payment sent from here would close it the moment it arrived.
+        var sale = await GivenSaleAsync(amountPaid: 25m);
+
+        var result = await Service().PostSaleAsync(sale.Id);
+
+        Assert.Equal(1, result!.Posted);
+        Assert.Single(_sap.Created);
+        Assert.Empty(_sap.Payments);
+
+        var posted = await _context.DesktopSales.AsNoTracking().FirstAsync(s => s.Id == sale.Id);
+        Assert.Null(posted.PaymentStatus);
+        Assert.Null(posted.PaymentSapDocNum);
+    }
+
+    [Fact]
+    public async Task Settling_the_invoice_can_still_be_switched_back_on()
+    {
+        // The control for the test above: the same sale with the setting on does send a payment, so
+        // an empty payment list there is the setting at work and not a sale that could never settle.
+        var sale = await GivenSaleAsync(amountPaid: 25m);
+
+        await Service(settings: new DesktopSalePostingSettings { PostIncomingPayments = true })
+            .PostSaleAsync(sale.Id);
+
+        Assert.Single(_sap.Payments);
+
+        var posted = await _context.DesktopSales.AsNoTracking().FirstAsync(s => s.Id == sale.Id);
+        Assert.Equal(DesktopSalePaymentStatuses.Posted, posted.PaymentStatus);
+    }
+
+    [Theory]
+    [InlineData(false, 0)]
+    // The control: with settlement on, the same row is picked up. The pass then fails on the invoice
+    // read-back this fake does not answer, which still counts it — so zero above is the gate at work.
+    [InlineData(true, 1)]
+    public async Task A_payment_that_failed_earlier_is_retried_only_while_settlement_is_on(
+        bool postIncomingPayments, int expectedTotal)
+    {
+        var sale = await GivenSaleAsync(amountPaid: 25m);
+        // Inside the pass's lookback window, or the row is skipped for its date alone.
+        sale.DocDate = DateTime.UtcNow.Date;
+        sale.ConsolidationStatus = DesktopSaleConsolidationStatus.Consolidated;
+        sale.SapDocEntry = 900;
+        sale.SapDocNum = 900;
+        sale.PaymentStatus = DesktopSalePaymentStatuses.Failed;
+        await _context.SaveChangesAsync();
+
+        var result = await Service(settings: new DesktopSalePostingSettings { PostIncomingPayments = postIncomingPayments })
+            .PostPendingSalesAsync();
+
+        Assert.Equal(expectedTotal, result.Total);
+        Assert.Empty(_sap.Payments);
+    }
+
     private async Task<DesktopSaleEntity> GivenSaleAsync(
         string source = SaleSourceSystems.ShopTill,
-        int attempts = 0)
+        int attempts = 0,
+        decimal amountPaid = 0m)
     {
         var sale = new DesktopSaleEntity
         {
@@ -139,9 +198,10 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
             ConsolidationStatus = DesktopSaleConsolidationStatus.Pending,
             WarehouseCode = "KEFSHOP",
             PostingAttempts = attempts,
-            // Zero on purpose: the settlement is a separate step with its own guards, and leaving it
-            // out keeps these tests about the invoice.
-            AmountPaid = 0m,
+            // Zero by default: the settlement is a separate step with its own guards, and leaving it
+            // out keeps most of these tests about the invoice.
+            AmountPaid = amountPaid,
+            PaymentMethod = TenderTypes.Cash,
             Lines =
             [
                 new DesktopSaleLineEntity
@@ -161,7 +221,9 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
         return sale;
     }
 
-    private DesktopSalePostingService Service(SapCircuitBreakerState? circuit = null)
+    private DesktopSalePostingService Service(
+        SapCircuitBreakerState? circuit = null,
+        DesktopSalePostingSettings? settings = null)
         => new(
             _context,
             _sap.Client,
@@ -169,13 +231,14 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
             SaleBatchAllocators.Holding(),
             SalePostGuards.Backed(_connection),
             DesktopCreditPosters.Idle(_context),
-            Options.Create(new DesktopSalePostingSettings()),
+            Options.Create(settings ?? new DesktopSalePostingSettings()),
             Options.Create(new SAPSettings()),
             NullLogger<DesktopSalePostingService>.Instance);
 
     private sealed class RecordingSapClient
     {
         public List<CreateInvoiceRequest> Created { get; } = [];
+        public List<CreateIncomingPaymentRequest> Payments { get; } = [];
         public Dictionary<string, Invoice> ExistingByVanSaleOrder { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         private int _nextDocNum = 5000;
@@ -188,6 +251,8 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
 
             nameof(ISAPServiceLayerClient.CreateInvoiceAsync) => Create((CreateInvoiceRequest)args![0]!),
 
+            nameof(ISAPServiceLayerClient.CreateIncomingPaymentAsync) => Pay((CreateIncomingPaymentRequest)args![0]!),
+
             _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
         });
 
@@ -196,6 +261,13 @@ public sealed class DesktopSaleOnRequestPostTests : IDisposable
             Created.Add(request);
             var docNum = _nextDocNum++;
             return Task.FromResult(new Invoice { DocEntry = docNum, DocNum = docNum });
+        }
+
+        private Task<IncomingPayment> Pay(CreateIncomingPaymentRequest request)
+        {
+            Payments.Add(request);
+            var docNum = _nextDocNum++;
+            return Task.FromResult(new IncomingPayment { DocEntry = docNum, DocNum = docNum });
         }
     }
 }

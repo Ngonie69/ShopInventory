@@ -2611,7 +2611,8 @@
         DesktopSalePaymentStatuses.PostedUnconfirmed => "Already settled in SAP",
         DesktopSalePaymentStatuses.Failed => "Payment failed",
         DesktopSalePaymentStatuses.Unmapped => "Tender not mapped",
-        _ => "Not settled yet"
+        // The posting job leaves till invoices open; the incoming payment is posted in SAP.
+        _ => "Open — payment is posted in SAP"
     };
 
     private static string PostOutcomeFamily(string? outcome) => outcome switch

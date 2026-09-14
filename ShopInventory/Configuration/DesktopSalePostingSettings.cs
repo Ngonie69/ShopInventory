@@ -73,4 +73,18 @@ public class DesktopSalePostingSettings
     /// <para>Set to zero to restore the old behaviour of reposting immediately.</para>
     /// </remarks>
     public int UnresolvedPostGraceMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// Whether posting a till or vending sale also posts its incoming payment. Off: the invoice goes
+    /// to SAP and is left open.
+    /// </summary>
+    /// <remarks>
+    /// The payment used to follow the invoice within the same pass, which closed the invoice the
+    /// moment it arrived. Finance posts the incoming payment directly in SAP, and that payment is
+    /// what closes the invoice — so the job no longer settles anything, and a payment that failed
+    /// before this was switched off is not retried.
+    ///
+    /// <para>Set to true to restore the old behaviour of settling each invoice as it posts.</para>
+    /// </remarks>
+    public bool PostIncomingPayments { get; set; }
 }
