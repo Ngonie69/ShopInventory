@@ -11,7 +11,9 @@ using ShopInventory.Models.Entities;
 namespace ShopInventory.Services;
 
 /// <summary>
-/// Posts shop till and vending sales to SAP, one A/R invoice and one incoming payment per sale.
+/// Posts shop till and vending sales to SAP, one A/R invoice per sale. The invoice is left open: the
+/// incoming payment is posted directly in SAP, unless <see cref="DesktopSalePostingSettings.PostIncomingPayments"/>
+/// turns this service's own settlement back on.
 ///
 /// A till fiscalises the moment the customer pays, so the receipt is printed and handed over long
 /// before SAP hears about it. That is deliberate: a SAP round trip takes seconds the queue at the
@@ -57,6 +59,7 @@ public sealed class DesktopSalePostingService(
         // A window rather than a single trading date. A till sale should reach SAP within minutes, and
         // one that failed at 23:55 must not be stranded when the date rolls over.
         var cutoff = DateTime.UtcNow.Date.AddDays(-options.LookbackDays);
+        var retryFailedPayments = options.PostIncomingPayments;
 
         var pending = await context.DesktopSales
             .Include(s => s.Lines)
@@ -68,6 +71,8 @@ public sealed class DesktopSalePostingService(
                         // failed. Without the second case a failed payment would never be retried:
                         // posting the invoice sets Consolidated, which takes the sale out of the
                         // first case forever, leaving a real open A/R document nobody comes back to.
+                        // Only while this job settles invoices at all: with payments left to SAP, an
+                        // open invoice is the intended outcome and there is nothing to come back for.
                         ((s.ConsolidationStatus == DesktopSaleConsolidationStatus.Pending &&
                           // Ready to be invoiced. Pending means vending has not fiscalised it yet, and
                           // Failed means it needs a human — posting either would put an invoice in SAP
@@ -77,7 +82,8 @@ public sealed class DesktopSalePostingService(
                           // route existed.
                           (s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Success ||
                            s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Skipped)) ||
-                         (s.ConsolidationStatus == DesktopSaleConsolidationStatus.Consolidated &&
+                         (retryFailedPayments &&
+                          s.ConsolidationStatus == DesktopSaleConsolidationStatus.Consolidated &&
                           s.PaymentStatus == DesktopSalePaymentStatuses.Failed)))
             .OrderBy(s => s.Id)
             .Take(options.BatchSize)
@@ -229,8 +235,12 @@ public sealed class DesktopSalePostingService(
         if (sale.ConsolidationStatus == DesktopSaleConsolidationStatus.Consolidated &&
             sale.SapDocEntry.HasValue)
         {
-            var posted = await sapClient.GetInvoiceByDocEntryAsync(sale.SapDocEntry.Value, cancellationToken);
-            await PostPaymentAsync(sale, posted);
+            if (settings.Value.PostIncomingPayments)
+            {
+                var posted = await sapClient.GetInvoiceByDocEntryAsync(sale.SapDocEntry.Value, cancellationToken);
+                await PostPaymentAsync(sale, posted);
+            }
+
             await RaiseDeferredCreditsAsync(sale);
             return;
         }
@@ -333,6 +343,11 @@ public sealed class DesktopSalePostingService(
             logger.LogInformation(
                 "Till sale {ExternalReference} was posted by another attempt as invoice {DocNum}; adopted it.",
                 sale.ExternalReferenceId, receipt.SapDocNum);
+
+            if (!settings.Value.PostIncomingPayments)
+            {
+                return null;
+            }
 
             try
             {
@@ -602,6 +617,14 @@ public sealed class DesktopSalePostingService(
     /// </remarks>
     private async Task PostPaymentAsync(DesktopSaleEntity sale, Invoice? invoice)
     {
+        // The incoming payment is posted directly in SAP, and it is what closes the invoice. Settling
+        // here would close it the moment it arrived. Nothing is written to the sale: the Web reads a
+        // null status as an invoice left open.
+        if (!settings.Value.PostIncomingPayments)
+        {
+            return;
+        }
+
         if (invoice is null || sale.SapDocEntry is null)
         {
             return;
