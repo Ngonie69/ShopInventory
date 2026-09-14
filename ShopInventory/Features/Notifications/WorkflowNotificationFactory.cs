@@ -39,6 +39,36 @@ internal static class WorkflowNotificationFactory
         };
     }
 
+    /// <summary>
+    /// A sheet of vendors landing on a depot, as one entry rather than one per vendor. Carries no
+    /// <c>routeCustomerId</c>, because it is about many.
+    /// </summary>
+    public static CreateNotificationRequest CreateRouteCustomersImportedNotification(
+        Guid? targetUserId,
+        string targetUsername,
+        string assignedBusinessPartnerCode,
+        int customerCount)
+    {
+        var what = customerCount == 1 ? "1 vendor" : $"{customerCount} vendors";
+
+        return new CreateNotificationRequest
+        {
+            Title = $"New vendors: {what}",
+            Message = $"{what} {(customerCount == 1 ? "is" : "are")} now available for {assignedBusinessPartnerCode}.",
+            Type = "Info",
+            Category = "Customer",
+            EntityType = "RouteCustomer",
+            ActionUrl = MobileSalesActionUrl,
+            TargetUserId = targetUserId,
+            TargetUsername = targetUsername,
+            Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["assignedBusinessPartnerCode"] = assignedBusinessPartnerCode,
+                ["customerCount"] = customerCount.ToString(CultureInfo.InvariantCulture)
+            }
+        };
+    }
+
     public static CreateNotificationRequest CreateInvoiceCreatedNotification(
         Guid? targetUserId,
         string targetUsername,

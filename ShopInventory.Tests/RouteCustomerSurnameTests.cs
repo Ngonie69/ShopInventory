@@ -46,7 +46,7 @@ public sealed class RouteCustomerSurnameTests : IDisposable
             PasswordHash = "x",
             Role = "CartVendor",
             IsActive = true,
-            AssignedWarehouseCode = "CORMACH2",
+            AssignedWarehouseCode = "CORMACH",
             AssignedBusinessPartnerCode = RouteCode
         });
 
@@ -65,7 +65,7 @@ public sealed class RouteCustomerSurnameTests : IDisposable
     {
         var created = await CreateAsync(new CreateRouteCustomerRequest
         {
-            Code = "TAPIWA1",
+            Code = "VMM001",
             Name = "Tapiwa",
             Surname = "Moyo",
             Phone = "0771234567"
@@ -83,7 +83,7 @@ public sealed class RouteCustomerSurnameTests : IDisposable
     {
         await CreateAsync(new CreateRouteCustomerRequest
         {
-            Code = "TAPIWA1",
+            Code = "VMM001",
             Name = "Tapiwa",
             Surname = "Moyo"
         });
@@ -101,7 +101,7 @@ public sealed class RouteCustomerSurnameTests : IDisposable
     {
         var created = await CreateAsync(new CreateRouteCustomerRequest
         {
-            Code = "TUCK01",
+            Code = "VMM002",
             Name = "Tuck Shop"
         });
 
@@ -119,7 +119,7 @@ public sealed class RouteCustomerSurnameTests : IDisposable
     {
         var created = await CreateAsync(new CreateRouteCustomerRequest
         {
-            Code = "TUCK02",
+            Code = "VMM003",
             Name = "Tuck Shop",
             Surname = "   "
         });
@@ -132,7 +132,7 @@ public sealed class RouteCustomerSurnameTests : IDisposable
     {
         var created = await CreateAsync(new CreateRouteCustomerRequest
         {
-            Code = "TAPIWA1",
+            Code = "VMM001",
             Name = "Tapiwa",
             Surname = "Moya"
         });
@@ -158,7 +158,7 @@ public sealed class RouteCustomerSurnameTests : IDisposable
     {
         var created = await CreateAsync(new CreateRouteCustomerRequest
         {
-            Code = "TUCK01",
+            Code = "VMM002",
             Name = "Tuck Shop"
         });
 

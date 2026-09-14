@@ -776,10 +776,11 @@ BasePath = "/api/vending",
 Description = "Vending depots, their cashier accounts and the vendors they serve.",
 Icon = Icons.Material.Filled.Api,
 Color = Color.Secondary,
-Methods = new[] { "GET" },
+Methods = new[] { "GET", "POST" },
 Endpoints = new List<ApiEndpoint>
 {
-new("GET", "/api/vending/overview", "Depots, cashier accounts and vendors")
+new("GET", "/api/vending/overview", "Depots, cashier accounts and vendors"),
+new("POST", "/api/vending/vendors/import", "Check or add a sheet of vendors (validateOnly)")
 }
 }
 }

@@ -46,6 +46,18 @@ public sealed class VendingDepotDto
 
     /// <summary>Why this depot's cashiers do not agree, or null when they do.</summary>
     public string? SetupProblem { get; set; }
+
+    /// <summary>
+    /// The prefix this depot's vendor codes start with — VMB, VMP or VMM, from its warehouse — or null
+    /// when its warehouses give it none, in which case <see cref="VendorCodeProblem"/> says why.
+    /// </summary>
+    public string? VendorCodePrefix { get; set; }
+
+    /// <summary>The code a vendor added now without one would take, or null when none can be issued.</summary>
+    public string? NextVendorCode { get; set; }
+
+    /// <summary>Why vendors cannot be numbered at this depot, or null when they can.</summary>
+    public string? VendorCodeProblem { get; set; }
 }
 
 /// <summary>

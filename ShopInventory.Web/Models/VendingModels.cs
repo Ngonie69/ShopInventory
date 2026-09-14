@@ -29,6 +29,15 @@ public sealed class VendingDepotModel
     public int ActiveVendorCount { get; set; }
 
     public string? SetupProblem { get; set; }
+
+    /// <summary>VMB, VMP or VMM — from the depot's warehouse. Null when it has none.</summary>
+    public string? VendorCodePrefix { get; set; }
+
+    /// <summary>The code a vendor added now without one would take.</summary>
+    public string? NextVendorCode { get; set; }
+
+    /// <summary>Why vendors cannot be numbered at this depot, or null when they can.</summary>
+    public string? VendorCodeProblem { get; set; }
 }
 
 /// <summary>A depot cashier's <c>CartVendor</c> account.</summary>
