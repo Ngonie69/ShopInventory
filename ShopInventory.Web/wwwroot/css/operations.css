@@ -813,8 +813,13 @@
     font-size: 12.5px;
 }
 
+/* The background has to be stated. app.css fills every `.dark-theme table
+   thead th` navy at (0,1,3); this rule beats its colour and border but, left
+   silent on the background, lets the fill through as a band the design does
+   not have. The sticky heads below set their own opaque ground at (0,3,2). */
 .ops .ops-table thead th,
 .ops-overlay .ops-table thead th {
+    background: transparent;
     padding: var(--ops-s4);
     border: 0;
     border-bottom: 1px solid var(--ops-divider);
