@@ -208,7 +208,7 @@
                                         <td class="vend-num">@VendorSalesDigest.Money(sale.Currency, sale.Total)</td>
                                         <td class="vend-cell-mute">@(string.IsNullOrWhiteSpace(sale.PaymentMethod) ? "—" : sale.PaymentMethod)</td>
                                         <td>
-                                            <span class="shop-chip @StateChip(state)" title="@sale.Status">@StateLabel(state)</span>
+                                            <span class="shop-chip @VendorSalesDigest.StateChip(state)" title="@sale.Status">@VendorSalesDigest.StateLabel(state)</span>
                                         </td>
                                     </tr>
                                 }
@@ -427,21 +427,6 @@
         { Failed: > 0 } => "Attention",
         { Awaiting: > 0 } => "In progress",
         _ => "Clear"
-    };
-
-    private static string StateChip(VendorSalesDigest.PostingState state) => state switch
-    {
-        VendorSalesDigest.PostingState.Posted => "shop-chip-good",
-        VendorSalesDigest.PostingState.Failed => "shop-chip-bad",
-        _ => "shop-chip-neutral"
-    };
-
-    private static string StateLabel(VendorSalesDigest.PostingState state) => state switch
-    {
-        VendorSalesDigest.PostingState.Posted => "Posted",
-        VendorSalesDigest.PostingState.Failed => "Needs attention",
-        VendorSalesDigest.PostingState.Excluded => "Excluded",
-        _ => "Awaiting"
     };
 
     private string BarHeight(VendorSalesDigest.Day day)

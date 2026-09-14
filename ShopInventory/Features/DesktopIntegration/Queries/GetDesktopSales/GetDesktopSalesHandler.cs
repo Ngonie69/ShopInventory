@@ -108,6 +108,20 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db, IAuditServic
         if (request.ToDate.HasValue)
             query = query.Where(s => s.DocDate <= request.ToDate.Value.Date);
 
+        // Upper on both sides rather than ILike, so the same filter runs on SQLite under test. A number
+        // also matches the SAP document it posted as, which is what someone holding a printed invoice has.
+        if (!string.IsNullOrWhiteSpace(request.Search))
+        {
+            var term = request.Search.Trim().ToUpperInvariant();
+            int? docNum = int.TryParse(term, out var parsed) ? parsed : null;
+            query = query.Where(s =>
+                s.ExternalReferenceId.ToUpper().Contains(term) ||
+                (s.FiscalReceiptNumber != null && s.FiscalReceiptNumber.ToUpper().Contains(term)) ||
+                (s.RouteCustomerCode != null && s.RouteCustomerCode.ToUpper().Contains(term)) ||
+                (s.RouteCustomerName != null && s.RouteCustomerName.ToUpper().Contains(term)) ||
+                (docNum != null && s.SapDocNum == docNum));
+        }
+
         var totalCount = await query.CountAsync(cancellationToken);
 
         // Projected in two steps rather than one. The posting-eligibility rule is a method — it has
@@ -148,6 +162,9 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db, IAuditServic
                 // Filled in below, once the accounts on this page have been looked up.
                 null,
                 s.CreatedAt,
+                s.RouteCustomerId,
+                s.RouteCustomerCode,
+                s.RouteCustomerName,
                 s.SapDocEntry,
                 s.SapDocNum,
                 s.PostedAt,
