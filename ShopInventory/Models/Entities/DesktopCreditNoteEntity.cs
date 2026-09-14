@@ -42,7 +42,7 @@ public sealed class DesktopCreditNoteEntity
     public int? SapDocEntry { get; set; }
     public int? SapDocNum { get; set; }
 
-    /// <summary>Deferred, Posted, Failed, NotRequired or ManualInSap — see <see cref="DesktopCreditSapStatuses"/>.</summary>
+    /// <summary>Deferred, Posted, Failed, NotRequired, ManualInSap or FiscalOnly — see <see cref="DesktopCreditSapStatuses"/>.</summary>
     [MaxLength(30)] public string SapStatus { get; set; } = DesktopCreditSapStatuses.Deferred;
 
     /// <summary>
@@ -133,4 +133,16 @@ public static class DesktopCreditSapStatuses
     /// the half nothing else can do; this says plainly that the rest is a person's job.
     /// </remarks>
     public const string ManualInSap = "ManualInSap";
+
+    /// <summary>
+    /// The operator chose "Fiscalise only" for a sale already in SAP: ZIMRA gets the credit and SAP
+    /// gets nothing, neither a credit memo nor the units back on the ledger.
+    /// </summary>
+    /// <remarks>
+    /// A fiscal correction, not a return — the case it exists for is a sale filed with ZIMRA twice,
+    /// where the second receipt needs reversing and SAP already holds the one invoice it should. Set
+    /// when the credit is created and never changed afterwards, so no pass can later decide the memo
+    /// is owed after all.
+    /// </remarks>
+    public const string FiscalOnly = "FiscalOnly";
 }

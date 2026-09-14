@@ -2890,6 +2890,19 @@ the fiscal one — `Prepared`, `Submitting`, `Fiscalised`, `Rejected` or `Reconc
 | `Failed` | SAP refused it, or could not be asked. Retried by the sweep; `sapError` says why. |
 | `NotRequired` | The sale was excluded from posting, so SAP is owed nothing. |
 | `ManualInSap` | The sale reached SAP inside a consolidated invoice, or its credited lines cannot be tied to the invoice's own lines. A person raises it. |
+| `FiscalOnly` | Created with `postToSap: false` against a sale already in SAP. ZIMRA holds the credit; no memo is ever raised and no units go back on the stock ledger. For fiscal corrections, such as a sale filed with ZIMRA twice. |
+
+The request's `postToSap` is optional. `false` on a sale that has not posted still owes SAP the memo
+(`Deferred`). `false` on a sale that has posted is `FiscalOnly`, and requires `saleInSap: true` — what
+the form showed — so a form read before the sale posted is refused rather than taken to mean "SAP never
+hears of this". `true` on a sale that has not posted is refused.
+
+**A receipt is never credited past its total, counting credits filed elsewhere.** `prepare` answers
+`remainingAmount` — the receipt total less credits saved here and less `source.externalCreditedAmount`,
+the credit receipts found on the device under the customer's SAP credit memo numbers that reference
+this receipt (listed in `source.externalCredits`). Creating a credit worth more is refused. For a sale
+in SAP, a SAP read or device lookup that cannot answer refuses both calls rather than reporting no
+credits; a sale with no SAP invoice is not checked.
 
 **Nothing is raised in SAP against a credit that is not `Fiscalised`.** A credit the device refused,
 or one whose outcome nobody has established, never becomes a SAP document — which is why

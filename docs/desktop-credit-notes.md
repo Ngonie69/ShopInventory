@@ -6,16 +6,42 @@ optional note. The reason is picked from SAP's own return-reason list, because i
 line's return reason and SAP refuses a value the list does not define; free text is offered only when
 that list cannot be read. The note is printed on the credit receipt after the reason.
 
-The form has two actions, and the sale's SAP state enables exactly one:
+The form has two actions:
 
-- **Fiscalise only** — while the sale has no SAP invoice of its own. The credit is filed with REVMax;
-  the SAP credit memo follows on its own once the sale posts (see below).
+- **Fiscalise only** — always offered, and what it means depends on the sale:
+  - *Not in SAP yet:* the credit is filed with REVMax and the SAP credit memo follows on its own once
+    the sale posts (see below).
+  - *Already in SAP:* the credit is filed with REVMax and **nothing else happens** — no credit memo,
+    no units back on the stock ledger, ever. It is for fiscal corrections, where ZIMRA holds a receipt
+    it should not and SAP is already right: a sale fiscalised twice, whose second receipt needs
+    reversing, is the case it was added for. The credit shows *SAP: not raised — fiscalised only*.
 - **Fiscalise and post to SAP** — once the sale is in SAP. The credit is filed with REVMax and the
   credit memo is raised against the invoice in the same request.
 
-The API checks the choice against the sale, so a form left open while the sale posts is refused
-rather than taking the wrong action; **Refresh** re-reads the state. Either action persists the credit
+The API checks the choice against the sale, and against what the form showed: a form read before the
+sale posted cannot post to SAP, and its Fiscalise only is refused rather than silently becoming the
+"nothing else happens" kind; **Refresh** re-reads the state. Either action persists the credit
 before submitting it, and a later SAP invoice number does not replace the original fiscal reference.
+
+## Credits already filed against the receipt
+
+ZIMRA refuses credits that take a receipt past its total, and it counts every credit — not only the
+ones this dialog saved. So before offering and again before filing, the API works out what the
+receipt can still take: its total, less every credit saved here that the device did not refuse, less
+every credit **filed elsewhere**. The form shows *Receipt total* and *Still creditable*, lists the
+credits found elsewhere, and refuses a credit worth more than what is left; a receipt with nothing
+left offers no quantities at all.
+
+"Elsewhere" is the SAP credit-note screen, the InvoiceFiscalisation tool and the vendor's SAP add-on,
+which all file a credit under its SAP credit memo's number. REVMax cannot list the credits that
+reference a receipt, so the API reads the customer's SAP credit memos dated from the sale onwards,
+asks the device for each memo number, and counts a receipt only when it is a credit note on our device
+whose `creditDebitNote` names this receipt's device and global number.
+
+If the sale is in SAP (its own invoice or a consolidated one) and SAP or the device cannot answer, the
+credit is **refused** rather than filed unchecked; Refresh tries again. A sale with no SAP invoice
+cannot have a memo against it, so it is not checked, and a till still credits while SAP is down. A
+credit filed under a number that is not a SAP credit memo cannot be found this way.
 
 The form uses the original receipt's prices, discounts and tax IDs/rates. The original device, global
 receipt number and the fiscal day recorded when the sale was filed are retained. The REVMax lookup

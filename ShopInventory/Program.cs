@@ -970,6 +970,8 @@ try
     builder.Services.AddScoped<RevmaxFiscalizationService>();
     builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.IDesktopCreditFiscalGateway,
         ShopInventory.Features.DesktopCreditNotes.RevmaxDesktopCreditGateway>();
+    builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.IDesktopCreditExternalCredits,
+        ShopInventory.Features.DesktopCreditNotes.DesktopCreditExternalCredits>();
     builder.Services.AddScoped<ShopInventory.Features.DesktopCreditNotes.DesktopCreditNoteService>();
 
     // The back-office half of a desktop credit: the SAP credit memo, raised as soon as there is an
