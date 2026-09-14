@@ -31,7 +31,10 @@ namespace ShopInventory.Tests;
 /// </remarks>
 public sealed class SaleBatchSelectionTests : IDisposable
 {
-    private static readonly DateTime TradingDate = new(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc);
+    // Relative to the clock, never a literal. The till pass only looks at sales dated within
+    // DesktopSalePostingSettings.LookbackDays of today, so a fixed date passes for three days and
+    // then the pass finds nothing to post.
+    private static readonly DateTime TradingDate = DateTime.UtcNow.Date;
 
     private readonly SqliteConnection _connection;
     private readonly ApplicationDbContext _context;
