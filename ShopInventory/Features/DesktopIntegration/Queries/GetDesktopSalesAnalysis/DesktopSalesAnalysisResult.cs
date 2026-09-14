@@ -13,6 +13,11 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnaly
 /// <para><c>PaymentMethods</c>: The payment methods every breakdown is split by, in the order they
 /// should be drawn. Cash, Swipe and Ecocash are always present, so a period in which one was never
 /// taken says so with a zero rather than by leaving it out.</para>
+/// <para><c>PaymentMethod</c>: The payment method every figure was confined to, in its reporting name, or
+/// null for all of them.</para>
+/// <para><c>PreviousFromDate</c>/<c>PreviousToDate</c>: The same number of days just before the period,
+/// which each currency's <c>PreviousSalesCount</c> and <c>PreviousTotalAmount</c> were read over, under the
+/// same filters.</para>
 /// </remarks>
 public sealed record DesktopSalesAnalysisResult(
     DateTime FromDate,
@@ -21,4 +26,7 @@ public sealed record DesktopSalesAnalysisResult(
     string? SourceSystem,
     DateTime GeneratedAtUtc,
     List<string> PaymentMethods,
-    List<DesktopSalesCurrencyAnalysis> Currencies);
+    List<DesktopSalesCurrencyAnalysis> Currencies,
+    string? PaymentMethod,
+    DateTime PreviousFromDate,
+    DateTime PreviousToDate);

@@ -1106,7 +1106,8 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// <remarks>
     /// Role-gated like the report above and warehouse-scoped like the sales list: a caller confined to a
     /// shop is narrowed to it, and naming another shop's warehouse is refused. The period is inclusive
-    /// business dates, at most a year, defaulting to today.
+    /// business dates, at most a year, defaulting to today. <c>paymentMethod</c> confines every figure to one
+    /// tender, and each currency also states the same number of days just before.
     /// </remarks>
     [Authorize(Roles = "Admin,Manager,Cashier,ApiUser")]
     [HttpGet("sales/analysis")]
@@ -1115,6 +1116,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         [FromQuery] DateTime? toDate,
         [FromQuery] string? warehouseCode,
         [FromQuery] string? sourceSystem,
+        [FromQuery] string? paymentMethod,
         CancellationToken cancellationToken)
     {
         var userId = UserClaimReader.GetUserId(User);
@@ -1122,7 +1124,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
             return Unauthorized();
 
         var result = await mediator.Send(
-            new GetDesktopSalesAnalysisQuery(userId.Value, fromDate, toDate, warehouseCode, sourceSystem),
+            new GetDesktopSalesAnalysisQuery(userId.Value, fromDate, toDate, warehouseCode, sourceSystem, paymentMethod),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));

@@ -13,6 +13,7 @@
      /desktop-transactions    `.ops.ops-dt`     the desktop sync queues
      /desktop-sales           `.ops.ops-ds`     invoices fiscalized on the desktops
      /reports/desktop-sales   `.ops.ops-dsa`    the same sales, broken down by tender
+                                                (plus sales-breakdown.css's `.ops-sbd`)
 
    The last two of the first seven arrived with the route-customer sales work.
    They are derivations like their siblings — same hero, same figures, same

@@ -18,11 +18,16 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSalesAnaly
 /// <c>SourceSystem</c> selects one source, or null for the default scope, which leaves out
 /// <c>SaleSourceSystems.VanSalesOnline</c> — those rows carry receipts for sales already counted as their
 /// SAP invoice, and adding them in would count the money twice.
+///
+/// <c>PaymentMethod</c> confines every figure to one tender, matched on its reporting name, so a till's
+/// own spelling ("ecocash") and the canonical one read the same sales. "Not recorded" selects the sales
+/// no tender was stored for.
 /// </remarks>
 public sealed record GetDesktopSalesAnalysisQuery(
     Guid CallerUserId,
     DateTime? FromDate = null,
     DateTime? ToDate = null,
     string? WarehouseCode = null,
-    string? SourceSystem = null
+    string? SourceSystem = null,
+    string? PaymentMethod = null
 ) : IRequest<ErrorOr<DesktopSalesAnalysisResult>>;

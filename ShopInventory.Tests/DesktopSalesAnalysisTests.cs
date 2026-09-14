@@ -199,6 +199,83 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
         Assert.Equal(1, Method(Dollars(await AnalyseAsAdmin()), TenderTypes.Ecocash).WithoutReferenceCount);
     }
 
+    // ---- One payment method -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_payment_method_confines_every_figure_to_it_whatever_the_till_spelled()
+    {
+        // F-ECO-1 is stored "Ecocash" and F-ECO-2 "ecocash"; asking in either spelling reads both.
+        var usd = Dollars(await Analyse(_adminId, Day1, Day2, paymentMethod: "ecocash"));
+
+        Assert.Equal(25m, usd.TotalAmount);
+        Assert.Equal(2, usd.SalesCount);
+        AssertMethod(usd, TenderTypes.Ecocash, count: 2, total: 25m);
+        AssertMethod(usd, TenderTypes.Cash, count: 0, total: 0m);
+
+        // The hours and items are confined too, which the page cannot work out from a split.
+        Assert.Equal(new[] { "CHEESE", "MILK" }, usd.TopItems.Select(i => i.ItemCode));
+        Assert.Equal(25m, usd.ByHour.Sum(h => h.TotalAmount));
+        Assert.Equal(new[] { Day2 }, usd.ByDay.Select(d => d.Date));
+    }
+
+    [Fact]
+    public async Task A_payment_method_folds_legacy_spellings_like_the_breakdown_does()
+    {
+        var result = (await Analyse(_adminId, Day1, Day2, paymentMethod: TenderTypes.Cash)).Value;
+
+        Assert.Equal(TenderTypes.Cash, result.PaymentMethod);
+        Assert.Equal(75m, Dollars(result).TotalAmount); // "Cash", "cash" and the other shop's "Cash"
+        Assert.Equal(100m, result.Currencies.Single(c => c.Currency == "ZWG").TotalAmount);
+    }
+
+    [Fact]
+    public async Task Not_recorded_selects_the_sales_no_tender_was_stored_for()
+    {
+        var usd = Dollars(await Analyse(_adminId, Day1, Day2, paymentMethod: TenderTypes.NotRecorded));
+
+        Assert.Equal(7m, usd.TotalAmount);
+        Assert.Equal(1, usd.SalesCount);
+    }
+
+    [Fact]
+    public async Task A_payment_method_nobody_paid_with_is_an_empty_analysis_not_everything()
+    {
+        var result = (await Analyse(_adminId, Day1, Day2, paymentMethod: TenderTypes.Innbucks)).Value;
+
+        Assert.Empty(result.Currencies);
+    }
+
+    // ---- The period before ------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Each_currency_states_the_same_number_of_days_just_before()
+    {
+        var result = (await AnalyseAsAdmin()).Value;
+
+        Assert.Equal(new DateTime(2026, 8, 30), result.PreviousFromDate);
+        Assert.Equal(new DateTime(2026, 8, 31), result.PreviousToDate);
+
+        var usd = Dollars(result);
+        Assert.Equal(1, usd.PreviousSalesCount); // F-OUT
+        Assert.Equal(77m, usd.PreviousTotalAmount);
+
+        // ZWG sold nothing before, which is a zero rather than a missing section.
+        Assert.Equal(0m, result.Currencies.Single(c => c.Currency == "ZWG").PreviousTotalAmount);
+    }
+
+    [Fact]
+    public async Task The_period_before_is_read_under_the_same_filters()
+    {
+        var byDay = Dollars(await Analyse(_adminId, Day2, Day2));
+        Assert.Equal(100m, byDay.PreviousTotalAmount); // Day1, every tender, both shops, no online van receipt
+
+        var cashOnly = Dollars(await Analyse(_adminId, Day2, Day2, paymentMethod: TenderTypes.Cash));
+        Assert.Equal(60m, cashOnly.PreviousTotalAmount);
+
+        var otherShop = Dollars(await Analyse(_adminId, Day2, Day2, warehouseCode: "KEFSHOP"));
+        Assert.Equal(50m, otherShop.PreviousTotalAmount);
+    }
+
     // ---- Nothing counted twice, nothing added across currencies -----------------------------------
 
     [Fact]
@@ -437,7 +514,9 @@ public sealed class DesktopSalesAnalysisTests : IDisposable
     private Task<ErrorOr.ErrorOr<DesktopSalesAnalysisResult>> AnalyseAsAdmin() => Analyse(_adminId, Day1, Day2);
 
     private Task<ErrorOr.ErrorOr<DesktopSalesAnalysisResult>> Analyse(
-        Guid callerId, DateTime from, DateTime to, string? warehouseCode = null) =>
+        Guid callerId, DateTime from, DateTime to, string? warehouseCode = null, string? paymentMethod = null) =>
         new GetDesktopSalesAnalysisHandler(_context, new RecordingAuditService())
-            .Handle(new GetDesktopSalesAnalysisQuery(callerId, from, to, warehouseCode), CancellationToken.None);
+            .Handle(
+                new GetDesktopSalesAnalysisQuery(callerId, from, to, warehouseCode, PaymentMethod: paymentMethod),
+                CancellationToken.None);
 }
