@@ -528,7 +528,7 @@
                                             (@userModel.AssignedWarehouseCodes.Count selected)</small>
                                         </div>
                                     }
-                                    @if (userModel.Role == "Merchandiser" || userModel.Role == "ADR" || userModel.Role == "Sales")
+                                    @if (userModel.Role == "Merchandiser" || UserRoles.SellsUnderOwnBusinessPartner(userModel.Role))
                                     {
                                         <div class="um-form-field">
                                             <label>@(userModel.Role == "Merchandiser" ? "Default Warehouse" : "Assigned Warehouse") <span
@@ -549,7 +549,9 @@
                                                 <small class="um-form-hint">
                                                     @(userModel.Role == "Merchandiser"
                                                         ? "The warehouse used when this merchandiser submits sales orders from the mobile app"
-                                                        : "The warehouse this van sales user will use when posting orders and invoices")
+                                                        : userModel.Role == UserRoles.CartVendor
+                                                            ? "The warehouse this vending cashier draws stock from — every sale is invoiced out of it"
+                                                            : "The warehouse this van sales user will use when posting orders and invoices")
                                                 </small>
                                             </div>
                                         }
@@ -675,7 +677,7 @@
                                                     </div>
                                                 }
 
-                                                @if (userModel.Role == "ADR" || userModel.Role == "Sales")
+                                                @if (UserRoles.SellsUnderOwnBusinessPartner(userModel.Role))
                                                 {
                                                     <div class="um-form-field">
                                                         <label>Assigned Business Partner <span class="required">*</span></label>
@@ -692,8 +694,11 @@
                                                                         EmptyText="No customers loaded"
                                                                         AriaLabel="Assigned business partner" />
                                                         <ValidationMessage For="@(() => userModel.AssignedBusinessPartnerCode)" />
-                                                        <small class="um-form-hint">The business partner identity this van sales user operates
-                                                            under</small>
+                                                        <small class="um-form-hint">
+                                                            @(userModel.Role == UserRoles.CartVendor
+                                                                ? "The business partner this vending cashier sells under — the vendors it can invoice are the ones assigned to it"
+                                                                : "The business partner identity this van sales user operates under")
+                                                        </small>
                                                         </div>
 
                                                         <div class="um-form-field">
@@ -716,9 +721,20 @@
                                                                             EmptyText="No cost centres loaded"
                                                                             AriaLabel="Assigned cost centre" />
                                                             <ValidationMessage For="@(() => userModel.AssignedCostCentreCode)" />
-                                                            <small class="um-form-hint">The cost centre applied to this van sales user’s orders and
-                                                                invoices</small>
+                                                            <small class="um-form-hint">
+                                                                @(userModel.Role == UserRoles.CartVendor
+                                                                    ? "The cost centre applied to this vending cashier’s invoices"
+                                                                    : "The cost centre applied to this van sales user’s orders and invoices")
+                                                            </small>
                                                             </div>
+                                                }
+
+                                                @* The van-only fields. A cart vendor sells from its own
+                                                   warehouse at a fixed point, so it has no depot to load
+                                                   from, no route and no offline fiscal device — the API
+                                                   drops all three for it. *@
+                                                @if (UserRoles.IsDepotLoadedVan(userModel.Role))
+                                                {
 
                                                         <div class="um-form-field">
                                                             <label>Supplying Warehouse <span class="required">*</span></label>
@@ -1917,9 +1933,9 @@ StringComparison.OrdinalIgnoreCase)))
         _ => "um-badge-user"
     };
 
-    private static void NormalizeRoleSpecificAssignments(UserFormModel model)
+    internal static void NormalizeRoleSpecificAssignments(UserFormModel model)
     {
-        if (model.Role == "Merchandiser" || model.Role == "ADR" || model.Role == "Sales")
+        if (model.Role == "Merchandiser" || UserRoles.SellsUnderOwnBusinessPartner(model.Role))
         {
             model.AssignedWarehouseCodes = model.AssignedWarehouseCodes
                 .Where(code => !string.IsNullOrWhiteSpace(code))
@@ -1934,19 +1950,23 @@ StringComparison.OrdinalIgnoreCase)))
             model.AssignedSection = null;
         }
 
-        if (model.Role != "ADR" && model.Role != "Sales")
+        if (!UserRoles.SellsUnderOwnBusinessPartner(model.Role))
         {
             model.AssignedBusinessPartnerCode = null;
             model.AssignedCostCentreCode = null;
+        }
+        else
+        {
+            model.AssignedCustomerCodes = new();
+        }
+
+        if (!UserRoles.IsDepotLoadedVan(model.Role))
+        {
             model.SupplyingWarehouseCode = null;
             // A route belongs to a van; a user who is no longer one must not keep it.
             model.RouteId = null;
             // Nor a fiscal device: a receipt chain is signed by a handset that sells.
             model.FiscalDeviceId = null;
-        }
-        else
-        {
-            model.AssignedCustomerCodes = new();
         }
 
         // A shop belongs to a till. Cleared for every other role so switching a role in the form
@@ -2171,27 +2191,27 @@ nameof(AssignedCustomerCodes) });
                     "A shop is required for a till operator — it is where the business partner, warehouse and cost centre come from",
                     new[] { nameof(ShopId) });
             }
-            if ((Role == "ADR" || Role == "Sales") && AssignedWarehouseCodes.Count == 0)
+            if (UserRoles.SellsUnderOwnBusinessPartner(Role) && AssignedWarehouseCodes.Count == 0)
             {
                 yield return new ValidationResult($"An assigned warehouse is required for {Role} role", new[] {
 nameof(AssignedWarehouseCodes) });
             }
-            if ((Role == "ADR" || Role == "Sales") && string.IsNullOrWhiteSpace(AssignedBusinessPartnerCode))
+            if (UserRoles.SellsUnderOwnBusinessPartner(Role) && string.IsNullOrWhiteSpace(AssignedBusinessPartnerCode))
             {
                 yield return new ValidationResult($"An assigned business partner is required for {Role} role", new[] {
 nameof(AssignedBusinessPartnerCode) });
             }
-            if ((Role == "ADR" || Role == "Sales") && string.IsNullOrWhiteSpace(AssignedCostCentreCode))
+            if (UserRoles.SellsUnderOwnBusinessPartner(Role) && string.IsNullOrWhiteSpace(AssignedCostCentreCode))
             {
                 yield return new ValidationResult($"An assigned cost centre is required for {Role} role", new[] {
 nameof(AssignedCostCentreCode) });
             }
-            if ((Role == "ADR" || Role == "Sales") && string.IsNullOrWhiteSpace(SupplyingWarehouseCode))
+            if (UserRoles.IsDepotLoadedVan(Role) && string.IsNullOrWhiteSpace(SupplyingWarehouseCode))
             {
                 yield return new ValidationResult($"A supplying warehouse is required for {Role} role", new[] {
 nameof(SupplyingWarehouseCode) });
             }
-            if ((Role == "ADR" || Role == "Sales") &&
+            if (UserRoles.IsDepotLoadedVan(Role) &&
                 !string.IsNullOrWhiteSpace(SupplyingWarehouseCode) &&
                 AssignedWarehouseCodes.Any(code => string.Equals(code, SupplyingWarehouseCode, StringComparison.OrdinalIgnoreCase)))
             {

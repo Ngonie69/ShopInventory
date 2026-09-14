@@ -260,6 +260,32 @@ public static class UserRoles
     /// everyone else, but always for one business partner they have named — so the statement SAP
     /// runs for them carries that partner, and no other customer's orders are fetched at all.
     /// </remarks>
+    /// <summary>
+    /// Whether an account in <paramref name="role"/> sells under a business partner and cost centre
+    /// set on the account itself, from exactly one warehouse: the van roles and the cart vendor.
+    /// </summary>
+    /// <remarks>
+    /// The web copy of <c>ApplicationRoles.UsesRouteCustomerScope</c>, which is what makes the API
+    /// require all three. The user form once named ADR and Sales by hand, so it neither showed the
+    /// three fields for a cart vendor nor kept them on save, and every cart vendor it submitted was
+    /// refused. <c>UserRoleCatalogueTests</c> pins the two predicates equal for every assignable role.
+    /// </remarks>
+    public static bool SellsUnderOwnBusinessPartner(string? role) =>
+        IsOneOf(role, Adr, Sales, CartVendor);
+
+    /// <summary>
+    /// Whether an account in <paramref name="role"/> is a van loaded from a depot, and so also carries
+    /// a supplying warehouse, a route and optionally a fiscal device. Not the cart vendor, which sells
+    /// from its own warehouse and never drives out of coverage.
+    /// </summary>
+    /// <remarks>The web copy of <c>ApplicationRoles.RequiresSupplyingWarehouseCode</c>.</remarks>
+    public static bool IsDepotLoadedVan(string? role) =>
+        IsOneOf(role, Adr, Sales);
+
+    private static bool IsOneOf(string? role, params string[] roles) =>
+        !string.IsNullOrWhiteSpace(role) &&
+        roles.Contains(role.Trim(), StringComparer.OrdinalIgnoreCase);
+
     public static bool CanReadReportsAcrossCustomers(ClaimsPrincipal user) =>
         InsightsRoles.Split(',').Any(user.IsInRole);
 
