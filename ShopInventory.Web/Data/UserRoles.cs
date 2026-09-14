@@ -166,7 +166,13 @@ public static class UserRoles
     /// </summary>
     public const string OrderFulfillmentReportRoles = "Admin,Cashier,StockController,Manager,SalesRep";
 
-    public const string PodRoles = "Admin,Cashier,PodOperator,Driver,SalesRep";
+    /// <summary>
+    /// Who can open /vending: the depots, their cashier accounts and the vendors they serve. The API's
+    /// <c>VendingController</c> is gated on the same three.
+    /// </summary>
+    public const string VendingRoles = "Admin,Manager,Cashier";
+
+    public const string PodRoles ="Admin,Cashier,PodOperator,Driver,SalesRep";
     public const string UserManagementRoles = "Admin,PodOperator,SalesRep";
     public const string MerchandiserAccountManagementRoles = "Admin,SalesRep";
 

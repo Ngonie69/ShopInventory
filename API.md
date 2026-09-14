@@ -3827,6 +3827,23 @@ Each resolves which shop on the caller's own route that code names and then hand
 handler above, so a van and the office never have two different ways to change or read a route
 customer — see [Van Sales](#34-van-sales).
 
+#### Vending
+
+**Base route:** `/api/vending`  
+**Auth:** Bearer + `ApiAccess`, roles Admin, Manager, Cashier
+
+The vending depots are route customers seen from the other side: a depot is the business partner a
+`CartVendor` account sells on, and its vendors are the route customers under that partner. Vendors
+are still written through `/api/route-customers` above; this is the read that puts depots, their
+cashier accounts and their vendors on one page.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/vending/overview` | `depots` (per business partner: `warehouseCodes`, `costCentreCodes`, cashier and vendor counts, `setupProblem` when active cashiers disagree on warehouse or cost centre), `accounts` (every CartVendor account with its business partner, cost centre, single warehouse, active vendor count, `lastLoginAt` and `setupProblem` from the same resolver a sale runs) and `vendors` (every vendor under those partners, removed ones included) |
+
+Role-gated rather than on `customers.view`: the overview names every vending account and the warehouse
+it draws from, and a cart vendor holds that permission to read its own vendor list, not every depot's staff.
+
 ---
 
 ### 37. Crates

@@ -354,6 +354,9 @@ try
     // Retail shops — the business partner, warehouse and cost centre a till operator sells on
     builder.Services.AddScoped<IShopService, ShopService>();
 
+    // Vending — the depots, their cashier accounts and the vendors they serve
+    builder.Services.AddScoped<IVendingService, VendingService>();
+
     // Van sales check-in/check-out
     builder.Services.AddScoped<IVanSalesAttendanceService, VanSalesAttendanceService>();
 

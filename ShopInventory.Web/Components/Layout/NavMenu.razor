@@ -632,6 +632,24 @@
                 </Authorized>
             </AuthorizeView>
 
+            @* ── Vending ──
+               The four depots whose cashiers invoice vendors from the desktop till. Its own
+               group rather than more rows under Van Sales: a vendor shares the route
+               customer table with a van's shops, but nobody running a depot counter goes
+               looking for them under vans. Same roles as the API's overview endpoint. *@
+            <AuthorizeView Roles="@UserRoles.VendingRoles" Context="vendingCtx">
+                <Authorized>
+                    <NavSection Title="Vending">
+                        <NavLink class="snav-link" href="/vending" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <i class="ph ph-storefront" aria-hidden="true"></i>
+                            </span>
+                            <span class="snav-text">Depots &amp; Vendors</span>
+                        </NavLink>
+                    </NavSection>
+                </Authorized>
+            </AuthorizeView>
+
             @* ── PODs ──
                One group for the three POD screens, whoever is reading them. They
                used to be written twice: once headed "Delivery" for a sales rep,
