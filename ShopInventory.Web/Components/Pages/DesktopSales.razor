@@ -4,6 +4,7 @@
 @using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin,Cashier")]
 @inject IDesktopIntegrationService DesktopService
+@inject ICreditNoteService CreditNoteService
 @inject IMasterDataCacheService MasterDataCache
 @inject IReportExportService ExportService
 @inject INotificationHubService HubService
@@ -1088,91 +1089,258 @@
 
 @if (creditSale != null)
 {
+    var creditCurrency = desktopCreditForm?.Source.Currency ?? creditSale.Currency;
     <div class="ops-overlay ops-overlay-center">
-        <div class="ops-dialog" role="dialog" aria-modal="true" aria-labelledby="desktop-credit-title"
-             style="width:min(960px,95vw);max-height:90vh;overflow:auto">
-            <div class="ops-dialog-head">
-                <h2 id="desktop-credit-title">Credit notes · @creditSale.ExternalReferenceId</h2>
+        <div class="ops-dialog ops-dcn" role="dialog" aria-modal="true" aria-labelledby="desktop-credit-title">
+            <div class="ops-dcn-head">
+                <div class="ops-dcn-id">
+                    <div class="ops-dcn-eyebrow">Credit note</div>
+                    <h2 id="desktop-credit-title" class="ops-dcn-ref">@creditSale.ExternalReferenceId</h2>
+                    <div class="ops-dcn-meta">
+                        @if (desktopCreditForm != null)
+                        {
+                            <span>Receipt <b>@desktopCreditForm.Source.ReceiptGlobalNo</b></span>
+                            <span>Device <b>@desktopCreditForm.Source.DeviceId</b></span>
+                            <span>Fiscal day <b>@desktopCreditForm.Source.FiscalDayNo</b></span>
+                            @* Read from the API's prepare answer rather than the list row, which was
+                               loaded before this dialog opened and may predate the sale posting. It
+                               decides which of the two actions below is available. *@
+                            @if (desktopCreditForm.SaleInSap)
+                            {
+                                <span class="ops-badge ops-fam-accent">@(desktopCreditForm.SaleSapDocNum is { } docNum ? $"In SAP · invoice #{docNum}" : "In SAP")</span>
+                            }
+                            else
+                            {
+                                <span class="ops-badge ops-fam-neutral">Not yet in SAP</span>
+                            }
+                        }
+                    </div>
+                </div>
+                <button type="button" class="ops-x" aria-label="Close" disabled="@desktopCreditBusy" @onclick="CloseDesktopCredit">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
             </div>
-            <div class="ops-dialog-body">
-                <p>Create a fiscal credit against the original REVMax receipt, including before SAP posting.
-                    The SAP credit memo and the stock return follow on their own: at once if this sale is
-                    already in SAP, otherwise as soon as it posts.</p>
+
+            <div class="ops-dialog-body ops-dcn-body">
                 @if (!string.IsNullOrWhiteSpace(desktopCreditError))
                 {
-                    <p role="alert">@desktopCreditError</p>
+                    <div class="ops-dcn-alert ops-fam-bad" role="alert">@desktopCreditError</div>
                 }
-                @if (desktopCreditBusy)
+
+                @if (desktopCreditResult is { } done)
                 {
-                    <p role="status"><span class="ops-spin"></span> Reading or submitting the saved credit note…</p>
-                }
-                @foreach (var note in desktopCreditNotes)
-                {
-                    <div class="ops-ds-card" style="margin-bottom:12px">
-                        <strong>@note.Number · @Money(note.Amount, note.Currency)</strong>
-                        @* Both halves, in words. "Deferred" is the API's word for a correct, ordinary
-                           state — the sale simply has not posted yet — and showing it raw would read
-                           to an operator as something having gone wrong. *@
-                        <p>Fiscal: @note.Status · SAP: @DesktopCreditSapLabel(note)</p>
-                        <p>@note.Reason</p>
-                        <p>@note.Message</p>
-                        @if (!string.IsNullOrWhiteSpace(note.SapError))
+                    <div class="ops-dcn-done @DesktopCreditFamily(done.Status)" role="status">
+                        <span class="ops-dcn-done-mark">
+                            <i class="ph @(Is(done.Status, "Fiscalised") ? "ph-check" : Is(done.Status, "Rejected") ? "ph-x" : "ph-question")" aria-hidden="true"></i>
+                        </span>
+                        <div class="ops-dcn-done-copy">
+                            <div class="ops-dcn-done-title">@DesktopCreditOutcomeTitle(done.Status)</div>
+                            @if (!string.IsNullOrWhiteSpace(done.Message))
+                            {
+                                <p>@done.Message</p>
+                            }
+                            <dl class="ops-dcn-facts">
+                                <dt>Credit note</dt><dd class="ops-code">@done.Number</dd>
+                                <dt>Total credited</dt><dd>@Money(done.Amount, done.Currency)</dd>
+                                @if (!string.IsNullOrWhiteSpace(done.ReceiptGlobalNo))
+                                {
+                                    <dt>Credit receipt</dt><dd class="ops-code">@done.ReceiptGlobalNo</dd>
+                                }
+                                <dt>SAP credit memo</dt><dd>@DesktopCreditSapLabel(done)</dd>
+                            </dl>
+                            @if (!string.IsNullOrWhiteSpace(done.SapError))
+                            {
+                                <div class="ops-ds-sapsaid ops-dcn-sapsaid">@done.SapError</div>
+                            }
+                        </div>
+                        @if (FiscalQrCode.ToImageSource(done.QrCode) is { Length: > 0 } doneQr)
                         {
-                            <p role="alert">@note.SapError</p>
-                        }
-                        @if (!string.IsNullOrWhiteSpace(note.ReceiptGlobalNo))
-                        {
-                            <p>Credit receipt: @note.ReceiptGlobalNo</p>
-                        }
-                        @if (FiscalQrCode.ToImageSource(note.QrCode) is { Length: > 0 } qr)
-                        {
-                            <img src="@qr" alt="Credit note verification QR code" width="160" height="160" />
-                        }
-                        @if (note.Status is "Submitting" or "ReconciliationRequired" or "Prepared")
-                        {
-                            <button type="button" class="ops-btn ops-btn-ghost" disabled="@desktopCreditBusy"
-                                    @onclick="() => CheckDesktopCredit(note)">@(note.Status == "Prepared" ? "Continue fiscalisation" : "Check fiscal status")</button>
+                            <div class="ops-ds-qr-plate">
+                                <img src="@doneQr" alt="Credit note verification QR code" />
+                            </div>
                         }
                     </div>
                 }
+
+                @* Credits already raised against this sale, with the two follow-ups a stalled one
+                   needs. "Deferred" and its siblings are shown in words, because the raw status name
+                   reads to an operator as something having gone wrong. *@
+                @if (desktopCreditNotes.Where(n => n.Id != desktopCreditResult?.Id).ToList() is { Count: > 0 } earlier)
+                {
+                    <div class="ops-ds-block">
+                        <div class="ops-label">Credits already raised</div>
+                        <div class="ops-ds-credits">
+                            @foreach (var note in earlier)
+                            {
+                                <div class="ops-ds-credit">
+                                    <div class="ops-ds-credit-top">
+                                        <span class="ops-code">@note.Number</span>
+                                        <span class="ops-ds-credit-amt">@Money(note.Amount, note.Currency)</span>
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(note.Reason))
+                                    {
+                                        <div class="ops-sub">@note.Reason</div>
+                                    }
+                                    <div class="ops-ds-state @DesktopCreditFamily(note.Status)">
+                                        <span class="ops-dot"></span>@DesktopCreditFiscalLabel(note.Status)
+                                    </div>
+                                    <div class="ops-sub">SAP: @DesktopCreditSapLabel(note) · raised @Full(note.CreatedAtUtc)</div>
+                                    @if (!string.IsNullOrWhiteSpace(note.SapError))
+                                    {
+                                        <div class="ops-sub">@note.SapError</div>
+                                    }
+                                    @if (note.Status is "Submitting" or "ReconciliationRequired" or "Prepared")
+                                    {
+                                        <div class="ops-sub">@note.Message</div>
+                                        <div>
+                                            <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" disabled="@desktopCreditBusy"
+                                                    @onclick="() => CheckDesktopCredit(note)">@(note.Status == "Prepared" ? "Continue fiscalisation" : "Check fiscal status")</button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                @if (desktopCreditForm == null && desktopCreditBusy)
+                {
+                    <div class="ops-sub" role="status"><span class="ops-spin"></span> Reading the original receipt&hellip;</div>
+                }
+
                 @if (desktopCreditForm != null && !desktopCreditSubmitted)
                 {
-                    <p>Original receipt: @desktopCreditForm.Source.ReceiptGlobalNo · Device @desktopCreditForm.Source.DeviceId ·
-                        Fiscal day @desktopCreditForm.Source.FiscalDayNo</p>
-                    @if (desktopCreditForm.Source.ExcludedLines is { Count: > 0 } skipped)
-                    {
-                        <p role="note">Not offered for credit: @string.Join("; ", skipped). The credit is still
-                            capped at the original receipt's total.</p>
-                    }
-                    <div class="ops-scroll">
-                        <table class="ops-table">
-                            <thead><tr><th>Receipt line</th><th>Available</th><th>Credit quantity</th><th>Credit amount</th></tr></thead>
-                            <tbody>
-                                @foreach (var line in desktopCreditLines)
+                    <div class="ops-dcn-grid">
+                        <div class="ops-dcn-lines">
+                            <div class="ops-dcn-lines-head">
+                                <span class="ops-label">Lines to credit</span>
+                                <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" disabled="@desktopCreditBusy"
+                                        @onclick="CreditEverything">Credit everything</button>
+                            </div>
+                            <div class="ops-dcn-scroll">
+                                <table class="ops-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Item</th>
+                                            <th class="ops-num">Avail.</th>
+                                            <th>Credit qty</th>
+                                            <th class="ops-num">Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var line in desktopCreditLines)
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <div class="ops-dcn-item">@line.Source.Name</div>
+                                                    <div class="ops-sub">@UnitLine(line.Source, creditCurrency)</div>
+                                                </td>
+                                                <td class="ops-num ops-dcn-avail">@QuantityDisplay.Format(line.Available)</td>
+                                                <td>
+                                                    <div class="ops-dcn-stepper">
+                                                        <button type="button" class="ops-dcn-step" aria-label="Decrease @line.Source.Name"
+                                                                disabled="@(desktopCreditBusy || line.Quantity <= 0)" @onclick="() => line.Quantity -= 1">
+                                                            <i class="ph ph-minus" aria-hidden="true"></i>
+                                                        </button>
+                                                        <input type="text" inputmode="decimal" class="ops-input ops-dcn-qty"
+                                                               aria-label="Credit quantity for @line.Source.Name"
+                                                               @bind="line.Quantity" disabled="@desktopCreditBusy" />
+                                                        <button type="button" class="ops-dcn-step" aria-label="Increase @line.Source.Name"
+                                                                disabled="@(desktopCreditBusy || line.Quantity >= line.Available)" @onclick="() => line.Quantity += 1">
+                                                            <i class="ph ph-plus" aria-hidden="true"></i>
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                                <td class="ops-num @(line.Quantity > 0 ? "ops-dcn-amt-on" : "ops-dcn-amt-off")">@Money(line.Amount, creditCurrency)</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            @if (desktopCreditForm.Source.ExcludedLines is { Count: > 0 } skipped)
+                            {
+                                <div class="ops-hint" role="note">Not offered for credit: @string.Join("; ", skipped). The credit is
+                                    still capped at the original receipt's total.</div>
+                            }
+                        </div>
+
+                        <div class="ops-dcn-side">
+                            <div class="ops-field">
+                                <label class="ops-label" for="desktop-credit-reason">Reason for credit</label>
+                                @* SAP's own list: the reason becomes each memo line's return reason, and
+                                   SAP refuses a value its list does not define — a free-typed reason
+                                   would fiscalise and then fail in SAP. Free text is kept only for when
+                                   the list cannot be read, so a credit is never blocked by it. *@
+                                @if (desktopCreditReasons.Count > 0)
                                 {
-                                    <tr>
-                                        <td>@line.Source.Name</td><td>@line.Available</td>
-                                        <td><input type="number" class="ops-input" aria-label="Credit quantity for @line.Source.Name"
-                                                   min="0" max="@line.Available" step="0.000001" @bind="line.Quantity" disabled="@desktopCreditBusy" /></td>
-                                        <td>@Money(decimal.Round(line.Quantity * line.Source.UnitPrice, 2, MidpointRounding.AwayFromZero), desktopCreditForm.Source.Currency)</td>
-                                    </tr>
+                                    <select id="desktop-credit-reason" class="ops-input" @bind="desktopCreditReason" disabled="@desktopCreditBusy">
+                                        <option value="">Select a reason&hellip;</option>
+                                        @foreach (var reason in desktopCreditReasons)
+                                        {
+                                            <option value="@reason.Value">@(string.IsNullOrWhiteSpace(reason.Description) ? reason.Value : reason.Description)</option>
+                                        }
+                                    </select>
                                 }
-                            </tbody>
-                        </table>
+                                else
+                                {
+                                    <input id="desktop-credit-reason" type="text" class="ops-input" maxlength="250"
+                                           @bind="desktopCreditReason" disabled="@desktopCreditBusy" placeholder="Why is this being credited?" />
+                                }
+                            </div>
+                            <div class="ops-field">
+                                <label class="ops-label" for="desktop-credit-note">Note <span class="ops-dcn-opt">(printed on the credit note)</span></label>
+                                <textarea id="desktop-credit-note" class="ops-input ops-dcn-note" maxlength="240"
+                                          @bind="desktopCreditNote" disabled="@desktopCreditBusy"
+                                          placeholder="Reference, driver, claim number…"></textarea>
+                            </div>
+                            <div class="ops-dcn-total">
+                                <div class="ops-ds-sum">
+                                    <div><span>Lines credited</span><span>@desktopCreditLines.Count(l => l.Quantity > 0) of @desktopCreditLines.Count</span></div>
+                                    <div><span>Excl. VAT</span><span>@Money(DesktopCreditAmount - DesktopCreditVat, creditCurrency)</span></div>
+                                    <div><span>VAT</span><span>@Money(DesktopCreditVat, creditCurrency)</span></div>
+                                </div>
+                                <div class="ops-dcn-total-label">Total credit</div>
+                                <div class="ops-dcn-total-num">@Money(DesktopCreditAmount, creditCurrency)</div>
+                            </div>
+                        </div>
                     </div>
-                    <label class="ops-label" for="desktop-credit-reason">Reason for credit</label>
-                    <textarea id="desktop-credit-reason" class="ops-input" maxlength="500" @bind="desktopCreditReason"
-                              disabled="@desktopCreditBusy"></textarea>
-                    <p>Total credit: <strong>@Money(DesktopCreditAmount, desktopCreditForm.Source.Currency)</strong></p>
                 }
             </div>
-            <div class="ops-dialog-foot">
-                <button type="button" class="ops-btn ops-btn-ghost" disabled="@desktopCreditBusy" @onclick="CloseDesktopCredit">Close</button>
-                <button type="button" class="ops-btn ops-btn-ghost" disabled="@desktopCreditBusy" @onclick="RefreshDesktopCredits">Refresh</button>
-                @if (desktopCreditForm != null && !desktopCreditSubmitted)
+
+            <div class="ops-dialog-foot ops-dcn-foot">
+                @if (desktopCreditResult != null)
                 {
-                    <button type="button" class="ops-btn ops-btn-primary" disabled="@(!CanCreateDesktopCredit)"
-                            @onclick="CreateDesktopCredit">Create and fiscalise with REVMax</button>
+                    <button type="button" class="ops-btn ops-btn-ghost" disabled="@desktopCreditBusy" @onclick="RefreshDesktopCredits">Credit more lines</button>
+                    <button type="button" class="ops-btn ops-btn-primary" disabled="@desktopCreditBusy" @onclick="CloseDesktopCredit">Done</button>
+                }
+                else
+                {
+                    <div class="ops-ds-foot-why" aria-live="polite">
+                        @if (desktopCreditBusy && desktopCreditSubmitted)
+                        {
+                            <span class="ops-dcn-working"><span class="ops-spin"></span> Fiscalising with REVMax&hellip;</span>
+                        }
+                        else if (desktopCreditForm != null && !desktopCreditSubmitted)
+                        {
+                            @DesktopCreditHint
+                        }
+                    </div>
+                    <button type="button" class="ops-btn ops-btn-ghost" disabled="@desktopCreditBusy" @onclick="CloseDesktopCredit">Close</button>
+                    <button type="button" class="ops-btn ops-btn-ghost" disabled="@desktopCreditBusy" @onclick="RefreshDesktopCredits">Refresh</button>
+                    @if (desktopCreditForm != null && !desktopCreditSubmitted)
+                    {
+                        @* Both actions are always shown, and the sale's SAP state enables exactly one.
+                           The API checks the same thing, so a form left open while the sale posts
+                           cannot take the wrong one — Refresh re-reads the state. *@
+                        <button type="button" class="ops-btn ops-btn-ghost"
+                                disabled="@(!CanCreateDesktopCredit || desktopCreditForm.SaleInSap)"
+                                @onclick="() => CreateDesktopCredit(postToSap: false)">Fiscalise only</button>
+                        <button type="button" class="ops-btn ops-btn-primary"
+                                disabled="@(!CanCreateDesktopCredit || !desktopCreditForm.SaleInSap)"
+                                @onclick="() => CreateDesktopCredit(postToSap: true)">
+                            Fiscalise and post to SAP<i class="ph ph-arrow-right" aria-hidden="true"></i>
+                        </button>
+                    }
                 }
             </div>
         </div>
@@ -1188,24 +1356,83 @@
     private bool desktopCreditSubmitted;
     private string? desktopCreditError;
     private string desktopCreditReason = "";
+    private string desktopCreditNote = "";
     private string desktopCreditKey = "";
-    private decimal DesktopCreditAmount => desktopCreditLines.Sum(l => decimal.Round(l.Quantity * l.Source.UnitPrice, 2, MidpointRounding.AwayFromZero));
+    private DesktopCreditNoteResult? desktopCreditResult;
+    private IReadOnlyList<CreditNoteReasonOption> desktopCreditReasons = [];
+    private decimal DesktopCreditAmount => desktopCreditLines.Sum(l => l.Amount);
+
+    /// <remarks>
+    /// Per line at the receipt's own rate, because the prices are tax-inclusive and a basket can mix
+    /// rates. A display figure: the device computes the filed tax itself, and may differ by a cent.
+    /// </remarks>
+    private decimal DesktopCreditVat => desktopCreditLines.Sum(l => l.Source.TaxPercent is > 0 and var rate
+        ? decimal.Round(l.Amount - l.Amount / (1 + rate / 100m), 2, MidpointRounding.AwayFromZero)
+        : 0m);
+
     private bool CanCreateDesktopCredit => !desktopCreditBusy && !desktopCreditSubmitted &&
-        !string.IsNullOrWhiteSpace(desktopCreditReason) && desktopCreditLines.Any(l => l.Quantity > 0) &&
-        desktopCreditLines.All(l => l.Quantity >= 0 && l.Quantity <= l.Available);
+        !string.IsNullOrWhiteSpace(desktopCreditReason) && desktopCreditLines.Any(l => l.Quantity > 0);
+
     private sealed class DesktopCreditSelection(DesktopCreditLine source, decimal available)
     {
+        private decimal quantity;
         public DesktopCreditLine Source { get; } = source;
         public decimal Available { get; } = Math.Max(0, available);
-        public decimal Quantity { get; set; }
+
+        /// <summary>Held between none and what is left, at the six places the API accepts.</summary>
+        /// <remarks>
+        /// Clamped here rather than refused on submit, so the stepper and a typed value cannot put a
+        /// quantity on screen that the button would then silently not accept.
+        /// </remarks>
+        public decimal Quantity
+        {
+            get => quantity;
+            set => quantity = decimal.Round(Math.Clamp(value, 0, Available), 6, MidpointRounding.ToZero);
+        }
+
+        public decimal Amount => decimal.Round(Quantity * Source.UnitPrice, 2, MidpointRounding.AwayFromZero);
     }
+
+    private static string UnitLine(DesktopCreditLine line, string? currency) =>
+        line.TaxPercent is { } rate
+            ? $"{Money(line.UnitPrice, currency)} / unit · VAT {rate.ToString("0.##", CultureInfo.InvariantCulture)}%"
+            : $"{Money(line.UnitPrice, currency)} / unit";
+
+    private void CreditEverything()
+    {
+        foreach (var line in desktopCreditLines) line.Quantity = line.Available;
+    }
+
+    /// <summary>What stands between the operator and the button, or what the button will do.</summary>
+    private string DesktopCreditHint =>
+        desktopCreditLines.All(l => l.Available <= 0) ? "Every line of this receipt has already been credited."
+        : !desktopCreditLines.Any(l => l.Quantity > 0) ? "Enter a credit quantity on at least one line to continue."
+        : string.IsNullOrWhiteSpace(desktopCreditReason) ? "Pick a reason for credit to continue."
+        : desktopCreditForm!.SaleInSap
+            ? $"This sale is in SAP{(desktopCreditForm.SaleSapDocNum is { } docNum ? $" as invoice #{docNum}" : "")}, so the credit is fiscalised and then posted to SAP as a credit memo, with the stock returned."
+        : creditSale?.ConsolidationId is not null
+            ? "This sale went to SAP inside a consolidated invoice, so it is fiscalised only. The SAP credit memo has to be raised by hand."
+            : "This sale is not in SAP yet, so it is fiscalised only. The SAP credit memo and stock return follow on their own once the sale posts.";
+
+    private static string DesktopCreditOutcomeTitle(string? status) => status?.Trim().ToLowerInvariant() switch
+    {
+        "fiscalised" => "Fiscal credit note issued",
+        "rejected" => "The device refused this credit",
+        _ => "The fiscal outcome needs checking"
+    };
 
     private async Task OpenDesktopCredit()
     {
         creditSale = selectedSale;
         selectedSale = null;
         desktopCreditNotes = [];
+        desktopCreditResult = null;
+        desktopCreditForm = null;
+        // Read once per opening; the service answers an empty list rather than throwing, which leaves
+        // the free-text reason in place.
+        var reasons = CreditNoteService.GetReasonsAsync();
         await RefreshDesktopCredits();
+        desktopCreditReasons = await reasons;
     }
 
     /// <summary>
@@ -1229,6 +1456,7 @@
         desktopCreditBusy = true;
         desktopCreditForm = null;
         desktopCreditError = null;
+        desktopCreditResult = null;
         try
         {
             // Load saved results even when REVMax is unavailable or the original cannot be prepared.
@@ -1238,13 +1466,14 @@
                 l.Quantity - desktopCreditForm.ReservedQuantities.GetValueOrDefault(l.LineNo))).ToList();
             desktopCreditKey = Guid.NewGuid().ToString("N");
             desktopCreditReason = "";
+            desktopCreditNote = "";
             desktopCreditSubmitted = false;
         }
         catch (Exception ex) { desktopCreditError = ex.Message; }
         finally { desktopCreditBusy = false; }
     }
 
-    private async Task CreateDesktopCredit()
+    private async Task CreateDesktopCredit(bool postToSap)
     {
         if (creditSale == null || !CanCreateDesktopCredit) return;
         desktopCreditBusy = true;
@@ -1254,8 +1483,10 @@
         {
             var result = await DesktopService.CreateCreditNoteAsync(creditSale.ExternalReferenceId,
                 new CreateDesktopCreditRequest(desktopCreditKey, desktopCreditReason,
-                    desktopCreditLines.Where(l => l.Quantity > 0).Select(l => new DesktopCreditQuantity(l.Source.LineNo, l.Quantity)).ToList()));
+                    desktopCreditLines.Where(l => l.Quantity > 0).Select(l => new DesktopCreditQuantity(l.Source.LineNo, l.Quantity)).ToList(),
+                    string.IsNullOrWhiteSpace(desktopCreditNote) ? null : desktopCreditNote.Trim(), postToSap));
             desktopCreditNotes.Insert(0, result);
+            desktopCreditResult = result;
         }
         catch (Exception ex) { desktopCreditError = ex.Message + " Refresh to check the saved notes before creating another credit."; }
         finally { desktopCreditBusy = false; }
