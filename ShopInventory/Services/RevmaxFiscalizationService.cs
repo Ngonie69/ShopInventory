@@ -1270,7 +1270,10 @@ public class RevmaxFiscalizationService : IFiscalizationService
             };
         }).ToList();
 
-        ReconcileToDocumentTotal(items, RoundCurrency(Math.Abs(document.DocTotal)));
+        ReconcileToDocumentTotal(
+            items,
+            document.Lines.Select(GetPriceAfterVat).ToList(),
+            RoundCurrency(Math.Abs(document.DocTotal)));
 
         return items;
     }
@@ -1293,14 +1296,24 @@ public class RevmaxFiscalizationService : IFiscalizationService
     /// avoid. Carrying it on PRICE moves a real unit price by a fraction of a cent and makes the
     /// receipt total right.
     ///
-    /// Bounded deliberately at ten cents. Anything larger is not rounding — it is a wrong price, a
-    /// missed discount or a line the mapping dropped — and quietly papering over it would file the
-    /// wrong receipt while making it look right. Those are left visibly unbalanced instead: unlike a
-    /// credit note, whose figure is measured against the original receipt and is refused outright, an
-    /// invoice that cannot be reconciled is still better filed than not filed at all — 769617 went
-    /// through two cents short.
+    /// Spreading is kept to ten cents, because past that it would misstate the largest line by more
+    /// than rounding. A bigger gap is still rounding when the unit prices themselves explain it: a cent
+    /// cannot express a cheap item's tax-inclusive price, and quantity multiplies the error. Till sale
+    /// KEF-FAC-20260914-65A87300FB1A sold 55 Loose Cones at 0.04 net, which is 0.0462 gross. Rounded
+    /// to 0.05, that is 2.75 on the receipt against 2.54 charged, and the device refused the whole
+    /// sale with RCPT019 (26.82 of lines against 26.61). Those lines are re-priced instead — see
+    /// <see cref="RepriceLinesACentCannotExpress"/>.
+    ///
+    /// Anything neither explains is not rounding: a wrong price, a missed discount or a line the
+    /// mapping dropped. Papering over it would file the wrong receipt while making it look right, so
+    /// it is left visibly unbalanced. Unlike a credit note, whose figure is measured against the
+    /// original receipt and is refused outright, an invoice that cannot be reconciled is still better
+    /// filed than not filed at all — 769617 went through two cents short.
     /// </remarks>
-    private static void ReconcileToDocumentTotal(List<RevmaxRequestItem> items, decimal documentTotal)
+    private static void ReconcileToDocumentTotal(
+        List<RevmaxRequestItem> items,
+        IReadOnlyList<decimal> exactPrices,
+        decimal documentTotal)
     {
         if (items.Count == 0 || documentTotal <= 0m)
         {
@@ -1310,12 +1323,74 @@ public class RevmaxFiscalizationService : IFiscalizationService
         var lineTotals = DeviceLineTotals(items);
         var difference = RoundCurrency(documentTotal - lineTotals.Sum());
 
-        if (difference == 0m || Math.Abs(difference) > 0.10m)
+        if (difference == 0m)
         {
             return;
         }
 
-        SpreadResidualOntoLargestLine(items, lineTotals, difference);
+        if (Math.Abs(difference) <= 0.10m)
+        {
+            SpreadResidualOntoLargestLine(items, lineTotals, difference);
+            return;
+        }
+
+        RepriceLinesACentCannotExpress(items, exactPrices, documentTotal);
+    }
+
+    /// <summary>
+    /// Declares each line whose cent-rounded unit price multiplies out to the wrong amount at the unit
+    /// price that gives the line's real amount, when that closes the document.
+    /// </summary>
+    /// <remarks>
+    /// The line carries its own correction. Moving the whole gap onto the largest line would declare
+    /// 21 cents less ice cream to put right 21 cents too many cones. The new price is the actual
+    /// tax-inclusive unit price (0.0462 for the cones), at the fewest decimals that multiply back to
+    /// the line amount.
+    ///
+    /// Nothing is changed unless the re-priced lines land within the rounding that per-line amounts
+    /// and per-rate VAT can still leave, about a cent a line. That remainder goes on the largest line
+    /// as usual. A document that still misses by more was never a rounding problem.
+    ///
+    /// Only reached when the gap is over ten cents, so every document that already reconciles goes out
+    /// exactly as before.
+    /// </remarks>
+    private static void RepriceLinesACentCannotExpress(
+        List<RevmaxRequestItem> items,
+        IReadOnlyList<decimal> exactPrices,
+        decimal documentTotal)
+    {
+        var repriced = new List<(int Index, string Price, decimal Amount)>();
+        var lineTotals = DeviceLineTotals(items);
+
+        for (var i = 0; i < items.Count; i++)
+        {
+            var quantity = ParseAmount(items[i].Qty);
+            var amount = RoundCurrency(quantity * exactPrices[i]);
+
+            if (quantity != 0m && amount != lineTotals[i])
+            {
+                repriced.Add((i, UnitPriceFor(amount, quantity), amount));
+                lineTotals[i] = amount;
+            }
+        }
+
+        var remainder = RoundCurrency(documentTotal - lineTotals.Sum());
+
+        if (repriced.Count == 0 || Math.Abs(remainder) > 0.01m * items.Count + 0.01m)
+        {
+            return;
+        }
+
+        foreach (var (index, price, amount) in repriced)
+        {
+            items[index].Price = price;
+            items[index].Amt = FormatMoney(amount);
+        }
+
+        if (remainder != 0m)
+        {
+            SpreadResidualOntoLargestLine(items, lineTotals, remainder, UnitPriceFor);
+        }
     }
 
     /// <summary>What the DEVICE will make of each line: QTY x PRICE, not the AMT we sent it.</summary>
@@ -1332,11 +1407,15 @@ public class RevmaxFiscalizationService : IFiscalizationService
     /// The largest line carries it so the per-unit change is the smallest available. Answers false
     /// when that line has no quantity to spread it over, which leaves the caller to decide whether an
     /// unreconciled document may still be filed.
+    ///
+    /// <paramref name="unitPrice"/> formats the adjusted price from the line amount and quantity; by
+    /// default <see cref="FormatUnitPrice"/>, which is what every receipt filed so far went out with.
     /// </remarks>
     private static bool SpreadResidualOntoLargestLine(
         List<RevmaxRequestItem> items,
         IReadOnlyList<decimal> lineTotals,
-        decimal difference)
+        decimal difference,
+        Func<decimal, decimal, string>? unitPrice = null)
     {
         var index = 0;
 
@@ -1357,7 +1436,7 @@ public class RevmaxFiscalizationService : IFiscalizationService
 
         var adjusted = RoundCurrency(lineTotals[index] + difference);
         items[index].Amt = FormatMoney(adjusted);
-        items[index].Price = FormatUnitPrice(adjusted / quantity);
+        items[index].Price = unitPrice?.Invoke(adjusted, quantity) ?? FormatUnitPrice(adjusted / quantity);
         return true;
     }
 
@@ -1546,6 +1625,29 @@ public class RevmaxFiscalizationService : IFiscalizationService
     private static string FormatUnitPrice(decimal value)
         => Math.Round(value, 6, MidpointRounding.AwayFromZero)
             .ToString("0.00####", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// The unit price, at the fewest decimals from two to six, that the device multiplies back to
+    /// <paramref name="amount"/>.
+    /// </summary>
+    /// <remarks>
+    /// Fewest, so a receipt shows 0.0462 rather than 0.046182 when both multiply back to the same
+    /// line.
+    /// </remarks>
+    private static string UnitPriceFor(decimal amount, decimal quantity)
+    {
+        for (var decimals = 2; decimals <= 6; decimals++)
+        {
+            var price = Math.Round(amount / quantity, decimals, MidpointRounding.AwayFromZero);
+
+            if (RoundCurrency(quantity * price) == amount)
+            {
+                return price.ToString("0.00####", CultureInfo.InvariantCulture);
+            }
+        }
+
+        return FormatUnitPrice(amount / quantity);
+    }
 
     private static decimal RoundCurrency(decimal value)
         => Math.Round(value, 2, MidpointRounding.AwayFromZero);

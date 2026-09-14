@@ -627,6 +627,125 @@ public class RevmaxFiscalPayloadTests
     }
 
     [Fact]
+    public async Task A_cheap_line_a_cent_cannot_price_is_declared_at_its_real_unit_price()
+    {
+        // Till sale KEF-FAC-20260914-65A87300FB1A, refused with RCPT019 on 14 September: "The Invoice
+        // Amount (26.61) must equal the sum of all Line Item Amounts". 55 Loose Cones at 0.04 net are
+        // 0.0462 gross. Rounded to 0.05 they filed 2.75 against 2.54 charged, and the gap was past the
+        // ten cents the largest line may absorb, so the whole sale went unfiscalised.
+        var client = new RecordingRevmaxClient();
+        var sale = await FiscaliseTillSaleAsync(
+            client,
+            ("ICC002", "Icecream Cone Vanilla", 2m, 0.39m),
+            ("ICV008", "5 Litre Vanilla Icecream Cortina Round", 3m, 6.26m),
+            ("RMA001", "Loose Cones", 55m, 0.04m),
+            ("YOG127", "200ml Cortina Vanilla  Dairy Snack", 4m, 0.32m));
+
+        Assert.Equal(26.61m, sale.TotalAmount);
+        Assert.Equal(DesktopSaleFiscalizationStatus.Success, sale.FiscalizationStatus);
+
+        var filed = client.LastInvoice!;
+        var lines = (List<RevmaxRequestItem>)filed.ItemsXml!;
+
+        Assert.Equal(26.61m, filed.InvoiceAmount);
+        Assert.Equal(26.61m, DeviceTotal(lines));
+
+        // The cones carry their own correction, at the price the customer actually paid per cone...
+        Assert.Equal("0.0462", lines[2].Price);
+        Assert.Equal("2.54", lines[2].Amt);
+
+        // ...and the ice cream is not bent to cover for them.
+        Assert.Equal("7.23", lines[1].Price);
+        Assert.Equal(["0.45", "7.23", "0.0462", "0.37"], lines.Select(line => line.Price));
+    }
+
+    [Fact]
+    public async Task A_line_priced_below_the_cent_still_declares_amount_equal_to_quantity_times_price()
+    {
+        // 100 x 1.99 net is 229.85 taken, and 2.30 a unit multiplies out to 230.00.
+        var client = new RecordingRevmaxClient();
+        await FiscaliseTillSaleAsync(client, ("A", "Headline", 100m, 1.99m));
+
+        var line = Assert.Single((List<RevmaxRequestItem>)client.LastInvoice!.ItemsXml!);
+
+        Assert.Equal("2.2985", line.Price);
+        Assert.Equal("229.85", line.Amt);
+        Assert.Equal(229.85m, client.LastInvoice.InvoiceAmount);
+    }
+
+    [Fact]
+    public async Task A_gap_the_unit_prices_do_not_explain_is_not_repriced_away()
+    {
+        // Same basket as sale 65A87300FB1A, with fifty cents on the total that no line accounts for.
+        // Re-pricing the cones would still miss by that fifty, so nothing is touched: a receipt that
+        // looks reconciled but is not is worse than one that is visibly short.
+        var invoice = Invoice();
+        invoice.DocTotal = 27.11m;
+        invoice.Lines =
+        [
+            new InvoiceLineDto { LineNum = 0, ItemCode = "ICC002", ItemDescription = "Cone", Quantity = 2m, GrossPrice = 0.39m * 1.155m, VatGroup = "O01" },
+            new InvoiceLineDto { LineNum = 1, ItemCode = "ICV008", ItemDescription = "Ice cream", Quantity = 3m, GrossPrice = 6.26m * 1.155m, VatGroup = "O01" },
+            new InvoiceLineDto { LineNum = 2, ItemCode = "RMA001", ItemDescription = "Loose Cones", Quantity = 55m, GrossPrice = 0.04m * 1.155m, VatGroup = "O01" },
+            new InvoiceLineDto { LineNum = 3, ItemCode = "YOG127", ItemDescription = "Snack", Quantity = 4m, GrossPrice = 0.32m * 1.155m, VatGroup = "O01" }
+        ];
+
+        var client = new RecordingRevmaxClient();
+        await Service(client).FiscalizePreSapInvoiceAsync(invoice, "KEF-FAC-CONTROL");
+
+        var lines = (List<RevmaxRequestItem>)client.LastInvoice!.ItemsXml!;
+
+        Assert.Equal(["0.45", "7.23", "0.05", "0.37"], lines.Select(line => line.Price));
+        Assert.Equal(26.82m, DeviceTotal(lines));
+    }
+
+    /// <summary>
+    /// Builds a till sale the way <c>CreateDesktopSaleHandler</c> stores one — net prices, line totals
+    /// rounded to money, VAT once per rate — and fiscalises it through the real
+    /// <see cref="DesktopSaleFiscaliser"/>, so what reaches the device is what a till's sale sends.
+    /// </summary>
+    private static async Task<DesktopSaleEntity> FiscaliseTillSaleAsync(
+        RecordingRevmaxClient client,
+        params (string Code, string Description, decimal Quantity, decimal NetPrice)[] basket)
+    {
+        var lines = basket.Select((item, index) => new DesktopSaleLineEntity
+        {
+            LineNum = index + 1,
+            ItemCode = item.Code,
+            ItemDescription = item.Description,
+            Quantity = item.Quantity,
+            UnitPrice = item.NetPrice,
+            LineTotal = Math.Round(item.Quantity * item.NetPrice, 2, MidpointRounding.AwayFromZero),
+            TaxCode = "O01"
+        }).ToList();
+
+        var vat = Tax.VatOnBasket(lines.Select(line => (line.LineTotal, (string?)line.TaxCode)));
+
+        var sale = new DesktopSaleEntity
+        {
+            ExternalReferenceId = "KEF-FAC-20260914-65A87300FB1A",
+            SourceSystem = SaleSourceSystems.ShopTill,
+            Currency = "USD",
+            DocDate = new DateTime(2026, 9, 14),
+            TotalAmount = lines.Sum(line => line.LineTotal) + vat,
+            VatAmount = vat,
+            PaymentMethod = TenderTypes.Cash,
+            Lines = lines
+        };
+
+        var notifications = StubProxy.For<INotificationService>((method, _) => method.Name switch
+        {
+            nameof(INotificationService.CreateNotificationAsync) => Task.FromResult(0),
+            _ => throw new InvalidOperationException($"INotificationService.{method.Name} was not expected.")
+        });
+
+        await new DesktopSaleFiscaliser(
+                Service(client), notifications, Options.Create(Tax), NullLogger<DesktopSaleFiscaliser>.Instance)
+            .FiscaliseAsync(sale, CancellationToken.None);
+
+        return sale;
+    }
+
+    [Fact]
     public async Task An_invoice_too_far_out_to_be_rounding_is_still_filed()
     {
         // Deliberately unlike a credit note, whose figure is measured against the original receipt and

@@ -96,6 +96,10 @@ public sealed class DesktopSaleFiscaliser(
                     // discount, so sending it raw declared a price that was neither discounted nor
                     // taxed: the customer's VAT was understated on every receipt, and a discounted
                     // line was declared at its undiscounted price.
+                    //
+                    // Left unrounded. Each provider rounds it to the cent for the receipt anyway, and
+                    // REVMax needs the exact figure when a cent cannot express a cheap line: 55 cones
+                    // at a gross 0.0462 are 2.54, while 55 at 0.05 are 2.75.
                     var effectivePrice = l.UnitPrice * (1 - l.DiscountPercent / 100m);
                     var rate = tax.Value.RateFor(l.TaxCode);
 
@@ -106,7 +110,7 @@ public sealed class DesktopSaleFiscaliser(
                         ItemDescription = l.ItemDescription,
                         Quantity = l.Quantity,
                         UnitPrice = l.UnitPrice,
-                        GrossPrice = Math.Round(effectivePrice * (1 + rate), 2, MidpointRounding.AwayFromZero),
+                        GrossPrice = effectivePrice * (1 + rate),
                         LineTotal = l.LineTotal,
                         WarehouseCode = l.WarehouseCode,
                         // Without this every line fell through to the standard-rated default tax id,
