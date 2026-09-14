@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
+using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Common.Auth;
 
@@ -27,23 +28,8 @@ public static class UserInfoMapper
         ApplicationDbContext context,
         CancellationToken cancellationToken = default)
     {
-        var shop = user.Shop;
-
-        if (shop is null && user.ShopId is not null)
-        {
-            shop = await context.Shops
-                .AsNoTracking()
-                .FirstOrDefaultAsync(candidate => candidate.Id == user.ShopId, cancellationToken);
-        }
-
-        // A shop-assigned account reports the shop's codes in the fields a client already reads, so
-        // nothing has to learn about shops to get the right answer. The account's own columns are not
-        // merged in: SellingAccountResolver prefers the shop outright, and a login payload that said
-        // otherwise would have the till showing one warehouse and selling from another — the exact
-        // split this whole change removes.
-        var warehouseCodes = shop is not null
-            ? [shop.WarehouseCode]
-            : user.GetWarehouseCodes();
+        var shop = await LoadShopAsync(user, context, cancellationToken);
+        var warehouseCodes = WarehouseCodes(user, shop);
 
         return new UserInfo
         {
@@ -65,4 +51,46 @@ public static class UserInfoMapper
             ShopName = shop?.Name
         };
     }
+
+    /// <summary>
+    /// The warehouses an account works in: its shop's, when it has a shop, otherwise its own.
+    /// </summary>
+    /// <remarks>
+    /// Shared with the access token, which writes one <c>warehouse</c> claim for each. The token used
+    /// to read the account's own column alone, and a till operator never has anything in it — the
+    /// role takes its warehouse from the shop, and user management refuses warehouse assignments for
+    /// it. So a till's token carried no warehouse, <c>NotificationHub</c> put its connection in no
+    /// warehouse group, and <c>InvoiceCancelled</c>, which is sent only to those groups, could not
+    /// reach the tills it was written for.
+    /// </remarks>
+    public static async Task<List<string>> ResolveWarehouseCodesAsync(
+        User user,
+        ApplicationDbContext context,
+        CancellationToken cancellationToken = default) =>
+        WarehouseCodes(user, await LoadShopAsync(user, context, cancellationToken));
+
+    private static async Task<ShopEntity?> LoadShopAsync(
+        User user,
+        ApplicationDbContext context,
+        CancellationToken cancellationToken)
+    {
+        if (user.Shop is not null || user.ShopId is null)
+        {
+            return user.Shop;
+        }
+
+        return await context.Shops
+            .AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.Id == user.ShopId, cancellationToken);
+    }
+
+    // A shop-assigned account reports the shop's codes in the fields a client already reads, so
+    // nothing has to learn about shops to get the right answer. The account's own columns are not
+    // merged in: SellingAccountResolver prefers the shop outright, and a login payload that said
+    // otherwise would have the till showing one warehouse and selling from another — the exact
+    // split this whole change removes.
+    private static List<string> WarehouseCodes(User user, ShopEntity? shop) =>
+        shop is not null
+            ? [shop.WarehouseCode]
+            : user.GetWarehouseCodes();
 }
