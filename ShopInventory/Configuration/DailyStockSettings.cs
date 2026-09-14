@@ -109,6 +109,18 @@ public class DailyStockSettings
     public List<string> ReconcileWarehouses { get; set; } = [];
 
     /// <summary>
+    /// How many days before the current ledger day an unposted till sale is still taken off SAP's
+    /// figure, by the morning fetch and the hourly reconciliation alike.
+    /// </summary>
+    /// <remarks>
+    /// Both used to count only the current day, so a sale that missed SAP overnight — a failed
+    /// fiscalisation, a post SAP kept refusing — was back on the shelf the next morning. A sale older
+    /// than this is left to the exception centre, where it is already listed, rather than netted for
+    /// ever. See <c>UnpostedTillSales</c>.
+    /// </remarks>
+    public int UnpostedSaleLookbackDays { get; set; } = 30;
+
+    /// <summary>
     /// Whether the hourly comparison also looks for stock that arrived in a warehouse the snapshot has
     /// no row for at all.
     /// </summary>

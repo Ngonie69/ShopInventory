@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Quartz;
+using ShopInventory.Common.Sales;
 using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
@@ -47,6 +48,7 @@ public sealed class StockLedgerReconcileTests : IDisposable
     private readonly List<BatchNumber> _sapBatches = new();
     private bool _batchReadFails;
     private string? _failStockReadFor;
+    private Action? _duringStockRead;
 
     /// <summary>What the whole-warehouse reads answer, which is what arrival discovery searches.</summary>
     private readonly List<StockQuantityDto> _warehouseStock = new();
@@ -151,6 +153,123 @@ public sealed class StockLedgerReconcileTests : IDisposable
         await RunAsync();
 
         Assert.Equal(100m, await AvailableAsync(Shop, Item));
+    }
+
+    // ---------------------------------------------------------------
+    // Unposted sales from before today, and credits SAP has not seen
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// Sale 1 at KEFSHOP, rung up on 2026-09-09, failed fiscalisation and never posted. The comparison
+    /// only asked about the current ledger day, so from the 10th on its units were SAP's to hand back —
+    /// and SAP never heard of the sale.
+    /// </summary>
+    [Fact]
+    public async Task An_unposted_till_sale_from_an_earlier_day_is_still_held_back()
+    {
+        await SeedRowAsync(Shop, Item, original: 120m, available: 90m);
+        await SeedTillSaleAsync(Shop, Item, 30m, DesktopSaleConsolidationStatus.Pending,
+            createdAt: DayStartUtc.AddDays(-2).AddHours(3));
+        _sapIssuable[Item] = 100m;
+        _sapBatches.Add(Batch("B1", 100m));
+
+        await RunAsync();
+
+        Assert.Equal(70m, await AvailableAsync(Shop, Item));
+    }
+
+    /// <summary>
+    /// A legacy desktop sale waits for an end-of-day consolidation that may not be running, so "not
+    /// Consolidated" says nothing about whether SAP has it. Before today only the till sources, which
+    /// post one invoice each, are counted — counting a backlog of the others would empty the shop.
+    /// </summary>
+    [Fact]
+    public async Task An_earlier_sale_from_a_source_with_no_posting_route_is_not_held_back()
+    {
+        await SeedRowAsync(Shop, Item, original: 120m, available: 90m);
+        await SeedTillSaleAsync(Shop, Item, 30m, DesktopSaleConsolidationStatus.Pending,
+            createdAt: DayStartUtc.AddDays(-2), source: SaleSourceSystems.LegacyDesktop);
+        _sapIssuable[Item] = 100m;
+        _sapBatches.Add(Batch("B1", 100m));
+
+        await RunAsync();
+
+        Assert.Equal(100m, await AvailableAsync(Shop, Item));
+    }
+
+    [Fact]
+    public async Task An_unposted_sale_older_than_the_lookback_is_not_held_back()
+    {
+        _settings.UnpostedSaleLookbackDays = 5;
+
+        await SeedRowAsync(Shop, Item, original: 120m, available: 90m);
+        await SeedTillSaleAsync(Shop, Item, 30m, DesktopSaleConsolidationStatus.Pending,
+            createdAt: DayStartUtc.AddDays(-6));
+        _sapIssuable[Item] = 100m;
+        _sapBatches.Add(Batch("B1", 100m));
+
+        await RunAsync();
+
+        Assert.Equal(100m, await AvailableAsync(Shop, Item));
+    }
+
+    /// <summary>
+    /// A fiscal credit puts its units back on the ledger as soon as ZIMRA accepts it, and SAP only
+    /// hears when the memo posts. Ignoring that took the returned stock straight back off the shelf.
+    /// </summary>
+    [Fact]
+    public async Task Units_a_credit_returned_are_not_taken_back_before_SAP_has_the_memo()
+    {
+        // 30 sold and 10 of them credited back: the ledger holds 120 - 30 + 10.
+        await SeedRowAsync(Shop, Item, original: 120m, available: 100m);
+        var saleId = await SeedTillSaleAsync(Shop, Item, 30m, DesktopSaleConsolidationStatus.Pending);
+        await SeedCreditAsync(saleId, lineNo: 0, quantity: 10m, DesktopCreditSapStatuses.Deferred);
+        _sapIssuable[Item] = 120m;
+        _sapBatches.Add(Batch("B1", 120m));
+
+        await RunAsync();
+
+        Assert.Equal(100m, await AvailableAsync(Shop, Item));
+    }
+
+    /// <summary>
+    /// Once the memo is in SAP, SAP's figure already carries the return and it must not be added twice.
+    /// </summary>
+    [Fact]
+    public async Task A_credit_SAP_already_holds_is_not_added_twice()
+    {
+        await SeedRowAsync(Shop, Item, original: 120m, available: 100m);
+        var saleId = await SeedTillSaleAsync(Shop, Item, 30m, DesktopSaleConsolidationStatus.Consolidated);
+        await SeedCreditAsync(saleId, lineNo: 0, quantity: 10m, DesktopCreditSapStatuses.Posted);
+
+        // Something outside moved five, and the item is unbatched so nothing caps a put-back: counting
+        // the posted credit again would read 105.
+        _sapIssuable[Item] = 95m;
+
+        await RunAsync();
+
+        Assert.Equal(95m, await AvailableAsync(Shop, Item));
+    }
+
+    /// <summary>
+    /// A sale that posts while the job is reading SAP. Read the other way round it was in neither
+    /// figure — no longer unposted, not yet in SAP's reading — and its units went back on the shelf.
+    /// </summary>
+    [Fact]
+    public async Task A_sale_that_posts_during_the_SAP_read_is_not_handed_back()
+    {
+        await SeedRowAsync(Shop, Item, original: 100m, available: 70m);
+        await SeedTillSaleAsync(Shop, Item, 30m, DesktopSaleConsolidationStatus.Pending);
+        _sapIssuable[Item] = 100m;
+        _sapBatches.Add(Batch("B1", 100m));
+
+        // SAP answers with the figure from before the invoice, and the invoice lands straight after.
+        _duringStockRead = () => _context.DesktopSales.ExecuteUpdate(setters =>
+            setters.SetProperty(sale => sale.ConsolidationStatus, DesktopSaleConsolidationStatus.Consolidated));
+
+        await RunAsync();
+
+        Assert.Equal(70m, await AvailableAsync(Shop, Item));
     }
 
     // ---------------------------------------------------------------
@@ -540,7 +659,7 @@ public sealed class StockLedgerReconcileTests : IDisposable
             nameof(ISAPServiceLayerClient.GetStockQuantitiesForItemsInWarehouseAsync) =>
                 string.Equals((string)args![0]!, _failStockReadFor, StringComparison.OrdinalIgnoreCase)
                     ? throw new InvalidOperationException("SAP stock read failed")
-                    : Task.FromResult(((IEnumerable<string>)args[1]!)
+                    : AfterStockRead(((IEnumerable<string>)args[1]!)
                     .Where(_sapIssuable.ContainsKey)
                     .Select(itemCode => new StockQuantityDto
                     {
@@ -657,21 +776,35 @@ public sealed class StockLedgerReconcileTests : IDisposable
         _context.ChangeTracker.Clear();
     }
 
-    private async Task SeedTillSaleAsync(
+    private Task<List<StockQuantityDto>> AfterStockRead(List<StockQuantityDto> reading)
+    {
+        _duringStockRead?.Invoke();
+        return Task.FromResult(reading);
+    }
+
+    /// <summary>When the current ledger day began, in UTC — the fetch time in CAT, less two hours.</summary>
+    private DateTime DayStartUtc =>
+        LedgerDay.Add(StockLedgerDay.ParseFetchTime(_settings.StockFetchTimeCAT)).AddHours(-2);
+
+    private async Task<int> SeedTillSaleAsync(
         string warehouse,
         string itemCode,
         decimal quantity,
-        DesktopSaleConsolidationStatus status)
+        DesktopSaleConsolidationStatus status,
+        DateTime? createdAt = null,
+        string source = SaleSourceSystems.ShopTill)
     {
         var sale = new DesktopSaleEntity
         {
             ExternalReferenceId = $"TILL-{Guid.NewGuid():N}",
             CardCode = "CASH",
+            SourceSystem = source,
+            WarehouseCode = warehouse,
             ConsolidationStatus = status,
             // Any instant inside the current ledger day. UtcNow always is one, whatever the hour:
             // the day runs from the fetch time in CAT, which is UtcNow's own window by construction.
-            CreatedAt = DateTime.UtcNow,
-            DocDate = DateTime.UtcNow.Date
+            CreatedAt = createdAt ?? DateTime.UtcNow,
+            DocDate = (createdAt ?? DateTime.UtcNow).Date
         };
 
         _context.DesktopSales.Add(sale);
@@ -684,6 +817,29 @@ public sealed class StockLedgerReconcileTests : IDisposable
             ItemCode = itemCode,
             WarehouseCode = warehouse,
             Quantity = quantity
+        });
+
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        return sale.Id;
+    }
+
+    /// <summary>A fiscalised credit whose units are already back on the ledger.</summary>
+    private async Task SeedCreditAsync(int saleId, int lineNo, decimal quantity, string sapStatus)
+    {
+        _context.DesktopCreditNotes.Add(new DesktopCreditNoteEntity
+        {
+            Id = Guid.NewGuid(),
+            SaleId = saleId,
+            RequestKey = Guid.NewGuid().ToString("N"),
+            Number = $"CN-{saleId}",
+            Status = DesktopCreditStatuses.Fiscalised,
+            SapStatus = sapStatus,
+            UnitsReturnedToLedger = true,
+            // Only the quantities are read on this path; the rest of the plan is the fiscal half's.
+            PlanJson = $$"""{"quantities":[{"lineNo":{{lineNo}},"quantity":{{quantity}}}]}""",
+            CreatedAtUtc = DateTime.UtcNow
         });
 
         await _context.SaveChangesAsync();
