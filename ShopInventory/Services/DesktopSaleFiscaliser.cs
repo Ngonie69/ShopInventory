@@ -98,6 +98,7 @@ public sealed class DesktopSaleFiscaliser(
                     // line was declared at its undiscounted price.
                     var effectivePrice = l.UnitPrice * (1 - l.DiscountPercent / 100m);
                     var rate = tax.Value.RateFor(l.TaxCode);
+                    var grossUnitPrice = effectivePrice * (1 + rate);
 
                     return new InvoiceLineDto
                     {
@@ -106,7 +107,12 @@ public sealed class DesktopSaleFiscaliser(
                         ItemDescription = l.ItemDescription,
                         Quantity = l.Quantity,
                         UnitPrice = l.UnitPrice,
-                        GrossPrice = Math.Round(effectivePrice * (1 + rate), 2, MidpointRounding.AwayFromZero),
+                        GrossPrice = Math.Round(grossUnitPrice, 2, MidpointRounding.AwayFromZero),
+                        // What the line came to, before a unit price in cents is multiplied back out:
+                        // thirty units at 0.63525 are 19.06, and at 0.64 they are 19.20. REVMax files
+                        // these; the platform reads GrossPrice alone.
+                        PriceAfterVat = Math.Round(grossUnitPrice, 6, MidpointRounding.AwayFromZero),
+                        GrossTotal = Math.Round(l.Quantity * grossUnitPrice, 2, MidpointRounding.AwayFromZero),
                         LineTotal = l.LineTotal,
                         WarehouseCode = l.WarehouseCode,
                         // Without this every line fell through to the standard-rated default tax id,
