@@ -1,17 +1,22 @@
 name: Deploy to production
 
-# A merge alone deploys nothing. Tests must go green on main first, and then the `production`
-# environment's reviewer has to approve - the job sits pending, having run no steps at all, until
-# someone clicks it through. Setup, including who may approve, is in
-# docs/operations/github-actions-deploy-runner.md.
+# A merge deploys once Tests go green on main, unless that happens during trading hours. A cutover
+# drops every request in flight, so a merge between 07:00 and 19:00 CAT waits for the 19:30 CAT run,
+# which deploys main's head. Running the workflow by hand deploys at once, whatever the time. The
+# rule is in scripts/DeployWindow/deploy_window.py, and its tests are beside it.
 #
-# This cannot run on a GitHub-hosted runner: production is 10.10.10.9, a private address no Azure
-# runner can route to. It needs the self-hosted runner described in that same document.
+# Setup is in docs/operations/github-actions-deploy-runner.md. The deploy job cannot run on a
+# GitHub-hosted runner: production is 10.10.10.9, a private address no Azure runner can route to. It
+# needs the self-hosted runner described in that document.
 on:
   workflow_run:
     workflows: ["Tests"]
     types: [completed]
     branches: [main]
+  schedule:
+    # 19:30 CAT, every day. Zimbabwe keeps UTC+2 all year. test_deploy_window.py fails if this and
+    # EVENING_DEPLOY disagree. GitHub can start a scheduled run late under load, never early.
+    - cron: '30 17 * * *'
   workflow_dispatch:
     inputs:
       target:
@@ -29,24 +34,79 @@ concurrency:
 
 permissions:
   contents: read
+  # The evening run asks whether Tests passed for main's head.
+  actions: read
 
 jobs:
-  deploy:
-    name: Publish and cut over
+  decide:
+    name: Decide whether to deploy
     # workflow_run fires for failed and cancelled runs too, so the conclusion is checked rather
-    # than assumed. Without this a red test run would still reach the approval gate, and the whole
-    # point of the gate is that what reaches it is already known good.
+    # than assumed. Without this a red test run would still reach production, and the whole point
+    # of waiting for Tests is that what deploys is already known good.
     #
     # Success alone is not enough on a public repository. The `branches: [main]` filter above
     # matches the triggering run's branch NAME, and a pull request from a fork whose branch is
     # also called `main` runs Tests under that name - so without the two checks below, a
     # stranger's PR that passed Tests would check out their own commit on the production runner,
     # with the deploy credential and secrets in reach. Only a push to this repository deploys.
+    # A scheduled run only ever starts from this repository's default branch.
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_repository.full_name == github.repository)
+    # GitHub-hosted: deciding needs nothing from the production box, and a merge that is held should not
+    # queue for it.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      deploy: ${{ steps.decide.outputs.deploy }}
+      sha: ${{ steps.decide.outputs.sha }}
+      reason: ${{ steps.decide.outputs.reason }}
+
+    steps:
+      - name: Checkout the deploy rule
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The rule as it stands on main, not as a triggering commit has it.
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: scripts/DeployWindow
+
+      - name: Ask whether Tests passed for main's head
+        id: tests
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          passed=$(gh run list --repo "${{ github.repository }}" --workflow tests.yml \
+            --commit "${{ github.sha }}" --event push --status success --limit 1 --json databaseId --jq 'length')
+          echo "passed=$([ "$passed" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Decide
+        id: decide
+        env:
+          DEPLOY_EVENT: ${{ github.event_name }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_SHA: ${{ github.sha }}
+          TESTS_PASSED: ${{ steps.tests.outputs.passed }}
+        run: python3 scripts/DeployWindow/deploy_window.py
+
+      - name: Say why nothing deploys
+        if: steps.decide.outputs.deploy != 'true'
+        env:
+          REASON: ${{ steps.decide.outputs.reason }}
+        run: |
+          {
+            echo '### Not deployed'
+            echo
+            echo "$REASON"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Publish and cut over
+    needs: decide
+    if: needs.decide.outputs.deploy == 'true'
     # Windows PowerShell (5.1), not pwsh: the runner is a production IIS box, and the
     # runbook asks only for "PowerShell 5.1 or later" - PowerShell 7 is not installed and
     # putting it there is a real change to a machine serving traffic. Update-Production.ps1
@@ -61,15 +121,41 @@ jobs:
       - name: Checkout the commit that passed
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # workflow_run identifies the run that passed, not a branch ref, and the two drift apart
-          # the moment a second merge lands while this one waits for approval. Naming the sha is
-          # what makes the thing deployed the same thing that was tested and approved.
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          # The commit the decide job named: the run that passed Tests, main's head for the evening
+          # run, or the ref chosen by hand. Naming the sha is what makes the thing deployed the same
+          # thing that was tested, even when a second merge lands while this one queues.
+          ref: ${{ needs.decide.outputs.sha }}
           # Update-Production.ps1 runs `merge-base --is-ancestor origin/main HEAD` as its own
           # safety check, and a shallow clone has no history to answer that with.
           fetch-depth: 0
 
+      - name: Skip a commit that is already live
+        id: live
+        shell: powershell
+        env:
+          SHA: ${{ needs.decide.outputs.sha }}
+        run: |
+          # The evening run fires every night, and most nights nothing merged during the day. Deploying
+          # the commit already live would cut over for nothing. Written by the last successful full
+          # deploy - see "Remember what is live" below. This runner is the production box, and its
+          # work folder outlives the checkout.
+          $marker = Join-Path $env:RUNNER_WORKSPACE 'production-live-commit.txt'
+          $live = if (Test-Path -LiteralPath $marker) { (Get-Content -LiteralPath $marker -Raw).Trim() } else { '' }
+
+          # ASCII, not utf8: Windows PowerShell 5.1 writes a byte-order mark with utf8, and on GITHUB_OUTPUT
+          # that makes the key "﻿live", so the steps below would never see live=true.
+          if ('${{ github.event_name }}' -eq 'schedule' -and $live -eq $env:SHA) {
+            Write-Host "$env:SHA is already live. Nothing to deploy." -ForegroundColor Green
+            Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'live=true' -Encoding ascii
+            "### Not deployed`n`n$env:SHA is already live." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+          else {
+            Write-Host "Live: $(if ($live) { $live } else { 'not recorded' }). Deploying: $env:SHA"
+            Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'live=false' -Encoding ascii
+          }
+
       - name: Check the runner is provisioned
+        if: steps.live.outputs.live != 'true'
         shell: powershell
         run: |
           $problems = @()
@@ -113,6 +199,7 @@ jobs:
           Write-Host "Runner is provisioned." -ForegroundColor Green
 
       - name: Publish, cut over and verify
+        if: steps.live.outputs.live != 'true'
         shell: powershell
         env:
           # Deliberately not named SHOPINVENTORY_WEB_SMTP_PASSWORD. A workflow-level `env` key is
@@ -162,6 +249,7 @@ jobs:
           exit $LASTEXITCODE
 
       - name: Verify production answers on its public address
+        if: steps.live.outputs.live != 'true'
         shell: powershell
         env:
           HEALTH_URL: ${{ vars.PRODUCTION_HEALTH_URL || 'https://sis.kefaloscheese.com/health/ready' }}
@@ -191,11 +279,25 @@ jobs:
 
           throw "$url never answered 200. Last result: $last"
 
+      - name: Remember what is live
+        # Only after a full deploy that verified. A deploy of the API or the Web alone leaves the other
+        # on an older commit, and recording it would let the evening run skip what is still missing.
+        if: success() && steps.live.outputs.live != 'true' && (inputs.target || 'Both') == 'Both'
+        shell: powershell
+        env:
+          SHA: ${{ needs.decide.outputs.sha }}
+        run: |
+          $marker = Join-Path $env:RUNNER_WORKSPACE 'production-live-commit.txt'
+          Set-Content -LiteralPath $marker -Value $env:SHA -Encoding ascii
+          Write-Host "Recorded $env:SHA as live in $marker"
+
       - name: Record what went out
         if: always()
         shell: powershell
+        env:
+          REASON: ${{ needs.decide.outputs.reason }}
         run: |
-          $sha = '${{ github.event.workflow_run.head_sha || github.sha }}'
+          $sha = '${{ needs.decide.outputs.sha }}'
           $lines = @(
             '### Production deployment',
             '',
@@ -204,6 +306,7 @@ jobs:
             "| Commit | $sha |",
             "| Target | ${{ inputs.target || 'Both' }} |",
             "| Trigger | ${{ github.event_name }} |",
+            "| Why | $env:REASON |",
             "| Result | ${{ job.status }} |"
           )
           $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
