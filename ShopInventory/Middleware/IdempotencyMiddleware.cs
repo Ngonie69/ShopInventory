@@ -144,6 +144,10 @@ public class IdempotencyMiddleware
             // second operator collide on, which a per-client header key could never do. The batch
             // route is an exact match above and does not reach here.
             ("POST /api/desktopintegration/sales/", "/post"),
+            // One sale's fiscalisation retry. The handler asks the device for an existing receipt
+            // before submitting under the sale's one invoice number, so a repeat adopts the receipt
+            // that exists; a remembered status would hide which of the two happened.
+            ("POST /api/desktopintegration/sales/", "/fiscalise"),
     };
 
     // And for routes whose variable segment is the last one, where there is no suffix to match

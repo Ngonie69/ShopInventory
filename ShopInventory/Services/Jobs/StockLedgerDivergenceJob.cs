@@ -4,6 +4,7 @@ using Quartz;
 using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 
@@ -54,7 +55,8 @@ namespace ShopInventory.Services;
 /// all. The cost of that restraint is real and worth naming: an item that had no row this morning and
 /// arrived during the day is invisible here, because there is nothing of it to have moved. Transfers
 /// bring their own rows in through the listener; a goods receipt booked straight into SAP waits for
-/// the next morning.</para>
+/// the next morning, unless someone presses "Refresh quantities from SAP" on the local stock page —
+/// see <c>RefreshWarehouseStockHandler</c>, which runs this job's correction over every item.</para>
 /// </remarks>
 [DisallowConcurrentExecution]
 public sealed class StockLedgerDivergenceJob(
@@ -201,7 +203,7 @@ public sealed class StockLedgerDivergenceJob(
                 if (targets.Count > 0)
                 {
                     corrected += await ApplyTargetsAsync(
-                        db, sapClient, ledgerDay, warehouseCode, targets, context.CancellationToken);
+                        db, sapClient, ledgerDay, warehouseCode, targets, logger, context.CancellationToken);
                 }
             }
             catch (Exception ex)
@@ -339,9 +341,37 @@ public sealed class StockLedgerDivergenceJob(
                 .ToListAsync(cancellationToken))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // Before the SAP reads, as in the comparison above.
+        var outstanding = await UnpostedTillSales.OutstandingAsync(
+            db, warehouseCode, ledgerDay, settings.StockFetchTimeCAT,
+            settings.UnpostedSaleLookbackDays, logger, cancellationToken);
+
         var batches = await sapClient.GetAllBatchNumbersInWarehouseAsync(warehouseCode, cancellationToken);
         var warehouseStock = await sapClient.GetStockQuantitiesInWarehouseAsync(warehouseCode, cancellationToken);
 
+        return await AddArrivalsAsync(
+            db, snapshot.Id, warehouseCode, known, batches, warehouseStock, outstanding, logger, cancellationToken);
+    }
+
+    /// <summary>
+    /// Adds rows for every item SAP's two whole-warehouse reads show stock of that
+    /// <paramref name="known"/> does not already hold, net of the unposted till sales.
+    /// </summary>
+    /// <remarks>
+    /// The half of arrival discovery that does not read SAP, so the manual warehouse refresh can
+    /// hand it the reads it has already made rather than making them twice.
+    /// </remarks>
+    internal static async Task<int> AddArrivalsAsync(
+        ApplicationDbContext db,
+        int snapshotId,
+        string warehouseCode,
+        IReadOnlySet<string> known,
+        IEnumerable<BatchNumber> batches,
+        IEnumerable<StockQuantityDto> warehouseStock,
+        IReadOnlyDictionary<string, decimal> outstanding,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
         var arrivals = SnapshotComposer.Compose(batches, warehouseStock)
             .Rows
             .Where(row => !known.Contains(row.ItemCode) && row.AvailableQuantity > 0)
@@ -352,10 +382,6 @@ public sealed class StockLedgerDivergenceJob(
         {
             return 0;
         }
-
-        var outstanding = await UnpostedTillSales.OutstandingAsync(
-            db, warehouseCode, ledgerDay, settings.StockFetchTimeCAT,
-            settings.UnpostedSaleLookbackDays, logger, cancellationToken);
 
         var added = 0;
 
@@ -370,7 +396,7 @@ public sealed class StockLedgerDivergenceJob(
             foreach (var composed in arrival.OrderBy(row => row.ExpiryDate ?? DateTime.MaxValue))
             {
                 var row = NewRow(
-                    db, snapshot.Id, warehouseCode, arrival.Key, composed.BatchNumber, composed.ExpiryDate);
+                    db, snapshotId, warehouseCode, arrival.Key, composed.BatchNumber, composed.ExpiryDate);
 
                 row.ItemDescription = composed.ItemDescription;
 
@@ -420,14 +446,22 @@ public sealed class StockLedgerDivergenceJob(
     /// Saved per warehouse rather than per item so that a warehouse's corrections land together, and
     /// separately from the divergence rows so that a correction that cannot be written still leaves
     /// the record of why it was wanted.
+    ///
+    /// <para>
+    /// <paramref name="knownBatches"/> is for a caller that has already read every batch in the
+    /// warehouse. Given, it is the whole answer — an item absent from it has no batches — and SAP is
+    /// not asked again.
+    /// </para>
     /// </remarks>
-    private async Task<int> ApplyTargetsAsync(
+    internal static async Task<int> ApplyTargetsAsync(
         ApplicationDbContext db,
         ISAPServiceLayerClient sapClient,
         DateTime ledgerDay,
         string warehouseCode,
         Dictionary<string, decimal> targets,
-        CancellationToken cancellationToken)
+        ILogger logger,
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, List<BatchNumber>>? knownBatches = null)
     {
         var rowsByItem = (await db.DailyStockSnapshotItems
                 .Where(row => row.Snapshot.SnapshotDate == ledgerDay
@@ -446,9 +480,10 @@ public sealed class StockLedgerDivergenceJob(
             .Select(target => target.Key)
             .ToList();
 
-        var batchesByItem = needGrowth.Count > 0
-            ? await BatchesAsync(sapClient, warehouseCode, needGrowth, cancellationToken)
-            : [];
+        var batchesByItem = knownBatches
+            ?? (needGrowth.Count > 0
+                ? await BatchesAsync(sapClient, warehouseCode, needGrowth, logger, cancellationToken)
+                : new Dictionary<string, List<BatchNumber>>());
 
         var snapshotId = await db.DailyStockSnapshots
             .Where(snapshot => snapshot.SnapshotDate == ledgerDay && snapshot.WarehouseCode == warehouseCode)
@@ -652,10 +687,11 @@ public sealed class StockLedgerDivergenceJob(
     /// than thrown, because an item that cannot be grown is worth less than a warehouse that stops
     /// being reconciled.
     /// </summary>
-    private async Task<Dictionary<string, List<BatchNumber>>> BatchesAsync(
+    private static async Task<Dictionary<string, List<BatchNumber>>> BatchesAsync(
         ISAPServiceLayerClient sapClient,
         string warehouseCode,
         List<string> itemCodes,
+        ILogger logger,
         CancellationToken cancellationToken)
     {
         try
@@ -691,7 +727,7 @@ public sealed class StockLedgerDivergenceJob(
     /// SaveChanges, so without this a single refused correction would take the whole run's reporting
     /// down with it, one warehouse at a time.
     /// </remarks>
-    private static void DetachSnapshotRows(ApplicationDbContext db)
+    internal static void DetachSnapshotRows(ApplicationDbContext db)
     {
         foreach (var entry in db.ChangeTracker.Entries<DailyStockSnapshotItemEntity>().ToList())
         {

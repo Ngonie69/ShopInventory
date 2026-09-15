@@ -2780,6 +2780,7 @@ already holds the fiscalised receipt and passes what it was given.
 | GET | `/api/DesktopIntegration/stock/{warehouseCode}/transfer-adjustments` | Transfers the stock ledger applied, one row per line with the document and time applied (`fromDate`, `toDate`: snapshot days, at most 92) |
 | GET | `/api/DesktopIntegration/stock/monitored-warehouses` | Which warehouses are snapshotted |
 | POST | `/api/DesktopIntegration/stock/fetch-daily` | Take today's snapshot now |
+| POST | `/api/DesktopIntegration/stock/{warehouseCode}/refresh` | Move a shop warehouse's ledger to SAP's figure now, less unposted till sales — for a GRPO the ledger never saw. Writes no movement rows; 409 for vans or no snapshot today |
 
 #### Transfers
 
@@ -2827,6 +2828,7 @@ transfers is `transfer-queue`, separate from the invoice `queue`.
 | GET | `/api/DesktopIntegration/sales/management-report` | Admin, Manager, Cashier. The management sales report: the period against the same number of days just before it (`previousFromDate`/`previousToDate`), one section per currency, by day, channel, shop or depot (keyed by warehouse), cost centre, operator, payment method and vendor, with vendors who stopped buying, every item (average price, quantity and price change, units per sale, discount), SAP item groups and an item × warehouse matrix; posting and fiscalisation health across the period; and gross margin from SAP's booked gross profit on the sales' own invoices (`margin.available` false when SAP could not be read). Same parameters and scope as `sales/analysis`, at most 186 days |
 | GET | `/api/DesktopIntegration/sales/management-report/item` | Admin, Manager, Cashier. One item from the management report taken apart by shop or depot, vendor, channel, operator and day, with price, discount and SAP margin measured on that item's lines only (`itemCode` required; `fromDate`, `toDate`, `warehouseCode`, `sourceSystem` as for the report) |
 | POST | `/api/DesktopIntegration/sales/{externalReference}/post` | Post one held sale to SAP now |
+| POST | `/api/DesktopIntegration/sales/{externalReference}/fiscalise` | Retry a failed sale's fiscalisation now (asks the device for an existing receipt first) |
 | POST | `/api/DesktopIntegration/sales/post-batch` | Post a named set of held sales, one invoice each (`externalReferenceIds`, at most 50) |
 | POST | `/api/DesktopIntegration/end-of-day/consolidate` | Consolidate the day's sales |
 | GET | `/api/DesktopIntegration/end-of-day/report` | The day's report (`reportDate`) |

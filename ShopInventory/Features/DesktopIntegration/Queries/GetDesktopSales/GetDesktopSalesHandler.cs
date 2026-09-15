@@ -1,8 +1,10 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Sales;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -10,7 +12,10 @@ using ShopInventory.Services;
 
 namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 
-public sealed class GetDesktopSalesHandler(ApplicationDbContext db, IAuditService auditService)
+public sealed class GetDesktopSalesHandler(
+    ApplicationDbContext db,
+    IAuditService auditService,
+    IOptions<FiscalisationSettings> fiscalisationSettings)
     : IRequestHandler<GetDesktopSalesQuery, ErrorOr<DesktopSalesListResult>>
 {
     /// <summary>
@@ -136,6 +141,7 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db, IAuditServic
             {
                 s.ConsolidationStatus,
                 s.FiscalizationStatus,
+                s.FiscalizationRequiresReconciliation,
                 Sale = new DesktopSaleListItemDto(
                 s.Id,
                 s.ExternalReferenceId,
@@ -152,6 +158,8 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db, IAuditServic
                 s.FiscalVerificationCode,
                 s.FiscalDeviceNumber,
                 s.FiscalDayNo,
+                s.FiscalError,
+                s.FiscalizationAttempts,
                 s.ConsolidationStatus.ToString(),
                 s.ConsolidationId,
                 s.WarehouseCode,
@@ -174,6 +182,7 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db, IAuditServic
                 s.PaymentSapDocNum,
                 // Filled in below, where the rule can actually be called.
                 null,
+                null,
                 s.Lines.Select(l => new DesktopSaleLineItemDto(
                     l.LineNum,
                     l.ItemCode,
@@ -193,12 +202,22 @@ public sealed class GetDesktopSalesHandler(ApplicationDbContext db, IAuditServic
         var operators = await SaleOperatorNames.ResolveAsync(
             db, rows.Select(row => row.Sale.CreatedBy), cancellationToken);
 
+        var nowUtc = DateTime.UtcNow;
+        var usesPlatform = fiscalisationSettings.Value.UsesPlatform;
+
         var sales = rows
             .Select(row => row.Sale with
             {
                 CreatedByName = SaleOperatorNames.Label(row.Sale.CreatedBy, operators),
                 PostRefusal = DesktopSalePostEligibility.Refusal(
-                    row.Sale.SourceSystem, row.ConsolidationStatus, row.FiscalizationStatus)
+                    row.Sale.SourceSystem, row.ConsolidationStatus, row.FiscalizationStatus),
+                FiscaliseRefusal = DesktopSaleFiscalisationRetry.ManualRefusal(
+                    row.Sale.SourceSystem,
+                    row.FiscalizationStatus,
+                    row.FiscalizationRequiresReconciliation,
+                    row.Sale.CreatedAt,
+                    nowUtc,
+                    usesPlatform)
             })
             .ToList();
 

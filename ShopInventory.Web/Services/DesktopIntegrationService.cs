@@ -43,6 +43,12 @@ public interface IDesktopIntegrationService
     Task<LocalStockResultDto?> GetLocalStockAsync(string warehouseCode, DateTime? snapshotDate = null);
     Task<List<string>?> GetMonitoredWarehousesAsync();
     Task<bool> TriggerStockFetchAsync();
+
+    // Returns the API's refusal verbatim — "a van cannot be refreshed", "fetch today's stock first",
+    // "SAP could not be read" each tell the operator something different to do.
+    Task<(WarehouseStockRefreshResultDto? Result, string? Error)> RefreshWarehouseStockAsync(
+        string warehouseCode, CancellationToken cancellationToken = default);
+
     Task<bool> TriggerConsolidationAsync();
 
     // Posting held sales to SAP by hand. Both return the API's own refusal rather than a bool: every
@@ -53,6 +59,12 @@ public interface IDesktopIntegrationService
 
     Task<(DesktopSalesBulkPostResultDto? Result, string? Error)> PostSalesToSapAsync(
         IReadOnlyList<string> externalReferences, CancellationToken cancellationToken = default);
+
+    // Asking the fiscal device to sign a sale whose fiscalisation failed. Returns the API's own words for
+    // the same reason the posts do: "the device could not be asked" and "the device refused ITEMNAME2"
+    // call for different things.
+    Task<(DesktopSaleFiscalisationRetryResultDto? Result, string? Error)> RetrySaleFiscalisationAsync(
+        string externalReference, CancellationToken cancellationToken = default);
 
     // Prices
     Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum, bool forceRefresh = false);
@@ -410,6 +422,33 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         }
     }
 
+    public async Task<(WarehouseStockRefreshResultDto? Result, string? Error)> RefreshWarehouseStockAsync(
+        string warehouseCode, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync(
+                $"api/DesktopIntegration/stock/{Uri.EscapeDataString(warehouseCode)}/refresh",
+                null,
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return (null, await ReadProblemDetailAsync(response, cancellationToken));
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<WarehouseStockRefreshResultDto>(cancellationToken);
+            return result is null
+                ? (null, "The API refreshed the warehouse but returned nothing to show for it.")
+                : (result, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error refreshing stock for {WarehouseCode} from SAP", warehouseCode);
+            return (null, $"The refresh could not be completed from here: {ex.Message}");
+        }
+    }
+
     public async Task<bool> TriggerConsolidationAsync()
     {
         try
@@ -451,6 +490,38 @@ public class DesktopIntegrationService : IDesktopIntegrationService
         {
             _logger.LogError(ex, "Error posting desktop sale {ExternalReference} to SAP", externalReference);
             return (null, $"The post could not be sent: {ex.Message}");
+        }
+    }
+
+    public async Task<(DesktopSaleFiscalisationRetryResultDto? Result, string? Error)> RetrySaleFiscalisationAsync(
+        string externalReference, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync(
+                $"api/DesktopIntegration/sales/{Uri.EscapeDataString(externalReference)}/fiscalise",
+                null,
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return (null, await ReadProblemDetailAsync(response, cancellationToken));
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<DesktopSaleFiscalisationRetryResultDto>(cancellationToken);
+            return result is null
+                ? (null, "The API accepted the retry but returned nothing to show for it.")
+                : (result, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrying fiscalisation of desktop sale {ExternalReference}", externalReference);
+
+            // Not phrased as a failure to fiscalise: the device may have signed while the reply was lost.
+            // Pressing Retry again is safe, because the device is asked for an existing receipt first.
+            return (null,
+                $"The retry could not be completed from here: {ex.Message}. Refresh to see whether the sale "
+                + "now has a receipt; retrying again will not sign it twice.");
         }
     }
 
@@ -734,6 +805,11 @@ public class DesktopSaleDto
     public string? FiscalDeviceNumber { get; set; }
     public string? FiscalDayNo { get; set; }
 
+    /// <summary>What the device said when it did not sign, if it did not.</summary>
+    public string? FiscalError { get; set; }
+
+    public int FiscalizationAttempts { get; set; }
+
     public string ConsolidationStatus { get; set; } = string.Empty;
     public int? ConsolidationId { get; set; }
     public string WarehouseCode { get; set; } = string.Empty;
@@ -790,7 +866,37 @@ public class DesktopSaleDto
     /// </remarks>
     public bool CanPostToSap => string.IsNullOrWhiteSpace(PostRefusal);
 
+    /// <summary>
+    /// Why this sale may not be fiscalised again on request, or null when it may. Decided by the API
+    /// for the same reason <see cref="PostRefusal"/> is.
+    /// </summary>
+    /// <remarks>
+    /// Null also when the API predates the field, so <see cref="CanRetryFiscalisation"/> additionally
+    /// requires a failed or pending status rather than offering Retry on every row an older API sends.
+    /// </remarks>
+    public string? FiscaliseRefusal { get; set; }
+
+    /// <summary>Whether the console should offer this sale a "Retry fiscalisation" button.</summary>
+    public bool CanRetryFiscalisation =>
+        string.IsNullOrWhiteSpace(FiscaliseRefusal) &&
+        (string.Equals(FiscalizationStatus, "Failed", StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(FiscalizationStatus, "Pending", StringComparison.OrdinalIgnoreCase));
+
     public List<DesktopSaleLineDto> Lines { get; set; } = new();
+}
+
+/// <summary>
+/// What retrying one sale's fiscalisation did. Mirrors the API's <c>DesktopSaleFiscalisationRetryResult</c>.
+/// </summary>
+public class DesktopSaleFiscalisationRetryResultDto
+{
+    public string ExternalReferenceId { get; set; } = string.Empty;
+
+    /// <summary>"Fiscalised" or "AlreadyFiscalised".</summary>
+    public string Outcome { get; set; } = string.Empty;
+
+    public string? FiscalReceiptNumber { get; set; }
+    public string? Message { get; set; }
 }
 
 /// <summary>
@@ -923,6 +1029,18 @@ public class UnpostedSaleDto
 }
 
 // Local Stock DTOs
+
+/// <summary>Mirrors the API's <c>RefreshWarehouseStockResult</c>.</summary>
+public class WarehouseStockRefreshResultDto
+{
+    public string WarehouseCode { get; set; } = string.Empty;
+    public DateTime LedgerDay { get; set; }
+    public int ItemsChecked { get; set; }
+    public int ItemsCorrected { get; set; }
+    public int ItemsAdded { get; set; }
+    public DateTime RefreshedAt { get; set; }
+}
+
 public class LocalStockResultDto
 {
     public string WarehouseCode { get; set; } = string.Empty;

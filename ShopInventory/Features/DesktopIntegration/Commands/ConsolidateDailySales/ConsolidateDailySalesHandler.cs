@@ -251,11 +251,16 @@ public sealed class ConsolidateDailySalesHandler(
                     consolidation, sales, cardCode, cardName, totalAmount, alreadyInSap);
             }
 
+            // Batch and serial lines only. Every sale consolidated here has already happened — paid
+            // for and fiscalised — so a line with nothing to select has nothing to ask the warehouse:
+            // its stock reading could not un-sell it, only hold the whole customer's day back when
+            // the read hung. See InvoiceBatchAllocation, which the per-sale routes share.
             var batchValidationResult = await batchValidation.ValidateAndAllocateBatchesAsync(
                 invoiceRequest,
                 autoAllocate: true,
                 BatchAllocationStrategy.FEFO,
-                ct);
+                ct,
+                checkNonBatchStock: false);
 
             if (!batchValidationResult.IsValid)
             {
@@ -268,14 +273,11 @@ public sealed class ConsolidateDailySalesHandler(
                     + string.Join("; ", batchValidationResult.ValidationErrors.Select(error => error.Message)));
             }
 
+            // No second check through ISAPServiceLayerClient.ValidateStockAvailabilityAsync, which
+            // this used to run as well. It read every line's stock again — the non-batch reads
+            // skipped above — plus a scan of every batch in the warehouse, to re-check selections the
+            // allocator had just made from its own reading.
             InvoiceBatchAllocation.ApplyTo(invoiceRequest, batchValidationResult.AllocatedLines);
-
-            var stockValidationErrors = await sapClient.ValidateStockAvailabilityAsync(invoiceRequest, ct);
-            if (stockValidationErrors.Count > 0)
-            {
-                throw new InvalidOperationException(
-                    $"Consolidated invoice stock validation failed: {string.Join("; ", stockValidationErrors.Select(error => error.Message))}");
-            }
 
             // The last safe abort. Everything above is preparation and may be cancelled freely;
             // from here on the group carries a durable obligation and runs on CancellationToken.None.

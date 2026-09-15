@@ -56,8 +56,10 @@ using ShopInventory.Features.DesktopIntegration.Queries.ValidateStockAvailabilit
 using ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
 using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
+using ShopInventory.Features.DesktopIntegration.Commands.RefreshWarehouseStock;
 using ShopInventory.Features.DesktopIntegration.Commands.PostDesktopSaleToSap;
 using ShopInventory.Features.DesktopIntegration.Commands.PostDesktopSalesToSap;
+using ShopInventory.Features.DesktopIntegration.Commands.RetryDesktopSaleFiscalisation;
 using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Features.DesktopIntegration.Commands.TriggerTransferListenerCheck;
@@ -849,6 +851,26 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     }
 
     /// <summary>
+    /// Bring one shop warehouse's stock back in step with SAP now — for stock received in SAP, such
+    /// as a goods receipt PO, that the ledger was never told about.
+    /// </summary>
+    /// <remarks>
+    /// Waits for the answer rather than returning 202: it is one warehouse, and the person who
+    /// pressed the button needs to know whether anything changed. No movement or divergence row is
+    /// written. Vans and warehouses without a finished snapshot today are refused with 409.
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager,StockController,DepotController,WashBay")]
+    [HttpPost("stock/{warehouseCode}/refresh")]
+    [SapBackgroundWork]
+    public async Task<IActionResult> RefreshWarehouseStock(
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new RefreshWarehouseStockCommand(warehouseCode), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
     /// Get local stock for a warehouse from today's snapshot (including transfer adjustments).
     /// </summary>
     [HttpGet("stock/{warehouseCode}/local")]
@@ -1034,6 +1056,30 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
         var result = await mediator.Send(
             new PostDesktopSaleToSapCommand(userId.Value, externalReference), cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Ask the fiscal device to sign a sale whose fiscalisation failed, now, instead of waiting for the sweep.
+    /// </summary>
+    /// <remarks>
+    /// Gated and shop-scoped like the post above. Safe to send twice: the device is asked for an existing
+    /// receipt before anything is submitted, and the submission carries the sale's one invoice number, so
+    /// a repeat adopts the receipt the first created rather than signing a second.
+    /// </remarks>
+    [Authorize(Roles = "Admin,Manager,Cashier,ApiUser")]
+    [HttpPost("sales/{externalReference}/fiscalise")]
+    public async Task<IActionResult> RetryDesktopSaleFiscalisation(
+        string externalReference,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new RetryDesktopSaleFiscalisationCommand(userId.Value, externalReference), cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));
     }

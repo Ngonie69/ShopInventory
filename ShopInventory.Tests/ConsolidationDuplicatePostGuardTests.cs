@@ -74,6 +74,7 @@ public sealed class ConsolidationDuplicatePostGuardTests : IDisposable
     private string? _lookupKey;
     private int _lookupCount;
     private bool _batchValidationRan;
+    private bool? _checkNonBatchStock;
     private CreateInvoiceRequest? _posted;
     private bool _paymentPosted;
     private (List<int> Ids, string DocEntry, int DocNum)? _queueMarking;
@@ -303,6 +304,26 @@ public sealed class ConsolidationDuplicatePostGuardTests : IDisposable
     }
 
     /// <summary>
+    /// Every sale consolidated here has already been paid for and fiscalised, so only the lines SAP
+    /// needs a batch or serial selection for are read. A non-batch line's stock read that hung used to
+    /// hold the whole customer's day back — twice over, since the SAP client's own whole-invoice check
+    /// read every line again. That second check is gone: the stub no longer answers it, so a call
+    /// fails the group.
+    /// </summary>
+    [Fact]
+    public async Task A_fresh_post_reads_stock_only_for_what_it_must_select()
+    {
+        await GivenAPendingSaleAsync();
+        _sapHolds = null;
+
+        var result = await Consolidate();
+
+        Assert.Equal(1, result.SuccessfulPostings);
+        Assert.NotNull(_posted);
+        Assert.False(_checkNonBatchStock);
+    }
+
+    /// <summary>
     /// The guard is per group, so one customer's adopted invoice does not decide anything for another
     /// customer's — each is asked about under its own key.
     /// </summary>
@@ -402,8 +423,6 @@ public sealed class ConsolidationDuplicatePostGuardTests : IDisposable
         StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
             nameof(ISAPServiceLayerClient.GetInvoiceByVanSaleOrderAsync) => KeyLookup(args),
-            nameof(ISAPServiceLayerClient.ValidateStockAvailabilityAsync) =>
-                Task.FromResult(new List<StockValidationError>()),
             nameof(ISAPServiceLayerClient.CreateInvoiceAsync) => Post(args),
             nameof(ISAPServiceLayerClient.CreateIncomingPaymentAsync) => PostPayment(),
             _ => throw new InvalidOperationException(
@@ -436,7 +455,7 @@ public sealed class ConsolidationDuplicatePostGuardTests : IDisposable
     }
 
     private IBatchInventoryValidationService BuildBatchValidation() =>
-        StubProxy.For<IBatchInventoryValidationService>((method, _) =>
+        StubProxy.For<IBatchInventoryValidationService>((method, args) =>
         {
             if (method.Name != nameof(IBatchInventoryValidationService.ValidateAndAllocateBatchesAsync))
             {
@@ -445,6 +464,7 @@ public sealed class ConsolidationDuplicatePostGuardTests : IDisposable
             }
 
             _batchValidationRan = true;
+            _checkNonBatchStock = (bool)args![4]!;
 
             var result = new BatchAllocationResult();
             if (_stockIsGone)

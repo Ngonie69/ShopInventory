@@ -8,15 +8,16 @@ using ShopInventory.Models.Entities;
 namespace ShopInventory.Services;
 
 /// <summary>
-/// Fiscalises the sales that were left to be fiscalised later.
+/// Fiscalises the sales that were left to be fiscalised later, and retries the ones that failed.
 ///
 /// Vending raises an invoice against a cart vendor and prints nothing, so there is no receipt for
 /// anyone to wait on and no reason to hold the request open while the platform signs it. The sale is
-/// stored <see cref="DesktopSaleFiscalizationStatus.Pending"/> and this picks it up moments later.
+/// stored <see cref="DesktopSaleFiscalizationStatus.Pending"/> and this picks it up moments later. A
+/// shop till sale fiscalises in its own request, and this is what recovers it when that attempt fails.
 ///
-/// It is not optional. Nothing else moves a sale out of Pending, and
+/// It is not optional. Nothing else moves a sale out of Pending or Failed, and
 /// <see cref="DesktopSalePostingService"/> only posts sales that have fiscalised — so without this a
-/// vending sale would sit fiscalised-by-nobody and invoiced-by-nobody, indefinitely and silently.
+/// sale would sit fiscalised-by-nobody and invoiced-by-nobody, indefinitely and silently.
 /// </summary>
 public sealed class DesktopSaleFiscalisationSweep(
     ApplicationDbContext context,
@@ -32,37 +33,27 @@ public sealed class DesktopSaleFiscalisationSweep(
         var result = new DesktopSaleFiscalisationRunResult();
         var cutoff = DateTime.UtcNow.Date.AddDays(-options.LookbackDays);
 
-        // Which sources this sweep owns depends on who signs a van's receipts.
-        //
-        // Under the in-house platform a van handset signs for itself: its offline sales arrive already
-        // fiscalised and are handed on by VanSalesSignedReceiptIngestService, so sweeping them here
-        // would submit a second receipt for a sale that already has one.
-        //
-        // Under REVMax nothing on the handset can sign — the device is on the network, not in the van —
-        // so an offline van sale arrives unstamped, is written Failed, and would otherwise be posted to
-        // SAP by VanSalesEndOfDayPostingService having never been fiscalised at all. This sweep is what
-        // fiscalises it, and it runs ahead of that posting service.
-        //
-        // KefalosVanSalesOnline is excluded either way: those rows exist only to carry a handset's
-        // receipt, and the sale itself is already an SAP invoice fiscalised in the request that made it.
-        var sweptSources = fiscalisationSettings.Value.UsesPlatform
-            ? new[] { SaleSourceSystems.Vending }
-            : new[] { SaleSourceSystems.Vending, SaleSourceSystems.VanSales };
+        // Which sources this sweep owns depends on who signs a van's receipts — see
+        // DesktopSaleFiscalisationRetry.RetriedSources, which the retry command and the console read too.
+        var sweptSources = DesktopSaleFiscalisationRetry.RetriedSources(fiscalisationSettings.Value.UsesPlatform);
+
+        // A shop till sale fiscalises inline and was once excluded outright, so one failed attempt at the
+        // counter — the device busy, the network down for a moment — left it Failed for good: never
+        // retried, and never invoiced, because the posting job takes only fiscalised sales. It is taken
+        // now, but not while its own request may still be fiscalising it: the till commits the sale
+        // Pending and holds it Pending for the whole round trip.
+        var inlineCutoff = DateTime.UtcNow - DesktopSaleFiscalisationRetry.InlineRequestWindow;
 
         var pending = await context.DesktopSales
             .Include(s => s.Lines)
             .Where(s => s.DocDate >= cutoff &&
-                        // Specifically NOT the set the posting job claims. A shop till sale is
-                        // committed Pending and stays that way for the whole ZIMRA round trip it is
-                        // making inline; if this swept those too it would submit the same receipt while
-                        // the request still had it in flight, and a duplicate fiscal receipt cannot be
-                        // withdrawn.
                         sweptSources.Contains(s.SourceSystem) &&
                         // Failed as well as Pending. A failure sets Failed, so selecting on Pending
                         // alone made a single transient error terminal — the sale was never retried,
                         // never invoiced, and the attempt budget below was unreachable.
-                        (s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Pending ||
-                         s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Failed) &&
+                        (s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Failed ||
+                         (s.FiscalizationStatus == DesktopSaleFiscalizationStatus.Pending &&
+                          (s.SourceSystem != SaleSourceSystems.ShopTill || s.CreatedAt < inlineCutoff))) &&
                         // Never retried: the receipt may already exist at FDMS and a second
                         // submission cannot be withdrawn.
                         !s.FiscalizationRequiresReconciliation &&
@@ -89,7 +80,7 @@ public sealed class DesktopSaleFiscalisationSweep(
 
             // Whether an earlier attempt may already have reached the platform. Read before the call,
             // because FiscaliseAsync increments it.
-            var isRetry = sale.FiscalizationAttempts > 0;
+            var isRetry = DesktopSaleFiscalisationRetry.MayAlreadyBeFiled(sale);
 
             try
             {
