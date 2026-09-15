@@ -470,6 +470,12 @@ public sealed class ConsolidationLostReplyRecoveryTests : IDisposable
     private IBatchInventoryValidationService BuildBatchValidation() =>
         StubProxy.For<IBatchInventoryValidationService>((method, _) =>
         {
+            // A stub nets no reservations off, so there are none for it to leave out.
+            if (method.Name == nameof(IBatchInventoryValidationService.DisregardReservations))
+            {
+                return new NoReservationsDisregarded();
+            }
+
             if (method.Name != nameof(IBatchInventoryValidationService.ValidateAndAllocateBatchesAsync))
             {
                 throw new InvalidOperationException(
