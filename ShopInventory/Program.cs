@@ -568,6 +568,9 @@ try
     // off the first's SAP figures. Registered together; see AddStockReservations.
     builder.Services.AddStockReservations();
 
+    // Asks SAP whether it will accept a till sale's invoice, before the sale is taken and fiscalised.
+    builder.Services.AddScoped<ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale.CounterSapStockCheck>();
+
     // Register inventory lock service - Prevents race conditions during concurrent invoice posting
     // PostgreSQL advisory locks keep inventory locking safe across multiple API instances.
     builder.Services.AddSingleton<IInventoryLockService, PostgresInventoryLockService>();

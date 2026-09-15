@@ -151,13 +151,21 @@ public interface IBatchInventoryValidationService
     /// invoice back. Batch and serial lines are read either way: there the reading is the selection
     /// SAP requires.
     /// </param>
+    /// <param name="claimedAhead">
+    /// Units SAP still shows in a warehouse that are already spoken for by documents it has not
+    /// received — sales taken at a till and not yet posted. Taken off the batches, soonest to expire
+    /// first, before this document is allocated, because those documents will reach SAP first and
+    /// take them. Only a check made before a sale exists passes this; a document being posted is
+    /// allocated against SAP as it stands.
+    /// </param>
     /// <returns>Validation result with allocated batches</returns>
     Task<BatchAllocationResult> ValidateAndAllocateBatchesAsync(
         CreateInvoiceRequest request,
         bool autoAllocate = true,
         BatchAllocationStrategy strategy = BatchAllocationStrategy.FEFO,
         CancellationToken cancellationToken = default,
-        bool checkNonBatchStock = true);
+        bool checkNonBatchStock = true,
+        IReadOnlyList<StockLedgerLine>? claimedAhead = null);
 
     /// <summary>
     /// Validates that batch allocations match line quantities (with UoM conversion).
@@ -334,7 +342,8 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         bool autoAllocate = true,
         BatchAllocationStrategy strategy = BatchAllocationStrategy.FEFO,
         CancellationToken cancellationToken = default,
-        bool checkNonBatchStock = true)
+        bool checkNonBatchStock = true,
+        IReadOnlyList<StockLedgerLine>? claimedAhead = null)
     {
         var result = new BatchAllocationResult
         {
@@ -392,6 +401,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 autoAllocate,
                 strategy,
                 checkNonBatchStock,
+                claimedAhead,
                 cancellationToken);
 
             allocatedLines = aggregateResult.AllocatedLines;
@@ -786,6 +796,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         bool autoAllocate,
         BatchAllocationStrategy strategy,
         bool checkNonBatchStock,
+        IReadOnlyList<StockLedgerLine>? claimedAhead,
         CancellationToken cancellationToken)
     {
         var result = new AggregateAllocationResult
@@ -809,6 +820,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             requestLinesByNumber,
             autoAllocate,
             strategy,
+            claimedAhead,
             cancellationToken);
 
         return result;
@@ -917,6 +929,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         Dictionary<int, CreateInvoiceLineRequest> requestLinesByNumber,
         bool autoAllocate,
         BatchAllocationStrategy strategy,
+        IReadOnlyList<StockLedgerLine>? claimedAhead,
         CancellationToken cancellationToken)
     {
         var batchGroups = result.AllocatedLines
@@ -989,6 +1002,19 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
                 availabilityStates.Add(state);
                 availabilityByBatch[batch.BatchNumber] = state;
+            }
+
+            // What documents SAP has not yet received will take from these batches before this one
+            // reaches it. Drawn from RemainingQuantity, soonest to expire first as their own posts will
+            // draw, so the lines below are allocated from what will actually be left.
+            var claimedAheadQuantity = (claimedAhead ?? [])
+                .Where(claim => string.Equals(claim.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase)
+                             && string.Equals(claim.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase))
+                .Sum(claim => claim.Quantity);
+
+            if (claimedAheadQuantity > 0)
+            {
+                AllocateFromRemainingBatches(availabilityStates, claimedAheadQuantity);
             }
 
             var errorsBeforeGroup = result.Errors.Count;
@@ -1077,7 +1103,9 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                         warehouseCode,
                         requestedQuantity,
                         totalRemaining,
-                        $"Insufficient remaining batch stock for line {allocatedLine.LineNumber}. Need {requestedQuantity:N4}, available {totalRemaining:N4} after other invoice lines",
+                        claimedAheadQuantity > 0
+                            ? $"Insufficient remaining batch stock for line {allocatedLine.LineNumber}. Need {requestedQuantity:N4}, available {totalRemaining:N4} after other invoice lines and {claimedAheadQuantity:N4} already sold but not yet in SAP"
+                            : $"Insufficient remaining batch stock for line {allocatedLine.LineNumber}. Need {requestedQuantity:N4}, available {totalRemaining:N4} after other invoice lines",
                         $"Reduce quantity to {totalRemaining:N4} or transfer more stock",
                         availableBatches));
                     continue;
