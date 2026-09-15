@@ -1001,70 +1001,29 @@ public class StockReservationService : IStockReservationService
     }
 
     /// <inheritdoc/>
-    public async Task<decimal> GetReservedQuantityAsync(
+    public Task<decimal> GetReservedQuantityAsync(
         string itemCode,
         string warehouseCode,
-        CancellationToken cancellationToken = default)
-    {
-        return await _dbContext.StockReservationLines
-            .Where(l => l.ItemCode == itemCode
-                && l.WarehouseCode == warehouseCode
-                && l.Reservation.Status == ReservationStatus.Pending
-                && l.Reservation.ExpiresAt > DateTime.UtcNow)
-            .SumAsync(l => l.ReservedQuantity, cancellationToken);
-    }
+        CancellationToken cancellationToken = default) =>
+        new ReservedQuantityProvider(_dbContext).GetReservedQuantityAsync(
+            itemCode, warehouseCode, [], cancellationToken);
 
     /// <inheritdoc/>
-    public async Task<decimal> GetReservedBatchQuantityAsync(
+    public Task<decimal> GetReservedBatchQuantityAsync(
         string itemCode,
         string warehouseCode,
         string batchNumber,
-        CancellationToken cancellationToken = default)
-    {
-        return await _dbContext.StockReservationBatches
-            .Where(b => b.ItemCode == itemCode
-                && b.WarehouseCode == warehouseCode
-                && b.BatchNumber == batchNumber
-                && b.ReservationLine.Reservation.Status == ReservationStatus.Pending
-                && b.ReservationLine.Reservation.ExpiresAt > DateTime.UtcNow)
-            .SumAsync(b => b.ReservedQuantity, cancellationToken);
-    }
+        CancellationToken cancellationToken = default) =>
+        new ReservedQuantityProvider(_dbContext).GetReservedBatchQuantityAsync(
+            itemCode, warehouseCode, batchNumber, [], cancellationToken);
 
-    public async Task<IReadOnlyDictionary<string, decimal>> GetReservedBatchQuantitiesAsync(
+    public Task<IReadOnlyDictionary<string, decimal>> GetReservedBatchQuantitiesAsync(
         string itemCode,
         string warehouseCode,
         IEnumerable<string> batchNumbers,
-        CancellationToken cancellationToken = default)
-    {
-        var normalizedBatchNumbers = batchNumbers
-            .Where(batchNumber => !string.IsNullOrWhiteSpace(batchNumber))
-            .Select(batchNumber => batchNumber.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (normalizedBatchNumbers.Count == 0)
-        {
-            return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-        }
-
-        var reservedByBatch = await _dbContext.StockReservationBatches
-            .Where(batch => batch.ItemCode == itemCode
-                && batch.WarehouseCode == warehouseCode
-                && normalizedBatchNumbers.Contains(batch.BatchNumber)
-                && batch.ReservationLine.Reservation.Status == ReservationStatus.Pending
-                && batch.ReservationLine.Reservation.ExpiresAt > DateTime.UtcNow)
-            .GroupBy(batch => batch.BatchNumber)
-            .Select(group => new
-            {
-                BatchNumber = group.Key,
-                Quantity = group.Sum(batch => batch.ReservedQuantity)
-            })
-            .ToListAsync(cancellationToken);
-
-        return reservedByBatch.ToDictionary(
-            entry => entry.BatchNumber,
-            entry => entry.Quantity,
-            StringComparer.OrdinalIgnoreCase);
-    }
+        CancellationToken cancellationToken = default) =>
+        new ReservedQuantityProvider(_dbContext).GetReservedBatchQuantitiesAsync(
+            itemCode, warehouseCode, batchNumbers, [], cancellationToken);
 
     /// <inheritdoc/>
     public async Task<ReservedStockSummaryDto> GetReservedStockSummaryAsync(

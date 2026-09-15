@@ -563,7 +563,12 @@ try
     // Register batch inventory validation service - CRITICAL for batch-managed items
     // Implements FIFO/FEFO auto-allocation and prevents negative batch quantities
     builder.Services.AddScoped<IStockLedger, StockLedger>();
-    builder.Services.AddScoped<IBatchInventoryValidationService, BatchInventoryValidationService>();
+
+    // Batch validation, stock reservations, and the reserved-quantity provider that nets the second
+    // off the first's SAP figures. Registered together; see AddStockReservations.
+    builder.Services.AddStockReservations();
+
+    // Asks SAP whether it will accept a till sale's invoice, before the sale is taken and fiscalised.
     builder.Services.AddScoped<ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale.CounterSapStockCheck>();
 
     // Register inventory lock service - Prevents race conditions during concurrent invoice posting
@@ -654,11 +659,6 @@ try
     // Register document management service
     builder.Services.AddScoped<IDocumentService, DocumentService>();
     builder.Services.AddScoped<ShopInventory.Features.Documents.DocumentAttachmentAccessService>();
-
-    // Register stock reservation service for desktop app integration
-    // This service manages stock reservations to prevent negative quantities
-    builder.Services.AddScoped<IStockReservationService, StockReservationService>();
-    builder.Services.AddScoped<IReservedQuantityProvider, ReservedQuantityProvider>();
 
     // Register invoice queue service for batch posting to SAP
     builder.Services.AddScoped<IInvoiceQueueService, InvoiceQueueService>();
@@ -1090,15 +1090,6 @@ try
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Could not load stored rate limits at startup; using the configured limits.");
-            }
-
-            // Wire up the reserved quantity provider to the batch validation service
-            // This is done after construction to avoid circular dependency
-            var batchValidation = services.GetRequiredService<IBatchInventoryValidationService>();
-            var reservedQtyProvider = services.GetRequiredService<IReservedQuantityProvider>();
-            if (batchValidation is BatchInventoryValidationService batchService)
-            {
-                batchService.SetReservedQuantityProvider(reservedQtyProvider);
             }
 
             startupReadiness.MarkReady();
