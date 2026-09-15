@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Stock;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -87,6 +88,12 @@ public sealed class RefreshWarehouseStockHandler(
                 + "Fetch today's stock first.");
         }
 
+        // Before SAP, as in the job: a sale that posts between the two reads is then counted twice for
+        // this press, which refuses a sale, rather than in neither, which puts its units back.
+        var outstanding = await UnpostedTillSales.OutstandingAsync(
+            db, warehouseCode, ledgerDay, settings.StockFetchTimeCAT,
+            settings.UnpostedSaleLookbackDays, logger, cancellationToken);
+
         List<BatchNumber> batches;
         List<StockQuantityDto> warehouseStock;
 
@@ -120,9 +127,6 @@ public sealed class RefreshWarehouseStockHandler(
             .Where(batch => !string.IsNullOrWhiteSpace(batch.ItemCode))
             .GroupBy(batch => batch.ItemCode!.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
-
-        var outstanding = await StockLedgerDivergenceJob.OutstandingTillSalesAsync(
-            db, ledgerDay, warehouseCode, settings.StockFetchTimeCAT, cancellationToken);
 
         var ledgerByItem = (await db.DailyStockSnapshotItems
                 .Where(row => row.Snapshot.SnapshotDate == ledgerDay && row.WarehouseCode == warehouseCode)

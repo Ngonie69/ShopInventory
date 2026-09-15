@@ -138,6 +138,10 @@ public sealed class FetchDailyStockHandler(
 
         try
         {
+            // Read before SAP rather than after, for the reason the hourly reconciliation does: a sale
+            // that posts between the two reads is otherwise in neither figure and its units come back.
+            var outstanding = await UnpostedSalesAsync(snapshotDate, warehouseCode, cancellationToken);
+
             logger.LogInformation("Fetching stock from SAP for warehouse {Warehouse}", warehouseCode);
 
             // Three reads, each answering something the others cannot.
@@ -219,6 +223,8 @@ public sealed class FetchDailyStockHandler(
                 await FetchUnbatchedStockAsync(snapshot.Id, warehouseCode, snapshotItems, cancellationToken);
             snapshotItems.AddRange(unbatched);
 
+            NetUnpostedSales(snapshotItems, outstanding, warehouseCode);
+
             context.DailyStockSnapshotItems.AddRange(snapshotItems);
 
             snapshot.Status = StockSnapshotStatus.Complete;
@@ -276,11 +282,17 @@ public sealed class FetchDailyStockHandler(
             .Where(item => item.SnapshotId == snapshot.Id)
             .ToListAsync(cancellationToken);
 
+        var outstanding = await UnpostedSalesAsync(snapshot.SnapshotDate, warehouseCode, cancellationToken);
+
         var (rows, problem, readFailed) =
             await FetchUnbatchedStockAsync(snapshot.Id, warehouseCode, alreadyHeld, cancellationToken);
 
         if (rows.Count > 0)
         {
+            // Only the new rows. No till could sell an item it had no row for, so what is outstanding
+            // against these is what earlier days left unposted — the same subtraction the morning
+            // fetch makes.
+            NetUnpostedSales(rows, outstanding, warehouseCode);
             context.DailyStockSnapshotItems.AddRange(rows);
         }
 
@@ -305,6 +317,72 @@ public sealed class FetchDailyStockHandler(
             warehouseCode, rows.Count, snapshot.ItemCount);
 
         return new WarehouseSnapshotResult(warehouseCode, snapshot.ItemCount, "ToppedUp");
+    }
+
+    /// <summary>
+    /// What the ledger has moved in this warehouse that SAP has not been told about, or nothing for a
+    /// warehouse the reconciliation does not look after.
+    /// </summary>
+    /// <remarks>
+    /// <para>The snapshot is SAP's figure, and SAP's figure is short of every till sale that has not
+    /// posted. Without this a sale that missed SAP overnight — a failed fiscalisation, a post SAP kept
+    /// refusing — was back on the shelf every morning until someone fixed it.</para>
+    ///
+    /// <para>Shops only, the list the hourly reconciliation corrects. A van's row is its morning load,
+    /// which the van reconciliation computes from; netting it would change the number that
+    /// reconciliation is built on.</para>
+    /// </remarks>
+    private async Task<Dictionary<string, decimal>> UnpostedSalesAsync(
+        DateTime snapshotDate,
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        var options = settings.Value;
+
+        if (!options.ReconcileWarehouses.Contains(warehouseCode, StringComparer.OrdinalIgnoreCase))
+        {
+            return [];
+        }
+
+        return await UnpostedTillSales.OutstandingAsync(
+            context, warehouseCode, snapshotDate, options.StockFetchTimeCAT,
+            options.UnpostedSaleLookbackDays, logger, cancellationToken);
+    }
+
+    /// <summary>
+    /// Takes the unposted sales off the rows about to be written, soonest to expire first.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="DailyStockSnapshotItemEntity.AvailableQuantity"/> only. <c>OriginalQuantity</c> stays
+    /// SAP's figure, so the row reads as moved and the hourly comparison keeps checking it against SAP
+    /// — which is what notices the day the sale finally posts. Only ever draws down: a credit SAP has
+    /// not seen can leave an item's figure negative, and adding stock here would mean choosing a batch
+    /// for units no document names.
+    /// </remarks>
+    private void NetUnpostedSales(
+        List<DailyStockSnapshotItemEntity> rows,
+        Dictionary<string, decimal> outstanding,
+        string warehouseCode)
+    {
+        if (outstanding.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var item in rows.GroupBy(row => row.ItemCode, StringComparer.OrdinalIgnoreCase))
+        {
+            var sold = outstanding.GetValueOrDefault(item.Key);
+            if (sold <= 0)
+            {
+                continue;
+            }
+
+            var taken = -UnpostedTillSales.DrawDown(item, sold);
+
+            logger.LogInformation(
+                "Stock snapshot for {Warehouse}: {ItemCode} held back by {Taken} for till sales SAP does not have yet",
+                warehouseCode, item.Key, taken);
+        }
     }
 
     /// <summary>

@@ -455,18 +455,122 @@ public sealed class UnbatchedStockSnapshotTests : IDisposable
         Assert.Single(await RowsAsync("BON001"));
     }
 
+    // ── Till sales SAP does not have yet ────────────────
+
+    /// <summary>
+    /// Sale 1 at KEFSHOP failed fiscalisation on 2026-09-09 and never posted, so SAP never took its
+    /// units off — and every morning after, the snapshot copied SAP and put them back on the till.
+    /// </summary>
+    [Fact]
+    public async Task The_morning_snapshot_holds_back_a_till_sale_SAP_does_not_have()
+    {
+        await SeedSaleAsync("BON001", 4m, Yesterday);
+
+        await Handler(Sap(), stock: Shop()).FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        var row = await RowAsync("BON001");
+        Assert.Equal(20m, row.AvailableQuantity);
+
+        // SAP's own figure stays on the row, so it reads as moved and the hourly comparison keeps
+        // checking it — which is what notices the day the sale finally posts.
+        Assert.Equal(24m, row.OriginalQuantity);
+    }
+
+    [Fact]
+    public async Task A_held_back_sale_comes_off_the_soonest_expiring_batch_first()
+    {
+        await SeedSaleAsync("CHE011", 6m, Yesterday);
+
+        await Handler(Sap(), stock: Shop()).FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        var rows = await RowsAsync("CHE011");
+        Assert.Equal([0m, 3m], rows.Select(row => row.AvailableQuantity));
+    }
+
+    [Fact]
+    public async Task A_sale_SAP_already_has_is_not_held_back()
+    {
+        await SeedSaleAsync("BON001", 4m, Yesterday, DesktopSaleConsolidationStatus.Consolidated);
+
+        await Handler(Sap(), stock: Shop()).FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.Equal(24m, (await RowAsync("BON001")).AvailableQuantity);
+    }
+
+    /// <summary>
+    /// A van's row is its morning load and the van reconciliation is computed from it. Only the
+    /// warehouses the hourly reconciliation looks after are netted.
+    /// </summary>
+    [Fact]
+    public async Task A_warehouse_the_reconciliation_does_not_look_after_is_not_netted()
+    {
+        await SeedSaleAsync("BON001", 4m, Yesterday);
+
+        await Handler(Sap(), stock: new DailyStockSettings { MonitoredWarehouses = [Warehouse] })
+            .FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.Equal(24m, (await RowAsync("BON001")).AvailableQuantity);
+    }
+
+    [Fact]
+    public async Task A_top_up_holds_back_what_earlier_days_left_unposted()
+    {
+        await Handler(Sap(unbatchedThrows: true), stock: Shop()).FetchWarehouseStockAsync(Today, Warehouse, default);
+        _context.ChangeTracker.Clear();
+        await SeedSaleAsync("BON001", 4m, Yesterday);
+
+        var result = await Handler(Sap(), stock: Shop()).FetchWarehouseStockAsync(Today, Warehouse, default);
+
+        Assert.Equal("ToppedUp", result.Status);
+        Assert.Equal(20m, (await RowAsync("BON001")).AvailableQuantity);
+    }
+
     // ── Helpers ─────────────────────────────────────────
 
     private static DateTime Today => DateTime.UtcNow.Date;
 
+    /// <summary>Midday UTC the day before, well before today's ledger day opens.</summary>
+    private static DateTime Yesterday => Today.AddDays(-1).AddHours(12);
+
+    private static DailyStockSettings Shop() => new()
+    {
+        MonitoredWarehouses = [Warehouse],
+        ReconcileWarehouses = [Warehouse]
+    };
+
+    private async Task SeedSaleAsync(
+        string itemCode,
+        decimal quantity,
+        DateTime createdAt,
+        DesktopSaleConsolidationStatus status = DesktopSaleConsolidationStatus.Pending)
+    {
+        var sale = new DesktopSaleEntity
+        {
+            ExternalReferenceId = $"TILL-{Guid.NewGuid():N}",
+            CardCode = "CASH",
+            SourceSystem = ShopInventory.Common.Sales.SaleSourceSystems.ShopTill,
+            WarehouseCode = Warehouse,
+            ConsolidationStatus = status,
+            FiscalizationStatus = DesktopSaleFiscalizationStatus.Failed,
+            CreatedAt = createdAt,
+            DocDate = createdAt.Date,
+            Lines = [new DesktopSaleLineEntity { LineNum = 0, ItemCode = itemCode, WarehouseCode = Warehouse, Quantity = quantity }]
+        };
+
+        _context.DesktopSales.Add(sale);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
     private FetchDailyStockHandler Handler(
         ISAPServiceLayerClient sap,
         ITransferEventListenerClient? listener = null,
-        TransferEventListenerSettings? listenerSettings = null) => new(
+        TransferEventListenerSettings? listenerSettings = null,
+        DailyStockSettings? stock = null) => new(
         _context,
         sap,
         StubProxy.Unused<IHubContext<NotificationHub>>(),
-        Options.Create(new DailyStockSettings { MonitoredWarehouses = [Warehouse] }),
+        Options.Create(stock ?? new DailyStockSettings { MonitoredWarehouses = [Warehouse] }),
         listener ?? FakeListener.Disabled(),
         Options.Create(listenerSettings ?? new TransferEventListenerSettings()),
         NullLogger<FetchDailyStockHandler>.Instance);

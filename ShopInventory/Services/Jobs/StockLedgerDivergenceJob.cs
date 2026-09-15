@@ -116,6 +116,23 @@ public sealed class StockLedgerDivergenceJob(
                     continue;
                 }
 
+                var mayCorrect = reconcilable.Contains(warehouseCode);
+
+                // What this system has promised that SAP has not seen. Read once per warehouse rather
+                // than per item: it is one grouped query either way, and it must be the same figure
+                // for every item in the pass or two items could be reconciled against different
+                // moments.
+                //
+                // Read before SAP, not after. A sale that posts between the two reads is otherwise in
+                // neither — gone from the unposted list, not yet in SAP's figure — and the correction
+                // hands its units back. In this order the same sale is in both, which takes it off
+                // twice for one pass and refuses a sale rather than allowing one.
+                var outstanding = mayCorrect
+                    ? await UnpostedTillSales.OutstandingAsync(
+                        db, warehouseCode, ledgerDay, settings.StockFetchTimeCAT,
+                        settings.UnpostedSaleLookbackDays, logger, context.CancellationToken)
+                    : [];
+
                 var sapStock = await sapClient.GetStockQuantitiesForItemsInWarehouseAsync(
                     warehouseCode,
                     moved.Keys,
@@ -124,17 +141,6 @@ public sealed class StockLedgerDivergenceJob(
                 var sapByItem = sapStock
                     .Where(stock => !string.IsNullOrWhiteSpace(stock.ItemCode))
                     .ToDictionary(stock => stock.ItemCode!, stock => stock, StringComparer.OrdinalIgnoreCase);
-
-                var mayCorrect = reconcilable.Contains(warehouseCode);
-
-                // What this system has promised that SAP has not seen. Read once per warehouse rather
-                // than per item: it is one grouped query either way, and it must be the same figure
-                // for every item in the pass or two items could be reconciled against different
-                // moments.
-                var outstanding = mayCorrect
-                    ? await OutstandingTillSalesAsync(
-                        db, ledgerDay, warehouseCode, settings.StockFetchTimeCAT, context.CancellationToken)
-                    : [];
 
                 var targets = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
@@ -335,11 +341,13 @@ public sealed class StockLedgerDivergenceJob(
                 .ToListAsync(cancellationToken))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // Before the SAP reads, as in the comparison above.
+        var outstanding = await UnpostedTillSales.OutstandingAsync(
+            db, warehouseCode, ledgerDay, settings.StockFetchTimeCAT,
+            settings.UnpostedSaleLookbackDays, logger, cancellationToken);
+
         var batches = await sapClient.GetAllBatchNumbersInWarehouseAsync(warehouseCode, cancellationToken);
         var warehouseStock = await sapClient.GetStockQuantitiesInWarehouseAsync(warehouseCode, cancellationToken);
-
-        var outstanding = await OutstandingTillSalesAsync(
-            db, ledgerDay, warehouseCode, settings.StockFetchTimeCAT, cancellationToken);
 
         return await AddArrivalsAsync(
             db, snapshot.Id, warehouseCode, known, batches, warehouseStock, outstanding, logger, cancellationToken);
@@ -401,7 +409,7 @@ public sealed class StockLedgerDivergenceJob(
 
             if (sold > 0)
             {
-                DrawDown(rows, sold);
+                UnpostedTillSales.DrawDown(rows, sold);
             }
 
             if (rows.Sum(row => row.AvailableQuantity) <= 0)
@@ -508,7 +516,7 @@ public sealed class StockLedgerDivergenceJob(
             }
 
             var applied = delta < 0
-                ? DrawDown(rows, -delta)
+                ? UnpostedTillSales.DrawDown(rows, -delta)
                 : PutBack(db, snapshotId.Value, warehouseCode, itemCode, rows,
                     delta, batchesByItem.GetValueOrDefault(itemCode) ?? []);
 
@@ -551,35 +559,6 @@ public sealed class StockLedgerDivergenceJob(
         }
 
         return moved;
-    }
-
-    /// <summary>
-    /// Takes <paramref name="quantity"/> off the item's rows, soonest to expire first — the order the
-    /// till deducts in and the order SAP's FEFO allocation picks.
-    /// </summary>
-    /// <returns>The signed change actually made, which is bounded by what the rows held.</returns>
-    private static decimal DrawDown(List<DailyStockSnapshotItemEntity> rows, decimal quantity)
-    {
-        var remaining = quantity;
-
-        foreach (var row in rows.OrderBy(row => row.ExpiryDate ?? DateTime.MaxValue))
-        {
-            if (remaining <= 0)
-            {
-                break;
-            }
-
-            if (row.AvailableQuantity <= 0)
-            {
-                continue;
-            }
-
-            var taken = Math.Min(row.AvailableQuantity, remaining);
-            row.AvailableQuantity -= taken;
-            remaining -= taken;
-        }
-
-        return -(quantity - remaining);
     }
 
     /// <summary>
@@ -754,57 +733,6 @@ public sealed class StockLedgerDivergenceJob(
         {
             entry.State = EntityState.Detached;
         }
-    }
-
-    /// <summary>
-    /// Till sales captured on this ledger day that SAP has not been given yet, summed per item.
-    /// </summary>
-    /// <remarks>
-    /// This is the whole of the correction that SAP cannot supply. A till sale commits to the ledger
-    /// the moment the goods leave the counter and reaches SAP later — within the minute if the posting
-    /// service is keeping up, at end of day if it is not — so between those two moments SAP's figure
-    /// is higher than the truth by exactly this.
-    ///
-    /// <para>
-    /// <c>Consolidated</c> is the one status that means SAP has the sale, for both routes: the
-    /// desktop app's sales arrive inside a consolidated invoice and van sales post one-to-one.
-    /// Everything else counts as outstanding, deliberately including a sale whose post went out and
-    /// whose reply was lost. Counting that one twice makes the ledger a unit short, which refuses a
-    /// sale; not counting it makes the ledger a unit long, which sells stock that is gone. Only one of
-    /// those two mistakes reaches a customer.
-    /// </para>
-    ///
-    /// <para>
-    /// Bounded by when the sale was captured rather than by its <c>DocDate</c>, which is an accounting
-    /// date taken from the UTC day and so names the wrong ledger day for anything sold between
-    /// midnight and the morning fetch. The ledger day runs from the fetch time in CAT, which is two
-    /// hours ahead of UTC — hence the window below.
-    /// </para>
-    /// </remarks>
-    internal static async Task<Dictionary<string, decimal>> OutstandingTillSalesAsync(
-        ApplicationDbContext db,
-        DateTime ledgerDay,
-        string warehouseCode,
-        string? fetchTimeCat,
-        CancellationToken cancellationToken)
-    {
-        var fetchTime = StockLedgerDay.ParseFetchTime(fetchTimeCat);
-        var from = ledgerDay.Add(fetchTime).AddHours(-2);
-        var to = from.AddDays(1);
-
-        var totals = await db.DesktopSaleLines
-            .Where(line => line.WarehouseCode == warehouseCode
-                        && line.Sale.ConsolidationStatus != DesktopSaleConsolidationStatus.Consolidated
-                        && line.Sale.CreatedAt >= from
-                        && line.Sale.CreatedAt < to)
-            .GroupBy(line => line.ItemCode)
-            .Select(group => new { ItemCode = group.Key, Quantity = group.Sum(line => line.Quantity) })
-            .ToListAsync(cancellationToken);
-
-        return totals.ToDictionary(
-            total => total.ItemCode,
-            total => total.Quantity,
-            StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
