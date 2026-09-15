@@ -33,6 +33,27 @@ public static partial class Errors
         public static Error StockLedgerRefused(string detail) =>
             Error.Conflict("DesktopSales.StockLedgerRefused", detail);
 
+        /// <summary>
+        /// SAP does not hold enough batch stock to accept this sale's invoice.
+        /// </summary>
+        /// <remarks>
+        /// A Validation error, so a 400, and not a Conflict like <see cref="StockLedgerRefused"/>. The till
+        /// shows the server's reason only for a 400 or 422; a 409 reaches the cashier as "it may or may
+        /// not have been created", which for a refusal is wrong in the one way that matters.
+        /// </remarks>
+        public static Error SapStockShort(string detail) =>
+            Error.Validation("DesktopSales.SapStockShort", detail);
+
+        /// <summary>
+        /// SAP's stock could not be read, so the sale was refused rather than taken unchecked.
+        /// </summary>
+        /// <remarks>
+        /// A 400 for the same reason as <see cref="SapStockShort"/>: the till must show that nothing was
+        /// sold and why. It is not a claim that the request was malformed.
+        /// </remarks>
+        public static Error SapStockUnreadable(string detail) =>
+            Error.Validation("DesktopSales.SapStockUnreadable", detail);
+
         public static Error FiscalizationFailed(string message) =>
             Error.Failure("DesktopSales.FiscalizationFailed", message);
 

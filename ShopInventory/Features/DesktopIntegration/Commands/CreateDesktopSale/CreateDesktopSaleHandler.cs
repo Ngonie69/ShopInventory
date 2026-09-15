@@ -23,6 +23,7 @@ public sealed class CreateDesktopSaleHandler(
     DesktopSaleFiscaliser fiscaliser,
     IInventoryLockService lockService,
     IStockLedger stockLedger,
+    CounterSapStockCheck counterSapStockCheck,
     IHubContext<NotificationHub> hubContext,
     IIdempotencyRequestStore idempotencyRequestStore,
     IOptions<TaxSettings> taxSettings,
@@ -527,6 +528,15 @@ public sealed class CreateDesktopSaleHandler(
         RouteCustomerEntity? vendor,
         CancellationToken ct)
     {
+        // SAP first, and before anything is taken. The ledger below is a copy of SAP that can be behind
+        // it, and a sale it allowed was fiscalised and then refused by SAP with the receipt already
+        // printed. Refusing here leaves nothing to give back. See CounterSapStockCheck.
+        var sapCheck = await counterSapStockCheck.CheckAsync(req.Lines, account.WarehouseCode, externalRef, ct);
+        if (sapCheck.IsError)
+        {
+            return sapCheck.Errors;
+        }
+
         // Check and take in one step, against the ledger the web invoice path now shares. This used
         // to be a local validate-then-deduct against the snapshot that only till sales ever wrote
         // to, which is why the same units could be sold here and on the web within the same minute.

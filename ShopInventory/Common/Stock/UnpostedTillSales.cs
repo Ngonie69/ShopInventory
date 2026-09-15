@@ -41,6 +41,9 @@ namespace ShopInventory.Common.Stock;
 /// </remarks>
 public static class UnpostedTillSales
 {
+    // netReturnedCredits: whether credited units SAP has not been told about are added back. Right for
+    // anything that rebuilds the shelf, which does hold them. Wrong for a check of whether SAP will accept
+    // a new sale: SAP gets those units back only when the memo posts, which may be after the sale, or never.
     public static async Task<Dictionary<string, decimal>> OutstandingAsync(
         ApplicationDbContext db,
         string warehouseCode,
@@ -48,7 +51,8 @@ public static class UnpostedTillSales
         string? fetchTimeCat,
         int lookbackDays,
         ILogger logger,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool netReturnedCredits = true)
     {
         // Bounded by when the sale was captured rather than by its DocDate, which is an accounting date
         // taken from the UTC day and so names the wrong ledger day for anything sold between midnight
@@ -76,6 +80,11 @@ public static class UnpostedTillSales
         foreach (var line in sold)
         {
             outstanding[line.ItemCode] = outstanding.GetValueOrDefault(line.ItemCode) + line.Quantity;
+        }
+
+        if (!netReturnedCredits)
+        {
+            return outstanding;
         }
 
         var credits = await db.DesktopCreditNotes

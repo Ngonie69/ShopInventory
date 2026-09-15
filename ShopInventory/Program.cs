@@ -564,6 +564,7 @@ try
     // Implements FIFO/FEFO auto-allocation and prevents negative batch quantities
     builder.Services.AddScoped<IStockLedger, StockLedger>();
     builder.Services.AddScoped<IBatchInventoryValidationService, BatchInventoryValidationService>();
+    builder.Services.AddScoped<ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale.CounterSapStockCheck>();
 
     // Register inventory lock service - Prevents race conditions during concurrent invoice posting
     // PostgreSQL advisory locks keep inventory locking safe across multiple API instances.

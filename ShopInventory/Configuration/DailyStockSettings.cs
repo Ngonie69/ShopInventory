@@ -121,6 +121,32 @@ public class DailyStockSettings
     public int UnpostedSaleLookbackDays { get; set; } = 30;
 
     /// <summary>
+    /// Whether a till sale is checked against SAP's own batch stock before it is taken and fiscalised.
+    /// </summary>
+    /// <remarks>
+    /// The ledger is a copy of SAP, and a copy can be behind: stock moved in B1 is invisible to it until
+    /// something re-reads SAP. A sale the ledger allowed and SAP could not supply was fiscalised anyway,
+    /// then refused at posting with a ZIMRA receipt already printed — KEF-FAC-20260915-8F904ECE7543,
+    /// 22 units against 21. Checking SAP first refuses that sale at the counter instead.
+    ///
+    /// <para>
+    /// Defaults to on. Turning it off reopens that gap, and is only for a day SAP cannot be read at all
+    /// and the shops must trade regardless — with it on, an unreadable SAP refuses every sale of a
+    /// batch-managed item.
+    /// </para>
+    /// </remarks>
+    public bool CheckSapStockAtCounter { get; set; } = true;
+
+    /// <summary>
+    /// How long a till sale waits for SAP's stock before it is refused as unreadable.
+    /// </summary>
+    /// <remarks>
+    /// Kept well inside the 30-second inventory lock the sale holds: the lock is what stops two tills
+    /// checking the same last units at once, and a check that outlived it would no longer be guarded.
+    /// </remarks>
+    public int CounterSapCheckSeconds { get; set; } = 15;
+
+    /// <summary>
     /// Whether the hourly comparison also looks for stock that arrived in a warehouse the snapshot has
     /// no row for at all.
     /// </summary>
