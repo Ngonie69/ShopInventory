@@ -35,30 +35,20 @@ public sealed class QuartzWorkersHealthCheck(
             return HealthCheckResult.Unhealthy("No background job triggers are scheduled.");
         }
 
-        var failures = new List<string>();
-        var data = new Dictionary<string, object>();
-
+        var snapshots = new List<TriggerSnapshot>();
         foreach (var key in triggerKeys)
         {
             var state = await scheduler.GetTriggerState(key, cancellationToken);
             var trigger = await scheduler.GetTrigger(key, cancellationToken);
-            var jobName = trigger?.JobKey.Name ?? key.Name;
-            var nextFire = trigger?.GetNextFireTimeUtc();
-
-            data[jobName] = $"state={state}; prevFire={trigger?.GetPreviousFireTimeUtc()?.ToString("O") ?? "none"}; nextFire={nextFire?.ToString("O") ?? "none"}";
-
-            // BLOCKED is a normal clustered state while another node owns a non-concurrent job.
-            // Treat it as unhealthy only if it also has no future fire time; the next-fire check
-            // below catches that misconfiguration while allowing blue/green cutovers to proceed.
-            if (state == TriggerState.Error)
-            {
-                failures.Add($"{jobName} trigger is in {state} state.");
-            }
-            else if (nextFire is null && state != TriggerState.Complete)
-            {
-                failures.Add($"{jobName} trigger has no next fire time (paused or misconfigured).");
-            }
+            snapshots.Add(new TriggerSnapshot(
+                key,
+                trigger?.JobKey,
+                state,
+                trigger?.GetPreviousFireTimeUtc(),
+                trigger?.GetNextFireTimeUtc()));
         }
+
+        var (failures, data) = Evaluate(snapshots);
 
         if (failures.Count > 0)
         {
@@ -71,5 +61,51 @@ public sealed class QuartzWorkersHealthCheck(
         }
 
         return HealthCheckResult.Healthy("All background jobs are scheduled and none are in an error state.", data);
+    }
+
+    internal sealed record TriggerSnapshot(
+        TriggerKey Key,
+        JobKey? JobKey,
+        TriggerState State,
+        DateTimeOffset? PreviousFireUtc,
+        DateTimeOffset? NextFireUtc);
+
+    /// <summary>
+    /// Keyed by trigger, not job. A job can carry more than one trigger — daily-incoming-payment has
+    /// its 17:00 cron and a retry interval on the same key — and keying by job let a healthy
+    /// trigger's row overwrite a broken one's, so the report said the job was failing while every
+    /// row it printed was Normal.
+    /// </summary>
+    internal static (List<string> Failures, Dictionary<string, object> Data) Evaluate(
+        IEnumerable<TriggerSnapshot> triggers)
+    {
+        var failures = new List<string>();
+        var data = new Dictionary<string, object>();
+
+        foreach (var trigger in triggers.OrderBy(t => t.Key.Group).ThenBy(t => t.Key.Name))
+        {
+            var triggerName = trigger.Key.Group == SchedulerConstants.DefaultGroup
+                ? trigger.Key.Name
+                : $"{trigger.Key.Group}.{trigger.Key.Name}";
+            var label = trigger.JobKey is null || trigger.JobKey.Name == trigger.Key.Name
+                ? triggerName
+                : $"{triggerName} (job {trigger.JobKey.Name})";
+
+            data[triggerName] = $"job={trigger.JobKey?.Name ?? "none"}; state={trigger.State}; prevFire={trigger.PreviousFireUtc?.ToString("O") ?? "none"}; nextFire={trigger.NextFireUtc?.ToString("O") ?? "none"}";
+
+            // BLOCKED is a normal clustered state while another node owns a non-concurrent job.
+            // Treat it as unhealthy only if it also has no future fire time; the next-fire check
+            // below catches that misconfiguration while allowing blue/green cutovers to proceed.
+            if (trigger.State == TriggerState.Error)
+            {
+                failures.Add($"{label} trigger is in {trigger.State} state.");
+            }
+            else if (trigger.NextFireUtc is null && trigger.State != TriggerState.Complete)
+            {
+                failures.Add($"{label} trigger has no next fire time (paused or misconfigured).");
+            }
+        }
+
+        return (failures, data);
     }
 }
