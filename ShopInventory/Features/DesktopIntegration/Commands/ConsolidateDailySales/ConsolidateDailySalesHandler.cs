@@ -33,6 +33,10 @@ public sealed class ConsolidateDailySalesHandler(
     // Tracks queue entry IDs grouped by CardCode for post-consolidation marking
     private readonly Dictionary<string, List<int>> _queueIdsByCardCode = new();
 
+    // The reservations those queued invoices were created under, which stay Pending until they expire.
+    // Allocation must not net a group's own reservations off the stock that group is posting.
+    private readonly Dictionary<string, List<string>> _reservationIdsByCardCode = new();
+
     /// <summary>Matches the MaxLength on <see cref="SaleConsolidationEntity.LastError"/>.</summary>
     private const int MaxLastErrorLength = 2000;
 
@@ -255,12 +259,21 @@ public sealed class ConsolidateDailySalesHandler(
             // for and fiscalised — so a line with nothing to select has nothing to ask the warehouse:
             // its stock reading could not un-sell it, only hold the whole customer's day back when
             // the read hung. See InvoiceBatchAllocation, which the per-sale routes share.
-            var batchValidationResult = await batchValidation.ValidateAndAllocateBatchesAsync(
-                invoiceRequest,
-                autoAllocate: true,
-                BatchAllocationStrategy.FEFO,
-                ct,
-                checkNonBatchStock: false);
+            //
+            // A queued sale in this group still has its reservation Pending, holding the very units
+            // this invoice is about to issue. Netted off, they would be counted twice — once in SAP's
+            // figure and once as held against the sale that owns them.
+            BatchAllocationResult batchValidationResult;
+            using (batchValidation.DisregardReservations(
+                _reservationIdsByCardCode.GetValueOrDefault(cardCode) ?? []))
+            {
+                batchValidationResult = await batchValidation.ValidateAndAllocateBatchesAsync(
+                    invoiceRequest,
+                    autoAllocate: true,
+                    BatchAllocationStrategy.FEFO,
+                    ct,
+                    checkNonBatchStock: false);
+            }
 
             if (!batchValidationResult.IsValid)
             {
@@ -813,6 +826,16 @@ public sealed class ConsolidateDailySalesHandler(
                     _queueIdsByCardCode[sale.CardCode] = ids;
                 }
                 ids.Add(entry.Id);
+
+                if (!string.IsNullOrWhiteSpace(entry.ReservationId))
+                {
+                    if (!_reservationIdsByCardCode.TryGetValue(sale.CardCode, out var reservationIds))
+                    {
+                        reservationIds = new List<string>();
+                        _reservationIdsByCardCode[sale.CardCode] = reservationIds;
+                    }
+                    reservationIds.Add(entry.ReservationId);
+                }
             }
             catch (Exception ex)
             {
