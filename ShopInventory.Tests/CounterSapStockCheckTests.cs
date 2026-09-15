@@ -291,6 +291,66 @@ public sealed class CounterSapStockCheckTests : IDisposable
         Assert.Equal(9m, await LedgerAsync(Cheese));
     }
 
+    /// <summary>
+    /// The ledger's own refusal, with SAP holding plenty. It was a 409, which the till shows as "may or
+    /// may not have been created" and never as a stock refusal.
+    /// </summary>
+    [Fact]
+    public async Task The_ledger_refusal_is_a_400_too()
+    {
+        await SeedLedgerAsync(Cheese, 5m);
+        _sapBatches.Add(("B1", 50m));
+
+        var result = await SellAsync(fiscalize: true, Line(Cheese, 6m));
+
+        Assert.True(result.IsError);
+        Assert.Equal("DesktopSales.StockLedgerRefused", result.FirstError.Code);
+        Assert.Equal(ErrorType.Validation, result.FirstError.Type);
+        Assert.Contains("ICA004 in KEFSHOP: 6 requested, 5 left to promise today", result.FirstError.Description);
+        Assert.Equal(0, await _context.DesktopSales.CountAsync());
+    }
+
+    /// <summary>
+    /// What reaches the till on the wire: a 400 whose <c>errors</c> dictionary carries the reason, which
+    /// is the entry the till puts in front of the cashier.
+    /// </summary>
+    [Theory]
+    [InlineData("DesktopSales.StockLedgerRefused")]
+    [InlineData("DesktopSales.SapStockShort")]
+    [InlineData("DesktopSales.SapStockUnreadable")]
+    public void Every_stock_refusal_answers_400_with_its_reason(string code)
+    {
+        const string reason = "ICA004 in KEFSHOP: 22 requested, 21 left";
+        var error = code switch
+        {
+            "DesktopSales.StockLedgerRefused" => ShopInventory.Common.Errors.Errors.DesktopSales.StockLedgerRefused(reason),
+            "DesktopSales.SapStockShort" => ShopInventory.Common.Errors.Errors.DesktopSales.SapStockShort(reason),
+            _ => ShopInventory.Common.Errors.Errors.DesktopSales.SapStockUnreadable(reason)
+        };
+
+        var controller = new RefusingController
+        {
+            ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext
+            {
+                HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext
+                {
+                    Request = { Path = "/api/DesktopIntegration/sales" }
+                }
+            }
+        };
+
+        var response = Assert.IsAssignableFrom<Microsoft.AspNetCore.Mvc.ObjectResult>(controller.Refuse([error]));
+        var body = Assert.IsType<Microsoft.AspNetCore.Mvc.ValidationProblemDetails>(response.Value);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Equal(reason, Assert.Single(body.Errors[code]));
+    }
+
+    private sealed class RefusingController : ShopInventory.Controllers.ApiControllerBase
+    {
+        public Microsoft.AspNetCore.Mvc.IActionResult Refuse(List<Error> errors) => Problem(errors);
+    }
+
     [Fact]
     public async Task The_handler_refuses_when_SAP_cannot_be_read()
     {

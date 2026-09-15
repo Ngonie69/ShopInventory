@@ -29,17 +29,24 @@ public static partial class Errors
         /// system has promised today, not only what this till has sold. A cashier looking at a full
         /// shelf can now be refused because a web invoice took the same units a minute ago, and the
         /// message has to be able to say so.
+        ///
+        /// <para>
+        /// A Validation error, so a 400. It was a Conflict, and a 409 is the one answer the till cannot
+        /// show: it reads 409 as "an invoice for this reference already exists" and tells the cashier the
+        /// sale may or may not have been created, putting the shortfall only in its audit row. A cashier
+        /// refused for stock has to be told it was stock, and that nothing was sold.
+        /// </para>
         /// </remarks>
         public static Error StockLedgerRefused(string detail) =>
-            Error.Conflict("DesktopSales.StockLedgerRefused", detail);
+            Error.Validation("DesktopSales.StockLedgerRefused", detail);
 
         /// <summary>
         /// SAP does not hold enough batch stock to accept this sale's invoice.
         /// </summary>
         /// <remarks>
-        /// A Validation error, so a 400, and not a Conflict like <see cref="StockLedgerRefused"/>. The till
-        /// shows the server's reason only for a 400 or 422; a 409 reaches the cashier as "it may or may
-        /// not have been created", which for a refusal is wrong in the one way that matters.
+        /// A Validation error, so a 400, like <see cref="StockLedgerRefused"/>. The till shows the server's
+        /// reason only for a 400 or 422; a 409 reaches the cashier as "it may or may not have been
+        /// created", which for a refusal is wrong in the one way that matters.
         /// </remarks>
         public static Error SapStockShort(string detail) =>
             Error.Validation("DesktopSales.SapStockShort", detail);
