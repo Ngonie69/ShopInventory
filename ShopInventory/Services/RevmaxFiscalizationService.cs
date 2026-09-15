@@ -1243,8 +1243,17 @@ public class RevmaxFiscalizationService : IFiscalizationService
             // the device recomputes the line from what it was sent, so deriving AMT from the
             // full-precision price put the two out of step on any price SAP did not already hold at two
             // decimals: 3 x 1.115 declared 3.35 against a receipt line the device stored as 3.36.
-            var price = RoundCurrency(GetPriceAfterVat(line));
+            var exactPrice = GetPriceAfterVat(line);
+            var price = RoundCurrency(exactPrice);
             var amount = GetLineAmount(line, quantity, price);
+            var priceText = FormatMoney(price);
+
+            if (ChargedLineAmount(line, quantity, exactPrice) is { } charged && charged != amount)
+            {
+                amount = charged;
+                priceText = FormatUnitPrice(charged / quantity);
+            }
+
             // Never blank: the device refuses the whole document when either name is empty.
             // See RevmaxRequestItem.Name.
             var description = RevmaxRequestItem.Name(line.ItemDescription, line.ItemCode);
@@ -1263,7 +1272,7 @@ public class RevmaxFiscalizationService : IFiscalizationService
                 ItemName1 = description,
                 ItemName2 = description,
                 Qty = quantity.ToString(CultureInfo.InvariantCulture),
-                Price = FormatMoney(price),
+                Price = priceText,
                 Amt = FormatMoney(amount),
                 Tax = ResolveTaxId(taxCode).ToString(CultureInfo.InvariantCulture),
                 TaxR = FormatTaxRate(ResolveTaxRate(taxCode))
@@ -1428,9 +1437,8 @@ public class RevmaxFiscalizationService : IFiscalizationService
     /// <c>PriceAfterVat</c> first, because it is the only one of these that is both gross AND after the
     /// line discount. SAP's <c>GrossPrice</c> comes off the price list and ignores the discount
     /// entirely — on invoice 769617, half of it, which would have declared 845.26 to ZIMRA against a
-    /// real invoice total of 422.89. <c>GrossPrice</c> is kept only as the fallback for the pre-SAP
-    /// path, where <c>DesktopSaleFiscaliser</c> computes it from the effective price and no
-    /// PriceAfterVat exists.
+    /// real invoice total of 422.89. <c>GrossPrice</c> is kept only as the fallback for a caller that
+    /// states no PriceAfterVat; <c>DesktopSaleFiscaliser</c> states both.
     /// </remarks>
     private static decimal GetPriceAfterVat(InvoiceLineDto line)
     {
@@ -1458,6 +1466,36 @@ public class RevmaxFiscalizationService : IFiscalizationService
     /// </remarks>
     private static decimal GetLineAmount(InvoiceLineDto line, decimal quantity, decimal price)
         => RoundCurrency(quantity * price);
+
+    /// <summary>
+    /// What the line itself came to — its <c>GrossTotal</c> — when that differs from the cent-rounded
+    /// unit price multiplied out and is still a rounding of the exact one. Null otherwise.
+    /// </summary>
+    /// <remarks>
+    /// A unit price in whole cents carries up to half a cent of rounding on every unit, and the device
+    /// multiplies it back out. Thirty units at 0.63525 go out as 0.64 and file 19.20 against a line
+    /// that came to 19.06. Summed over a basket that overran the ten cents
+    /// <see cref="ReconcileToDocumentTotal"/> absorbs, and ZIMRA refused the whole receipt with RCPT019:
+    /// till sale KEF-FAC-20260914-8DFB97306920, lines of 19.02 against an invoice of 18.87. So such a
+    /// line is priced at its own amount over its quantity, and each line's rounding stays on the line it
+    /// came from rather than being piled onto the largest.
+    ///
+    /// Only a total the exact unit price multiplies out to, give or take a cent, is taken. SAP reports
+    /// <c>GrossTotal</c> in the company's local currency and <c>PriceAfterVAT</c> in the document's, so
+    /// on a foreign-currency document the two are different money, and a total that disagrees with its
+    /// own price by more than rounding is not one to file.
+    /// </remarks>
+    private static decimal? ChargedLineAmount(InvoiceLineDto line, decimal quantity, decimal exactPrice)
+    {
+        var grossTotal = RoundCurrency(Math.Abs(line.GrossTotal));
+
+        if (grossTotal <= 0m || quantity <= 0m || Math.Abs(grossTotal - quantity * exactPrice) > 0.01m)
+        {
+            return null;
+        }
+
+        return grossTotal;
+    }
 
     /// <summary>The SAP tax code for a line, from wherever SAP actually put it.</summary>
     /// <remarks>

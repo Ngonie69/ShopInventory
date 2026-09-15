@@ -1205,6 +1205,144 @@ public class RevmaxFiscalPayloadTests
     }
 
     [Fact]
+    public async Task A_till_sale_of_many_cheap_units_files_at_the_total_the_till_charged()
+    {
+        // KEF-FAC-20260914-8DFB97306920 was refused with RCPT019: "The Invoice Amount (18.87) must equal
+        // the sum of all Line Item Amounts (19.02)". The till charges net x quantity plus VAT; the device
+        // was handed each unit's gross price rounded to the cent and multiplied it back out, so every unit
+        // carried up to half a cent of rounding. Thirty units at net 0.55 are 0.63525 gross, sent as 0.64:
+        // lines of 19.20 against the 19.06 charged, a gap too wide for the ten-cent reconciliation.
+        var sale = ChargedLikeTheTill(("YOG001", 30m, 0.55m, "O01"));
+        Assert.Equal(19.06m, sale.TotalAmount);
+
+        var client = new RecordingRevmaxClient();
+        await Fiscaliser(client).FiscaliseAsync(sale, CancellationToken.None);
+
+        var filed = client.LastInvoice!;
+        var lines = (List<RevmaxRequestItem>)filed.ItemsXml!;
+
+        // RCPT019's own rule, on the figures the device computes rather than the AMTs we sent.
+        Assert.Equal(19.06m, filed.InvoiceAmount);
+        Assert.Equal(19.06m, DeviceTotal(lines));
+        Assert.Equal("19.06", lines[0].Amt);
+    }
+
+    [Fact]
+    public async Task Each_till_line_files_the_amount_its_own_units_came_to()
+    {
+        // The rounding belongs to the line it came from. The yoghurt's 24 units over-round by eleven
+        // cents between them; the cheese and the milk were never out, and keep their cent prices.
+        var sale = ChargedLikeTheTill(
+            ("CHE011", 1m, 12.00m, "O01"),
+            ("YOG001", 24m, 0.55m, "O01"),
+            ("MLK002", 18m, 0.83m, "O0"));
+
+        var client = new RecordingRevmaxClient();
+        await Fiscaliser(client).FiscaliseAsync(sale, CancellationToken.None);
+
+        var lines = (List<RevmaxRequestItem>)client.LastInvoice!.ItemsXml!;
+
+        Assert.Equal(sale.TotalAmount, DeviceTotal(lines));
+        Assert.Equal("13.86", lines[0].Amt);   // 12.00 x 1.155, already cent-exact
+        Assert.Equal("13.86", lines[0].Price); // and left in cents
+        Assert.Equal("15.25", lines[1].Amt);   // 24 x 0.63525 = 15.246, not 24 x 0.64 = 15.36
+        Assert.Equal("14.94", lines[2].Amt);   // zero-rated, untouched
+        Assert.Equal("0.83", lines[2].Price);
+    }
+
+    [Fact]
+    public async Task Any_till_basket_files_lines_that_sum_to_what_was_charged()
+    {
+        // The two above are instances; this is the rule. Generated baskets of the till's shape — whole
+        // units, net prices in cents, standard and zero-rated lines — each of which RCPT019 would refuse
+        // if the device's QTY x PRICE lines missed the charged total by a cent.
+        var random = new Random(20260914);
+        var codes = new[] { "O01", "O01", "O0" };
+        var refused = new List<string>();
+
+        for (var basket = 0; basket < 2000; basket++)
+        {
+            var sale = ChargedLikeTheTill(Enumerable.Range(0, random.Next(1, 16))
+                .Select(i => ($"ITEM{i}", (decimal)random.Next(1, 80), random.Next(5, 5000) / 100m,
+                    codes[random.Next(codes.Length)]))
+                .ToArray());
+
+            var client = new RecordingRevmaxClient();
+            await Fiscaliser(client).FiscaliseAsync(sale, CancellationToken.None);
+
+            var filed = client.LastInvoice!;
+            var deviceTotal = DeviceTotal((List<RevmaxRequestItem>)filed.ItemsXml!);
+
+            if (deviceTotal != filed.InvoiceAmount || filed.InvoiceAmount != sale.TotalAmount)
+            {
+                refused.Add($"{sale.Lines.Count} lines: invoice {filed.InvoiceAmount}, lines {deviceTotal}");
+            }
+        }
+
+        Assert.Empty(refused);
+    }
+
+    [Fact]
+    public async Task A_gross_total_that_the_unit_price_cannot_explain_is_not_trusted()
+    {
+        // SAP's GrossTotal is in the company's local currency and PriceAfterVAT in the document's, so on
+        // a foreign-currency invoice the two describe different money. A line total that the unit price
+        // does not multiply out to is not a rounding of it, and the line keeps its own price.
+        var invoice = Invoice();
+        invoice.DocTotal = 25.41m;
+        invoice.Lines =
+        [
+            new InvoiceLineDto
+            {
+                LineNum = 0, ItemCode = "A", ItemDescription = "Priced in ZiG, totalled in USD",
+                Quantity = 4m, PriceAfterVat = 6.3525m, GrossTotal = 0.94m, VatGroup = "O01"
+            }
+        ];
+
+        var client = new RecordingRevmaxClient();
+        await Service(client).FiscalizeInvoiceAsync(invoice);
+
+        var line = ((List<RevmaxRequestItem>)client.LastInvoice!.ItemsXml!)[0];
+        Assert.Equal(25.41m, DeviceTotal([line]));
+        Assert.NotEqual("0.94", line.Amt);
+    }
+
+    /// <summary>
+    /// A till sale totalled as <c>CreateDesktopSaleHandler</c> totals it: each line's net amount rounded
+    /// to the cent, VAT rounded once per rate over the basket.
+    /// </summary>
+    private static DesktopSaleEntity ChargedLikeTheTill(
+        params (string ItemCode, decimal Quantity, decimal NetUnitPrice, string TaxCode)[] basket)
+    {
+        var lines = basket.Select((b, i) => new DesktopSaleLineEntity
+        {
+            LineNum = i,
+            ItemCode = b.ItemCode,
+            ItemDescription = b.ItemCode,
+            Quantity = b.Quantity,
+            UnitPrice = b.NetUnitPrice,
+            LineTotal = Math.Round(b.Quantity * b.NetUnitPrice, 2, MidpointRounding.AwayFromZero),
+            TaxCode = b.TaxCode
+        }).ToList();
+
+        var vat = Tax.VatOnBasket(lines.Select(l => (l.LineTotal, (string?)l.TaxCode)));
+
+        return new DesktopSaleEntity
+        {
+            ExternalReferenceId = "KEF-FAC-20260914-8DFB97306920",
+            SourceSystem = SaleSourceSystems.ShopTill,
+            CardCode = "CIS006",
+            WarehouseCode = "KEFFAC",
+            DocDate = new DateTime(2026, 9, 14),
+            Currency = "USD",
+            TotalAmount = lines.Sum(l => l.LineTotal) + vat,
+            VatAmount = vat,
+            PaymentMethod = TenderTypes.Cash,
+            Lines = lines
+        };
+    }
+
+    [Fact]
     public async Task A_filed_receipt_carries_the_counter_the_device_recorded_it_under()
     {
         var result = await Service(TillSaleDevice(TillSaleDayStatus()))
