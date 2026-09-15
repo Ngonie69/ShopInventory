@@ -241,6 +241,55 @@ public sealed class StockLedgerTests
         Assert.Equal(2m, (await ledger.ReadAsync(Item, Warehouse)).Available);
     }
 
+    [Fact]
+    public async Task A_reservation_whose_invoice_has_been_consolidated_holds_nothing()
+    {
+        await using var context = await LedgerWith(units: 10);
+        var reservation = await AddReservation(context, quantity: 8, status: ReservationStatus.Pending);
+        await AddQueueEntry(context, reservation, InvoiceQueueStatus.Completed);
+
+        // A queued desktop invoice holds its units for an hour, and end-of-day consolidation posts it
+        // to SAP inside that window. From then on SAP has taken the units off and the reservation is
+        // still Pending, so counting the hold as well would subtract the same eight units twice and
+        // refuse a till sale for stock standing in the shop.
+        Assert.Equal(10m, (await Ledger(context).ReadAsync(Item, Warehouse)).Available);
+    }
+
+    [Fact]
+    public async Task A_reservation_whose_invoice_is_only_fiscalized_still_holds()
+    {
+        await using var context = await LedgerWith(units: 10);
+        var reservation = await AddReservation(context, quantity: 8, status: ReservationStatus.Pending);
+        await AddQueueEntry(context, reservation, InvoiceQueueStatus.Fiscalized);
+
+        // Fiscalized means the receipt is with ZIMRA and SAP has not seen the sale yet — it is posted
+        // at 16:45 by the consolidation. The units are spoken for and nothing else has taken them off,
+        // so this is exactly when the hold has to hold.
+        Assert.Equal(2m, (await Ledger(context).ReadAsync(Item, Warehouse)).Available);
+    }
+
+    [Fact]
+    public async Task Consolidating_a_queued_invoice_takes_its_units_off_the_ledger()
+    {
+        await using var context = await LedgerWith(units: 10);
+        var reservation = await AddReservation(context, quantity: 8, status: ReservationStatus.Pending);
+        var queued = await AddQueueEntry(context, reservation, InvoiceQueueStatus.Fiscalized);
+        var ledger = Ledger(context);
+
+        Assert.Equal(2m, (await ledger.ReadAsync(Item, Warehouse)).Available);
+
+        // What consolidation does. Dropping the hold on its own would hand the eight units back as
+        // available even though SAP has just invoiced them — the direction that oversells — so the
+        // hold becomes a decrement in the same step, as a confirmed reservation's does.
+        await new InvoiceQueueService(context, ledger, NullLogger<InvoiceQueueService>.Instance)
+            .MarkAsConsolidatedAsync([queued.Id], "4210", 5001);
+
+        Assert.Equal(2m, (await ledger.ReadAsync(Item, Warehouse)).Available);
+        Assert.Equal(
+            InvoiceQueueStatus.Completed,
+            (await context.InvoiceQueue.SingleAsync(entry => entry.Id == queued.Id)).Status);
+    }
+
     // ---------------------------------------------------------------
     // Settled documents, which cannot be refused
     // ---------------------------------------------------------------
@@ -370,6 +419,29 @@ public sealed class StockLedgerTests
         context.StockReservations.Add(reservation);
         await context.SaveChangesAsync();
         return reservation;
+    }
+
+    /// <summary>
+    /// The queue entry a queued desktop invoice carries, whose status says whether SAP has the
+    /// document yet. Linked by the reservation's business key, as InvoiceQueueEntity documents.
+    /// </summary>
+    private static async Task<InvoiceQueueEntity> AddQueueEntry(
+        ApplicationDbContext context,
+        StockReservationEntity reservation,
+        InvoiceQueueStatus status)
+    {
+        var entry = new InvoiceQueueEntity
+        {
+            ReservationId = reservation.ReservationId,
+            ExternalReference = reservation.ExternalReferenceId!,
+            CustomerCode = reservation.CardCode,
+            InvoicePayload = "{}",
+            Status = status
+        };
+
+        context.InvoiceQueue.Add(entry);
+        await context.SaveChangesAsync();
+        return entry;
     }
 
     private static StockLedgerLine Line(decimal quantity) => new(Item, Warehouse, quantity);

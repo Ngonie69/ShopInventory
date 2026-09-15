@@ -110,13 +110,16 @@ public interface IInvoiceQueueService
 public class InvoiceQueueService : IInvoiceQueueService
 {
     private readonly ApplicationDbContext _context;
+    private readonly IStockLedger _stockLedger;
     private readonly ILogger<InvoiceQueueService> _logger;
 
     public InvoiceQueueService(
         ApplicationDbContext context,
+        IStockLedger stockLedger,
         ILogger<InvoiceQueueService> logger)
     {
         _context = context;
+        _stockLedger = stockLedger;
         _logger = logger;
     }
 
@@ -395,6 +398,78 @@ public class InvoiceQueueService : IInvoiceQueueService
         }
 
         await _context.SaveChangesAsync(cancellationToken);
+
+        await RecordConsolidatedUnitsLeavingAsync(entries, sapDocNum, cancellationToken);
+    }
+
+    /// <summary>
+    /// Records the units these queued invoices took off the shelf, now that a consolidated invoice for
+    /// them exists in SAP.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the status change above, and it has to be here rather than left to a reader.
+    /// A queued invoice holds its stock as a reservation, and <see cref="ReservationHolds"/> stops
+    /// counting that hold the moment the entry goes Completed — correctly, because SAP has now taken
+    /// the units off and counting them on both sides would refuse tills the stock the shelf has. But
+    /// the ledger is the morning snapshot less what this system has promised, and nothing in the
+    /// queued path ever wrote to it: without this the hold would simply disappear and the units would
+    /// reappear as available, which is the direction that oversells. So the hold becomes a decrement,
+    /// in that order and after the status change, exactly as a confirmed reservation's does — see
+    /// <c>StockReservationService.CommitConfirmedReservationToLedgerAsync</c>.
+    ///
+    /// <para>
+    /// Settled rather than committed: the invoice exists in SAP and cannot be refused. Quantities come
+    /// from the reservation lines, which are in inventory UoM as the snapshot rows are, rather than
+    /// from the queue payload's sales UoM.
+    /// </para>
+    /// </remarks>
+    private async Task RecordConsolidatedUnitsLeavingAsync(
+        List<InvoiceQueueEntity> entries,
+        int sapDocNum,
+        CancellationToken cancellationToken)
+    {
+        var reservationIds = entries
+            .Select(entry => entry.ReservationId)
+            .Where(reservationId => !string.IsNullOrWhiteSpace(reservationId))
+            .Distinct()
+            .ToList();
+
+        if (reservationIds.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            // Blank codes and zero quantities are dropped by the ledger's own aggregation.
+            var taken = await _context.StockReservationLines
+                .Where(line => reservationIds.Contains(line.Reservation.ReservationId))
+                .Select(line => new { line.ItemCode, line.WarehouseCode, line.ReservedQuantity })
+                .ToListAsync(cancellationToken);
+
+            if (taken.Count == 0)
+            {
+                return;
+            }
+
+            await _stockLedger.TakeSettledAsync(
+                taken
+                    .Select(line => new StockLedgerLine(line.ItemCode, line.WarehouseCode, line.ReservedQuantity))
+                    .ToList(),
+                $"queued invoices consolidated as invoice {sapDocNum}",
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // The consolidated invoice is in SAP and the queue entries are marked; that is the part
+            // that had to be right. A ledger that missed this overstates the shelf until the hourly
+            // reconciliation or tomorrow's fetch, which is worth a warning rather than a failed
+            // consolidation.
+            _logger.LogWarning(ex,
+                "Consolidated invoice {DocNum} was posted for {Count} queued invoice(s), but the stock "
+                + "ledger was not told, so it may overstate what is available",
+                sapDocNum, entries.Count);
+        }
     }
 
     public async Task UpdateQueueEntryAsync(

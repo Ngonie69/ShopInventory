@@ -425,19 +425,22 @@ public sealed class StockLedger(
     /// that commits the units properly — so the hold becomes a decrement in one step rather than
     /// being counted twice or dropped between the two.
     /// </para>
+    ///
+    /// <para>
+    /// The same is true of a queued invoice once end-of-day consolidation has posted it, which is why
+    /// what counts as a hold is <see cref="ReservationHolds"/>'s to say rather than this method's: the
+    /// queue entry goes Completed and <c>InvoiceQueueService</c> records the units as settled, while
+    /// the reservation itself stays Pending until it expires an hour later.
+    /// </para>
     /// </remarks>
     private async Task<decimal> HeldByReservationsAsync(
         string itemCode,
         string warehouseCode,
         CancellationToken cancellationToken)
     {
-        var now = DateTime.UtcNow;
-
-        return await context.StockReservationLines
+        return await ReservationHolds.Lines(context, DateTime.UtcNow)
             .Where(line => line.ItemCode == itemCode
-                        && line.WarehouseCode == warehouseCode
-                        && line.Reservation.Status == ReservationStatus.Pending
-                        && line.Reservation.ExpiresAt > now)
+                        && line.WarehouseCode == warehouseCode)
             .SumAsync(line => line.ReservedQuantity, cancellationToken);
     }
 

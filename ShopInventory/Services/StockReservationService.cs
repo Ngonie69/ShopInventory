@@ -1006,11 +1006,9 @@ public class StockReservationService : IStockReservationService
         string warehouseCode,
         CancellationToken cancellationToken = default)
     {
-        return await _dbContext.StockReservationLines
+        return await ReservationHolds.Lines(_dbContext, DateTime.UtcNow)
             .Where(l => l.ItemCode == itemCode
-                && l.WarehouseCode == warehouseCode
-                && l.Reservation.Status == ReservationStatus.Pending
-                && l.Reservation.ExpiresAt > DateTime.UtcNow)
+                && l.WarehouseCode == warehouseCode)
             .SumAsync(l => l.ReservedQuantity, cancellationToken);
     }
 
@@ -1021,12 +1019,10 @@ public class StockReservationService : IStockReservationService
         string batchNumber,
         CancellationToken cancellationToken = default)
     {
-        return await _dbContext.StockReservationBatches
+        return await ReservationHolds.Batches(_dbContext, DateTime.UtcNow)
             .Where(b => b.ItemCode == itemCode
                 && b.WarehouseCode == warehouseCode
-                && b.BatchNumber == batchNumber
-                && b.ReservationLine.Reservation.Status == ReservationStatus.Pending
-                && b.ReservationLine.Reservation.ExpiresAt > DateTime.UtcNow)
+                && b.BatchNumber == batchNumber)
             .SumAsync(b => b.ReservedQuantity, cancellationToken);
     }
 
@@ -1046,12 +1042,10 @@ public class StockReservationService : IStockReservationService
             return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         }
 
-        var reservedByBatch = await _dbContext.StockReservationBatches
+        var reservedByBatch = await ReservationHolds.Batches(_dbContext, DateTime.UtcNow)
             .Where(batch => batch.ItemCode == itemCode
                 && batch.WarehouseCode == warehouseCode
-                && normalizedBatchNumbers.Contains(batch.BatchNumber)
-                && batch.ReservationLine.Reservation.Status == ReservationStatus.Pending
-                && batch.ReservationLine.Reservation.ExpiresAt > DateTime.UtcNow)
+                && normalizedBatchNumbers.Contains(batch.BatchNumber))
             .GroupBy(batch => batch.BatchNumber)
             .Select(group => new
             {
@@ -1082,11 +1076,9 @@ public class StockReservationService : IStockReservationService
         var physicalQty = stockItem?.InStock ?? 0;
 
         // Get batch-level reservations
-        var batchReservations = await _dbContext.StockReservationBatches
+        var batchReservations = await ReservationHolds.Batches(_dbContext, DateTime.UtcNow)
             .Where(b => b.ItemCode == itemCode
-                && b.WarehouseCode == warehouseCode
-                && b.ReservationLine.Reservation.Status == ReservationStatus.Pending
-                && b.ReservationLine.Reservation.ExpiresAt > DateTime.UtcNow)
+                && b.WarehouseCode == warehouseCode)
             .GroupBy(b => b.BatchNumber)
             .Select(g => new ReservedStockBatchSummaryDto
             {
@@ -1110,11 +1102,9 @@ public class StockReservationService : IStockReservationService
             }
         }
 
-        var activeReservationCount = await _dbContext.StockReservationLines
+        var activeReservationCount = await ReservationHolds.Lines(_dbContext, DateTime.UtcNow)
             .Where(l => l.ItemCode == itemCode
-                && l.WarehouseCode == warehouseCode
-                && l.Reservation.Status == ReservationStatus.Pending
-                && l.Reservation.ExpiresAt > DateTime.UtcNow)
+                && l.WarehouseCode == warehouseCode)
             .Select(l => l.ReservationId)
             .Distinct()
             .CountAsync(cancellationToken);
@@ -1268,11 +1258,9 @@ public class StockReservationService : IStockReservationService
             aggregateLines.Add((line, inventoryQuantity));
 
             // Get reserved quantity (excluding the current reservation if renewing)
-            var reservedQty = await _dbContext.StockReservationLines
+            var reservedQty = await ReservationHolds.Lines(_dbContext, DateTime.UtcNow)
                 .Where(l => l.ItemCode == line.ItemCode
                     && l.WarehouseCode == line.WarehouseCode
-                    && l.Reservation.Status == ReservationStatus.Pending
-                    && l.Reservation.ExpiresAt > DateTime.UtcNow
                     && (excludeReservationId == null || l.Reservation.ReservationId != excludeReservationId))
                 .SumAsync(l => l.ReservedQuantity, cancellationToken);
 
@@ -1358,11 +1346,9 @@ public class StockReservationService : IStockReservationService
             if (stockItem == null)
                 continue;
 
-            var reservedQty = await _dbContext.StockReservationLines
+            var reservedQty = await ReservationHolds.Lines(_dbContext, DateTime.UtcNow)
                 .Where(reservationLine => reservationLine.ItemCode == firstLine.ItemCode
                     && reservationLine.WarehouseCode == firstLine.WarehouseCode
-                    && reservationLine.Reservation.Status == ReservationStatus.Pending
-                    && reservationLine.Reservation.ExpiresAt > DateTime.UtcNow
                     && (excludeReservationId == null || reservationLine.Reservation.ReservationId != excludeReservationId))
                 .SumAsync(reservationLine => reservationLine.ReservedQuantity, cancellationToken);
 
