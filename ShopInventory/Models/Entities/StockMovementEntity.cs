@@ -17,6 +17,14 @@ public static class StockMovementKinds
 
     /// <summary>Units handed back — a document refused after its claim was taken, or reversed.</summary>
     public const string Release = "Release";
+
+    /// <summary>
+    /// A stock transfer SAP has already made, reported by TransferEventListener. Like
+    /// <see cref="Settle"/> it cannot be refused — the goods moved before anyone here heard about
+    /// it — but it is kept apart because the question people ask of it is different: a transfer is
+    /// the one movement that puts stock *into* a warehouse during the day.
+    /// </summary>
+    public const string Transfer = "Transfer";
 }
 
 /// <summary>

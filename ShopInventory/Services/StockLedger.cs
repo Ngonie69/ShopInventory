@@ -482,22 +482,16 @@ public sealed class StockLedger(
         string reference,
         string? documentKey)
     {
-        if (quantity == 0)
-        {
-            return;
-        }
-
-        context.StockMovements.Add(new StockMovementEntity
-        {
-            LedgerDay = CurrentLedgerDay,
-            Kind = kind,
-            DocumentKey = documentKey,
-            ItemCode = claim.ItemCode,
-            WarehouseCode = claim.WarehouseCode,
-            Quantity = quantity,
-            BalanceAfter = rows.Sum(row => row.AvailableQuantity),
-            Reference = Truncate(reference, 200)
-        });
+        StockMovementJournal.Append(
+            context,
+            CurrentLedgerDay,
+            kind,
+            documentKey,
+            claim.ItemCode,
+            claim.WarehouseCode,
+            quantity,
+            rows.Sum(row => row.AvailableQuantity),
+            reference);
     }
 
     /// <summary>
@@ -532,8 +526,6 @@ public sealed class StockLedger(
             cancellationToken);
     }
 
-    private static string Truncate(string value, int length) =>
-        value.Length <= length ? value : value[..length];
 
     /// <summary>
     /// One claim per item and warehouse. Two lines of the same document naming the same item are one
