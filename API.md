@@ -2874,6 +2874,16 @@ per row as `postRefusal` (null when the sale may be posted) so a client offers a
 the command would accept one. Both routes are additionally scoped to the caller's own shop, so a
 shop-scoped account cannot post another shop's takings.
 
+**A sale can be held rather than refused.** When a post leaves for SAP and no clear answer comes
+back — a timeout, a dropped connection — SAP may hold the invoice without showing it yet, so the
+sale is not sent again for `DesktopSalePosting:UnresolvedPostGraceMinutes` (van sales:
+`VanSalesPosting:UnresolvedPostGraceMinutes`, both default 15). The sales list reports that as
+`postHeldUntilUtc`: when the sale may be sent again, or null when it is not held. `lastPostingError`
+keeps what the post actually failed with through the hold. A post requested inside the window is
+answered `Failed` with a message naming the time the hold ends, and nothing is sent. A failure
+before the invoice leaves — the SAP login, the invoice series lookup, an open circuit — holds
+nothing, and the sale is retried on the next pass.
+
 **A credit is two documents, and ZIMRA comes first.** `POST .../credit-notes` files the fiscal credit
 against the original REVMax receipt and answers as soon as that is settled; the SAP credit memo
 follows on its own. That ordering is the opposite of every other document in this API, and it is

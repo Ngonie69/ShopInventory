@@ -1044,6 +1044,12 @@ public class DesktopSaleDto
     /// </remarks>
     public string? PostRefusal { get; set; }
 
+    /// <summary>
+    /// When the API will send this sale to SAP again, while it is held after a post whose outcome is
+    /// unknown; null when it is not held, or when the API predates the field.
+    /// </summary>
+    public DateTime? PostHeldUntilUtc { get; set; }
+
     /// <summary>Whether the console should offer this sale a "Post to SAP" button.</summary>
     /// <remarks>
     /// Derived from <see cref="PostRefusal"/> rather than read off the wire, so the button and the

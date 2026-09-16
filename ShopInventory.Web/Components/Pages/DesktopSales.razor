@@ -593,6 +593,12 @@
                                     {
                                         <div class="ops-sub">SAP #@sale.SapDocNum</div>
                                     }
+                                    else if (HeldUntil(sale) is { } heldUntil)
+                                    {
+                                        <div class="ops-sub ops-ds-held" title="@sale.LastPostingError">
+                                            Resends after @Clock(heldUntil)
+                                        </div>
+                                    }
                                     else if (!string.IsNullOrWhiteSpace(sale.LastPostingError))
                                     {
                                         <div class="ops-sub ops-ds-rejected" title="@sale.LastPostingError">
@@ -813,7 +819,30 @@
                    what to do — an operator cannot fix "posting failed". It sits above the facts
                    rather than in the trail below them: the trail states which step a sale stopped
                    at, and a paragraph of SAP table names inside a timeline is unreadable. *@
-                @if (!selectedSale.SapDocNum.HasValue && !string.IsNullOrWhiteSpace(selectedSale.LastPostingError))
+                @* A hold is not a refusal. A post went out, the answer was lost, and the API will not
+                   send the sale again until SAP has had time to show an invoice it may already have
+                   taken. Shown under "SAP has not accepted this sale" it sent people into SAP to hunt
+                   for a document the posting run was simply waiting to send. What the post failed
+                   with still goes under it, because that is what says whether it will go through. *@
+                @if (HeldUntil(selectedSale) is { } drawerHeldUntil)
+                {
+                    <div class="ops-msg ops-fam-warn" role="status">
+                        <i class="ph ph-hourglass-medium" aria-hidden="true"></i>
+                        <div class="ops-msg-body">
+                            <strong>Waiting to send this sale to SAP again.</strong>
+                            <div>
+                                A post went to SAP without a clear answer, so SAP may already hold the
+                                invoice. It is sent again after @Clock(drawerHeldUntil), once SAP has
+                                been asked first, so it cannot be invoiced twice.
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(selectedSale.LastPostingError))
+                            {
+                                <div class="ops-ds-sapsaid">@selectedSale.LastPostingError</div>
+                            }
+                        </div>
+                    </div>
+                }
+                else if (!selectedSale.SapDocNum.HasValue && !string.IsNullOrWhiteSpace(selectedSale.LastPostingError))
                 {
                     <div class="ops-msg ops-fam-bad" role="alert">
                         <i class="ph ph-warning-octagon" aria-hidden="true"></i>
@@ -2188,6 +2217,13 @@
                     : $"invoice {sale.SapDocNum}";
                 steps.Add(new TrailStep("Posted to SAP", meta, "ops-fam-good"));
             }
+            else if (HeldUntil(sale) is { } trailHeldUntil)
+            {
+                steps.Add(new TrailStep(
+                    "Waiting to resend to SAP",
+                    $"no clear answer to the last post · sent again after {Clock(trailHeldUntil)}",
+                    "ops-fam-warn"));
+            }
             else if (!string.IsNullOrWhiteSpace(sale.LastPostingError))
             {
                 steps.Add(new TrailStep(
@@ -2662,6 +2698,18 @@
     // The drawer states a date whatever day the row is from: it is read on its
     // own, away from the column that made "12:17" unambiguous.
     private static string Full(DateTime utc) => utc.AddHours(2).ToString("dd MMM yyyy, HH:mm");
+
+    private static string Clock(DateTime utc) => utc.AddHours(2).ToString("HH:mm", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// When the API will send a sale held after an unanswered post to SAP again, or null when it is
+    /// not held. Checked against the clock as well as the API's answer, so a drawer left open past
+    /// the end of the hold stops claiming it.
+    /// </summary>
+    private static DateTime? HeldUntil(DesktopSaleDto sale) =>
+        !sale.SapDocNum.HasValue && sale.PostHeldUntilUtc is { } until && until > DateTime.UtcNow
+            ? until
+            : null;
 
     private static bool Is(string? status, string value) =>
         string.Equals(status, value, StringComparison.OrdinalIgnoreCase);

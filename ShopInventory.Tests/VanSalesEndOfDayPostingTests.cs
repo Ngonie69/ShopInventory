@@ -309,6 +309,32 @@ public sealed class VanSalesEndOfDayPostingTests : IDisposable
     }
 
     /// <summary>
+    /// A pass inside the grace window reports the hold and when it ends, and leaves the sale's recorded
+    /// error as the post's own failure. It used to overwrite it with a notice about the wait, so what the
+    /// post had actually failed with could not be read anywhere while the sale was held.
+    /// </summary>
+    [Fact]
+    public async Task A_held_van_sale_keeps_what_its_post_failed_with_and_says_when_it_goes_again()
+    {
+        AddSale("VAN006-INV-20260810-AAA111", receiptGlobalNo: 501);
+        await _context.SaveChangesAsync();
+
+        _sap.UnreachableFor.Add("VAN006-INV-20260810-AAA111");
+        await BuildService(graceMinutes: 30).PostPendingSalesAsync(TradingDate);
+
+        _sap.UnreachableFor.Clear();
+        var held = await BuildService(graceMinutes: 30).PostPendingSalesAsync(TradingDate);
+
+        Assert.Empty(_sap.Created);
+
+        var sale = await _context.DesktopSales.AsNoTracking().SingleAsync();
+        Assert.Equal("The SAP Service Layer did not respond in time.", sale.LastPostingError);
+        Assert.Equal(
+            $"VAN006-INV-20260810-AAA111: {UnresolvedPostHold.Describe(sale.PostIssuedAtUtc!.Value, 30)}",
+            Assert.Single(held.Errors));
+    }
+
+    /// <summary>
     /// A rejection is the sale's fault and does spend one. This is the distinction the cap was always
     /// about: SAP refusing a blocked item will refuse it again in half an hour.
     /// </summary>

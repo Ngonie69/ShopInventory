@@ -259,6 +259,18 @@ public sealed record DesktopSaleListItemDto(
     /// Derived rather than carried, so it cannot contradict the reason beside it.
     /// </remarks>
     public bool CanPostToSap => PostRefusal is null;
+
+    /// <summary>
+    /// When this sale may be sent to SAP again, while it is held after a post whose outcome is
+    /// unknown; null when it is not held.
+    /// </summary>
+    /// <remarks>
+    /// A hold is not a refusal. Without this the console could only show the sale's last error under
+    /// "SAP has not accepted this sale", which sent people into SAP to look for an invoice the
+    /// posting run was simply waiting to send. Carried rather than worked out by the console, because
+    /// the grace window is API configuration and differs between the till and van routes.
+    /// </remarks>
+    public DateTime? PostHeldUntilUtc { get; init; }
 }
 
 public sealed record DesktopSaleLineItemDto(

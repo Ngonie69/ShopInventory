@@ -3159,6 +3159,13 @@
     cursor: help;
 }
 
+/* A sale waiting out the hold after an unanswered post. Not the bad hue: nothing
+   has been refused, and it goes through on its own when the hold ends. */
+.ops-ds .ops-ds-held {
+    color: var(--ops-fam-warn);
+    cursor: help;
+}
+
 /* ── The detail drawer's posting parts ─────────────────────────────────── */
 
 /* SAP's own words, verbatim and monospaced — it answers with codes and table
