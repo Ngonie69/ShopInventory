@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common.Sales;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -39,7 +40,66 @@ public sealed class DesktopCreditNoteTests : IDisposable
         db.SaveChanges();
         service = new DesktopCreditNoteService(db, gateway, DesktopCreditPosters.Idle(db),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+            Revmax, NullLogger<DesktopCreditNoteService>.Instance);
+    }
+
+    /// <summary>
+    /// The live provider. Credits are filed on the REVMax device, and the service refuses outright
+    /// under the in-house platform — see <c>RequireCreditableHere</c>.
+    /// </summary>
+    internal static IOptions<FiscalisationSettings> Revmax =>
+        Options.Create(new FiscalisationSettings { Provider = FiscalisationProvider.Revmax });
+
+    /// <summary>
+    /// The two sales this dialog cannot credit, refused by name before anything is prepared.
+    /// </summary>
+    /// <remarks>
+    /// Both used to fail several reads deep inside the REVMax gateway, with a message about REVMax
+    /// returning a different invoice or not being enabled — a true statement about the plumbing and no
+    /// help at all to the person holding the goods.
+    /// </remarks>
+    [Fact]
+    public async Task An_online_van_sale_is_refused_and_points_at_the_SAP_invoice()
+    {
+        // This row is a receipt carrier, not a sale. Its invoice reached SAP inside the request that
+        // made it and was fiscalised from that invoice, so the receipt is filed under the SAP DocNum
+        // and not under the reference this dialog knows how to ask for.
+        db.DesktopSales.Add(new DesktopSaleEntity
+        {
+            ExternalReferenceId = "VAN-ONLINE-1", CardCode = "C1", WarehouseCode = "W1", Currency = "USD",
+            FiscalizationStatus = DesktopSaleFiscalizationStatus.Success, TotalAmount = 100m,
+            SapDocNum = 772109, SapDocEntry = 2342939,
+            SourceSystem = SaleSourceSystems.VanSalesOnline
+        });
+        await db.SaveChangesAsync();
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.PrepareAsync(caller, "VAN-ONLINE-1", default));
+
+        Assert.Contains("772109", refusal.Message);
+        Assert.Contains("Credit notes", refusal.Message);
+
+        // Refused before the gateway was troubled at all.
+        Assert.Equal(0, gateway.Reads);
+    }
+
+    [Fact]
+    public async Task The_in_house_platform_is_refused_rather_than_reported_as_a_setting()
+    {
+        // There is no platform credit gateway, and under the platform a van sale's receipt is signed
+        // on the handset's own chain — a device has one chain with one writer, so this server cannot
+        // sign a credit onto it however the code is arranged.
+        var platform = new DesktopCreditNoteService(db, gateway, DesktopCreditPosters.Idle(db),
+            StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+            Options.Create(new FiscalisationSettings { Provider = FiscalisationProvider.Platform }),
             NullLogger<DesktopCreditNoteService>.Instance);
+
+        var refusal = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => platform.PrepareAsync(caller, "TILL-123", default));
+
+        Assert.Contains("REVMax device", refusal.Message);
+        Assert.DoesNotContain("must be enabled", refusal.Message);
+        Assert.Equal(0, gateway.Reads);
     }
 
     internal static DesktopCreditSource Source() => new("TILL-123", "USD", 100m, 22862, 525, 456, null,
@@ -115,7 +175,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
             NullLogger<DesktopCreditSapPoster>.Instance);
         var fiscalOnly = new DesktopCreditNoteService(db, gateway, untouched,
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
-            NullLogger<DesktopCreditNoteService>.Instance);
+            Revmax, NullLogger<DesktopCreditNoteService>.Instance);
 
         var result = await fiscalOnly.CreateAsync(caller, "TILL-123",
             Request() with { PostToSap = false, SaleInSap = true }, default);
@@ -135,6 +195,63 @@ public sealed class DesktopCreditNoteTests : IDisposable
         Assert.Equal(DesktopCreditSapStatuses.FiscalOnly, saved.SapStatus);
         Assert.False(saved.UnitsReturnedToLedger);
         Assert.Null(saved.SapPostIssuedAtUtc);
+    }
+
+    /// <summary>
+    /// A vending credit memo says it reverses a vending sale, and names the vendor it was sold to.
+    /// </summary>
+    /// <remarks>
+    /// Every memo used to say "Reverses till sale {reference}", which is wrong on two of the three
+    /// routes that reach here and sends whoever is reconciling the return to the wrong place. The
+    /// vendor is named because CardCode is the depot's business partner and is the same on every sale
+    /// the depot makes, so the memo could not otherwise say whose return this was.
+    /// </remarks>
+    [Fact]
+    public async Task A_vending_credit_memo_names_the_vendor_and_the_right_source()
+    {
+        var sale = db.DesktopSales.Single();
+        sale.SourceSystem = SaleSourceSystems.Vending;
+        sale.RouteCustomerCode = "VMB001";
+        sale.RouteCustomerName = "Tarisai";
+        sale.SapDocEntry = 7001;
+        sale.SapDocNum = 48213;
+        sale.Lines.Add(new DesktopSaleLineEntity
+        {
+            LineNum = 1, ItemCode = "ICS025", ItemDescription = "Original product",
+            Quantity = 10, UnitPrice = 10m, LineTotal = 100m, WarehouseCode = "W1"
+        });
+        db.SaveChanges();
+
+        var memos = new List<CreateCreditNoteRequest>();
+        var posting = new DesktopCreditNoteService(db, gateway,
+            new DesktopCreditSapPoster(db,
+                StubProxy.For<ISAPServiceLayerClient>((m, args) => m.Name switch
+                {
+                    nameof(ISAPServiceLayerClient.GetCreditNoteByReferenceAsync) => (object)Task.FromResult<SAPCreditNote?>(null),
+                    nameof(ISAPServiceLayerClient.CreateCreditNoteAsync) => Record((CreateCreditNoteRequest)args![0]!),
+                    _ => throw new NotSupportedException(m.Name)
+                }),
+                StubProxy.For<IStockLedger>((m, _) => m.Name == nameof(IStockLedger.ReleaseAsync)
+                    ? Task.CompletedTask : throw new NotSupportedException(m.Name)),
+                StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+                NullLogger<DesktopCreditSapPoster>.Instance),
+            StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+            Revmax, NullLogger<DesktopCreditNoteService>.Instance);
+
+        var result = await posting.CreateAsync(caller, "TILL-123", Request() with { PostToSap = true }, default);
+
+        var memo = Assert.Single(memos);
+        Assert.Equal(
+            $"Reverses vending sale TILL-123 — vendor VMB001 (Tarisai) — fiscal credit {result.Number} "
+            + "— against receipt 456.",
+            memo.Comments);
+        Assert.True(memo.Comments!.Length <= DesktopSaleInvoiceRemarks.MaxLength);
+
+        Task<SAPCreditNote> Record(CreateCreditNoteRequest request)
+        {
+            memos.Add(request);
+            return Task.FromResult(new SAPCreditNote { DocEntry = 88002, DocNum = 88002, NumAtCard = request.SapReference });
+        }
     }
 
     [Fact]
@@ -169,7 +286,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
                 StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
                 NullLogger<DesktopCreditSapPoster>.Instance),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
-            NullLogger<DesktopCreditNoteService>.Instance);
+            Revmax, NullLogger<DesktopCreditNoteService>.Instance);
 
         var result = await posting.CreateAsync(caller, "TILL-123", Request() with { PostToSap = true }, default);
 
@@ -178,6 +295,18 @@ public sealed class DesktopCreditNoteTests : IDisposable
         Assert.Equal(88001, result.SapDocNum);
         Assert.Equal(7001, Assert.Single(memos).OriginalInvoiceDocEntry);
         Assert.Equal(2m, Assert.Single(returned).Quantity);
+
+        // What SAP shows in the memo's Remarks: which sale, which fiscal credit, which receipt.
+        var memo = Assert.Single(memos);
+        Assert.Equal(
+            $"Reverses till sale TILL-123 — fiscal credit {result.Number} — against receipt 456.",
+            memo.Comments);
+
+        // And NumAtCard still carries the fiscal credit number, not the buying party. It is the only
+        // key GetCreditNoteByReferenceAsync can probe on after a lost reply — a memo nothing can find
+        // again is a memo that gets raised twice, against a return that happened once. This is
+        // deliberately the opposite of the invoice's arrangement.
+        Assert.Equal(result.Number, memo.SapReference);
 
         Task<SAPCreditNote> Record(CreateCreditNoteRequest request)
         {
@@ -847,6 +976,11 @@ public sealed class DesktopCreditNoteTests : IDisposable
 
     private sealed class Gateway : IDesktopCreditFiscalGateway
     {
+        /// <summary>
+        /// How many times the original receipt was read. Zero is what proves a refusal happened before
+        /// the device was troubled at all, rather than several reads into the gateway.
+        /// </summary>
+        public int Reads;
         public int Submissions;
         public bool LoseReply;
         public string? Refusal;
@@ -854,12 +988,15 @@ public sealed class DesktopCreditNoteTests : IDisposable
         public FiscalizationResult? Existing;
         public FiscalizationResult? SubmitResult;
         public DesktopCreditExternalHistory External = DesktopCreditExternalHistory.None;
-        public Task<DesktopCreditSource> ReadOriginalAsync(DesktopSaleEntity sale, CancellationToken ct) =>
-            Task.FromResult(Source() with
+        public Task<DesktopCreditSource> ReadOriginalAsync(DesktopSaleEntity sale, CancellationToken ct)
+        {
+            Reads++;
+            return Task.FromResult(Source() with
             {
                 ExternalCreditedAmount = External.Amount,
                 ExternalCredits = External.Credits.Count == 0 ? null : External.Credits
             });
+        }
         public Task<FiscalizationResult?> FindAsync(DesktopCreditPlan plan, CancellationToken ct) => Task.FromResult(Existing);
         public Task<string?> PreflightAsync(DesktopCreditPlan plan, CancellationToken ct) => Task.FromResult(Refusal);
         public Task<FiscalizationResult> SubmitAsync(DesktopCreditPlan plan, CancellationToken ct)

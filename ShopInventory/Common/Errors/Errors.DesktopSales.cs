@@ -64,6 +64,34 @@ public static partial class Errors
         public static Error FiscalizationFailed(string message) =>
             Error.Failure("DesktopSales.FiscalizationFailed", message);
 
+        /// <summary>
+        /// The caller asked for a sale that is not fiscalised, on a route where every sale must be.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <c>Fiscalize: false</c> used to be honoured on every source: the sale was written
+        /// <c>Skipped</c>, and <c>Skipped</c> posted to SAP exactly as a fiscalised sale did — so a
+        /// caller could put an A/R invoice in front of ZIMRA's back with one flag, and the only trace
+        /// was the words "Not fiscalised" in the Remarks of a document nobody re-reads.
+        /// </para>
+        /// <para>
+        /// A Validation error, so a 400, for the reason <see cref="StockLedgerRefused"/> gives: the
+        /// till shows the server's reason only for a 400, and for any other status tells the cashier
+        /// the sale may or may not have been created. Here it certainly was not.
+        /// </para>
+        /// </remarks>
+        public static Error FiscalisationRequired(string sourceSystem) =>
+            Error.Validation("DesktopSales.FiscalisationRequired",
+                $"A {Describe(sourceSystem)} sale must be fiscalised, so it cannot be created with "
+                + "fiscalisation switched off. Nothing was sold. Send the sale without 'fiscalize: false'.");
+
+        private static string Describe(string sourceSystem) => sourceSystem switch
+        {
+            Sales.SaleSourceSystems.ShopTill => "shop till",
+            Sales.SaleSourceSystems.Vending => "vending",
+            var other => other
+        };
+
         public static Error ConsolidationFailed(string cardCode, string message) =>
             Error.Failure("DesktopSales.ConsolidationFailed",
                 $"Consolidation failed for {cardCode}: {message}");

@@ -84,28 +84,51 @@ public sealed class DesktopSalePostEligibilityTests
     }
 
     [Fact]
-    public void A_till_sale_that_was_never_offered_fiscalisation_may_still_be_posted()
+    public void A_sale_that_was_never_offered_fiscalisation_is_refused()
     {
-        // Skipped is not "failed to fiscalise" — it is what a sale gets when fiscalisation was not
-        // asked for or is switched off. It will never become Success, and it must still reach SAP,
-        // exactly as the background pass has always sent it.
-        Assert.Null(Refusal(
+        // Skipped used to post. It is what a sale got when the caller sent `fiscalize: false`, and the
+        // argument for letting it through was that it will never become Success, so holding it would
+        // strand it — which overlooked what letting it through buys: an A/R invoice in SAP for goods
+        // ZIMRA was never told about, on nothing but a flag in a request body. It is refused now, and
+        // the flag itself is refused at creation, so no new row can reach this state.
+        var refusal = Refusal(
             SaleSourceSystems.ShopTill,
             DesktopSaleConsolidationStatus.Pending,
-            DesktopSaleFiscalizationStatus.Skipped));
+            DesktopSaleFiscalizationStatus.Skipped);
+
+        Assert.Contains("fiscalisation switched off", refusal);
+
+        // Not a dead end. DesktopSaleFiscalisationRetry now offers a Skipped sale to the device, which
+        // is the only thing that can make one postable again — so the refusal says to do that rather
+        // than leaving the money with nowhere to go.
+        Assert.Contains("Retry fiscalisation", refusal);
+        Assert.Null(DesktopSaleFiscalisationRetry.ManualRefusal(
+            SaleSourceSystems.ShopTill,
+            DesktopSaleFiscalizationStatus.Skipped,
+            requiresReconciliation: false,
+            createdAtUtc: DateTime.UtcNow.AddDays(-1),
+            nowUtc: DateTime.UtcNow,
+            usesPlatform: false));
     }
 
     [Fact]
-    public void A_van_sale_that_was_never_stamped_may_still_be_posted()
+    public void A_van_sale_that_was_never_stamped_is_refused()
     {
-        // The one place the two routes genuinely disagree, and both are right. On a van sale
-        // `Failed` means the upload carried no usable signature; the van pass posts it anyway,
-        // because the money is real and the fiscal side is chased separately through
-        // ReceiptIngestStatus. Refusing here would strand takings the pass posts every night.
-        Assert.Null(Refusal(
+        // This used to be the one place the two routes disagreed: a van sale posted unfiscalised,
+        // because the handset had stamped it hours ago and the money was real either way. The half of
+        // that which does not hold is "stamped hours ago" — a stamped sale is written Success, so
+        // Failed means the handset stamped nothing, and under REVMax no handset can stamp at all. So
+        // Failed here means what it means on a till: a receipt the sweep has not signed yet.
+        //
+        // It matters more on a van, not less. A van sale posts one-to-one, and its invoice is exactly
+        // what the SAP-to-FDMS reconciliation goes looking for a receipt against.
+        var refusal = Refusal(
             SaleSourceSystems.VanSales,
             DesktopSaleConsolidationStatus.Pending,
-            DesktopSaleFiscalizationStatus.Failed));
+            DesktopSaleFiscalizationStatus.Failed);
+
+        Assert.Contains("fiscalisation failed", refusal);
+        Assert.Contains("Retry fiscalisation", refusal);
     }
 
     [Fact]

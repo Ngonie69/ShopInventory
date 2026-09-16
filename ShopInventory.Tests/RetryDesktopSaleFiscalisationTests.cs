@@ -133,19 +133,34 @@ public sealed class RetryDesktopSaleFiscalisationTests : IDisposable
         Assert.False(result.IsError);
     }
 
-    [Theory]
-    [InlineData(DesktopSaleFiscalizationStatus.Success)]
-    [InlineData(DesktopSaleFiscalizationStatus.Skipped)]
-    public async Task A_sale_that_is_not_owed_a_receipt_is_refused_before_anything_is_sent(
-        DesktopSaleFiscalizationStatus status)
+    [Fact]
+    public async Task A_sale_that_already_has_a_receipt_is_refused_before_anything_is_sent()
     {
-        await SeedAsync("KEF-FAC-6", status);
+        await SeedAsync("KEF-FAC-6", DesktopSaleFiscalizationStatus.Success);
 
         var result = await Retry("KEF-FAC-6", respond: Signed);
 
         Assert.True(result.IsError);
         Assert.Equal("DesktopSales.SaleNotFiscalisable", result.FirstError.Code);
         Assert.Equal(0, _lookups + _submissions);
+    }
+
+    [Fact]
+    public async Task A_sale_created_with_fiscalisation_switched_off_may_be_signed_on_request()
+    {
+        // Skipped used to be refused here, with "fiscalisation was not asked for when this sale was
+        // made" — true, and not a reason. It became one the moment the posting services stopped
+        // admitting a Skipped sale to SAP: the sale then has no receipt, no invoice, and no way to
+        // acquire either, and refusing the one control that could still fix it strands the money.
+        await SeedAsync("KEF-FAC-6b", DesktopSaleFiscalizationStatus.Skipped);
+
+        var result = await Retry("KEF-FAC-6b", respond: Signed);
+
+        Assert.False(result.IsError);
+
+        var sale = await _context.DesktopSales.AsNoTracking()
+            .SingleAsync(row => row.ExternalReferenceId == "KEF-FAC-6b");
+        Assert.Equal(DesktopSaleFiscalizationStatus.Success, sale.FiscalizationStatus);
     }
 
     [Fact]

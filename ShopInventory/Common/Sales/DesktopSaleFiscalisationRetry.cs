@@ -94,13 +94,21 @@ public static class DesktopSaleFiscalisationRetry
         DateTime nowUtc,
         bool usesPlatform)
     {
-        switch (status)
+        if (status == DesktopSaleFiscalizationStatus.Success)
         {
-            case DesktopSaleFiscalizationStatus.Success:
-                return "This sale is already fiscalised.";
-            case DesktopSaleFiscalizationStatus.Skipped:
-                return "Fiscalisation was not asked for when this sale was made.";
+            return "This sale is already fiscalised.";
         }
+
+        // Skipped is retryable, and used not to be — it was refused with "fiscalisation was not asked
+        // for when this sale was made", which was true and was not a reason. It became a reason the
+        // moment the posting services stopped admitting a Skipped sale to SAP: the sale then has no
+        // receipt, no invoice and no way to acquire either, and refusing the one control that could
+        // still fix it strands the money permanently.
+        //
+        // Safe for the same reason every retry here is safe — the device is asked whether it already
+        // holds a receipt under this sale's reference before anything is submitted, and if it cannot
+        // be asked, nothing is sent. Whether fiscalisation was originally asked for changes nothing
+        // about that question.
 
         if (sourceSystem is null || !RetriedSources(usesPlatform).Contains(sourceSystem))
         {

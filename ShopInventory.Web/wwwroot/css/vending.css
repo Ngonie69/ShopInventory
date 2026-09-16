@@ -213,6 +213,15 @@
     white-space: nowrap;
 }
 
+/* The credit action, last in the invoices table. Narrow and never wrapped: the
+   button is the column, and the row is already the widest on the page. */
+.vend .shop-table .vend-credit-col {
+    width: 1%;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    white-space: nowrap;
+}
+
 .vend .shop-table .vend-cell-soft {
     font-size: 13px;
     color: var(--shop-ink-2);

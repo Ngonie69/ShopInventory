@@ -98,6 +98,24 @@ public sealed class CreateDesktopSaleHandler(
     {
         var req = command.Request;
 
+        // Every till and vending sale is fiscalised, and a caller may not opt out of it.
+        //
+        // Refused here, before the account is even read, because there is no version of this request
+        // worth taking: the sale would be written Skipped, and a Skipped sale used to post to SAP
+        // alongside the fiscalised ones — an A/R invoice for goods ZIMRA was never told about, with
+        // nothing to show for it but a line in the Remarks. The posting services now refuse Skipped
+        // too; this is the half that says so at the counter rather than silently holding the sale.
+        //
+        // Only these two sources. The legacy desktop source is left alone deliberately: it is
+        // consolidated at 18:00 rather than posted per sale, its callers predate the flag, and
+        // refusing them here would stop sales that have always been taken this way.
+        var declaredSource = SaleSourceSystems.NormalizeTillSource(req.SourceSystem);
+
+        if (!req.Fiscalize && SaleSourceSystems.IsSupportedTillSource(declaredSource))
+        {
+            return Errors.DesktopSales.FiscalisationRequired(declaredSource);
+        }
+
         // A till sells as the account that signed in. Who the sale invoices, which warehouse the
         // stock leaves and which cost centre it books to are read from there — the request used to
         // say all three and nothing checked them, so any authenticated till could sell from any
