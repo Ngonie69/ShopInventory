@@ -434,13 +434,48 @@ public sealed class StockLedgerReconcileTests : IDisposable
     }
 
     /// <summary>
-    /// A row still at its morning figure has had nothing happen to it this system knows about, and
-    /// asking SAP about every one of them is the whole-warehouse scan that starves the six process-
-    /// wide SAP slots. The restraint is real and so is its cost, which is why it is pinned here.
+    /// The hole that comparing only moved rows left open. A row still at its morning figure has had
+    /// nothing happen to it <i>this system</i> knows about — which is exactly what a goods issue or a
+    /// stock count done in the SAP client looks like from here. It used to be passed over, so it
+    /// stayed wrong until the next morning and the till sold against it all day.
     /// </summary>
     [Fact]
-    public async Task An_untouched_row_is_not_compared_and_not_corrected()
+    public async Task An_untouched_row_is_compared_and_corrected()
     {
+        await SeedRowAsync(Shop, Item, original: 100m, available: 100m);
+        _sapIssuable[Item] = 40m;
+
+        await RunAsync();
+
+        Assert.Equal(40m, await AvailableAsync(Shop, Item));
+        Assert.Single(await _context.StockLedgerDivergences.AsNoTracking().ToListAsync());
+    }
+
+    /// <summary>
+    /// A van's figure is its morning load by design, not a live reading, so an untouched van row is
+    /// not a divergence and must not be reported as one — the vans would otherwise be the whole
+    /// report, every hour.
+    /// </summary>
+    [Fact]
+    public async Task An_untouched_van_row_is_still_left_alone()
+    {
+        await SeedRowAsync(Van, Item, original: 100m, available: 100m);
+        _sapIssuable[Item] = 40m;
+
+        await RunAsync();
+
+        Assert.Equal(100m, await AvailableAsync(Van, Item));
+        Assert.Empty(await _context.StockLedgerDivergences.AsNoTracking().ToListAsync());
+    }
+
+    /// <summary>
+    /// Turning the slice off restores the old behaviour exactly, which is what the setting is for on a
+    /// day SAP cannot take the extra reads.
+    /// </summary>
+    [Fact]
+    public async Task With_no_slice_an_untouched_row_is_passed_over_again()
+    {
+        _settings.ReconcileItemsPerPass = 0;
         await SeedRowAsync(Shop, Item, original: 100m, available: 100m);
         _sapIssuable[Item] = 40m;
 
@@ -448,6 +483,67 @@ public sealed class StockLedgerReconcileTests : IDisposable
 
         Assert.Equal(100m, await AvailableAsync(Shop, Item));
         Assert.Empty(await _context.StockLedgerDivergences.AsNoTracking().ToListAsync());
+    }
+
+    /// <summary>
+    /// A row that moved is compared whatever the slice is doing, so a busy warehouse never trades the
+    /// rows it knows changed for the rows it is guessing about.
+    /// </summary>
+    [Fact]
+    public async Task A_moved_row_keeps_its_place_when_the_slice_is_full()
+    {
+        _settings.ReconcileItemsPerPass = 1;
+        await SeedRowAsync(Shop, Item, original: 100m, available: 60m);
+        await SeedRowAsync(Shop, "ICA004", original: 100m, available: 100m);
+        await SeedRowAsync(Shop, "ICA005", original: 100m, available: 100m);
+        _sapIssuable[Item] = 40m;
+        _sapIssuable["ICA004"] = 100m;
+        _sapIssuable["ICA005"] = 100m;
+
+        await RunAsync();
+
+        Assert.Equal(40m, await AvailableAsync(Shop, Item));
+    }
+
+    // ---------------------------------------------------------------
+    // The rotation
+    // ---------------------------------------------------------------
+
+    /// <summary>Consecutive hours take consecutive slices, and the slice wraps.</summary>
+    [Fact]
+    public void The_window_advances_by_one_slice_an_hour_and_wraps()
+    {
+        string[] items = ["A", "B", "C", "D", "E"];
+        var hour = new DateTime(2026, 9, 16, 8, 0, 0, DateTimeKind.Utc);
+
+        var first = StockLedgerDivergenceJob.RotatingWindow(items, 2, hour).ToList();
+        var second = StockLedgerDivergenceJob.RotatingWindow(items, 2, hour.AddHours(1)).ToList();
+
+        Assert.Equal(2, first.Count);
+        Assert.Equal(2, second.Count);
+        Assert.NotEqual(first, second);
+
+        // Every item is reached within one full cycle, which is what stops a row hiding for a day.
+        var seen = new HashSet<string>();
+        for (var offset = 0; offset < items.Length; offset++)
+        {
+            seen.UnionWith(StockLedgerDivergenceJob.RotatingWindow(items, 2, hour.AddHours(offset)));
+        }
+
+        Assert.Equal(items.Length, seen.Count);
+    }
+
+    [Fact]
+    public void A_window_wider_than_the_list_asks_for_every_item_once()
+    {
+        string[] items = ["A", "B", "C"];
+
+        var window = StockLedgerDivergenceJob
+            .RotatingWindow(items, 99, new DateTime(2026, 9, 16, 8, 0, 0, DateTimeKind.Utc))
+            .ToList();
+
+        Assert.Equal(3, window.Count);
+        Assert.Equal(items.OrderBy(item => item), window.OrderBy(item => item));
     }
 
     /// <summary>
