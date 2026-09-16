@@ -526,6 +526,9 @@ function Get-BlueGreenDeploymentDefinitions {
             LegacyPath           = $ApiPath
             WarmupPath           = '/health/deploy-ready'
             ReadyPath            = '/health/ready'
+            # The cheap one. It is polled several times a second across the cutover, so it has to be
+            # the check that touches nothing: /health/ready pings the database and the API.
+            LivePath             = '/health/live'
             WarmupTimeoutSeconds = 180
             Slots                = @(
                 [pscustomobject]@{
@@ -552,6 +555,7 @@ function Get-BlueGreenDeploymentDefinitions {
             LegacyPath           = $WebPath
             WarmupPath           = '/health/deploy-ready'
             ReadyPath            = '/health/ready'
+            LivePath             = '/health/live'
             WarmupTimeoutSeconds = 240
             Slots                = @(
                 [pscustomobject]@{
@@ -1571,6 +1575,7 @@ try {
                 PublicPort           = [int]$definition.PublicPort
                 WarmupPath           = $definition.WarmupPath
                 ReadyPath            = $definition.ReadyPath
+                LivePath             = $definition.LivePath
                 WarmupTimeoutSeconds = [int]$definition.WarmupTimeoutSeconds
                 ActiveSlot           = $activeSlot
                 CurrentSiteName      = $currentSiteName
@@ -1583,6 +1588,7 @@ try {
                 TargetPort           = [int]$targetConfig.Port
                 TargetWarmupUrl      = "http://localhost:$($targetConfig.Port)$($definition.WarmupPath)"
                 PublicReadyUrl       = "http://localhost:$($definition.PublicPort)$($definition.ReadyPath)"
+                PublicLiveUrl        = "http://localhost:$($definition.PublicPort)$($definition.LivePath)"
             }
         }
 
@@ -2286,6 +2292,200 @@ Then redeploy with:
                 return [pscustomobject]@{ Success = $false; Message = $lastError }
             }
 
+            # A cutover takes the public port off the live IIS slot and gives it to the new one, and
+            # for as long as anyone has been deploying this application nobody could say what that
+            # costs. It is known to cost something: on 14 September 2026 three merges deployed between
+            # 16:00 and 16:40 CAT, KEFSHOP's till lost its notification connection at the end of each,
+            # and a sale posted at 16:41 got a 502 while the API went on writing it. That is why a
+            # merge waits for the evening.
+            #
+            # These three watch the public port across the switch from the box itself and say how long
+            # it answered nothing. They change nothing about the cutover; the point is to find out what
+            # the existing one actually does, over a few deployments, before anyone proposes altering
+            # it. An attempt at altering it first, on 16 September 2026, took the Web down for four
+            # minutes - and it was this measurement that said so.
+            #
+            # Get-LongestOutage is pure so scripts/Test-DeployCutoverProbe.ps1 can hand it sequences no
+            # real cutover would conveniently produce.
+            function Get-LongestOutage {
+                param([object[]]$Samples)
+
+                $ordered = @(@($Samples) | Sort-Object At)
+                $failures = @($ordered | Where-Object { -not $_.Ok }).Count
+
+                # Measured from the last probe that answered to the first that answered again, so it is
+                # an upper bound: the port may have come back at any point in between. Erring long is
+                # the right way round for a number that exists to be believed about an outage.
+                $longest = 0.0
+                $lastGoodAt = $null
+                $outageOpen = $false
+
+                foreach ($sample in $ordered) {
+                    if ($sample.Ok) {
+                        if ($outageOpen) {
+                            $from = if ($null -ne $lastGoodAt) { $lastGoodAt } else { $ordered[0].At }
+                            $longest = [math]::Max($longest, ($sample.At - $from).TotalMilliseconds)
+                            $outageOpen = $false
+                        }
+
+                        $lastGoodAt = $sample.At
+                        continue
+                    }
+
+                    $outageOpen = $true
+                }
+
+                # Still down when the probe stopped. Measured to the last sample, which is all that is known.
+                if ($outageOpen -and $ordered.Count -gt 0) {
+                    $from = if ($null -ne $lastGoodAt) { $lastGoodAt } else { $ordered[0].At }
+                    $longest = [math]::Max($longest, ($ordered[$ordered.Count - 1].At - $from).TotalMilliseconds)
+                }
+
+                # How far apart consecutive probes actually landed. "No failures" is only ever as strong
+                # as this: an outage shorter than the widest gap between two probes could have happened
+                # between them and gone unseen. A thread that stalls shows up here rather than as a
+                # clean bill of health.
+                $widestGap = 0.0
+                for ($i = 1; $i -lt $ordered.Count; $i++) {
+                    $widestGap = [math]::Max($widestGap, ($ordered[$i].At - $ordered[$i - 1].At).TotalMilliseconds)
+                }
+
+                [pscustomobject]@{
+                    Probes          = $ordered.Count
+                    Failures        = $failures
+                    LongestOutageMs = [int][math]::Round($longest)
+                    MaxSampleGapMs  = [int][math]::Round($widestGap)
+                }
+            }
+
+            function Start-PublicPortProbe {
+                param(
+                    [string]$Url,
+                    [int]$IntervalMilliseconds = 40
+                )
+
+                if ([string]::IsNullOrWhiteSpace($Url)) { return $null }
+
+                try {
+                    $shared = [hashtable]::Synchronized(@{
+                            Stop    = $false
+                            Samples = New-Object System.Collections.ArrayList
+                        })
+
+                    # A runspace, not Start-Job: this runs inside a WinRM session, where a child
+                    # process is both slower to start and easier to have blocked.
+                    $runspace = [runspacefactory]::CreateRunspace()
+                    $runspace.Open()
+                    $runspace.SessionStateProxy.SetVariable('shared', $shared)
+                    $runspace.SessionStateProxy.SetVariable('probeUrl', $Url)
+                    $runspace.SessionStateProxy.SetVariable('probeInterval', $IntervalMilliseconds)
+
+                    $shell = [powershell]::Create()
+                    $shell.Runspace = $runspace
+                    [void]$shell.AddScript({
+                            while (-not $shared.Stop) {
+                                $answered = $false
+
+                                try {
+                                    $request = [System.Net.HttpWebRequest]::Create($probeUrl)
+                                    $request.Method = 'GET'
+                                    # Short on purpose. A probe that straddles the switch can connect
+                                    # into a listen backlog whose socket is then closed and wait for a
+                                    # response that is never coming; at two seconds that one probe
+                                    # blinded the measurement for longer than the outage it was there
+                                    # to see. /health/live on localhost answers in single-figure
+                                    # milliseconds.
+                                    $request.Timeout = 300
+                                    $request.ReadWriteTimeout = 300
+                                    # No proxy lookup: the target is localhost, and resolving the
+                                    # system proxy on every call is latency inside the sample.
+                                    $request.Proxy = $null
+                                    # A fresh connection each time. A pooled one would go on answering
+                                    # from a socket HTTP.sys had already handed over, which is exactly
+                                    # the thing being measured.
+                                    $request.KeepAlive = $false
+                                    $response = $request.GetResponse()
+                                    # Belt and braces, and it never fires: GetResponse throws on any
+                                    # 4xx or 5xx, so an error status arrives at the catch below rather
+                                    # than here. That is the path that matters - through the
+                                    # 14 September gap the port stayed bound and HTTP.sys answered
+                                    # 404, and a 404 counted as an answer would turn the outage this
+                                    # exists to measure into a clean bill of health.
+                                    $answered = ([int]$response.StatusCode -lt 400)
+                                    $response.Close()
+                                }
+                                catch {
+                                    # No connection, no response in time, or a status HTTP.sys itself
+                                    # returned. None of them is the public port serving the shops.
+                                    $answered = $false
+                                }
+
+                                [void]$shared.Samples.Add([pscustomobject]@{ At = [DateTime]::UtcNow; Ok = $answered })
+                                Start-Sleep -Milliseconds $probeInterval
+                            }
+                        })
+
+                    $probe = [pscustomobject]@{
+                        Shared   = $shared
+                        Shell    = $shell
+                        Runspace = $runspace
+                        Handle   = $null
+                    }
+
+                    $probe.Handle = $shell.BeginInvoke()
+
+                    # BeginInvoke queues the loop; it does not run it. Returning before the first probe
+                    # has been taken would let the switch happen while the runspace was still waiting
+                    # for a thread, and the cutover would then report a clean handover it never
+                    # watched. Saying nothing is fine. Saying zero when nobody looked is not.
+                    $deadline = (Get-Date).AddSeconds(10)
+                    while ($shared.Samples.Count -eq 0 -and (Get-Date) -lt $deadline) {
+                        Start-Sleep -Milliseconds 5
+                    }
+
+                    if ($shared.Samples.Count -eq 0) {
+                        $shared.Stop = $true
+                        try { [void]$shell.EndInvoke($probe.Handle) } catch { }
+                        $shell.Dispose()
+                        $runspace.Dispose()
+
+                        Write-Host "  Note: the public port probe never took a sample, so this cutover goes unmeasured." -ForegroundColor DarkGray
+                        return $null
+                    }
+
+                    return $probe
+                }
+                catch {
+                    # Measuring the cutover must never be the reason a cutover fails.
+                    Write-Host "  Note: could not start the public port probe, so this cutover goes unmeasured: $($_.Exception.Message)" -ForegroundColor DarkGray
+                    return $null
+                }
+            }
+
+            function Stop-PublicPortProbe {
+                param([object]$Probe)
+
+                if ($null -eq $Probe) { return $null }
+
+                try {
+                    $Probe.Shared.Stop = $true
+                    [void]$Probe.Shell.EndInvoke($Probe.Handle)
+                    $samples = @($Probe.Shared.Samples)
+                }
+                catch {
+                    Write-Host "  Note: the public port probe did not finish cleanly: $($_.Exception.Message)" -ForegroundColor DarkGray
+                    $samples = @()
+                }
+                finally {
+                    $Probe.Shell.Dispose()
+                    $Probe.Runspace.Dispose()
+                }
+
+                if (@($samples).Count -eq 0) { return $null }
+
+                return Get-LongestOutage -Samples $samples
+            }
+
             function Get-LatestStdoutLogTail {
                 param([string]$AppPath)
 
@@ -2559,7 +2759,27 @@ Then redeploy with:
                 }
 
                 Write-Host "  Switching public binding to the healthy slot site..." -ForegroundColor Gray
-                Switch-PublicTrafficToSite -DeploymentPlan $Plan -DestinationSiteName $Plan.TargetSiteName -DestinationAppPoolName $Plan.TargetAppPoolName
+
+                # Watched, not changed. The switch below is exactly the one that has always run.
+                $probe = Start-PublicPortProbe -Url $Plan.PublicLiveUrl
+                try {
+                    Switch-PublicTrafficToSite -DeploymentPlan $Plan -DestinationSiteName $Plan.TargetSiteName -DestinationAppPoolName $Plan.TargetAppPoolName
+                }
+                finally {
+                    # Long enough for the probe to see the far side of the switch, not only the near one.
+                    Start-Sleep -Milliseconds 750
+                    $cutoverOutage = Stop-PublicPortProbe -Probe $probe
+                }
+
+                if ($null -eq $cutoverOutage) {
+                    Write-Host "  Cutover went unmeasured: no probe samples." -ForegroundColor DarkGray
+                }
+                elseif ($cutoverOutage.Failures -eq 0) {
+                    Write-Host "  Public port answered all $($cutoverOutage.Probes) probes across the cutover; nothing longer than $($cutoverOutage.MaxSampleGapMs)ms could have gone unseen between them." -ForegroundColor Green
+                }
+                else {
+                    Write-Host "  Public port went unanswered for up to $($cutoverOutage.LongestOutageMs)ms across the cutover ($($cutoverOutage.Failures) of $($cutoverOutage.Probes) probes failed)." -ForegroundColor Yellow
+                }
 
                 $publicWarmup = Wait-ForHealthyEndpoint -Url $Plan.PublicReadyUrl -TimeoutSeconds $Plan.WarmupTimeoutSeconds -AppName $Plan.Name -Phase 'public' -AppPath $Plan.TargetPath
                 if (-not $publicWarmup.Success) {
@@ -2583,10 +2803,14 @@ Then redeploy with:
                 $fileCount = (Get-ChildItem -Path $Plan.TargetPath -Recurse -File -ErrorAction SilentlyContinue).Count
 
                 [pscustomobject]@{
-                    Name       = $Plan.Name
-                    ActiveSlot = $Plan.TargetSlot
-                    FileCount  = $fileCount
-                    TargetPath = $Plan.TargetPath
+                    Name            = $Plan.Name
+                    ActiveSlot      = $Plan.TargetSlot
+                    FileCount       = $fileCount
+                    TargetPath      = $Plan.TargetPath
+                    CutoverOutageMs = if ($null -ne $cutoverOutage) { $cutoverOutage.LongestOutageMs } else { $null }
+                    CutoverProbes   = if ($null -ne $cutoverOutage) { $cutoverOutage.Probes } else { 0 }
+                    CutoverFailures = if ($null -ne $cutoverOutage) { $cutoverOutage.Failures } else { 0 }
+                    CutoverGapMs    = if ($null -ne $cutoverOutage) { $cutoverOutage.MaxSampleGapMs } else { 0 }
                 }
             }
             finally {
@@ -2725,6 +2949,45 @@ foreach ($result in $cutoverResults) {
         Write-Host "  - Web: http://$ProductionServer`:5107/ (active slot: $($result.ActiveSlot))" -ForegroundColor White
     }
 }
+Write-Host ""
+Write-Host "Cutover:" -ForegroundColor Cyan
+foreach ($result in $cutoverResults) {
+    if ($null -eq $result.CutoverOutageMs) {
+        Write-Host "  - $($result.Name): unmeasured." -ForegroundColor DarkGray
+    }
+    elseif ($result.CutoverFailures -eq 0) {
+        Write-Host "  - $($result.Name): the public port answered all $($result.CutoverProbes) probes, taken at most $($result.CutoverGapMs)ms apart." -ForegroundColor White
+    }
+    else {
+        Write-Host "  - $($result.Name): the public port went unanswered for up to $($result.CutoverOutageMs)ms ($($result.CutoverFailures)/$($result.CutoverProbes) probes)." -ForegroundColor Yellow
+    }
+}
+
+# Put where the person who merged will see it, rather than only in a runner log nobody opens: this
+# number is the whole reason the measurement exists, and the case for or against ever deploying
+# during trading hours will be made out of a run of them. Written only when GitHub Actions is the
+# caller; a deployment by hand has it on screen already.
+if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_STEP_SUMMARY)) {
+    $summaryLines = @('### Cutover', '', '| Application | Active slot | Public port unanswered |', '| --- | --- | --- |')
+    foreach ($result in $cutoverResults) {
+        $outage = if ($null -eq $result.CutoverOutageMs) {
+            'not measured'
+        }
+        elseif ($result.CutoverFailures -eq 0) {
+            "none seen: all $($result.CutoverProbes) probes answered, taken at most $($result.CutoverGapMs)ms apart"
+        }
+        else {
+            "up to $($result.CutoverOutageMs)ms ($($result.CutoverFailures)/$($result.CutoverProbes) probes)"
+        }
+
+        $summaryLines += "| $($result.Name) | $($result.ActiveSlot) | $outage |"
+    }
+
+    # utf8 is fine here, unlike GITHUB_OUTPUT: a byte-order mark in the summary is invisible markdown,
+    # where in an output it would corrupt the key it leads.
+    ($summaryLines -join [Environment]::NewLine) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+}
+
 Write-Host ""
 Write-Host "Quick commands:" -ForegroundColor Yellow
 Write-Host "  - Restart only: .\Update-Production.ps1 -RestartOnly" -ForegroundColor White
