@@ -18,6 +18,28 @@ otherwise be surprised.
 
 ### Added
 
+- **`GET /api/DesktopIntegration/sales` now takes the whole filter surface, and can count it.**
+
+  It filtered on one warehouse, one consolidation status and one channel, sorted on nothing, and
+  counted nothing. It now also takes the repeatable `warehouses`, `consolidationStatuses`,
+  `fiscalizationStatuses`, `paymentMethods` and `sourceSystems` — the many-value forms of those
+  filters, combined with the singular ones rather than replacing them, so every existing caller is
+  unchanged — plus `minTotal`/`maxTotal` (inclusive), `paymentDifference` (`any`, `exact`, `under`,
+  `over`, comparing what was tendered with what was rung up) and `sort` (`newest`, `oldest`,
+  `total-desc`, `total-asc`, `customer`). `search` now matches the customer's code and name as well.
+
+  `includeFacets=true` — off by default, because it is five grouped counts a polling till has no use
+  for — adds `facets`: for each of those five groups, every value present and how many sales would
+  match if it alone were selected. Each group is counted with **its own** selection lifted and every
+  other filter still applied, so a chip built on it says what pressing it would give. It also adds
+  `unfilteredCount`, what the period holds before any of the request's own filters narrowed it.
+
+  Naming a channel still turns off the default scope that hides the online van receipt carriers, and
+  a shop-scoped caller naming any warehouse but their own is still refused rather than narrowed —
+  including when the set they send contains one they may read. The `/desktop-sales` console is
+  rebuilt on all of it: a search, chip groups carrying their counts, an amount window, a tender
+  comparison, a row of pills naming what is set, a sort and a rows-per-page control.
+
 - **A shop-till sale that fails to fiscalise is now recovered, automatically and on request.**
 
   A `KefalosShopTill` sale fiscalises inline, and one failed attempt used to be final: the fiscalisation

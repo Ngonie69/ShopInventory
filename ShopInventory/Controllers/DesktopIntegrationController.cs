@@ -1001,6 +1001,19 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// assigned to a shop is confined to that shop's warehouse and naming another is refused; only the
     /// console and integration roles read across every shop. This needs a real user rather than the
     /// loose claim read elsewhere on this controller — an API key carries no account to scope by.
+    ///
+    /// <para>
+    /// <paramref name="warehouses"/>, <paramref name="consolidationStatuses"/> and
+    /// <paramref name="sourceSystems"/> are the repeatable forms of the three singular filters above
+    /// them — <c>?warehouses=KEFSHOP&amp;warehouses=KEFWH2</c> — for a console whose controls are rows
+    /// of chips. A request may use either form or both; they are the same filter and are combined.
+    /// </para>
+    ///
+    /// <para>
+    /// <paramref name="includeFacets"/> adds, per filter group, what each value would return if it were
+    /// the one selected, and the count this period holds unfiltered. Off by default: it is five extra
+    /// grouped counts, which a console's filter panel needs and a polling till does not.
+    /// </para>
     /// </remarks>
     [HttpGet("sales")]
     public async Task<IActionResult> GetDesktopSales(
@@ -1013,6 +1026,16 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         [FromQuery] int pageSize = 50,
         [FromQuery] string? sourceSystem = null,
         [FromQuery] string? search = null,
+        [FromQuery] string[]? warehouses = null,
+        [FromQuery] string[]? consolidationStatuses = null,
+        [FromQuery] string[]? fiscalizationStatuses = null,
+        [FromQuery] string[]? paymentMethods = null,
+        [FromQuery] string[]? sourceSystems = null,
+        [FromQuery] decimal? minTotal = null,
+        [FromQuery] decimal? maxTotal = null,
+        [FromQuery] string? paymentDifference = null,
+        [FromQuery] string? sort = null,
+        [FromQuery] bool includeFacets = false,
         CancellationToken cancellationToken = default)
     {
         var userId = UserClaimReader.GetUserId(User);
@@ -1021,7 +1044,10 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 
         var result = await mediator.Send(
             new GetDesktopSalesQuery(
-                userId.Value, warehouseCode, cardCode, consolidationStatus, fromDate, toDate, page, pageSize, sourceSystem, search),
+                userId.Value, warehouseCode, cardCode, consolidationStatus, fromDate, toDate, page, pageSize,
+                sourceSystem, search,
+                warehouses, consolidationStatuses, fiscalizationStatuses, paymentMethods, sourceSystems,
+                minTotal, maxTotal, paymentDifference, sort, includeFacets),
             cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }

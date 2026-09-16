@@ -21,6 +21,21 @@ namespace ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
 /// <c>Search</c> narrows to sales whose till reference, fiscal receipt number or route customer's code or
 /// name contains the text, ignoring case, or whose SAP document number is that number. It finds; it does
 /// not widen — every other filter and the caller's scope still apply.
+///
+/// <para>
+/// <b>The four plural filters and their singular twins.</b> <c>Warehouses</c>, <c>ConsolidationStatuses</c>
+/// and <c>SourceSystems</c> each stand beside a singular parameter that predates them, and a caller may
+/// use either. The singular is folded into the plural before anything is filtered — see
+/// <see cref="Warehouses"/> and its siblings' resolvers on the handler — so the two cannot disagree, and
+/// the many existing callers that pass one string keep working unchanged. <c>FiscalizationStatuses</c> and
+/// <c>PaymentMethods</c> have no singular twin because nothing ever filtered on them.
+/// </para>
+///
+/// <para>
+/// <b>Naming a source turns the default scope off.</b> That is true of <c>SourceSystems</c> exactly as it
+/// was of <c>SourceSystem</c>: an empty list is the default scope, which excludes
+/// <c>SaleSourceSystems.VanSalesOnline</c>, and a non-empty one is taken literally.
+/// </para>
 /// </remarks>
 public sealed record GetDesktopSalesQuery(
     Guid CallerUserId,
@@ -32,15 +47,113 @@ public sealed record GetDesktopSalesQuery(
     int Page = 1,
     int PageSize = 50,
     string? SourceSystem = null,
-    string? Search = null
+    string? Search = null,
+    IReadOnlyList<string>? Warehouses = null,
+    IReadOnlyList<string>? ConsolidationStatuses = null,
+    IReadOnlyList<string>? FiscalizationStatuses = null,
+    IReadOnlyList<string>? PaymentMethods = null,
+    IReadOnlyList<string>? SourceSystems = null,
+    decimal? MinTotal = null,
+    decimal? MaxTotal = null,
+    string? PaymentDifference = null,
+    string? Sort = null,
+
+    // Off unless a caller says it will draw them. Facets are five grouped counts and a second total over
+    // the same window as the list — worth it for a console whose filter panel shows what each chip would
+    // give, and pure waste for a till polling for its own recent sales.
+    bool IncludeFacets = false
 ) : IRequest<ErrorOr<DesktopSalesListResult>>;
+
+/// <summary>How a page of sales is ordered. Anything unrecognised is <see cref="Newest"/>.</summary>
+/// <remarks>
+/// Ordering belongs to the query rather than to the reader because the reader holds one page. A console
+/// that sorted the fifty rows it was handed would be sorting a page of the answer, not the answer, and
+/// "total, high to low" would name the largest sale on page three and not the largest sale.
+/// </remarks>
+public static class DesktopSalesSortOrders
+{
+    public const string Newest = "newest";
+    public const string Oldest = "oldest";
+    public const string TotalDescending = "total-desc";
+    public const string TotalAscending = "total-asc";
+    public const string Customer = "customer";
+}
+
+/// <summary>
+/// Which sales to keep by how their tender compares with what they were rung up for.
+/// </summary>
+/// <remarks>
+/// A shop till rounds cash up, so an overpaid sale is the change the customer was given and is normal. An
+/// underpaid one is not: the drawer took less than the invoice says, and the two go out of a day's takings
+/// in opposite directions. Anything unrecognised is <see cref="Any"/>.
+/// </remarks>
+public static class DesktopSalesPaymentDifferences
+{
+    public const string Any = "any";
+    public const string Exact = "exact";
+    public const string Under = "under";
+    public const string Over = "over";
+}
+
+/// <summary>
+/// Reserved filter values, which stand for something no stored value could.
+/// </summary>
+public static class DesktopSalesFilterValues
+{
+    /// <summary>
+    /// The column is empty: a sale whose till recorded no tender, or a row written before its source
+    /// was named.
+    /// </summary>
+    /// <remarks>
+    /// A facet reports blanks under this rather than as the empty string, and the matching filter
+    /// accepts it, because the two have to be the same word. A console draws its chips from the
+    /// facet, so a blank reported as "" would come back as a filter value that a query string drops
+    /// and an <c>IN</c> list cannot express — a chip that looked set, counted towards the badge, and
+    /// narrowed nothing.
+    /// </remarks>
+    public const string Blank = "(blank)";
+}
+
+/// <summary>One value a filter group could be set to, and how many sales would still match if it were.</summary>
+public sealed record DesktopSalesFacet(string Value, int Count);
+
+/// <summary>
+/// What each filter group would return, counted against every <i>other</i> filter in the request.
+/// </summary>
+/// <remarks>
+/// Counted with the group's own selection lifted, which is the only count that is any use on the control
+/// that sets it: a console drawing "Failed 3" beside a chip is telling the operator what pressing it would
+/// give them. Counted with the selection still applied, an unpicked chip in a group where something else is
+/// picked would always read 0, and every chip would look like a dead end.
+///
+/// The period, the caller's warehouse scope, the search and every other group still apply, so these are
+/// counts within what the operator is already looking at rather than counts of the table.
+/// </remarks>
+public sealed record DesktopSalesFacets(
+    List<DesktopSalesFacet> Consolidation,
+    List<DesktopSalesFacet> Fiscalization,
+    List<DesktopSalesFacet> Warehouse,
+    List<DesktopSalesFacet> PaymentMethod,
+    List<DesktopSalesFacet> SourceSystem
+)
+{
+    public static DesktopSalesFacets Empty => new([], [], [], [], []);
+}
 
 public sealed record DesktopSalesListResult(
     List<DesktopSaleListItemDto> Sales,
     int TotalCount,
     int Page,
     int PageSize,
-    bool HasMore
+    bool HasMore,
+
+    // What this period holds before any of the request's own filters narrowed it: the denominator behind
+    // a console's "filtered from N". The caller's scope and the period and nothing else — the period is
+    // what the operator chose to look at, and a number that ignored it would compare a day against the
+    // whole table.
+    int UnfilteredCount = 0,
+
+    DesktopSalesFacets? Facets = null
 );
 
 public sealed record DesktopSaleListItemDto(

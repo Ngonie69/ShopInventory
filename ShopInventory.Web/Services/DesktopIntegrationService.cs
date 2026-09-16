@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
 using ShopInventory.Web.Models;
@@ -37,6 +38,17 @@ public interface IDesktopIntegrationService
 
     // Desktop Sales (offline invoicing)
     Task<DesktopSalesListResponse?> GetDesktopSalesAsync(string? warehouseCode = null, string? cardCode = null, string? consolidationStatus = null, DateTime? fromDate = null, DateTime? toDate = null, int page = 1, int pageSize = 50, string? sourceSystem = null, string? search = null);
+
+    /// <summary>
+    /// The same read, asked with the whole filter surface rather than the nine parameters above it.
+    /// </summary>
+    /// <remarks>
+    /// The console's filter panel sets a dozen things at once — several warehouses, several statuses, an
+    /// amount window, a sort — and a parameter list that long is a row of nulls at every call site that
+    /// does not use it. The short form above delegates here, so there is one place the query string is
+    /// built and the two forms cannot come to disagree.
+    /// </remarks>
+    Task<DesktopSalesListResponse?> GetDesktopSalesAsync(DesktopSalesQuery query);
     Task<EndOfDayReportDto?> GetEndOfDayReportAsync(DateTime? reportDate = null);
 
     // Local Stock Snapshots
@@ -333,25 +345,69 @@ public class DesktopIntegrationService : IDesktopIntegrationService
 
     #region Desktop Sales & Local Stock
 
-    public async Task<DesktopSalesListResponse?> GetDesktopSalesAsync(string? warehouseCode = null, string? cardCode = null, string? consolidationStatus = null, DateTime? fromDate = null, DateTime? toDate = null, int page = 1, int pageSize = 50, string? sourceSystem = null, string? search = null)
+    public Task<DesktopSalesListResponse?> GetDesktopSalesAsync(string? warehouseCode = null, string? cardCode = null, string? consolidationStatus = null, DateTime? fromDate = null, DateTime? toDate = null, int page = 1, int pageSize = 50, string? sourceSystem = null, string? search = null) =>
+        GetDesktopSalesAsync(new DesktopSalesQuery
+        {
+            WarehouseCode = warehouseCode,
+            CardCode = cardCode,
+            ConsolidationStatus = consolidationStatus,
+            FromDate = fromDate,
+            ToDate = toDate,
+            Page = page,
+            PageSize = pageSize,
+            SourceSystem = sourceSystem,
+            Search = search
+        });
+
+    public async Task<DesktopSalesListResponse?> GetDesktopSalesAsync(DesktopSalesQuery query)
     {
         try
         {
-            var queryParams = new List<string> { $"page={page}", $"pageSize={pageSize}" };
-            if (!string.IsNullOrEmpty(warehouseCode))
-                queryParams.Add($"warehouseCode={Uri.EscapeDataString(warehouseCode)}");
-            if (!string.IsNullOrEmpty(cardCode))
-                queryParams.Add($"cardCode={Uri.EscapeDataString(cardCode)}");
-            if (!string.IsNullOrEmpty(consolidationStatus))
-                queryParams.Add($"consolidationStatus={Uri.EscapeDataString(consolidationStatus)}");
-            if (fromDate.HasValue)
-                queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
-            if (toDate.HasValue)
-                queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
-            if (!string.IsNullOrWhiteSpace(sourceSystem))
-                queryParams.Add($"sourceSystem={Uri.EscapeDataString(sourceSystem.Trim())}");
-            if (!string.IsNullOrWhiteSpace(search))
-                queryParams.Add($"search={Uri.EscapeDataString(search.Trim())}");
+            var queryParams = new List<string> { $"page={query.Page}", $"pageSize={query.PageSize}" };
+
+            void One(string name, string? value)
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    queryParams.Add($"{name}={Uri.EscapeDataString(value.Trim())}");
+                }
+            }
+
+            // Repeated rather than comma-joined, because that is what ASP.NET Core binds to a string[]
+            // without a custom binder — `?warehouses=A&warehouses=B`. A blank is dropped rather than sent
+            // as an empty key, which would filter to sales whose warehouse is the empty string.
+            void Many(string name, IEnumerable<string>? values)
+            {
+                foreach (var value in values ?? [])
+                {
+                    One(name, value);
+                }
+            }
+
+            One("warehouseCode", query.WarehouseCode);
+            One("cardCode", query.CardCode);
+            One("consolidationStatus", query.ConsolidationStatus);
+            One("sourceSystem", query.SourceSystem);
+            One("search", query.Search);
+            One("paymentDifference", query.PaymentDifference);
+            One("sort", query.Sort);
+
+            Many("warehouses", query.Warehouses);
+            Many("consolidationStatuses", query.ConsolidationStatuses);
+            Many("fiscalizationStatuses", query.FiscalizationStatuses);
+            Many("paymentMethods", query.PaymentMethods);
+            Many("sourceSystems", query.SourceSystems);
+
+            if (query.FromDate.HasValue)
+                queryParams.Add($"fromDate={query.FromDate.Value:yyyy-MM-dd}");
+            if (query.ToDate.HasValue)
+                queryParams.Add($"toDate={query.ToDate.Value:yyyy-MM-dd}");
+            if (query.MinTotal.HasValue)
+                queryParams.Add($"minTotal={query.MinTotal.Value.ToString(CultureInfo.InvariantCulture)}");
+            if (query.MaxTotal.HasValue)
+                queryParams.Add($"maxTotal={query.MaxTotal.Value.ToString(CultureInfo.InvariantCulture)}");
+            if (query.IncludeFacets)
+                queryParams.Add("includeFacets=true");
 
             var url = $"api/DesktopIntegration/sales?{string.Join("&", queryParams)}";
             return await _httpClient.GetFromJsonAsync<DesktopSalesListResponse>(url);
@@ -766,6 +822,58 @@ public class InventoryTransferQueueStatsDto
 }
 
 // Desktop Sales DTOs
+
+/// <summary>
+/// Everything <c>GET /api/DesktopIntegration/sales</c> can be narrowed by.
+/// </summary>
+/// <remarks>
+/// The plural properties are the repeatable query parameters — <c>?warehouses=A&amp;warehouses=B</c> — and
+/// each stands beside a singular one the API has always had. A caller may set either; the API folds them
+/// together, so this does not have to choose.
+///
+/// An empty <see cref="SourceSystems"/> is not "every channel": the API's default scope leaves out the
+/// receipt carriers written for online van sales, whose money is already listed as its own SAP invoice.
+/// Naming any channel turns that default off.
+/// </remarks>
+public sealed record DesktopSalesQuery
+{
+    public string? WarehouseCode { get; init; }
+    public string? CardCode { get; init; }
+    public string? ConsolidationStatus { get; init; }
+    public string? SourceSystem { get; init; }
+    public string? Search { get; init; }
+
+    public IReadOnlyList<string>? Warehouses { get; init; }
+    public IReadOnlyList<string>? ConsolidationStatuses { get; init; }
+    public IReadOnlyList<string>? FiscalizationStatuses { get; init; }
+    public IReadOnlyList<string>? PaymentMethods { get; init; }
+    public IReadOnlyList<string>? SourceSystems { get; init; }
+
+    public DateTime? FromDate { get; init; }
+    public DateTime? ToDate { get; init; }
+
+    public decimal? MinTotal { get; init; }
+    public decimal? MaxTotal { get; init; }
+
+    /// <summary>"any", "exact", "under" or "over" — what was tendered against what was rung up.</summary>
+    public string? PaymentDifference { get; init; }
+
+    /// <summary>"newest", "oldest", "total-desc", "total-asc" or "customer".</summary>
+    public string? Sort { get; init; }
+
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 50;
+
+    /// <summary>
+    /// Ask for the per-group counts and the unfiltered total for the period.
+    /// </summary>
+    /// <remarks>
+    /// Five extra grouped counts on the API side, so it is off unless the caller draws them. The console's
+    /// filter panel does; the vending page, which reads this endpoint for two totals, does not.
+    /// </remarks>
+    public bool IncludeFacets { get; init; }
+}
+
 public class DesktopSalesListResponse
 {
     public List<DesktopSaleDto> Sales { get; set; } = new();
@@ -773,6 +881,61 @@ public class DesktopSalesListResponse
     public int Page { get; set; }
     public int PageSize { get; set; }
     public bool HasMore { get; set; }
+
+    /// <summary>
+    /// What this period holds before the page's own filters narrowed it — the denominator behind
+    /// "filtered from N". Sent only when the request asked for facets; zero otherwise.
+    /// </summary>
+    public int UnfilteredCount { get; set; }
+
+    /// <summary>
+    /// What each filter group would return, counted with that group's own selection lifted.
+    /// </summary>
+    /// <remarks>
+    /// Null when the request did not ask for them, which is every caller but the console. A reader must
+    /// therefore treat null as "not asked" rather than "nothing matches" — see the filter panel on
+    /// /desktop-sales, which draws chips from these and falls back to a bare label with no count.
+    /// </remarks>
+    public DesktopSalesFacetsDto? Facets { get; set; }
+}
+
+/// <summary>Mirrors the API's <c>DesktopSalesFacets</c>.</summary>
+public class DesktopSalesFacetsDto
+{
+    public List<DesktopSalesFacetDto> Consolidation { get; set; } = new();
+    public List<DesktopSalesFacetDto> Fiscalization { get; set; } = new();
+    public List<DesktopSalesFacetDto> Warehouse { get; set; } = new();
+    public List<DesktopSalesFacetDto> PaymentMethod { get; set; } = new();
+    public List<DesktopSalesFacetDto> SourceSystem { get; set; } = new();
+}
+
+/// <summary>
+/// One value a filter group could be set to, and how many sales would still match if it were.
+/// </summary>
+/// <remarks>
+/// <see cref="Value"/> is the stored value, not a label: a warehouse code, a tender as the till spelled
+/// it, or an enum name. The page decides what to call it, and sends it straight back as a filter.
+///
+/// A column that is empty comes back as <see cref="DesktopSalesFilterValues.Blank"/> rather than as the
+/// empty string, so that a chip built on it can be pressed — see that constant.
+/// </remarks>
+public class DesktopSalesFacetDto
+{
+    public string Value { get; set; } = string.Empty;
+    public int Count { get; set; }
+}
+
+/// <summary>
+/// Reserved filter values, mirroring the API's <c>DesktopSalesFilterValues</c>.
+/// </summary>
+/// <remarks>
+/// The word has to be identical on both sides. It is written out here rather than shared because this
+/// project has no reference to the API's, the way every DTO above it is hand-mirrored.
+/// </remarks>
+public static class DesktopSalesFilterValues
+{
+    /// <summary>The column is empty: a sale whose till recorded no tender, or a row with no source.</summary>
+    public const string Blank = "(blank)";
 }
 
 public class DesktopSaleDto
