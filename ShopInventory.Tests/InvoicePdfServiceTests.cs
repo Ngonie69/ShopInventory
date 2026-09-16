@@ -1,6 +1,8 @@
 using System.Text.RegularExpressions;
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas.Parser;
+using iText.Kernel.Pdf.Canvas.Parser.Data;
+using iText.Kernel.Pdf.Canvas.Parser.Listener;
 using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.DTOs;
 using ShopInventory.Services;
@@ -42,6 +44,23 @@ public class InvoicePdfServiceTests
         Assert.Contains("https://fdms.zimra.co.zw", page);
         Assert.Contains("9140005966435", page);
         Assert.DoesNotContain("COPY", page);
+    }
+
+    [Fact]
+    public async Task TheHeaderLinesUpAsTheDesignDoes()
+    {
+        var bytes = await Service.GenerateInvoicePdfAsync(DesignInvoice(), QrPayload);
+        var baselines = Baselines(bytes);
+
+        // align-items: baseline in the title band: the page count shares the title's line.
+        Assert.Equal(baselines["Fiscal Tax Invoice"], baselines["PAGE  1"], precision: 1);
+
+        // align-items: start beside the document numbers: VAT Reg and TIN head their column rather
+        // than centring against the four rows.
+        Assert.True(baselines["VAT Reg: 220140892"] > baselines["INVOICE NUMBER"],
+            "VAT Reg should sit level with the first rows of the document numbers, not centred on them");
+        Assert.True(baselines["TIN No: 2000022395"] > baselines["REF :"],
+            "TIN No should sit level with the first rows of the document numbers, not centred on them");
     }
 
     [Fact]
@@ -175,6 +194,30 @@ public class InvoicePdfServiceTests
         return Enumerable.Range(1, pdf.GetNumberOfPages())
             .Select(pageNumber => PdfTextExtractor.GetTextFromPage(pdf.GetPage(pageNumber)))
             .ToList();
+    }
+
+    /// <summary>Each text run on the first page, by its text, with its baseline's height on the page.</summary>
+    private static Dictionary<string, double> Baselines(byte[] bytes)
+    {
+        using var pdf = new PdfDocument(new PdfReader(new MemoryStream(bytes)));
+        var listener = new BaselineListener();
+        new PdfCanvasProcessor(listener).ProcessPageContent(pdf.GetPage(1));
+        return listener.Baselines;
+    }
+
+    private sealed class BaselineListener : IEventListener
+    {
+        public Dictionary<string, double> Baselines { get; } = new();
+
+        public void EventOccurred(IEventData data, EventType type)
+        {
+            if (data is TextRenderInfo text && !string.IsNullOrWhiteSpace(text.GetText()))
+            {
+                Baselines.TryAdd(text.GetText().Trim(), text.GetBaseline().GetStartPoint().Get(1));
+            }
+        }
+
+        public ICollection<EventType> GetSupportedEvents() => [EventType.RENDER_TEXT];
     }
 
     private static InvoiceDto DesignInvoice() => new()
