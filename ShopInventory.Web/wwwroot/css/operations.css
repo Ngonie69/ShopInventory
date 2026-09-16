@@ -5,7 +5,7 @@
 
      /gl-accounts             `.ops.ops-gl`     chart of accounts, synced from SAP
      /gl-accounts/{code}      `.ops.ops-glled`  one account's journal postings
-     /prices                  `.ops.ops-prc`    a price list's items
+     /prices                  `.ops.ops-prc`    a price list's or a customer's prices
      /stock                   `.ops.ops-stk`    stock levels for one warehouse
      /route-customers         `.ops.ops-rc`     locally captured customers by route
      /route-customers/{id}/…  `.ops.ops-rcs`    one route customer's sales
@@ -1509,68 +1509,516 @@
 
 /* ══════════════════════════════════════════════════════════════════════════
    /prices — `.ops-prc`
+
+   An import: `Price List.dc.html`, in its own design project. The hero, the
+   buttons, the notice and the empty and loading states are the shared
+   vocabulary above; what the design added is a two-way scope switch, a rail of
+   the things that can be priced (the price lists, or the customers), and a
+   price sheet beside it — sortable columns, SAP item-group headings, and a
+   special price shown over the list price it replaced.
+
+   Three departures, each for the data rather than the look:
+
+   - The sheet groups by SAP's item group, not by the first three letters of
+     the code the design's sample data used. The price rows carry no group, so
+     the page reads it from the product cache; an item that cache does not know
+     gathers under "Other items".
+   - The design's footer claimed "Tax excluded". Nothing the page reads says
+     whether a list is net or gross, so the footer says where the price came
+     from instead.
+   - A customer's item at zero keeps its "Not priced" mark from the page's
+     earlier build: a till refuses to sell at zero, so it is the row to act on.
    ═════════════════════════════════════════════════════════════════════════ */
 
-/* With no list chosen the page offers the lists themselves. Cards, because
-   there is nothing to compare column-wise — it is a choice, not a table. */
-
-.ops-prc .ops-prc-lists {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: var(--ops-s4);
-    padding: 0 var(--ops-s8) var(--ops-s8);
+.ops-prc .ops-prc-synced {
+    margin-right: var(--ops-s1);
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+    white-space: nowrap;
 }
 
-.ops-prc .ops-prc-list {
+.ops-prc .ops-prc-synced span {
+    color: var(--ops-mute-2);
+}
+
+.ops-prc .ops-prc-body {
     display: flex;
     flex-direction: column;
-    gap: var(--ops-s3);
-    padding: var(--ops-s6);
+    gap: 16px;
+    min-width: 0;
+}
+
+/* ── Scope: by price list or by customer ───────────────────────────────── */
+
+.ops-prc .ops-prc-scope {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.ops-prc .ops-prc-mode {
+    display: inline-flex;
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-md);
+    overflow: hidden;
+}
+
+.ops-prc .ops-prc-mode-opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 14px;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--ops-ink);
+    cursor: pointer;
+    transition: background-color .14s, box-shadow .14s;
+}
+
+.ops-prc .ops-prc-mode-opt + .ops-prc-mode-opt {
+    border-left: 1px solid var(--ops-divider);
+}
+
+.ops-prc .ops-prc-mode-opt i {
+    font-size: 14px;
+}
+
+.ops-prc .ops-prc-mode-opt:hover:not(.is-on) {
+    background: var(--ops-hover);
+}
+
+.ops-prc .ops-prc-mode-opt.is-on {
+    background: rgba(var(--ops-accent-rgb), .14);
+    box-shadow: inset 0 0 0 1px var(--ops-accent);
+}
+
+.ops-prc .ops-prc-mode-opt:focus-visible {
+    outline-offset: -2px;
+}
+
+.ops-prc .ops-prc-scope-meta {
+    font-size: 11.5px;
+    letter-spacing: .01em;
+    color: var(--ops-mute-3);
+}
+
+/* ── The split ─────────────────────────────────────────────────────────── */
+
+.ops-prc .ops-prc-split {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.ops-prc .ops-prc-rail,
+.ops-prc .ops-prc-sheet {
+    background: var(--ops-surface);
     border: 1px solid var(--ops-divider);
     border-radius: var(--ops-r-lg);
-    background: var(--ops-surface);
+}
+
+.ops-prc .ops-prc-dash {
+    width: 12px;
+    height: 2px;
+    flex: none;
+    background: var(--ops-accent);
+}
+
+/* ── Search fields ─────────────────────────────────────────────────────── */
+/* Recessed below the surface rather than washed above it, as the design has
+   them — so the field takes the page ground, which is the darker step in dark
+   and the greyer one in light. Three classes deep to beat `.ops .ops-input`. */
+
+.ops-prc .ops-prc-find {
+    position: relative;
+    min-width: 0;
+}
+
+.ops-prc .ops-prc-find i {
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+    color: var(--ops-faint);
+    pointer-events: none;
+}
+
+.ops-prc .ops-prc-find .ops-input {
+    min-height: 34px;
+    padding: 6px 10px 6px 32px;
+    font-size: 13px;
+    background: var(--ops-bg);
+    border-color: var(--ops-field-edge);
+}
+
+.ops-prc .ops-prc-find .ops-input:hover:not(:disabled) {
+    border-color: var(--ops-field-edge-hi);
+}
+
+.ops-prc .ops-prc-find .ops-input:focus-visible {
+    border-color: var(--ops-accent);
+}
+
+/* ── The rail ──────────────────────────────────────────────────────────── */
+
+.ops-prc .ops-prc-rail {
+    flex: 0 1 296px;
+    min-width: 250px;
+    padding: 12px 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ops-prc .ops-prc-rail-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 6px;
+}
+
+.ops-prc .ops-prc-rail-title {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ops-mute-3);
+}
+
+.ops-prc .ops-prc-rail-count {
+    margin-left: auto;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-mute-3);
+}
+
+.ops-prc .ops-prc-find-rail {
+    padding: 0 4px;
+}
+
+.ops-prc .ops-prc-find-rail i {
+    left: 13px;
+}
+
+/* A block list rather than a flex column with a gap: the customer rows are
+   virtualised, and Virtualize's spacer elements would take the gap too. */
+.ops-prc .ops-prc-rail-list {
+    max-height: min(556px, 58vh);
+    overflow: auto;
+    padding: 0 4px 2px;
+}
+
+.ops-prc .ops-prc-pick {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    margin: 0 0 1px;
+    padding: 8px 10px 8px 12px;
+    border: 0;
+    border-radius: var(--ops-r-md);
+    background: transparent;
     font: inherit;
-    color: inherit;
+    color: var(--ops-ink);
     text-align: left;
     cursor: pointer;
-    transition: border-color .14s, background-color .14s;
+    transition: background-color .12s;
 }
 
-.ops-prc .ops-prc-list:hover {
-    border-color: rgba(var(--ops-accent-rgb), .5);
-    background: rgba(var(--ops-accent-rgb), .06);
+.ops-prc .ops-prc-pick:hover:not(.is-on) {
+    background: var(--ops-hover);
 }
 
-.ops-prc .ops-prc-list-name {
-    font-size: 14px;
+.ops-prc .ops-prc-pick.is-on {
+    background: rgba(var(--ops-accent-rgb), .15);
+    box-shadow: inset 0 0 0 1px rgba(var(--ops-accent-rgb), .45);
+}
+
+.ops-prc .ops-prc-pick.is-on::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 9px;
+    bottom: 9px;
+    width: 2px;
+    border-radius: 0 2px 2px 0;
+    background: var(--ops-accent);
+}
+
+.ops-prc .ops-prc-pick:focus-visible {
+    outline-offset: -2px;
+}
+
+.ops-prc .ops-prc-pick-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+}
+
+.ops-prc .ops-prc-pick-name {
+    font-size: 13px;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ops-prc .ops-prc-pick-sub {
+    margin-top: 1px;
+    font-family: var(--ops-mono);
+    font-size: 10.5px;
+    line-height: 1.55;
+    letter-spacing: .04em;
+    color: var(--ops-mute-3);
+}
+
+.ops-prc .ops-prc-pick-cur {
+    flex: none;
+    font-size: 10px;
+    letter-spacing: .06em;
+    color: var(--ops-mute-3);
+}
+
+.ops-prc .ops-prc-rail-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--ops-s3);
+    padding: 22px 12px;
+    font-size: 12.5px;
+    text-align: center;
+    color: var(--ops-mute-3);
+}
+
+/* ── The sheet ─────────────────────────────────────────────────────────── */
+
+.ops-prc .ops-prc-sheet {
+    flex: 1 1 460px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.ops-prc .ops-prc-sheet-head {
+    display: flex;
+    align-items: flex-end;
+    gap: 18px;
+    flex-wrap: wrap;
+    padding: 15px 18px 14px;
+}
+
+.ops-prc .ops-prc-title {
+    flex: 1 1 300px;
+    min-width: 0;
+}
+
+.ops-prc .ops-prc-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 3px;
+}
+
+.ops-prc .ops-prc-title h2 {
+    font-size: 19px;
+    color: var(--ops-ink);
+    letter-spacing: -.015em;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+
+/* A filled chip, where the rest of the page's badges are tints: it names the
+   currency every figure below is in. */
+.ops-prc .ops-prc-cur {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    padding: 3px 9px;
+    border-radius: 6px;
+    font-size: 10.5px;
+    letter-spacing: .04em;
+    color: var(--ops-ink);
+    background: rgba(var(--ops-accent-rgb), .3);
+}
+
+.ops-prc .ops-prc-title-sub {
+    font-size: 12px;
+    color: var(--ops-mute-3);
+}
+
+.ops-prc .ops-prc-find-items {
+    flex: 0 1 260px;
+}
+
+/* One grid for the heading and the rows, so a price column cannot drift. The
+   sort buttons state `display: block`: left to the cascade they computed as a
+   flex box and centred each label mid-column, over rows that start flush. */
+.ops-prc .ops-prc-cols,
+.ops-prc .ops-prc-row {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr) 132px;
+    gap: 14px;
+}
+
+.ops-prc .ops-prc-cols {
+    padding: 9px 18px;
+    background: linear-gradient(to right, transparent, var(--ops-divider) 48px,
+            var(--ops-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.ops-prc .ops-prc-sort {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: 10.5px;
+    line-height: 1.55;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--ops-mute-3);
+    cursor: pointer;
+    user-select: none;
+    transition: color .12s;
+}
+
+.ops-prc .ops-prc-sort:hover {
     color: var(--ops-ink);
 }
 
-.ops-prc .ops-prc-list-meta {
+.ops-prc .ops-prc-sort-num {
+    text-align: right;
+}
+
+.ops-prc .ops-prc-rows {
+    max-height: min(600px, 62vh);
+    overflow: auto;
+}
+
+.ops-prc .ops-prc-group {
     display: flex;
     align-items: center;
-    gap: var(--ops-s2);
-    flex-wrap: wrap;
+    gap: 9px;
+    padding: 15px 18px 7px;
 }
 
-/* The one-item answer to a search that matched exactly. A figure, because at
-   that point the price *is* the page. */
-.ops-prc .ops-prc-hit {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: var(--ops-s8);
-    flex-wrap: wrap;
-    padding: var(--ops-s8);
+.ops-prc .ops-prc-group-name {
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ops-fam-accent);
 }
 
-.ops-prc .ops-prc-hit-price {
-    font-size: 32px;
-    font-weight: 500;
-    letter-spacing: -.02em;
-    line-height: 1.1;
+.ops-prc .ops-prc-group-count {
+    font-size: 10px;
     font-variant-numeric: tabular-nums;
-    color: var(--ops-fam-good);
+    color: var(--ops-mute-3);
+}
+
+.ops-prc .ops-prc-row {
+    align-items: center;
+    padding: 8px 18px;
+    background: linear-gradient(to right, transparent, var(--ops-rule) 48px,
+            var(--ops-rule) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.ops-prc .ops-prc-row:hover {
+    background:
+        linear-gradient(var(--ops-hover), var(--ops-hover)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right, transparent, var(--ops-rule) 48px,
+            var(--ops-rule) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.ops-prc .ops-prc-code {
+    font-family: var(--ops-mono);
+    font-size: 12px;
+    letter-spacing: .02em;
+    color: var(--ops-mute-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ops-prc .ops-prc-name {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+}
+
+.ops-prc .ops-prc-name-text {
+    font-size: 13.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ops-prc .ops-prc-special {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    padding: 2px 7px;
+    border: 1px solid var(--ops-accent);
+    border-radius: 5px;
+    font-size: 9.5px;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--ops-fam-accent);
+}
+
+.ops-prc .ops-prc-price {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-prc .ops-prc-amount {
+    font-size: 13.5px;
+}
+
+/* The list price a special price replaced. */
+.ops-prc .ops-prc-was {
+    margin-top: 1px;
+    font-size: 10.5px;
+    color: var(--ops-faint);
+    text-decoration: line-through;
+}
+
+.ops-prc .ops-prc-unpriced {
+    font-size: 11.5px;
+    color: var(--ops-fam-warn);
+}
+
+.ops-prc .ops-prc-sheet-foot {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 11px 18px;
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+    background: linear-gradient(to right, transparent, var(--ops-divider) 48px,
+            var(--ops-divider) calc(100% - 48px), transparent) no-repeat top / 100% 1px;
+}
+
+.ops-prc .ops-prc-foot-count {
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-prc .ops-prc-foot-note {
+    margin-left: auto;
 }
 
 /* A search term found inside a cell. Underlined rather than highlighted: a
@@ -1584,17 +2032,40 @@
     text-underline-offset: 2px;
 }
 
-/* The view tabs. `overflow-x: auto` on `.ops-tabs` computes `overflow-y` to
-   auto as well, and the count pill makes the strip a pixel taller than its
-   box, which drew a vertical scrollbar beside the last tab. */
-.ops-prc .ops-tabs {
-    overflow-y: hidden;
+/* On a phone the rail takes the row, and the three columns give up the width
+   the code and price do not need. */
+@media (max-width: 620px) {
+    .ops-prc .ops-prc-rail {
+        flex-basis: 100%;
+        min-width: 0;
+    }
+
+    .ops-prc .ops-prc-cols,
+    .ops-prc .ops-prc-row {
+        grid-template-columns: 76px minmax(0, 1fr) 88px;
+        gap: 10px;
+    }
+
+    .ops-prc .ops-prc-cols,
+    .ops-prc .ops-prc-row,
+    .ops-prc .ops-prc-group,
+    .ops-prc .ops-prc-sheet-head,
+    .ops-prc .ops-prc-sheet-foot {
+        padding-left: 14px;
+        padding-right: 14px;
+    }
+
+    .ops-prc .ops-prc-find-items {
+        flex-basis: 100%;
+    }
 }
 
-/* By customer: a list price or discount the customer does not have. Faint, so
-   the rows carrying a special price are the ones the eye lands on. */
-.ops-prc .ops-prc-none {
-    color: var(--ops-mute-3);
+@media (prefers-reduced-motion: reduce) {
+    .ops-prc .ops-prc-mode-opt,
+    .ops-prc .ops-prc-pick,
+    .ops-prc .ops-prc-sort {
+        transition: none;
+    }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

@@ -44,6 +44,12 @@ public class PriceListDto
     public bool IsActive { get; set; }
     public decimal? Factor { get; set; }
     public string? RoundingMethod { get; set; }
+
+    /// <summary>
+    /// When the API's price catalogue last read this list from SAP. The API stores it as UTC; the
+    /// Price List page states it as "SAP sync … ago".
+    /// </summary>
+    public DateTime? LastSyncedAt { get; set; }
 }
 
 /// <summary>

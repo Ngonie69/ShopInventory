@@ -1,9 +1,12 @@
 @page "/prices"
+@using System.Globalization
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
 @using ShopInventory.Web.Data
 @attribute [Authorize(Roles = UserRoles.CatalogueRoles)]
 @inject IPriceService PriceService
 @inject IMasterDataCacheService CacheService
+@inject IDbContextFactory<WebAppDbContext> DbContextFactory
 @inject AuthenticationStateProvider AuthStateProvider
 @inject ILogger<Prices> Logger
 @inject IAuditService AuditService
@@ -11,9 +14,9 @@
 
 <PageTitle>Price List - Shop Inventory</PageTitle>
 
-@* Styles live in wwwroot/css/operations.css (linked from App.razor), shared
-   with the other four operational pages — see that file's header. `ops` is the
-   scope; `ops-prc` is this page's own half of it. *@
+@* Styles live in wwwroot/css/operations.css (linked from App.razor): the hero,
+   buttons, notice and states are the `.ops` vocabulary, and the rail and price
+   sheet from `Price List.dc.html` are `.ops-prc`, this page's own half. *@
 
 <div class="ops ops-prc">
 
@@ -22,11 +25,17 @@
             <div class="ops-kicker">Master data</div>
             <h1>Price List</h1>
             <p>
-                Item prices as they stand on each SAP price list, or for one customer — the
-                price its tills charge, special prices included.
+                Item prices as they stand on each SAP price list — or, for one customer, the price
+                its tills charge with special prices applied.
             </p>
         </div>
         <div class="ops-hero-actions">
+            @if (LastSapSync is { } lastSync)
+            {
+                <div class="ops-prc-synced" title="@lastSync.ToLocalTime().ToString("d MMM yyyy, HH:mm")">
+                    SAP sync <span>@SyncAge(lastSync)</span>
+                </div>
+            }
             @* Admin only, like the Settings tile that runs the same sync. The page
                itself is open to every catalogue role, and the API cannot tell them
                apart: Web calls carry the API key. *@
@@ -73,424 +82,428 @@
         </div>
     }
 
-    <div class="ops-tabs" role="tablist">
-        <button type="button" role="tab" class="ops-tab @(activeView == PriceView.PriceList ? "is-on" : "")"
-                aria-selected="@(activeView == PriceView.PriceList)" @onclick="() => activeView = PriceView.PriceList">
-            <i class="ph ph-list-bullets" aria-hidden="true"></i>
-            <span>By price list</span>
-        </button>
-        <button type="button" role="tab" class="ops-tab @(activeView == PriceView.Customer ? "is-on" : "")"
-                aria-selected="@(activeView == PriceView.Customer)" @onclick="ShowCustomerView">
-            <i class="ph ph-storefront" aria-hidden="true"></i>
-            <span>By customer</span>
-            @if (customerPricing?.Prices != null)
-            {
-                <span class="ops-tab-count">@customerPricing.Prices.Count</span>
-            }
-        </button>
-    </div>
+    <div class="ops-prc-body">
 
-    @if (activeView == PriceView.Customer)
-    {
-        <section class="ops-panel">
-            <div class="ops-panel-head">
-                <h2>
+        <div class="ops-prc-scope">
+            <div class="ops-prc-mode" role="tablist" aria-label="Price view">
+                <button type="button" role="tab" class="ops-prc-mode-opt @(IsListView ? "is-on" : "")"
+                        aria-selected="@IsListView" @onclick="ShowListView">
+                    <i class="ph ph-list" aria-hidden="true"></i>
+                    <span>By price list</span>
+                </button>
+                <button type="button" role="tab" class="ops-prc-mode-opt @(IsListView ? "" : "is-on")"
+                        aria-selected="@(!IsListView)" @onclick="ShowCustomerView">
                     <i class="ph ph-storefront" aria-hidden="true"></i>
-                    @(selectedCustomerOption?.Label ?? "Select a customer")
-                </h2>
-                @if (customerPricing is { PriceListNum: > 0 })
-                {
-                    <span class="ops-badge ops-fam-accent">@(string.IsNullOrEmpty(customerPricing.Currency)
-                        ? "No currency" : customerPricing.Currency)</span>
-                    <span class="ops-badge ops-fam-neutral">@(customerPricing.PriceListName ?? $"List {customerPricing.PriceListNum}")</span>
-                }
-                @if (filteredCustomerPrices != null && customerPricing?.Prices != null)
-                {
-                    <span class="ops-count">
-                        @filteredCustomerPrices.Count of @customerPricing.Prices.Count items
-                        @if (SpecialPriceCount > 0)
-                        {
-                            <text>&middot; @SpecialPriceCount special</text>
-                        }
-                    </span>
-                }
+                    <span>By customer</span>
+                </button>
             </div>
+            <div class="ops-prc-scope-meta">@ScopeMeta</div>
+        </div>
 
-            <div class="ops-filters">
-                <div class="ops-field">
-                    <label class="ops-label" for="prc-customer">Customer</label>
-                    <NocturnePicker Id="prc-customer" Class="npick-block" Options="customerOptions"
-                                    Value="@selectedCardCode" ValueChanged="@(code => OnCustomerChanged(code))"
-                                    Loading="isLoadingCustomers" LoadingText="Loading customers…"
-                                    Placeholder="Select a customer" AriaLabel="Customer"
-                                    EmptyText="No customers have been synced" />
+        <div class="ops-prc-split">
+
+            @* ── The rail: what to price ─────────────────────────────────── *@
+            <aside class="ops-prc-rail" aria-label="@(IsListView ? "Price lists" : "Customers")">
+                <div class="ops-prc-rail-head">
+                    <span class="ops-prc-dash" aria-hidden="true"></span>
+                    <span class="ops-prc-rail-title">@(IsListView ? "Price lists" : "Customers")</span>
+                    <span class="ops-prc-rail-count">@RailCount</span>
                 </div>
-                <div class="ops-field">
-                    <label class="ops-label" for="prc-customer-search">Search items</label>
-                    <div class="ops-search">
-                        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
-                        <input id="prc-customer-search" type="search" class="ops-input" placeholder="Item code or description"
-                               disabled="@(customerPricing?.Prices == null)"
-                               @bind="customerSearchTerm" @bind:event="oninput" @bind:after="FilterCustomerPrices" />
-                    </div>
+                <div class="ops-prc-find ops-prc-find-rail">
+                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                    <input type="search" class="ops-input" aria-label="@(IsListView ? "Filter price lists" : "Filter customers")"
+                           placeholder="@(IsListView ? "Filter price lists" : "Code or name")"
+                           @bind="railSearchTerm" @bind:event="oninput" @bind:after="FilterRail" />
                 </div>
-                <div class="ops-filter-actions">
-                    @if (!string.IsNullOrWhiteSpace(customerSearchTerm))
+                <div class="ops-prc-rail-list">
+                    @if (IsListView)
                     {
-                        <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearCustomerSearch">
-                            <i class="ph ph-x-circle" aria-hidden="true"></i>Clear
-                        </button>
+                        @if (isLoadingPriceLists && priceLists == null)
+                        {
+                            <div class="ops-prc-rail-note"><span class="ops-spin"></span>Loading price lists&hellip;</div>
+                        }
+                        else if (filteredPriceLists.Count == 0)
+                        {
+                            <div class="ops-prc-rail-note">
+                                @(ActivePriceLists.Count == 0 ? "No price lists have been synced from SAP." : "Nothing matches that.")
+                            </div>
+                        }
+                        else
+                        {
+                            @foreach (var list in filteredPriceLists)
+                            {
+                                <button type="button" @key="list.ListNum"
+                                        class="ops-prc-pick @(list.ListNum == selectedPriceListNum ? "is-on" : "")"
+                                        aria-pressed="@(list.ListNum == selectedPriceListNum)"
+                                        @onclick="() => SelectPriceList(list.ListNum)">
+                                    <span class="ops-prc-pick-text">
+                                        <span class="ops-prc-pick-name">@(list.ListName ?? $"List {list.ListNum}")</span>
+                                        <span class="ops-prc-pick-sub">List @list.ListNum</span>
+                                    </span>
+                                    <span class="ops-prc-pick-cur">@CurrencyLabel(list.Currency)</span>
+                                </button>
+                            }
+                        }
+                    }
+                    else if (isLoadingCustomers)
+                    {
+                        <div class="ops-prc-rail-note"><span class="ops-spin"></span>Loading customers&hellip;</div>
+                    }
+                    else if (filteredCustomers.Count == 0)
+                    {
+                        <div class="ops-prc-rail-note">
+                            @(customers.Count == 0 ? "No customers have been synced." : "Nothing matches that.")
+                        </div>
+                    }
+                    else
+                    {
+                        @* A couple of thousand partners: only the rows in view are drawn. *@
+                        <Virtualize Items="filteredCustomers" ItemSize="52" OverscanCount="8" Context="customer">
+                            <button type="button" @key="customer.CardCode"
+                                    class="ops-prc-pick @(customer.CardCode == selectedCardCode ? "is-on" : "")"
+                                    aria-pressed="@(customer.CardCode == selectedCardCode)"
+                                    @onclick="() => OnCustomerChanged(customer.CardCode)">
+                                <span class="ops-prc-pick-text">
+                                    <span class="ops-prc-pick-name">@customer.Name</span>
+                                    <span class="ops-prc-pick-sub">@customer.CardCode</span>
+                                </span>
+                                <span class="ops-prc-pick-cur">@CurrencyLabel(customer.Currency)</span>
+                            </button>
+                        </Virtualize>
                     }
                 </div>
-            </div>
+            </aside>
 
-            @if (isLoadingCustomerPrices)
-            {
-                <div class="ops-loading">
-                    <span class="ops-spin ops-spin-lg"></span>
-                    <p>Loading prices for @(selectedCustomerOption?.Label ?? selectedCardCode)&hellip;</p>
-                </div>
-            }
-            else if (customerErrorMessage != null)
-            {
-                <div class="ops-empty">
-                    <i class="ph ph-warning-octagon" aria-hidden="true"></i>
-                    <h3>Could not load prices</h3>
-                    <p>@customerErrorMessage</p>
-                    <div class="ops-empty-actions">
-                        <button type="button" class="ops-btn ops-btn-ghost" @onclick="RetryCustomerView">Retry</button>
+            @* ── The sheet: the chosen list's or customer's prices ──────────── *@
+            <section class="ops-prc-sheet" aria-live="polite">
+                <div class="ops-prc-sheet-head">
+                    <div class="ops-prc-title">
+                        <div class="ops-prc-title-row">
+                            <h2>@SheetName</h2>
+                            @if (SheetCurrency is { } currency)
+                            {
+                                <span class="ops-prc-cur">@currency</span>
+                            }
+                        </div>
+                        <div class="ops-prc-title-sub">@SheetSub</div>
+                    </div>
+                    <div class="ops-prc-find ops-prc-find-items">
+                        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                        <input type="search" class="ops-input" aria-label="Search items" placeholder="Item code or description"
+                               disabled="@(SheetPrices == null)"
+                               @bind="itemSearchTerm" @bind:event="oninput" @bind:after="BuildRows" />
                     </div>
                 </div>
-            }
-            else if (string.IsNullOrEmpty(selectedCardCode))
-            {
-                <div class="ops-empty">
-                    <i class="ph ph-storefront" aria-hidden="true"></i>
-                    <h3>Pick a customer</h3>
-                    <p>
-                        Choose a shop's business partner to see every item at the price its tills charge:
-                        the partner's price list, with its special prices applied.
-                    </p>
-                </div>
-            }
-            else if (customerPricing?.Prices is not { Count: > 0 })
-            {
-                <div class="ops-empty">
-                    <i class="ph ph-tag" aria-hidden="true"></i>
-                    <h3>No prices for @selectedCardCode</h3>
-                    <p>
-                        The price catalogue holds no price list for this customer, so its tills would
-                        price every item at zero. Check the partner's price list in SAP, then sync.
-                    </p>
-                </div>
-            }
-            else if (filteredCustomerPrices?.Any() == true)
-            {
-                <div class="ops-scroll ops-tall">
-                    <table class="ops-table">
-                        <thead>
-                            <tr>
-                                <th>Item code</th>
-                                <th>Item name</th>
-                                <th class="ops-num">List price</th>
-                                <th class="ops-num">Discount</th>
-                                <th class="ops-num">Till price @(string.IsNullOrEmpty(customerPricing.Currency)
-                                    ? "" : $"({customerPricing.Currency})")</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var item in filteredCustomerPrices)
+
+                @if (IsSheetLoading)
+                {
+                    <div class="ops-loading">
+                        <span class="ops-spin ops-spin-lg"></span>
+                        <p>Loading prices for @SheetName&hellip;</p>
+                    </div>
+                }
+                else if (SheetError is { } error)
+                {
+                    <div class="ops-empty">
+                        <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                        <h3>Could not load prices</h3>
+                        <p>@error</p>
+                        <div class="ops-empty-actions">
+                            <button type="button" class="ops-btn ops-btn-ghost" @onclick="RetrySheet">Retry</button>
+                        </div>
+                    </div>
+                }
+                else if (IsListView && selectedPriceListNum == 0)
+                {
+                    <div class="ops-empty">
+                        <i class="ph ph-tag" aria-hidden="true"></i>
+                        <h3>Pick a price list</h3>
+                        <p>Choose a list on the left to see every item at the price SAP holds on it.</p>
+                    </div>
+                }
+                else if (!IsListView && string.IsNullOrEmpty(selectedCardCode))
+                {
+                    <div class="ops-empty">
+                        <i class="ph ph-storefront" aria-hidden="true"></i>
+                        <h3>Pick a customer</h3>
+                        <p>
+                            Choose a shop's business partner to see every item at the price its tills charge:
+                            the partner's price list, with its special prices applied.
+                        </p>
+                    </div>
+                }
+                else if (!IsListView && customerPricing?.Prices is not { Count: > 0 })
+                {
+                    <div class="ops-empty">
+                        <i class="ph ph-tag" aria-hidden="true"></i>
+                        <h3>No prices for @selectedCardCode</h3>
+                        <p>
+                            The price catalogue holds no price list for this customer, so its tills would
+                            price every item at zero. Check the partner's price list in SAP, then sync.
+                        </p>
+                    </div>
+                }
+                else if (IsListView && allPricesForList == null)
+                {
+                    <div class="ops-empty">
+                        <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                        <h3>Could not reach the server</h3>
+                        <p>Check the connection and try again.</p>
+                        <div class="ops-empty-actions">
+                            <button type="button" class="ops-btn ops-btn-ghost" @onclick="ForceRefreshPrices">
+                                <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Retry
+                            </button>
+                        </div>
+                    </div>
+                }
+                else if (IsListView && allPricesForList!.Count == 0)
+                {
+                    <div class="ops-empty">
+                        <i class="ph ph-tag" aria-hidden="true"></i>
+                        <h3>This list is empty</h3>
+                        <p>It may not have been synced yet, or the list has no items in SAP.</p>
+                        <div class="ops-empty-actions">
+                            <button type="button" class="ops-btn ops-btn-warn" @onclick="ForceRefreshPrices">
+                                <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Retry from SAP
+                            </button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="ops-prc-cols">
+                        <button type="button" class="ops-prc-sort" @onclick="() => SortBy(PriceSheetSort.Code)">
+                            Item code @SortArrow(PriceSheetSort.Code)
+                        </button>
+                        <button type="button" class="ops-prc-sort" @onclick="() => SortBy(PriceSheetSort.Name)">
+                            Item name @SortArrow(PriceSheetSort.Name)
+                        </button>
+                        <button type="button" class="ops-prc-sort ops-prc-sort-num" @onclick="() => SortBy(PriceSheetSort.Price)">
+                            @SortArrow(PriceSheetSort.Price) Price
+                        </button>
+                    </div>
+
+                    <div class="ops-prc-rows">
+                        @if (rows.Count == 0)
+                        {
+                            <div class="ops-empty">
+                                <h3>No items match “@itemSearchTerm”</h3>
+                                <p>Try a shorter term, or a code rather than a description.</p>
+                            </div>
+                        }
+                        @foreach (var row in rows)
+                        {
+                            if (row.Group is { } group)
                             {
-                                <tr>
-                                    <td><span class="ops-code">@HighlightMatch(item.ItemCode, customerSearchTerm)</span></td>
-                                    <td class="ops-name">@HighlightMatch(item.ItemName, customerSearchTerm)</td>
-                                    <td class="ops-num">
-                                        @if (item.PriceBeforeDiscount.HasValue)
+                                <div class="ops-prc-group" @key="row.Key">
+                                    <span class="ops-prc-dash" aria-hidden="true"></span>
+                                    <span class="ops-prc-group-name">@group</span>
+                                    <span class="ops-prc-group-count">@row.GroupCount.ToString("N0") @(row.GroupCount == 1 ? "item" : "items")</span>
+                                </div>
+                            }
+                            else if (row.Price is { } price)
+                            {
+                                <div class="ops-prc-row" @key="row.Key">
+                                    <span class="ops-prc-code">@HighlightMatch(price.ItemCode, itemSearchTerm)</span>
+                                    <span class="ops-prc-name">
+                                        <span class="ops-prc-name-text">@HighlightMatch(price.ItemName, itemSearchTerm)</span>
+                                        @if (IsSpecial(price))
                                         {
-                                            @GetCurrencySymbol(customerPricing.Currency)@item.PriceBeforeDiscount.Value.ToString("N2")
+                                            <span class="ops-prc-special"
+                                                  title="@(price.DiscountPercent is { } discount ? $"{discount:0.##}% off the list price" : "Special price")">Special</span>
                                         }
-                                        else
-                                        {
-                                            <span class="ops-prc-none">&mdash;</span>
-                                        }
-                                    </td>
-                                    <td class="ops-num">
-                                        @if (item.DiscountPercent.HasValue)
-                                        {
-                                            <span class="ops-badge ops-fam-good">@item.DiscountPercent.Value.ToString("0.##")%</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="ops-prc-none">&mdash;</span>
-                                        }
-                                    </td>
-                                    <td class="ops-num">
-                                        @if (item.Price <= 0)
+                                    </span>
+                                    <span class="ops-prc-price">
+                                        @if (!IsListView && price.Price <= 0)
                                         {
                                             @* A till refuses to sell at zero, so this is the row to act on. *@
-                                            <span class="ops-badge ops-fam-warn" title="Tills refuse to sell an item priced at zero">Not priced</span>
+                                            <span class="ops-prc-unpriced" title="Tills refuse to sell an item priced at zero">Not priced</span>
                                         }
                                         else
                                         {
-                                            <span class="ops-qty">@GetCurrencySymbol(customerPricing.Currency)@item.Price.ToString("N2")</span>
+                                            <span class="ops-prc-amount">@Money(price.Price)</span>
                                         }
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            }
-            else
-            {
-                <div class="ops-empty">
-                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
-                    <h3>Nothing matches "@customerSearchTerm"</h3>
-                    <p>Try a shorter term, or a code rather than a description.</p>
-                    <div class="ops-empty-actions">
-                        <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearCustomerSearch">Clear search</button>
-                    </div>
-                </div>
-            }
-        </section>
-    }
-    else
-    {
-    <section class="ops-panel">
-        <div class="ops-panel-head">
-            <h2><i class="ph ph-tag" aria-hidden="true"></i>@(selectedPriceList?.ListName ?? "Select a price list")</h2>
-            @if (selectedPriceList != null)
-            {
-                <span class="ops-badge ops-fam-accent">@(string.IsNullOrEmpty(selectedPriceList.Currency)
-                    ? "No currency" : selectedPriceList.Currency)</span>
-                @if (selectedPriceList.Factor.HasValue && selectedPriceList.Factor != 1)
-                {
-                    <span class="ops-badge ops-fam-neutral">Factor @selectedPriceList.Factor.Value.ToString("N2")</span>
-                }
-            }
-            @if (filteredPrices != null)
-            {
-                <span class="ops-count">
-                    @filteredPrices.Count@(allPricesForList != null ? $" of {allPricesForList.Count}" : "") items
-                </span>
-            }
-        </div>
-
-        <div class="ops-filters">
-            <div class="ops-field">
-                <label class="ops-label" for="prc-list">Price list</label>
-                <NocturneSelect Id="prc-list" Class="nsel-block" Options="PriceListSelectOptions"
-                                @bind-Value="selectedPriceListNum" OnChanged="OnPriceListChanged"
-                                Caption="Price list" AriaLabel="Price list"
-                                Placeholder="Select a price list" />
-            </div>
-            <div class="ops-field">
-                <label class="ops-label" for="prc-search">Search items</label>
-                <div class="ops-search">
-                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
-                    <input id="prc-search" type="search" class="ops-input" placeholder="Item code or description"
-                           disabled="@(selectedPriceListNum == 0)"
-                           @bind="searchTerm" @bind:event="oninput" @bind:after="FilterPrices" />
-                </div>
-            </div>
-            <div class="ops-filter-actions">
-                @if (!string.IsNullOrWhiteSpace(searchTerm))
-                {
-                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearSearch">
-                        <i class="ph ph-x-circle" aria-hidden="true"></i>Clear
-                    </button>
-                }
-            </div>
-        </div>
-
-        @if (isLoading)
-        {
-            <div class="ops-loading">
-                <span class="ops-spin ops-spin-lg"></span>
-                <p>Loading prices for @(selectedPriceList?.ListName ?? "the selected list")&hellip;</p>
-            </div>
-        }
-        else if (errorMessage != null)
-        {
-            <div class="ops-empty">
-                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
-                <h3>Could not load prices</h3>
-                <p>@errorMessage</p>
-                <div class="ops-empty-actions">
-                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="ForceRefreshPrices">Retry</button>
-                </div>
-            </div>
-        }
-        else if (selectedPriceListNum == 0)
-        {
-            @* No list chosen, so the page offers the lists themselves. Cards
-               rather than a table: it is a choice, not something to compare
-               column-wise. *@
-            @if (priceLists?.Any(p => p.IsActive) == true)
-            {
-                <div class="ops-prc-lists">
-                    @foreach (var priceList in priceLists.Where(p => p.IsActive).OrderBy(p => p.ListNum))
-                    {
-                        <button type="button" class="ops-prc-list" @onclick="() => SelectPriceList(priceList.ListNum)">
-                            <span class="ops-prc-list-name">@priceList.ListName</span>
-                            <span class="ops-prc-list-meta">
-                                @if (!string.IsNullOrEmpty(priceList.Currency))
-                                {
-                                    <span class="ops-badge ops-fam-good">@priceList.Currency</span>
-                                }
-                                <span class="ops-badge ops-fam-neutral">List @priceList.ListNum</span>
-                            </span>
-                        </button>
-                    }
-                </div>
-            }
-            else
-            {
-                <div class="ops-empty">
-                    <i class="ph ph-tag" aria-hidden="true"></i>
-                    <h3>No price lists</h3>
-                    <p>Nothing has been synced from SAP yet.</p>
-                </div>
-            }
-        }
-        else if (searchedPrice != null)
-        {
-            @* One exact match, so the price is the page. *@
-            <div class="ops-prc-hit">
-                <div>
-                    <div class="ops-code">@searchedPrice.ItemCode</div>
-                    <h3>@searchedPrice.ItemName</h3>
-                    <div class="ops-sub">@(selectedPriceList?.ListName ?? "Price")</div>
-                </div>
-                <div>
-                    <div class="ops-prc-hit-price">
-                        @GetCurrencySymbol(selectedPriceList?.Currency)@searchedPrice.Price.ToString("N2")
-                    </div>
-                    @if (!string.IsNullOrEmpty(selectedPriceList?.Currency))
-                    {
-                        <div class="ops-sub">@selectedPriceList.Currency</div>
-                    }
-                </div>
-            </div>
-        }
-        else if (filteredPrices?.Any() == true)
-        {
-            <div class="ops-scroll ops-tall">
-                <table class="ops-table">
-                    <thead>
-                        <tr>
-                            <th>Item code</th>
-                            <th>Item name</th>
-                            <th class="ops-num">Price @(string.IsNullOrEmpty(selectedPriceList?.Currency)
-                                ? "" : $"({selectedPriceList.Currency})")</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var item in filteredPrices)
-                        {
-                            <tr>
-                                <td><span class="ops-code">@HighlightMatch(item.ItemCode, searchTerm)</span></td>
-                                <td class="ops-name">@HighlightMatch(item.ItemName, searchTerm)</td>
-                                <td class="ops-num">
-                                    <span class="ops-qty">
-                                        @GetCurrencySymbol(selectedPriceList?.Currency)@item.Price.ToString("N2")
+                                        @if (IsSpecial(price))
+                                        {
+                                            <span class="ops-prc-was">@Money(price.PriceBeforeDiscount!.Value)</span>
+                                        }
                                     </span>
-                                </td>
-                            </tr>
+                                </div>
+                            }
                         }
-                    </tbody>
-                </table>
-            </div>
-        }
-        else if (allPricesForList != null && !string.IsNullOrWhiteSpace(searchTerm))
-        {
-            <div class="ops-empty">
-                <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
-                <h3>Nothing matches "@searchTerm"</h3>
-                <p>Try a shorter term, or a code rather than a description.</p>
-                <div class="ops-empty-actions">
-                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearSearch">Clear search</button>
+                    </div>
+                }
+
+                <div class="ops-prc-sheet-foot">
+                    <span class="ops-prc-foot-count">@FooterCount</span>
+                    <span class="ops-prc-foot-note">@(IsListView ? "Catalogue price · as synced from SAP" : "Till price · special prices applied")</span>
                 </div>
-            </div>
-        }
-        else if (allPricesForList?.Count == 0)
-        {
-            <div class="ops-empty">
-                <i class="ph ph-tag" aria-hidden="true"></i>
-                <h3>This list is empty</h3>
-                <p>It may not have been synced yet, or the list has no items in SAP.</p>
-                <div class="ops-empty-actions">
-                    <button type="button" class="ops-btn ops-btn-warn" @onclick="ForceRefreshPrices" disabled="@isLoading">
-                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Retry from SAP
-                    </button>
-                </div>
-            </div>
-        }
-        else
-        {
-            <div class="ops-empty">
-                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
-                <h3>Could not reach the server</h3>
-                <p>Check the connection and try again.</p>
-                <div class="ops-empty-actions">
-                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="ForceRefreshPrices" disabled="@isLoading">
-                        <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Retry
-                    </button>
-                </div>
-            </div>
-        }
-    </section>
-    }
+            </section>
+        </div>
+    </div>
 </div>
 
 @code {
-    private List<PriceListDto>? priceLists;
-
-    // 0 is this page's "nothing chosen" value, so that row carries IsUnset.
-    private IEnumerable<NocturneSelectOption<int>> PriceListSelectOptions =>
-        (priceLists ?? [])
-            .Where(list => list.IsActive)
-            .Select(list => new NocturneSelectOption<int>(list.ListNum, list.ListName ?? $"List {list.ListNum}")
-            {
-                Hint = string.IsNullOrEmpty(list.Currency) ? null : list.Currency
-            })
-            .Prepend(new NocturneSelectOption<int>(0, "Select a price list", "neutral")
-            {
-                IsUnset = true,
-                RuleAfter = true
-            });
-    private List<ItemPriceByListDto>? allPricesForList;
-    private List<ItemPriceByListDto>? filteredPrices;
-    private ItemPriceByListDto? searchedPrice;
-    private PriceListDto? selectedPriceList;
-    private int selectedPriceListNum = 0;
-    private bool isLoading = false;
-    private bool isLoadingPriceLists = false;
-    private string? errorMessage;
-    private string? searchTerm;
-    private bool isSyncingFromSap = false;
-    private string? sapSyncPhase;
-    private string? sapSyncNotice;
-    private string sapSyncNoticeFamily = "ops-fam-good";
-
     private enum PriceView { PriceList, Customer }
-    private PriceView activeView = PriceView.PriceList;
 
-    private List<NocturnePickerOption> customerOptions = [];
+    /// <summary>A partner as the rail lists it.</summary>
+    private sealed record CustomerRow(string CardCode, string Name, string? Currency);
+
+    private PriceView activeView = PriceView.PriceList;
+    private bool IsListView => activeView == PriceView.PriceList;
+
+    // Price lists
+    private List<PriceListDto>? priceLists;
+    private List<PriceListDto> filteredPriceLists = [];
+    private List<ItemPriceByListDto>? allPricesForList;
+    private PriceListDto? selectedPriceList;
+    private int selectedPriceListNum;
+    private bool isLoading;
+    private bool isLoadingPriceLists;
+    private string? errorMessage;
+
+    // Customers
+    private List<CustomerRow> customers = [];
+    private List<CustomerRow> filteredCustomers = [];
     private bool customersLoaded;
     private bool isLoadingCustomers;
     private string? selectedCardCode;
     private ItemPricesByListResponse? customerPricing;
-    private List<ItemPriceByListDto>? filteredCustomerPrices;
-    private string? customerSearchTerm;
     private bool isLoadingCustomerPrices;
     private string? customerErrorMessage;
 
-    private NocturnePickerOption? selectedCustomerOption =>
-        customerOptions.FirstOrDefault(option => option.Value == selectedCardCode);
+    // The sheet
+    private string? railSearchTerm;
+    private string? itemSearchTerm;
+    private PriceSheetSort sortBy = PriceSheetSort.Code;
+    private bool sortAscending = true;
+    // Flattened once per change, so a render only walks the list.
+    private List<PriceSheetRow> rows = [];
+    private int shownItemCount;
 
-    private int SpecialPriceCount =>
-        customerPricing?.Prices?.Count(price => price.PriceBeforeDiscount.HasValue) ?? 0;
+    /// <summary>
+    /// SAP item group name by item code, from the Web's product cache. Empty when either lookup is
+    /// unavailable, in which case the sheet is drawn ungrouped rather than failing.
+    /// </summary>
+    private Dictionary<string, string> itemGroupByCode = new(StringComparer.OrdinalIgnoreCase);
+    private bool itemGroupsLoaded;
+
+    // Sync from SAP
+    private bool isSyncingFromSap;
+    private string? sapSyncPhase;
+    private string? sapSyncNotice;
+    private string sapSyncNoticeFamily = "ops-fam-good";
+
+    private List<PriceListDto> ActivePriceLists => priceLists?.Where(list => list.IsActive).ToList() ?? [];
+
+    /// <summary>
+    /// The newest catalogue read across the lists. The API stores UTC, and a timestamp column
+    /// read back through Npgsql can arrive with no kind at all, so both are pinned to UTC here.
+    /// </summary>
+    private DateTime? LastSapSync =>
+        priceLists?
+            .Where(list => list.IsActive && list.LastSyncedAt.HasValue)
+            .Select(list => (DateTime?)(list.LastSyncedAt!.Value.Kind switch
+            {
+                DateTimeKind.Utc => list.LastSyncedAt.Value,
+                DateTimeKind.Local => list.LastSyncedAt.Value.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(list.LastSyncedAt.Value, DateTimeKind.Utc)
+            }))
+            .Max();
+
+    private string ScopeMeta => IsListView
+        ? $"{ActivePriceLists.Count} price {(ActivePriceLists.Count == 1 ? "list" : "lists")} synced from SAP"
+        : customersLoaded
+            ? $"{customers.Count:N0} business partners · price list resolved per partner"
+            : "Price list resolved per partner";
+
+    private string RailCount
+    {
+        get
+        {
+            var (shown, total) = IsListView
+                ? (filteredPriceLists.Count, ActivePriceLists.Count)
+                : (filteredCustomers.Count, customers.Count);
+            return string.IsNullOrWhiteSpace(railSearchTerm) ? total.ToString("N0") : $"{shown:N0} of {total:N0}";
+        }
+    }
+
+    private CustomerRow? SelectedCustomer => customers.FirstOrDefault(customer => customer.CardCode == selectedCardCode);
+
+    private string SheetName => IsListView
+        ? selectedPriceList?.ListName ?? (selectedPriceListNum > 0 ? $"List {selectedPriceListNum}" : "Select a price list")
+        : SelectedCustomer?.Name ?? selectedCardCode ?? "Select a customer";
+
+    private string? SheetCurrency
+    {
+        get
+        {
+            if (IsListView)
+            {
+                return selectedPriceList == null ? null : CurrencyLabel(selectedPriceList.Currency) ?? "No currency";
+            }
+
+            return customerPricing is { PriceListNum: > 0 } ? CurrencyLabel(customerPricing.Currency) ?? "No currency" : null;
+        }
+    }
+
+    private string SheetSub
+    {
+        get
+        {
+            if (IsListView)
+            {
+                if (selectedPriceList == null)
+                {
+                    return "Pick a list to see its items.";
+                }
+
+                var factor = selectedPriceList.Factor is { } value && value != 1 ? $" · factor {value:N2}" : "";
+                return $"List {selectedPriceList.ListNum} · prices as posted in SAP{factor}";
+            }
+
+            if (string.IsNullOrEmpty(selectedCardCode))
+            {
+                return "Pick a customer to see what its tills charge.";
+            }
+
+            if (customerPricing == null)
+            {
+                return selectedCardCode;
+            }
+
+            if (customerPricing.PriceListNum <= 0)
+            {
+                return $"{selectedCardCode} · no price list";
+            }
+
+            var listName = customerPricing.PriceListName ?? $"List {customerPricing.PriceListNum}";
+            var specials = SpecialPriceCount switch
+            {
+                0 => "no special prices",
+                1 => "1 special price applied",
+                var count => $"{count:N0} special prices applied"
+            };
+            return $"{selectedCardCode} · {listName} · {specials}";
+        }
+    }
+
+    private List<ItemPriceByListDto>? SheetPrices => IsListView ? allPricesForList : customerPricing?.Prices;
+
+    private bool IsSheetLoading => IsListView ? isLoading : isLoadingCustomerPrices;
+
+    private string? SheetError => IsListView ? errorMessage : customerErrorMessage;
+
+    private string FooterCount => SheetPrices is { } prices
+        ? $"{shownItemCount:N0} of {prices.Count:N0} items"
+        : "No items";
+
+    private string? SheetCurrencyCode => IsListView ? selectedPriceList?.Currency : customerPricing?.Currency;
+
+    private int SpecialPriceCount => customerPricing?.Prices?.Count(IsSpecial) ?? 0;
+
+    /// <summary>A price the partner's special price moved off its list price.</summary>
+    private bool IsSpecial(ItemPriceByListDto price) => !IsListView && price.PriceBeforeDiscount.HasValue;
 
     protected override async Task OnInitializedAsync()
     {
@@ -517,6 +530,7 @@
             if (response?.PriceLists != null)
             {
                 priceLists = response.PriceLists;
+                selectedPriceList = priceLists.FirstOrDefault(list => list.ListNum == selectedPriceListNum);
                 Logger.LogInformation("Loaded {Count} price lists", priceLists.Count);
             }
             else
@@ -532,6 +546,7 @@
         finally
         {
             isLoadingPriceLists = false;
+            FilterRail();
         }
     }
 
@@ -549,6 +564,20 @@
         }
     }
 
+    private void ShowListView()
+    {
+        if (IsListView)
+        {
+            return;
+        }
+
+        activeView = PriceView.PriceList;
+        railSearchTerm = null;
+        itemSearchTerm = null;
+        FilterRail();
+        BuildRows();
+    }
+
     /// <summary>
     /// Opens the customer view, loading the partner list the first time it is asked for.
     /// </summary>
@@ -558,7 +587,22 @@
     /// </remarks>
     private async Task ShowCustomerView()
     {
+        if (!IsListView)
+        {
+            return;
+        }
+
         activeView = PriceView.Customer;
+        railSearchTerm = null;
+        itemSearchTerm = null;
+        FilterRail();
+        BuildRows();
+
+        await LoadCustomersAsync();
+    }
+
+    private async Task LoadCustomersAsync()
+    {
         if (customersLoaded || isLoadingCustomers)
         {
             return;
@@ -569,7 +613,15 @@
 
         try
         {
-            customerOptions = BusinessPartnerOptions.From(await CacheService.GetBusinessPartnersAsync());
+            customers = (await CacheService.GetBusinessPartnersAsync())
+                .Where(partner => !string.IsNullOrWhiteSpace(partner.CardCode))
+                .Select(partner => new CustomerRow(
+                    partner.CardCode!,
+                    string.IsNullOrWhiteSpace(partner.CardName) ? partner.CardCode! : partner.CardName,
+                    partner.Currency))
+                .OrderBy(customer => customer.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(customer => customer.CardCode, StringComparer.OrdinalIgnoreCase)
+                .ToList();
             customersLoaded = true;
         }
         catch (Exception ex)
@@ -580,27 +632,56 @@
         finally
         {
             isLoadingCustomers = false;
+            FilterRail();
         }
     }
 
-    private async Task RetryCustomerView()
+    private void FilterRail()
     {
-        customerErrorMessage = null;
-        if (!customersLoaded)
+        var term = railSearchTerm?.Trim();
+
+        filteredPriceLists = ActivePriceLists
+            .Where(list => string.IsNullOrEmpty(term) ||
+                (list.ListName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                $"list {list.ListNum}".Contains(term, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(list => list.ListNum)
+            .ToList();
+
+        filteredCustomers = string.IsNullOrEmpty(term)
+            ? customers
+            : customers
+                .Where(customer =>
+                    customer.CardCode.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    customer.Name.Contains(term, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+    }
+
+    private async Task RetrySheet()
+    {
+        if (IsListView)
         {
-            await ShowCustomerView();
+            await ForceRefreshPrices();
+            return;
         }
+
+        customerErrorMessage = null;
+        await LoadCustomersAsync();
 
         await LoadCustomerPrices();
     }
 
     private async Task OnCustomerChanged(string? cardCode)
     {
+        if (cardCode == selectedCardCode && customerPricing != null)
+        {
+            return;
+        }
+
         selectedCardCode = cardCode;
         customerPricing = null;
-        filteredCustomerPrices = null;
-        customerSearchTerm = null;
+        itemSearchTerm = null;
         customerErrorMessage = null;
+        BuildRows();
 
         if (!string.IsNullOrEmpty(cardCode))
         {
@@ -631,18 +712,17 @@
         try
         {
             await EnsureAuthenticatedAsync();
+            await EnsureItemGroupsAsync();
             var response = await PriceService.GetPricesByBusinessPartnerAsync(selectedCardCode, useLivePricing: false);
 
             if (response == null)
             {
                 customerPricing = null;
-                filteredCustomerPrices = null;
                 customerErrorMessage = "The server did not answer with prices for this customer.";
             }
             else
             {
                 customerPricing = response;
-                FilterCustomerPrices();
             }
         }
         catch (Exception ex)
@@ -653,33 +733,9 @@
         finally
         {
             isLoadingCustomerPrices = false;
+            BuildRows();
             StateHasChanged();
         }
-    }
-
-    private void FilterCustomerPrices()
-    {
-        var prices = customerPricing?.Prices;
-        if (prices == null)
-        {
-            filteredCustomerPrices = null;
-            return;
-        }
-
-        var term = customerSearchTerm?.Trim();
-
-        filteredCustomerPrices = prices
-            .Where(price => string.IsNullOrEmpty(term) ||
-                (price.ItemCode?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (price.ItemName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false))
-            .OrderBy(price => price.ItemCode)
-            .ToList();
-    }
-
-    private void ClearCustomerSearch()
-    {
-        customerSearchTerm = null;
-        FilterCustomerPrices();
     }
 
     /// <summary>
@@ -742,25 +798,21 @@
         await RefreshPriceLists();
     }
 
-    private void SelectPriceList(int listNum)
+    private async Task SelectPriceList(int listNum)
     {
-        selectedPriceListNum = listNum;
-        _ = OnPriceListChanged();
-    }
-
-    private async Task OnPriceListChanged()
-    {
-        selectedPriceList = priceLists?.FirstOrDefault(p => p.ListNum == selectedPriceListNum);
-        allPricesForList = null;
-        filteredPrices = null;
-        searchedPrice = null;
-        searchTerm = null;
-        errorMessage = null;
-
-        if (selectedPriceListNum > 0)
+        if (listNum == selectedPriceListNum && allPricesForList != null)
         {
-            await LoadPricesForList();
+            return;
         }
+
+        selectedPriceListNum = listNum;
+        selectedPriceList = priceLists?.FirstOrDefault(list => list.ListNum == listNum);
+        allPricesForList = null;
+        itemSearchTerm = null;
+        errorMessage = null;
+        BuildRows();
+
+        await LoadPricesForList();
     }
 
     private async Task LoadPricesForList(bool forceRefresh = false)
@@ -774,20 +826,15 @@
         try
         {
             await EnsureAuthenticatedAsync();
+            await EnsureItemGroupsAsync();
             var response = forceRefresh
                 ? await PriceService.GetPricesByPriceListForceRefreshAsync(selectedPriceListNum)
                 : await PriceService.GetPricesByPriceListAsync(selectedPriceListNum);
 
-            if (response?.Prices != null)
+            allPricesForList = response?.Prices;
+            if (allPricesForList != null)
             {
-                allPricesForList = response.Prices;
-                filteredPrices = allPricesForList.OrderBy(p => p.ItemCode).ToList();
                 Logger.LogInformation("Loaded {Count} prices for list {ListNum}", allPricesForList.Count, selectedPriceListNum);
-            }
-            else
-            {
-                allPricesForList = null;
-                filteredPrices = null;
             }
         }
         catch (Exception ex)
@@ -798,6 +845,7 @@
         finally
         {
             isLoading = false;
+            BuildRows();
             StateHasChanged();
         }
     }
@@ -807,40 +855,70 @@
         await LoadPricesForList(forceRefresh: true);
     }
 
-    private void FilterPrices()
+    /// <summary>
+    /// Reads each item's SAP item group once, for the sheet's group headings.
+    /// </summary>
+    /// <remarks>
+    /// The price rows carry no group, so it comes from the Web's product cache (item code → group
+    /// number) and its item group lookup (number → name) — the same pair the sales analysis
+    /// reports group by. A failure costs the headings and nothing else.
+    /// </remarks>
+    private async Task EnsureItemGroupsAsync()
     {
-        if (allPricesForList == null)
+        if (itemGroupsLoaded)
         {
-            filteredPrices = null;
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(searchTerm))
-        {
-            filteredPrices = allPricesForList.OrderBy(p => p.ItemCode).ToList();
-            searchedPrice = null;
-            return;
-        }
+        itemGroupsLoaded = true;
 
-        var term = searchTerm.Trim();
-
-        filteredPrices = allPricesForList
-        .Where(p =>
-        (p.ItemCode != null && p.ItemCode.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
-        (p.ItemName != null && p.ItemName.Contains(term, StringComparison.OrdinalIgnoreCase)))
-        .OrderBy(p => p.ItemCode)
-        .ToList();
-
-        // If exactly one result, show it as the featured search result
-        if (filteredPrices.Count == 1)
+        try
         {
-            searchedPrice = filteredPrices.First();
-            filteredPrices = null;
+            var groupNames = (await CacheService.GetItemGroupsAsync())
+                .ToDictionary(group => group.Number, group => string.IsNullOrWhiteSpace(group.GroupName)
+                    ? $"Group {group.Number}"
+                    : group.GroupName.Trim());
+
+            await using var db = await DbContextFactory.CreateDbContextAsync();
+            var products = await db.CachedProducts
+                .AsNoTracking()
+                .Where(product => product.ItemsGroupCode != null)
+                .Select(product => new { product.ItemCode, product.ItemsGroupCode })
+                .ToListAsync();
+
+            itemGroupByCode = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var product in products)
+            {
+                if (!string.IsNullOrEmpty(product.ItemCode) &&
+                    groupNames.TryGetValue(product.ItemsGroupCode!.Value, out var name))
+                {
+                    itemGroupByCode[product.ItemCode] = name;
+                }
+            }
         }
-        else
+        catch (Exception ex)
         {
-            searchedPrice = null;
+            Logger.LogError(ex, "Could not load item groups for the Price List page; the sheet is drawn ungrouped");
+            itemGroupByCode = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
+    }
+
+    private void SortBy(PriceSheetSort column)
+    {
+        sortAscending = sortBy != column || !sortAscending;
+        sortBy = column;
+        BuildRows();
+    }
+
+    private string SortArrow(PriceSheetSort column) =>
+        sortBy == column ? (sortAscending ? "↑" : "↓") : "";
+
+    /// <summary>Filters, sorts and flattens the sheet into <see cref="rows"/>.</summary>
+    private void BuildRows()
+    {
+        var prices = SheetPrices;
+        rows = prices == null ? [] : PriceSheetRows.Build(prices, itemGroupByCode, itemSearchTerm, sortBy, sortAscending);
+        shownItemCount = rows.Count(row => row.Price != null);
     }
 
     // The match is marked with a bare <mark>, which operations.css dresses as an
@@ -848,39 +926,57 @@
     // matches was louder than the rows themselves.
     private MarkupString HighlightMatch(string? text, string? search)
     {
-        if (string.IsNullOrEmpty(text) || string.IsNullOrWhiteSpace(search))
+        var term = search?.Trim();
+        if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(term))
             return new MarkupString(System.Web.HttpUtility.HtmlEncode(text ?? ""));
 
-        var index = text.IndexOf(search, StringComparison.OrdinalIgnoreCase);
+        var index = text.IndexOf(term, StringComparison.OrdinalIgnoreCase);
         if (index < 0)
             return new MarkupString(System.Web.HttpUtility.HtmlEncode(text));
 
         var before = System.Web.HttpUtility.HtmlEncode(text[..index]);
-        var match = System.Web.HttpUtility.HtmlEncode(text.Substring(index, search.Length));
-        var after = System.Web.HttpUtility.HtmlEncode(text[(index + search.Length)..]);
+        var match = System.Web.HttpUtility.HtmlEncode(text.Substring(index, term.Length));
+        var after = System.Web.HttpUtility.HtmlEncode(text[(index + term.Length)..]);
 
         return new MarkupString($"{before}<mark>{match}</mark>{after}");
     }
 
-    private string GetCurrencySymbol(string? currency)
+    private string Money(decimal amount) =>
+        GetCurrencySymbol(SheetCurrencyCode) + amount.ToString("N2", CultureInfo.InvariantCulture);
+
+    private static string GetCurrencySymbol(string? currency)
     {
-        return currency?.ToUpperInvariant() switch
+        return currency?.Trim().ToUpperInvariant() switch
         {
-            "USD" => "$",
-            "ZIG" => "ZIG ",
+            "ZIG" => "ZiG ",
             "EUR" => "€",
             "GBP" => "£",
-            "ZAR" => "R",
-            null or "" or "##" => "$",
+            "ZAR" => "R ",
             _ => "$"
         };
     }
 
-    private void ClearSearch()
+    /// <summary>
+    /// A currency as the rail and the sheet's chip show it. SAP's "##" (any currency) is not a
+    /// code, so it is left blank rather than drawn beside USD and ZiG.
+    /// </summary>
+    private static string? CurrencyLabel(string? currency)
     {
-        searchTerm = null;
-        searchedPrice = null;
-        filteredPrices = allPricesForList?.OrderBy(p => p.ItemCode).ToList();
-        errorMessage = null;
+        var code = currency?.Trim();
+        if (string.IsNullOrEmpty(code) || code == "##")
+        {
+            return null;
+        }
+
+        return code.Equals("ZIG", StringComparison.OrdinalIgnoreCase) ? "ZiG" : code;
+    }
+
+    private static string SyncAge(DateTime utc)
+    {
+        var age = DateTime.UtcNow - utc;
+        if (age < TimeSpan.FromMinutes(1)) return "just now";
+        if (age < TimeSpan.FromHours(1)) return $"{(int)age.TotalMinutes} min ago";
+        if (age < TimeSpan.FromDays(1)) return $"{(int)age.TotalHours} h ago";
+        return utc.ToLocalTime().ToString("d MMM, HH:mm");
     }
 }

@@ -23,7 +23,8 @@ public sealed class LocalPriceCatalogService(
                 Currency = priceList.Currency,
                 IsActive = priceList.IsActive,
                 Factor = priceList.Factor,
-                RoundingMethod = priceList.RoundingMethod
+                RoundingMethod = priceList.RoundingMethod,
+                LastSyncedAt = priceList.LastSyncedAt
             })
             .ToListAsync(cancellationToken);
 
