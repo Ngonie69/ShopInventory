@@ -49,11 +49,20 @@
    nothing. Every drawer part below is scoped `.ops-overlay`, the same way
    `.ops-ds-state` and `.ops-ds-facts` already were.
 
-   Where the design differs from its five siblings is that it does **not** wrap
-   the list in `.ops-panel`. The filter row and the table sit on the page ground
-   with a fading rule between them, which is why /desktop-sales reaches for
-   `.ops-rule-fade` where its siblings reach for `.ops-panel`. Nothing was
-   overridden to get there; the page simply does not use the panel classes.
+   **The design's third revision boxed both halves of the list**, so this page
+   now wears `.ops-panel` twice — once around the filter surface and once around
+   the table — where it used to put both on the page ground with an
+   `.ops-rule-fade` between them. It is the shared class rather than a pair of
+   private boxes because the panel is already exactly this: a wash that falls
+   away, unclipped so a date field's calendar can leave it. The list box adds
+   the one thing the panel deliberately omits, an `overflow: hidden` for the
+   first row's corners, and can do so because nothing inside it opens a menu.
+
+   That revision is also where the filter surface below came from: a search, a
+   toggle carrying the count of what is set, a panel of chip groups whose chips
+   carry the count each would return, and a row of pills naming the lot. The
+   counts come from the API — see GetDesktopSalesHandler's facets — so nothing
+   here computes one.
 
    **One scope, six vocabularies**, the way customer-portal.css is built
    rather than the way merchandiser.css is. `.ops` carries the token block, the
@@ -2520,9 +2529,13 @@
     font-variant-numeric: tabular-nums;
 }
 
-/* ── The filter row ────────────────────────────────────────────────────── */
-/* A row on the ground rather than `.ops-filters` in a panel: the fields are
-   different widths on purpose, and an auto-fit grid would even them out. */
+/* ── The filter row that /management-sales-report still wears ──────────── */
+/* This was /desktop-sales's filter row until the design's third revision boxed
+   it — see the surface below. It is still here because it was never only this
+   page's: /management-sales-report wears `ops ops-ds ops-dsa ops-msr` and takes
+   its whole filter row from these five rules. Deleting them with the markup
+   that used to call them here would have silently flattened that page's
+   controls into a bare column, with nothing failing to build. */
 
 .ops-ds .ops-ds-filters {
     display: flex;
@@ -2537,21 +2550,14 @@
     background: color-mix(in srgb, var(--ops-surface) 55%, transparent);
 }
 
-/* The count and Clear ride at the far end of the same row: the count is the
-   answer to these controls, and by the foot of a 50-row page they are off
-   screen together. */
+/* The figures ride at the far end of the same row: they are the answer to these
+   controls, and by the foot of a long page the two are off screen together. */
 .ops-ds .ops-ds-filter-tail {
     display: flex;
     align-items: center;
     gap: var(--ops-s4);
     margin-left: auto;
     padding-bottom: 6px;
-}
-
-.ops-ds .ops-ds-shown {
-    font-size: 11.5px;
-    color: var(--ops-mute-3);
-    font-variant-numeric: tabular-nums;
 }
 
 .ops-ds .ops-ds-filters .ops-field {
@@ -2562,25 +2568,369 @@
     flex-basis: 200px;
 }
 
-/* The pair only appears under the "Range" segment. `.ndf` is width:100%, so
-   the size is stated on the field that wraps it. */
-.ops-ds .ops-ds-dates {
-    display: flex;
-    align-items: flex-end;
-    gap: var(--ops-s4);
-}
-
-.ops-ds .ops-ds-dates .ops-field {
-    flex: 0 1 150px;
-}
-
-/* The period picker. Three fixed answers where a pair of date fields would ask
-   the question twice; the third opens the pair when it is really needed. */
-
-/* Its own width — the three labels decide it, not the field track. */
+/* A segment's own width — its labels decide it, not the field track. */
 .ops-ds .ops-ds-filters>.ops-ds-seg-field {
     flex: none;
 }
+
+/* Its date pair wraps each field in an `.ops-field` with a label; the boxed
+   surface below states its own width on the `.ndf` instead. */
+.ops-ds .ops-ds-filters .ops-ds-dates .ops-field {
+    flex: 0 1 150px;
+}
+
+/* ── The filter surface ────────────────────────────────────────────────── */
+/* The design's third revision turned the filter row into a control with three
+   parts, and they are one box because they are one thing: the row anybody
+   touches, the panel of chips behind it, and a statement of what is set.
+
+   It wears `.ops-panel`, which is deliberately unclipped — the date fields in
+   the row drop a calendar below themselves, and an `overflow` other than
+   `visible` on an ancestor cuts it off at the box edge. */
+
+/* Stacked above the list box, which is a later sibling and clips its own
+   content. A calendar dropped out of the row overlaps that box, and painting
+   order alone is too thin a thing to leave it resting on. */
+.ops-ds .ops-ds-fbar {
+    position: relative;
+    z-index: 2;
+}
+
+.ops-ds .ops-ds-fbar-row {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s4);
+    flex-wrap: wrap;
+    padding: var(--ops-s4) var(--ops-s6);
+}
+
+/* The one control that takes the room left over. Its own `.ops-search` supplies
+   the icon well; this states how it shares the row. */
+.ops-ds .ops-ds-search {
+    flex: 1 1 260px;
+    min-width: 200px;
+}
+
+.ops-ds .ops-ds-search .ops-input {
+    height: 34px;
+}
+
+.ops-ds .ops-ds-shown {
+    font-size: 11.5px;
+    color: var(--ops-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Louder on the list bar, where it is the page's own statement of what is on
+   screen rather than a figure riding at the end of a filter row. */
+.ops-ds .ops-ds-listbar .ops-ds-shown {
+    font-size: 12.5px;
+    color: var(--ops-ink-2);
+}
+
+/* The pair only appears under the "Range" segment. `.ndf` is width:100%, so the
+   width is stated here rather than on a wrapper each field would need.
+
+   Scoped to this row rather than to `.ops-ds`: /management-sales-report has an
+   `.ops-ds-dates` of its own, whose fields sit under labels and are sized by the
+   `.ops-field` around them. Unscoped, these three would centre that pair against
+   its labels and fight its width. */
+.ops-ds .ops-ds-fbar-row .ops-ds-dates {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    --ndf-h: 34px;
+    --ndf-fs: 12.5px;
+}
+
+.ops-ds .ops-ds-fbar-row .ops-ds-dates .ndf {
+    width: 148px;
+}
+
+.ops-ds .ops-ds-dates-to {
+    color: var(--ops-mute-3);
+}
+
+/* The panel's own switch. It carries its count whether or not anything is set:
+   a zero beside a closed panel is what says the panel holds nothing, which is
+   the question somebody asks before opening it. */
+.ops-ds .ops-ds-ftoggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 34px;
+    padding: 0 12px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--ops-ink);
+    background: transparent;
+    border: 1px solid var(--ops-divider);
+    border-radius: var(--ops-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .14s, border-color .14s, color .14s;
+}
+
+.ops-ds .ops-ds-ftoggle:hover {
+    background: var(--ops-hover);
+}
+
+.ops-ds .ops-ds-ftoggle.is-on {
+    color: var(--ops-accent-text);
+    border-color: rgba(var(--ops-accent-rgb), .5);
+    background: rgba(var(--ops-accent-rgb), .12);
+}
+
+.ops-ds .ops-ds-fcount {
+    min-width: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 16px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-mute-3);
+    background: var(--ops-hover);
+}
+
+.ops-ds .ops-ds-ftoggle.is-on .ops-ds-fcount {
+    color: var(--ops-accent-text);
+    background: rgba(var(--ops-accent-rgb), .25);
+}
+
+/* ── The chip panel ────────────────────────────────────────────────────── */
+
+.ops-ds .ops-ds-fpanel {
+    padding: var(--ops-s4) var(--ops-s6) var(--ops-s6);
+    border-top: 1px solid var(--ops-divider);
+}
+
+/* An auto-fit grid here where the row above is a flex: these eight groups are
+   peers of the same weight, and evening them out is the point. */
+.ops-ds .ops-ds-fgrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: var(--ops-s6) var(--ops-s8);
+}
+
+.ops-ds .ops-ds-fgroup {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    align-items: flex-start;
+    min-width: 0;
+}
+
+.ops-ds .ops-ds-fnone {
+    font-size: 12px;
+    color: var(--ops-mute-3);
+}
+
+.ops-ds .ops-ds-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+/* A chip carries the count it would return, so it is a promise rather than a
+   label. The dot takes the family where the group has one — the two status
+   groups — and is absent where a value carries no meaning beyond its text. */
+.ops-ds .ops-ds-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 4px 10px;
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--ops-ink-2);
+    background: transparent;
+    border: 1px solid var(--ops-divider);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background-color .14s, border-color .14s, color .14s;
+}
+
+.ops-ds .ops-ds-chip:hover:not(.is-on) {
+    background: var(--ops-hover);
+    color: var(--ops-ink);
+}
+
+.ops-ds .ops-ds-chip.is-on {
+    color: var(--ops-accent-text);
+    border-color: rgba(var(--ops-accent-rgb), .55);
+    background: rgba(var(--ops-accent-rgb), .14);
+}
+
+.ops-ds .ops-ds-chip .ops-dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+}
+
+.ops-ds .ops-ds-chip-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ops-ds .ops-ds-chip-count {
+    font-variant-numeric: tabular-nums;
+    color: var(--ops-mute-3);
+}
+
+.ops-ds .ops-ds-chip.is-on .ops-ds-chip-count {
+    color: inherit;
+    opacity: .7;
+}
+
+.ops-ds .ops-ds-finput {
+    height: 32px;
+    width: 100%;
+    font-size: 12.5px;
+}
+
+.ops-ds .ops-ds-frange {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+}
+
+.ops-ds .ops-ds-frange-dash {
+    color: var(--ops-mute-3);
+}
+
+/* ── What is set ───────────────────────────────────────────────────────── */
+/* Below the panel and outside it, so it is read whether the panel is open or
+   shut — which is the whole point of it on a page whose filters are three
+   clicks deep. */
+
+.ops-ds .ops-ds-active {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: var(--ops-s3) var(--ops-s6);
+    border-top: 1px solid var(--ops-divider);
+    background: var(--ops-wash);
+    border-radius: 0 0 var(--ops-r-lg) var(--ops-r-lg);
+}
+
+.ops-ds .ops-ds-active .ops-kicker {
+    margin-right: 2px;
+}
+
+/* Every pill removes the filter it names, so it is a button and reads as one.
+   Square-ish rather than round, to tell it from a chip in the panel above:
+   a chip is picked up and put down, a pill is only ever put down. */
+.ops-ds .ops-ds-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 3px 8px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--ops-accent-text);
+    background: rgba(var(--ops-accent-rgb), .12);
+    border: 1px solid rgba(var(--ops-accent-rgb), .4);
+    border-radius: var(--ops-r-sm);
+    cursor: pointer;
+    transition: background-color .14s;
+}
+
+.ops-ds .ops-ds-pill:hover {
+    background: rgba(var(--ops-accent-rgb), .22);
+}
+
+.ops-ds .ops-ds-pill-group {
+    opacity: .65;
+}
+
+.ops-ds .ops-ds-pill i {
+    font-size: 11px;
+}
+
+/* ── The count and the list controls ───────────────────────────────────── */
+/* Between the filters that decide the count and the table it describes. On the
+   page ground rather than in either box: it belongs to both. */
+
+.ops-ds .ops-ds-listbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--ops-s4);
+}
+
+.ops-ds .ops-ds-listbar-count {
+    display: flex;
+    align-items: baseline;
+    gap: var(--ops-s3);
+}
+
+.ops-ds .ops-ds-from {
+    font-size: 12px;
+    color: var(--ops-accent-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-ds .ops-ds-listbar-tools {
+    display: flex;
+    align-items: center;
+    gap: var(--ops-s3);
+    flex-wrap: wrap;
+}
+
+.ops-ds .ops-ds-listbar-tools .ops-label+.ops-label {
+    margin-left: var(--ops-s4);
+}
+
+/* ── The selection bar ─────────────────────────────────────────────────── */
+/* Only while something is ticked, and directly above the rows it names: the
+   count is the whole point of the button, and it is worth more here than at
+   the top of the page beside three buttons that act on the day. */
+
+.ops-ds .ops-ds-selbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--ops-s4);
+    padding: var(--ops-s3) var(--ops-s6);
+    border: 1px solid rgba(var(--ops-accent-rgb), .45);
+    border-radius: var(--ops-r-md);
+    background: rgba(var(--ops-accent-rgb), .1);
+}
+
+.ops-ds .ops-ds-selbar-count {
+    font-size: 13px;
+    color: var(--ops-accent-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-ds .ops-ds-selbar-value {
+    font-size: 12.5px;
+    color: var(--ops-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.ops-ds .ops-ds-selbar-gap {
+    flex: 1;
+}
+
+/* ── The list ──────────────────────────────────────────────────────────── */
+/* Boxed, as the design draws it, and clipped so the first row's corners follow
+   the box's. Nothing inside opens a menu — the two controls that do are on the
+   bar above — so the clip costs this box nothing that it costs `.ops-panel`. */
+
+.ops-ds .ops-ds-list {
+    overflow: hidden;
+}
+
+/* The period picker, and the tender comparison in the panel. A row of fixed
+   answers where a pair of fields would ask the question twice. */
 
 .ops-ds .ops-ds-seg {
     display: inline-flex;
@@ -2618,7 +2968,62 @@
     color: var(--ops-accent-text);
 }
 
-/* ── The list ──────────────────────────────────────────────────────────── */
+/* A search reaches every date, so the period beside it decides nothing while one
+   is typed. The segment stays live — clearing the search puts it back in charge —
+   but it stops claiming to be in charge, and the note says what is. */
+.ops-ds .ops-ds-seg.is-off {
+    opacity: .5;
+}
+
+.ops-ds .ops-ds-alldates {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--ops-accent-text);
+    white-space: nowrap;
+}
+
+/* The panel's copy sits under a kicker rather than in a row of 34px controls. */
+.ops-ds .ops-ds-seg-sm {
+    height: 30px;
+}
+
+.ops-ds .ops-ds-seg-sm .ops-ds-seg-opt {
+    padding: 0 10px;
+    font-size: 12px;
+}
+
+/* On a phone the four periods are wider than the row, and the segment does not
+   wrap — so "Range", the one that opens the date pair, fell off the right edge
+   and could not be pressed at all. It takes the whole row here and the four
+   share it, rather than scrolling inside itself: a period a thumb has to find
+   by swiping is barely better than one that is not there. */
+@media (max-width: 620px) {
+    .ops-ds .ops-ds-fbar-row>.ops-ds-seg {
+        flex: 1 1 100%;
+    }
+
+    .ops-ds .ops-ds-fbar-row>.ops-ds-seg .ops-ds-seg-opt {
+        flex: 1 1 auto;
+        justify-content: center;
+        padding: 0 6px;
+        font-size: 12px;
+    }
+
+    /* The pair below it, likewise: two 148px fields and an arrow do not fit. */
+    .ops-ds .ops-ds-fbar-row .ops-ds-dates {
+        flex: 1 1 100%;
+    }
+
+    .ops-ds .ops-ds-fbar-row .ops-ds-dates .ndf {
+        width: auto;
+        flex: 1 1 0;
+        min-width: 0;
+    }
+}
+
+/* ── The rows ──────────────────────────────────────────────────────────── */
 
 /* A status told as a mark and a word. The pill `.ops-badge` draws is right for
    a value in a dense grid; here two status columns sit side by side and eight
@@ -2830,7 +3235,8 @@
 }
 
 /* The foot of an unpanelled list: no top border, because the last row rule is
-   already there and two lines 11px apart read as a mistake. */
+   already there and two lines 11px apart read as a mistake. This is the shape
+   /management-sales-report still uses. */
 .ops-ds .ops-ds-foot {
     display: flex;
     align-items: center;
@@ -2840,6 +3246,11 @@
     padding: var(--ops-s6) 0 0;
     font-size: 12px;
     color: var(--ops-mute-3);
+}
+
+/* Inside the box, it takes the box's padding instead. Still no top border. */
+.ops-ds .ops-ds-list .ops-ds-foot {
+    padding: var(--ops-s4) var(--ops-s6);
 }
 
 .ops-ds .ops-ds-foot-info {

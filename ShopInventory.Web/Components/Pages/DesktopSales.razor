@@ -8,7 +8,6 @@
    a credit could be raised from. *@
 @attribute [Authorize(Roles = "Admin,Cashier,Manager")]
 @inject IDesktopIntegrationService DesktopService
-@inject IMasterDataCacheService MasterDataCache
 @inject IReportExportService ExportService
 @inject INotificationHubService HubService
 @inject IJSRuntime JS
@@ -42,17 +41,44 @@
    pass does every minute, asked for now. So the hero keeps both buttons, and
    only a sale the API says is postable gets a checkbox.
 
-   **The design's second revision** brought the rest of what is here: the lane
-   strip above the counts rather than below them, the counts as a four-up grid,
-   a filter row on a wash carrying the count it is the answer to, a hover cue on
-   a row that opens a drawer, and a drawer that states the document — a headline
+   **The design's second revision** brought the lane strip above the counts
+   rather than below them, the counts as a four-up grid, a hover cue on a row
+   that opens a drawer, and a drawer that states the document — a headline
    amount, the fiscal block the device signed, and a trail.
+
+   **The third** is almost entirely one thing: the filter surface. A search box,
+   a fourth period, a collapsible panel of chip groups that take several values
+   at once and carry the count each of them would return, an amount window, a
+   tender comparison, a row of pills naming what is set, a sort, and a
+   rows-per-page control. Two of those — the multi-value chips and their counts —
+   could not be drawn against the API this page had: it filtered on one
+   warehouse, one status and one channel, sorted on nothing, and counted nothing.
+   So `GET sales` grew the plural filters, the amount window, the tender
+   comparison, a sort and — behind `includeFacets`, because five grouped counts
+   are not a till's business — the per-group counts the chips carry. Every one of
+   them is proved in DesktopSalesFilterSurfaceTests.
+
+   **The counts are what makes the panel worth having**, and they are counted
+   with each group's own selection lifted. A chip says what pressing it would
+   give, not what is already showing: counted the other way, every unpicked chip
+   in a group that has a pick reads 0 and the whole panel looks like a dead end.
+
+   **Warehouse, tender and channel are drawn from the data**, not from a list
+   this page keeps. The tenders are whatever the tills have actually written and
+   the design's four guesses (Cash, Swipe, Transfer, On account) are not them —
+   this app takes Cash, Swipe, EcoCash and InnBucks — so a chip exists where a
+   sale exists, and nowhere else. A value that is selected but has nothing left
+   to match keeps its chip so it can be unpicked.
 
    Its remaining per-sale actions are still not drawn, and for the original
    reason. "Consolidate now" in a drawer about one invoice is not Post to SAP:
    posting sends this sale to SAP as its own invoice, consolidating closes the
    whole day. There is still no endpoint that excludes a sale from the close,
-   and no receipt PDF is kept for a desktop sale.
+   and no receipt PDF is kept for a desktop sale — which is also why the
+   design's selection bar reads "Post N to SAP" where it drew "Consolidate
+   selected" and "Exclude". The bar itself is the design's, and it is where the
+   count belongs: it states what is about to reach SAP, immediately above the
+   rows it is about to send.
 
    Four places where the design assumed data this page does not have:
 
@@ -102,25 +128,10 @@
                 </div>
             </div>
             <div class="ops-hero-actions">
-                @* Only while something is selected. A permanently visible "Post 0 to SAP" would
-                   invite the press that does nothing, and the count is the whole point of the
-                   button: it states what is about to reach SAP before it does. *@
-                @if (selected.Count > 0)
-                {
-                    <button type="button" class="ops-btn ops-btn-primary" @onclick="OpenBulkPost"
-                            disabled="@(isPosting || isLoading)">
-                        @if (isPosting)
-                        {
-                            <span class="ops-spin"></span>
-                            <span>Posting&hellip;</span>
-                        }
-                        else
-                        {
-                            <i class="ph ph-cloud-arrow-up" aria-hidden="true"></i>
-                            <span>Post @selected.Count to SAP</span>
-                        }
-                    </button>
-                }
+                @* Posting used to stand here too, appearing only while something was selected. It is
+                   in the selection bar above the table now, where the design puts it: the count is
+                   the whole point of that button, and it is worth more directly above the rows it
+                   names than four feet away at the top of the page. *@
                 <button type="button" class="ops-btn ops-btn-primary" @onclick="OpenConsolidate"
                         disabled="@(isConsolidating || isLoading)">
                     @if (isConsolidating)
@@ -280,109 +291,228 @@
         </div>
     }
 
-    <div class="ops-ds-filters">
-        @* Finding one sale, which is what someone raising a credit is doing. The API has answered this
-           search all along and this page never asked it; the only way to reach a sale was to page
-           through the day looking at device references.
+    @* The filter surface, boxed. Everything down to the pills is one control
+       and reads as one: the always-visible row that most of the day is all
+       anybody touches, the panel behind it, and a statement of what is set. *@
+    <section class="ops-panel ops-ds-fbar">
+        <div class="ops-ds-fbar-row">
+            @* Committed on change rather than per keystroke. Every filter on this
+               page is one deliberate act that reloads on its own, and a reload per
+               character would put fifty of them behind one typed reference. *@
+            <div class="ops-search ops-ds-search">
+                <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                <input type="search" class="ops-input" placeholder="Sale no., receipt, SAP no. or customer"
+                       aria-label="Search by sale number, receipt, SAP number or customer"
+                       @bind="filterSearch" @bind:after="ApplyFilters" />
+            </div>
 
-           It deliberately ignores the period below. A customer returns goods days after buying them, so
-           a search pinned to Today would answer "no such sale" for the ordinary case — which is the
-           complaint this whole screen is meant to end, not restate. *@
-        <div class="ops-field ops-field-wide">
-            <label class="ops-label" for="ds-find">Find a sale</label>
-            <input id="ds-find" type="search" class="ops-input" placeholder="Sale no., receipt or SAP no."
-                   @bind="filterSearch" @bind:after="ApplyFilters" />
+            @* Said rather than left to be inferred. A search reaches every date — see IsSearching —
+               so the period beside it is not being applied, and a period control that looked live
+               while deciding nothing is the one lie this row could tell. *@
             @if (IsSearching)
             {
-                <div class="ops-sub">Searching every date</div>
+                <span class="ops-ds-alldates">
+                    <i class="ph ph-calendar-blank" aria-hidden="true"></i>every date
+                </span>
+            }
+
+            @* Not a <label>: the segment is four buttons, and a label would
+               hand every click to the first of them. *@
+            <div class="ops-ds-seg @(IsSearching ? "is-off" : "")" role="group" aria-label="Period">
+                @foreach (var option in PeriodOptions)
+                {
+                    <button type="button" class="ops-ds-seg-opt @(period == option.Value ? "is-on" : "")"
+                            aria-pressed="@(period == option.Value)"
+                            @onclick="() => SetPeriod(option.Value)">@option.Label</button>
+                }
+            </div>
+
+            @if (period == PeriodCustom)
+            {
+                @* Not <label>s either: NocturneDateField carries a button and a
+                   popup, which a label would swallow the clicks of. *@
+                <div class="ops-ds-dates">
+                    <NocturneDateField Id="ds-f-from" Date="filterFromDate" DateChanged="OnFromDateChanged"
+                                       AriaLabel="From date" />
+                    <span class="ops-ds-dates-to" aria-hidden="true">&rarr;</span>
+                    <NocturneDateField Id="ds-f-to" Date="filterToDate" DateChanged="OnToDateChanged"
+                                       AriaLabel="To date" />
+                </div>
+            }
+
+            @* The badge carries the count whether or not anything is set, because a
+               zero beside a closed panel is what says the panel holds nothing —
+               which is the question somebody asks before opening it. *@
+            <button type="button" class="ops-ds-ftoggle @(filterCount > 0 ? "is-on" : "")"
+                    aria-expanded="@filtersOpen" aria-controls="ds-filter-panel"
+                    @onclick="() => filtersOpen = !filtersOpen">
+                <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>
+                <span>Filters</span>
+                <span class="ops-ds-fcount">@filterCount</span>
+                <i class="ph @(filtersOpen ? "ph-caret-up" : "ph-caret-down")" aria-hidden="true"></i>
+            </button>
+
+            @* Only once there is something to clear. The design draws it always, but a
+               button that does nothing on an unfiltered page is a dead control. *@
+            @if (filterCount > 0)
+            {
+                <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" @onclick="ClearFilters">
+                    <i class="ph ph-x" aria-hidden="true"></i>Clear all
+                </button>
             }
         </div>
 
-        <div class="ops-field">
-            <label class="ops-label" for="ds-warehouse">Warehouse</label>
-            <NocturneSelect Id="ds-warehouse" Class="nsel-block" Options="WarehouseFilterOptions"
-                            @bind-Value="filterWarehouse" OnChanged="ApplyFilters"
-                            Caption="Filter by warehouse" AriaLabel="Filter by warehouse"
-                            Placeholder="All warehouses" />
-        </div>
-
-        <div class="ops-field ops-field-wide">
-            <label class="ops-label" for="ds-customer">Customer</label>
-            @* The API filters on card code alone, so the placeholder says so
-               rather than promising a name search that would return nothing. *@
-            <input id="ds-customer" type="search" class="ops-input" placeholder="Card code"
-                   @bind="filterCardCode" @bind:after="ApplyFilters" />
-        </div>
-
-        <div class="ops-field">
-            <label class="ops-label" for="ds-status">Consolidation</label>
-            <NocturneSelect Id="ds-status" Class="nsel-block" TValue="string"
-                            Options="ConsolidationFilterOptions" @bind-Value="filterStatus"
-                            OnChanged="ApplyFilters" Caption="Filter by consolidation"
-                            AriaLabel="Filter by consolidation" Placeholder="Any status" />
-        </div>
-
-        @* Which route the sale came in by. This page has always listed all of them together, which is
-           right for the person closing the day and wrong for anyone asking about one channel — and it
-           is the only place a credit note can be raised, so "show me this van's sales" is how a van
-           sale gets credited at all. *@
-        <div class="ops-field">
-            <label class="ops-label" for="ds-source">Channel</label>
-            <NocturneSelect Id="ds-source" Class="nsel-block" TValue="string"
-                            Options="SourceFilterOptions" @bind-Value="filterSource"
-                            OnChanged="ApplyFilters" Caption="Filter by channel"
-                            AriaLabel="Filter by channel" Placeholder="All channels" />
-        </div>
-
-        @* Not a <label>: the segment is three buttons, and a label would
-           hand every click to the first of them. *@
-        <div class="ops-field ops-ds-seg-field">
-            <span class="ops-label" id="ds-period-label">Period</span>
-            <div class="ops-ds-seg" role="group" aria-labelledby="ds-period-label">
-                <button type="button" class="ops-ds-seg-opt @(period == PeriodToday ? "is-on" : "")"
-                        aria-pressed="@(period == PeriodToday)" @onclick="() => SetPeriod(PeriodToday)">Today</button>
-                <button type="button" class="ops-ds-seg-opt @(period == PeriodWeek ? "is-on" : "")"
-                        aria-pressed="@(period == PeriodWeek)" @onclick="() => SetPeriod(PeriodWeek)">Last 7 days</button>
-                <button type="button" class="ops-ds-seg-opt @(period == PeriodCustom ? "is-on" : "")"
-                        aria-pressed="@(period == PeriodCustom)" @onclick="() => SetPeriod(PeriodCustom)">Range</button>
-            </div>
-        </div>
-
-        @if (period == PeriodCustom)
+        @if (filtersOpen)
         {
-            @* Not <label>s either: NocturneDateField carries a button and a
-               popup, which a label would swallow the clicks of. *@
-            <div class="ops-ds-dates">
-                <div class="ops-field">
-                    <span class="ops-label">From</span>
-                    <NocturneDateField Id="ds-f-from" Date="filterFromDate" DateChanged="OnFromDateChanged"
-                                       AriaLabel="From date" />
-                </div>
-                <div class="ops-field">
-                    <span class="ops-label">To</span>
-                    <NocturneDateField Id="ds-f-to" Date="filterToDate" DateChanged="OnToDateChanged"
-                                       AriaLabel="To date" />
+            <div class="ops-ds-fpanel" id="ds-filter-panel">
+                <div class="ops-ds-fgrid">
+                    @foreach (var group in ChipGroups)
+                    {
+                        <div class="ops-ds-fgroup">
+                            <span class="ops-kicker">@group.Name</span>
+                            @if (group.Chips.Count == 0)
+                            {
+                                @* Said rather than left blank. An empty group where four chips
+                                   used to be reads as a panel that failed to load. *@
+                                <span class="ops-ds-fnone">Nothing in this period</span>
+                            }
+                            else
+                            {
+                                <div class="ops-ds-chips">
+                                    @foreach (var chip in group.Chips)
+                                    {
+                                        <button type="button"
+                                                class="ops-ds-chip @chip.Family @(chip.IsOn ? "is-on" : "")"
+                                                aria-pressed="@chip.IsOn"
+                                                @onclick="() => ToggleChip(group.Key, chip.Value)">
+                                            @if (chip.Family is not null)
+                                            {
+                                                <span class="ops-dot"></span>
+                                            }
+                                            <span class="ops-ds-chip-label">@chip.Label</span>
+                                            <span class="ops-ds-chip-count">@chip.Count</span>
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <div class="ops-ds-fgroup">
+                        <label class="ops-kicker" for="ds-customer">Customer card code</label>
+                        @* The API matches this one exactly, so the placeholder shows a whole code
+                           rather than promising the partial match the search box above does. *@
+                        <input id="ds-customer" type="search" class="ops-input ops-ds-finput"
+                               placeholder="e.g. CIS006" @bind="filterCardCode" @bind:after="ApplyFilters" />
+                    </div>
+
+                    <div class="ops-ds-fgroup">
+                        <span class="ops-kicker" id="ds-amount-label">Invoice total</span>
+                        <div class="ops-ds-frange" role="group" aria-labelledby="ds-amount-label">
+                            <input type="text" inputmode="decimal" class="ops-input ops-ds-finput"
+                                   placeholder="Min" aria-label="Smallest invoice total"
+                                   @bind="amountMin" @bind:after="ApplyFilters" />
+                            <span class="ops-ds-frange-dash" aria-hidden="true">&ndash;</span>
+                            <input type="text" inputmode="decimal" class="ops-input ops-ds-finput"
+                                   placeholder="Max" aria-label="Largest invoice total"
+                                   @bind="amountMax" @bind:after="ApplyFilters" />
+                        </div>
+                    </div>
+
+                    @* What the drawer took against what the invoice says. A till rounds cash up, so
+                       "overpaid" is the change the customer was handed and is normal; "underpaid"
+                       is money the day is short, which is the one anybody comes looking for. *@
+                    <div class="ops-ds-fgroup">
+                        <span class="ops-kicker" id="ds-paid-label">Payment difference</span>
+                        <div class="ops-ds-seg ops-ds-seg-sm" role="group" aria-labelledby="ds-paid-label">
+                            @foreach (var option in PaymentDifferenceOptions)
+                            {
+                                <button type="button"
+                                        class="ops-ds-seg-opt @(paidCompare == option.Value ? "is-on" : "")"
+                                        aria-pressed="@(paidCompare == option.Value)"
+                                        @onclick="() => SetPaidCompare(option.Value)">@option.Label</button>
+                            }
+                        </div>
+                    </div>
                 </div>
             </div>
         }
 
-        @* The count sits with the controls that decide it rather than under
-           the table: it is the answer to the filter row, and by the foot of a
-           50-row page the question is off screen. Clear appears only once
-           there is something to clear — the design draws it always, but a
-           button that does nothing on an unfiltered page is a dead control. *@
-        <div class="ops-ds-filter-tail">
+        @* What is set, in one line, whether or not the panel is open. It is the
+           answer to "why am I looking at eleven rows" on a page whose filters
+           are three clicks deep, and every pill removes the one filter it names. *@
+        @if (activeFilters.Count > 0)
+        {
+            <div class="ops-ds-active">
+                <span class="ops-kicker">Active</span>
+                @foreach (var pill in activeFilters)
+                {
+                    <button type="button" class="ops-ds-pill" @onclick="pill.Remove"
+                            aria-label="@($"Remove the {pill.Group} filter {pill.Label}")">
+                        <span class="ops-ds-pill-group">@pill.Group</span>
+                        <span>@pill.Label</span>
+                        <i class="ph ph-x" aria-hidden="true"></i>
+                    </button>
+                }
+            </div>
+        }
+    </section>
+
+    @* The count and the two list controls, between the filters that decide the
+       count and the table it describes. "Filtered from" is stated only when the
+       panel actually took something out, so the line does not carry a number
+       that is always the same as the one beside it. *@
+    <div class="ops-ds-listbar">
+        <div class="ops-ds-listbar-count">
             <span class="ops-ds-shown">@shownText</span>
-            @if (hasFilters)
+            @if (unfilteredCount > totalCount)
             {
-                <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" @onclick="ClearFilters">
-                    <i class="ph ph-x" aria-hidden="true"></i>Clear
-                </button>
+                <span class="ops-ds-from">filtered from @unfilteredCount</span>
             }
+        </div>
+
+        <div class="ops-ds-listbar-tools">
+            <span class="ops-label" id="ds-sort-label">Sort</span>
+            <NocturneSelect Class="nsel-sm nsel-auto" TValue="string" Options="SortOptions"
+                            @bind-Value="sort" OnChanged="ApplyFilters"
+                            Caption="Sort the list" AriaLabel="Sort the list" />
+
+            <span class="ops-label" id="ds-rows-label">Rows</span>
+            @* Right-anchored: it is the last control on the row, and a menu that
+               opened leftwards from here runs off the edge on a narrow window. *@
+            <NocturneSelect Class="nsel-sm nsel-auto nsel-end" TValue="int" Options="PageSizeOptions"
+                            Value="pageSize" ValueChanged="@(size => SetPageSize(size))"
+                            Caption="Rows per page" AriaLabel="Rows per page" />
         </div>
     </div>
 
-    <div class="ops-rule-fade"></div>
+    @* Only while something is ticked. A permanently visible "Post 0 to SAP" would
+       invite the press that does nothing, and the count is the whole point of the
+       button: it states what is about to reach SAP before it does. *@
+    @if (selected.Count > 0)
+    {
+        <div class="ops-ds-selbar">
+            <span class="ops-ds-selbar-count">@selected.Count selected</span>
+            <span class="ops-ds-selbar-value">@Money(selectedValue)</span>
+            <span class="ops-ds-selbar-gap"></span>
+            <button type="button" class="ops-btn ops-btn-primary ops-btn-sm" @onclick="OpenBulkPost"
+                    disabled="@(isPosting || isLoading)">
+                @if (isPosting)
+                {
+                    <span class="ops-spin"></span>
+                    <span>Posting&hellip;</span>
+                }
+                else
+                {
+                    <i class="ph ph-cloud-arrow-up" aria-hidden="true"></i>
+                    <span>Post @selected.Count to SAP</span>
+                }
+            </button>
+            <button type="button" class="ops-btn ops-btn-ghost ops-btn-sm" @onclick="() => selected.Clear()">
+                Clear
+            </button>
+        </div>
+    }
 
     @if (isLoading)
     {
@@ -393,7 +523,7 @@
     }
     else if (sales.Count > 0)
     {
-        <div>
+        <div class="ops-panel ops-ds-list">
             <div class="ops-scroll">
                 <table class="ops-table mobile-card-table">
                     <thead>
@@ -533,18 +663,22 @@
     }
     else
     {
-        <div class="ops-empty">
-            <i class="ph ph-receipt" aria-hidden="true"></i>
-            <h3>@emptyTitle</h3>
-            <p>@emptyBody</p>
-            @if (hasFilters)
-            {
-                <div class="ops-empty-actions">
-                    <button type="button" class="ops-btn ops-btn-ghost" @onclick="ClearFilters">
-                        <i class="ph ph-x-circle" aria-hidden="true"></i>Clear filters
-                    </button>
-                </div>
-            }
+        @* In the same box the table would have been in, so a filter that empties
+           the list does not also collapse the page's last shape. *@
+        <div class="ops-panel ops-ds-list">
+            <div class="ops-empty">
+                <i class="ph ph-receipt" aria-hidden="true"></i>
+                <h3>@emptyTitle</h3>
+                <p>@emptyBody</p>
+                @if (filterCount > 0)
+                {
+                    <div class="ops-empty-actions">
+                        <button type="button" class="ops-btn ops-btn-primary" @onclick="ClearFilters">
+                            <i class="ph ph-x-circle" aria-hidden="true"></i>Clear all filters
+                        </button>
+                    </div>
+                }
+            </div>
         </div>
     }
 </div>
@@ -1200,41 +1334,82 @@
 
     private const string PeriodToday = "today";
     private const string PeriodWeek = "week";
+    private const string PeriodMonth = "month";
     private const string PeriodCustom = "custom";
 
-    private List<DesktopSaleDto> sales = new();
-    private List<WarehouseDto> warehouses = new();
+    private sealed record Choice(string Value, string Label);
 
-    private IEnumerable<NocturneSelectOption<string>> WarehouseFilterOptions =>
-        warehouses
-            .Where(w => !string.IsNullOrWhiteSpace(w.WarehouseCode))
-            .Select(w => new NocturneSelectOption<string>(w.WarehouseCode!, w.WarehouseCode!, "info"))
-            .Prepend(NocturneSelectOption.All("All warehouses"));
+    private static readonly Choice[] PeriodOptions =
+    [
+        new(PeriodToday, "Today"),
+        new(PeriodWeek, "Last 7 days"),
+        new(PeriodMonth, "Last 30 days"),
+        new(PeriodCustom, "Range")
+    ];
+
+    private static readonly Choice[] PaymentDifferenceOptions =
+    [
+        new(PaidAny, "Any"),
+        new(PaidExact, "Exact"),
+        new(PaidUnder, "Underpaid"),
+        new(PaidOver, "Overpaid")
+    ];
+
+    private const string PaidAny = "any";
+    private const string PaidExact = "exact";
+    private const string PaidUnder = "under";
+    private const string PaidOver = "over";
 
     /// <summary>
-    /// The sources this list can be narrowed to, spelled as the API stores them.
+    /// How the whole result set is ordered, which is the API's job and not this page's.
     /// </summary>
     /// <remarks>
-    /// The online van source is deliberately absent. Those rows are receipt carriers whose invoice
-    /// reached SAP through a reservation — they are not sales awaiting anything, none of this page's
-    /// actions apply to them, and offering them as a channel invites someone to try.
+    /// Sorting the fifty rows this page holds would be sorting a page of the answer rather than the
+    /// answer, and "total, high to low" would name the largest sale on page three instead of the
+    /// largest sale. Newest is marked unset because it is the resting order, not a choice somebody
+    /// made — the trigger would otherwise sit in its "something is set" state from first paint.
     /// </remarks>
-    private static readonly NocturneSelectOption<string>[] SourceFilterOptions =
+    private static readonly NocturneSelectOption<string>[] SortOptions =
     [
-        new(string.Empty, "All channels", "neutral") { IsUnset = true, RuleAfter = true },
-        new("KefalosShopTill", "Shop till", "neutral"),
-        new("KefalosVending", "Vending", "neutral"),
-        new("KefalosVanSales", "Van sales", "neutral")
+        new("newest", "Newest first") { IsUnset = true },
+        new("oldest", "Oldest first"),
+        new("total-desc", "Total, high to low"),
+        new("total-asc", "Total, low to high"),
+        new("customer", "Customer")
     ];
 
-    private static readonly NocturneSelectOption<string>[] ConsolidationFilterOptions =
+    private static readonly NocturneSelectOption<int>[] PageSizeOptions =
     [
-        new(string.Empty, "Any status", "neutral") { IsUnset = true, RuleAfter = true },
-        new("Pending", "Awaiting close", "warn"),
-        new("Consolidated", "Consolidated", "good"),
-        new("Failed", "Failed", "bad"),
-        new("Excluded", "Excluded", "neutral")
+        new(10, "10"),
+        new(25, "25"),
+        new(50, "50") { IsUnset = true },
+        new(100, "100"),
+        new(200, "200")
     ];
+
+    /// <summary>
+    /// What to call a stored <c>SourceSystem</c>.
+    /// </summary>
+    /// <remarks>
+    /// The channel chips are drawn from what the period actually holds rather than from a list kept
+    /// here, so this names the ones it can and lets anything else through as the API spells it — a
+    /// source added to a till before it is added here must still be reachable.
+    ///
+    /// The online van source is absent on purpose, and so is its row: those are receipt carriers whose
+    /// invoice reached SAP through a reservation, they are not sales awaiting anything, and the API's
+    /// default scope already leaves them out of both the list and this facet.
+    /// </remarks>
+    private static string ChannelName(string? source) => source switch
+    {
+        "KefalosShopTill" => "Shop till",
+        "KefalosVending" => "Vending",
+        "KefalosVanSales" => "Van sales",
+        "DESKTOP_APP" => "Legacy desktop",
+        DesktopSalesFilterValues.Blank => "Not recorded",
+        _ => Blank(source)
+    };
+
+    private List<DesktopSaleDto> sales = new();
     private DesktopSaleDto? selectedSale;
     private EndOfDayReportDto? report;
 
@@ -1278,32 +1453,60 @@
     private string noticeFamily = "ops-fam-info";
     private string noticeIcon = "ph-info";
 
-    // Filters
-    private string filterWarehouse = "";
-    private string filterCardCode = "";
+    // ── Filters ──────────────────────────────────────────────────────────
+    //
+    // Five of these are sets rather than single values, which is the change the design's third
+    // revision asked for and the reason `GET sales` grew plural parameters. Held as ordered sets so
+    // that the pills below read in the order the chips were pressed rather than in an order that
+    // shuffles as a HashSet rehashes.
+    //
+    // The period is deliberately not one of the filters `filterCount` counts. It is where the
+    // operator is looking, not a narrowing of it: the day is the page's subject, and a "1 filter"
+    // badge on an untouched page would be the panel's first lie.
+
+    private readonly List<string> pickedWarehouses = [];
+    private readonly List<string> pickedConsolidation = [];
+    private readonly List<string> pickedFiscal = [];
+    private readonly List<string> pickedPayments = [];
+    private readonly List<string> pickedChannels = [];
+
     private string filterSearch = "";
-    private string filterStatus = "";
-    private string filterSource = "";
+    private string filterCardCode = "";
+    private string amountMin = "";
+    private string amountMax = "";
+    private string paidCompare = PaidAny;
+    private string sort = "newest";
+
     private string period = PeriodToday;
     private DateTime? filterFromDate;
     private DateTime? filterToDate;
+
+    /// <summary>Whether the chip panel is showing. Open on arrival, as the design draws it.</summary>
+    private bool filtersOpen = true;
 
     // Pagination
     private int currentPage = 1;
     private int pageSize = 50;
     private int totalCount;
+
+    /// <summary>What the period holds before the panel narrowed it, for "filtered from N".</summary>
+    private int unfilteredCount;
+
     private bool hasMore;
     private int totalPages => totalCount > 0 ? (int)Math.Ceiling((double)totalCount / pageSize) : 1;
 
-    private bool hasFilters =>
-        filterWarehouse != "" || filterCardCode != "" || filterStatus != "" || filterSource != ""
-        || IsSearching || period != PeriodToday;
+    /// <summary>What each chip group would return, as the API counted it. Null before the first load.</summary>
+    private DesktopSalesFacetsDto? facets;
+
+    private int filterCount => activeFilters.Count;
 
     /// <summary>Whether the operator is looking for one sale rather than reading a day.</summary>
     /// <remarks>
     /// While this is true the period is not sent, so the search reaches the whole history. The two
     /// cannot both apply: a credit is raised against a sale that was made before today, and a search
     /// that silently kept the date filter would report the sale as missing.
+    ///
+    /// Everything else in the panel still applies. A search finds; it does not widen.
     /// </remarks>
     private bool IsSearching => !string.IsNullOrWhiteSpace(filterSearch);
 
@@ -1311,9 +1514,6 @@
     {
         filterFromDate = DateTime.Today;
         filterToDate = DateTime.Today;
-
-        var warehouseList = await MasterDataCache.GetWarehousesAsync();
-        warehouses = warehouseList?.Where(w => w.IsActive).ToList() ?? new();
 
         await LoadData();
         await AuditService.LogAsync(AuditActions.ViewDesktopTransactions, "DesktopSale", null);
@@ -1351,22 +1551,40 @@
 
         try
         {
-            var response = await DesktopService.GetDesktopSalesAsync(
-                string.IsNullOrEmpty(filterWarehouse) ? null : filterWarehouse,
-                string.IsNullOrEmpty(filterCardCode) ? null : filterCardCode,
-                string.IsNullOrEmpty(filterStatus) ? null : filterStatus,
-                IsSearching ? null : filterFromDate,
-                IsSearching ? null : filterToDate,
-                currentPage,
-                pageSize,
-                string.IsNullOrEmpty(filterSource) ? null : filterSource,
-                IsSearching ? filterSearch.Trim() : null);
+            var response = await DesktopService.GetDesktopSalesAsync(new DesktopSalesQuery
+            {
+                Search = Trimmed(filterSearch),
+                CardCode = Trimmed(filterCardCode),
+                Warehouses = pickedWarehouses,
+                ConsolidationStatuses = pickedConsolidation,
+                FiscalizationStatuses = pickedFiscal,
+                PaymentMethods = pickedPayments,
+                SourceSystems = pickedChannels,
+                MinTotal = Amount(amountMin),
+                MaxTotal = Amount(amountMax),
+                PaymentDifference = paidCompare == PaidAny ? null : paidCompare,
+                Sort = sort,
+                // Not while searching. A customer returns goods days after buying them, so a search
+                // pinned to Today would answer "no such sale" for the ordinary case — see IsSearching.
+                FromDate = IsSearching ? null : filterFromDate,
+                ToDate = IsSearching ? null : filterToDate,
+                Page = currentPage,
+                PageSize = pageSize,
+
+                // The filter panel draws them, so they are worth the five grouped counts they cost.
+                IncludeFacets = true
+            });
 
             if (response != null)
             {
                 sales = response.Sales;
                 totalCount = response.TotalCount;
                 hasMore = response.HasMore;
+                facets = response.Facets;
+
+                // Never below the total. An API that predates facets sends neither, and a page that
+                // took its zero would draw "filtered from 0" beside a list of fifty.
+                unfilteredCount = Math.Max(response.UnfilteredCount, response.TotalCount);
                 lastPolledAt = DateTime.Now;
 
                 // After every reload, including the ones a SignalR push triggers. A sale that has
@@ -1429,6 +1647,11 @@
             filterFromDate = DateTime.Today.AddDays(-6);
             filterToDate = DateTime.Today;
         }
+        else if (value == PeriodMonth)
+        {
+            filterFromDate = DateTime.Today.AddDays(-29);
+            filterToDate = DateTime.Today;
+        }
         // "custom" keeps whatever pair is already in the fields and reveals them.
 
         await ApplyFilters();
@@ -1446,18 +1669,246 @@
         await ApplyFilters();
     }
 
-    private async Task ClearFilters()
+    private async Task SetPaidCompare(string value)
     {
-        filterWarehouse = "";
-        filterCardCode = "";
-        filterSearch = "";
-        filterStatus = "";
-        filterSource = "";
-        period = PeriodToday;
-        filterFromDate = DateTime.Today;
-        filterToDate = DateTime.Today;
+        if (paidCompare == value)
+        {
+            return;
+        }
+
+        paidCompare = value;
         await ApplyFilters();
     }
+
+    /// <summary>Changes how many rows a page holds, back to the first page.</summary>
+    /// <remarks>
+    /// Back to page one because the page the operator is on does not survive the change. On 200 rows
+    /// a page, page four of a 900-row set is rows 601–800; on 10 it does not exist.
+    /// </remarks>
+    private async Task SetPageSize(int value)
+    {
+        if (pageSize == value)
+        {
+            return;
+        }
+
+        pageSize = value;
+        await ApplyFilters();
+    }
+
+    /// <summary>Picks a chip up or puts it down, and reloads.</summary>
+    /// <remarks>
+    /// Appended rather than inserted, so the pills read in the order they were pressed.
+    /// </remarks>
+    private async Task ToggleChip(ChipGroupKey key, string value)
+    {
+        var picked = PickedFor(key);
+
+        if (!picked.Remove(value))
+        {
+            picked.Add(value);
+        }
+
+        await ApplyFilters();
+    }
+
+    private List<string> PickedFor(ChipGroupKey key) => key switch
+    {
+        ChipGroupKey.Consolidation => pickedConsolidation,
+        ChipGroupKey.Fiscal => pickedFiscal,
+        ChipGroupKey.Warehouse => pickedWarehouses,
+        ChipGroupKey.Payment => pickedPayments,
+        _ => pickedChannels
+    };
+
+    /// <summary>
+    /// Everything the panel set, dropped at once — and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// The period stays. It is where the operator is looking rather than a narrowing of it, and a
+    /// Clear that quietly threw a week away and went back to today would be the one press on this
+    /// page that loses work.
+    /// </remarks>
+    private async Task ClearFilters()
+    {
+        pickedWarehouses.Clear();
+        pickedConsolidation.Clear();
+        pickedFiscal.Clear();
+        pickedPayments.Clear();
+        pickedChannels.Clear();
+
+        filterSearch = "";
+        filterCardCode = "";
+        amountMin = "";
+        amountMax = "";
+        paidCompare = PaidAny;
+
+        await ApplyFilters();
+    }
+
+    // ── The chip groups ──────────────────────────────────────────────────
+    //
+    // Drawn from the counts the API sends rather than from lists kept here, which is what makes a
+    // chip a promise: it exists because a sale exists behind it, and the number on it is what
+    // pressing it would give. The two enum groups are ordered as a person reads them — awaiting,
+    // closed, broken, left out — rather than by count, which would reshuffle the row on every
+    // reload; the three open-ended ones keep the API's order, which is largest first.
+    //
+    // A value that is picked but has nothing left to match keeps a chip at zero. Dropping it would
+    // leave a filter that is on, is narrowing the list, and has no control anywhere to turn it off.
+
+    private enum ChipGroupKey { Consolidation, Fiscal, Warehouse, Payment, Channel }
+
+    private sealed record Chip(string Value, string Label, int Count, string? Family, bool IsOn);
+
+    private sealed record ChipGroup(ChipGroupKey Key, string Name, List<Chip> Chips);
+
+    private static readonly string[] ConsolidationOrder = ["Pending", "Consolidated", "Failed", "Excluded"];
+    private static readonly string[] FiscalOrder = ["Success", "Pending", "Failed", "Skipped"];
+
+    private List<ChipGroup> ChipGroups =>
+    [
+        new(ChipGroupKey.Consolidation, "Consolidation",
+            Chips(facets?.Consolidation, pickedConsolidation, ConsolidationLabel, ConsolidationFamily, ConsolidationOrder)),
+        new(ChipGroupKey.Fiscal, "Fiscal result",
+            Chips(facets?.Fiscalization, pickedFiscal, Blank, FiscalFamily, FiscalOrder)),
+        new(ChipGroupKey.Warehouse, "Warehouse",
+            Chips(facets?.Warehouse, pickedWarehouses, Blank, _ => null)),
+        new(ChipGroupKey.Payment, "Payment method",
+            Chips(facets?.PaymentMethod, pickedPayments, TenderName, _ => null)),
+        new(ChipGroupKey.Channel, "Channel",
+            Chips(facets?.SourceSystem, pickedChannels, ChannelName, _ => null))
+    ];
+
+    private static List<Chip> Chips(
+        List<DesktopSalesFacetDto>? counted,
+        List<string> picked,
+        Func<string?, string> label,
+        Func<string?, string?> family,
+        string[]? order = null)
+    {
+        var counts = (counted ?? [])
+            .GroupBy(facet => facet.Value, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Sum(facet => facet.Count), StringComparer.Ordinal);
+
+        // What the period holds, plus anything picked that it no longer does.
+        var values = counts.Keys
+            .Union(picked, StringComparer.Ordinal)
+            .ToList();
+
+        if (order is not null)
+        {
+            // The stated order first, then anything the API knows about and this page does not — a
+            // status added to the enum must still be reachable rather than silently dropped.
+            values = values
+                .OrderBy(value => Array.FindIndex(order, o => string.Equals(o, value, StringComparison.OrdinalIgnoreCase)) is var i && i >= 0 ? i : order.Length)
+                .ThenBy(value => value, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        return values
+            .Select(value => new Chip(
+                value,
+                label(value),
+                counts.GetValueOrDefault(value),
+                family(value),
+                picked.Contains(value, StringComparer.Ordinal)))
+            .ToList();
+    }
+
+    // ── What is set ──────────────────────────────────────────────────────
+
+    private sealed record Pill(string Group, string Label, Func<Task> Remove);
+
+    /// <summary>
+    /// Every filter the panel has set, each with the means to take it off.
+    /// </summary>
+    /// <remarks>
+    /// This is also what the "Filters" badge counts, so the badge and the pills cannot disagree about
+    /// how many there are. The period is not here — see the filter fields above for why.
+    /// </remarks>
+    private List<Pill> activeFilters
+    {
+        get
+        {
+            var pills = new List<Pill>();
+
+            void Group(ChipGroupKey key, string name, Func<string?, string> label)
+            {
+                foreach (var value in PickedFor(key).ToList())
+                {
+                    pills.Add(new Pill(name, label(value), () => ToggleChip(key, value)));
+                }
+            }
+
+            Group(ChipGroupKey.Consolidation, "Consolidation", ConsolidationLabel);
+            Group(ChipGroupKey.Fiscal, "Fiscal", Blank);
+            Group(ChipGroupKey.Warehouse, "Warehouse", Blank);
+            Group(ChipGroupKey.Payment, "Payment", TenderName);
+            Group(ChipGroupKey.Channel, "Channel", ChannelName);
+
+            if (!string.IsNullOrWhiteSpace(filterSearch))
+            {
+                pills.Add(new Pill("Search", filterSearch.Trim(), async () =>
+                {
+                    filterSearch = "";
+                    await ApplyFilters();
+                }));
+            }
+
+            if (!string.IsNullOrWhiteSpace(filterCardCode))
+            {
+                pills.Add(new Pill("Customer", filterCardCode.Trim(), async () =>
+                {
+                    filterCardCode = "";
+                    await ApplyFilters();
+                }));
+            }
+
+            // One pill for the window rather than two, because half an amount range is not a filter
+            // anybody set on purpose — the two ends are one thought and come off together.
+            if (Amount(amountMin) is not null || Amount(amountMax) is not null)
+            {
+                var low = Amount(amountMin);
+                var high = Amount(amountMax);
+                var label = low is null ? $"up to {high:N2}"
+                    : high is null ? $"from {low:N2}"
+                    : $"{low:N2}–{high:N2}";
+
+                pills.Add(new Pill("Total", label, async () =>
+                {
+                    amountMin = "";
+                    amountMax = "";
+                    await ApplyFilters();
+                }));
+            }
+
+            if (paidCompare != PaidAny)
+            {
+                var label = PaymentDifferenceOptions.First(o => o.Value == paidCompare).Label;
+                pills.Add(new Pill("Payment", label, () => SetPaidCompare(PaidAny)));
+            }
+
+            return pills;
+        }
+    }
+
+    /// <summary>The text of a filter field, or null where the field is empty.</summary>
+    private static string? Trimmed(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>
+    /// One end of the amount window, or null where it is empty or is not a number.
+    /// </summary>
+    /// <remarks>
+    /// Invariant, because this becomes a query-string value the API parses invariantly — a browser
+    /// in a comma-decimal locale would otherwise send "12,50" and be read as twelve. Unparseable text
+    /// is no filter rather than a zero: half-typed input must not empty the list under the operator.
+    /// </remarks>
+    private static decimal? Amount(string? text) =>
+        decimal.TryParse(Trimmed(text), NumberStyles.Number, CultureInfo.InvariantCulture, out var value)
+            ? value
+            : null;
 
     // ── Paging ───────────────────────────────────────────────────────────
 
@@ -2150,20 +2601,37 @@
 
     // ── Text ─────────────────────────────────────────────────────────────
 
-    // The count answers the filter row and sits with it; the foot is left to
-    // say how fresh the rows under it are. The design puts a "refreshes every
-    // 30s" note there — nothing on this page polls on a timer, so it says what
-    // actually brings a new row in.
-    private string shownText => $"Showing {sales.Count} of {totalCount} · newest first";
+    // The count answers the filter panel and sits between it and the table; the
+    // foot is left to say how fresh the rows under it are. The design puts a
+    // "refreshes every 30s" note there — nothing on this page polls on a timer,
+    // so it says what actually brings a new row in.
+    //
+    // Which rows, not how many: on page four of a 900-row set "showing 50 of 900"
+    // is true of every page, and the pager below already says which one this is.
+    // The order is no longer stated here either — it is a control now, six inches
+    // to the right, and restating it would be a second place for it to be wrong.
+    private string shownText
+    {
+        get
+        {
+            if (totalCount == 0)
+            {
+                return "No invoices";
+            }
+
+            var first = ((currentPage - 1) * pageSize) + 1;
+            return $"Showing {first}–{first + sales.Count - 1} of {totalCount} invoices";
+        }
+    }
 
     private string footerText => lastPolledAt.HasValue
         ? $"Polled {lastPolledAt:HH:mm:ss} · rows arrive as the devices report in"
         : "Rows arrive as the devices report in";
 
-    private string emptyTitle => hasFilters ? "Nothing matches these filters" : "The day is clear";
+    private string emptyTitle => filterCount > 0 ? "Nothing matches these filters" : "The day is clear";
 
-    private string emptyBody => hasFilters
-        ? "Widen the period or clear the filters to see the rest of the day."
+    private string emptyBody => filterCount > 0
+        ? "Widen the period or drop a filter to see the rest of the day."
         : "Invoices fiscalized on the desktop apps appear here within a few seconds of being issued.";
 
     // ── Formatting ───────────────────────────────────────────────────────
@@ -2237,7 +2705,7 @@
     // A tender as the counter names it. Older rows carry the till's own casing, so the comparison is
     // case-blind; a sale nobody recorded a tender for says so rather than showing an empty cell.
     private static string TenderName(string? tender) =>
-        string.IsNullOrWhiteSpace(tender) ? "Not recorded"
+        string.IsNullOrWhiteSpace(tender) || tender == DesktopSalesFilterValues.Blank ? "Not recorded"
         : tender.Trim().Equals("ecocash", StringComparison.OrdinalIgnoreCase) ? "EcoCash"
         : tender.Trim();
 

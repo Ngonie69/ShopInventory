@@ -45,6 +45,45 @@ public sealed record DesktopSalesReadScope(string? WarehouseCode)
 
         return this;
     }
+
+    /// <summary>
+    /// The warehouses one read may actually touch, given the set the caller asked for.
+    /// </summary>
+    /// <remarks>
+    /// The many-warehouse form of <see cref="Narrow"/>, for a console whose warehouse control is a row of
+    /// chips rather than one picker. It refuses on exactly the same rule — a confined caller naming any
+    /// warehouse that is not theirs is an error, not a set to quietly intersect — because silently
+    /// dropping the warehouses they may not read would answer a five-shop question with one shop's
+    /// takings and say nothing about the four it left out.
+    ///
+    /// An empty ask is every warehouse in scope: null for an unrestricted caller, and the confined
+    /// caller's own for anyone else. Returning their own warehouse rather than null is what keeps the
+    /// scope on the query when the console names nothing.
+    /// </remarks>
+    public ErrorOr<List<string>> NarrowMany(IReadOnlyList<string>? requestedWarehouses)
+    {
+        var requested = (requestedWarehouses ?? [])
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (IsUnrestricted)
+        {
+            return requested;
+        }
+
+        var outside = requested.FirstOrDefault(
+            code => !string.Equals(code, WarehouseCode, StringComparison.OrdinalIgnoreCase));
+
+        if (outside is not null)
+        {
+            return Errors.Errors.DesktopSales.SalesReadOutsideScope(outside, WarehouseCode!);
+        }
+
+        // Their own warehouse whether they named it or not, so an unnamed ask is still scoped.
+        return new List<string> { WarehouseCode! };
+    }
 }
 
 /// <summary>
