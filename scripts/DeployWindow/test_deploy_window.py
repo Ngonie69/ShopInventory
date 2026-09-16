@@ -25,38 +25,24 @@ def cat(hh_mm: str, day: str = "2026-09-14") -> datetime:
     return datetime.fromisoformat(f"{day}T{hh_mm}:00+02:00").astimezone(timezone.utc)
 
 
-class MergesDuringTrading(unittest.TestCase):
-    def test_the_merges_of_14_september_wait_for_the_evening(self):
-        # #428, #430, #431 and #429 finished Tests between 16:05 and 16:26 CAT, and each deploy cut the
-        # KEFSHOP till off. None of them deploys now.
-        for moment in ["16:05", "16:08", "16:15", "16:26"]:
-            deploy, sha, reason = dw.decide("workflow_run", cat(moment), TESTED, HEAD, tests_passed=True)
-            self.assertFalse(deploy, moment)
-            self.assertEqual(sha, TESTED)
-            self.assertIn("19:30", reason)
-            self.assertIn("by hand", reason)
+class AMergeShipsWhenItLands(unittest.TestCase):
+    def test_a_merge_deploys_whatever_the_hour(self):
+        # Including the four times on 14 September 2026 whose cutovers cost a till its receipt.
+        # They deploy now because the cutover no longer drops the requests in flight, which is
+        # proved in scripts/Test-DeployPublicBindingSwap.ps1 and measured on every run.
+        for moment in ["00:15", "06:59", "07:00", "11:00", "16:05", "16:26", "18:59", "19:00", "23:30"]:
+            deploy, sha, _ = dw.decide("workflow_run", cat(moment), TESTED, HEAD, tests_passed=True)
+            self.assertTrue(deploy, moment)
+            self.assertEqual(sha, TESTED, moment)
 
-    def test_the_edges_of_the_window(self):
-        cases = {
-            "06:59": True,   # before opening
-            "07:00": False,  # the window has started
-            "12:00": False,
-            "18:59": False,  # the 18:00 consolidation is still running
-            "19:00": True,   # the window has ended
-            "23:30": True,
-            "00:15": True,
-        }
-        for moment, deploys in cases.items():
-            deploy, _, _ = dw.decide("workflow_run", cat(moment), TESTED, HEAD, tests_passed=True)
-            self.assertEqual(deploy, deploys, moment)
-
-    def test_every_day_of_the_week_is_a_trading_day(self):
-        # CORMACH2 trades on Sundays. 2026-09-13 is a Sunday, 2026-09-19 a Saturday.
+    def test_every_day_of_the_week_deploys(self):
+        # 2026-09-13 is a Sunday, 2026-09-19 a Saturday.
         for day in ["2026-09-13", "2026-09-14", "2026-09-19"]:
             deploy, _, _ = dw.decide("workflow_run", cat("11:00", day), TESTED, HEAD, tests_passed=True)
-            self.assertFalse(deploy, day)
+            self.assertTrue(deploy, day)
 
-    def test_outside_the_window_the_tested_commit_deploys_not_mains_head(self):
+    def test_what_deploys_is_the_commit_that_passed_not_mains_head(self):
+        # A second merge landing while this one queues must not change what ships.
         deploy, sha, _ = dw.decide("workflow_run", cat("20:10"), TESTED, HEAD, tests_passed=False)
         self.assertTrue(deploy)
         self.assertEqual(sha, TESTED)
@@ -65,8 +51,16 @@ class MergesDuringTrading(unittest.TestCase):
         deploy, _, _ = dw.decide("workflow_run", cat("21:00"), "", HEAD, tests_passed=True)
         self.assertFalse(deploy)
 
+    def test_nothing_is_held_for_later(self):
+        # The old rule answered a merge during trading hours by naming the evening run. Nothing is
+        # held now, so no reason may tell someone their merge is waiting for one.
+        for moment in ["07:00", "12:00", "16:41", "18:59"]:
+            _, _, reason = dw.decide("workflow_run", cat(moment), TESTED, HEAD, tests_passed=True)
+            self.assertNotIn("19:30", reason, moment)
+            self.assertNotIn("wait", reason.lower(), moment)
 
-class EveningDeploy(unittest.TestCase):
+
+class TheBackstopRun(unittest.TestCase):
     def test_mains_head_deploys_when_its_tests_passed(self):
         deploy, sha, _ = dw.decide("schedule", cat("19:30"), "", HEAD, tests_passed=True)
         self.assertTrue(deploy)
@@ -78,11 +72,7 @@ class EveningDeploy(unittest.TestCase):
         self.assertEqual(sha, HEAD)
         self.assertIn("bbbbbbb", reason)
 
-    def test_the_evening_deploy_starts_outside_the_window(self):
-        moment = datetime.combine(datetime(2026, 9, 14).date(), dw.EVENING_DEPLOY, tzinfo=dw.CAT)
-        self.assertFalse(dw.trading(moment.astimezone(timezone.utc)))
-
-    def test_the_workflow_cron_is_the_evening_deploy(self):
+    def test_the_workflow_cron_is_the_backstop_run(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         crons = re.findall(r"cron:\s*'([^']+)'", text)
         self.assertEqual(len(crons), 1, "one scheduled trigger")
@@ -104,6 +94,32 @@ class ByHand(unittest.TestCase):
         for event in ["push", "pull_request", "pull_request_target", ""]:
             deploy, _, _ = dw.decide(event, cat("21:00"), TESTED, HEAD, tests_passed=True)
             self.assertFalse(deploy, event)
+
+
+class TheCutoverIsStillMeasured(unittest.TestCase):
+    """Merges ship during trading hours only because every cutover reports what it cost.
+
+    Lifting the hold and losing the measurement in the same repository would leave nobody able to
+    tell whether it had been a mistake, which is how the 14 September incident went unnoticed for a
+    day. These read Update-Production.ps1 as text rather than run it: PowerShell is not on every
+    machine this suite runs on, and scripts/Test-DeployPublicBindingSwap.ps1 covers the behaviour.
+    """
+
+    DEPLOY_SCRIPT = Path(__file__).resolve().parents[2] / "Update-Production.ps1"
+
+    def setUp(self):
+        self.text = self.DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+    def test_the_cutover_is_watched_by_a_probe(self):
+        self.assertIn("Start-PublicPortProbe -Url $Plan.PublicLiveUrl", self.text)
+        self.assertIn("Stop-PublicPortProbe -Probe $probe", self.text)
+
+    def test_the_binding_swap_is_one_commit(self):
+        self.assertEqual(self.text.count("$Manager.CommitChanges()"), 1)
+
+    def test_what_it_measured_reaches_the_run_summary(self):
+        self.assertIn("GITHUB_STEP_SUMMARY", self.text)
+        self.assertIn("CutoverOutageMs", self.text)
 
 
 if __name__ == "__main__":
