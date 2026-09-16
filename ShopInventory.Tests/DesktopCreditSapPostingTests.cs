@@ -219,6 +219,75 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
         Assert.Single(_ledger.Released);
     }
 
+    /// <summary>
+    /// A memo whose reply was lost is not raised again while SAP's "no memo" cannot be trusted.
+    /// </summary>
+    /// <remarks>
+    /// SAP can commit a document and not show it to a lookup for a few minutes. That lag invoiced five
+    /// sales twice between 25 August and 8 September 2026; on a credit it would reverse one return
+    /// twice. The memo waits out the same window the sale posting does.
+    /// </remarks>
+    [Fact]
+    public async Task A_memo_whose_reply_was_lost_is_not_raised_again_inside_the_grace_window()
+    {
+        var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 772109);
+        var note = await GivenCreditAsync(sale);
+        await GivenLostReplyAsync(note, ago: TimeSpan.FromMinutes(2));
+
+        await Poster().SettleAsync(note.Id, CancellationToken.None);
+
+        Assert.Empty(_sap.Created);
+
+        var held = await Reload(note.Id);
+        Assert.Equal(DesktopCreditSapStatuses.Failed, held.SapStatus);
+        Assert.NotNull(held.SapPostIssuedAtUtc);
+        // What the post failed with, not a note about the wait; and the wait spends nothing.
+        Assert.Equal("The SAP Service Layer did not respond in time.", held.SapError);
+        Assert.Equal(1, held.SapAttempts);
+    }
+
+    [Fact]
+    public async Task A_memo_sap_shows_inside_the_grace_window_is_adopted()
+    {
+        var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 772109);
+        var note = await GivenCreditAsync(sale);
+        await GivenLostReplyAsync(note, ago: TimeSpan.FromMinutes(2));
+
+        _sap.ExistingByReference[note.Number] = new SAPCreditNote { DocEntry = 999, DocNum = 88999 };
+
+        await Poster().SettleAsync(note.Id, CancellationToken.None);
+
+        Assert.Empty(_sap.Created);
+        Assert.Equal(88999, (await Reload(note.Id)).SapDocNum);
+    }
+
+    [Fact]
+    public async Task A_memo_sap_still_does_not_show_after_the_window_is_raised()
+    {
+        // A post that genuinely never landed recovers on its own, just later.
+        var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 772109);
+        var note = await GivenCreditAsync(sale);
+        await GivenLostReplyAsync(note, ago: TimeSpan.FromMinutes(20));
+
+        await Poster().SettleAsync(note.Id, CancellationToken.None);
+
+        Assert.Single(_sap.Created);
+        Assert.Equal(DesktopCreditSapStatuses.Posted, (await Reload(note.Id)).SapStatus);
+    }
+
+    [Fact]
+    public async Task The_window_can_be_switched_off()
+    {
+        // The same switch the sale posting has, for an incident.
+        var sale = await GivenSaleAsync(sapDocEntry: 4242, sapDocNum: 772109);
+        var note = await GivenCreditAsync(sale);
+        await GivenLostReplyAsync(note, ago: TimeSpan.FromMinutes(2));
+
+        await Poster(graceMinutes: 0).SettleAsync(note.Id, CancellationToken.None);
+
+        Assert.Single(_sap.Created);
+    }
+
     // ── Sales SAP is owed nothing for ────────────────────────────────────
 
     [Fact]
@@ -287,14 +356,32 @@ public sealed class DesktopCreditSapPostingTests : IDisposable
 
     // ── Fixtures ─────────────────────────────────────────────────────────
 
-    private DesktopCreditSapPoster Poster() => new(
+    private DesktopCreditSapPoster Poster(int graceMinutes = 15) => new(
         _context,
         _sap.Client,
         _ledger.Ledger,
         StubProxy.For<IAuditService>((method, _) => method.Name == nameof(IAuditService.LogAsync)
             ? Task.CompletedTask
             : throw new InvalidOperationException($"IAuditService.{method.Name} was not expected.")),
+        Microsoft.Extensions.Options.Options.Create(
+            new ShopInventory.Configuration.DesktopSalePostingSettings { UnresolvedPostGraceMinutes = graceMinutes }),
         NullLogger<DesktopCreditSapPoster>.Instance);
+
+    /// <summary>
+    /// What a memo looks like after a post that went out and never answered: the marker set, the
+    /// failure recorded, one attempt spent.
+    /// </summary>
+    private async Task GivenLostReplyAsync(DesktopCreditNoteEntity note, TimeSpan ago)
+    {
+        var tracked = await _context.DesktopCreditNotes.SingleAsync(n => n.Id == note.Id);
+        tracked.SapReference = tracked.Number;
+        tracked.SapPostIssuedAtUtc = DateTime.UtcNow - ago;
+        tracked.SapStatus = DesktopCreditSapStatuses.Failed;
+        tracked.SapError = "The SAP Service Layer did not respond in time.";
+        tracked.SapAttempts = 1;
+        await _context.SaveChangesAsync();
+        _context.Entry(tracked).State = EntityState.Detached;
+    }
 
     private Task<DesktopCreditNoteEntity> Reload(Guid id) =>
         _context.DesktopCreditNotes.AsNoTracking().SingleAsync(n => n.Id == id);

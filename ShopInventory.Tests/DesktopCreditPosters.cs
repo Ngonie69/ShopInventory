@@ -25,6 +25,7 @@ internal static class DesktopCreditPosters
             StubProxy.Unused<ISAPServiceLayerClient>(),
             NoLedger(),
             NoAudit(),
+            Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.DesktopSalePostingSettings()),
             NullLogger<DesktopCreditSapPoster>.Instance);
 
     /// <summary>

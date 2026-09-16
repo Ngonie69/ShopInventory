@@ -17,6 +17,8 @@ using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 using ShopInventory.Web.Services;
+using CreateCreditNoteRequest = ShopInventory.DTOs.CreateCreditNoteRequest;
+using CreateIncomingPaymentRequest = ShopInventory.Services.CreateIncomingPaymentRequest;
 using CreateInvoiceRequest = ShopInventory.Models.CreateInvoiceRequest;
 
 namespace ShopInventory.Tests;
@@ -197,18 +199,41 @@ public sealed class UnresolvedPostHoldTests : IDisposable
         Assert.True(SapFailureClassifier.IsTransient(loginFailure));
     }
 
-    [Fact]
-    public async Task The_client_marks_a_failed_login_as_never_sent()
+    /// <summary>
+    /// Every document a posting service writes a marker for before sending: the till and van
+    /// invoice, the desktop credit memo, and the daily incoming payment.
+    /// </summary>
+    public static TheoryData<string> Documents => new() { "invoice", "credit memo", "incoming payment" };
+
+    [Theory]
+    [MemberData(nameof(Documents))]
+    public async Task The_client_marks_a_failed_login_as_never_sent(string document)
     {
         var sap = new FakeServiceLayer { FailLogin = true };
 
         var client = await CreateClientAsync(sap);
 
-        var failure = await Assert.ThrowsAsync<HttpRequestException>(
-            () => client.CreateInvoiceAsync(InvoiceRequest()));
+        var failure = await Assert.ThrowsAsync<HttpRequestException>(() => SendAsync(client, document));
 
         Assert.True(SapFailureClassifier.DefinitelyNotCommitted(failure));
-        Assert.Equal(0, sap.InvoicePosts);
+        Assert.Equal(0, sap.DocumentPosts);
+    }
+
+    [Theory]
+    [MemberData(nameof(Documents))]
+    public async Task The_client_marks_a_failed_login_after_a_401_as_never_sent(string document)
+    {
+        // SAP answered the first post with a 401, so it created nothing, and the login that fails
+        // comes before the second post is sent.
+        var sap = new FakeServiceLayer { UnauthorizedFirstPost = true, FailLoginAfterFirst = true };
+
+        var client = await CreateClientAsync(sap);
+
+        var failure = await Assert.ThrowsAsync<HttpRequestException>(() => SendAsync(client, document));
+
+        Assert.Equal(1, sap.DocumentPosts);
+        Assert.Equal(2, sap.Logins);
+        Assert.True(SapFailureClassifier.DefinitelyNotCommitted(failure));
     }
 
     [Fact]
@@ -225,22 +250,22 @@ public sealed class UnresolvedPostHoldTests : IDisposable
         var failure = await Assert.ThrowsAnyAsync<Exception>(() => client.CreateInvoiceAsync(InvoiceRequest()));
 
         Assert.True(sap.OtherRequests > 0, "the series lookup should have reached SAP");
-        Assert.Equal(0, sap.InvoicePosts);
+        Assert.Equal(0, sap.DocumentPosts);
         Assert.True(SapFailureClassifier.DefinitelyNotCommitted(failure));
     }
 
-    [Fact]
-    public async Task The_client_does_not_mark_a_post_that_went_out()
+    [Theory]
+    [MemberData(nameof(Documents))]
+    public async Task The_client_does_not_mark_a_post_that_went_out(string document)
     {
         // The case the hold exists for, and it must stay held: the request left, and SAP may have it.
-        var sap = new FakeServiceLayer { FailInvoicePost = true };
+        var sap = new FakeServiceLayer { FailDocumentPost = true };
 
         var client = await CreateClientAsync(sap);
 
-        var failure = await Assert.ThrowsAsync<HttpRequestException>(
-            () => client.CreateInvoiceAsync(InvoiceRequest()));
+        var failure = await Assert.ThrowsAsync<HttpRequestException>(() => SendAsync(client, document));
 
-        Assert.Equal(1, sap.InvoicePosts);
+        Assert.Equal(1, sap.DocumentPosts);
         Assert.False(SapFailureClassifier.DefinitelyNotCommitted(failure));
     }
 
@@ -370,6 +395,26 @@ public sealed class UnresolvedPostHoldTests : IDisposable
             JsonSerializer.Serialize(result.Value, options), options)!;
     }
 
+    private static Task SendAsync(SAPServiceLayerClient client, string document) => document switch
+    {
+        "invoice" => client.CreateInvoiceAsync(InvoiceRequest()),
+        "credit memo" => client.CreateCreditNoteAsync(new CreateCreditNoteRequest
+        {
+            CardCode = "COR011",
+            SapReference = "DCN-000123",
+            OriginalInvoiceDocEntry = 2372617,
+            Lines = [new() { ItemCode = "ICA004", Quantity = 1, UnitPrice = 10m, OriginalInvoiceLineId = 0 }]
+        }),
+        "incoming payment" => client.CreateIncomingPaymentAsync(new CreateIncomingPaymentRequest
+        {
+            CardCode = "COR011",
+            DocDate = "2026-09-16",
+            CashSum = 12.66m,
+            PaymentInvoices = [new() { DocEntry = 2372617, SumApplied = 12.66m }]
+        }),
+        _ => throw new ArgumentOutOfRangeException(nameof(document), document, null)
+    };
+
     private static CreateInvoiceRequest InvoiceRequest() => new()
     {
         CardCode = "COR011",
@@ -438,10 +483,15 @@ public sealed class UnresolvedPostHoldTests : IDisposable
     private sealed class FakeServiceLayer : HttpMessageHandler
     {
         public bool FailLogin { get; init; }
-        public bool FailInvoicePost { get; init; }
+        public bool FailLoginAfterFirst { get; init; }
+        public bool UnauthorizedFirstPost { get; init; }
+        public bool FailDocumentPost { get; init; }
         public bool FailEverythingElse { get; init; }
-        public int InvoicePosts { get; private set; }
+        public int Logins { get; private set; }
+        public int DocumentPosts { get; private set; }
         public int OtherRequests { get; private set; }
+
+        private static readonly string[] DocumentSets = ["/Invoices", "/CreditNotes", "/IncomingPayments"];
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -454,7 +504,8 @@ public sealed class UnresolvedPostHoldTests : IDisposable
 
             if (target.EndsWith("/Login", StringComparison.Ordinal))
             {
-                if (FailLogin)
+                Logins++;
+                if (FailLogin || (FailLoginAfterFirst && Logins > 1))
                 {
                     throw new HttpRequestException("No connection could be made to the Service Layer.");
                 }
@@ -462,10 +513,16 @@ public sealed class UnresolvedPostHoldTests : IDisposable
                 return Task.FromResult(Json("{\"SessionId\":\"test-session\",\"SessionTimeout\":30}"));
             }
 
-            if (target.EndsWith("/Invoices", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
+            if (request.Method == HttpMethod.Post
+                && DocumentSets.Any(set => target.EndsWith(set, StringComparison.Ordinal)))
             {
-                InvoicePosts++;
-                if (FailInvoicePost)
+                DocumentPosts++;
+                if (UnauthorizedFirstPost && DocumentPosts == 1)
+                {
+                    return Task.FromResult(Json("{\"error\":{\"code\":301,\"message\":\"Invalid session.\"}}", HttpStatusCode.Unauthorized));
+                }
+
+                if (FailDocumentPost)
                 {
                     throw new HttpRequestException("The connection was closed unexpectedly.");
                 }

@@ -172,6 +172,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
         var untouched = new DesktopCreditSapPoster(db, StubProxy.Unused<ISAPServiceLayerClient>(),
             StubProxy.For<IStockLedger>((m, _) => throw new InvalidOperationException($"IStockLedger.{m.Name} was called")),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+            Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.DesktopSalePostingSettings()),
             NullLogger<DesktopCreditSapPoster>.Instance);
         var fiscalOnly = new DesktopCreditNoteService(db, gateway, untouched,
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
@@ -234,6 +235,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
                 StubProxy.For<IStockLedger>((m, _) => m.Name == nameof(IStockLedger.ReleaseAsync)
                     ? Task.CompletedTask : throw new NotSupportedException(m.Name)),
                 StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+                Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.DesktopSalePostingSettings()),
                 NullLogger<DesktopCreditSapPoster>.Instance),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
             Revmax, NullLogger<DesktopCreditNoteService>.Instance);
@@ -284,6 +286,7 @@ public sealed class DesktopCreditNoteTests : IDisposable
                 StubProxy.For<IStockLedger>((m, args) => m.Name == nameof(IStockLedger.ReleaseAsync)
                     ? ReturnUnits((IReadOnlyList<StockLedgerLine>)args![0]!) : throw new NotSupportedException(m.Name)),
                 StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+                Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.DesktopSalePostingSettings()),
                 NullLogger<DesktopCreditSapPoster>.Instance),
             StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
             Revmax, NullLogger<DesktopCreditNoteService>.Instance);
@@ -318,6 +321,59 @@ public sealed class DesktopCreditNoteTests : IDisposable
         {
             returned.AddRange(lines);
             return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// A credit memo whose SAP login failed was never sent, so the post marker comes off, the same as
+    /// for a refusal. Left on, it said SAP might hold a memo it never received.
+    /// </summary>
+    [Fact]
+    public async Task A_credit_memo_whose_login_failed_leaves_no_post_marker()
+    {
+        var sale = db.DesktopSales.Single();
+        sale.SapDocEntry = 7001;
+        sale.SapDocNum = 48213;
+        sale.Lines.Add(new DesktopSaleLineEntity
+        {
+            LineNum = 1, ItemCode = "ICS025", ItemDescription = "Original product",
+            Quantity = 10, UnitPrice = 10m, LineTotal = 100m, WarehouseCode = "W1"
+        });
+        db.SaveChanges();
+
+        var sends = 0;
+        var posting = new DesktopCreditNoteService(db, gateway,
+            new DesktopCreditSapPoster(db,
+                StubProxy.For<ISAPServiceLayerClient>((m, args) => m.Name switch
+                {
+                    nameof(ISAPServiceLayerClient.GetCreditNoteByReferenceAsync) => (object)Task.FromResult<SAPCreditNote?>(null),
+                    nameof(ISAPServiceLayerClient.CreateCreditNoteAsync) => LoginFails(),
+                    _ => throw new NotSupportedException(m.Name)
+                }),
+                StubProxy.For<IStockLedger>((m, _) => m.Name == nameof(IStockLedger.ReleaseAsync)
+                    ? Task.CompletedTask : throw new NotSupportedException(m.Name)),
+                StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+                Microsoft.Extensions.Options.Options.Create(new ShopInventory.Configuration.DesktopSalePostingSettings()),
+                NullLogger<DesktopCreditSapPoster>.Instance),
+            StubProxy.For<IAuditService>((m, _) => m.Name == "LogAsync" ? Task.CompletedTask : throw new NotSupportedException()),
+            Revmax, NullLogger<DesktopCreditNoteService>.Instance);
+
+        var result = await posting.CreateAsync(caller, "TILL-123", Request() with { PostToSap = true }, default);
+
+        Assert.Equal(1, sends);
+        Assert.Equal("Fiscalised", result.Status);
+        var saved = db.DesktopCreditNotes.AsNoTracking().Single();
+        Assert.Equal(DesktopCreditSapStatuses.Failed, saved.SapStatus);
+        Assert.Null(saved.SapPostIssuedAtUtc);
+        Assert.Contains("No connection could be made", saved.SapError);
+
+        Task<SAPCreditNote> LoginFails()
+        {
+            sends++;
+            // Marked the way SAPServiceLayerClient.BeforeSendAsync marks it.
+            var loginFailure = new HttpRequestException("No connection could be made to the Service Layer.");
+            SapFailureClassifier.MarkNotSent(loginFailure);
+            return Task.FromException<SAPCreditNote>(loginFailure);
         }
     }
 
